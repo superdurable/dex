@@ -9,11 +9,11 @@ CPU and memory, and object storage requests for each run.
 Results from a run on AWS with real S3 are pending. Until they are committed,
 this repository has no published result set.
 
-Each result set will live in `benchmark/results/<run>/`. The AWS mode, added
-separately, will also write `config.env` and `zd-config.yaml` next to the JSON
-files. They will record the instance types, placement, disk, server-zd
-version and configuration, and the exact `dexbench` command, so any headline
-number can be run again.
+Each result set will live in `benchmark/results/<run>/`. Next to the JSON
+files, `config.env` and `zd-config.yaml` record the instance types,
+placement, disk, server-zd version and configuration, and the exact
+`dexbench` settings. `points.txt` lists every point. Rerun any point with
+`benchmark/aws/reproduce.sh`; see [Reproduce a result](#reproduce-a-result).
 
 ## Reading the results
 
@@ -156,6 +156,7 @@ It takes about 1 hour 45 minutes.
 | `DEXBENCH_SCENARIOS` | all six | Comma-separated scenario or variant names |
 | `DEXBENCH_STEPS` | `10` | Steps per S2 and S3 Flow |
 | `DEXBENCH_WORKERS` | `0` | Pull Worker task slots; `0` uses the concurrency |
+| `DEXBENCH_CONNECTIONS` | `1` | Client and Worker pairs, each with its own gRPC connections |
 | `DEXBENCH_OUT` | new temporary directory | Result directory |
 | `DEXBENCH_DEXCLI_BINARY` | `dexcli` on `PATH` | The `dexcli` to run |
 | `DEXBENCH_ZD_BINARY` | `dex-server-zd` on `PATH` | The server-zd binary |
@@ -183,7 +184,8 @@ of cumulative `ps` CPU time with 10 ms resolution. This is best effort and
 labeled as such in `cpu_method`.
 
 The root is the `dexcli dev` process, so server-zd and its embedded s3mock are
-included.
+included. `dexbench` also samples its own process as the load host. The report
+shows that CPU as a share of all load-host cores.
 
 ### Result metadata
 
@@ -194,3 +196,229 @@ latency percentiles, per-interval CPU and RSS samples, and server-zd
 object-store and commit metrics when available. Object storage requests per minute are
 reported per operation (GET, PUT, LIST, DELETE) and per object kind. `host.txt`
 records the CPU model, core count, RAM, and free disk.
+
+Each JSON also records the measurement start and end times, the load host CPU
+samples, the connection count, the trial number, and the server settings that
+the point overrides.
+
+### AWS with real S3
+
+The AWS mode runs server-zd on one EC2 host against an S3 bucket. `dexbench`
+runs on a second host in the same placement group. For every point, the load
+host connects to the server host over SSH. It stops the server, deletes the
+local store, and starts the server with a new object storage prefix,
+`<run id>/<point id>`. Every point therefore starts from empty state.
+
+The scripts live in `benchmark/aws/`:
+
+| Script | Runs on | Does |
+| --- | --- | --- |
+| `launch.sh` | your machine | Creates the bucket, endpoint, IAM role, security groups, placement group, and instances |
+| `serve.sh` | server host | Writes the server-zd config, starts and stops the server, and collects server-side data |
+| `run-remote.sh` | load host | Runs every point and writes the result set |
+| `reproduce.sh` | load host | Reruns points of a recorded result set |
+| `teardown.sh` | your machine | Deletes every resource of the run and checks that none remains |
+
+#### Prerequisites
+
+- The AWS CLI v2 and `openssl` on your machine, with a profile that can manage
+  EC2, S3, and IAM.
+- An EC2 key pair in the region.
+- Linux arm64 builds of `dexbench` and `dex-server-zd`. Both hosts run Ubuntu
+  24.04, so build both binaries on Ubuntu 24.04 arm64, such as on the load
+  host, to match its glibc. Build `dexbench` with
+  `cd benchmark && go build -buildvcs=true -o dexbench ./cmd/dexbench`, so
+  `config.env` records its revision.
+- The `DEXBENCH_ZD_APPLIER_LANES`, `DEXBENCH_ZD_APPLIER_QUEUE_FRAMES`,
+  `DEXBENCH_ZD_MAX_BATCH_RECORDS`, `DEXBENCH_ZD_MAX_UNAPPLIED_BYTES`,
+  `DEXBENCH_ZD_MAX_BACKGROUND_JOBS`, and `DEXBENCH_ZD_WRITE_BUFFER_BYTES`
+  settings need a server-zd build that includes PR #1110. Older builds reject
+  those keys at startup.
+
+#### Launch
+
+Put both hosts in one Availability Zone and one cluster placement group.
+Instances are Spot by default; set `DEXBENCH_MARKET=on-demand` for an
+on-demand instance, such as a load host larger than the Spot vCPU quota. The
+server is a c7gd instance, so RocksDB runs on its local NVMe instance store.
+A c7gd instance has the same Graviton3 CPU, vCPU count, and memory as the c7g
+of the same size. The load host needs no instance store. S3 traffic goes
+through a free gateway endpoint. The bucket expires objects after one day.
+
+```bash
+export DEXBENCH_RUN_ID=2026-10-30-s3 DEXBENCH_AWS_PROFILE=<profile> DEXBENCH_AWS_REGION=us-west-2
+export DEXBENCH_AZ=us-west-2b DEXBENCH_KEY_NAME=<key pair>
+benchmark/aws/launch.sh infra
+DEXBENCH_SERVER_INSTANCE_TYPE=c7gd.large benchmark/aws/launch.sh server
+DEXBENCH_MARKET=on-demand DEXBENCH_LOAD_INSTANCE_TYPE=c7g.8xlarge benchmark/aws/launch.sh load
+```
+
+`launch.sh infra` writes the resource IDs and the bucket name to
+`~/.dexbench-<run id>.env`. The server security group accepts SSH, the API
+port 8801, and the metrics port 9901 from the load host only. SSH from your
+machine is open to your current IP address.
+
+Each instance runs `shutdown -h +150` at boot and terminates on shutdown. If
+you lose your connection, the instances delete themselves after two and a half
+hours. Set `DEXBENCH_SHUTDOWN_MINUTES` to change that limit. The load host
+deletes its results with it, so copy the result directory off the load host
+before its timer runs out.
+
+#### Run
+
+Copy `dexbench`, `dex-server-zd`, and `serve.sh` to `~/dexbench/` on the
+server host. Clone this repository on the load host at the commit under test,
+and copy `dexbench` there. Connect to the load host with `ssh -A`, so it can
+reach the server with your key. Then run from the clone on the load host:
+
+```bash
+export DEXBENCH_SERVER_HOST=ubuntu@<server private IP>
+export DEXBENCH_SERVER_ADDRESS=<server private IP>
+export DEXBENCH_S3_BUCKET=<bucket from launch.sh>
+export DEXBENCH_BENCH_BINARY=$HOME/dexbench/dexbench
+export DEXBENCH_OUT=$HOME/results/2026-10-30-aws-s3-c7gd-large
+export DEXBENCH_SERVER_ZD_COMMIT=<commit the server binary was built from>
+DEXBENCH_SCENARIOS=sequential-steps DEXBENCH_CONCURRENCY=1,128,256,512 \
+  benchmark/aws/run-remote.sh
+```
+
+Each point uses a 10-second warmup and a 45-second measurement by default.
+A source build of server-zd reports only its crate version, so set
+`DEXBENCH_SERVER_ZD_COMMIT` to record its commit in `config.env`. The
+`dexbench` revision comes from the binary itself. Copy the result directory
+back with `scp -r` and commit it under `benchmark/results/`.
+
+A point that fails, for example because the server exits during startup, is
+counted and skipped, and the run continues. If `dexbench` itself fails, its
+JSON is kept as `<point id>.failed.json` and left out of the report. Each
+invocation writes to a new object storage prefix, `<run id>/<invocation>/<point
+id>`, recorded as `RECORDED_S3_PREFIX_ROOT` in `config.env`.
+
+#### Points and server settings
+
+Without `DEXBENCH_POINTS`, the script runs every scenario in
+`DEXBENCH_SCENARIOS` at every concurrency in `DEXBENCH_CONCURRENCY`. For a
+tuning sweep, list the points in a file and set `DEXBENCH_POINTS` to its path.
+Each line names a scenario, a concurrency, and optional server settings for
+that point:
+
+```text
+# scenario concurrency [DEXBENCH_ZD_NAME=value ...]
+sequential-steps 512
+sequential-steps 512 DEXBENCH_ZD_MAX_IN_FLIGHT=8
+sequential-steps 512 DEXBENCH_ZD_MAX_IN_FLIGHT=16 DEXBENCH_ZD_BATCH_WINDOW=5ms
+```
+
+Settings exported on the load host apply to every point. Settings on a line
+override them for that point. `serve.sh` writes a key into the server-zd
+config only when its variable is set:
+
+| Variable | server-zd key |
+| --- | --- |
+| `DEXBENCH_ZD_PARTITIONS` | `cluster.partitionCount` |
+| `DEXBENCH_ZD_MAX_IN_FLIGHT` | `commit.maxInFlight` |
+| `DEXBENCH_ZD_BATCH_WINDOW` | `commit.batchWindow` |
+| `DEXBENCH_ZD_APPLIER_LANES` | `commit.applierLanes` |
+| `DEXBENCH_ZD_APPLIER_QUEUE_FRAMES` | `commit.applierQueueFrames` |
+| `DEXBENCH_ZD_MAX_BATCH_RECORDS` | `commit.maxBatchRecords` |
+| `DEXBENCH_ZD_MAX_UNAPPLIED_BYTES` | `commit.maxUnappliedBytes` |
+| `DEXBENCH_ZD_MAX_BACKGROUND_JOBS` | `localStorage.maxBackgroundJobs` |
+| `DEXBENCH_ZD_WRITE_BUFFER_BYTES` | `localStorage.writeBufferBytes` |
+| `DEXBENCH_ZD_BLOCK_CACHE_BYTES` | `localStorage.blockCacheBytes` |
+| `DEXBENCH_ZD_MAX_INFLIGHT_RPCS` | `limits.maxInFlightRpcsPerNode` |
+
+For any other key, set `DEXBENCH_ZD_EXTRA` to comma-separated
+`section.key=value` pairs, such as `snapshot.interval=1h`. server-zd rejects
+unknown keys at startup, so a wrong key fails fast. If a key is renamed, edit
+the table at the top of `serve.sh`.
+
+Other settings:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEXBENCH_TRIALS` | `1` | Runs of each point; the report adds the median and maximum |
+| `DEXBENCH_CONNECTIONS` | `1` | Client and Worker pairs; raise it so the load host is never the limit |
+| `DEXBENCH_DURATION`, `DEXBENCH_WARMUP` | `45`, `10` | Seconds per point |
+| `DEXBENCH_REMOTE` | `ssh` | `local` runs the server-side commands on this host |
+| `DEXBENCH_SERVER_HOME` | `dexbench` | Directory of `serve.sh` on the server host |
+| `DEXBENCH_STORAGE_DIR` | `/mnt/nvme/dexzd` | RocksDB directory on the server host; deleted at every point |
+| `DEXBENCH_S3_REGION` | `us-west-2` | Bucket region |
+| `DEXBENCH_S3_ENDPOINT` | empty | Custom S3 endpoint, such as a local s3mock |
+| `DEXBENCH_S3_CREDENTIALS` | `defaultChain` | `defaultChain` uses the instance profile |
+
+#### What each point collects
+
+Next to `<point id>.json`, the directory `<point id>.server/` holds:
+
+- `zd-config.yaml`: the exact server-zd config of the point.
+- `server-samples.json`: server host CPU and RSS every second. They are merged
+  into the JSON for the measurement window only.
+- `metrics-before.txt` and `metrics-after.txt`: the raw server `/metrics`
+  output. They cover the warmup and the measurement.
+- `iostat.txt`: `iostat -dxmy 5` for the whole point, on Linux.
+- `rocksdb-stalls.txt`: counts of `Stalling writes` and `Stopping writes` in
+  each RocksDB `LOG` file.
+- `server.log`: the server log.
+
+`report.md` shows server CPU, its share of the server host, the load host CPU
+share, and PUT requests per second. A point whose load host CPU is above 70%
+is marked invalid, because the load generator may have been the bottleneck.
+
+#### Reproduce a result
+
+`run-remote.sh` writes `config.env`, `zd-config.yaml`, `points.txt`, and
+`host.txt` into every result set. To rerun a point on new hosts, set the host
+and bucket variables as above and run:
+
+```bash
+benchmark/aws/reproduce.sh benchmark/results/<run> sequential-steps 512
+```
+
+It loads the recorded settings from `config.env` and the matching lines from
+`points.txt`. Omit the scenario and concurrency to rerun every point.
+
+#### Test without AWS
+
+Run the same loop on one machine against a standalone s3mock:
+
+```bash
+(cd s3mock && cargo build --release -p s3mock-server)
+s3mock/target/release/s3mock --listen-address 127.0.0.1:9100 --data-directory /tmp/s3data \
+  --signature-verification strict &
+curl --aws-sigv4 aws:amz:us-east-1:s3 --user s3mock:s3mock -X PUT \
+  -H 'x-amz-content-sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' \
+  http://127.0.0.1:9100/dexbench
+DEXBENCH_REMOTE=local DEXBENCH_SERVER_ZD_BINARY=server-zd/target/release/dex-server-zd \
+  DEXBENCH_SERVER_BENCH_BINARY="$PWD/benchmark/bin/dexbench" \
+  DEXBENCH_STORAGE_DIR=/tmp/dexbench-store DEXBENCH_STATE_DIR=/tmp/dexbench-state \
+  DEXBENCH_LISTEN_HOST=127.0.0.1 DEXBENCH_S3_BUCKET=dexbench DEXBENCH_S3_REGION=us-east-1 \
+  DEXBENCH_S3_ENDPOINT=http://127.0.0.1:9100 DEXBENCH_S3_CREDENTIALS=environment \
+  DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID=s3mock DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY=s3mock \
+  DEXBENCH_DURATION=10 DEXBENCH_WARMUP=2 benchmark/aws/run-remote.sh
+```
+
+The s3mock region is `us-east-1`. Its numbers are not results.
+
+#### Clean up
+
+Terminate the server after its measurements, before you launch the next size.
+This keeps the load host and its results:
+
+```bash
+benchmark/aws/teardown.sh server
+```
+
+`teardown.sh instances` terminates every instance of the run.
+
+After the last run, delete everything:
+
+```bash
+benchmark/aws/teardown.sh
+```
+
+It terminates the instances and deletes the placement group, security groups,
+gateway endpoint, IAM role and instance profile, and the bucket with its
+objects. It deletes only the bucket named in `~/.dexbench-<run id>.env` or
+`DEXBENCH_S3_BUCKET`, and only when its `dex-benchmark` tag matches the run. It then lists each resource type by tag or name and fails if anything
+remains. An S3 gateway endpoint that existed before `launch.sh` is left in
+place.
