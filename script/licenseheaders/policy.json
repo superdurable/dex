@@ -3,6 +3,7 @@
   "cutoff": "1a61670238cbdc8f2a0a6dd78cc5668fb014f283",
   "contamination_commit": "41ce2b6f9ada3ecd48dd8a0372ac5af4d8fd6e7c",
   "included_prefixes": [
+    "agents",
     "cli",
     "web",
     "sdk-go",
@@ -17,6 +18,7 @@
     "script"
   ],
   "forced_new_prefixes": [
+    "agents",
     "blob-cache-go",
     "protos",
     "s3mock",

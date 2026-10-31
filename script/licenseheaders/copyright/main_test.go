@@ -38,9 +38,9 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	copyTestTemplates(t, repositoryRoot)
 	writeTestJSON(t, repositoryRoot, "script/licenseheaders/policy.json", policy{
 		Cutoff:                        cutoff,
-		IncludedPrefixes:              []string{"cli", "sdk-rust", "sdk-python", "sdk-typescript"},
+		IncludedPrefixes:              []string{"agents", "cli", "sdk-rust", "sdk-python", "sdk-typescript"},
 		ReviewedMixedOverridePrefixes: []string{"sdk-rust/src"},
-		ForcedNewPrefixes:             []string{"sdk-rust", "sdk-typescript"},
+		ForcedNewPrefixes:             []string{"agents", "sdk-rust", "sdk-typescript"},
 		ThirdPartyMixedPrefixes:       []string{"sdk-python/tests/iwfcompat", "sdk-typescript/test/iwfcompat"},
 		ReviewedMixedPaths:            []string{"sdk-python/contracts.py", "sdk-rust/src/copied.go", "sdk-typescript/src/index.ts"},
 		ExcludedPrefixes:              []string{"docs", "examples"},
@@ -68,6 +68,7 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	writeTestFile(t, repositoryRoot, "sdk-python/contracts.py", legacyContent)
 	writeTestFile(t, repositoryRoot, "sdk-typescript/test/iwfcompat/basic-flow.ts", "export class BasicFlow {}\n")
 	writeTestFile(t, repositoryRoot, "sdk-typescript/src/index.ts", "export const version = 1;\n")
+	writeTestFile(t, repositoryRoot, "agents/typescript/core/src/index.ts", "export const agents = 1;\n")
 
 	task, err := newHeaderTask(&config{rootDir: repositoryRoot})
 	require.NoError(t, err)
@@ -104,6 +105,9 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	typeScriptNewContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-typescript/src/index.ts"))
 	require.NoError(t, err)
 	require.Contains(t, string(typeScriptNewContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")
+	agentsTypeScriptContent, err := os.ReadFile(filepath.Join(repositoryRoot, "agents/typescript/core/src/index.ts"))
+	require.NoError(t, err)
+	require.Contains(t, string(agentsTypeScriptContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")
 
 	verifyTask, err := newHeaderTask(&config{rootDir: repositoryRoot, verifyOnly: true})
 	require.NoError(t, err)

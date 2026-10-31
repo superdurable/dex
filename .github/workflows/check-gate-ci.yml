@@ -183,6 +183,7 @@ jobs:
               - 'skills/**'
               - '.github/workflows/skills-ci.yml'
             copyright:
+              - 'agents/**'
               - 'cli/**'
               - 'sdk-go/**'
               - 'sdk-java/**'

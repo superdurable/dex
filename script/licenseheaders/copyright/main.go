@@ -298,7 +298,7 @@ func isSupportedSourceFile(path string) bool {
 	case ".go", ".java", ".proto", ".py", ".rs":
 		return true
 	case ".ts", ".tsx":
-		return hasPathPrefix(path, "web") || hasPathPrefix(path, "sdk-typescript")
+		return hasPathPrefix(path, "web") || hasPathPrefix(path, "sdk-typescript") || hasPathPrefix(path, "agents")
 	case ".css", ".html":
 		return hasPathPrefix(path, "web")
 	case ".yaml", ".yml":

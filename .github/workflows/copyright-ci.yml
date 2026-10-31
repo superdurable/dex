@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "agents/**"
       - "cli/**"
       - "sdk-go/**"
       - "blob-cache-go/**"
@@ -29,6 +30,7 @@ on:
       - ".github/workflows/copyright-ci.yml"
   pull_request:
     paths:
+      - "agents/**"
       - "cli/**"
       - "sdk-go/**"
       - "blob-cache-go/**"
