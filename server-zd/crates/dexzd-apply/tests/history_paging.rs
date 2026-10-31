@@ -618,6 +618,12 @@ fn paging_across_long_eventless_spans_reads_each_span_at_most_twice() {
         web_pages.max_rows_per_page,
         records.len()
     );
+    let tail_rows =
+        assert_single_event_reads_match_reference(&harness, &[harness.run_record().next_event_id]);
+    assert_eq!(
+        tail_rows, 0,
+        "a read past the last event reads no History rows"
+    );
     let near_spans: Vec<i64> = (0..8)
         .flat_map(|span| {
             let span_event_id = 2 + i64::from(span) * 500;

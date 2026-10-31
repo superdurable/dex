@@ -154,6 +154,9 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
         first_event_id: i64,
         event_limit: usize,
     ) -> Result<Vec<FlowHistoryEvent>, ReadModelError> {
+        if first_event_id >= self.view.record.next_event_id {
+            return Ok(Vec::new());
+        }
         let start_seq = self.seek_seq(first_event_id)?;
         let mut events = Vec::new();
         let mut last_event_id = 0_i64;
