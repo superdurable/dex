@@ -261,8 +261,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server-zd
-          shared-key: server-zd-postgres
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Both dialects compile the same tests; reuse the existing main cache.
+          shared-key: server-zd-paradedb
+          save-if: false
       - name: Compare PostgreSQL and builtin search, including projection
         run: cargo test -p dexzd-search sql_visibility::integration::postgres_matches_builtin_evaluator -- --exact --nocapture
       - name: Backfill slots, verify plans, and check dialect isolation

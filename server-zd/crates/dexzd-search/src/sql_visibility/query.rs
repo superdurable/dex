@@ -300,25 +300,23 @@ impl Renderer<'_> {
         predicate: &Predicate,
         expression: &str,
     ) -> Result<String, SqlTranslationError> {
-        let mut comparison =
-            |literal: &Literal, operator: &str| -> Result<String, SqlTranslationError> {
-                let (parameter, sql_type) = literal_parameter(literal)?;
-                let bound = self.bind(parameter, sql_type);
-                let left = if predicate.index_type() == IndexType::Keyword {
-                    format!("({expression}) COLLATE \"C\"")
-                } else {
-                    expression.to_owned()
-                };
-                Ok(format!("{left} {operator} {bound}"))
-            };
         let first = &predicate.literals()[0];
         let result = match predicate.operator() {
-            Operator::Equal => comparison(first, "=")?,
-            Operator::NotEqual => format!("NOT ({})", comparison(first, "=")?),
-            Operator::Greater => comparison(first, ">")?,
-            Operator::GreaterEqual => comparison(first, ">=")?,
-            Operator::Less => comparison(first, "<")?,
-            Operator::LessEqual => comparison(first, "<=")?,
+            Operator::Equal => self.render_scalar_comparison(predicate, expression, first, "=")?,
+            Operator::NotEqual => format!(
+                "NOT ({})",
+                self.render_scalar_comparison(predicate, expression, first, "=")?
+            ),
+            Operator::Greater => {
+                self.render_scalar_comparison(predicate, expression, first, ">")?
+            }
+            Operator::GreaterEqual => {
+                self.render_scalar_comparison(predicate, expression, first, ">=")?
+            }
+            Operator::Less => self.render_scalar_comparison(predicate, expression, first, "<")?,
+            Operator::LessEqual => {
+                self.render_scalar_comparison(predicate, expression, first, "<=")?
+            }
             Operator::StartsWith => {
                 let (parameter, _) = literal_parameter(first)?;
                 let bound = self.bind(parameter, "text");
@@ -343,15 +341,19 @@ impl Renderer<'_> {
             }
             Operator::Between => format!(
                 "({}) AND ({})",
-                comparison(first, ">=")?,
-                comparison(&predicate.literals()[1], "<=")?
+                self.render_scalar_comparison(predicate, expression, first, ">=")?,
+                self.render_scalar_comparison(
+                    predicate,
+                    expression,
+                    &predicate.literals()[1],
+                    "<="
+                )?
             ),
             Operator::In | Operator::NotIn => {
-                let parts: Vec<String> = predicate
-                    .literals()
-                    .iter()
-                    .map(|literal| comparison(literal, "="))
-                    .collect::<Result<_, _>>()?;
+                let mut parts = Vec::new();
+                for literal in predicate.literals() {
+                    parts.push(self.render_scalar_comparison(predicate, expression, literal, "=")?);
+                }
                 let any = format!("({})", parts.join(" OR "));
                 if predicate.operator() == Operator::NotIn {
                     format!("NOT {any}")
@@ -369,6 +371,32 @@ impl Renderer<'_> {
             }
         };
         Ok(result)
+    }
+
+    fn render_scalar_comparison(
+        &mut self,
+        predicate: &Predicate,
+        expression: &str,
+        literal: &Literal,
+        operator: &str,
+    ) -> Result<String, SqlTranslationError> {
+        let (parameter, sql_type) = literal_parameter(literal)?;
+        let bound = self.bind(parameter, sql_type);
+        let left = if predicate.index_type() == IndexType::Keyword {
+            format!("({expression}) COLLATE \"C\"")
+        } else {
+            expression.to_owned()
+        };
+        let comparison = format!("{left} {operator} {bound}");
+        if self.dialect == VisibilityDialect::Postgres
+            && predicate.field() == "FlowType"
+            && operator == "="
+        {
+            // The default-collation index supplies candidates; the C comparison preserves exact matching.
+            Ok(format!("({expression} = {bound} AND {comparison})"))
+        } else {
+            Ok(comparison)
+        }
     }
 
     fn render_array(

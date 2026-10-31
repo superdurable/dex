@@ -124,11 +124,11 @@ fn build_upsert_statement(
     assignments: Option<&[AttributeSlot]>,
 ) -> SqlStatement {
     let mut parameters = Vec::new();
-    let values = rows
-        .iter()
-        .map(|row| row_values(row, assignments, &mut parameters))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let mut row_expressions = Vec::with_capacity(rows.len());
+    for row in rows {
+        row_expressions.push(row_values(row, assignments, &mut parameters));
+    }
+    let values = row_expressions.join(", ");
     let fixed_columns = FIXED_COLUMNS
         .iter()
         .map(|(column, _)| *column)
