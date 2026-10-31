@@ -1,0 +1,5 @@
+paradedb-100000-a10 {"dexzd_search_projection_coalesced_changes_total": 4062, "dexzd_search_projection_dropped_updates_total": 0, "dexzd_search_projection_rebuild_requests_total": 1602, "dexzd_search_skipped_documents_total": 0}
+paradedb-1000000-a10 {"dexzd_search_projection_coalesced_changes_total": 4062, "dexzd_search_projection_dropped_updates_total": 0, "dexzd_search_projection_rebuild_requests_total": 3322, "dexzd_search_skipped_documents_total": 0}
+postgres-100000-a10 {"dexzd_search_projection_coalesced_changes_total": 4145, "dexzd_search_projection_dropped_updates_total": 0, "dexzd_search_projection_rebuild_requests_total": 2172, "dexzd_search_skipped_documents_total": 0}
+postgres-1000000-a10 {"dexzd_search_projection_coalesced_changes_total": 4061, "dexzd_search_projection_dropped_updates_total": 0, "dexzd_search_projection_rebuild_requests_total": 2609, "dexzd_search_skipped_documents_total": 0}
+Validated four ten-Attribute seed points, counters, projected counts, throughput arithmetic, and container removal.

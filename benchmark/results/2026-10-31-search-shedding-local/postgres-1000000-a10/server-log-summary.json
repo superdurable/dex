@@ -1,0 +1,18 @@
+{
+  "source_file": "server.log.gz",
+  "source_sha256": "0b70f9b6c3e2e2852eb75ec48b4b026ba68510bb672824f17e65d8956673c6d9",
+  "source_compressed_bytes": 6190126,
+  "line_count": 553802,
+  "projection_queue_overflow_count": 172,
+  "error_level_line_count": 0,
+  "overflow_match": "a committed frame could not be queued for the search projection; rebuilding its partition",
+  "error_level_match": " ERROR ",
+  "metrics_before_file": "metrics-before.openmetrics",
+  "metrics_after_file": "metrics-after.openmetrics",
+  "projection_counter_deltas": {
+    "dexzd_search_projection_coalesced_changes_total": 4061,
+    "dexzd_search_projection_dropped_updates_total": 0,
+    "dexzd_search_projection_rebuild_requests_total": 2609,
+    "dexzd_search_skipped_documents_total": 0
+  }
+}

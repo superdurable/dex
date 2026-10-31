@@ -1,0 +1,33 @@
+{
+  "config": {
+    "projection_only": true,
+    "address": "127.0.0.1:18815",
+    "backend": "paradedb",
+    "runs": 1000000,
+    "attributes": 10,
+    "concurrency": 128,
+    "samples": 100,
+    "warmup": 10,
+    "deep_page": 500,
+    "timeout_ns": 30000000000,
+    "database_container": "dex-pgvis-bench-paradedb-14908",
+    "backfill": false,
+    "git_commit": "adf4ad31782d6a787ed39820ff8331476d077a9b"
+  },
+  "started_at": "2026-10-31T17:13:51.663701Z",
+  "machine": {
+    "cpu_model": "Apple M5 Pro",
+    "cores": 18,
+    "ram_bytes": 51539607552,
+    "os": "darwin",
+    "architecture": "arm64",
+    "free_disk_bytes": 159079944192
+  },
+  "seed_seconds": 392.819317291,
+  "catchup_seconds": 184.24208033400004,
+  "rows_per_second": 1732.917848949869,
+  "wal_start": "0/4A3F680",
+  "wal_end": "1/792AA000",
+  "wal_bytes_per_row": 6249.949568,
+  "queries": null
+}

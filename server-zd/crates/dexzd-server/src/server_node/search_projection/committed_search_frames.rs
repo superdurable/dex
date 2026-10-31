@@ -314,16 +314,6 @@ impl CommittedSearchFrames {
     }
 }
 
-fn change_size_bytes(change: &SearchDocumentChange) -> usize {
-    let document_bytes = match change {
-        SearchDocumentChange::Upsert {
-            encoded_document, ..
-        } => encoded_document.len(),
-        _ => 0,
-    };
-    CHANGE_OVERHEAD_BYTES + document_bytes
-}
-
 impl FrameTracking {
     fn open_frame(&mut self, partition: PartitionId) -> &mut OpenSearchFrame {
         if !self.open_frames.contains_key(&partition) {
@@ -389,11 +379,12 @@ impl FrameTracking {
                 self.queued_upserts.remove(identity);
             }
         }
+        let size_bytes = queued.size_bytes();
         Some(CommittedSearchFrame {
             sequence,
             partition: queued.partition,
-            position: queued.position.clone(),
-            size_bytes: queued.size_bytes(),
+            position: queued.position,
+            size_bytes,
             changes: queued
                 .changes
                 .into_values()
@@ -508,6 +499,7 @@ fn change_priority(change: &SearchDocumentChange) -> ChangePriority {
         } => {
             let document = SearchDocumentRecord::decode(encoded_document.as_slice())
                 .expect("extraction has already decoded the committed search document");
+            // The first run command creates the document, including child starts.
             if document.version == 1 {
                 ChangePriority::Start
             } else if document.status == FlowStatus::Running as i32 {
@@ -518,6 +510,16 @@ fn change_priority(change: &SearchDocumentChange) -> ChangePriority {
         }
         _ => panic!("every extracted change has a projection priority"),
     }
+}
+
+fn change_size_bytes(change: &SearchDocumentChange) -> usize {
+    let document_bytes = match change {
+        SearchDocumentChange::Upsert {
+            encoded_document, ..
+        } => encoded_document.len(),
+        _ => 0,
+    };
+    CHANGE_OVERHEAD_BYTES + document_bytes
 }
 
 #[cfg(test)]
