@@ -1,180 +1,196 @@
 # Dex server benchmark
 
-`dexbench` measures server-zd with a Go SDK Worker on a local development server.
-The Go Server comparison target was removed because it used the retired
-`dexcli dev --engine temporal` path. Historical comparison results remain readable.
+`dexbench` measures server-zd with a Go SDK Worker. It runs six scenarios at
+fixed client concurrency and records throughput, latency percentiles, server
+CPU and memory, and object storage requests for each run.
 
-Each run writes one JSON file per scenario, target, and concurrency, plus
-`report.md`, `charts.html`, and `host.txt`. `charts.html` is a self-contained
-page that plots results against concurrency for each scenario. The default directory is
-`benchmark/results/<YYYY-MM-DD>-quick-<host label>/`. The host label is
-`<os>-<arch>`; set `DEXBENCH_HOST_LABEL` to override it. The temporary server data and logs are
-removed when the script exits.
+## Latest results
 
-`benchmark/results/` holds only committed result sets: full runs on a
-recorded cloud host. A 10-second smoke run on a laptop is not a result. Write smoke output
-outside the repository with `DEXBENCH_OUT`, and never commit it.
+Results from a run on AWS with real S3 are pending. Until they are committed,
+this repository has no published result set.
 
-## Run on a fresh Ubuntu 22.04 or 24.04 host
+Each result set will live in `benchmark/results/<run>/`. The AWS mode, added
+separately, will also write `config.env` and `zd-config.yaml` next to the JSON
+files. They will record the instance types, placement, disk, server-zd
+version and configuration, and the exact `dexbench` command, so any headline
+number can be run again.
 
-Install Git, curl, jq, and Python with apt. Install Go in
-your home directory; the remaining steps need no sudo. Use Go 1.26 or newer.
+## Reading the results
 
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl git jq python3 tar xz-utils
-mkdir -p "$HOME/.local"
-go_archive="$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].files[] | select(.os=="linux" and .arch=="amd64" and .kind=="archive") | .filename' | head -1)"
-curl -fsSL "https://go.dev/dl/$go_archive" -o "/tmp/$go_archive"
-tar -C "$HOME/.local" -xzf "/tmp/$go_archive"
-export PATH="$HOME/.local/go/bin:$HOME/.local/bin:$PATH"
-go version
-```
+Each run writes one JSON file per scenario variant and concurrency, plus
+`report.md`, `charts.html`, and `host.txt`. `report.md` has one table per
+variant. `charts.html` is a self-contained page that plots each metric against
+concurrency.
 
-Clone Dex and install a recent `dexcli`. A release binary works if
-`dexcli dev --help` lists `-engine`. A source build from this checkout is the
-most direct option. Building from source also requires Node.js 22 and npm to
-compile the embedded Web assets. Check `uptime` before each build and wait until
-its one-minute load is below 24:
+### Scenarios
 
-```bash
-git clone https://github.com/superdurable/dex.git
-cd dex
-mkdir -p "$HOME/.local/bin"
-node_archive="$(curl -fsSL https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt | awk '$2 ~ /linux-x64.tar.xz$/ {print $2; exit}')"
-curl -fsSL "https://nodejs.org/dist/latest-v22.x/$node_archive" -o "/tmp/$node_archive"
-mkdir -p "$HOME/.local/node"
-tar -xJf "/tmp/$node_archive" -C "$HOME/.local/node" --strip-components=1
-export PATH="$HOME/.local/node/bin:$PATH"
-(cd web && nice -n 10 npm ci && nice -n 10 npm run build)
-(cd cli && nice -n 10 go build -o "$HOME/.local/bin/dexcli" ./cmd/dexcli)
-export DEXBENCH_DEXCLI_BINARY="$HOME/.local/bin/dexcli"
-```
+| ID | Variant | What it measures |
+| --- | --- | --- |
+| S1 | `start-complete` | Start and complete a Flow with one Step |
+| S2 | `sequential-steps` | Ten sequential SYNC Steps in one Flow |
+| S3 | `sequential-steps-async` | Ten sequential ASYNC Steps in one Flow |
+| S4 | `rpc-plain`, `rpc-locking` | A plain RPC, and an RPC that locks one Attribute |
+| S5 | `attribute-read-direct` | Read ten 16 KiB Attributes from the client |
+| S6 | `channel-wake` | Latency from a Channel publish to the waiting Step |
 
-Install the newest server-zd release binary in the same directory. The
-commands select the asset for the host architecture.
+The scenario name `rpc` runs both S4 variants. The name `attribute-read` runs
+S5.
 
-```bash
-zd_arch="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
-zd_tag="$(curl -fsSL 'https://api.github.com/repos/superdurable/dex/releases?per_page=100' | jq -r '.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("server-zd/v"))) | .tag_name' | sort -V | tail -1)"
-zd_version="${zd_tag#server-zd/}"
-curl -fsSL "https://github.com/superdurable/dex/releases/download/$zd_tag/dex-server-zd_${zd_version}_linux_${zd_arch}.tar.gz" -o /tmp/dex-server-zd.tar.gz
-tar -xzf /tmp/dex-server-zd.tar.gz -C "$HOME/.local/bin" dex-server-zd
-export DEXBENCH_ZD_BINARY="$HOME/.local/bin/dex-server-zd"
-```
+**S1 `start-complete`.** Each client starts a new Flow whose only Step
+completes it. The client then waits for the Flow result. The timed operation
+is StartFlow plus WaitForFlow. Throughput is in Flows per second. Every
+operation creates a new Flow.
 
-The script starts server-zd through `dexcli dev` with its embedded s3mock.
-It does not start Docker or use AWS. Check that the host has enough free disk
-for recovery. The script records CPU model, core count, RAM, and free disk. It
-scales recovery log targets from 100/500/1000 MiB to 10/50/100 MiB below 10
-GiB free, and skips recovery below 2 GiB.
+**S2 `sequential-steps`.** Each client starts a new Flow that runs ten SYNC
+Steps one after another. Each Step moves to the next with GoTo. The timed
+operation is the whole Flow, from StartFlow to the result of WaitForFlow.
+Throughput is in Steps per second: completed Flows times ten. The report also
+shows per-Step latency. That is the gap between the start of one Step's
+Execute and the start of the next one, measured inside the Worker. Every
+operation creates a new Flow. Set the Step count with `DEXBENCH_STEPS`.
 
-```bash
-benchmark/run.sh
-benchmark/bin/dexbench report benchmark/results/<run-directory>/*.json
-benchmark/bin/dexbench chart benchmark/results/<run-directory>/*.json > charts.html
-```
+**S3 `sequential-steps-async`.** This is S2 with ASYNC Step durability. A SYNC
+Step result is committed to object storage before the Flow moves on. An ASYNC
+result lets the Flow move on first, and the commit follows in a later batch.
+If the server node fails before that commit, the Step runs again, and so does
+any work that started from it. Timing, throughput unit, and per-Step latency
+are the same as in S2. Starting and completing the Flow still need commits, so
+the Flow latency of S3 still includes commit time. Per-Step latency shows the
+effect of ASYNC most directly.
 
-For a short local smoke of all scenarios on ZD, use the command below. It only
-checks that the scenarios run; its numbers are not results.
+**S4 `rpc-plain` and `rpc-locking`.** Before warmup, each client starts one
+Flow that stays open. The plain variant invokes an RPC that reads an
+Attribute. The locking variant invokes an RPC that locks the Attribute, reads
+it, and writes it back. Each client uses its own Flow, so the lock has no
+contention. The timed operation is one InvokeRPC call. Throughput is in RPCs
+per second. Keep the concurrency below the server's
+`limits.maxInFlightRpcsPerNode`, which defaults to 1000.
 
-```bash
-DEXBENCH_TARGETS=zd DEXBENCH_DURATION=10 DEXBENCH_WARMUP=1 \
-  DEXBENCH_CONCURRENCY=2 DEXBENCH_RECOVERY_MB=1 DEXBENCH_OUT="$(mktemp -d)" \
-  benchmark/run.sh
-```
+**S5 `attribute-read-direct`.** Before warmup, each client starts one Flow
+that stays open and holds ten 16 KiB string Attributes. Each read calls
+FlowService GetAttributes through the generated gRPC client. Values over the
+server's inline limit come back as blob references. The client resolves every
+reference with one LoadBlobs call, as an uncached client would. It then
+compares every value with the value written at Flow start. The timed
+operation is GetAttributes plus LoadBlobs plus the check. Throughput is in
+reads per second. JSON results record the verified bytes per read and the
+number of blobs loaded.
 
-The defaults are a 15-second warmup and a 1-minute measurement at
-concurrency 1 and 32. It runs 8 scenario variants at 2 concurrency levels, 16
-steps. Each step takes 75 seconds plus a few seconds of server
-restart, so expect about 22 minutes. With S8 seeding and replaying
-up to 1000 MiB, the default quick run takes about 30 minutes. For the full sweep,
-set `DEXBENCH_DURATION=180 DEXBENCH_WARMUP=30 DEXBENCH_CONCURRENCY=1,8,32,128`;
-it takes about 2 hours.
-
-## Configuration and metrics
-
-The defaults are a 15-second warmup, a 1-minute measurement, and
-concurrency 1 and 32. Set `DEXBENCH_DURATION`, `DEXBENCH_WARMUP`,
-`DEXBENCH_CONCURRENCY` (comma-separated), `DEXBENCH_WORKERS`, `DEXBENCH_STEPS`,
-`DEXBENCH_SCENARIOS`, `DEXBENCH_TARGETS`, `DEXBENCH_RECOVERY_MB`, or
-`DEXBENCH_OUT` to override them. `DEXBENCH_TARGETS` accepts only `zd`. Before
-each build and step, the scripts wait until the one-minute load average is
-below `DEXBENCH_MAX_LOAD`, which defaults to the core count.
-
-S1 starts and completes a one-Step Flow. S2 runs ten sequential SYNC Steps; the report shows whole-Flow latency and per-Step latency, which is
-the gap between consecutive Step executions. S4 measures plain and
-Attribute-locked RPCs. Each client uses its own Flow, so the locked RPC has no
-lock contention.
-
-S5 reads ten 16 KiB Attributes. The RPC variant reads them inside a read-only
-RPC on the Worker. The RPC compares every value with the value written at Flow
-start and returns the count of matching values and their total size, which the
-client checks. The direct variant calls FlowService GetAttributes through the
-generated gRPC client. Values over the server's inline limit come back as blob
-references, so it then resolves every reference with one LoadBlobs call, as an
-uncached client would, and compares every value on the client. Both variants
-therefore check the full content and size of every value on every read. The Worker serves the RPC variant from its local
-blob cache after the first load, so the direct variant moves more bytes per
-read. JSON results record the verified bytes per read and the number of blobs
-loaded.
-
-S6 starts a Flow whose Step waits on a Channel. After the Step's WaitFor
-returns, it polls GetFlowState until that Step is waiting, and then publishes
-with FlowService PublishToChannel. Gating the poll on WaitFor keeps it near one
-GetFlowState call per wake. Only
-the time from the publish call to the start of the Step's Execute is measured.
-Its throughput includes the untimed setup, so use only its latency.
-
-S7 measures external SetAttributes writes with synchronization disabled and,
-when a PostgreSQL Attribute Store is configured, enabled.
-
-S8 runs only on ZD. It writes each configured log payload size, stops the
-server, deletes the local state, and restarts. It measures a cold-node restart
-that replays from object storage. `dexbench wait-ready` polls FlowService
-health every 10 ms, so the restart-to-serving time is not quantized to whole
-seconds. S8 also records the server-reported replay duration and replayed byte
-count.
-
-### State between steps
-
-Every combination of scenario variant and concurrency runs on a newly started
-target with empty state. The script starts `dexcli dev` with a new ZD data directory. The Attribute Store tables are truncated before every
-step. Inside one step, the warmup and the measurement share the same Flows.
+**S6 `channel-wake`.** Each client starts a new Flow whose Step waits on a
+Channel. After the Step's WaitFor returns, the client polls GetFlowState until
+the Step is waiting. Gating the poll on WaitFor keeps it near one
+GetFlowState call per wake. The client then publishes one message with
+FlowService PublishToChannel. Only the time from the publish call to the start
+of the Step's Execute is timed. Throughput includes the untimed setup, so use
+only the latency of this scenario.
 
 ### Latency and coordinated omission
 
 The load is closed-loop. Each client sends its next request only after the
 previous one returns, and the client count is fixed. When the server slows
-down, clients send less, so queueing delay that an open-loop workload would
-see never appears in the samples. This coordinated omission makes p99 and max
+down, clients send less. Queueing delay that an open-loop workload would see
+never appears in the samples. This coordinated omission makes p99 and max
 optimistic near saturation. Read the tail percentiles together with
-throughput, and compare targets at the same concurrency. Percentiles cover
-successful operations only; failed and timed-out operations are counted as
+throughput, and compare runs at the same concurrency. Percentiles cover
+successful operations only. Failed and timed-out operations are counted as
 errors.
+
+## Running the benchmark
+
+### Local smoke
+
+A short local run checks that every scenario works. Its numbers are not
+results. It needs a `dexcli` whose `dexcli dev --help` lists `-engine`, and a
+`dex-server-zd` binary:
+
+```bash
+DEXBENCH_DURATION=10 DEXBENCH_WARMUP=1 DEXBENCH_CONCURRENCY=2 \
+  DEXBENCH_DEXCLI_BINARY="$(command -v dexcli)" \
+  DEXBENCH_ZD_BINARY=/path/to/dex-server-zd \
+  benchmark/run.sh
+```
+
+To build both binaries from this checkout, run the commands below. The
+`dexcli` build also needs Node.js 22 and npm to compile the embedded Web
+assets.
+
+```bash
+(cd web && npm ci && npm run build)
+(cd cli && go build -o "$HOME/.local/bin/dexcli" ./cmd/dexcli)
+(cd server-zd && cargo build --release -p dexzd-server)
+```
+
+The release build writes `server-zd/target/release/dex-server-zd`.
+
+`run.sh` starts server-zd through `dexcli dev` with its embedded s3mock. It
+does not start Docker or use AWS.
+
+### Full local run
+
+```bash
+benchmark/run.sh
+benchmark/bin/dexbench report <result-directory>/*.json
+benchmark/bin/dexbench chart <result-directory>/*.json > charts.html
+```
+
+By default the script writes to a new temporary directory outside the
+repository and prints its path at the end. `benchmark/results/` holds only
+committed result sets from a recorded cloud host. To write one, set
+`DEXBENCH_OUT=benchmark/results/<run>`. Never commit a smoke run. The temporary
+server data and logs are removed when the script exits.
+
+The defaults are a 15-second warmup and a 1-minute measurement at concurrency
+1 and 32. The six scenarios expand to seven variants, so a run has 14 steps.
+Each step takes 75 seconds plus a few seconds of server restart. Expect about
+19 minutes. For a longer sweep, set
+`DEXBENCH_DURATION=180 DEXBENCH_WARMUP=30 DEXBENCH_CONCURRENCY=1,8,32,128`.
+It takes about 1 hour 45 minutes.
+
+### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEXBENCH_DURATION` | `60` | Measured seconds per step |
+| `DEXBENCH_WARMUP` | `15` | Warmup seconds per step |
+| `DEXBENCH_CONCURRENCY` | `1,32` | Comma-separated client counts |
+| `DEXBENCH_SCENARIOS` | all six | Comma-separated scenario or variant names |
+| `DEXBENCH_STEPS` | `10` | Steps per S2 and S3 Flow |
+| `DEXBENCH_WORKERS` | `0` | Pull Worker task slots; `0` uses the concurrency |
+| `DEXBENCH_OUT` | new temporary directory | Result directory |
+| `DEXBENCH_DEXCLI_BINARY` | `dexcli` on `PATH` | The `dexcli` to run |
+| `DEXBENCH_ZD_BINARY` | `dex-server-zd` on `PATH` | The server-zd binary |
+| `DEXBENCH_MAX_LOAD` | core count | Wait until the 1-minute load average is below this |
+
+Before each build and step, the script waits until the one-minute load average
+is below `DEXBENCH_MAX_LOAD`.
+
+### State between steps
+
+Every combination of scenario variant and concurrency runs on a newly started
+server with empty state. The script starts `dexcli dev` with a new server-zd
+data directory. S4 and S5 start their Flows before warmup, so the warmup and the
+measurement of one step share those Flows. S1, S2, S3, and S6 start a new Flow
+for every operation.
 
 ### Resource sampling
 
-CPU and RSS are sampled every second during the measurement, and each sample
-covers only the preceding interval. On Linux, CPU is the delta of utime plus
-stime from `/proc/<pid>/stat` over the whole process tree of each root PID.
-The tree is resolved again at every sample, so forked processes are included.
-Docker containers are sampled through their cgroup v2 `cpu.stat` and
-`memory.stat`; container memory is anon plus file_mapped bytes. On macOS, the
-sampler uses the delta of cumulative `ps` CPU time with 10 ms resolution; this
-is best effort and labeled as such in `cpu_method`.
+CPU and RSS are sampled every second during the measurement. Each sample
+covers only the preceding interval. CPU % is 100 per fully used core. On
+Linux, CPU is the delta of utime plus stime from `/proc/<pid>/stat` over the
+whole process tree of each root PID. The tree is resolved again at every
+sample, so forked processes are included. On macOS, the sampler uses the delta
+of cumulative `ps` CPU time with 10 ms resolution. This is best effort and
+labeled as such in `cpu_method`.
 
-The root is the `dexcli dev` process, so server-zd and s3mock are included.
-When a PostgreSQL Attribute Store is configured, sampling includes its container.
+The root is the `dexcli dev` process, so server-zd and its embedded s3mock are
+included.
 
 ### Result metadata
 
-ZD stores its log and blobs in the embedded s3mock. Each JSON records the release versions.
-
-Each JSON contains configuration, release and SDK identity, the Git commit,
-machine details, attempts, successes, measured errors and unmeasured warmup or
-cleanup errors, throughput over the actual elapsed time, exact latency
-percentiles, per-interval CPU and RSS samples, and ZD object-store and commit
-metrics when available. S3 requests per minute are reported per operation
-(GET, PUT, LIST, DELETE) and per object kind. For historical result sets containing both targets, `report.md` also shows
-ZD/Temporal throughput and latency ratios for each scenario and concurrency.
+Each JSON contains the configuration, server and SDK versions, the Git commit,
+machine details, attempts, successes, measured errors, and unmeasured warmup
+or cleanup errors. It also has throughput over the actual elapsed time, exact
+latency percentiles, per-interval CPU and RSS samples, and server-zd
+object-store and commit metrics when available. Object storage requests per minute are
+reported per operation (GET, PUT, LIST, DELETE) and per object kind. `host.txt`
+records the CPU model, core count, RAM, and free disk.

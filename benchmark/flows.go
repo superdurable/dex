@@ -18,7 +18,6 @@ import (
 var (
 	benchmarkWakeChannel    = dex.DefineChannel[int64]("benchmark-wake")
 	benchmarkRPCCounter     = dex.DefineAttribute[int64]("benchmark-rpc-counter")
-	benchmarkWriteAttribute = dex.DefineAttribute[int64]("benchmark_write", dex.SyncToAttributeStore())
 	benchmarkReadAttributes = defineBenchmarkReadAttributes()
 )
 
@@ -72,14 +71,40 @@ func (chainStep) GetStepOptions() *dex.StepOptions {
 }
 
 func (step chainStep) Execute(_ dex.Context, input chainInput) (*dex.StepDecision, error) {
-	now := time.Now()
-	if input.PreviousAtUnixNano != 0 {
-		step.latencies.add(time.Duration(now.UnixNano() - input.PreviousAtUnixNano))
-	}
-	if input.Remaining <= 1 {
+	next, isDone := step.latencies.recordChainStep(input)
+	if isDone {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(step, chainInput{Remaining: input.Remaining - 1, PreviousAtUnixNano: now.UnixNano()}), nil
+	return dex.GoTo(step, next), nil
+}
+
+// asyncChainFlow is chainFlow with ASYNC Step durability.
+type asyncChainFlow struct {
+	dex.FlowDefaults
+	latencies *latencyCollector
+}
+
+func (flow *asyncChainFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(asyncChainStep{latencies: flow.latencies})}
+}
+
+func (*asyncChainFlow) GetPersistenceSchema() dex.PersistenceSchema { return dex.PersistenceSchema{} }
+
+type asyncChainStep struct {
+	dex.StepDefaultsNoWaitFor[chainInput]
+	latencies *latencyCollector
+}
+
+func (asyncChainStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilityAsync}
+}
+
+func (step asyncChainStep) Execute(_ dex.Context, input chainInput) (*dex.StepDecision, error) {
+	next, isDone := step.latencies.recordChainStep(input)
+	if isDone {
+		return dex.GracefulComplete(nil), nil
+	}
+	return dex.GoTo(step, next), nil
 }
 
 type rpcFlow struct{ dex.FlowDefaults }
@@ -219,48 +244,17 @@ func (step wakeWaitStep) Execute(ctx dex.Context, input wakeInput) (*dex.StepDec
 	return dex.GracefulComplete(nil), nil
 }
 
-// attributeFlow compares each read value with the value written at start, inside the Worker.
-type attributeFlow struct {
-	dex.FlowDefaults
-	expectedValues map[string]string
-}
+// attributeFlow holds the Attributes that clients read directly from the server.
+type attributeFlow struct{ dex.FlowDefaults }
 
 func (*attributeFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(rpcWaitStep{})}
 }
 
-func (flow *attributeFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{dex.DefineRPC(flow.ReadAttributes, nil)}
-}
-
 func (*attributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	definitions := make([]dex.AttributeDef, 0, len(benchmarkReadAttributes)+1)
+	definitions := make([]dex.AttributeDef, 0, len(benchmarkReadAttributes))
 	for _, attribute := range benchmarkReadAttributes {
 		definitions = append(definitions, attribute)
 	}
-	definitions = append(definitions, benchmarkWriteAttribute)
 	return dex.PersistenceSchema{Attributes: definitions, Channels: []dex.ChannelDef{benchmarkWakeChannel}}
-}
-
-// attributeReadOutput reports how many values matched their written content, and their total size.
-type attributeReadOutput struct {
-	VerifiedValues int
-	VerifiedBytes  int64
-}
-
-func (flow *attributeFlow) ReadAttributes(ctx dex.Context, _ dex.None) (*dex.RPCResult[attributeReadOutput], error) {
-	var output attributeReadOutput
-	for _, attribute := range benchmarkReadAttributes {
-		value, err := attribute.Get(ctx)
-		if err != nil {
-			return nil, err
-		}
-		expected := flow.expectedValues[attribute.AttributeName()]
-		if value != expected {
-			return nil, fmt.Errorf("Attribute %s returned %d bytes that differ from the %d bytes written", attribute.AttributeName(), len(value), len(expected))
-		}
-		output.VerifiedValues++
-		output.VerifiedBytes += int64(len(value))
-	}
-	return &dex.RPCResult[attributeReadOutput]{Output: output}, nil
 }

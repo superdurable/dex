@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	cpuMethodLinux  = "linux: per-interval delta of /proc/<pid>/stat utime+stime over each root's process tree; cgroup v2 cpu.stat usage_usec delta for containers"
-	cpuMethodDarwin = "darwin (best effort): per-interval delta of cumulative ps TIME over each root's process tree; 10 ms resolution, no cgroups"
+	cpuMethodLinux  = "linux: per-interval delta of /proc/<pid>/stat utime+stime over each root's process tree"
+	cpuMethodDarwin = "darwin (best effort): per-interval delta of cumulative ps TIME over each root's process tree; 10 ms resolution"
 )
 
 // processTime is the cumulative CPU time of one process instance.
@@ -38,16 +38,14 @@ type processTime struct {
 
 type resourceSampler struct {
 	rootPIDs        []int
-	cgroups         []string
 	clockTicks      float64
 	pageSize        uint64
 	previousAt      time.Time
 	previousProcess map[int]processTime
-	previousCgroup  map[string]float64
 }
 
-func newResourceSampler(rootPIDs []int, cgroups []string) *resourceSampler {
-	sampler := &resourceSampler{rootPIDs: rootPIDs, cgroups: cgroups, clockTicks: 100, pageSize: uint64(os.Getpagesize())}
+func newResourceSampler(rootPIDs []int) *resourceSampler {
+	sampler := &resourceSampler{rootPIDs: rootPIDs, clockTicks: 100, pageSize: uint64(os.Getpagesize())}
 	if output, err := exec.Command("getconf", "CLK_TCK").Output(); err == nil {
 		if ticks, parseErr := strconv.ParseFloat(strings.TrimSpace(string(output)), 64); parseErr == nil && ticks > 0 {
 			sampler.clockTicks = ticks
@@ -99,26 +97,12 @@ func (sampler *resourceSampler) sample() (ResourceSample, error) {
 	if err != nil {
 		return ResourceSample{}, err
 	}
-	cgroupUsage := make(map[string]float64, len(sampler.cgroups))
-	var cgroupRSS uint64
-	for _, directory := range sampler.cgroups {
-		usage, rss, cgroupErr := readCgroup(directory)
-		if cgroupErr != nil {
-			return ResourceSample{}, cgroupErr
-		}
-		cgroupUsage[directory] = usage
-		cgroupRSS += rss
-	}
 	cpuSeconds, processRSS, processCount := processTreeUsage(sampler.previousProcess, processes, sampler.rootPIDs)
-	sample := ResourceSample{At: now.UTC(), RSSBytes: cgroupRSS + processRSS, ProcessCount: processCount}
-	for directory, usage := range cgroupUsage {
-		cpuSeconds += usage - sampler.previousCgroup[directory]
-	}
+	sample := ResourceSample{At: now.UTC(), RSSBytes: processRSS, ProcessCount: processCount}
 	isBaseline := sampler.previousAt.IsZero()
 	interval := now.Sub(sampler.previousAt).Seconds()
 	sampler.previousAt = now
 	sampler.previousProcess = processes
-	sampler.previousCgroup = cgroupUsage
 	if isBaseline {
 		return ResourceSample{}, nil
 	}
@@ -290,41 +274,4 @@ func parsePSTime(value string) (float64, error) {
 		seconds = seconds*60 + parsed
 	}
 	return days*86400 + seconds, nil
-}
-
-// readCgroup returns cumulative CPU seconds and anon+file_mapped bytes for one cgroup v2 directory.
-func readCgroup(directory string) (float64, uint64, error) {
-	cpuStat, err := readKeyedCounters(filepath.Join(directory, "cpu.stat"))
-	if err != nil {
-		return 0, 0, err
-	}
-	usage, found := cpuStat["usage_usec"]
-	if !found {
-		return 0, 0, fmt.Errorf("%s/cpu.stat has no usage_usec", directory)
-	}
-	memoryStat, err := readKeyedCounters(filepath.Join(directory, "memory.stat"))
-	if err != nil {
-		return 0, 0, err
-	}
-	return float64(usage) / 1e6, memoryStat["anon"] + memoryStat["file_mapped"], nil
-}
-
-func readKeyedCounters(path string) (map[string]uint64, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	counters := map[string]uint64{}
-	for line := range strings.SplitSeq(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			continue
-		}
-		value, parseErr := strconv.ParseUint(fields[1], 10, 64)
-		if parseErr != nil {
-			return nil, fmt.Errorf("parse %s in %s: %w", fields[0], path, parseErr)
-		}
-		counters[fields[0]] = value
-	}
-	return counters, nil
 }

@@ -16,16 +16,15 @@ wait_for_load() {
   done
 }
 
-# Quick defaults target about one hour; set DEXBENCH_DURATION=180 DEXBENCH_WARMUP=30 DEXBENCH_CONCURRENCY=1,8,32,128 for the full sweep.
+# Quick defaults take about 19 minutes; set DEXBENCH_DURATION=180 DEXBENCH_WARMUP=30 DEXBENCH_CONCURRENCY=1,8,32,128 for the full sweep.
 duration="${DEXBENCH_DURATION:-60}"
 warmup="${DEXBENCH_WARMUP:-15}"
 concurrency="${DEXBENCH_CONCURRENCY:-1,32}"
 workers="${DEXBENCH_WORKERS:-0}"
 steps="${DEXBENCH_STEPS:-10}"
-scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,rpc,attribute-read,channel-wake,attribute-write,recovery}"
-targets="${DEXBENCH_TARGETS:-zd}"
-if [[ "$targets" != zd ]]; then echo "only the zd target is supported; dexcli no longer starts the Go Server" >&2; exit 2; fi
-output_dir="${DEXBENCH_OUT:-$repo_root/benchmark/results/$(date -u +%Y-%m-%d)-$mode-${DEXBENCH_HOST_LABEL:-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)}}"
+scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,sequential-steps-async,rpc,attribute-read,channel-wake}"
+# Output defaults to a new directory outside the repository; committed result sets set DEXBENCH_OUT.
+output_dir="${DEXBENCH_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/dexbench-XXXXXX")}"
 run_dir="$(mktemp -d)"
 benchmark_binary="$repo_root/benchmark/bin/dexbench"
 current_pid=""
@@ -49,9 +48,10 @@ wait_for_load
 dexcli_binary="${DEXBENCH_DEXCLI_BINARY:-$(command -v dexcli || true)}"
 zd_binary="${DEXBENCH_ZD_BINARY:-$(command -v dex-server-zd || true)}"
 if [[ -z "$dexcli_binary" ]]; then echo "set DEXBENCH_DEXCLI_BINARY or install dexcli" >&2; exit 1; fi
-if [[ "$targets" == *zd* && -z "$zd_binary" ]]; then echo "set DEXBENCH_ZD_BINARY or install dex-server-zd" >&2; exit 1; fi
+if [[ -z "$zd_binary" ]]; then echo "set DEXBENCH_ZD_BINARY or install dex-server-zd" >&2; exit 1; fi
 dexcli_help="$("$dexcli_binary" dev --help 2>&1)"
 if [[ "$dexcli_help" != *-engine* ]]; then echo "dexcli must support dev --engine; build this checkout's cli/cmd/dexcli" >&2; exit 1; fi
+variant_list="$("$benchmark_binary" variants --scenarios "$scenarios")"
 
 cpu_model="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || awk -F: '/model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
 cpu_count="$(getconf _NPROCESSORS_ONLN)"
@@ -61,10 +61,7 @@ printf 'cpu_model=%s\ncpu_count=%s\nram_bytes=%s\nfree_disk_kb=%s\n' "$cpu_model
 DEXBENCH_GIT_COMMIT="$(git -C "$repo_root" rev-parse HEAD)"
 export DEXBENCH_GIT_COMMIT
 export DEXBENCH_DISK_PATH="$output_dir"
-
-wait_for_server() {
-  "$benchmark_binary" wait-ready --pid "$current_pid" --timeout 180s "$@"
-}
+server_version="$("$zd_binary" --version 2>/dev/null || echo unknown)"
 
 stop_server() {
   kill "$current_pid" 2>/dev/null || true
@@ -73,121 +70,44 @@ stop_server() {
 }
 
 # Every scenario variant and concurrency step gets a newly started server with empty state.
-start_quick_server() {
-  local target="$1" state_dir="$2"
+start_server() {
+  local state_dir="$1"
   mkdir -p "$state_dir"
-  case "$target" in
-    zd)
-      cat > "$state_dir/zd-quick.yaml" <<'YAML'
+  cat > "$state_dir/zd-quick.yaml" <<'YAML'
 metrics:
   listen: "127.0.0.1:9901"
 YAML
-      nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
-        --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >"$state_dir/server.log" 2>&1 &
-      ;;
-    *) echo "unknown target: $target" >&2; exit 2 ;;
-  esac
+  nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
+    --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >"$state_dir/server.log" 2>&1 &
   current_pid=$!
-  if ! wait_for_server; then tail -50 "$state_dir/server.log" >&2; return 1; fi
+  if ! "$benchmark_binary" wait-ready --pid "$current_pid" --timeout 180s; then
+    tail -50 "$state_dir/server.log" >&2
+    return 1
+  fi
 }
 
 run_step() {
-  local target="$1" variant="$2" step_concurrency="$3"
-  local metrics_argument=() version
-  if [[ "$target" == zd ]]; then
-    metrics_argument=(--metrics-url http://127.0.0.1:9901/metrics)
-    version="$("$zd_binary" --version 2>/dev/null || echo unknown)"
-  else
-    version="$("$dexcli_binary" --version 2>/dev/null || echo unknown)"
-  fi
+  local variant="$1" step_concurrency="$2"
   wait_for_load
   # The dexcli PID is the sampling root, so its children (server-zd, s3mock) are included.
-  DEXBENCH_SERVER_VERSION="$version" nice -n 10 "$benchmark_binary" run \
-    --address 127.0.0.1:8801 --target "$target" --engine "$target" \
+  DEXBENCH_SERVER_VERSION="$server_version" nice -n 10 "$benchmark_binary" run \
+    --address 127.0.0.1:8801 --target zd --engine zd \
     --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \
     --workers "$workers" --steps "$steps" --scenarios "$variant" --mode quick \
-    --out "$output_dir" --server-pid "$current_pid" ${metrics_argument[@]+"${metrics_argument[@]}"}
+    --out "$output_dir" --server-pid "$current_pid" --metrics-url http://127.0.0.1:9901/metrics
 }
 
-normal_scenarios=""
-has_recovery=0
-IFS=, read -ra requested_scenarios <<< "$scenarios"
-for scenario in "${requested_scenarios[@]}"; do
-  scenario="${scenario//[[:space:]]/}"
-  if [[ "$scenario" == recovery ]]; then has_recovery=1; continue; fi
-  if [[ -n "$normal_scenarios" ]]; then normal_scenarios+=","; fi
-  normal_scenarios+="$scenario"
-done
-variants=()
-if [[ -n "$normal_scenarios" ]]; then
-  while IFS= read -r variant; do variants+=("$variant"); done < <("$benchmark_binary" variants --scenarios "$normal_scenarios")
-fi
-
-IFS=, read -ra requested_targets <<< "$targets"
 IFS=, read -ra requested_concurrency <<< "$concurrency"
-for target in "${requested_targets[@]}"; do
-  target="${target//[[:space:]]/}"
-  for variant in ${variants[@]+"${variants[@]}"}; do
-    for step_concurrency in "${requested_concurrency[@]}"; do
-      step_dir="$run_dir/$target-$variant-c$step_concurrency"
-      wait_for_load
-      start_quick_server "$target" "$step_dir"
-      run_step "$target" "$variant" "$step_concurrency"
-      stop_server
-      rm -rf "$step_dir"
-    done
+for variant in $variant_list; do
+  for step_concurrency in "${requested_concurrency[@]}"; do
+    step_dir="$run_dir/$variant-c$step_concurrency"
+    wait_for_load
+    start_server "$step_dir"
+    run_step "$variant" "$step_concurrency"
+    stop_server
+    rm -rf "$step_dir"
   done
 done
-
-if [[ "$has_recovery" == 1 && "$targets" == *zd* ]]; then
-  if [[ -n "${DEXBENCH_RECOVERY_MB:-}" ]]; then
-    recovery_sizes="$DEXBENCH_RECOVERY_MB"
-  elif (( free_disk_kb < 2097152 )); then
-    recovery_sizes=""
-  elif (( free_disk_kb < 10485760 )); then
-    recovery_sizes="10,50,100"
-  else
-    recovery_sizes="100,500,1000"
-  fi
-  if [[ -z "$recovery_sizes" ]]; then
-    echo "recovery skipped: less than 2 GiB free" | tee "$output_dir/recovery-skipped.txt"
-  else
-    IFS=, read -ra requested_sizes <<< "$recovery_sizes"
-    for size in "${requested_sizes[@]}"; do
-    data_dir="$run_dir/recovery-$size"
-    mkdir -p "$data_dir"
-    cat > "$run_dir/zd-recovery.yaml" <<'YAML'
-metrics:
-  listen: "127.0.0.1:9901"
-snapshot:
-  logThresholdBytes: 2147483647
-  interval: 24h
-YAML
-    wait_for_load
-    nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
-      --zd-binary "$zd_binary" --zd-data-dir "$data_dir" --zd-config "$run_dir/zd-recovery.yaml" \
-      >"$run_dir/recovery-$size-server.log" 2>&1 &
-    current_pid=$!
-    wait_for_server
-    wait_for_load
-    nice -n 10 "$benchmark_binary" seed-recovery --size-mb "$size" > "$run_dir/recovery-$size-seed.txt"
-    stop_server
-    # Removing local state makes this a cold-node restart that replays from object storage.
-    rm -rf "$data_dir/store"
-    wait_for_load
-    start_ns="$(python3 -c 'import time; print(time.time_ns())')"
-    nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
-      --zd-binary "$zd_binary" --zd-data-dir "$data_dir" --zd-config "$run_dir/zd-recovery.yaml" \
-      >>"$run_dir/recovery-$size-server.log" 2>&1 &
-    current_pid=$!
-    elapsed="$(wait_for_server --started-unix-nano "$start_ns")"
-    version="$($zd_binary --version 2>/dev/null || echo unknown)"
-    DEXBENCH_SERVER_VERSION="$version" "$benchmark_binary" record-recovery --size-mb "$size" \
-      --elapsed-seconds "$elapsed" --mode quick --out "$output_dir/zd-recovery-${size}mb.json"
-    stop_server
-    done
-  fi
-fi
 
 if compgen -G "$output_dir/*.json" >/dev/null; then
   "$benchmark_binary" report "$output_dir"/*.json > "$output_dir/report.md"

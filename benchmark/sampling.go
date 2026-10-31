@@ -103,7 +103,7 @@ func parseMetrics(reader io.Reader) (map[string]float64, error) {
 		if len(fields) < 2 {
 			continue
 		}
-		if !strings.HasPrefix(fields[0], "dexzd_object_store_") && !strings.HasPrefix(fields[0], "dexzd_commit_latency_seconds") && !strings.HasPrefix(fields[0], "dexzd_recovery_last_") {
+		if !strings.HasPrefix(fields[0], "dexzd_object_store_") && !strings.HasPrefix(fields[0], "dexzd_commit_latency_seconds") {
 			continue
 		}
 		value, err := strconv.ParseFloat(fields[1], 64)
