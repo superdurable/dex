@@ -310,7 +310,21 @@ self.progress
 
 **StartFlowOptions** can set initial Attributes when the Flow is created. Initial values and Flow creation are one operation, so the first Step sees them immediately. See [Flow options](/primitives/flow/flow-options#attributes).
 
-Applications use Flow RPCs to read and write Attributes after a Flow starts. A Client can also use **WaitForAttributeMatch** to wait until a singleton Attribute or one AttributeMap instance satisfies a scalar comparison. The call returns the matched current value. See [Client](/primitives/client/advanced#wait-for-an-attribute-match).
+Applications use Flow RPCs to write Attributes after a Flow starts. To read them from outside the Flow, see [Read Attributes from outside a Flow](#read-from-outside-a-flow). A Client can also use **WaitForAttributeMatch** to wait until a singleton Attribute or one AttributeMap instance satisfies a scalar comparison. The call returns the matched current value. See [Client](/primitives/client/advanced#wait-for-an-attribute-match).
+
+## Read Attributes from outside a Flow {#read-from-outside-a-flow}
+
+:::note Go, Python, and TypeScript only
+
+Java and Rust support for **GetAttributes** is not available yet. In those SDKs, read Attributes through a [read-only RPC](/primitives/rpc#read-only-rpcs-and-terminal-flows).
+
+:::
+
+Application code outside the Flow reads Attribute values with the Client's **GetAttributes** call. One call reads any mix of singleton Attributes and AttributeMap instances, and all values come from the same commit. Dex Server answers the read itself, so no RPC handler or Worker runs.
+
+The call reads the current run, or the latest run when no run is open. A closed run stays readable until Dex purges it. The call sees only committed state, while an RPC handler also sees its own earlier writes in the same invocation. Dex Server resolves hard-delete values before it responds, and a deleted value reads as unset, like any Attribute without a stored value.
+
+An RPC remains the right choice when the read needs Flow-side validation, authorization, a derived view, or Attribute locks. See [Client: Read Attributes](/primitives/client/basic#read-attributes) for the example, the unset value in each SDK, and the errors.
 
 ## Indexed Attributes {#indexed-attributes}
 

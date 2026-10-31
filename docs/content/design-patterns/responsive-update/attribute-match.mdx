@@ -8,7 +8,7 @@ Use **WaitForAttributeMatch** when a caller needs to refresh after durable busin
 
 A common pattern is an integer revision Attribute initialized to zero. Every Step and RPC that advances the represented state declares the same Attribute lock. Inside that lock, it reads the revision, adds one, writes the business state, and then writes the new revision.
 
-The caller waits for revision greater than its last observed value. The wait returns the current matched revision. The caller then invokes its Describe or read RPC to fetch the new state.
+The caller waits for revision greater than its last observed value. The wait returns the current matched revision. The caller then fetches the new state with its Describe or read RPC, or reads the Attributes directly with [GetAttributes](/primitives/client/basic#read-attributes).
 
 Revision is a watermark, not an event stream. If state advances quickly from 0 to 1 to 2 to 3, one wait for a value greater than 0 may return 3. Callers must not expect to observe every intermediate value.
 

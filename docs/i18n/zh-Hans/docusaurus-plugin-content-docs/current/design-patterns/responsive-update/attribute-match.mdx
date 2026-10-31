@@ -8,7 +8,7 @@ title: 等待 Attribute 匹配
 
 常见做法是定义一个初始值为 0 的整数 revision Attribute。所有推进相关状态的 Step 和 RPC 都声明同一个 Attribute lock。在锁内读取 revision、加一、写入业务状态，再写入新的 revision。
 
-调用方等待 revision 大于上次观察到的值。等待会返回当前命中的 revision。随后，调用方调用自己的 Describe 或 read RPC 读取新状态。
+调用方等待 revision 大于上次观察到的值。等待会返回当前命中的 revision。随后，调用方通过自己的 Describe 或 read RPC 读取新状态，也可以用 [GetAttributes](/primitives/client/basic#read-attributes) 直接读取 Attribute。
 
 Revision 是 watermark，不是事件流。如果状态快速地从 0 变成 1、2、3，一次等待大于 0 的调用可能直接返回 3。调用方不能假设会观察到每个中间值。
 

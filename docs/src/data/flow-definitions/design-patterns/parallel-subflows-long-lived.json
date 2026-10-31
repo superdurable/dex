@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "AdvancedLongLiveParentFlow",
-    "startStepId": "step:LongLiveInit",
+    "startStepId": "step:Init",
     "span": {
       "startLine": 99,
       "startColumn": 1,
@@ -30,10 +30,10 @@
       }
     },
     {
-      "id": "decision-dispatch:step:LongLiveHandleSubFlow",
+      "id": "decision-dispatch:step:HandleSubFlow",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:LongLiveHandleSubFlow",
+      "parentId": "step:HandleSubFlow",
       "phase": "execute",
       "span": {
         "startLine": 93,
@@ -77,10 +77,10 @@
       }
     },
     {
-      "id": "decision:step:LongLiveHandleRequest:75:16",
+      "id": "decision:step:HandleRequest:75:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:LongLiveHandleRequest",
+      "parentId": "step:HandleRequest",
       "phase": "execute",
       "span": {
         "startLine": 75,
@@ -93,10 +93,10 @@
       }
     },
     {
-      "id": "decision:step:LongLiveHandleSubFlow:95:20",
+      "id": "decision:step:HandleSubFlow:95:20",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:LongLiveHandleSubFlow",
+      "parentId": "step:HandleSubFlow",
       "condition": "self.stopped.get(context)",
       "phase": "execute",
       "span": {
@@ -110,10 +110,10 @@
       }
     },
     {
-      "id": "decision:step:LongLiveHandleSubFlow:96:16",
+      "id": "decision:step:HandleSubFlow:96:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:LongLiveHandleSubFlow",
+      "parentId": "step:HandleSubFlow",
       "condition": "not (self.stopped.get(context))",
       "phase": "execute",
       "span": {
@@ -127,10 +127,10 @@
       }
     },
     {
-      "id": "decision:step:LongLiveInit:59:16",
+      "id": "decision:step:Init:59:16",
       "kind": "decision",
       "name": "goToMany",
-      "parentId": "step:LongLiveInit",
+      "parentId": "step:Init",
       "phase": "execute",
       "span": {
         "startLine": 59,
@@ -193,7 +193,7 @@
       }
     },
     {
-      "id": "step:LongLiveHandleRequest",
+      "id": "step:HandleRequest",
       "kind": "step",
       "name": "HandleRequest",
       "phase": "wait_for+execute",
@@ -205,7 +205,7 @@
       }
     },
     {
-      "id": "step:LongLiveHandleSubFlow",
+      "id": "step:HandleSubFlow",
       "kind": "step",
       "name": "HandleSubFlow",
       "phase": "wait_for+execute",
@@ -217,7 +217,7 @@
       }
     },
     {
-      "id": "step:LongLiveInit",
+      "id": "step:Init",
       "kind": "step",
       "name": "Init",
       "phase": "execute",
@@ -242,10 +242,10 @@
       }
     },
     {
-      "id": "wait:LongLiveHandleRequest:72:16:0",
+      "id": "wait:HandleRequest:72:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:LongLiveHandleRequest",
+      "parentId": "step:HandleRequest",
       "phase": "wait_for",
       "span": {
         "startLine": 72,
@@ -271,10 +271,10 @@
       }
     },
     {
-      "id": "wait:LongLiveHandleSubFlow:91:16:0",
+      "id": "wait:HandleSubFlow:91:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:LongLiveHandleSubFlow",
+      "parentId": "step:HandleSubFlow",
       "phase": "wait_for",
       "span": {
         "startLine": 91,
@@ -304,8 +304,8 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:LongLiveHandleRequest:75:16",
-      "to": "step:LongLiveHandleSubFlow",
+      "from": "decision:step:HandleRequest:75:16",
+      "to": "step:HandleSubFlow",
       "label": "go_to",
       "span": {
         "startLine": 75,
@@ -317,8 +317,8 @@
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:LongLiveHandleSubFlow:96:16",
-      "to": "step:LongLiveHandleRequest",
+      "from": "decision:step:HandleSubFlow:96:16",
+      "to": "step:HandleRequest",
       "label": "go_to",
       "span": {
         "startLine": 96,
@@ -330,8 +330,8 @@
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:LongLiveInit:59:16",
-      "to": "step:LongLiveHandleRequest",
+      "from": "decision:step:Init:59:16",
+      "to": "step:HandleRequest",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
@@ -345,7 +345,7 @@
       "id": "edge:0004",
       "kind": "resource_read",
       "from": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
-      "to": "step:LongLiveHandleSubFlow",
+      "to": "step:HandleSubFlow",
       "label": "get",
       "span": {
         "startLine": 94,
@@ -377,7 +377,7 @@
       "id": "edge:0006",
       "kind": "resource_read",
       "from": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
-      "to": "step:LongLiveHandleRequest",
+      "to": "step:HandleRequest",
       "label": "results",
       "span": {
         "startLine": 75,
@@ -393,7 +393,7 @@
       "id": "edge:0007",
       "kind": "wait_condition",
       "from": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
-      "to": "wait:LongLiveHandleRequest:72:16:0",
+      "to": "wait:HandleRequest:72:16:0",
       "label": "RequestChannel.for 1",
       "span": {
         "startLine": 72,
@@ -437,7 +437,7 @@
     {
       "id": "edge:0010",
       "kind": "resource_write",
-      "from": "step:LongLiveInit",
+      "from": "step:Init",
       "to": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
       "label": "set",
       "span": {
@@ -453,7 +453,7 @@
     {
       "id": "edge:0011",
       "kind": "resource_publish",
-      "from": "step:LongLiveInit",
+      "from": "step:Init",
       "to": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
       "label": "publish",
       "span": {
@@ -469,7 +469,7 @@
     {
       "id": "edge:0012",
       "kind": "subflow",
-      "from": "wait:LongLiveHandleSubFlow:91:16:0",
+      "from": "wait:HandleSubFlow:91:16:0",
       "to": "subflow:self.example_subflow:91",
       "label": "start",
       "span": {

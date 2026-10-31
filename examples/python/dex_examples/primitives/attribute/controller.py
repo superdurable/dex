@@ -14,7 +14,8 @@
 
 from __future__ import annotations
 
-from quart import Blueprint, Response
+from dex import FlowNotFoundError
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -34,5 +35,29 @@ def create_attribute_blueprint(app_state: ExampleApp) -> Blueprint:
             start_options(),
         )
         return started_flow(flow_id, run_id)
+
+    @blueprint.get("/read")
+    async def read_attributes() -> Response:
+        flow = app_state.attribute
+        payment_progress = flow.progress.instance("payment")
+        try:
+            values = await app_state.client.get_attributes(
+                required_query("workflowId"),
+                flow.status,
+                payment_progress,
+                flow.email,
+            )
+        except FlowNotFoundError as error:
+            response = jsonify({"error": str(error)})
+            response.status_code = 404
+            return response
+        return jsonify(
+            {
+                "status": values.get(flow.status, "not started"),
+                "paymentProgress": values.get(payment_progress, "not started"),
+                # This Flow never sets email, so get returns None.
+                "email": values.get(flow.email),
+            }
+        )
 
     return blueprint
