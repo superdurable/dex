@@ -6,6 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+#[cfg(test)]
+#[path = "repair_tests.rs"]
+mod repair_tests;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -716,6 +720,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
         ));
 
         verify_ordered_batch_changes(&backend).await;
+        repair_tests::verify_cross_partition_repairs_for_test(&backend).await;
 
         let mut held_slots = Vec::new();
         for _ in 0..pool_size {

@@ -122,6 +122,8 @@ search:
     softBytes: 67108864
     hardFrames: 8192
     hardBytes: 134217728
+    maxRepairEntries: 1000000
+    repairBatchRuns: 256
 limits:
   maxFlowStateBytes: 67108864
   maxChannelMessages: 10000

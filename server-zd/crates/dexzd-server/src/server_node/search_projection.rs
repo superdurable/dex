@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 mod committed_search_frames;
+mod projection_repairs;
 mod projection_worker;
 
 use std::future::Future;

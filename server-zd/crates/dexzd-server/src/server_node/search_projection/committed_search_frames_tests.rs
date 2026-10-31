@@ -150,6 +150,7 @@ fn frames_with_limits(
             soft_bytes,
             hard_frames,
             hard_bytes,
+            ..Default::default()
         }),
         Arc::new(NodeMetrics::unregistered()),
     )
@@ -531,4 +532,133 @@ fn coalesced_start_can_be_shed_at_the_hard_limit_without_restoring_its_old_versi
             .version,
         8
     );
+}
+
+#[test]
+fn repair_set_deduplicates_and_drains_starts_before_closes_and_intermediates() {
+    let mut repairs = ProjectionRepairs::default();
+    for (run_number, priority) in [
+        (1, RepairPriority::Intermediate),
+        (2, RepairPriority::Close),
+        (3, RepairPriority::Start),
+        (4, RepairPriority::Intermediate),
+    ] {
+        assert!(repairs.record(
+            ProjectionRepair::new(
+                TenantId(1),
+                RunId([run_number; 16]),
+                FlowHash(7),
+                PARTITION,
+                priority
+            ),
+            1,
+            4
+        ));
+    }
+    assert!(repairs.record(
+        ProjectionRepair::new(
+            TenantId(1),
+            RunId([1; 16]),
+            FlowHash(7),
+            PARTITION,
+            RepairPriority::Start
+        ),
+        2,
+        4
+    ));
+    assert!(repairs.record(
+        ProjectionRepair::new(
+            TenantId(1),
+            RunId([1; 16]),
+            FlowHash(7),
+            PARTITION,
+            RepairPriority::Intermediate
+        ),
+        3,
+        4
+    ));
+    assert_eq!(repairs.len(), 4);
+    let batch = repairs.take_batch(4);
+    assert_eq!(
+        batch
+            .iter()
+            .map(|repair| repair.priority)
+            .collect::<Vec<_>>(),
+        vec![
+            RepairPriority::Start,
+            RepairPriority::Start,
+            RepairPriority::Close,
+            RepairPriority::Intermediate
+        ]
+    );
+    repairs.finish_batch(&batch);
+    assert_eq!(repairs.len(), 0);
+}
+
+#[test]
+fn a_drop_during_an_in_flight_repair_remains_pending() {
+    let mut repairs = ProjectionRepairs::default();
+    let repair = ProjectionRepair::new(
+        TenantId(1),
+        RunId([1; 16]),
+        FlowHash(7),
+        PARTITION,
+        RepairPriority::Start,
+    );
+    assert!(repairs.record(repair, 1, 1));
+    let first = repairs.take_batch(1);
+    assert!(repairs.record(repair, 2, 1));
+    repairs.finish_batch(&first);
+    assert_eq!(repairs.len(), 1);
+    let second = repairs.take_batch(1);
+    assert_eq!(second.len(), 1);
+    repairs.finish_batch(&second);
+    assert_eq!(repairs.len(), 0);
+}
+
+#[test]
+fn live_frames_and_in_flight_bytes_take_priority_over_repairs() {
+    let frames = new_frames(1, 1024 * 1024);
+    commit_frame(&frames, 1);
+    record_document(&frames, 2, 8, FlowStatus::Completed);
+    finish_frame(&frames, 2);
+    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 1);
+    assert!(frames.take_repair_batch().is_empty());
+    let live = take_frame(&frames).unwrap();
+    assert!(frames.take_repair_batch().is_empty());
+    frames.finish_projected_frame(&live);
+    let repairs = frames.take_repair_batch();
+    assert_eq!(repairs.len(), 1);
+    commit_frame(&frames, 3);
+    assert!(frames.take_repair_batch().is_empty());
+    frames.finish_repair_batch(&repairs, &BTreeSet::from([(TenantId(1), RunId([2; 16]))]));
+    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 0);
+    assert_eq!(
+        frames
+            .metrics
+            .search_projection_repaired_runs
+            .count(ProjectionDropReason::Close),
+        1
+    );
+}
+
+#[test]
+fn repair_set_overflow_requests_a_bounded_partition_rebuild() {
+    let frames = CommittedSearchFrames::new(
+        Arc::new(SearchProjectionQueueConfig {
+            soft_frames: 1,
+            hard_frames: 1,
+            max_repair_entries: 1,
+            ..Default::default()
+        }),
+        Arc::new(NodeMetrics::unregistered()),
+    );
+    commit_frame(&frames, 1);
+    commit_frame(&frames, 2);
+    commit_frame(&frames, 3);
+    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 1);
+    assert_eq!(frames.metrics.search_projection_repair_overflow.get(), 1);
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+    frames.finish_rebuild(PARTITION, frames.last_sequence());
+    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 0);
 }

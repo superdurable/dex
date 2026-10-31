@@ -17,18 +17,32 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn postgres_tiny_projection_queue_sheds_by_priority_and_preserves_purges() {
     if let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") {
-        run_tiny_projection_queue(&database_url, true).await;
+        run_tiny_projection_queue(&database_url, true, 1_000_000).await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn paradedb_tiny_projection_queue_sheds_by_priority_and_preserves_purges() {
     if let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") {
-        run_tiny_projection_queue(&database_url, false).await;
+        run_tiny_projection_queue(&database_url, false, 1_000_000).await;
     }
 }
 
-async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_projection_repair_overflow_rebuilds_and_converges() {
+    if let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") {
+        run_tiny_projection_queue(&database_url, true, 1).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn paradedb_projection_repair_overflow_rebuilds_and_converges() {
+    if let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") {
+        run_tiny_projection_queue(&database_url, false, 1).await;
+    }
+}
+
+async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair_limit: usize) {
     let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let mut proxy = SqlVisibilityTcpProxy::start(database_url).await;
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
@@ -53,7 +67,7 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
     let configuration = fs::read_to_string(&config_path).expect("test configuration exists");
     let configuration = configuration.replace(
         "search:\n",
-        "search:\n  projectionQueue:\n    softFrames: 4\n    hardFrames: 8\n    softBytes: 67108864\n    hardBytes: 134217728\n",
+        &format!("search:\n  projectionQueue:\n    softFrames: 4\n    hardFrames: 8\n    softBytes: 67108864\n    hardBytes: 134217728\n    maxRepairEntries: {repair_limit}\n    repairBatchRuns: 2\n"),
     );
     fs::write(
         &config_path,
@@ -115,21 +129,33 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
             "{reason}: {exposed}"
         );
     }
-    assert_eq!(
-        sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total"),
-        0.0
-    );
+    if repair_limit == 1 {
+        assert!(sample_sum(&exposed, "dexzd_search_projection_repair_overflow_total") > 0.0);
+        assert!(sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total") > 0.0);
+    } else {
+        assert_eq!(
+            sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total"),
+            0.0
+        );
+    }
     proxy.restore();
-    let entries = wait_for_projected_set(&mut client, &server).await;
-    assert!(entries.len() < 48, "dropped starts remain absent");
-    assert!(
-        entries.iter().any(|entry| {
-            (16..32).any(|run_number| entry.flow_id == flow_id(run_number))
-                && entry.flow_status == FlowStatus::Running as i32
-        }),
-        "a dropped close leaves its committed Running version"
-    );
+    let entries = wait_for_exact_projection(&mut client, &server, &committed_versions, &[]).await;
     assert_committed_versions(&entries, &committed_versions);
+    wait_for_repairs_to_drain(metrics_address).await;
+    if repair_limit > 1 {
+        let exposed = scrape(metrics_address, "/metrics").await;
+        for reason in ["intermediate", "close", "start"] {
+            assert!(
+                sample_with_label(
+                    &exposed,
+                    "dexzd_search_projection_repaired_runs_total",
+                    "reason",
+                    reason
+                ) > 0.0,
+                "{reason}: {exposed}"
+            );
+        }
+    }
 
     proxy.cut().await;
     for run_number in 0..2 {
@@ -168,7 +194,8 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
         ) > 0.0
     );
     proxy.restore();
-    let entries = wait_for_projected_set(&mut client, &server).await;
+    let entries =
+        wait_for_exact_projection(&mut client, &server, &committed_versions, &purged_runs).await;
     assert!(
         entries.iter().all(|entry| purged_runs
             .iter()
@@ -178,7 +205,8 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
     assert_committed_versions(&entries, &committed_versions);
     write_indexed_attribute(&mut client, 32, 6).await;
     remember_committed_version(&mut client, &mut committed_versions, 32, Some(6)).await;
-    let entries = wait_for_projected_set(&mut client, &server).await;
+    let entries =
+        wait_for_exact_projection(&mut client, &server, &committed_versions, &purged_runs).await;
     assert!(
         entries.iter().any(|entry| entry
             == committed_versions[&flow_id(32)]
@@ -256,16 +284,31 @@ async fn terminate_flow(client: &mut FlowServiceClient<Channel>, run_number: usi
         .expect("close commits during overload");
 }
 
-async fn wait_for_projected_set(
+async fn wait_for_exact_projection(
     client: &mut FlowServiceClient<Channel>,
     server: &ServeProcess,
+    versions: &BTreeMap<String, Vec<SearchFlowsResponseEntry>>,
+    purged_runs: &[usize],
 ) -> Vec<SearchFlowsResponseEntry> {
     let mut poll = tokio::time::interval(Duration::from_millis(100));
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             poll.tick().await;
             match search_shedding_flows(client).await {
-                Ok(entries) => return entries,
+                Ok(entries)
+                    if entries.len() == versions.len() - purged_runs.len()
+                        && entries
+                            .iter()
+                            .all(|entry| versions[&entry.flow_id].last() == Some(entry))
+                        && entries.iter().all(|entry| {
+                            purged_runs
+                                .iter()
+                                .all(|&run_number| entry.flow_id != flow_id(run_number))
+                        }) =>
+                {
+                    return entries;
+                }
+                Ok(_) => {}
                 Err(status) if status.code() == tonic::Code::Unavailable => {}
                 Err(status) => panic!("projection recovery failed: {status}; {}", server.log()),
             }
@@ -273,6 +316,24 @@ async fn wait_for_projected_set(
     })
     .await
     .unwrap_or_else(|error| panic!("projection did not drain: {error}; {}", server.log()))
+}
+
+async fn wait_for_repairs_to_drain(address: std::net::SocketAddr) {
+    let mut poll = tokio::time::interval(Duration::from_millis(20));
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            poll.tick().await;
+            if sample_sum(
+                &scrape(address, "/metrics").await,
+                "dexzd_search_projection_repair_pending",
+            ) == 0.0
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("repair pending gauge drains after exact convergence");
 }
 
 async fn remember_committed_version(

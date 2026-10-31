@@ -8,6 +8,7 @@
 
 mod changes;
 mod projector;
+mod repair;
 mod skipped_document;
 
 pub(crate) use skipped_document::{SkippedSearchDocument, record_skipped_documents};
@@ -16,6 +17,7 @@ pub use changes::{
     SearchDocumentChange, extract_batch_search_document_changes, extract_search_document_changes,
 };
 pub use projector::{ProjectionError, ProjectionMetricRecorder, SqlVisibilityProjector};
+pub use repair::PartitionDocumentRepairs;
 
 #[cfg(test)]
 mod integration;

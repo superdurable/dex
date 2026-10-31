@@ -22,8 +22,8 @@ use dexzd_keyspace::TenantId;
 use tokio_postgres::types::{ToSql, Type};
 
 pub use projection::{
-    ProjectionError, ProjectionMetricRecorder, SearchDocumentChange, SqlVisibilityProjector,
-    extract_batch_search_document_changes, extract_search_document_changes,
+    PartitionDocumentRepairs, ProjectionError, ProjectionMetricRecorder, SearchDocumentChange,
+    SqlVisibilityProjector, extract_batch_search_document_changes, extract_search_document_changes,
 };
 pub use query::{PageCursor, SqlTranslationError, translate_query, translate_query_for_dialect};
 pub use row::{SearchRow, SearchRowError};

@@ -231,7 +231,7 @@ struct ProjectionDropLabel {
     reason: ProjectionDropReason,
 }
 
-/// Fixed search projection drop counters, partitioned by priority.
+/// Fixed search projection change counters, partitioned by priority.
 #[derive(Clone, Debug)]
 pub struct ProjectionDropCounters {
     values: Arc<[Counter; 3]>,
@@ -246,12 +246,12 @@ impl Default for ProjectionDropCounters {
 }
 
 impl ProjectionDropCounters {
-    /// Records one omitted search Upsert for the given priority.
+    /// Records one search Upsert for the given drop or repair priority.
     pub fn record(&self, reason: ProjectionDropReason) {
         self.values[reason.index()].inc();
     }
 
-    /// Returns the omitted Upserts for the given priority.
+    /// Returns the recorded Upserts for the given priority.
     pub fn count(&self, reason: ProjectionDropReason) -> u64 {
         self.values[reason.index()].get()
     }

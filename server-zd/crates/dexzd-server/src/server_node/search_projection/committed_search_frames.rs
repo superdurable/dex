@@ -11,8 +11,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use dexzd_apply::StateWrite;
 use dexzd_engine::CommittedFlowCommand;
-use dexzd_keyspace::{PartitionId, RunId, TenantId};
+use dexzd_keyspace::{
+    ColumnFamily, FlowHash, PartitionId, RunId, RunTable, TenantId, parse_run_key,
+};
 use dexzd_metrics::{NodeMetrics, ProjectionDropReason};
 use dexzd_protocol::dex::FlowStatus;
 use dexzd_protocol::dexzd::v1::LogPosition;
@@ -24,6 +27,8 @@ use prost::Message;
 use tokio::sync::{Notify, watch};
 
 use crate::config::SearchProjectionQueueConfig;
+
+use super::projection_repairs::{ProjectionRepair, ProjectionRepairs, RepairPriority};
 
 /// Estimated memory of one change besides its encoded document: identifiers and enum layout.
 const CHANGE_OVERHEAD_BYTES: usize = 64;
@@ -45,6 +50,7 @@ pub(crate) struct CommittedSearchFrames {
     metrics: Arc<NodeMetrics>,
     available: Notify,
     rebuild_requested: Notify,
+    repair_available: Notify,
     /// Highest frame sequence searchable along with all earlier frames; `None` until startup catch-up.
     projected_through: watch::Sender<Option<u64>>,
     permanent_failure: watch::Sender<Option<String>>,
@@ -64,6 +70,7 @@ struct FrameTracking {
     queued_upserts: BTreeMap<(TenantId, RunId), u64>,
     last_rebuild_warning: Option<Instant>,
     rebuild_requests: BTreeMap<PartitionId, RebuildRequest>,
+    repairs: ProjectionRepairs,
 }
 
 /// Frame sequences of one partition that only a rebuild can project; a range bounds memory.
@@ -87,6 +94,7 @@ impl CommittedSearchFrames {
             metrics,
             available: Notify::new(),
             rebuild_requested: Notify::new(),
+            repair_available: Notify::new(),
             projected_through: watch::Sender::new(None),
             permanent_failure: watch::Sender::new(None),
         }
@@ -104,6 +112,7 @@ impl CommittedSearchFrames {
                 let changes: Vec<_> = changes
                     .into_iter()
                     .map(|change| PrioritizedSearchChange {
+                        flow_hash: change_flow_hash(committed, &change),
                         priority: change_priority(&change),
                         change,
                     })
@@ -150,7 +159,7 @@ impl CommittedSearchFrames {
         let would_exceed_soft_limit = tracking.queued.len() >= self.cfg.soft_frames
             || tracking.queued_bytes.saturating_add(queued.size_bytes()) > self.cfg.soft_bytes;
         if would_exceed_soft_limit {
-            queued.drop_priority(ChangePriority::Intermediate, &self.metrics);
+            self.drop_priority(&mut tracking, &mut queued, ChangePriority::Intermediate);
         }
         let has_delete = queued
             .changes
@@ -164,9 +173,9 @@ impl CommittedSearchFrames {
             if !tracking.exceeds_hard_limit(&queued, &self.cfg) {
                 break;
             }
-            queued.drop_priority(priority, &self.metrics);
+            self.drop_priority(&mut tracking, &mut queued, priority);
             if has_delete {
-                tracking.reclaim_queued_priority(&queued, priority, &self.cfg, &self.metrics);
+                self.reclaim_queued_priority(&mut tracking, &queued, priority);
             }
         }
         if queued.changes.is_empty() {
@@ -197,6 +206,48 @@ impl CommittedSearchFrames {
             self.publish_projected_through();
             available.await;
         }
+    }
+
+    pub(crate) async fn next_repair_batch(&self) -> Vec<ProjectionRepair> {
+        loop {
+            let available = self.repair_available.notified();
+            let repairs = self.take_repair_batch();
+            if !repairs.is_empty() {
+                return repairs;
+            }
+            available.await;
+        }
+    }
+
+    fn take_repair_batch(&self) -> Vec<ProjectionRepair> {
+        let mut tracking = self.lock_tracking();
+        if !tracking.queued.is_empty() || tracking.queued_bytes != 0 {
+            return Vec::new();
+        }
+        tracking.repairs.take_batch(self.cfg.repair_batch_runs)
+    }
+
+    pub(crate) fn finish_repair_batch(
+        &self,
+        repairs: &[ProjectionRepair],
+        projected: &BTreeSet<(TenantId, RunId)>,
+    ) {
+        let mut tracking = self.lock_tracking();
+        tracking.repairs.finish_batch(repairs);
+        for repair in repairs {
+            if projected.contains(&(repair.tenant_id, repair.run_id)) {
+                self.metrics
+                    .search_projection_repaired_runs
+                    .record(repair.priority.reason());
+            }
+        }
+        self.publish_repair_pending(&tracking);
+        self.repair_available.notify_one();
+    }
+
+    pub(crate) fn retry_repair_batch(&self, repairs: &[ProjectionRepair]) {
+        self.lock_tracking().repairs.retry_batch(repairs);
+        self.repair_available.notify_one();
     }
 
     pub(crate) fn rebuild_requested(&self) -> &Notify {
@@ -233,12 +284,15 @@ impl CommittedSearchFrames {
             .filter(|change| matches!(change, SearchDocumentChange::Upsert { .. }))
             .map(change_size_bytes)
             .sum::<usize>();
+        self.repair_available.notify_one();
     }
 
     /// Marks the partition's frames through `sequence` searchable after a rebuild.
     pub(crate) fn finish_rebuild(&self, partition: PartitionId, sequence: u64) {
         let mut tracking = self.lock_tracking();
         tracking.finish_through(Some(partition), sequence);
+        tracking.repairs.finish_through(Some(partition), sequence);
+        self.publish_repair_pending(&tracking);
         if let Some(request) = tracking.rebuild_requests.get_mut(&partition) {
             if request.last_sequence <= sequence {
                 tracking.rebuild_requests.remove(&partition);
@@ -252,6 +306,8 @@ impl CommittedSearchFrames {
     pub(crate) fn finish_catch_up(&self, sequence: u64) {
         let mut tracking = self.lock_tracking();
         tracking.finish_through(None, sequence);
+        tracking.repairs.finish_through(None, sequence);
+        self.publish_repair_pending(&tracking);
         tracking.rebuild_requests.retain(|_, request| {
             request.first_sequence = request.first_sequence.max(sequence + 1);
             request.last_sequence > sequence
@@ -289,6 +345,115 @@ impl CommittedSearchFrames {
         );
         tracing::error!(partition = partition.0, %error, "the search projection stopped");
         self.permanent_failure.send_replace(Some(reason));
+    }
+
+    fn drop_priority(
+        &self,
+        tracking: &mut FrameTracking,
+        frame: &mut QueuedSearchFrame,
+        priority: ChangePriority,
+    ) {
+        let identities: Vec<_> = frame
+            .changes
+            .iter()
+            .filter(|(_, change)| change.priority == priority)
+            .map(|(identity, _)| *identity)
+            .collect();
+        for identity in identities {
+            let change = frame
+                .changes
+                .remove(&identity)
+                .expect("selected change exists");
+            self.record_dropped(tracking, frame.sequence, frame.partition, identity, &change);
+        }
+    }
+
+    fn reclaim_queued_priority(
+        &self,
+        tracking: &mut FrameTracking,
+        incoming: &QueuedSearchFrame,
+        priority: ChangePriority,
+    ) {
+        let sequences: Vec<_> = tracking.queued.keys().copied().collect();
+        for sequence in sequences {
+            if !tracking.exceeds_hard_limit(incoming, &self.cfg) {
+                break;
+            }
+            let frame = tracking
+                .queued
+                .get_mut(&sequence)
+                .expect("queued frame exists");
+            let partition = frame.partition;
+            let identities: Vec<_> = frame
+                .changes
+                .iter()
+                .filter(|(_, change)| change.priority == priority)
+                .map(|(identity, _)| *identity)
+                .collect();
+            for identity in identities {
+                let change = tracking
+                    .queued
+                    .get_mut(&sequence)
+                    .expect("queued frame exists")
+                    .changes
+                    .remove(&identity)
+                    .expect("selected change exists");
+                tracking.queued_bytes -= change_size_bytes(&change.change);
+                tracking.queued_upserts.remove(&identity);
+                self.record_dropped(tracking, sequence, partition, identity, &change);
+                if tracking.queued[&sequence].changes.is_empty() {
+                    tracking.queued.remove(&sequence);
+                    tracking.remove_unprojected(sequence);
+                    break;
+                }
+                if !tracking.exceeds_hard_limit(incoming, &self.cfg) {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn record_dropped(
+        &self,
+        tracking: &mut FrameTracking,
+        sequence: u64,
+        partition: PartitionId,
+        identity: (TenantId, RunId),
+        change: &PrioritizedSearchChange,
+    ) {
+        self.metrics
+            .search_projection_dropped_updates
+            .record(change.priority.drop_reason());
+        let priority = match change.priority {
+            ChangePriority::Start => RepairPriority::Start,
+            ChangePriority::Close => RepairPriority::Close,
+            ChangePriority::Intermediate => RepairPriority::Intermediate,
+            ChangePriority::Delete => panic!("Deletes are never shed"),
+        };
+        let repair = ProjectionRepair::new(
+            identity.0,
+            identity.1,
+            change
+                .flow_hash
+                .expect("Upserts retain their committed Flow hash"),
+            partition,
+            priority,
+        );
+        if !tracking
+            .repairs
+            .record(repair, tracking.last_sequence, self.cfg.max_repair_entries)
+        {
+            self.metrics.search_projection_repair_overflow.inc();
+            self.request_rebuild(tracking, partition, sequence);
+        }
+        self.publish_repair_pending(tracking);
+        self.repair_available.notify_one();
+    }
+
+    fn publish_repair_pending(&self, tracking: &FrameTracking) {
+        self.metrics.search_projection_repair_pending.set(
+            i64::try_from(tracking.repairs.len()).expect("the bounded repair set fits in i64"),
+        );
     }
 
     fn request_rebuild(&self, tracking: &mut FrameTracking, partition: PartitionId, sequence: u64) {
@@ -410,50 +575,6 @@ impl FrameTracking {
             || counted_bytes.saturating_add(frame.size_bytes()) > cfg.hard_bytes
     }
 
-    fn reclaim_queued_priority(
-        &mut self,
-        incoming: &QueuedSearchFrame,
-        priority: ChangePriority,
-        cfg: &SearchProjectionQueueConfig,
-        metrics: &NodeMetrics,
-    ) {
-        let sequences: Vec<_> = self.queued.keys().copied().collect();
-        for sequence in sequences {
-            if !self.exceeds_hard_limit(incoming, cfg) {
-                break;
-            }
-            let frame = self.queued.get_mut(&sequence).expect("queued frame exists");
-            let identities: Vec<_> = frame
-                .changes
-                .iter()
-                .filter(|(_, change)| change.priority == priority)
-                .map(|(identity, _)| *identity)
-                .collect();
-            for identity in identities {
-                let change = self
-                    .queued
-                    .get_mut(&sequence)
-                    .expect("queued frame exists")
-                    .changes
-                    .remove(&identity)
-                    .expect("selected change exists");
-                self.queued_bytes -= change_size_bytes(&change.change);
-                self.queued_upserts.remove(&identity);
-                metrics
-                    .search_projection_dropped_updates
-                    .record(priority.drop_reason());
-                if self.queued[&sequence].changes.is_empty() {
-                    self.queued.remove(&sequence);
-                    self.remove_unprojected(sequence);
-                    break;
-                }
-                if !self.exceeds_hard_limit(incoming, cfg) {
-                    break;
-                }
-            }
-        }
-    }
-
     fn take_frame(&mut self) -> Option<CommittedSearchFrame> {
         let (sequence, queued) = self.queued.pop_first()?;
         for identity in queued.changes.keys() {
@@ -539,19 +660,6 @@ struct QueuedSearchFrame {
 }
 
 impl QueuedSearchFrame {
-    fn drop_priority(&mut self, priority: ChangePriority, metrics: &NodeMetrics) {
-        self.changes.retain(|_, change| {
-            if change.priority == priority {
-                metrics
-                    .search_projection_dropped_updates
-                    .record(priority.drop_reason());
-                false
-            } else {
-                true
-            }
-        });
-    }
-
     fn size_bytes(&self) -> usize {
         self.changes
             .values()
@@ -580,6 +688,7 @@ impl ChangePriority {
 }
 
 struct PrioritizedSearchChange {
+    flow_hash: Option<FlowHash>,
     change: SearchDocumentChange,
     priority: ChangePriority,
 }
@@ -600,6 +709,29 @@ impl PrioritizedSearchChange {
             self.priority = previous.priority;
         }
     }
+}
+
+fn change_flow_hash(
+    committed: &CommittedFlowCommand,
+    change: &SearchDocumentChange,
+) -> Option<FlowHash> {
+    let SearchDocumentChange::Upsert { run_id, .. } = change else {
+        return None;
+    };
+    committed.committed.outcome.writes.iter().find_map(|write| {
+        if let StateWrite::Put {
+            column_family: ColumnFamily::Flow,
+            key,
+            ..
+        } = write
+            && let Ok(parsed) = parse_run_key(key)
+            && parsed.table == RunTable::SearchDocument
+            && parsed.run_id == *run_id
+        {
+            return Some(parsed.flow_hash);
+        }
+        None
+    })
 }
 
 fn change_identity(change: &SearchDocumentChange) -> (TenantId, RunId) {

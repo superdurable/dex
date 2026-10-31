@@ -172,12 +172,20 @@ fn assert_rejected(configuration: &Config, expected_field: &str) {
 
 #[test]
 fn projection_queue_limits_parse_and_validate() {
-    let parsed = Config::parse_yaml("search:\n  projectionQueue:\n    softFrames: 4\n    softBytes: 1024\n    hardFrames: 8\n    hardBytes: 2048\n").expect("queue limits parse");
+    let parsed = Config::parse_yaml("search:\n  projectionQueue:\n    softFrames: 4\n    softBytes: 1024\n    hardFrames: 8\n    hardBytes: 2048\n    maxRepairEntries: 9\n    repairBatchRuns: 3\n").expect("queue limits parse");
     assert_eq!(parsed.search.projection_queue.soft_frames, 4);
     assert_eq!(parsed.search.projection_queue.soft_bytes, 1024);
     assert_eq!(parsed.search.projection_queue.hard_frames, 8);
     assert_eq!(parsed.search.projection_queue.hard_bytes, 2048);
-    let cases: [OutOfBoundsCase; 4] = [
+    assert_eq!(parsed.search.projection_queue.max_repair_entries, 9);
+    assert_eq!(parsed.search.projection_queue.repair_batch_runs, 3);
+    let cases: [OutOfBoundsCase; 6] = [
+        ("search.projectionQueue.maxRepairEntries", |configuration| {
+            configuration.search.projection_queue.max_repair_entries = 0
+        }),
+        ("search.projectionQueue.repairBatchRuns", |configuration| {
+            configuration.search.projection_queue.repair_batch_runs = 0
+        }),
         ("search.projectionQueue.softFrames", |configuration| {
             configuration.search.projection_queue.soft_frames = 0
         }),

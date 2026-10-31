@@ -37,39 +37,51 @@ position. Only the current partition owner may project or rebuild a partition.
 Projection failures must not affect command commits.
 
 The server queue coalesces complete queued upserts per tenant and run. Deletes
-supersede queued upserts. Empty coalesced frames are removed, transferring their
-read-your-writes dependency to the replacement. Version 1 identifies starts,
-including child starts; terminal documents are classified as closes, including
-later writes to closed runs. A replacement Running document inherits its
-superseded start's priority, which is still eligible for hard-limit shedding.
+supersede queued upserts. Empty frames are removed, transferring their visibility
+dependency to the replacement. Version 1 identifies starts, including child
+starts; terminal documents are closes, including later writes to closed runs.
+A replacement Running document inherits its superseded start's priority and
+can still be shed at the hard limit.
 
-`search.projectionQueue` defaults to `softFrames: 4096`, `softBytes: 67108864`
-(64 MiB), `hardFrames: 8192`, and `hardBytes: 134217728` (128 MiB). Byte limits
-include in-flight changes; frame limits count nonempty waiting frames. Above a
-soft limit, shed the incoming frame's intermediate Running updates. Above a
-hard limit, shed closes, then starts. Dropped changes are counted without repair.
-Delete changes from retention purges are never shed. To admit them, reclaim
-queued intermediate updates, closes, then starts, oldest first within each
-class. Only Deletes that cannot fit request the overload partition rebuild.
-Delete admission excludes in-flight Upsert bytes, so total bytes can exceed the
-hard cap by at most the worker's in-flight Upserts. Unreadable documents and
-stored-position divergence retain their existing rebuild paths.
+`search.projectionQueue` defaults to 4,096 frames / 64 MiB soft and 8,192 frames /
+128 MiB hard. Above a soft limit, shed incoming intermediate Running updates.
+Above a hard limit, shed closes, then starts. Retention-purge Deletes are never
+shed: reclaim queued intermediates, closes, then starts, oldest first within
+each class. Delete admission excludes in-flight Upsert bytes, allowing total
+live bytes to exceed the hard limit by at most that worker batch. Delete-only
+overflow retains the partition rebuild fallback.
 
-SearchFlows visibility waits do not wait for dropped changes. Dropped closes
-can leave runs shown as Running until a later projected write or retention
-purge (default seven days after close). A dropped start leaves the run absent
-until a later write projects; if that is also dropped, it may never appear
-before purge. Retention Deletes still wait for SQL to recover during an outage.
-Every projected row is some complete committed version; dropping a coalesced
-replacement never restores the older queued state. Builtin search is unaffected.
+Every shed Upsert records its tenant, run, Flow hash, partition, and priority in
+a deduplicated in-memory repair set. `maxRepairEntries` defaults to 1,000,000
+runs, including in-flight repairs; `repairBatchRuns` defaults to 256. Both must
+be positive. This identity set uses memory separately from the document queue.
+Duplicates keep the highest repair priority: start, close, intermediate. A full
+set requests a partition rebuild for the new overflowing run. Rebuild completion
+clears only repairs covered by its committed view.
 
-`dexzd_search_projection_dropped_updates_total` has the fixed `reason` labels
-`intermediate`, `close`, and `start`, including queued changes reclaimed for
-Deletes. Alert on each reason's increase. The label-free
-`dexzd_search_projection_coalesced_changes_total` and
-`dexzd_search_projection_rebuild_requests_total` remain separate. The latter
-counts newly pending partition rebuild requests, not every rejected frame or
-completed rebuild. Rebuild warnings are rate-limited to once per second per node.
+When live frames drain, the worker reads current committed documents for repair
+and skips purged or purging runs. One transaction batches rows across partitions
+using the normal versioned upsert and locks each partition's progress, checking
+its last live position without advancing it. Live frames have priority between
+repair batches. New drops during an in-flight repair remain pending. Repair
+never blocks commits. Every retained row is some complete committed version.
+
+During shedding and repair, SearchFlows visibility waits may succeed with stale
+or missing rows. Exact visibility returns when repairs and live projection drain.
+A dropped close may appear Running; a dropped start may be absent. A later
+projected write or repair refreshes it; retention purge removes it (default seven
+days after close, subject to SQL recovery). Restart or leader loss discards the
+repair set. Startup progress comparisons cannot detect every lost repair, so a
+restart during shedding may leave stale or absent rows until a later write or
+purge. A zero pending gauge after restart does not prove past drops were repaired.
+
+Monitor `dexzd_search_projection_dropped_updates_total` and
+`dexzd_search_projection_repaired_runs_total` by `reason` (`intermediate`,
+`close`, `start`), `dexzd_search_projection_repair_pending` including the active
+batch, and `dexzd_search_projection_repair_overflow_total`. Coalesced and newly
+pending rebuild counters remain separate and label-free; rebuild warnings are
+limited to once per second per node. Unreadable documents and stored-position
+divergence keep their existing rebuild paths. Builtin search is unaffected.
 
 An unindexable committed document is recorded in
 `dexzd_visibility_skipped_documents`, omitted from search, and logged as an

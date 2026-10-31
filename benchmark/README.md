@@ -64,12 +64,12 @@ measure S7 at 100k and 1M runs on builtin, ParadeDB, and PostgreSQL. They includ
 projection throughput, WAL, Attribute backfill, and a confirmed ParadeDB Flow
 type index collation finding.
 The [projection shedding comparison](results/2026-10-31-search-shedding-local/README.md)
-records coalescing, dropped updates by reason, and Delete-only rebuild fallback.
-Use `--projection-only --allow-shedding` for workloads that deliberately shed
-starts or closes: catch-up ends when SearchFlows' visibility barrier passes for
-kept changes. Record projected totals and status counts separately; this mode
-does not promise exact final-state convergence and is unsuitable for latency
-comparisons that assume the complete dataset.
+records coalescing, drops by reason, bounded repair, and rebuild fallback.
+Primary measurements use `--projection-only` and require exact final counts
+again after repair. The diagnostic `--allow-shedding` option instead stops when
+the visibility barrier passes for kept changes; it can finish before repair.
+Record projected totals separately in that mode and do not use it for query
+latency comparisons that assume the complete dataset.
 
 ## Reading the results
 

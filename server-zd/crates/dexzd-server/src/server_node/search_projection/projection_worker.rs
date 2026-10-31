@@ -6,19 +6,23 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use dexzd_apply::FlowStateReader;
 use dexzd_engine::{CommandCommitter, CommittedStateView};
-use dexzd_keyspace::{ColumnFamily, PartitionId, partition_meta_key};
-use dexzd_protocol::dexzd::v1::{LogPosition, PartitionMeta};
-use dexzd_search::sql_visibility::{ProjectionError, SqlVisibilityProjector};
+use dexzd_keyspace::row_keys::run_singleton_key;
+use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, RunTable, TenantId, partition_meta_key};
+use dexzd_protocol::dexzd::v1::{LogPosition, PartitionMeta, RunRecord};
+use dexzd_search::sql_visibility::{
+    PartitionDocumentRepairs, ProjectionError, SearchDocumentChange, SqlVisibilityProjector,
+};
 use prost::Message;
 
 use super::committed_search_frames::{CommittedSearchFrame, CommittedSearchFrames};
+use super::projection_repairs::ProjectionRepair;
 
 const FIRST_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(10);
@@ -39,6 +43,12 @@ enum SearchProjectionError {
     CommittedState { detail: String },
     #[error(transparent)]
     Projection(#[from] ProjectionError),
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("read committed search repair documents: {detail}")]
+struct CommittedRepairReadError {
+    detail: String,
 }
 
 impl SearchProjectionError {
@@ -73,10 +83,14 @@ impl SearchProjectionWorker {
         }
         loop {
             tokio::select! {
+                biased;
                 frame = self.frames.next_frame() => {
                     if !self.project_frame(frame).await { return; }
                 },
                 () = self.frames.rebuild_requested().notified() => {}
+                repairs = self.frames.next_repair_batch() => {
+                    if !self.repair_runs(repairs).await { return; }
+                }
             }
             for partition in self.frames.rebuild_requests() {
                 if !self.rebuild_partition(partition).await {
@@ -216,6 +230,71 @@ impl SearchProjectionWorker {
         }
     }
 
+    async fn repair_runs(&mut self, repairs: Vec<ProjectionRepair>) -> bool {
+        match self.try_repair_runs(&repairs).await {
+            Ok(projected) => {
+                self.frames.finish_repair_batch(&repairs, &projected);
+                true
+            }
+            Err(SearchProjectionError::Projection(ProjectionError::RepairPositionMismatch {
+                partition_id,
+                ..
+            })) => {
+                self.frames.retry_repair_batch(&repairs);
+                self.rebuild_partition(partition_id).await
+            }
+            Err(error) => {
+                if !error.is_retryable() {
+                    self.frames
+                        .record_permanent_failure(repairs[0].partition, &error.to_string());
+                    return false;
+                }
+                tracing::warn!(%error, "repairing search documents failed; retrying after live frames");
+                self.frames.retry_repair_batch(&repairs);
+                tokio::time::sleep(FIRST_RETRY_DELAY).await;
+                true
+            }
+        }
+    }
+
+    async fn try_repair_runs(
+        &self,
+        repairs: &[ProjectionRepair],
+    ) -> Result<BTreeSet<(TenantId, RunId)>, SearchProjectionError> {
+        let committer = self.committer.clone();
+        let requested = repairs.to_vec();
+        let documents =
+            tokio::task::spawn_blocking(move || read_repair_documents(&committer, &requested))
+                .await
+                .map_err(|error| SearchProjectionError::CommittedState {
+                    detail: format!("join search repair document read: {error}"),
+                })?
+                .map_err(|error| SearchProjectionError::CommittedState {
+                    detail: error.to_string(),
+                })?;
+        let mut projected = BTreeSet::new();
+        let partitions: Vec<_> = documents
+            .into_iter()
+            .map(|(partition_id, changes)| {
+                for change in &changes {
+                    if let SearchDocumentChange::Upsert {
+                        tenant_id, run_id, ..
+                    } = change
+                    {
+                        projected.insert((*tenant_id, *run_id));
+                    }
+                }
+                PartitionDocumentRepairs {
+                    partition_id,
+                    previous_position: self.projected_positions.get(&partition_id).cloned(),
+                    changes,
+                }
+            })
+            .collect();
+        self.projector.repair_documents(&partitions).await?;
+        Ok(projected)
+    }
+
     async fn rebuild_partition(&mut self, partition: PartitionId) -> bool {
         match retry_partition_rebuild(self, partition).await {
             Ok(()) => true,
@@ -278,6 +357,68 @@ impl SearchProjectionWorker {
                         >= (position.incarnation, position.seq)
             })
     }
+}
+
+fn read_repair_documents(
+    committer: &CommandCommitter,
+    repairs: &[ProjectionRepair],
+) -> Result<BTreeMap<PartitionId, Vec<SearchDocumentChange>>, CommittedRepairReadError> {
+    let view = committer
+        .committed_view()
+        .map_err(|error| CommittedRepairReadError {
+            detail: format!("open committed search repair view: {error}"),
+        })?;
+    let mut documents: BTreeMap<_, Vec<_>> = BTreeMap::new();
+    for repair in repairs {
+        let run_key = run_singleton_key(repair.flow_hash, repair.run_id, RunTable::RunRecord);
+        let Some(encoded_run) =
+            view.get(ColumnFamily::Flow, &run_key)
+                .map_err(|error| CommittedRepairReadError {
+                    detail: format!(
+                        "read committed run {} for search repair: {error}",
+                        repair.run_id
+                    ),
+                })?
+        else {
+            continue;
+        };
+        let record = RunRecord::decode(encoded_run.as_slice()).map_err(|error| {
+            CommittedRepairReadError {
+                detail: format!(
+                    "decode committed run {} for search repair: {error}",
+                    repair.run_id
+                ),
+            }
+        })?;
+        if record.is_purging {
+            continue;
+        }
+        let document_key =
+            run_singleton_key(repair.flow_hash, repair.run_id, RunTable::SearchDocument);
+        let encoded_document = view
+            .get(ColumnFamily::Flow, &document_key)
+            .map_err(|error| CommittedRepairReadError {
+                detail: format!(
+                    "read committed search document {} for repair: {error}",
+                    repair.run_id
+                ),
+            })?
+            .ok_or_else(|| CommittedRepairReadError {
+                detail: format!(
+                    "missing committed search document {} for repair",
+                    repair.run_id
+                ),
+            })?;
+        documents
+            .entry(repair.partition)
+            .or_default()
+            .push(SearchDocumentChange::Upsert {
+                tenant_id: repair.tenant_id,
+                run_id: repair.run_id,
+                encoded_document,
+            });
+    }
+    Ok(documents)
 }
 
 #[async_trait]

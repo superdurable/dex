@@ -260,10 +260,14 @@ pub struct SearchProjectionQueueConfig {
     pub soft_frames: usize,
     /// Defaults to 67108864 bytes (64 MiB); estimated queued and in-flight change bytes before shedding. Must be positive.
     pub soft_bytes: usize,
-    /// Defaults to 8192 frames; admission above this limit requests a partition rebuild. Must be at least softFrames.
+    /// Defaults to 8192 frames; admission above this limit sheds closes, then starts. Delete-only overflow rebuilds. Must be at least softFrames.
     pub hard_frames: usize,
-    /// Defaults to 134217728 bytes (128 MiB); estimated queued and in-flight change bytes before rebuilding. Must be at least softBytes.
+    /// Defaults to 134217728 bytes (128 MiB); estimated queued and in-flight change bytes before shedding closes and starts. Must be at least softBytes.
     pub hard_bytes: usize,
+    /// Defaults to 1000000 runs; maximum deduplicated pending repairs, including in-flight repairs. Must be positive.
+    pub max_repair_entries: usize,
+    /// Defaults to 256 runs; maximum repairs per SQL transaction before checking live frames. Must be positive.
+    pub repair_batch_runs: usize,
 }
 
 impl Default for SearchProjectionQueueConfig {
@@ -273,6 +277,8 @@ impl Default for SearchProjectionQueueConfig {
             soft_bytes: 64 * 1024 * 1024,
             hard_frames: 8192,
             hard_bytes: 128 * 1024 * 1024,
+            max_repair_entries: 1_000_000,
+            repair_batch_runs: 256,
         }
     }
 }

@@ -72,6 +72,18 @@ pub enum ProjectionError {
         /// New position offered by the caller.
         offered: LogPosition,
     },
+    /// SQL progress changed before a repair transaction acquired its partition locks.
+    #[error(
+        "SQL visibility repair partition {partition_id} has position {stored:?}, expected {expected:?}"
+    )]
+    RepairPositionMismatch {
+        /// Partition being repaired.
+        partition_id: PartitionId,
+        /// Position stored in SQL visibility.
+        stored: Option<LogPosition>,
+        /// Position last projected by the repair owner.
+        expected: Option<LogPosition>,
+    },
     /// A rebuild source is older than the committed projection.
     #[error(
         "SQL visibility partition {partition_id} is at position {current:?}, newer than rebuild position {offered:?}"
@@ -145,7 +157,7 @@ impl ProjectionError {
     }
 
     /// Redacts database messages before they leave the projector; [`Self::Connection`] also carries backfill failures.
-    fn redact_credentials(mut self, configuration: &ConnectionSettings) -> Self {
+    pub(super) fn redact_credentials(mut self, configuration: &ConnectionSettings) -> Self {
         if let Self::Database { message, .. }
         | Self::RowDatabase { message, .. }
         | Self::BatchDatabase { message, .. }
@@ -288,6 +300,15 @@ impl SqlVisibilityProjector {
         }
     }
 
+    /// Repairs committed documents across partitions without advancing live-frame progress.
+    pub async fn repair_documents(
+        &self,
+        partitions: &[super::repair::PartitionDocumentRepairs],
+    ) -> Result<(), ProjectionError> {
+        super::repair::repair_documents(&self.backend, self.metric_recorder.as_deref(), partitions)
+            .await
+    }
+
     /// Rebuilds one partition from a consistent committed local view at `applied_position`.
     pub async fn rebuild_partition(
         &self,
@@ -364,8 +385,10 @@ async fn apply_batch_transaction(
     }
     let skipped_documents = apply_changes(
         &transaction,
-        partition_id,
-        changes,
+        &changes
+            .iter()
+            .map(|change| (partition_id, change))
+            .collect::<Vec<_>>(),
         assignments
             .as_ref()
             .map(|snapshot| snapshot.assignments.as_slice()),
@@ -440,8 +463,10 @@ async fn rebuild_transaction(
         skipped_documents.extend(
             apply_changes(
                 &transaction,
-                partition_id,
-                &changes,
+                &changes
+                    .iter()
+                    .map(|change| (partition_id, change))
+                    .collect::<Vec<_>>(),
                 assignments
                     .as_ref()
                     .map(|snapshot| snapshot.assignments.as_slice()),
@@ -517,7 +542,7 @@ fn read_rebuild_page(
     }))
 }
 
-async fn prepare_attribute_slots(
+pub(super) async fn prepare_attribute_slots(
     transaction: &Transaction<'_>,
     backend: &SqlVisibilitySearchBackend,
 ) -> Result<Option<Arc<super::super::slots::AttributeSlotSnapshot>>, ProjectionError> {
@@ -527,15 +552,17 @@ async fn prepare_attribute_slots(
     Ok(Some(backend.attribute_slots_for_write(transaction).await?))
 }
 
-async fn apply_changes(
+pub(super) async fn apply_changes(
     transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-    changes: &[SearchDocumentChange],
+    changes: &[(PartitionId, &SearchDocumentChange)],
     assignments: Option<&[AttributeSlot]>,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let mut pending_rows = Vec::new();
     let mut skipped_documents = Vec::new();
-    for change in changes {
+    let first_partition = changes
+        .first()
+        .map_or(PartitionId(0), |(partition, _)| *partition);
+    for &(partition_id, change) in changes {
         match change {
             SearchDocumentChange::Upsert {
                 tenant_id,
@@ -578,7 +605,7 @@ async fn apply_changes(
             }
         }
     }
-    flush_upserts(transaction, partition_id, &mut pending_rows, assignments).await?;
+    flush_upserts(transaction, first_partition, &mut pending_rows, assignments).await?;
     Ok(skipped_documents)
 }
 
@@ -818,7 +845,9 @@ async fn update_progress(
     Ok(())
 }
 
-fn position_from_row(row: &tokio_postgres::Row) -> Result<Option<LogPosition>, ProjectionError> {
+pub(super) fn position_from_row(
+    row: &tokio_postgres::Row,
+) -> Result<Option<LogPosition>, ProjectionError> {
     let node_id: Option<String> = row
         .try_get(0)
         .map_err(|source| database_error("decode progress node from", source))?;
@@ -866,7 +895,10 @@ fn is_replay(stored: Option<&LogPosition>, offered: &LogPosition) -> bool {
 }
 
 /// Keeps only the message and classification, so no raw Postgres text survives redaction.
-fn database_error(operation: &'static str, source: tokio_postgres::Error) -> ProjectionError {
+pub(super) fn database_error(
+    operation: &'static str,
+    source: tokio_postgres::Error,
+) -> ProjectionError {
     ProjectionError::Database {
         operation,
         message: database_error_message(&source),
@@ -917,13 +949,16 @@ fn row_database_error(
     }
 }
 
-fn operation_timeout(operation: &'static str) -> ProjectionError {
+pub(super) fn operation_timeout(operation: &'static str) -> ProjectionError {
     ProjectionError::Connection(SearchError::Unavailable(format!(
         "{operation} SQL visibility projection timed out after {DATABASE_OPERATION_TIMEOUT:?}"
     )))
 }
 
-fn should_retry(result: &Result<impl Sized, ProjectionError>, has_retried: bool) -> bool {
+pub(super) fn should_retry(
+    result: &Result<impl Sized, ProjectionError>,
+    has_retried: bool,
+) -> bool {
     !has_retried
         && matches!(
             result,

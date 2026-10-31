@@ -132,6 +132,12 @@ pub struct NodeMetrics {
     pub search_projection_dropped_updates: ProjectionDropCounters,
     /// New pending partition rebuild requests after queue admission fails or documents are unreadable.
     pub search_projection_rebuild_requests: Counter,
+    /// Runs waiting for projection repair, including the active repair batch.
+    pub search_projection_repair_pending: Gauge,
+    /// Current committed documents successfully offered by repair, counted by the original drop priority.
+    pub search_projection_repaired_runs: ProjectionDropCounters,
+    /// Dropped runs that could not enter the bounded repair set.
+    pub search_projection_repair_overflow: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -396,6 +402,21 @@ impl NodeMetrics {
             "New pending search projection partition rebuild requests.",
             metrics.search_projection_rebuild_requests.clone(),
         );
+        registry.register(
+            "dexzd_search_projection_repair_pending",
+            "Runs pending projection repair, including in-flight repairs.",
+            metrics.search_projection_repair_pending.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_repaired_runs",
+            "Committed documents successfully offered by projection repair, by original drop priority.",
+            metrics.search_projection_repaired_runs.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_repair_overflow",
+            "Dropped runs that overflowed the bounded projection repair set.",
+            metrics.search_projection_repair_overflow.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -450,6 +471,9 @@ impl NodeMetrics {
             search_projection_coalesced_changes: Counter::default(),
             search_projection_dropped_updates: ProjectionDropCounters::default(),
             search_projection_rebuild_requests: Counter::default(),
+            search_projection_repair_pending: Gauge::default(),
+            search_projection_repaired_runs: ProjectionDropCounters::default(),
+            search_projection_repair_overflow: Counter::default(),
         }
     }
 

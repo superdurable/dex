@@ -388,6 +388,16 @@ impl Config {
     fn validate_search_and_limits(&self) -> Result<(), ConfigError> {
         let queue = &self.search.projection_queue;
         ensure(
+            queue.max_repair_entries > 0,
+            "search.projectionQueue.maxRepairEntries",
+            "must be positive",
+        )?;
+        ensure(
+            queue.repair_batch_runs > 0,
+            "search.projectionQueue.repairBatchRuns",
+            "must be positive",
+        )?;
+        ensure(
             queue.soft_frames > 0,
             "search.projectionQueue.softFrames",
             "must be positive",
