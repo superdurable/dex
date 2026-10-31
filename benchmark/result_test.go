@@ -35,11 +35,57 @@ func TestReportSortsAndSumsErrors(t *testing.T) {
 		{Config: Config{Scenario: "rpc-plain", Target: "zd", Concurrency: 8}, Successes: 8, Errors: map[string]int64{"timeout": 2, "invalid": 1}, ThroughputPerSecond: 4, ThroughputUnit: "rpcs", Latency: Percentiles{P50: 3, P90: 6}},
 	}
 	got := RenderReport(results)
-	if !strings.Contains(got, "| 8 | zd | 8 | 3 | 4.00 rpcs/s | 3.00 |") {
-		t.Fatalf("missing zd row: %s", got)
+	if !strings.Contains(got, "| 8 | default | 8 | 3 | 4.00 rpcs/s | 3.00 |") {
+		t.Fatalf("missing row: %s", got)
 	}
-	if strings.Index(got, "| 32 | zd |") < strings.Index(got, "| 8 | zd |") {
+	if strings.Index(got, "| 32 | default |") < strings.Index(got, "| 8 | default |") {
 		t.Fatalf("rows not sorted by concurrency: %s", got)
+	}
+}
+
+func TestReportShowsHostCPUPutRateAndInvalidLoadHost(t *testing.T) {
+	result := Result{
+		Config:            Config{Scenario: "sequential-steps", Target: "zd", Concurrency: 64, ServerTunables: map[string]string{"DEXBENCH_ZD_MAX_IN_FLIGHT": "8"}},
+		Machine:           MachineInfo{Cores: 4},
+		Successes:         10,
+		Resources:         []ResourceSample{{CPUPercent: 150}},
+		ServerCores:       2,
+		LoadHostResources: []ResourceSample{{CPUPercent: 300}},
+		ObjectStore:       &ObjectStoreMetrics{RequestsPerMinuteByOperation: map[string]float64{"put": 6000}},
+	}
+	got := RenderReport([]Result{result})
+	for _, expected := range []string{"| 64 | MAX_IN_FLIGHT=8 |", "| 150.0 | 75.0 | 75.0 | 100.0 |", "invalid: load host CPU 75%"} {
+		if !strings.Contains(got, expected) {
+			t.Errorf("report is missing %q: %s", expected, got)
+		}
+	}
+}
+
+func TestReportSummarizesTrials(t *testing.T) {
+	var results []Result
+	for trial, throughput := range []float64{30, 10, 20} {
+		results = append(results, Result{Config: Config{Scenario: "rpc-plain", Target: "zd", Concurrency: 8, Trial: trial + 1}, ThroughputPerSecond: throughput, ThroughputUnit: "rpcs"})
+	}
+	got := RenderReport(results)
+	if !strings.Contains(got, "| 8 | default | 3 | 20.00 rpcs/s | 30.00 rpcs/s |") {
+		t.Fatalf("missing trial summary: %s", got)
+	}
+}
+
+func TestMergeServerSamplesKeepsMeasurementWindow(t *testing.T) {
+	start := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	result := Result{MeasurementStartedAt: start, MeasurementEndedAt: start.Add(10 * time.Second)}
+	samples := ServerSamples{Cores: 16, Samples: []ResourceSample{
+		{At: start.Add(-time.Second), IntervalSeconds: 1, CPUPercent: 1},
+		{At: start.Add(2 * time.Second), IntervalSeconds: 1, CPUPercent: 2},
+		{At: start.Add(10 * time.Second), IntervalSeconds: 1, CPUPercent: 3},
+		{At: start.Add(12 * time.Second), IntervalSeconds: 1, CPUPercent: 4},
+	}}
+	if err := MergeServerSamples(&result, samples); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Resources) != 2 || result.Resources[0].CPUPercent != 2 || result.Resources[1].CPUPercent != 3 || result.ServerCores != 16 {
+		t.Fatalf("merged resources = %+v, cores %d", result.Resources, result.ServerCores)
 	}
 }
 

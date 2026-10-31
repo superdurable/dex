@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -36,7 +37,7 @@ func main() {
 
 func execute(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: dexbench run [flags] | report FILE... | chart FILE...")
+		return fmt.Errorf("usage: dexbench run [flags] | report FILE... | chart FILE... | sample --pid PID --out FILE | merge-server --result FILE --samples FILE")
 	}
 	switch args[0] {
 	case "run":
@@ -51,6 +52,10 @@ func execute(args []string) error {
 		return waitReady(args[1:])
 	case "variants":
 		return printVariants(args[1:])
+	case "sample":
+		return sampleServer(args[1:])
+	case "merge-server":
+		return mergeServer(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -184,6 +189,7 @@ func run(args []string) error {
 	var isShort bool
 	var concurrencyValues string
 	var resourcePIDs string
+	var serverTunables string
 	flags.StringVar(&config.Address, "address", "127.0.0.1:8801", "Dex FlowService address")
 	flags.StringVar(&config.Target, "target", "zd", "target name")
 	flags.StringVar(&config.Engine, "engine", "zd", "server engine")
@@ -194,6 +200,9 @@ func run(args []string) error {
 	flags.StringVar(&concurrencyValues, "concurrency", "1,8,32,128", "comma-separated concurrent client counts")
 	flags.IntVar(&config.WorkerPool, "workers", 0, "pull Worker task pool size; defaults to concurrency")
 	flags.IntVar(&config.Steps, "steps", 10, "Steps per chain Flow")
+	flags.IntVar(&config.Connections, "connections", 1, "Client and Worker pairs, each with its own gRPC connections; clients are spread round-robin")
+	flags.IntVar(&config.Trial, "trial", 0, "trial number of a repeated point; 0 when not repeated")
+	flags.StringVar(&serverTunables, "server-tunables", "", "semicolon-separated KEY=VALUE server settings to record in the result")
 	flags.IntVar(&config.AttributeBytes, "attribute-bytes", 16384, "bytes per read Attribute")
 	flags.StringVar(&config.Mode, "mode", "quick", "run mode label")
 	flags.StringVar(&config.GitCommit, "git-commit", os.Getenv("DEXBENCH_GIT_COMMIT"), "SDK checkout commit")
@@ -221,6 +230,14 @@ func run(args []string) error {
 		}
 		config.ResourcePIDs = append(config.ResourcePIDs, processID)
 	}
+	if config.Connections < 1 {
+		return fmt.Errorf("connections must be positive")
+	}
+	tunables, err := parseServerTunables(serverTunables)
+	if err != nil {
+		return err
+	}
+	config.ServerTunables = tunables
 	requestedWorkerPool := config.WorkerPool
 	variants, err := expandScenarios(scenarios)
 	if err != nil {
@@ -301,4 +318,63 @@ func isKnownScenario(scenario string) bool {
 	default:
 		return false
 	}
+}
+
+func parseServerTunables(value string) (map[string]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	tunables := map[string]string{}
+	for _, pair := range strings.Split(value, ";") {
+		key, setting, hasSetting := strings.Cut(strings.TrimSpace(pair), "=")
+		if !hasSetting || key == "" {
+			return nil, fmt.Errorf("server tunable %q is not KEY=VALUE", pair)
+		}
+		tunables[key] = setting
+	}
+	return tunables, nil
+}
+
+// sampleServer samples a server process tree until SIGINT or SIGTERM, then writes the samples.
+func sampleServer(args []string) error {
+	flags := flag.NewFlagSet("sample", flag.ContinueOnError)
+	var processID int
+	var outputPath string
+	flags.IntVar(&processID, "pid", 0, "root server PID; its whole process tree is sampled")
+	flags.StringVar(&outputPath, "out", "", "JSON samples path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if processID < 1 || outputPath == "" {
+		return fmt.Errorf("positive pid and out are required")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return benchmark.WriteServerSamples(outputPath, benchmark.SampleServerProcess(ctx, processID))
+}
+
+// mergeServer replaces a result's resources with the server-host samples from its measurement window.
+func mergeServer(args []string) error {
+	flags := flag.NewFlagSet("merge-server", flag.ContinueOnError)
+	var resultPath, samplesPath string
+	flags.StringVar(&resultPath, "result", "", "result JSON to update in place")
+	flags.StringVar(&samplesPath, "samples", "", "server samples JSON written by dexbench sample")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if resultPath == "" || samplesPath == "" {
+		return fmt.Errorf("result and samples are required")
+	}
+	result, err := benchmark.ReadResult(resultPath)
+	if err != nil {
+		return err
+	}
+	samples, err := benchmark.ReadServerSamples(samplesPath)
+	if err != nil {
+		return err
+	}
+	if err := benchmark.MergeServerSamples(&result, samples); err != nil {
+		return fmt.Errorf("merge %s: %w", samplesPath, err)
+	}
+	return benchmark.WriteResult(resultPath, result)
 }

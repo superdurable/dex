@@ -15,7 +15,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -36,14 +35,18 @@ type Config struct {
 	WarmupSeconds   float64 `json:"warmup_seconds"`
 	Concurrency     int     `json:"concurrency"`
 	WorkerPool      int     `json:"worker_pool"`
-	Steps           int     `json:"steps"`
-	TimeoutSeconds  float64 `json:"timeout_seconds"`
-	ServerPID       int     `json:"server_pid,omitempty"`
-	ResourcePIDs    []int   `json:"resource_pids,omitempty"`
-	MetricsURL      string  `json:"metrics_url,omitempty"`
-	AttributeBytes  int     `json:"attribute_bytes"`
-	Mode            string  `json:"mode"`
-	GitCommit       string  `json:"git_commit,omitempty"`
+	Connections     int     `json:"connections,omitempty"`
+	Trial           int     `json:"trial,omitempty"`
+	// ServerTunables are the server settings this point overrides, as environment names and values.
+	ServerTunables map[string]string `json:"server_tunables,omitempty"`
+	Steps          int               `json:"steps"`
+	TimeoutSeconds float64           `json:"timeout_seconds"`
+	ServerPID      int               `json:"server_pid,omitempty"`
+	ResourcePIDs   []int             `json:"resource_pids,omitempty"`
+	MetricsURL     string            `json:"metrics_url,omitempty"`
+	AttributeBytes int               `json:"attribute_bytes"`
+	Mode           string            `json:"mode"`
+	GitCommit      string            `json:"git_commit,omitempty"`
 }
 
 type MachineInfo struct {
@@ -95,6 +98,10 @@ type Result struct {
 	StepLatency           Percentiles         `json:"step_latency,omitempty"`
 	StepSamples           int                 `json:"step_samples,omitempty"`
 	Resources             []ResourceSample    `json:"resources,omitempty"`
+	ServerCores           int                 `json:"server_cores,omitempty"`
+	LoadHostResources     []ResourceSample    `json:"load_host_resources,omitempty"`
+	MeasurementStartedAt  time.Time           `json:"measurement_started_at"`
+	MeasurementEndedAt    time.Time           `json:"measurement_ended_at"`
 	ObjectStore           *ObjectStoreMetrics `json:"object_store,omitempty"`
 }
 
@@ -170,58 +177,6 @@ func ReadResult(path string) (Result, error) {
 		return Result{}, fmt.Errorf("unsupported result schema %d in %s", result.SchemaVersion, path)
 	}
 	return result, nil
-}
-
-func RenderReport(results []Result) string {
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].Config.Scenario == results[j].Config.Scenario {
-			if results[i].Config.Concurrency == results[j].Config.Concurrency {
-				return results[i].Config.Target < results[j].Config.Target
-			}
-			return results[i].Config.Concurrency < results[j].Config.Concurrency
-		}
-		return results[i].Config.Scenario < results[j].Config.Scenario
-	})
-	var output strings.Builder
-	output.WriteString("Latency percentiles cover successful operations only. Errors counts failed measured operations, including timeouts. ")
-	output.WriteString("Load is closed-loop, so p99 and max understate queueing delay at saturation. CPU % is 100 per fully used core. ")
-	output.WriteString("channel-wake latency runs from PublishToChannel to Step Execute start; its throughput also includes the untimed Flow start and wait confirmation.\n\n")
-	var previousScenario string
-	for _, result := range results {
-		isStepScenario := isSequentialStepsScenario(result.Config.Scenario)
-		if result.Config.Scenario != previousScenario {
-			if previousScenario != "" {
-				output.WriteString("\n")
-			}
-			fmt.Fprintf(&output, "## %s\n\n", result.Config.Scenario)
-			switch {
-			case isStepScenario:
-				output.WriteString("| Concurrency | Target | Successes | Errors | Throughput | Flow p50 ms | Flow p99 ms | Step p50 ms | Step p90 ms | Step p99 ms | Step max ms | CPU % mean | RSS MiB max |\n")
-				output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
-			default:
-				output.WriteString("| Concurrency | Target | Successes | Errors | Throughput | p50 ms | p90 ms | p99 ms | max ms | CPU % mean | RSS MiB max |\n")
-				output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
-			}
-			previousScenario = result.Config.Scenario
-		}
-		var errorCount int64
-		for _, count := range result.Errors {
-			errorCount += count
-		}
-		cpuMean, rssMax := summarizeResources(result.Resources)
-		latency := result.Latency
-		if isStepScenario {
-			fmt.Fprintf(&output, "| %d | %s | %d | %d | %.2f %s/s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.1f | %.1f |\n",
-				result.Config.Concurrency, result.Config.Target, result.Successes, errorCount, result.ThroughputPerSecond,
-				result.ThroughputUnit, latency.P50, latency.P99, result.StepLatency.P50, result.StepLatency.P90,
-				result.StepLatency.P99, result.StepLatency.Max, cpuMean, rssMax)
-		} else {
-			fmt.Fprintf(&output, "| %d | %s | %d | %d | %.2f %s/s | %.2f | %.2f | %.2f | %.2f | %.1f | %.1f |\n",
-				result.Config.Concurrency, result.Config.Target, result.Successes, errorCount, result.ThroughputPerSecond,
-				result.ThroughputUnit, latency.P50, latency.P90, latency.P99, latency.Max, cpuMean, rssMax)
-		}
-	}
-	return output.String()
 }
 
 func summarizeResources(samples []ResourceSample) (float64, float64) {

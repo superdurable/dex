@@ -21,6 +21,7 @@ duration="${DEXBENCH_DURATION:-60}"
 warmup="${DEXBENCH_WARMUP:-15}"
 concurrency="${DEXBENCH_CONCURRENCY:-1,32}"
 workers="${DEXBENCH_WORKERS:-0}"
+connections="${DEXBENCH_CONNECTIONS:-1}"
 steps="${DEXBENCH_STEPS:-10}"
 scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,sequential-steps-async,rpc,attribute-read,channel-wake}"
 # Output defaults to a new directory outside the repository; committed result sets set DEXBENCH_OUT.
@@ -93,7 +94,7 @@ run_step() {
   DEXBENCH_SERVER_VERSION="$server_version" nice -n 10 "$benchmark_binary" run \
     --address 127.0.0.1:8801 --target zd --engine zd \
     --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \
-    --workers "$workers" --steps "$steps" --scenarios "$variant" --mode quick \
+    --workers "$workers" --connections "$connections" --steps "$steps" --scenarios "$variant" --mode quick \
     --out "$output_dir" --server-pid "$current_pid" --metrics-url http://127.0.0.1:9901/metrics
 }
 
