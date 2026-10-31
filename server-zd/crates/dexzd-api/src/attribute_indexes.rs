@@ -25,6 +25,15 @@ use tokio::sync::Mutex;
 
 use crate::FlowOperationError;
 
+/// Determines whether background projection may refresh externally registered Attribute indexes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttributeIndexRegistryRefresh {
+    /// Reuses the registry loaded locally and updated by registration requests.
+    LocalRegistrations,
+    /// Allows the SQL projection's background refresh to discover other nodes' registrations.
+    ExternalRegistrations,
+}
+
 /// Registers Attribute index declarations and supplies them to search.
 ///
 /// Caches the registry; each registration replaces the cache.
@@ -33,6 +42,7 @@ pub struct AttributeIndexes {
     clock: Arc<dyn WallClock>,
     capacity: Option<AttributeIndexCapacity>,
     cached_registry: Mutex<Option<AttributeIndexRegistry>>,
+    registry_refresh: AttributeIndexRegistryRefresh,
 }
 
 impl AttributeIndexes {
@@ -42,12 +52,50 @@ impl AttributeIndexes {
         clock: Arc<dyn WallClock>,
         capacity: Option<AttributeIndexCapacity>,
     ) -> Self {
+        Self::new_with_registry_refresh(
+            object_store,
+            clock,
+            capacity,
+            AttributeIndexRegistryRefresh::LocalRegistrations,
+        )
+    }
+
+    /// Creates a registry client with an explicit policy for background refreshes.
+    pub fn new_with_registry_refresh(
+        object_store: Arc<dyn ObjectStore>,
+        clock: Arc<dyn WallClock>,
+        capacity: Option<AttributeIndexCapacity>,
+        registry_refresh: AttributeIndexRegistryRefresh,
+    ) -> Self {
         Self {
             object_store,
             clock,
             capacity,
             cached_registry: Mutex::new(None),
+            registry_refresh,
         }
+    }
+
+    async fn registry_snapshot(&self) -> Result<AttributeIndexRegistry, MetadataError> {
+        if let Some(registry) = self.cached_registry.lock().await.as_ref() {
+            return Ok(registry.clone());
+        }
+        let registry = read_attribute_index_registry(self.object_store.as_ref()).await?;
+        Ok(self.cache_registry(registry).await)
+    }
+
+    async fn cache_registry(&self, registry: AttributeIndexRegistry) -> AttributeIndexRegistry {
+        let mut cached = self.cached_registry.lock().await;
+        if cached
+            .as_ref()
+            .is_none_or(|existing| existing.version < registry.version)
+        {
+            *cached = Some(registry);
+        }
+        cached
+            .as_ref()
+            .expect("the registry was loaded before caching")
+            .clone()
     }
 
     /// Validates and registers the declarations of `request` for `tenant_id`.
@@ -78,7 +126,6 @@ impl AttributeIndexes {
                 index_type: *index_type,
             });
         }
-        let mut cached_registry = self.cached_registry.lock().await;
         let registry = register_attribute_indexes(
             self.object_store.as_ref(),
             self.clock.as_ref(),
@@ -88,7 +135,7 @@ impl AttributeIndexes {
         )
         .await
         .map_err(registry_error)?;
-        *cached_registry = Some(registry);
+        self.cache_registry(registry).await;
         Ok(())
     }
 
@@ -99,17 +146,11 @@ impl AttributeIndexes {
         &self,
         tenant_id: TenantId,
     ) -> Result<FieldRegistry, FlowOperationError> {
-        let mut cached_registry = self.cached_registry.lock().await;
-        if cached_registry.is_none() || self.capacity.is_some() {
-            let registry = read_attribute_index_registry(self.object_store.as_ref())
-                .await
-                .map_err(registry_error)?;
-            *cached_registry = Some(registry);
-        }
+        let registry = self.registry_snapshot().await.map_err(registry_error)?;
         let mut fields = FieldRegistry::new();
-        for registration in cached_registry
+        for registration in registry
+            .registrations
             .iter()
-            .flat_map(|registry| &registry.registrations)
             .filter(|registration| registration.tenant_id == tenant_id.0)
         {
             let index_type = IndexType::try_from(registration.index_type).map_err(|_| {
@@ -148,13 +189,22 @@ fn registry_error(error: MetadataError) -> FlowOperationError {
 #[async_trait]
 impl AttributeIndexRegistryReader for AttributeIndexes {
     async fn read_attribute_index_registry(&self) -> Result<AttributeIndexRegistry, SearchError> {
-        let mut cached_registry = self.cached_registry.lock().await;
+        self.registry_snapshot().await.map_err(|error| {
+            SearchError::Unavailable(format!("read Attribute index registry: {error}"))
+        })
+    }
+
+    async fn refresh_attribute_index_registry(
+        &self,
+    ) -> Result<AttributeIndexRegistry, SearchError> {
+        if self.registry_refresh == AttributeIndexRegistryRefresh::LocalRegistrations {
+            return self.read_attribute_index_registry().await;
+        }
         let registry = read_attribute_index_registry(self.object_store.as_ref())
             .await
             .map_err(|error| {
-                SearchError::Unavailable(format!("read Attribute index registry: {error}"))
+                SearchError::Unavailable(format!("refresh Attribute index registry: {error}"))
             })?;
-        *cached_registry = Some(registry.clone());
-        Ok(registry)
+        Ok(self.cache_registry(registry).await)
     }
 }

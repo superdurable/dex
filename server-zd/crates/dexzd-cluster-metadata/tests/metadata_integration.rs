@@ -1681,3 +1681,53 @@ async fn startup_capacity_check_rejects_unknown_stored_index_types() {
     ));
     assert!(error.to_string().contains("stored type 2147483647"));
 }
+
+#[tokio::test]
+async fn system_search_fields_do_not_consume_attribute_index_capacity() {
+    let store = MemoryStore::default();
+    let clock = TestClock::default();
+    let capacity = AttributeIndexCapacity::postgres();
+    let mut declarations = vec![
+        AttributeIndexDeclaration {
+            index_key: "DexWorkQueuePermissions".into(),
+            index_type: IndexType::KeywordArray as i32,
+        },
+        AttributeIndexDeclaration {
+            index_key: "ActiveStepTypes".into(),
+            index_type: IndexType::KeywordArray as i32,
+        },
+    ];
+    declarations.extend((0..3).map(|position| AttributeIndexDeclaration {
+        index_key: format!("application_tags_{position}"),
+        index_type: IndexType::KeywordArray as i32,
+    }));
+    let registry = register_attribute_indexes(&store, &clock, 7, &declarations, Some(&capacity))
+        .await
+        .unwrap();
+    validate_attribute_index_capacity(&registry, &capacity).unwrap();
+    let error = register_attribute_indexes(
+        &store,
+        &clock,
+        7,
+        &[AttributeIndexDeclaration {
+            index_key: "application_tags_overflow".into(),
+            index_type: IndexType::KeywordArray as i32,
+        }],
+        Some(&capacity),
+    )
+    .await
+    .unwrap_err();
+    match error {
+        MetadataError::AttributeIndexCapacityExceeded {
+            registered_keys, ..
+        } => {
+            assert_eq!(registered_keys.len(), 3);
+            assert!(
+                registered_keys
+                    .iter()
+                    .all(|key| key.starts_with("application_tags_"))
+            );
+        }
+        error => panic!("unexpected registration error: {error}"),
+    }
+}

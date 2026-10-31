@@ -42,7 +42,7 @@ const CONNECT_ATTEMPTS: u32 = 3;
 const CONNECT_RETRY_DELAY: Duration = Duration::from_secs(1);
 const DEFAULT_SCHEMA: &str = "public";
 
-/// The ParadeDB SearchFlows backend and the committed frames that its projection consumes.
+/// The SQL visibility SearchFlows backend and the committed frames that its projection consumes.
 pub(crate) struct SqlVisibilitySearch {
     backend: Arc<SqlVisibilitySearchBackend>,
     frames: Arc<CommittedSearchFrames>,
@@ -142,11 +142,13 @@ impl SqlVisibilitySearch {
         metrics: Arc<NodeMetrics>,
         node_stopped: impl Future<Output = NodeStopReason> + Send + 'static,
     ) -> SearchProjection {
+        let projector = SqlVisibilityProjector::new_with_metric_recorder(
+            self.backend,
+            Arc::new(SearchProjectionMetrics(metrics)),
+        );
+        let backfill = refresh_attribute_slots(projector.clone());
         let worker = SearchProjectionWorker::new(
-            SqlVisibilityProjector::new_with_metric_recorder(
-                self.backend,
-                Arc::new(SearchProjectionMetrics(metrics)),
-            ),
+            projector,
             committer,
             self.frames,
             self.queue,
@@ -161,9 +163,21 @@ impl SqlVisibilitySearch {
                     tracing::info!(%reason, "the search projection stopped with the node");
                 }
                 () = worker.run() => {}
+                () = backfill => {}
             }
         });
         SearchProjection { stop, task }
+    }
+}
+
+async fn refresh_attribute_slots(projector: SqlVisibilityProjector) {
+    let mut refresh = tokio::time::interval(Duration::from_secs(1));
+    refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        refresh.tick().await;
+        if let Err(error) = projector.synchronize_attribute_slots().await {
+            tracing::warn!(%error, "refreshing Attribute search slots failed");
+        }
     }
 }
 
@@ -206,7 +220,7 @@ impl SearchProjection {
     }
 }
 
-/// Applies `search.paradeDbSchema` through the search path, as transaction poolers keep no session state.
+/// Applies the configured SQL schema through the search path, as transaction poolers keep no session state.
 fn postgres_configuration(search: &SearchConfig) -> Result<ConnectionSettings, ServerError> {
     let is_postgres = search.backend == SearchBackendKind::Postgres;
     let connection_string = if is_postgres {

@@ -8,8 +8,8 @@
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 use std::sync::Mutex as StandardMutex;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -43,12 +43,20 @@ pub trait ProjectionVisibilityWait: Send + Sync {
     async fn wait_until_visible(&self, request: SearchRequest<'_>) -> Result<(), SearchError>;
 }
 
+enum AttributeSlotOperation<'assignments> {
+    Register {
+        registry_version: u64,
+        assignments: &'assignments [AttributeSlot],
+    },
+    BackfillBatch,
+}
+
 /// Searches tenant runs through a bounded pool of PgBouncer-compatible connections.
 pub struct SqlVisibilitySearchBackend {
     configuration: ConnectionSettings,
     dialect: VisibilityDialect,
     registry_reader: Option<Arc<dyn AttributeIndexRegistryReader>>,
-    attribute_slot_cache: Mutex<Option<(u64, Vec<AttributeSlot>)>>,
+    attribute_slot_cache: RwLock<Option<Arc<super::slots::AttributeSlotSnapshot>>>,
     slots: Vec<Mutex<ConnectionSlot>>,
     free_slots: StandardMutex<VecDeque<usize>>,
     available_slots: Semaphore,
@@ -120,87 +128,176 @@ impl SqlVisibilitySearchBackend {
             }
             slots.push(Mutex::new(slot));
         }
-        Ok(Self {
+        let backend = Self {
             configuration: configuration.clone(),
             dialect,
             registry_reader,
-            attribute_slot_cache: Mutex::new(None),
+            attribute_slot_cache: RwLock::new(None),
             slots,
             free_slots: StandardMutex::new((0..pool_size).collect()),
             available_slots: Semaphore::new(pool_size),
             visibility_wait,
             visibility_wait_timeout,
-        })
+        };
+        if dialect == VisibilityDialect::Postgres {
+            backend.refresh_attribute_slot_registry(true).await?;
+        }
+        Ok(backend)
     }
 
     pub(crate) fn dialect(&self) -> VisibilityDialect {
         self.dialect
     }
 
-    pub(crate) async fn attribute_slots(&self) -> Result<Vec<AttributeSlot>, SearchError> {
-        let Some(reader) = &self.registry_reader else {
-            return Ok(Vec::new());
-        };
-        let registry = reader.read_attribute_index_registry().await?;
-        let mut cached = self.attribute_slot_cache.lock().await;
-        if let Some((version, assignments)) = &*cached
-            && *version == registry.version
-        {
-            return Ok(assignments.clone());
+    pub(crate) async fn attribute_slots_for_write(
+        &self,
+        transaction: &tokio_postgres::Transaction<'_>,
+    ) -> Result<Arc<super::slots::AttributeSlotSnapshot>, SearchError> {
+        super::slots::lock_attribute_slots_shared(transaction).await?;
+        let version = super::slots::read_slot_registry_version(transaction).await?;
+        if let Some(snapshot) = self.attribute_slot_snapshot() {
+            if snapshot.registry_version == version {
+                return Ok(snapshot);
+            }
         }
-        let assignments = assign_attribute_slots(&registry)?;
-        *cached = Some((registry.version, assignments.clone()));
-        Ok(assignments)
+        let snapshot = super::slots::load_attribute_slot_snapshot(transaction, version).await?;
+        Ok(self.cache_attribute_slot_snapshot(snapshot))
     }
 
     pub(crate) async fn backfill_registered_attributes(&self) -> Result<(), SearchError> {
         if self.dialect != VisibilityDialect::Postgres {
             return Ok(());
         }
-        let mut slot = self.lock_next_slot().await;
-        if slot.is_disconnected() {
-            slot.reconnect(&self.configuration).await?;
+        self.refresh_attribute_slot_registry(false).await?;
+        let snapshot = self
+            .attribute_slot_snapshot()
+            .expect("PostgreSQL startup initializes its Attribute slot snapshot");
+        if snapshot.ready.len() == snapshot.assignments.len() {
+            return Ok(());
         }
-        let transaction = slot.client.transaction().await.map_err(|source| {
-            classify_database_error(&self.configuration, "begin Attribute slot backfill", source)
-        })?;
-        transaction
-            .batch_execute("SET LOCAL statement_timeout = '15s'; SET LOCAL lock_timeout = '5s'")
-            .await
-            .map_err(|source| {
-                classify_database_error(
-                    &self.configuration,
-                    "bound Attribute slot backfill operations",
-                    source,
-                )
-            })?;
-        super::slots::lock_attribute_slots(&transaction).await?;
-        let assignments = self.attribute_slots().await?;
-        super::slots::backfill_attribute_slots(&transaction, &assignments).await?;
-        transaction.commit().await.map_err(|source| {
-            classify_database_error(
-                &self.configuration,
-                "commit Attribute slot backfill",
-                source,
-            )
-        })?;
+        let snapshot = self
+            .run_attribute_slot_operation(AttributeSlotOperation::BackfillBatch)
+            .await?;
+        self.cache_attribute_slot_snapshot(snapshot);
         Ok(())
     }
 
-    async fn ready_attribute_slots(&self) -> Result<Vec<AttributeSlot>, SearchError> {
-        if self.dialect != VisibilityDialect::Postgres {
-            return Ok(Vec::new());
+    async fn refresh_attribute_slot_registry(
+        &self,
+        should_reconcile: bool,
+    ) -> Result<(), SearchError> {
+        let reader = self
+            .registry_reader
+            .as_ref()
+            .expect("PostgreSQL requires a registry reader at construction");
+        let registry = tokio::time::timeout(
+            DATABASE_OPERATION_TIMEOUT,
+            reader.refresh_attribute_index_registry(),
+        )
+        .await
+        .map_err(|_| {
+            SearchError::Unavailable("refresh Attribute index registry timed out".into())
+        })??;
+        if !should_reconcile
+            && self
+                .attribute_slot_snapshot()
+                .is_some_and(|snapshot| snapshot.registry_version == registry.version)
+        {
+            return Ok(());
         }
-        let assignments = self.attribute_slots().await?;
-        let mut slot = self.lock_next_slot().await;
-        if slot.is_disconnected() {
-            slot.reconnect(&self.configuration).await?;
-        }
-        super::slots::read_ready_slots(&slot.client, assignments)
-            .await
-            .map_err(|error| {
-                SearchError::Unavailable(self.configuration.redact_credentials(error.to_string()))
+        let assignments = assign_attribute_slots(&registry)?;
+        let snapshot = self
+            .run_attribute_slot_operation(AttributeSlotOperation::Register {
+                registry_version: registry.version,
+                assignments: &assignments,
             })
+            .await?;
+        self.cache_attribute_slot_snapshot(snapshot);
+        Ok(())
+    }
+
+    async fn run_attribute_slot_operation(
+        &self,
+        operation: AttributeSlotOperation<'_>,
+    ) -> Result<super::slots::AttributeSlotSnapshot, SearchError> {
+        for attempt in 0..2 {
+            let mut slot = self.lock_next_slot().await;
+            if slot.is_disconnected() {
+                slot.reconnect(&self.configuration).await?;
+            }
+            let result = tokio::time::timeout(DATABASE_OPERATION_TIMEOUT, async {
+                match &operation {
+                    AttributeSlotOperation::Register {
+                        registry_version,
+                        assignments,
+                    } => {
+                        super::slots::initialize_attribute_slots(
+                            &mut slot.client,
+                            *registry_version,
+                            assignments,
+                        )
+                        .await
+                    }
+                    AttributeSlotOperation::BackfillBatch => {
+                        super::slots::backfill_next_batch(&mut slot.client).await?;
+                        super::slots::load_committed_attribute_slot_snapshot(&mut slot.client).await
+                    }
+                }
+            })
+            .await;
+            let result = match result {
+                Ok(result) => result,
+                Err(_) => {
+                    slot.invalidate();
+                    Err(SearchError::Unavailable(format!(
+                        "Attribute slot database operation timed out after {DATABASE_OPERATION_TIMEOUT:?}"
+                    )))
+                }
+            };
+            if attempt == 0 && matches!(&result, Err(SearchError::Unavailable(_))) {
+                slot.reconnect(&self.configuration).await?;
+                continue;
+            }
+            return result.map_err(|error| redact_search_error(&self.configuration, error));
+        }
+        unreachable!("an Attribute slot operation returns on its second attempt")
+    }
+
+    fn cache_attribute_slot_snapshot(
+        &self,
+        mut snapshot: super::slots::AttributeSlotSnapshot,
+    ) -> Arc<super::slots::AttributeSlotSnapshot> {
+        let mut cached = self
+            .attribute_slot_cache
+            .write()
+            .expect("the Attribute slot snapshot lock cannot be poisoned");
+        if let Some(existing) = cached.as_ref() {
+            if existing.registry_version > snapshot.registry_version {
+                return existing.clone();
+            }
+            if existing.registry_version == snapshot.registry_version {
+                for assignment in &existing.ready {
+                    if !snapshot.ready.contains(assignment) {
+                        snapshot.ready.push(assignment.clone());
+                    }
+                }
+            }
+        }
+        let snapshot = Arc::new(snapshot);
+        *cached = Some(snapshot.clone());
+        snapshot
+    }
+
+    fn attribute_slot_snapshot(&self) -> Option<Arc<super::slots::AttributeSlotSnapshot>> {
+        self.attribute_slot_cache
+            .read()
+            .expect("the Attribute slot snapshot lock cannot be poisoned")
+            .clone()
+    }
+
+    fn ready_attribute_slots(&self) -> Vec<AttributeSlot> {
+        self.attribute_slot_snapshot()
+            .map_or_else(Vec::new, |snapshot| snapshot.ready.clone())
     }
 
     async fn query(&self, statement: &SqlStatement) -> Result<Vec<Row>, SearchError> {
@@ -403,7 +500,13 @@ impl SearchBackend for SqlVisibilitySearchBackend {
             run_id: position.run_id.to_string(),
         });
         let limit = (page_size + 1) as i64;
-        let assignments = self.ready_attribute_slots().await?;
+        let assignments = if self.dialect == VisibilityDialect::Postgres
+            && super::query::contains_application_field(query.expression())
+        {
+            self.ready_attribute_slots()
+        } else {
+            Vec::new()
+        };
         let statement = translate_query_for_dialect(
             &query,
             &tenant_column_value(request.tenant_id),
@@ -453,19 +556,19 @@ fn row_position(
 ) -> Result<String, SearchError> {
     let run_id: String = row
         .try_get("run_id")
-        .map_err(|error| SearchError::Internal(format!("read ParadeDB run ID: {error}")))?;
+        .map_err(|error| SearchError::Internal(format!("read SQL visibility run ID: {error}")))?;
     let run_id = run_id
         .parse::<RunId>()
-        .map_err(|error| SearchError::Internal(format!("parse ParadeDB run ID: {error}")))?;
+        .map_err(|error| SearchError::Internal(format!("parse SQL visibility run ID: {error}")))?;
     let execution_status: String = row.try_get("execution_status").map_err(|error| {
-        SearchError::Internal(format!("read ParadeDB execution status: {error}"))
+        SearchError::Internal(format!("read SQL visibility execution status: {error}"))
     })?;
-    let close_time_ns: Option<i64> = row
-        .try_get("close_time_ns")
-        .map_err(|error| SearchError::Internal(format!("read ParadeDB close time: {error}")))?;
-    let start_time_ns: i64 = row
-        .try_get("start_time_ns")
-        .map_err(|error| SearchError::Internal(format!("read ParadeDB start time: {error}")))?;
+    let close_time_ns: Option<i64> = row.try_get("close_time_ns").map_err(|error| {
+        SearchError::Internal(format!("read SQL visibility close time: {error}"))
+    })?;
+    let start_time_ns: i64 = row.try_get("start_time_ns").map_err(|error| {
+        SearchError::Internal(format!("read SQL visibility start time: {error}"))
+    })?;
     Ok(PagePosition {
         is_running: execution_status == "Running",
         close_time_ns,
@@ -473,6 +576,23 @@ fn row_position(
         run_id,
     }
     .encode(tenant_id, query))
+}
+
+fn redact_search_error(configuration: &ConnectionSettings, error: SearchError) -> SearchError {
+    match error {
+        SearchError::InvalidArgument(message) => {
+            SearchError::InvalidArgument(configuration.redact_credentials(message))
+        }
+        SearchError::ResourceExhausted(message) => {
+            SearchError::ResourceExhausted(configuration.redact_credentials(message))
+        }
+        SearchError::Unavailable(message) => {
+            SearchError::Unavailable(configuration.redact_credentials(message))
+        }
+        SearchError::Internal(message) => {
+            SearchError::Internal(configuration.redact_credentials(message))
+        }
+    }
 }
 
 fn translation_error(error: SqlTranslationError) -> SearchError {
@@ -542,339 +662,5 @@ fn schema_search_error(configuration: &ConnectionSettings, error: SchemaError) -
 }
 
 #[cfg(test)]
-mod tests {
-    use std::future::pending;
-    use std::io::Write as _;
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use dexzd_postgres_connection::ConnectionSettings;
-    use rcgen::generate_simple_self_signed;
-    use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
-    use tempfile::NamedTempFile;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-    use tokio_postgres::{Config, NoTls};
-    use tokio_rustls::TlsAcceptor;
-
-    use super::{ConnectionSlot, classify_database_error, is_transient_database_error};
-    use crate::SearchError;
-
-    #[tokio::test]
-    async fn classifies_transient_and_permanent_sqlstates() {
-        for (sqlstate, is_transient) in [
-            ("08006", true),
-            ("08P01", true),
-            ("53100", true),
-            ("55P03", true),
-            ("57014", true),
-            ("57P01", true),
-            ("57P02", true),
-            ("57P03", true),
-            ("57P04", true),
-            ("57P05", true),
-            ("40001", true),
-            ("40P01", true),
-            ("57P06", false),
-            ("40002", false),
-            ("40P02", false),
-            ("23505", false),
-            ("54023", false),
-        ] {
-            let error = rejected_startup_error(sqlstate).await;
-            assert_eq!(
-                error
-                    .as_db_error()
-                    .map(|database_error| database_error.code().code()),
-                Some(sqlstate)
-            );
-            assert_eq!(
-                is_transient_database_error(&error),
-                is_transient,
-                "{sqlstate}"
-            );
-            let classified = classify_database_error(
-                &ConnectionSettings::from_config(Config::new()),
-                "connect to SQL visibility database",
-                error,
-            );
-            match (is_transient, classified) {
-                (true, SearchError::Unavailable(message))
-                | (false, SearchError::Internal(message)) => {
-                    assert!(message.contains(&format!("SQLSTATE {sqlstate}")));
-                }
-                (_, classified) => panic!("SQLSTATE {sqlstate} classified as {classified:?}"),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn connect_error_without_sqlstate_is_unavailable() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("fake PostgreSQL listener binds");
-        let port = listener
-            .local_addr()
-            .expect("listener has an address")
-            .port();
-        let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("client connects");
-            let startup_length = stream.read_u32().await.expect("startup has a length");
-            let mut startup = vec![0; startup_length as usize - 4];
-            stream
-                .read_exact(&mut startup)
-                .await
-                .expect("client sends startup parameters");
-        });
-        let mut configuration = Config::new();
-        configuration.host("127.0.0.1").port(port).user("test");
-        let error = match configuration.connect(NoTls).await {
-            Ok(_) => panic!("the closed startup connection cannot connect"),
-            Err(error) => error,
-        };
-        server.await.expect("fake server closes the connection");
-        assert!(error.as_db_error().is_none());
-        assert!(is_transient_database_error(&error));
-        assert!(matches!(
-            classify_database_error(
-                &ConnectionSettings::from_config(Config::new()),
-                "connect to SQL visibility database",
-                error
-            ),
-            SearchError::Unavailable(message) if message.contains("SQLSTATE none")
-        ));
-    }
-
-    #[tokio::test]
-    async fn tls_certificate_failure_includes_rustls_cause_without_dsn() {
-        let server_certificate = generate_simple_self_signed(vec!["localhost".to_owned()])
-            .expect("generate server certificate");
-        let unrelated_ca = generate_simple_self_signed(vec!["unrelated.example".to_owned()])
-            .expect("generate unrelated CA");
-        let mut root_file = NamedTempFile::new().expect("create root certificate file");
-        root_file
-            .write_all(unrelated_ca.cert.pem().as_bytes())
-            .expect("write unrelated root certificate");
-        let server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
-            rustls::crypto::aws_lc_rs::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .expect("server protocol versions")
-        .with_no_client_auth()
-        .with_single_cert(
-            vec![server_certificate.cert.der().clone()],
-            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-                server_certificate.signing_key.serialize_der(),
-            )),
-        )
-        .expect("server certificate config");
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("fake TLS listener binds");
-        let port = listener.local_addr().expect("listener address").port();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("client connects");
-            let handshake = TlsAcceptor::from(Arc::new(server_config))
-                .accept(stream)
-                .await;
-            assert!(handshake.is_err(), "client rejects untrusted certificate");
-        });
-        let dsn = format!(
-            "host=localhost hostaddr=127.0.0.1 port={port} user=dex password=hidden-password sslmode=verify-full sslnegotiation=direct sslrootcert={} connect_timeout=5",
-            root_file.path().display()
-        );
-        let settings = ConnectionSettings::parse_for_search(&dsn).expect("valid TLS DSN");
-        let error = match ConnectionSlot::open(&settings).await {
-            Ok(_) => panic!("untrusted certificate cannot connect"),
-            Err(error) => error,
-        };
-        let message = error.to_string();
-        assert!(
-            message.contains("certificate") || message.contains("UnknownIssuer"),
-            "{message}"
-        );
-        assert!(!message.contains(&dsn), "{message}");
-        assert!(!message.contains("hidden-password"), "{message}");
-        server.await.expect("fake server observes TLS rejection");
-    }
-
-    #[tokio::test]
-    async fn schema_setup_timeout_retires_the_connection() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("fake PostgreSQL listener binds");
-        let port = listener
-            .local_addr()
-            .expect("listener has an address")
-            .port();
-        let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("client connects");
-            let startup_length = stream.read_u32().await.expect("startup has a length");
-            let mut startup = vec![0; startup_length as usize - 4];
-            stream
-                .read_exact(&mut startup)
-                .await
-                .expect("client sends startup parameters");
-            stream
-                .write_all(&[b'R', 0, 0, 0, 8, 0, 0, 0, 0, b'Z', 0, 0, 0, 5, b'I'])
-                .await
-                .expect("server accepts startup");
-            assert_eq!(stream.read_u8().await.expect("schema query starts"), b'Q');
-            let query_length = stream.read_u32().await.expect("query has a length");
-            let mut query = vec![0; query_length as usize - 4];
-            stream
-                .read_exact(&mut query)
-                .await
-                .expect("client sends schema query");
-            let mut next_byte = [0];
-            assert_eq!(stream.read(&mut next_byte).await.expect("socket closes"), 0);
-        });
-        let mut configuration = Config::new();
-        configuration.host("127.0.0.1").port(port).user("test");
-        let connection_settings = ConnectionSettings::from_config(configuration);
-        let mut slot = ConnectionSlot::open(&connection_settings)
-            .await
-            .expect("fake server accepts startup");
-        let result = tokio::time::timeout(
-            Duration::from_secs(1),
-            slot.ensure_schema_with_timeout(
-                &connection_settings,
-                super::VisibilityDialect::ParadeDb,
-                Duration::from_millis(50),
-            ),
-        )
-        .await
-        .expect("schema setup has a client-side deadline");
-        assert!(matches!(
-            result,
-            Err(SearchError::Unavailable(message)) if message.contains("schema") && message.contains("timed out")
-        ));
-        assert!(slot.is_disconnected());
-        tokio::time::timeout(Duration::from_secs(1), server)
-            .await
-            .expect("stalled connection closes promptly")
-            .expect("stalled connection is retired");
-    }
-
-    #[tokio::test]
-    async fn connect_error_redacts_the_dsn_and_password_from_server_text() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("fake PostgreSQL listener binds");
-        let port = listener
-            .local_addr()
-            .expect("listener has an address")
-            .port();
-        let dsn = format!(
-            "host=127.0.0.1 port={port} user=dex password=hidden-password connect_timeout=5"
-        );
-        let server = tokio::spawn(reject_startup(
-            listener,
-            format!(
-                "SFATAL\0VFATAL\0C28P01\0Mrejected {dsn}\0Dpassword hidden-password expired\0\0"
-            ),
-        ));
-        let settings = ConnectionSettings::parse_for_search(&dsn).expect("valid plaintext DSN");
-        let error = match ConnectionSlot::open(&settings).await {
-            Ok(_) => panic!("the rejected startup cannot connect"),
-            Err(error) => error,
-        };
-        server.await.expect("fake server sends its rejection");
-        let message = error.to_string();
-        assert!(message.contains("SQLSTATE 28P01"), "{message}");
-        assert!(message.contains("[REDACTED]"), "{message}");
-        assert!(!message.contains(&dsn), "{message}");
-        assert!(!message.contains("hidden-password"), "{message}");
-    }
-
-    async fn rejected_startup_error(sqlstate: &str) -> tokio_postgres::Error {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("fake PostgreSQL listener binds");
-        let port = listener
-            .local_addr()
-            .expect("listener has an address")
-            .port();
-        let response = format!("SFATAL\0VFATAL\0C{sqlstate}\0Mforced rejection\0\0");
-        let server = tokio::spawn(reject_startup(listener, response));
-        let mut configuration = Config::new();
-        configuration.host("127.0.0.1").port(port).user("test");
-        let error = match configuration.connect(NoTls).await {
-            Ok(_) => panic!("the rejected startup cannot connect"),
-            Err(error) => error,
-        };
-        server.await.expect("fake server sends its rejection");
-        error
-    }
-
-    /// Answers one client's startup message with the ErrorResponse fields in `response`.
-    async fn reject_startup(listener: TcpListener, response: String) {
-        let (mut stream, _) = listener.accept().await.expect("client connects");
-        let startup_length = stream.read_u32().await.expect("startup has a length");
-        let mut startup = vec![0; startup_length as usize - 4];
-        stream
-            .read_exact(&mut startup)
-            .await
-            .expect("client sends startup parameters");
-        let mut message = vec![b'E'];
-        message.extend_from_slice(&((response.len() + 4) as u32).to_be_bytes());
-        message.extend_from_slice(response.as_bytes());
-        stream
-            .write_all(&message)
-            .await
-            .expect("server rejects startup");
-    }
-
-    #[tokio::test]
-    async fn reconnects_after_a_stalled_postgres_handshake() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("fake PostgreSQL listener binds");
-        let port = listener
-            .local_addr()
-            .expect("listener has an address")
-            .port();
-        let server = tokio::spawn(async move {
-            let mut connections = Vec::new();
-            for connection_number in 0..3 {
-                let (mut stream, _) = listener.accept().await.expect("client connects");
-                let startup_length = stream.read_u32().await.expect("startup has a length");
-                let mut startup = vec![0; startup_length as usize - 4];
-                stream
-                    .read_exact(&mut startup)
-                    .await
-                    .expect("client sends startup parameters");
-                if connection_number != 1 {
-                    stream
-                        .write_all(&[b'R', 0, 0, 0, 8, 0, 0, 0, 0, b'Z', 0, 0, 0, 5, b'I'])
-                        .await
-                        .expect("server accepts startup");
-                }
-                connections.push(stream);
-            }
-            pending::<()>().await;
-        });
-        let mut configuration = tokio_postgres::Config::new();
-        configuration
-            .host("127.0.0.1")
-            .port(port)
-            .user("test")
-            .dbname("test")
-            .connect_timeout(Duration::from_secs(1));
-
-        let connection_settings = ConnectionSettings::from_config(configuration);
-        let mut slot = ConnectionSlot::open(&connection_settings)
-            .await
-            .expect("initial connection opens");
-        slot.invalidate();
-        assert!(slot.reconnect(&connection_settings).await.is_err());
-        assert!(slot.is_disconnected());
-        slot.reconnect(&connection_settings)
-            .await
-            .expect("a fresh connection replaces the failed slot");
-        assert!(!slot.is_disconnected());
-        server.abort();
-        let error = server.await.expect_err("fake server is aborted");
-        assert!(error.is_cancelled());
-    }
-}
+#[path = "connection_tests.rs"]
+mod tests;

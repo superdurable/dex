@@ -13,7 +13,6 @@ use tokio_postgres::types::{ToSql, Type};
 
 use super::VisibilityDialect;
 
-const SCHEMA_VERSION: i32 = 4;
 const SCHEMA_ADVISORY_LOCK: i64 = 5_589_034_107_693_961_330;
 
 /// A failure while creating or checking the SQL visibility schema.
@@ -79,8 +78,11 @@ pub async fn ensure_schema_for_dialect(
             operation: "set lock timeout for",
             source,
         })?;
-    if is_current_version(schema_version(&transaction).await?)? {
+    let previous_version = schema_version(&transaction).await?;
+    if previous_version.is_some() {
         check_dialect(&transaction, dialect).await?;
+    }
+    if is_current_version(previous_version, dialect)? && has_recorded_dialect(&transaction).await? {
         return commit_schema(transaction).await;
     }
     transaction
@@ -94,12 +96,11 @@ pub async fn ensure_schema_for_dialect(
             source,
         })?;
     let previous_version = schema_version(&transaction).await?;
-    if is_current_version(previous_version)? {
-        check_dialect(&transaction, dialect).await?;
-        return commit_schema(transaction).await;
-    }
     if previous_version.is_some() {
         check_dialect(&transaction, dialect).await?;
+    }
+    if is_current_version(previous_version, dialect)? && has_recorded_dialect(&transaction).await? {
+        return commit_schema(transaction).await;
     }
     if dialect == VisibilityDialect::Postgres {
         let row = transaction
@@ -122,6 +123,9 @@ pub async fn ensure_schema_for_dialect(
             source,
         })?;
     transaction.batch_execute("ALTER TABLE dexzd_visibility_schema_version ADD COLUMN IF NOT EXISTS dialect text NOT NULL DEFAULT 'paradedb'").await.map_err(|source| SchemaError::Database { operation: "add dialect to", source })?;
+    if previous_version == Some(3) && dialect == VisibilityDialect::ParadeDb {
+        return commit_schema(transaction).await;
+    }
     transaction
         .batch_execute(include_str!("migration.sql"))
         .await
@@ -148,10 +152,11 @@ pub async fn ensure_schema_for_dialect(
                 source,
             })?;
     }
+    let supported_version = supported_version(dialect);
     transaction
         .execute_typed(
             "INSERT INTO dexzd_visibility_schema_version (id, version, dialect) VALUES (1, $1::integer, $2::text) ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, dialect = EXCLUDED.dialect",
-            &[(&SCHEMA_VERSION as &(dyn ToSql + Sync), Type::INT4), (&dialect.name(), Type::TEXT)],
+            &[(&supported_version as &(dyn ToSql + Sync), Type::INT4), (&dialect.name(), Type::TEXT)],
         )
         .await
         .map_err(|source| SchemaError::Database {
@@ -188,15 +193,16 @@ async fn schema_version(transaction: &Transaction<'_>) -> Result<Option<i32>, Sc
         })
 }
 
-fn is_current_version(version: Option<i32>) -> Result<bool, SchemaError> {
+fn is_current_version(
+    version: Option<i32>,
+    dialect: VisibilityDialect,
+) -> Result<bool, SchemaError> {
+    let supported = supported_version(dialect);
     if let Some(found) = version {
-        if found > SCHEMA_VERSION {
-            return Err(SchemaError::NewerVersion {
-                found,
-                supported: SCHEMA_VERSION,
-            });
+        if found > supported {
+            return Err(SchemaError::NewerVersion { found, supported });
         }
-        return Ok(found == SCHEMA_VERSION);
+        return Ok(found == supported);
     }
     Ok(false)
 }
@@ -226,4 +232,16 @@ async fn check_dialect(
         }
     }
     Ok(())
+}
+
+fn supported_version(dialect: VisibilityDialect) -> i32 {
+    match dialect {
+        VisibilityDialect::ParadeDb => 3,
+        VisibilityDialect::Postgres => 4,
+    }
+}
+
+async fn has_recorded_dialect(transaction: &Transaction<'_>) -> Result<bool, SchemaError> {
+    let row = transaction.query_typed_opt("SELECT to_jsonb(version_row)->>'dialect' IS NOT NULL FROM dexzd_visibility_schema_version AS version_row WHERE id = 1", &[]).await.map_err(|source| SchemaError::Database { operation: "inspect dialect metadata in", source })?;
+    Ok(row.is_some_and(|row| row.get(0)))
 }

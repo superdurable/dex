@@ -28,7 +28,7 @@ pub(super) fn response_entry(row: &Row) -> Result<dex::SearchFlowsResponseEntry,
         "ContinuedAsNew" => FlowStatus::ContinuedAsNew,
         _ => {
             return Err(SearchError::Internal(format!(
-                "ParadeDB run has unknown execution status {execution_status}"
+                "SQL visibility run has unknown execution status {execution_status}"
             )));
         }
     };
@@ -122,14 +122,15 @@ fn read<'a, T>(row: &'a Row, column: &str) -> Result<T, SearchError>
 where
     T: tokio_postgres::types::FromSql<'a>,
 {
-    row.try_get(column)
-        .map_err(|error| SearchError::Internal(format!("read ParadeDB column {column}: {error}")))
+    row.try_get(column).map_err(|error| {
+        SearchError::Internal(format!("read SQL visibility column {column}: {error}"))
+    })
 }
 
 fn read_bucket(row: &Row, column: &str) -> Result<BTreeMap<String, JsonValue>, SearchError> {
     let encoded: String = read(row, column)?;
     serde_json::from_str(&encoded)
-        .map_err(|error| SearchError::Internal(format!("decode ParadeDB {column}: {error}")))
+        .map_err(|error| SearchError::Internal(format!("decode SQL visibility {column}: {error}")))
 }
 
 fn attribute_value(
@@ -168,7 +169,7 @@ fn attribute_value(
 
 fn invalid_attribute(field: &str) -> SearchError {
     SearchError::Internal(format!(
-        "ParadeDB field {field} has a mismatched indexed value"
+        "SQL visibility field {field} has a mismatched indexed value"
     ))
 }
 

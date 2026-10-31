@@ -485,11 +485,16 @@ impl ServerNode {
                 .map_err(|source| ServerError::StreamStore { source })?,
         );
         let partition_count = config.cluster.partition_count;
-        let attribute_indexes = Arc::new(AttributeIndexes::new(
+        let attribute_indexes = Arc::new(AttributeIndexes::new_with_registry_refresh(
             object_stores.primary.clone(),
             clock.clone(),
             (config.search.backend == SearchBackendKind::Postgres)
                 .then(dexzd_cluster_metadata::AttributeIndexCapacity::postgres),
+            if config.search.backend == SearchBackendKind::Postgres {
+                dexzd_api::AttributeIndexRegistryRefresh::ExternalRegistrations
+            } else {
+                dexzd_api::AttributeIndexRegistryRefresh::LocalRegistrations
+            },
         ));
         let sql_visibility_search = match config.search.backend {
             SearchBackendKind::Builtin => None,

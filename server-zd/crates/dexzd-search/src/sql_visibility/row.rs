@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use dexzd_keyspace::TenantId;
+use dexzd_protocol::attribute_index::is_system_search_field;
 use dexzd_protocol::dex::IndexType;
 use dexzd_protocol::dexzd::v1::SearchAttributeValue;
 use dexzd_visibility_query::{SearchDocument, SearchValue};
@@ -17,7 +18,7 @@ use thiserror::Error;
 use super::tenant_column_value;
 use super::wire_value::encode_wire_value;
 
-/// A document ready for a versioned ParadeDB upsert.
+/// A document ready for a versioned SQL visibility upsert.
 #[derive(Debug, Clone)]
 pub struct SearchRow {
     /// Tenant scope of the run.
@@ -62,7 +63,7 @@ pub struct SearchRow {
     pub sa_wire: BTreeMap<String, SearchValue>,
 }
 
-/// Invalid projection input that cannot be stored as a ParadeDB row.
+/// Invalid projection input that cannot be stored as a SQL visibility row.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SearchRowError {
@@ -117,7 +118,7 @@ impl SearchRow {
             sa_wire: BTreeMap::new(),
         };
         for (field, index_type) in application_fields {
-            if is_system_field(field) {
+            if is_system_search_field(field) {
                 return Err(SearchRowError::SystemFieldCollision {
                     field: field.clone(),
                 });
@@ -252,20 +253,4 @@ fn optional_string_array(
         }),
         None => Ok(None),
     }
-}
-
-pub(crate) fn is_system_field(field: &str) -> bool {
-    matches!(
-        field,
-        "WorkflowId"
-            | "RunId"
-            | "WorkflowType"
-            | "FlowType"
-            | "ExecutionStatus"
-            | "StartTime"
-            | "CloseTime"
-            | "DexParentFlowID"
-            | "ActiveStepTypes"
-            | "DexWorkQueuePermissions"
-    )
 }

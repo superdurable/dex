@@ -96,3 +96,20 @@ struct StatusDetails {
     #[prost(message, repeated, tag = "3")]
     details: Vec<prost_types::Any>,
 }
+
+#[tokio::test]
+async fn background_refresh_reuses_request_snapshots_and_discovers_external_registrations() {
+    use dexzd_api::AttributeIndexRegistryRefresh;
+    use dexzd_search::sql_visibility::AttributeIndexRegistryReader;
+    use dexzd_visibility_query::parse_and_check;
+    let store = Arc::new(InMemoryObjectStore::new());
+    let indexes = AttributeIndexes::new_with_registry_refresh(store.clone(), Arc::new(SystemWallClock), None, AttributeIndexRegistryRefresh::ExternalRegistrations);
+    indexes.sync_attribute_indexes(TenantId(7), &SyncAttributeIndexRequest { attribute_indexes: BTreeMap::from([("first".into(), IndexType::Int as i32)]) }).await.unwrap();
+    let external = AttributeIndexes::new(store, Arc::new(SystemWallClock), None);
+    external.sync_attribute_indexes(TenantId(7), &SyncAttributeIndexRequest { attribute_indexes: BTreeMap::from([("second".into(), IndexType::Int as i32)]) }).await.unwrap();
+    let cached = indexes.field_registry(TenantId(7)).await.unwrap();
+    assert!(parse_and_check("second = 2", &cached).is_err());
+    indexes.refresh_attribute_index_registry().await.unwrap();
+    let refreshed = indexes.field_registry(TenantId(7)).await.unwrap();
+    assert!(parse_and_check("second = 2", &refreshed).is_ok());
+}

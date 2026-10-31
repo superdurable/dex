@@ -43,8 +43,8 @@ use tempfile::TempDir;
 use tonic::transport::Channel;
 
 use harness::{
-    ParadeDbSchema, ParadeDbSettings, ParadeDbTcpProxy, PullWorker, S3Emulator, ServeConfig,
-    ServeProcess, free_loopback_address,
+    PullWorker, S3Emulator, ServeConfig, ServeProcess, SqlVisibilitySchema, SqlVisibilitySettings,
+    SqlVisibilityTcpProxy, free_loopback_address,
 };
 
 const NODE_ID: &str = "serve-node";
@@ -563,7 +563,7 @@ async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
     database_url: &str,
     is_postgres: bool,
 ) {
-    let schema = ParadeDbSchema::create_for_dialect(database_url, is_postgres).await;
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
@@ -576,7 +576,7 @@ async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
             local_directory: &directory.path().join(format!("{name}-store")),
             lease_duration: HELD_LEASE_DURATION,
             fail_if_held: true,
-            parade_db: Some(ParadeDbSettings {
+            parade_db: Some(SqlVisibilitySettings {
                 is_postgres,
                 connection_string: database_url,
                 schema: schema.name(),
@@ -693,8 +693,8 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
     database_url: &str,
     is_postgres: bool,
 ) {
-    let schema = ParadeDbSchema::create_for_dialect(database_url, is_postgres).await;
-    let mut proxy = ParadeDbTcpProxy::start(database_url).await;
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
+    let mut proxy = SqlVisibilityTcpProxy::start(database_url).await;
     let proxied_database_url = proxy.connection_string(database_url);
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let primary_endpoint = primary.endpoint();
@@ -708,7 +708,7 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
         local_directory: &directory.path().join("store"),
         lease_duration: HELD_LEASE_DURATION,
         fail_if_held: true,
-        parade_db: Some(ParadeDbSettings {
+        parade_db: Some(SqlVisibilitySettings {
             is_postgres,
             connection_string: &proxied_database_url,
             schema: schema.name(),
@@ -844,7 +844,7 @@ async fn run_search_finds_flows_with_work_queue_permissions_for_test(
     database_url: &str,
     is_postgres: bool,
 ) {
-    let schema = ParadeDbSchema::create_for_dialect(database_url, is_postgres).await;
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
@@ -857,7 +857,7 @@ async fn run_search_finds_flows_with_work_queue_permissions_for_test(
         local_directory: &directory.path().join("store"),
         lease_duration: HELD_LEASE_DURATION,
         fail_if_held: true,
-        parade_db: Some(ParadeDbSettings {
+        parade_db: Some(SqlVisibilitySettings {
             is_postgres,
             connection_string: database_url,
             schema: schema.name(),

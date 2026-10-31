@@ -34,15 +34,15 @@ fn append_keeps_assignments_and_system_fields_never_consume_slots() {
         ],
     };
     let initial = assign_attribute_slots(&registry).unwrap();
-    assert_eq!(initial[0].slot_column, "keyword_01");
-    assert_eq!(initial[1].slot_column, "int_01");
-    assert_eq!(initial[2].slot_column, "keyword_01");
+    assert_eq!(initial[0].slot_column.as_str(), "keyword_01");
+    assert_eq!(initial[1].slot_column.as_str(), "int_01");
+    assert_eq!(initial[2].slot_column.as_str(), "keyword_01");
     registry
         .registrations
         .push(registration(1, "alphabetically_first", IndexType::Keyword));
     let appended = assign_attribute_slots(&registry).unwrap();
     assert_eq!(appended[..initial.len()], initial);
-    assert_eq!(appended.last().unwrap().slot_column, "keyword_02");
+    assert_eq!(appended.last().unwrap().slot_column.as_str(), "keyword_02");
     registry.registrations.extend(
         (0..10)
             .map(|position| registration(1, &format!("overflow_{position}"), IndexType::Keyword)),

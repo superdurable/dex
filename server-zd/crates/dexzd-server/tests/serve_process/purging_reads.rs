@@ -25,7 +25,8 @@ use tempfile::TempDir;
 use tonic::transport::Channel;
 
 use crate::harness::{
-    ParadeDbSchema, ParadeDbSettings, S3Emulator, ServeConfig, ServeProcess, free_loopback_address,
+    S3Emulator, ServeConfig, ServeProcess, SqlVisibilitySchema, SqlVisibilitySettings,
+    free_loopback_address,
 };
 use crate::{
     FLOW_TYPE, HARD_DELETE_BUCKET, HELD_LEASE_DURATION, PRIMARY_BUCKET, SEARCH_BUDGET,
@@ -75,7 +76,7 @@ struct FrozenPurge {
 
 impl FrozenPurge {
     /// Completes a Flow holding hard-delete, large, and Channel values, then waits for its held purge.
-    async fn start(parade_db: Option<ParadeDbSettings<'_>>) -> Self {
+    async fn start(parade_db: Option<SqlVisibilitySettings<'_>>) -> Self {
         let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
         let hard_delete = S3Emulator::start(HARD_DELETE_BUCKET, SignatureVerification::Off).await;
         let directory = TempDir::new().expect("a temporary test directory can be created");
@@ -482,7 +483,7 @@ async fn assert_purging_flow_reads_not_found_and_blobs_omitted(purge: &mut Froze
 }
 
 /// Checks reads before RunPurge commits, with and without hard-delete objects.
-async fn assert_frozen_purge_reads(parade_db: Option<ParadeDbSettings<'_>>) {
+async fn assert_frozen_purge_reads(parade_db: Option<SqlVisibilitySettings<'_>>) {
     let mut purge = FrozenPurge::start(parade_db).await;
     assert!(
         !purge
@@ -511,8 +512,8 @@ async fn frozen_purge_reads_are_not_found_except_load_blobs_with_paradedb_search
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    let schema = ParadeDbSchema::create(&database_url).await;
-    assert_frozen_purge_reads(Some(ParadeDbSettings {
+    let schema = SqlVisibilitySchema::create(&database_url).await;
+    assert_frozen_purge_reads(Some(SqlVisibilitySettings {
         is_postgres: false,
         connection_string: &database_url,
         schema: schema.name(),

@@ -24,7 +24,7 @@ use super::committed_search_frames::{CommittedSearchFrame, CommittedSearchFrames
 const FIRST_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(10);
 
-/// Projects committed frames into ParadeDB in commit order and rebuilds partitions it cannot follow.
+/// Projects committed frames into SQL visibility in commit order and rebuilds partitions it cannot follow.
 pub(crate) struct SearchProjectionWorker {
     projector: SqlVisibilityProjector,
     committer: CommandCommitter,
@@ -75,15 +75,8 @@ impl SearchProjectionWorker {
         if !self.catch_up_partitions().await {
             return;
         }
-        let mut registry_refresh = tokio::time::interval(Duration::from_secs(1));
-        registry_refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
-                _ = registry_refresh.tick() => {
-                    if let Err(error) = self.projector.synchronize_attribute_slots().await {
-                        tracing::warn!(%error, "refreshing Attribute search slots failed");
-                    }
-                }
                 frame = self.queue.recv() => match frame {
                     Some(frame) => if !self.project_frame(frame).await { return; },
                     None => return,
@@ -99,7 +92,7 @@ impl SearchProjectionWorker {
         }
     }
 
-    /// Frames lost before startup leave ParadeDB behind the local store, so differing partitions rebuild.
+    /// Frames lost before startup leave SQL visibility behind the local store, so differing partitions rebuild.
     async fn catch_up_partitions(&mut self) -> bool {
         let caught_up_sequence = self.frames.last_sequence();
         let mut rebuilt_partitions = 0_u32;
@@ -151,7 +144,7 @@ impl SearchProjectionWorker {
             (Some(progress), None) => {
                 tracing::warn!(
                     partition = partition.0,
-                    "ParadeDB has search progress for a partition without committed state"
+                    "SQL visibility has search progress for a partition without committed state"
                 );
                 self.projected_positions.insert(partition, progress);
                 Ok(false)
@@ -220,7 +213,7 @@ impl SearchProjectionWorker {
                     tracing::warn!(
                         partition = frame.partition.0,
                         %error,
-                        "projecting a committed frame into ParadeDB failed; retrying"
+                        "projecting a committed frame into SQL visibility failed; retrying"
                     );
                     retry_delay.wait().await;
                 }

@@ -8,108 +8,130 @@
 
 use dexzd_protocol::dex::IndexType;
 use tokio_postgres::types::{ToSql, Type};
-use tokio_postgres::{GenericClient, Transaction};
+use tokio_postgres::{Client, Transaction};
+#[cfg(test)]
+use tokio_postgres::GenericClient;
 
 use super::AttributeSlot;
+use super::registry::{assignment_from_row, registry_database_error, slot_database_error};
 use super::values::slot_value_expression;
 use crate::SearchError;
-use crate::sql_visibility::search_backend::{database_error_message, is_transient_database_error};
 
-const SLOT_ADVISORY_LOCK: i64 = 5_589_034_107_693_961_331;
 const BACKFILL_BATCH_SIZE: i64 = 256;
 
-pub(crate) async fn lock_attribute_slots(transaction: &Transaction<'_>) -> Result<(), SearchError> {
-    transaction
-        .query_typed_one(
-            "SELECT pg_advisory_xact_lock($1::bigint)",
-            &[(&SLOT_ADVISORY_LOCK as &(dyn ToSql + Sync), Type::INT8)],
-        )
+pub(crate) async fn backfill_next_batch(client: &mut Client) -> Result<bool, SearchError> {
+    let transaction = client
+        .transaction()
         .await
-        .map_err(database_error)?;
-    Ok(())
+        .map_err(|source| registry_database_error("begin Attribute slot backfill batch", source))?;
+    transaction
+        .batch_execute("SET LOCAL statement_timeout = '15s'; SET LOCAL lock_timeout = '5s'")
+        .await
+        .map_err(|source| registry_database_error("bound Attribute slot backfill batch", source))?;
+    let did_advance = apply_backfill_batch(&transaction).await?;
+    transaction.commit().await.map_err(|source| {
+        registry_database_error("commit Attribute slot backfill batch", source)
+    })?;
+    Ok(did_advance)
 }
 
-pub(crate) async fn read_ready_slots(
-    client: &impl GenericClient,
-    assignments: Vec<AttributeSlot>,
-) -> Result<Vec<AttributeSlot>, SearchError> {
-    let rows = client.query_typed("SELECT tenant_id, index_key, slot_column FROM dexzd_visibility_attribute_slots WHERE state = 'ready'", &[]).await.map_err(database_error)?;
-    Ok(assignments
-        .into_iter()
-        .filter(|assignment| {
-            rows.iter().any(|row| {
-                row.get::<_, String>(0) == assignment.tenant_id.to_string()
-                    && row.get::<_, String>(1) == assignment.index_key
-                    && row.get::<_, String>(2) == assignment.slot_column
-            })
-        })
-        .collect())
-}
-
-pub(crate) async fn backfill_attribute_slots(
+pub(crate) async fn apply_backfill_batch(
     transaction: &Transaction<'_>,
-    assignments: &[AttributeSlot],
-) -> Result<(), SearchError> {
-    for assignment in assignments {
-        let tenant = assignment.tenant_id.to_string();
-        let parameters: &[(&(dyn ToSql + Sync), Type)] = &[
-            (&tenant, Type::TEXT),
-            (&assignment.index_key, Type::TEXT),
-            (&assignment.slot_column, Type::TEXT),
-        ];
-        transaction.execute_typed("INSERT INTO dexzd_visibility_attribute_slots (tenant_id, index_key, slot_column, state) VALUES ($1, $2, $3, 'backfilling') ON CONFLICT (tenant_id, index_key) DO NOTHING", parameters).await.map_err(database_error)?;
-        let state = transaction.query_typed_one("SELECT state, slot_column FROM dexzd_visibility_attribute_slots WHERE tenant_id = $1 AND index_key = $2", &parameters[..2]).await.map_err(database_error)?;
-        if state.get::<_, String>(1) != assignment.slot_column {
-            return Err(SearchError::Internal(format!(
-                "Attribute slot assignment changed for {:?}",
-                assignment.index_key
-            )));
-        }
-        if state.get::<_, String>(0) == "ready" {
-            continue;
-        }
-        let partitions = transaction
-            .query_typed(
-                "SELECT DISTINCT partition_id FROM dexzd_visibility_runs WHERE tenant_id = $1",
-                &parameters[..1],
+) -> Result<bool, SearchError> {
+    let row = transaction.query_typed_opt("SELECT tenant_id, index_key, slot_column, backfill_partition_id, backfill_after_run_id FROM dexzd_visibility_attribute_slots WHERE state = 'backfilling' ORDER BY tenant_id, index_key FOR UPDATE SKIP LOCKED LIMIT 1", &[]).await.map_err(|source| registry_database_error("select pending Attribute slot backfill", source))?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    let assignment = assignment_from_row(&row)?;
+    let mut partition_id: Option<i32> = row.get(3);
+    let after_run_id: String = row.get(4);
+    let tenant = assignment.tenant_id.to_string();
+    if partition_id.is_none() {
+        partition_id = transaction
+            .query_typed_one(
+                "SELECT min(partition_id) FROM dexzd_visibility_runs WHERE tenant_id = $1::text",
+                &[(&tenant as &(dyn ToSql + Sync), Type::TEXT)],
             )
             .await
-            .map_err(database_error)?;
-        for partition in partitions {
-            backfill_partition(transaction, assignment, partition.get(0)).await?;
-        }
-        transaction.execute_typed("UPDATE dexzd_visibility_attribute_slots SET state = 'ready' WHERE tenant_id = $1 AND index_key = $2", &parameters[..2]).await.map_err(database_error)?;
-        tracing::info!(tenant_id = assignment.tenant_id, index_key = %assignment.index_key, slot_column = %assignment.slot_column, "Attribute slot backfill completed");
+            .map_err(|source| {
+                slot_database_error("find first backfill partition for", &assignment, source)
+            })?
+            .get(0);
     }
-    Ok(())
+    let Some(partition_id) = partition_id else {
+        mark_ready(transaction, &assignment).await?;
+        return Ok(true);
+    };
+    let bucket = slot_bucket(assignment.index_type);
+    let rows = transaction.query_typed(&format!("SELECT run_id FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id = $3::integer AND run_id > $4::text AND {} IS NULL AND {bucket} ? $2::text ORDER BY run_id LIMIT $5::bigint", assignment.slot_column), &[
+        (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&partition_id, Type::INT4), (&after_run_id, Type::TEXT), (&BACKFILL_BATCH_SIZE, Type::INT8)
+    ]).await.map_err(|source| slot_database_error("read backfill batch for", &assignment, source))?;
+    if rows.is_empty() {
+        let next_partition: Option<i32> = transaction.query_typed_one("SELECT min(partition_id) FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id > $2::integer", &[(&tenant as &(dyn ToSql + Sync), Type::TEXT), (&partition_id, Type::INT4)]).await.map_err(|source| slot_database_error("find next backfill partition for", &assignment, source))?.get(0);
+        if let Some(next_partition) = next_partition {
+            record_checkpoint(transaction, &assignment, next_partition, "").await?;
+        } else {
+            mark_ready(transaction, &assignment).await?;
+        }
+        return Ok(true);
+    }
+    let run_ids = rows
+        .iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect::<Vec<_>>();
+    let expression = slot_value_expression(assignment.index_type, bucket, "$2::text");
+    transaction.execute_typed(&format!("UPDATE dexzd_visibility_runs SET {} = {expression} WHERE tenant_id = $1::text AND run_id = ANY($3::text[]) AND {} IS NULL AND {bucket} ? $2::text", assignment.slot_column, assignment.slot_column), &[
+        (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&run_ids, Type::TEXT_ARRAY)
+    ]).await.map_err(|source| slot_database_error("update backfill batch for", &assignment, source))?;
+    record_checkpoint(
+        transaction,
+        &assignment,
+        partition_id,
+        run_ids
+            .last()
+            .expect("a nonempty backfill batch has a last run"),
+    )
+    .await?;
+    Ok(true)
 }
 
-async fn backfill_partition(
+async fn record_checkpoint(
     transaction: &Transaction<'_>,
     assignment: &AttributeSlot,
     partition_id: i32,
+    after_run_id: &str,
 ) -> Result<(), SearchError> {
     let tenant = assignment.tenant_id.to_string();
-    let mut after_run = String::new();
-    let bucket = slot_bucket(assignment.index_type);
-    let expression = slot_value_expression(assignment.index_type, bucket, "$2::text");
-    loop {
-        let rows = transaction.query_typed(&format!("SELECT run_id, sa_text ->> $2::text AS text_value FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id = $3::integer AND run_id COLLATE \"C\" > $4::text AND {} IS NULL AND {bucket} ? $2::text ORDER BY run_id COLLATE \"C\" LIMIT $5::bigint", assignment.slot_column), &[
-            (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&partition_id, Type::INT4), (&after_run, Type::TEXT), (&BACKFILL_BATCH_SIZE, Type::INT8)
-        ]).await.map_err(database_error)?;
-        if rows.is_empty() {
-            break;
-        }
-        after_run = rows.last().expect("nonempty backfill batch").get(0);
-        let run_ids = rows
-            .iter()
-            .map(|row| row.get::<_, String>(0))
-            .collect::<Vec<_>>();
-        transaction.execute_typed(&format!("UPDATE dexzd_visibility_runs SET {} = {expression} WHERE tenant_id = $1::text AND run_id = ANY($3::text[]) AND {} IS NULL AND {bucket} ? $2::text", assignment.slot_column, assignment.slot_column), &[
-            (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&run_ids, Type::TEXT_ARRAY)
-        ]).await.map_err(database_error)?;
-    }
+    transaction.execute_typed("UPDATE dexzd_visibility_attribute_slots SET backfill_partition_id = $3::integer, backfill_after_run_id = $4::text WHERE tenant_id = $1::text AND index_key = $2::text", &[
+        (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&partition_id, Type::INT4), (&after_run_id, Type::TEXT)
+    ]).await.map_err(|source| slot_database_error("record backfill checkpoint for", assignment, source))?;
     Ok(())
+}
+
+async fn mark_ready(
+    transaction: &Transaction<'_>,
+    assignment: &AttributeSlot,
+) -> Result<(), SearchError> {
+    let tenant = assignment.tenant_id.to_string();
+    transaction.execute_typed("UPDATE dexzd_visibility_attribute_slots SET state = 'ready' WHERE tenant_id = $1::text AND index_key = $2::text", &[(&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT)]).await.map_err(|source| slot_database_error("mark ready", assignment, source))?;
+    tracing::info!(tenant_id = assignment.tenant_id, index_key = %assignment.index_key, slot_column = %assignment.slot_column, "Attribute slot backfill completed");
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) async fn backfill_pending_count(
+    client: &impl GenericClient,
+) -> Result<i64, SearchError> {
+    let row = client
+        .query_typed_one(
+            "SELECT count(*) FROM dexzd_visibility_attribute_slots WHERE state = 'backfilling'",
+            &[],
+        )
+        .await
+        .map_err(|source| {
+            registry_database_error("count pending Attribute slot backfills", source)
+        })?;
+    Ok(row.get(0))
 }
 
 fn slot_bucket(index_type: IndexType) -> &'static str {
@@ -120,17 +142,5 @@ fn slot_bucket(index_type: IndexType) -> &'static str {
         IndexType::Bool => "sa_bool",
         IndexType::Text => "sa_text",
         IndexType::Unspecified => unreachable!("slot assignments reject unspecified types"),
-    }
-}
-
-fn database_error(source: tokio_postgres::Error) -> SearchError {
-    let message = format!(
-        "backfill Attribute slots: {}",
-        database_error_message(&source)
-    );
-    if is_transient_database_error(&source) {
-        SearchError::Unavailable(message)
-    } else {
-        SearchError::Internal(message)
     }
 }

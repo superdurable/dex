@@ -1,3 +1,9 @@
+ALTER TABLE dexzd_visibility_schema_version ADD COLUMN IF NOT EXISTS attribute_registry_version bigint NOT NULL DEFAULT 0;
+ALTER TABLE dexzd_visibility_runs
+    ALTER COLUMN tenant_id TYPE text COLLATE "C",
+    ALTER COLUMN run_id TYPE text COLLATE "C",
+    ALTER COLUMN workflow_id TYPE text COLLATE "C",
+    ALTER COLUMN flow_type TYPE text COLLATE "C";
 ALTER TABLE dexzd_visibility_runs ADD COLUMN IF NOT EXISTS keyword_01 text COLLATE "C";
 CREATE INDEX IF NOT EXISTS dexzd_visibility_keyword_01_idx ON dexzd_visibility_runs (tenant_id, keyword_01, is_running DESC, close_time_ns DESC NULLS LAST, start_time_ns DESC, run_id COLLATE "C") WHERE keyword_01 IS NOT NULL;
 ALTER TABLE dexzd_visibility_runs ADD COLUMN IF NOT EXISTS keyword_02 text COLLATE "C";
@@ -54,4 +60,4 @@ ALTER TABLE dexzd_visibility_runs ADD COLUMN IF NOT EXISTS text_terms_02 text[];
 CREATE INDEX IF NOT EXISTS dexzd_visibility_text_terms_02_idx ON dexzd_visibility_runs USING GIN (text_terms_02) WHERE text_terms_02 IS NOT NULL;
 ALTER TABLE dexzd_visibility_runs ADD COLUMN IF NOT EXISTS text_terms_03 text[];
 CREATE INDEX IF NOT EXISTS dexzd_visibility_text_terms_03_idx ON dexzd_visibility_runs USING GIN (text_terms_03) WHERE text_terms_03 IS NOT NULL;
-CREATE TABLE IF NOT EXISTS dexzd_visibility_attribute_slots (tenant_id text NOT NULL, index_key text NOT NULL, slot_column text NOT NULL, state text NOT NULL CHECK (state IN ('backfilling', 'ready')), PRIMARY KEY (tenant_id, index_key), UNIQUE (tenant_id, slot_column));
+CREATE TABLE IF NOT EXISTS dexzd_visibility_attribute_slots (tenant_id text NOT NULL, index_key text NOT NULL, slot_column text NOT NULL, state text NOT NULL CHECK (state IN ('backfilling', 'ready')), backfill_partition_id integer, backfill_after_run_id text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, index_key), UNIQUE (tenant_id, slot_column));

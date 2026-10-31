@@ -376,7 +376,14 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .expect("read created schema version")
         };
-        assert_eq!(schema_row.get::<_, i32>(0), 4);
+        assert_eq!(
+            schema_row.get::<_, i32>(0),
+            if dialect == VisibilityDialect::ParadeDb {
+                3
+            } else {
+                4
+            }
+        );
         let other_dialect = if dialect == VisibilityDialect::ParadeDb {
             VisibilityDialect::Postgres
         } else {
@@ -841,6 +848,13 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .unwrap()
                 .get(0);
+            let metadata = admin_client.query_one(&format!("SELECT version, dialect FROM {schema_name}.dexzd_visibility_schema_version WHERE id = 1"), &[]).await.unwrap();
+            assert_eq!(metadata.get::<_, i32>(0), 3);
+            assert_eq!(metadata.get::<_, String>(1), "paradedb");
+            assert!(
+                metadata.get::<_, i32>(0) <= 3,
+                "the older binary's schema version check still accepts ParadeDB"
+            );
             assert_eq!(previous_count, preserved_count);
             assert!(previous_count > 0);
             drop(upgraded);

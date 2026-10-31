@@ -10,84 +10,130 @@ use aws_lc_rs::digest::{SHA256, digest};
 use dexzd_protocol::dex::IndexType;
 
 use super::AttributeSlot;
-use crate::sql_visibility::{SearchRow, SqlValue};
+use super::AttributeSlotColumn;
+use super::slot_column::{INDEX_TYPES, slot_type};
+use crate::sql_visibility::SqlValue;
+use std::collections::BTreeSet;
 
-pub(crate) fn all_slot_columns() -> Vec<(String, &'static str)> {
-    [
-        ("keyword", "text", 10),
-        ("int", "bigint", 3),
-        ("datetime", "bigint", 3),
-        ("double", "double precision", 3),
-        ("bool", "boolean", 3),
-        ("keyword_array", "text[]", 3),
-        ("text_terms", "text[]", 3),
-    ]
-    .into_iter()
-    .flat_map(|(prefix, sql_type, count)| {
-        (1..=count).map(move |position| (format!("{prefix}_{position:02}"), sql_type))
-    })
-    .collect()
+pub(crate) fn all_slot_columns() -> Vec<(AttributeSlotColumn, &'static str)> {
+    let mut columns = Vec::new();
+    for index_type in INDEX_TYPES {
+        let (_, capacity, sql_type) =
+            slot_type(index_type).expect("enumerated slot types are specified");
+        for position in 1..=capacity {
+            columns.push((
+                AttributeSlotColumn::for_registration(index_type, position)
+                    .expect("positions are within slot capacity"),
+                sql_type,
+            ));
+        }
+    }
+    columns
 }
 
-pub(crate) fn row_slot_values(
-    row: &SearchRow,
+pub(crate) fn slot_column_expressions(
     assignments: &[AttributeSlot],
-    buckets: [&str; 5],
+    tenants: &BTreeSet<&str>,
     parameters: &mut Vec<SqlValue>,
 ) -> Vec<String> {
-    let mut values = Vec::new();
+    let tenant_assignments = assignments
+        .iter()
+        .map(|assignment| (assignment, assignment.tenant_id.to_string()))
+        .filter(|(_, tenant)| tenants.contains(tenant.as_str()))
+        .collect::<Vec<_>>();
+    let mut expressions = Vec::new();
     for (column, sql_type) in all_slot_columns() {
-        let assignment = assignments.iter().find(|assignment| {
-            assignment.tenant_id.to_string() == row.tenant_id && assignment.slot_column == column
+        let mut branches = Vec::new();
+        for (assignment, tenant) in &tenant_assignments {
+            if assignment.slot_column != column {
+                continue;
+            }
+            parameters.push(SqlValue::Text(tenant.clone()));
+            let tenant_parameter = format!("${}::text", parameters.len());
+            parameters.push(SqlValue::Text(assignment.index_key.clone()));
+            let key = format!("${}::text", parameters.len());
+            let bucket = match assignment.index_type {
+                IndexType::Keyword | IndexType::KeywordArray => "incoming.sa_keyword",
+                IndexType::Text => "incoming.sa_text",
+                IndexType::Int | IndexType::Double => "incoming.sa_number",
+                IndexType::Datetime => "incoming.sa_datetime",
+                IndexType::Bool => "incoming.sa_bool",
+                IndexType::Unspecified => unreachable!("slot assignments reject unspecified types"),
+            };
+            let value = slot_value_expression(assignment.index_type, bucket, &key);
+            branches.push(format!(
+                "WHEN incoming.tenant_id = {tenant_parameter} THEN {value}"
+            ));
+        }
+        expressions.push(if branches.is_empty() {
+            format!("NULL::{sql_type}")
+        } else {
+            format!("(CASE {} END)::{sql_type}", branches.join(" "))
         });
-        let Some(assignment) = assignment else {
-            values.push(format!("NULL::{sql_type}"));
-            continue;
-        };
-        parameters.push(SqlValue::Text(assignment.index_key.clone()));
-        let key = format!("${}::text", parameters.len());
-        let bucket = match assignment.index_type {
-            IndexType::Keyword | IndexType::KeywordArray => buckets[0],
-            IndexType::Text => buckets[1],
-            IndexType::Int | IndexType::Double => buckets[2],
-            IndexType::Datetime => buckets[3],
-            IndexType::Bool => buckets[4],
-            IndexType::Unspecified => unreachable!("slot assignments reject unspecified types"),
-        };
-        values.push(slot_value_expression(
-            assignment.index_type,
-            &format!("({bucket})"),
-            &key,
-        ));
     }
-    values
+    expressions
 }
 
 pub(crate) fn slot_value_expression(index_type: IndexType, bucket: &str, key: &str) -> String {
     let text = format!("({bucket} ->> {key})");
+    let string = string_source(
+        key,
+        if bucket.starts_with("incoming.") {
+            "incoming."
+        } else {
+            ""
+        },
+    );
     match index_type {
         IndexType::Keyword => {
-            // Oversized mismatched Keywords project NULL; comparisons cannot match, but other fields remain searchable.
-            format!("CASE WHEN octet_length({text}) <= 1024 THEN {text} END")
+            // Stored arrays cannot reproduce Keyword membership in one text slot; positive predicates intentionally do not match.
+            format!("CASE WHEN octet_length({string}) <= 1024 THEN {string} END")
         }
-        IndexType::KeywordArray => format!(
-            "CASE WHEN jsonb_typeof({bucket} -> {key}) = 'array' THEN ARRAY(SELECT jsonb_array_elements_text({bucket} -> {key})) END"
-        ),
-        IndexType::Int => {
-            // Historical cast-invalid values project NULL instead of failing the whole search query.
+        IndexType::KeywordArray => {
+            let array = string_array_source(
+                key,
+                if bucket.starts_with("incoming.") {
+                    "incoming."
+                } else {
+                    ""
+                },
+            );
             format!(
-                "CASE WHEN {text} ~ '^[+-]?[0-9]+$' THEN CASE WHEN {text}::numeric BETWEEN -9223372036854775808 AND 9223372036854775807 THEN {text}::bigint END END"
+                "(SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM unnest(slot_values) AS element WHERE octet_length(element) > 1024) THEN slot_values END FROM (SELECT {array} AS slot_values) AS source)"
             )
         }
-        IndexType::Double => format!("{text}::double precision"),
+        IndexType::Int => {
+            // Stored numeric types remain distinct, matching the builtin evaluator.
+            format!(
+                "CASE WHEN ({bucket}_types ->> {key})::integer = {} AND {text} ~ '^[+-]?[0-9]+$' THEN CASE WHEN {text}::numeric BETWEEN -9223372036854775808 AND 9223372036854775807 THEN {text}::bigint END END",
+                IndexType::Int as i32
+            )
+        }
+        IndexType::Double => format!(
+            "CASE WHEN ({bucket}_types ->> {key})::integer = {} THEN {text}::double precision END",
+            IndexType::Double as i32
+        ),
         IndexType::Datetime => format!("{text}::bigint"),
         IndexType::Bool => format!("{text}::boolean"),
         IndexType::Text => format!(
-            "CASE WHEN {text} IS NOT NULL THEN {} END",
-            text_slot_expression(&text)
+            "CASE WHEN {string} IS NOT NULL THEN {} END",
+            text_slot_expression(&string)
         ),
         IndexType::Unspecified => unreachable!("slot assignments reject unspecified types"),
     }
+}
+
+pub(crate) fn string_source(key: &str, prefix: &str) -> String {
+    format!(
+        "coalesce(CASE WHEN jsonb_typeof({prefix}sa_keyword -> {key}) = 'string' THEN {prefix}sa_keyword ->> {key} END, CASE WHEN jsonb_typeof({prefix}sa_text -> {key}) = 'string' THEN {prefix}sa_text ->> {key} END)"
+    )
+}
+
+pub(crate) fn string_array_source(key: &str, prefix: &str) -> String {
+    let string = string_source(key, prefix);
+    format!(
+        "CASE WHEN jsonb_typeof({prefix}sa_keyword -> {key}) = 'array' THEN ARRAY(SELECT jsonb_array_elements_text({prefix}sa_keyword -> {key})) WHEN {string} IS NOT NULL THEN ARRAY[{string}] END"
+    )
 }
 
 pub(crate) fn text_term_hashes(value: &str) -> Vec<String> {

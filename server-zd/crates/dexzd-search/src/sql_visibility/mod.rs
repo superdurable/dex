@@ -42,7 +42,9 @@ pub const MIGRATION_SQL: &str = concat!(
     include_str!("paradedb.sql")
 );
 
-pub use slots::{AttributeIndexRegistryReader, AttributeSlot, assign_attribute_slots};
+pub use slots::{
+    AttributeIndexRegistryReader, AttributeSlot, AttributeSlotColumn, assign_attribute_slots,
+};
 
 /// SQL visibility schema and indexing strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

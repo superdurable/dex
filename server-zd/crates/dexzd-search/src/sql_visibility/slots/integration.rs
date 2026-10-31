@@ -24,10 +24,9 @@ use dexzd_visibility_query::{FieldRegistry, parse_and_check};
 use prost::Message;
 use tokio_postgres::{Client, NoTls};
 
-use super::{
-    AttributeIndexRegistryReader, assign_attribute_slots, backfill_attribute_slots,
-    lock_attribute_slots, read_ready_slots,
-};
+use super::backfill::backfill_next_batch;
+use super::registry::{initialize_attribute_slots, load_committed_attribute_slot_snapshot};
+use super::{AttributeIndexRegistryReader, assign_attribute_slots};
 use crate::sql_visibility::{
     SchemaError, SearchDocumentChange, SqlVisibilityProjector, SqlVisibilitySearchBackend,
     VisibilityDialect, ensure_schema_for_dialect, translate_query_for_dialect,
@@ -191,44 +190,28 @@ async fn postgres_backfill_plans_mixed_types_and_schema_isolation() {
     for input in predicates {
         before.push(query_ids(&client, &fields, &[], input).await);
     }
-    assert!(
-        read_ready_slots(&client, assignments.clone())
-            .await
-            .unwrap()
-            .is_empty()
-    );
-    client.execute("INSERT INTO dexzd_visibility_attribute_slots VALUES ('1', 'keyword', 'keyword_01', 'backfilling')", &[]).await.unwrap();
-    assert!(
-        read_ready_slots(&client, assignments.clone())
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(read_ready_slots(&mut client).await.unwrap().is_empty());
+    client.execute("INSERT INTO dexzd_visibility_attribute_slots (tenant_id, index_key, slot_column, state) VALUES ('1', 'keyword', 'keyword_01', 'backfilling')", &[]).await.unwrap();
+    assert!(read_ready_slots(&mut client).await.unwrap().is_empty());
     let mut configuration: tokio_postgres::Config = database_url.parse().unwrap();
     configuration.options(format!("-c search_path={schema},public"));
     let (mut second, second_driver) = configuration.connect(NoTls).await.unwrap();
     let second_task = tokio::spawn(second_driver);
-    let first_backfill = async {
-        let transaction = client.transaction().await.unwrap();
-        lock_attribute_slots(&transaction).await.unwrap();
-        backfill_attribute_slots(&transaction, &assignments)
-            .await
-            .unwrap();
-        transaction.commit().await.unwrap();
-    };
-    let second_backfill = async {
-        let transaction = second.transaction().await.unwrap();
-        lock_attribute_slots(&transaction).await.unwrap();
-        backfill_attribute_slots(&transaction, &assignments)
-            .await
-            .unwrap();
-        transaction.commit().await.unwrap();
-    };
-    tokio::join!(first_backfill, second_backfill);
-    let ready = read_ready_slots(&client, assignments.clone())
+    initialize_attribute_slots(&mut client, registry.version, &assignments)
         .await
         .unwrap();
-    assert_eq!(ready, assignments);
+    let first_backfill = finish_backfill(&mut client);
+    let second_backfill = finish_backfill(&mut second);
+    tokio::time::timeout(Duration::from_secs(90), async {
+        tokio::join!(first_backfill, second_backfill);
+    })
+    .await
+    .unwrap();
+    let mut ready = read_ready_slots(&mut client).await.unwrap();
+    let mut expected_assignments = assignments.clone();
+    ready.sort_by(|left, right| left.index_key.cmp(&right.index_key));
+    expected_assignments.sort_by(|left, right| left.index_key.cmp(&right.index_key));
+    assert_eq!(ready, expected_assignments);
     for (input, expected) in predicates.into_iter().zip(before) {
         assert_eq!(
             query_ids(&client, &fields, &ready, input).await,
@@ -242,6 +225,8 @@ async fn postgres_backfill_plans_mixed_types_and_schema_isolation() {
         .unwrap();
     for (input, index) in [
         ("FlowType = 'RareFlow'", "flow_type"),
+        ("WorkflowId = 'flow-20000'", "workflow_id"),
+        ("RunId = '00020000'", "runs_pkey"),
         ("keyword = 'rare'", "keyword_01"),
         ("number >= 19995", "int_01"),
         ("tags = 'rare'", "keyword_array_01"),
@@ -267,7 +252,11 @@ async fn postgres_backfill_plans_mixed_types_and_schema_isolation() {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            plan.contains(&format!("dexzd_visibility_{index}_idx")),
+            plan.contains(&if index == "runs_pkey" {
+                "dexzd_visibility_runs_pkey".to_owned()
+            } else {
+                format!("dexzd_visibility_{index}_idx")
+            }),
             "{input}: {plan}"
         );
     }
@@ -285,14 +274,9 @@ async fn postgres_backfill_plans_mixed_types_and_schema_isolation() {
             .contains(&"00000001".into()),
         "hash candidates require the exact text recheck"
     );
-    // Shared-bucket values retain the registered type's existing JSONB interpretation.
-    client.batch_execute("UPDATE dexzd_visibility_runs SET sa_keyword = jsonb_build_object('keyword', ARRAY['red','blue']), sa_number = jsonb_build_object('number', 7, 'double', 9), int_01 = NULL, double_01 = NULL, keyword_01 = NULL WHERE run_id = '00000001'; UPDATE dexzd_visibility_attribute_slots SET state = 'backfilling'").await.unwrap();
-    let transaction = client.transaction().await.unwrap();
-    lock_attribute_slots(&transaction).await.unwrap();
-    backfill_attribute_slots(&transaction, &assignments)
-        .await
-        .unwrap();
-    transaction.commit().await.unwrap();
+    // Mixed stored types follow the builtin evaluator rather than SQL casts.
+    client.batch_execute("UPDATE dexzd_visibility_runs SET sa_keyword = jsonb_build_object('keyword', ARRAY['red','blue']), sa_number = jsonb_build_object('number', 7, 'double', 9), int_01 = NULL, double_01 = NULL, keyword_01 = NULL WHERE run_id = '00000001'; UPDATE dexzd_visibility_attribute_slots SET state = 'backfilling', backfill_partition_id = NULL, backfill_after_run_id = ''").await.unwrap();
+    finish_backfill(&mut client).await;
     for input in [
         "keyword = '[\"red\", \"blue\"]'",
         "keyword IS NOT NULL",
@@ -306,27 +290,17 @@ async fn postgres_backfill_plans_mixed_types_and_schema_isolation() {
             "{input}"
         );
     }
-    client.batch_execute("UPDATE dexzd_visibility_runs SET sa_number = jsonb_build_object('number', 1.5), int_01 = NULL WHERE run_id = '00000001'; UPDATE dexzd_visibility_attribute_slots SET state = 'backfilling' WHERE index_key = 'number'").await.unwrap();
-    let transaction = client.transaction().await.unwrap();
-    lock_attribute_slots(&transaction).await.unwrap();
-    backfill_attribute_slots(&transaction, &assignments)
-        .await
-        .unwrap();
-    transaction.commit().await.unwrap();
+    client.batch_execute("UPDATE dexzd_visibility_runs SET sa_number = jsonb_build_object('number', 1.5), int_01 = NULL WHERE run_id = '00000001'; UPDATE dexzd_visibility_attribute_slots SET state = 'backfilling', backfill_partition_id = NULL, backfill_after_run_id = '' WHERE index_key = 'number'").await.unwrap();
+    finish_backfill(&mut client).await;
     assert!(
         !query_ids(&client, &fields, &ready, "number = 2")
             .await
             .contains(&"00000001".into())
     );
-    client.batch_execute("UPDATE dexzd_visibility_runs SET sa_keyword = jsonb_build_object('tags', 'rare'), keyword_01 = NULL, keyword_array_01 = NULL WHERE run_id = '00000001'; UPDATE dexzd_visibility_attribute_slots SET state = 'backfilling' WHERE index_key IN ('keyword', 'tags')").await.unwrap();
-    let transaction = client.transaction().await.unwrap();
-    lock_attribute_slots(&transaction).await.unwrap();
-    backfill_attribute_slots(&transaction, &assignments)
-        .await
-        .unwrap();
-    transaction.commit().await.unwrap();
+    client.batch_execute("UPDATE dexzd_visibility_runs SET sa_keyword = jsonb_build_object('tags', 'rare'), keyword_01 = NULL, keyword_array_01 = NULL WHERE run_id = '00000001'; UPDATE dexzd_visibility_attribute_slots SET state = 'backfilling', backfill_partition_id = NULL, backfill_after_run_id = '' WHERE index_key IN ('keyword', 'tags')").await.unwrap();
+    finish_backfill(&mut client).await;
     assert!(
-        !query_ids(&client, &fields, &ready, "tags = 'rare'")
+        query_ids(&client, &fields, &ready, "tags = 'rare'")
             .await
             .contains(&"00000001".into())
     );
@@ -462,7 +436,10 @@ async fn verify_projection_skip(
             index_key: "keyword".into(),
             index_type: IndexType::KeywordArray as i32,
             value: Some(dex::Value {
-                kind: Some(dex::value::Kind::StringValue(mixed_array)),
+                kind: Some(dex::value::Kind::ObjValue(dex::EncodedObject {
+                    encoding: "json".into(),
+                    payload: mixed_array.into_bytes(),
+                })),
             }),
         }],
         ..Default::default()
@@ -526,3 +503,17 @@ async fn verify_projection_skip(
         .unwrap();
     assert_eq!(page.entries.len(), 1);
 }
+
+async fn finish_backfill(client: &mut Client) {
+    while backfill_next_batch(client).await.unwrap() {}
+}
+
+async fn read_ready_slots(client: &mut Client) -> Result<Vec<super::AttributeSlot>, SearchError> {
+    Ok(load_committed_attribute_slot_snapshot(client).await?.ready)
+}
+
+#[path = "lifecycle_tests.rs"]
+mod lifecycle;
+
+#[path = "mixed_type_tests.rs"]
+mod mixed_types;

@@ -6,12 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_visibility_query::SearchValue;
 use thiserror::Error;
 
-use super::slots::{AttributeSlot, all_slot_columns, row_slot_values};
+use super::slots::{AttributeSlot, all_slot_columns, slot_column_expressions};
 use super::{SearchRow, SqlStatement, SqlValue};
 
 // PostgreSQL permits 100 function arguments; each JSONB field supplies a key and value.
@@ -73,7 +73,7 @@ pub(super) fn upsert_statements_with_slots<'rows>(
     let mut chunk = Vec::new();
     let mut parameter_count = 0;
     for row in rows {
-        let row_parameters = row_parameter_count(row) + assignments.map_or(0, |_| 28);
+        let row_parameters = row_parameter_count(row) + assignments.map_or(0, |_| 56);
         if row_parameters > MAX_BIND_PARAMETERS {
             return Err(UpsertBatchError {
                 tenant_id: row.tenant_id.clone(),
@@ -126,7 +126,7 @@ fn build_upsert_statement(
     let mut parameters = Vec::new();
     let mut row_expressions = Vec::with_capacity(rows.len());
     for row in rows {
-        row_expressions.push(row_values(row, assignments, &mut parameters));
+        row_expressions.push(row_values(row, &mut parameters));
     }
     let values = row_expressions.join(", ");
     let fixed_columns = FIXED_COLUMNS
@@ -143,17 +143,29 @@ fn build_upsert_statement(
         .iter()
         .map(|(column, _)| format!(", {column} = EXCLUDED.{column}"))
         .collect::<String>();
+    let base_columns = format!(
+        "{fixed_columns}, sa_keyword, sa_text, sa_number, sa_number_types, sa_datetime, sa_bool, sa_wire"
+    );
+    let source = if let Some(assignments) = assignments {
+        let tenants = rows
+            .iter()
+            .map(|row| row.tenant_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let slot_values =
+            slot_column_expressions(assignments, &tenants, &mut parameters).join(", ");
+        format!(
+            "SELECT {base_columns}, {slot_values} FROM (VALUES {values}) AS incoming({base_columns}) WHERE TRUE"
+        )
+    } else {
+        format!("VALUES {values}")
+    };
     let sql = format!(
-        "INSERT INTO dexzd_visibility_runs ({fixed_columns}, sa_keyword, sa_text, sa_number, sa_number_types, sa_datetime, sa_bool, sa_wire{extra_columns}) VALUES {values} ON CONFLICT (tenant_id, run_id) DO UPDATE SET partition_id = EXCLUDED.partition_id, workflow_id = EXCLUDED.workflow_id, workflow_type = EXCLUDED.workflow_type, flow_type = EXCLUDED.flow_type, execution_status = EXCLUDED.execution_status, start_time_ns = EXCLUDED.start_time_ns, close_time_ns = EXCLUDED.close_time_ns, dex_parent_flow_id = EXCLUDED.dex_parent_flow_id, active_step_types = EXCLUDED.active_step_types, dex_work_queue_permissions = EXCLUDED.dex_work_queue_permissions, version = EXCLUDED.version, sa_keyword = EXCLUDED.sa_keyword, sa_text = EXCLUDED.sa_text, sa_number = EXCLUDED.sa_number, sa_number_types = EXCLUDED.sa_number_types, sa_datetime = EXCLUDED.sa_datetime, sa_bool = EXCLUDED.sa_bool, sa_wire = EXCLUDED.sa_wire{extra_updates} WHERE EXCLUDED.version > dexzd_visibility_runs.version"
+        "INSERT INTO dexzd_visibility_runs ({fixed_columns}, sa_keyword, sa_text, sa_number, sa_number_types, sa_datetime, sa_bool, sa_wire{extra_columns}) {source} ON CONFLICT (tenant_id, run_id) DO UPDATE SET partition_id = EXCLUDED.partition_id, workflow_id = EXCLUDED.workflow_id, workflow_type = EXCLUDED.workflow_type, flow_type = EXCLUDED.flow_type, execution_status = EXCLUDED.execution_status, start_time_ns = EXCLUDED.start_time_ns, close_time_ns = EXCLUDED.close_time_ns, dex_parent_flow_id = EXCLUDED.dex_parent_flow_id, active_step_types = EXCLUDED.active_step_types, dex_work_queue_permissions = EXCLUDED.dex_work_queue_permissions, version = EXCLUDED.version, sa_keyword = EXCLUDED.sa_keyword, sa_text = EXCLUDED.sa_text, sa_number = EXCLUDED.sa_number, sa_number_types = EXCLUDED.sa_number_types, sa_datetime = EXCLUDED.sa_datetime, sa_bool = EXCLUDED.sa_bool, sa_wire = EXCLUDED.sa_wire{extra_updates} WHERE EXCLUDED.version > dexzd_visibility_runs.version"
     );
     SqlStatement { sql, parameters }
 }
 
-fn row_values(
-    row: &SearchRow,
-    assignments: Option<&[AttributeSlot]>,
-    parameters: &mut Vec<SqlValue>,
-) -> String {
+fn row_values(row: &SearchRow, parameters: &mut Vec<SqlValue>) -> String {
     let fixed_values: [SqlValue; FIXED_PARAMETER_COUNT] = [
         SqlValue::Text(row.tenant_id.clone()),
         SqlValue::Int32(row.partition_id),
@@ -181,27 +193,8 @@ fn row_values(
     let datetime_bucket = bucket_expression(&row.sa_datetime, parameters);
     let bool_bucket = bucket_expression(&row.sa_bool, parameters);
     let wire_bucket = bucket_expression(&row.sa_wire, parameters);
-    let extra_values = assignments
-        .map(|assignments| {
-            row_slot_values(
-                row,
-                assignments,
-                [
-                    &keyword_bucket,
-                    &text_bucket,
-                    &number_bucket,
-                    &datetime_bucket,
-                    &bool_bucket,
-                ],
-                parameters,
-            )
-            .iter()
-            .map(|value| format!(", {value}"))
-            .collect::<String>()
-        })
-        .unwrap_or_default();
     format!(
-        "({}, {keyword_bucket}, {text_bucket}, {number_bucket}, {number_types_bucket}, {datetime_bucket}, {bool_bucket}, {wire_bucket}{extra_values})",
+        "({}, {keyword_bucket}, {text_bucket}, {number_bucket}, {number_types_bucket}, {datetime_bucket}, {bool_bucket}, {wire_bucket})",
         placeholders.join(", ")
     )
 }

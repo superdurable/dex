@@ -7,7 +7,9 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 mod backfill;
-mod values;
+mod registry;
+mod slot_column;
+pub(super) mod values;
 
 use std::collections::BTreeMap;
 
@@ -15,17 +17,30 @@ use async_trait::async_trait;
 use dexzd_protocol::dex::IndexType;
 use dexzd_protocol::dexzd::v1::AttributeIndexRegistry;
 
-use super::row::is_system_field;
 use crate::SearchError;
+use dexzd_protocol::attribute_index::is_system_search_field;
 
-pub(super) use backfill::{backfill_attribute_slots, lock_attribute_slots, read_ready_slots};
-pub(super) use values::{all_slot_columns, row_slot_values, text_term_hashes};
+pub(super) use backfill::backfill_next_batch;
+pub(super) use registry::{
+    AttributeSlotSnapshot, initialize_attribute_slots, load_attribute_slot_snapshot,
+    load_committed_attribute_slot_snapshot, lock_attribute_slots_shared,
+    read_slot_registry_version,
+};
+pub use slot_column::AttributeSlotColumn;
+use slot_column::slot_type;
+pub(super) use values::{all_slot_columns, slot_column_expressions, text_term_hashes};
 
 /// Supplies a current registry snapshot shared by SQL queries and projection.
 #[async_trait]
 pub trait AttributeIndexRegistryReader: Send + Sync {
-    /// Reads registrations, refreshing externally written registry changes.
+    /// Returns the shared registry snapshot, loading it when no snapshot is cached.
     async fn read_attribute_index_registry(&self) -> Result<AttributeIndexRegistry, SearchError>;
+    /// Refreshes external registrations outside request and database-lock paths.
+    async fn refresh_attribute_index_registry(
+        &self,
+    ) -> Result<AttributeIndexRegistry, SearchError> {
+        self.read_attribute_index_registry().await
+    }
 }
 
 /// Stable typed column assigned to one registered application Attribute.
@@ -38,7 +53,7 @@ pub struct AttributeSlot {
     /// Immutable registered type.
     pub index_type: IndexType,
     /// Column selected in registration order within this tenant and type.
-    pub slot_column: String,
+    pub slot_column: AttributeSlotColumn,
 }
 
 /// Assigns slots in append-only registration order, excluding every system field.
@@ -48,7 +63,7 @@ pub fn assign_attribute_slots(
     let mut occupancy = BTreeMap::new();
     let mut assignments = Vec::new();
     for registration in &registry.registrations {
-        if is_system_field(&registration.index_key) {
+        if is_system_search_field(&registration.index_key) {
             continue;
         }
         let index_type = IndexType::try_from(registration.index_type).map_err(|_| {
@@ -57,7 +72,7 @@ pub fn assign_attribute_slots(
                 registration.index_key, registration.index_type
             ))
         })?;
-        let (prefix, capacity) = slot_type(index_type)?;
+        let (_, capacity, _) = slot_type(index_type)?;
         let position = occupancy
             .entry((registration.tenant_id, index_type))
             .or_insert(0);
@@ -69,7 +84,7 @@ pub fn assign_attribute_slots(
                 .filter(|entry| {
                     entry.tenant_id == registration.tenant_id
                         && entry.index_type == registration.index_type
-                        && !is_system_field(&entry.index_key)
+                        && !is_system_search_field(&entry.index_key)
                 })
                 .map(|entry| entry.index_key.as_str())
                 .collect::<Vec<_>>();
@@ -82,25 +97,10 @@ pub fn assign_attribute_slots(
             tenant_id: registration.tenant_id,
             index_key: registration.index_key.clone(),
             index_type,
-            slot_column: format!("{prefix}_{position:02}"),
+            slot_column: AttributeSlotColumn::for_registration(index_type, *position)?,
         });
     }
     Ok(assignments)
-}
-
-fn slot_type(index_type: IndexType) -> Result<(&'static str, usize), SearchError> {
-    match index_type {
-        IndexType::Keyword => Ok(("keyword", 10)),
-        IndexType::Int => Ok(("int", 3)),
-        IndexType::Datetime => Ok(("datetime", 3)),
-        IndexType::Double => Ok(("double", 3)),
-        IndexType::Bool => Ok(("bool", 3)),
-        IndexType::KeywordArray => Ok(("keyword_array", 3)),
-        IndexType::Text => Ok(("text_terms", 3)),
-        IndexType::Unspecified => Err(SearchError::Internal(
-            "unspecified Attribute index type in registry".into(),
-        )),
-    }
 }
 
 #[cfg(test)]

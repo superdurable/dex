@@ -4,7 +4,7 @@
 
 SearchFlows backends for server-zd: a builtin evaluator over local search documents and SQL visibility projections.
 
-## ParadeDB projection
+## SQL visibility projection
 
 `SqlVisibilitySearchBackend::connect` creates the visibility schema and opens exactly
 `pool_size` database connections. Construct `SqlVisibilityProjector` from an `Arc` of

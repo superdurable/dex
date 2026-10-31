@@ -41,7 +41,7 @@ impl PageCursor {
     }
 }
 
-/// Invalid input or unsupported expression for ParadeDB translation.
+/// Invalid input or unsupported expression for SQL visibility translation.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SqlTranslationError {
@@ -49,7 +49,7 @@ pub enum SqlTranslationError {
     #[error("unsupported SQL visibility query: {feature}")]
     Unsupported { feature: String },
     /// The page size, tenant ID, or cursor is invalid.
-    #[error("invalid ParadeDB pagination: {reason}")]
+    #[error("invalid SQL visibility pagination: {reason}")]
     InvalidPagination { reason: &'static str },
 }
 
@@ -168,19 +168,35 @@ impl Renderer<'_> {
         &mut self,
         expression: &Expression,
     ) -> Result<String, SqlTranslationError> {
+        self.do_render_expression(expression, true)
+    }
+
+    fn do_render_expression(
+        &mut self,
+        expression: &Expression,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
         match expression {
             Expression::True => Ok("TRUE".to_owned()),
             Expression::NoMatch(predicate) => {
-                let source = self.field_source(predicate)?;
-                Ok(format!(
-                    "CASE WHEN {} IS NULL THEN NULL ELSE FALSE END",
-                    source.expression
-                ))
+                if self.dialect == VisibilityDialect::Postgres {
+                    let presence = self.field_presence(predicate)?;
+                    Ok(format!("CASE WHEN {presence} THEN FALSE ELSE NULL END"))
+                } else {
+                    let source = self.field_source(predicate, false)?;
+                    Ok(format!(
+                        "CASE WHEN {} IS NULL THEN NULL ELSE FALSE END",
+                        source.expression
+                    ))
+                }
             }
-            Expression::Not(inner) => Ok(format!("NOT ({})", self.render_expression(inner)?)),
-            Expression::And(children) => self.render_children(children, "AND"),
-            Expression::Or(children) => self.render_children(children, "OR"),
-            Expression::Predicate(predicate) => self.render_predicate(predicate),
+            Expression::Not(inner) => Ok(format!(
+                "NOT ({})",
+                self.do_render_expression(inner, false)?
+            )),
+            Expression::And(children) => self.render_children(children, "AND", should_use_slots),
+            Expression::Or(children) => self.render_children(children, "OR", should_use_slots),
+            Expression::Predicate(predicate) => self.render_predicate(predicate, should_use_slots),
             _ => Err(SqlTranslationError::Unsupported {
                 feature: "unknown expression".to_owned(),
             }),
@@ -191,15 +207,23 @@ impl Renderer<'_> {
         &mut self,
         children: &[Expression],
         operator: &str,
+        should_use_slots: bool,
     ) -> Result<String, SqlTranslationError> {
         let mut expressions = Vec::with_capacity(children.len());
         for child in children {
-            expressions.push(format!("({})", self.render_expression(child)?));
+            expressions.push(format!(
+                "({})",
+                self.do_render_expression(child, should_use_slots)?
+            ));
         }
         Ok(expressions.join(&format!(" {operator} ")))
     }
 
-    fn render_predicate(&mut self, predicate: &Predicate) -> Result<String, SqlTranslationError> {
+    fn render_predicate(
+        &mut self,
+        predicate: &Predicate,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
         if predicate.field() == "WorkflowType"
             && predicate.operator() == Operator::Equal
             && matches!(predicate.literals().first(), Some(Literal::String(value)) if value == "Engine")
@@ -212,22 +236,92 @@ impl Renderer<'_> {
         {
             return Ok("FALSE".to_owned());
         }
-        let source = self.field_source(predicate)?;
+        if self.dialect == VisibilityDialect::Postgres
+            && matches!(predicate.operator(), Operator::IsNull | Operator::IsNotNull)
+        {
+            let presence = self.field_presence(predicate)?;
+            return Ok(if predicate.operator() == Operator::IsNull {
+                format!("NOT ({presence})")
+            } else {
+                presence
+            });
+        }
+        let is_negative = matches!(predicate.operator(), Operator::NotEqual | Operator::NotIn);
+        let should_use_slots = should_use_slots && !is_negative;
+        let source = self.field_source(predicate, should_use_slots)?;
         match predicate.operator() {
             Operator::IsNull => return Ok(format!("{} IS NULL", source.expression)),
             Operator::IsNotNull => return Ok(format!("{} IS NOT NULL", source.expression)),
             _ => {}
         }
-        if predicate.index_type() == IndexType::Text {
-            return self.render_text(predicate, &source.expression);
+        let has_ready_slot = should_use_slots
+            && self.dialect == VisibilityDialect::Postgres
+            && self.assignments.iter().any(|assignment| {
+                assignment.tenant_id.to_string() == self.tenant_id
+                    && assignment.index_key == predicate.field()
+                    && assignment.index_type == predicate.index_type()
+            });
+        let positive = if predicate.index_type() == IndexType::Text {
+            self.render_text(predicate, &source.expression, should_use_slots)?
+        } else if predicate.index_type() == IndexType::KeywordArray {
+            self.render_array(predicate, &source)?
+        } else {
+            self.render_scalar(predicate, &source.expression, should_use_slots)?
+        };
+        let positive = if self.dialect == VisibilityDialect::Postgres
+            && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+            && !has_ready_slot
+        {
+            let presence = self.field_presence(predicate)?;
+            format!("CASE WHEN {presence} THEN coalesce(({positive}), FALSE) ELSE NULL END")
+        } else {
+            positive
+        };
+        if is_negative {
+            if self.dialect == VisibilityDialect::ParadeDb
+                && predicate.operator() == Operator::NotIn
+                && !matches!(
+                    predicate.index_type(),
+                    IndexType::Text | IndexType::KeywordArray
+                )
+            {
+                Ok(format!("NOT {positive}"))
+            } else {
+                Ok(format!("NOT ({positive})"))
+            }
+        } else {
+            Ok(positive)
         }
-        if predicate.index_type() == IndexType::KeywordArray {
-            return self.render_array(predicate, &source);
-        }
-        self.render_scalar(predicate, &source.expression)
     }
 
-    fn field_source(&mut self, predicate: &Predicate) -> Result<FieldSource, SqlTranslationError> {
+    fn field_presence(&mut self, predicate: &Predicate) -> Result<String, SqlTranslationError> {
+        if dexzd_protocol::attribute_index::is_system_search_field(predicate.field()) {
+            return Ok(format!(
+                "{} IS NOT NULL",
+                self.field_source(predicate, false)?.expression
+            ));
+        }
+        let name = self.bind(SqlValue::Text(predicate.field().to_owned()), "text");
+        Ok([
+            "sa_keyword",
+            "sa_text",
+            "sa_number",
+            "sa_datetime",
+            "sa_bool",
+        ]
+        .iter()
+        .map(|bucket| {
+            format!("(({bucket} -> {name}) IS NOT NULL AND {bucket} -> {name} <> 'null'::jsonb)")
+        })
+        .collect::<Vec<_>>()
+        .join(" OR "))
+    }
+
+    fn field_source(
+        &mut self,
+        predicate: &Predicate,
+        should_use_slots: bool,
+    ) -> Result<FieldSource, SqlTranslationError> {
         let system_column = match predicate.field() {
             "WorkflowId" => Some("workflow_id"),
             "RunId" => Some("run_id"),
@@ -248,7 +342,8 @@ impl Renderer<'_> {
                 is_slot: false,
             });
         }
-        if self.dialect == VisibilityDialect::Postgres
+        if should_use_slots
+            && self.dialect == VisibilityDialect::Postgres
             && let Some(assignment) = self.assignments.iter().find(|assignment| {
                 assignment.tenant_id.to_string() == self.tenant_id
                     && assignment.index_key == predicate.field()
@@ -259,7 +354,7 @@ impl Renderer<'_> {
                 && matches!(predicate.operator(), Operator::IsNull | Operator::IsNotNull))
         {
             return Ok(FieldSource {
-                expression: assignment.slot_column.clone(),
+                expression: assignment.slot_column.as_str().to_owned(),
                 is_json_array: false,
                 is_slot: true,
             });
@@ -277,7 +372,22 @@ impl Renderer<'_> {
             }
         };
         let name = self.bind(SqlValue::Text(predicate.field().to_owned()), "text");
-        let expression = if predicate.index_type() == IndexType::KeywordArray {
+        let expression = if self.dialect == VisibilityDialect::Postgres {
+            match predicate.index_type() {
+                IndexType::Keyword | IndexType::Text => {
+                    super::slots::values::string_source(&name, "")
+                }
+                IndexType::KeywordArray => super::slots::values::string_array_source(&name, ""),
+                IndexType::Int | IndexType::Double => super::slots::values::slot_value_expression(
+                    predicate.index_type(),
+                    bucket,
+                    &name,
+                ),
+                IndexType::Datetime => format!("({bucket} ->> {name})::bigint"),
+                IndexType::Bool => format!("({bucket} ->> {name})::boolean"),
+                IndexType::Unspecified => unreachable!("unspecified fields are rejected above"),
+            }
+        } else if predicate.index_type() == IndexType::KeywordArray {
             format!("{bucket} -> {name}")
         } else {
             let text_value = format!("{bucket} ->> {name}");
@@ -290,7 +400,8 @@ impl Renderer<'_> {
         };
         Ok(FieldSource {
             expression,
-            is_json_array: predicate.index_type() == IndexType::KeywordArray,
+            is_json_array: self.dialect == VisibilityDialect::ParadeDb
+                && predicate.index_type() == IndexType::KeywordArray,
             is_slot: false,
         })
     }
@@ -299,23 +410,24 @@ impl Renderer<'_> {
         &mut self,
         predicate: &Predicate,
         expression: &str,
+        should_use_slots: bool,
     ) -> Result<String, SqlTranslationError> {
         let first = &predicate.literals()[0];
         let result = match predicate.operator() {
-            Operator::Equal => self.render_scalar_comparison(predicate, expression, first, "=")?,
-            Operator::NotEqual => format!(
-                "NOT ({})",
-                self.render_scalar_comparison(predicate, expression, first, "=")?
-            ),
+            Operator::Equal | Operator::NotEqual => {
+                self.render_scalar_comparison(predicate, expression, first, "=", should_use_slots)?
+            }
             Operator::Greater => {
-                self.render_scalar_comparison(predicate, expression, first, ">")?
+                self.render_scalar_comparison(predicate, expression, first, ">", should_use_slots)?
             }
             Operator::GreaterEqual => {
-                self.render_scalar_comparison(predicate, expression, first, ">=")?
+                self.render_scalar_comparison(predicate, expression, first, ">=", should_use_slots)?
             }
-            Operator::Less => self.render_scalar_comparison(predicate, expression, first, "<")?,
+            Operator::Less => {
+                self.render_scalar_comparison(predicate, expression, first, "<", should_use_slots)?
+            }
             Operator::LessEqual => {
-                self.render_scalar_comparison(predicate, expression, first, "<=")?
+                self.render_scalar_comparison(predicate, expression, first, "<=", should_use_slots)?
             }
             Operator::StartsWith => {
                 let (parameter, _) = literal_parameter(first)?;
@@ -341,25 +453,34 @@ impl Renderer<'_> {
             }
             Operator::Between => format!(
                 "({}) AND ({})",
-                self.render_scalar_comparison(predicate, expression, first, ">=")?,
+                self.render_scalar_comparison(
+                    predicate,
+                    expression,
+                    first,
+                    ">=",
+                    should_use_slots
+                )?,
                 self.render_scalar_comparison(
                     predicate,
                     expression,
                     &predicate.literals()[1],
-                    "<="
+                    "<=",
+                    should_use_slots,
                 )?
             ),
             Operator::In | Operator::NotIn => {
                 let mut parts = Vec::new();
                 for literal in predicate.literals() {
-                    parts.push(self.render_scalar_comparison(predicate, expression, literal, "=")?);
+                    parts.push(self.render_scalar_comparison(
+                        predicate,
+                        expression,
+                        literal,
+                        "=",
+                        should_use_slots,
+                    )?);
                 }
                 let any = format!("({})", parts.join(" OR "));
-                if predicate.operator() == Operator::NotIn {
-                    format!("NOT {any}")
-                } else {
-                    any
-                }
+                any
             }
             Operator::IsNull | Operator::IsNotNull => {
                 unreachable!("NULL operator handled before scalar rendering")
@@ -379,6 +500,7 @@ impl Renderer<'_> {
         expression: &str,
         literal: &Literal,
         operator: &str,
+        should_use_slots: bool,
     ) -> Result<String, SqlTranslationError> {
         let (parameter, sql_type) = literal_parameter(literal)?;
         let bound = self.bind(parameter, sql_type);
@@ -389,14 +511,17 @@ impl Renderer<'_> {
         };
         let comparison = format!("{left} {operator} {bound}");
         if self.dialect == VisibilityDialect::Postgres
-            && predicate.field() == "FlowType"
+            && !should_use_slots
+            && predicate.index_type() == IndexType::Keyword
+            && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
             && operator == "="
         {
-            // The default-collation index supplies candidates; the C comparison preserves exact matching.
-            Ok(format!("({expression} = {bound} AND {comparison})"))
-        } else {
-            Ok(comparison)
+            let key = self.bind(SqlValue::Text(predicate.field().to_owned()), "text");
+            return Ok(format!(
+                "({comparison} OR sa_keyword @> jsonb_build_object({key}, jsonb_build_array({bound})))"
+            ));
         }
+        Ok(comparison)
     }
 
     fn render_array(
@@ -412,7 +537,10 @@ impl Renderer<'_> {
                     "CASE WHEN ({}) IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM jsonb_array_elements_text({}) AS element(value) WHERE element.value = {bound}) END",
                     source.expression, source.expression
                 ))
-            } else if source.is_slot {
+            } else if source.is_slot
+                || self.dialect == VisibilityDialect::Postgres
+                    && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+            {
                 Ok(format!("{} @> ARRAY[{bound}]", source.expression))
             } else {
                 Ok(format!("{bound} = ANY({})", source.expression))
@@ -434,17 +562,14 @@ impl Renderer<'_> {
                 });
             }
         };
-        if matches!(predicate.operator(), Operator::NotEqual | Operator::NotIn) {
-            Ok(format!("NOT ({positive})"))
-        } else {
-            Ok(positive)
-        }
+        Ok(positive)
     }
 
     fn render_text(
         &mut self,
         predicate: &Predicate,
         expression: &str,
+        should_use_slots: bool,
     ) -> Result<String, SqlTranslationError> {
         let mut matches_terms = |literal: &Literal| {
             let Literal::String(value) = literal else {
@@ -454,17 +579,18 @@ impl Renderer<'_> {
             if terms.is_empty() {
                 return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
             }
-            let hashes = super::slots::text_term_hashes(value);
             let bound = self.bind(SqlValue::TextArray(terms), "text[]");
             let recheck =
                 format!("regexp_split_to_array(lower({expression}), '[^[:alnum:]]+') @> {bound}");
             if let Some(assignment) = self.assignments.iter().find(|assignment| {
-                self.dialect == VisibilityDialect::Postgres
+                should_use_slots
+                    && self.dialect == VisibilityDialect::Postgres
                     && assignment.tenant_id.to_string() == self.tenant_id
                     && assignment.index_key == predicate.field()
                     && assignment.index_type == IndexType::Text
             }) {
                 let column = assignment.slot_column.clone();
+                let hashes = super::slots::text_term_hashes(value);
                 let hash_bound = self.bind(SqlValue::TextArray(hashes), "text[]");
                 format!("({column} @> {hash_bound} AND {recheck})")
             } else {
@@ -487,11 +613,7 @@ impl Renderer<'_> {
                 });
             }
         };
-        if matches!(predicate.operator(), Operator::NotEqual | Operator::NotIn) {
-            Ok(format!("NOT ({positive})"))
-        } else {
-            Ok(positive)
-        }
+        Ok(positive)
     }
 
     fn render_cursor(
@@ -565,26 +687,16 @@ pub(crate) fn tokenize_text(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn contains_application_field(expression: &Expression) -> bool {
+pub(super) fn contains_application_field(expression: &Expression) -> bool {
     match expression {
         Expression::True => false,
         Expression::Not(inner) => contains_application_field(inner),
         Expression::And(children) | Expression::Or(children) => {
             children.iter().any(contains_application_field)
         }
-        Expression::Predicate(predicate) | Expression::NoMatch(predicate) => !matches!(
-            predicate.field(),
-            "WorkflowId"
-                | "RunId"
-                | "WorkflowType"
-                | "FlowType"
-                | "ExecutionStatus"
-                | "StartTime"
-                | "CloseTime"
-                | "DexParentFlowID"
-                | "ActiveStepTypes"
-                | "DexWorkQueuePermissions"
-        ),
+        Expression::Predicate(predicate) | Expression::NoMatch(predicate) => {
+            !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+        }
         _ => false,
     }
 }
@@ -603,3 +715,7 @@ fn prefix_successor(prefix: &str) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+#[path = "query_tests.rs"]
+mod tests;
