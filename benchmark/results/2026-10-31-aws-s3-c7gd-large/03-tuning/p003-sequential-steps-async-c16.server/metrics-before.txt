@@ -1,0 +1,198 @@
+# HELP dexzd_build_info Binary version..
+# TYPE dexzd_build_info gauge
+dexzd_build_info{version="0.1.0"} 1
+# HELP dexzd_behavior_version Cluster behavior barrier..
+# TYPE dexzd_behavior_version gauge
+dexzd_behavior_version 1
+# HELP dexzd_node_role Current node lifecycle role..
+# TYPE dexzd_node_role gauge
+dexzd_node_role{role="starting"} 0
+dexzd_node_role{role="standby"} 0
+dexzd_node_role{role="recovering"} 0
+dexzd_node_role{role="serving"} 1
+dexzd_node_role{role="draining"} 0
+# HELP dexzd_lease_epoch Held lease epoch..
+# TYPE dexzd_lease_epoch gauge
+dexzd_lease_epoch 1
+# HELP dexzd_lease_renewals Lease renewal attempts..
+# TYPE dexzd_lease_renewals counter
+dexzd_lease_renewals_total{outcome="ok"} 1
+dexzd_lease_renewals_total{outcome="error"} 0
+# HELP dexzd_api_requests Completed public API requests..
+# TYPE dexzd_api_requests counter
+dexzd_api_requests_total{rpc_class="flow_write",code="ok"} 0
+# HELP dexzd_api_request_latency_seconds Completed unary public API request latency..
+# TYPE dexzd_api_request_latency_seconds histogram
+dexzd_api_request_latency_seconds_sum{rpc_class="flow_write"} 0.0
+dexzd_api_request_latency_seconds_count{rpc_class="flow_write"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="flow_write"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="flow_write"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="flow_write"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="flow_write"} 0
+dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="flow_write"} 0
+dexzd_api_request_latency_seconds_bucket{le="+Inf",rpc_class="flow_write"} 0
+dexzd_api_request_latency_seconds_sum{rpc_class="flow_read"} 0.0
+dexzd_api_request_latency_seconds_count{rpc_class="flow_read"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="flow_read"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="flow_read"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="flow_read"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="flow_read"} 0
+dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="flow_read"} 0
+dexzd_api_request_latency_seconds_bucket{le="+Inf",rpc_class="flow_read"} 0
+dexzd_api_request_latency_seconds_sum{rpc_class="search"} 0.0
+dexzd_api_request_latency_seconds_count{rpc_class="search"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="search"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="search"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="search"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="search"} 0
+dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="search"} 0
+dexzd_api_request_latency_seconds_bucket{le="+Inf",rpc_class="search"} 0
+dexzd_api_request_latency_seconds_sum{rpc_class="worker_respond"} 0.0
+dexzd_api_request_latency_seconds_count{rpc_class="worker_respond"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="worker_respond"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="worker_respond"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="worker_respond"} 0
+dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="worker_respond"} 0
+dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="worker_respond"} 0
+dexzd_api_request_latency_seconds_bucket{le="+Inf",rpc_class="worker_respond"} 0
+# HELP dexzd_commit_batches Durably committed batches..
+# TYPE dexzd_commit_batches counter
+dexzd_commit_batches_total 0
+# HELP dexzd_commit_records Committed commands..
+# TYPE dexzd_commit_records counter
+dexzd_commit_records_total 0
+# HELP dexzd_commit_bytes Committed encoded batch bytes..
+# TYPE dexzd_commit_bytes counter
+dexzd_commit_bytes_total 0
+# HELP dexzd_commit_latency_seconds Time from batch seal to durable acknowledgement..
+# TYPE dexzd_commit_latency_seconds histogram
+dexzd_commit_latency_seconds_sum 0.0
+dexzd_commit_latency_seconds_count 0
+dexzd_commit_latency_seconds_bucket{le="0.01"} 0
+dexzd_commit_latency_seconds_bucket{le="0.025"} 0
+dexzd_commit_latency_seconds_bucket{le="0.05"} 0
+dexzd_commit_latency_seconds_bucket{le="0.1"} 0
+dexzd_commit_latency_seconds_bucket{le="0.25"} 0
+dexzd_commit_latency_seconds_bucket{le="0.5"} 0
+dexzd_commit_latency_seconds_bucket{le="1.0"} 0
+dexzd_commit_latency_seconds_bucket{le="2.5"} 0
+dexzd_commit_latency_seconds_bucket{le="+Inf"} 0
+# HELP dexzd_object_store_requests Object storage requests..
+# TYPE dexzd_object_store_requests counter
+dexzd_object_store_requests_total{operation="put",object_kind="log"} 1
+dexzd_object_store_requests_total{operation="put",object_kind="manifest"} 2
+dexzd_object_store_requests_total{operation="put",object_kind="lease"} 2
+dexzd_object_store_requests_total{operation="put",object_kind="other"} 5
+dexzd_object_store_requests_total{operation="get",object_kind="manifest"} 3
+dexzd_object_store_requests_total{operation="get",object_kind="lease"} 1
+dexzd_object_store_requests_total{operation="get",object_kind="other"} 1
+dexzd_object_store_requests_total{operation="list",object_kind="log"} 2
+dexzd_object_store_requests_total{operation="delete",object_kind="other"} 1
+# HELP dexzd_object_store_request_errors Failed object storage requests..
+# TYPE dexzd_object_store_request_errors counter
+dexzd_object_store_request_errors_total{operation="put"} 0
+dexzd_object_store_request_errors_total{operation="get"} 0
+dexzd_object_store_request_errors_total{operation="list"} 0
+dexzd_object_store_request_errors_total{operation="delete"} 0
+# HELP dexzd_object_store_put_bytes Uploaded object bytes..
+# TYPE dexzd_object_store_put_bytes counter
+dexzd_object_store_put_bytes_total 78037
+# HELP dexzd_snapshots Snapshot attempts..
+# TYPE dexzd_snapshots counter
+dexzd_snapshots_total{outcome="ok"} 0
+dexzd_snapshots_total{outcome="error"} 0
+# HELP dexzd_snapshot_last_duration_seconds Last successful snapshot duration..
+# TYPE dexzd_snapshot_last_duration_seconds gauge
+dexzd_snapshot_last_duration_seconds 0.0
+# HELP dexzd_snapshot_last_bytes Last successful snapshot bytes..
+# TYPE dexzd_snapshot_last_bytes gauge
+dexzd_snapshot_last_bytes 0
+# HELP dexzd_recovery_last_duration_seconds Last completed recovery duration..
+# TYPE dexzd_recovery_last_duration_seconds gauge
+dexzd_recovery_last_duration_seconds 0.120287091
+# HELP dexzd_startup_read_retries Transient object storage reads retried during startup..
+# TYPE dexzd_startup_read_retries counter
+dexzd_startup_read_retries_total 0
+# HELP dexzd_recovery_last_replayed_bytes Uncompressed command record bytes replayed by the last recovery..
+# TYPE dexzd_recovery_last_replayed_bytes gauge
+dexzd_recovery_last_replayed_bytes 0
+# HELP dexzd_timer_lag_seconds Age of oldest unfired due timer..
+# TYPE dexzd_timer_lag_seconds gauge
+dexzd_timer_lag_seconds 0.0
+# HELP dexzd_matching_queued_tasks Worker tasks waiting for a poll..
+# TYPE dexzd_matching_queued_tasks gauge
+dexzd_matching_queued_tasks 0
+# HELP dexzd_matching_worker_streams Open Worker poll streams..
+# TYPE dexzd_matching_worker_streams gauge
+dexzd_matching_worker_streams 0
+# HELP dexzd_step_attempt_failures Failed Step method attempts..
+# TYPE dexzd_step_attempt_failures counter
+# HELP dexzd_step_retries_exhausted Step executions that exhausted their attempts..
+# TYPE dexzd_step_retries_exhausted counter
+dexzd_step_retries_exhausted_total{durability="sync"} 0
+dexzd_step_retries_exhausted_total{durability="async"} 0
+# HELP dexzd_flow_closes Closed Flow runs..
+# TYPE dexzd_flow_closes counter
+dexzd_flow_closes_total{close_status="completed"} 0
+dexzd_flow_closes_total{close_status="failed"} 0
+dexzd_flow_closes_total{close_status="terminated"} 0
+dexzd_flow_closes_total{close_status="canceled"} 0
+# HELP dexzd_flow_end_to_end_latency_seconds Committed Flow run start to close latency..
+# TYPE dexzd_flow_end_to_end_latency_seconds histogram
+dexzd_flow_end_to_end_latency_seconds_sum 0.0
+dexzd_flow_end_to_end_latency_seconds_count 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="1.0"} 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="10.0"} 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="60.0"} 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="600.0"} 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="3600.0"} 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="21600.0"} 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="86400.0"} 0
+dexzd_flow_end_to_end_latency_seconds_bucket{le="+Inf"} 0
+# HELP dexzd_step_schedule_to_start_latency_seconds Committed Step task to Worker delivery latency..
+# TYPE dexzd_step_schedule_to_start_latency_seconds histogram
+dexzd_step_schedule_to_start_latency_seconds_sum 0.0
+dexzd_step_schedule_to_start_latency_seconds_count 0
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.005"} 0
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.025"} 0
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.1"} 0
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.5"} 0
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="2.5"} 0
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="10.0"} 0
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="+Inf"} 0
+# HELP dexzd_worker_stream_events Delivered Worker tasks and closed Worker streams..
+# TYPE dexzd_worker_stream_events counter
+dexzd_worker_stream_events_total{event="delivered"} 0
+dexzd_worker_stream_events_total{event="closed"} 0
+# HELP dexzd_attribute_sync_backlog_entries Attribute Sync entries waiting to be written..
+# TYPE dexzd_attribute_sync_backlog_entries gauge
+dexzd_attribute_sync_backlog_entries 0
+# HELP dexzd_attribute_sync_oldest_pending_age_seconds Age of the oldest pending Attribute Sync entry..
+# TYPE dexzd_attribute_sync_oldest_pending_age_seconds gauge
+dexzd_attribute_sync_oldest_pending_age_seconds 0.0
+# HELP dexzd_attribute_sync_write_failures Failed Attribute Store write transactions..
+# TYPE dexzd_attribute_sync_write_failures counter
+dexzd_attribute_sync_write_failures_total{failure_kind="retryable"} 0
+dexzd_attribute_sync_write_failures_total{failure_kind="non_retryable"} 0
+# HELP dexzd_attribute_sync_dropped_entries Attribute Sync entries dropped after retries were exhausted..
+# TYPE dexzd_attribute_sync_dropped_entries counter
+dexzd_attribute_sync_dropped_entries_total 0
+# HELP dexzd_attribute_sync_fenced_writes Attribute Store writes rejected by a newer owner's fencing token..
+# TYPE dexzd_attribute_sync_fenced_writes counter
+dexzd_attribute_sync_fenced_writes_total 0
+# HELP dexzd_local_storage_bytes Local SST and WAL bytes.
+# TYPE dexzd_local_storage_bytes gauge
+dexzd_local_storage_bytes 31735
+# HELP process_resident_memory_bytes Resident process memory.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 34816000
+# HELP process_cpu_seconds Process CPU time.
+# TYPE process_cpu_seconds counter
+process_cpu_seconds_total 0.13
+# HELP process_start_time_seconds Process start time since Unix epoch.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1793429696.1
+# HELP process_open_fds Open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 27
+# EOF

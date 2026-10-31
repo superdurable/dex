@@ -1,0 +1,741 @@
+{
+  "schema_version": 2,
+  "started_at": "2026-10-31T06:57:19.976555195Z",
+  "config": {
+    "address": "172.31.24.161:8801",
+    "target": "zd",
+    "engine": "zd",
+    "scenario": "sequential-steps",
+    "duration_seconds": 45,
+    "warmup_seconds": 10,
+    "concurrency": 1024,
+    "worker_pool": 1024,
+    "connections": 8,
+    "server_tunables": {
+      "DEXBENCH_ZD_BLOCK_CACHE_BYTES": "8589934592",
+      "DEXBENCH_ZD_MAX_INFLIGHT_RPCS": "4096",
+      "DEXBENCH_ZD_MAX_UNAPPLIED_BYTES": "268435456",
+      "DEXBENCH_ZD_WRITE_BUFFER_BYTES": "134217728"
+    },
+    "steps": 10,
+    "timeout_seconds": 30,
+    "metrics_url": "http://172.31.24.161:9901/metrics",
+    "attribute_bytes": 16384,
+    "mode": "aws",
+    "git_commit": "de250ca68cf1245f38747d2f52330378e8ce4c60"
+  },
+  "server_version": "dex-server-zd 0.1.0",
+  "sdk_version": "(devel)",
+  "machine": {
+    "cpu_model": "",
+    "cores": 32,
+    "ram_bytes": 66187132928,
+    "os": "linux",
+    "architecture": "arm64",
+    "free_disk_bytes": 37814620160
+  },
+  "attempts": 22548,
+  "successes": 22548,
+  "errors": {},
+  "measured_seconds": 46.537501148,
+  "cpu_method": "linux: per-interval delta of /proc/\u003cpid\u003e/stat utime+stime over each root's process tree",
+  "throughput_per_second": 4845.124779753893,
+  "throughput_unit": "steps",
+  "latency": {
+    "p50_ms": 2055.10604,
+    "p90_ms": 2399.811405,
+    "p99_ms": 2557.921162,
+    "max_ms": 2668.688323
+  },
+  "step_latency": {
+    "p50_ms": 186.050478,
+    "p90_ms": 264.559504,
+    "p99_ms": 365.690855,
+    "max_ms": 543.824424
+  },
+  "step_samples": 202932,
+  "resources": [
+    {
+      "at": "2026-10-31T06:57:32.8786235Z",
+      "interval_seconds": 1.00042504,
+      "cpu_percent": 680.7106707365097,
+      "rss_bytes": 333107200,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:33.878692905Z",
+      "interval_seconds": 1.0000694,
+      "cpu_percent": 653.9546155496814,
+      "rss_bytes": 354209792,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:34.878211556Z",
+      "interval_seconds": 0.999518645,
+      "cpu_percent": 646.311105081986,
+      "rss_bytes": 371511296,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:35.878736476Z",
+      "interval_seconds": 1.000524924,
+      "cpu_percent": 588.6909819749778,
+      "rss_bytes": 387108864,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:36.878778581Z",
+      "interval_seconds": 1.0000421,
+      "cpu_percent": 634.9732676254338,
+      "rss_bytes": 404803584,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:37.878191932Z",
+      "interval_seconds": 0.999413366,
+      "cpu_percent": 584.3427953514072,
+      "rss_bytes": 419360768,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:38.878837045Z",
+      "interval_seconds": 1.000645104,
+      "cpu_percent": 441.71504785576826,
+      "rss_bytes": 422899712,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:39.878880136Z",
+      "interval_seconds": 1.000043181,
+      "cpu_percent": 551.9761651172138,
+      "rss_bytes": 429584384,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:40.878233982Z",
+      "interval_seconds": 0.99935375,
+      "cpu_percent": 527.3407939881158,
+      "rss_bytes": 436400128,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:41.878822629Z",
+      "interval_seconds": 1.000588735,
+      "cpu_percent": 536.6840353244622,
+      "rss_bytes": 450359296,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:42.878616264Z",
+      "interval_seconds": 0.999793549,
+      "cpu_percent": 673.13897021354,
+      "rss_bytes": 460976128,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:43.878193108Z",
+      "interval_seconds": 0.999576861,
+      "cpu_percent": 482.2040393349995,
+      "rss_bytes": 463990784,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:44.878815773Z",
+      "interval_seconds": 1.000622648,
+      "cpu_percent": 554.6546453943557,
+      "rss_bytes": 469889024,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:45.878912527Z",
+      "interval_seconds": 1.000096898,
+      "cpu_percent": 563.9453548230069,
+      "rss_bytes": 480768000,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:46.87825037Z",
+      "interval_seconds": 0.999337697,
+      "cpu_percent": 661.4380724196791,
+      "rss_bytes": 484831232,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:47.878902443Z",
+      "interval_seconds": 1.000652122,
+      "cpu_percent": 546.6435217333201,
+      "rss_bytes": 492826624,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:48.878532199Z",
+      "interval_seconds": 0.999629719,
+      "cpu_percent": 598.2215100589651,
+      "rss_bytes": 503050240,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:49.878258921Z",
+      "interval_seconds": 0.99972671,
+      "cpu_percent": 591.1615585423336,
+      "rss_bytes": 509210624,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:50.878635458Z",
+      "interval_seconds": 1.000376539,
+      "cpu_percent": 625.7643753078879,
+      "rss_bytes": 512094208,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:51.878612278Z",
+      "interval_seconds": 0.999976818,
+      "cpu_percent": 551.0127735781161,
+      "rss_bytes": 518516736,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:52.878332737Z",
+      "interval_seconds": 0.999720464,
+      "cpu_percent": 499.13952746695094,
+      "rss_bytes": 524414976,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:53.878631113Z",
+      "interval_seconds": 1.000298372,
+      "cpu_percent": 571.8293821235969,
+      "rss_bytes": 531755008,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:54.878278013Z",
+      "interval_seconds": 0.999646904,
+      "cpu_percent": 513.181202229782,
+      "rss_bytes": 539881472,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:55.878213627Z",
+      "interval_seconds": 0.999935624,
+      "cpu_percent": 472.030387428221,
+      "rss_bytes": 542765056,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:56.878626403Z",
+      "interval_seconds": 1.000412762,
+      "cpu_percent": 603.7507946145124,
+      "rss_bytes": 545910784,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:57.878199765Z",
+      "interval_seconds": 0.999573366,
+      "cpu_percent": 601.2565164726508,
+      "rss_bytes": 547614720,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:58.878613291Z",
+      "interval_seconds": 1.000413522,
+      "cpu_percent": 454.81192526303965,
+      "rss_bytes": 548794368,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:59.878622036Z",
+      "interval_seconds": 1.000008749,
+      "cpu_percent": 575.9949606200914,
+      "rss_bytes": 549449728,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:00.878198579Z",
+      "interval_seconds": 0.999576553,
+      "cpu_percent": 776.3287340734562,
+      "rss_bytes": 553512960,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:01.878800456Z",
+      "interval_seconds": 1.000601867,
+      "cpu_percent": 623.6246608962213,
+      "rss_bytes": 557051904,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:02.878626809Z",
+      "interval_seconds": 0.999826353,
+      "cpu_percent": 665.1154953104119,
+      "rss_bytes": 561115136,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:03.878196567Z",
+      "interval_seconds": 0.999569767,
+      "cpu_percent": 589.2535163080832,
+      "rss_bytes": 565833728,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:04.878623368Z",
+      "interval_seconds": 1.000426792,
+      "cpu_percent": 582.7512864129676,
+      "rss_bytes": 571600896,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:05.878626587Z",
+      "interval_seconds": 1.00000322,
+      "cpu_percent": 723.9976687275105,
+      "rss_bytes": 576712704,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:06.878252078Z",
+      "interval_seconds": 0.999625486,
+      "cpu_percent": 663.2483958097077,
+      "rss_bytes": 579465216,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:07.87886743Z",
+      "interval_seconds": 1.000615351,
+      "cpu_percent": 662.5922731821047,
+      "rss_bytes": 583790592,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:08.879028734Z",
+      "interval_seconds": 1.000161307,
+      "cpu_percent": 630.8982316989396,
+      "rss_bytes": 586280960,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:09.878197849Z",
+      "interval_seconds": 0.999169127,
+      "cpu_percent": 597.4964436626324,
+      "rss_bytes": 588115968,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:10.878822443Z",
+      "interval_seconds": 1.000624581,
+      "cpu_percent": 562.6485803870129,
+      "rss_bytes": 590868480,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:11.878524447Z",
+      "interval_seconds": 0.999702008,
+      "cpu_percent": 642.1913678901019,
+      "rss_bytes": 594407424,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:12.87829132Z",
+      "interval_seconds": 0.999766868,
+      "cpu_percent": 651.1518043224444,
+      "rss_bytes": 598077440,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:13.878902131Z",
+      "interval_seconds": 1.0006109,
+      "cpu_percent": 658.5976626878671,
+      "rss_bytes": 602402816,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:14.878524628Z",
+      "interval_seconds": 0.999622412,
+      "cpu_percent": 603.227771567808,
+      "rss_bytes": 603713536,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:15.878228835Z",
+      "interval_seconds": 0.999704202,
+      "cpu_percent": 705.2085992932549,
+      "rss_bytes": 607121408,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:16.878951375Z",
+      "interval_seconds": 1.000722541,
+      "cpu_percent": 635.5407957179225,
+      "rss_bytes": 610004992,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:17.878211504Z",
+      "interval_seconds": 0.999260132,
+      "cpu_percent": 313.2317501485185,
+      "rss_bytes": 612364288,
+      "process_count": 1
+    }
+  ],
+  "server_cores": 16,
+  "load_host_resources": [
+    {
+      "at": "2026-10-31T06:57:32.748792552Z",
+      "interval_seconds": 1.009889561,
+      "cpu_percent": 142.58984899042815,
+      "rss_bytes": 87916544,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:33.748913227Z",
+      "interval_seconds": 1.000120678,
+      "cpu_percent": 159.9806938498277,
+      "rss_bytes": 92110848,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:34.748676743Z",
+      "interval_seconds": 0.999763514,
+      "cpu_percent": 159.03761016827823,
+      "rss_bytes": 95256576,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:35.748723334Z",
+      "interval_seconds": 1.00004659,
+      "cpu_percent": 156.99268571077278,
+      "rss_bytes": 98926592,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:36.748740185Z",
+      "interval_seconds": 1.000016851,
+      "cpu_percent": 164.99721963185183,
+      "rss_bytes": 101810176,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:37.749736278Z",
+      "interval_seconds": 1.000996093,
+      "cpu_percent": 138.86168085173543,
+      "rss_bytes": 106004480,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:38.749406861Z",
+      "interval_seconds": 0.999670584,
+      "cpu_percent": 97.03196388141386,
+      "rss_bytes": 107053056,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:39.749275949Z",
+      "interval_seconds": 0.999869088,
+      "cpu_percent": 147.019246583609,
+      "rss_bytes": 110985216,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:40.748767225Z",
+      "interval_seconds": 0.999491275,
+      "cpu_percent": 117.05955112014341,
+      "rss_bytes": 114130944,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:41.748677899Z",
+      "interval_seconds": 0.999910674,
+      "cpu_percent": 106.00946940186402,
+      "rss_bytes": 116490240,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:42.748717802Z",
+      "interval_seconds": 1.000039904,
+      "cpu_percent": 149.99401463883984,
+      "rss_bytes": 119635968,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:43.748684379Z",
+      "interval_seconds": 0.999966576,
+      "cpu_percent": 129.00431184011885,
+      "rss_bytes": 125140992,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:44.748744989Z",
+      "interval_seconds": 1.00006061,
+      "cpu_percent": 128.992181783862,
+      "rss_bytes": 127238144,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:45.748803091Z",
+      "interval_seconds": 1.000058103,
+      "cpu_percent": 139.9918660526066,
+      "rss_bytes": 128548864,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:46.74872515Z",
+      "interval_seconds": 0.99992206,
+      "cpu_percent": 155.0120816416436,
+      "rss_bytes": 131956736,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:47.74903602Z",
+      "interval_seconds": 1.000310869,
+      "cpu_percent": 126.96053190640639,
+      "rss_bytes": 133267456,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:48.749206691Z",
+      "interval_seconds": 1.000170671,
+      "cpu_percent": 132.97730463044124,
+      "rss_bytes": 136413184,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:49.748698443Z",
+      "interval_seconds": 0.999491751,
+      "cpu_percent": 137.06966552043156,
+      "rss_bytes": 140083200,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:50.74913889Z",
+      "interval_seconds": 1.000440452,
+      "cpu_percent": 149.93396128688326,
+      "rss_bytes": 143753216,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:51.748969387Z",
+      "interval_seconds": 0.999830508,
+      "cpu_percent": 136.02305481960744,
+      "rss_bytes": 146636800,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:52.748743534Z",
+      "interval_seconds": 0.99977413,
+      "cpu_percent": 117.02643276036775,
+      "rss_bytes": 147423232,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:53.748692716Z",
+      "interval_seconds": 0.999949183,
+      "cpu_percent": 133.00675900447217,
+      "rss_bytes": 153452544,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:54.749252022Z",
+      "interval_seconds": 1.000559308,
+      "cpu_percent": 117.93403854876733,
+      "rss_bytes": 156336128,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:55.748773812Z",
+      "interval_seconds": 0.999521788,
+      "cpu_percent": 118.0564560139433,
+      "rss_bytes": 161579008,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:56.74909396Z",
+      "interval_seconds": 1.000320167,
+      "cpu_percent": 115.96287251499515,
+      "rss_bytes": 165511168,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:57.749291092Z",
+      "interval_seconds": 1.000197113,
+      "cpu_percent": 148.97063595103597,
+      "rss_bytes": 170229760,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:58.7496887Z",
+      "interval_seconds": 1.000397608,
+      "cpu_percent": 86.9654218525485,
+      "rss_bytes": 173113344,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:57:59.749331239Z",
+      "interval_seconds": 0.999642541,
+      "cpu_percent": 123.04398317918293,
+      "rss_bytes": 178356224,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:00.748696628Z",
+      "interval_seconds": 0.999365389,
+      "cpu_percent": 179.11366750364806,
+      "rss_bytes": 183861248,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:01.748679659Z",
+      "interval_seconds": 0.999983029,
+      "cpu_percent": 148.00251175062732,
+      "rss_bytes": 186744832,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:02.748677212Z",
+      "interval_seconds": 0.999997554,
+      "cpu_percent": 151.00036934690323,
+      "rss_bytes": 190676992,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:03.748801527Z",
+      "interval_seconds": 1.000124316,
+      "cpu_percent": 125.9843381310207,
+      "rss_bytes": 193036288,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:04.748761283Z",
+      "interval_seconds": 0.999959755,
+      "cpu_percent": 121.00486984098684,
+      "rss_bytes": 193036288,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:05.74897454Z",
+      "interval_seconds": 1.000213258,
+      "cpu_percent": 153.9671652702687,
+      "rss_bytes": 195133440,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:06.74873411Z",
+      "interval_seconds": 0.99975957,
+      "cpu_percent": 146.03511122179114,
+      "rss_bytes": 195919872,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:07.749234538Z",
+      "interval_seconds": 1.000500426,
+      "cpu_percent": 149.92497364513864,
+      "rss_bytes": 199852032,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:08.748695102Z",
+      "interval_seconds": 0.999460565,
+      "cpu_percent": 142.0766411128989,
+      "rss_bytes": 201424896,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:09.748756243Z",
+      "interval_seconds": 1.00006114,
+      "cpu_percent": 140.99137978703948,
+      "rss_bytes": 207716352,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:10.748691408Z",
+      "interval_seconds": 0.999935167,
+      "cpu_percent": 133.00862334807738,
+      "rss_bytes": 210862080,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:11.748703917Z",
+      "interval_seconds": 1.000012506,
+      "cpu_percent": 126.99841175786358,
+      "rss_bytes": 215318528,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:12.749348257Z",
+      "interval_seconds": 1.000644342,
+      "cpu_percent": 139.9098502072969,
+      "rss_bytes": 216367104,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:13.748715326Z",
+      "interval_seconds": 0.999367068,
+      "cpu_percent": 136.08613326850184,
+      "rss_bytes": 222920704,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:14.748747364Z",
+      "interval_seconds": 1.00003204,
+      "cpu_percent": 149.9951941539793,
+      "rss_bytes": 226590720,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:15.748697484Z",
+      "interval_seconds": 0.999950119,
+      "cpu_percent": 127.00633520300586,
+      "rss_bytes": 226852864,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:16.74915614Z",
+      "interval_seconds": 1.000458656,
+      "cpu_percent": 136.93719293483775,
+      "rss_bytes": 230522880,
+      "process_count": 1
+    },
+    {
+      "at": "2026-10-31T06:58:17.749208172Z",
+      "interval_seconds": 1.000052031,
+      "cpu_percent": 74.99609787803129,
+      "rss_bytes": 230522880,
+      "process_count": 1
+    }
+  ],
+  "measurement_started_at": "2026-10-31T06:57:31.73889696Z",
+  "measurement_ended_at": "2026-10-31T06:58:18.27851848Z",
+  "object_store": {
+    "requests_per_minute": {
+      "dexzd_object_store_requests_total{operation=\"delete\",object_kind=\"other\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"lease\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"manifest\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"other\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"list\",object_kind=\"log\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"lease\"}": 18.049136898094826,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"log\"}": 4645.074303131118,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"manifest\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"other\"}": 0
+    },
+    "requests_per_minute_by_operation": {
+      "delete": 0,
+      "get": 0,
+      "list": 0,
+      "put": 4663.123440029212
+    },
+    "request_errors": 0,
+    "commit_latency_buckets": {
+      "dexzd_commit_latency_seconds_bucket{le=\"+Inf\"}": 3603,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.01\"}": 0,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.025\"}": 12,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.05\"}": 2527,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.1\"}": 3485,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.25\"}": 3597,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.5\"}": 3603,
+      "dexzd_commit_latency_seconds_bucket{le=\"1.0\"}": 3603,
+      "dexzd_commit_latency_seconds_bucket{le=\"2.5\"}": 3603
+    },
+    "commit_latency_count": 3603,
+    "commit_latency_sum_seconds": 173.15458817299924
+  }
+}

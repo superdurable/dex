@@ -1,0 +1,30 @@
+# Load host
+load_cpu_count=32
+load_kernel=Linux 7.0.0-1014-aws
+load_instance_type=c7g.8xlarge
+load_placement_availability_zone=us-west-2b
+load_placement_group_name=dex-benchmark-2026-10-30-s3-b
+# Server host
+server_instance_type=c7gd.large
+server_availability_zone=us-west-2b
+server_placement_group=dex-benchmark-2026-10-30-s3-b
+server_cpu_count=2
+server_kernel=Linux 7.0.0-1014-aws
+server_zd_version=dex-server-zd 0.1.0
+server_storage_directory=/mnt/nvme/dexzd
+server_storage_filesystem=/dev/nvme1n1 115168836KiB
+server_disks=loop0 24.3M ;loop1 69M ;loop2 38.6M ;nvme1n1 109.9G Amazon EC2 NVMe Instance Storage;nvme0n1 30G Amazon Elastic Block Store
+# server-zd config before per-point overrides
+cluster:
+  nodeId: "dexbench-1"
+objectStore:
+  bucket: "dex-benchmark-2026-10-30-s3-d77219"
+  prefix: "2026-10-30-s3-lt/20261031T071450Z-e5ff31/base"
+  region: "us-west-2"
+  credentialsSource: defaultChain
+localStorage:
+  directory: "/mnt/nvme/dexzd"
+api:
+  listen: "0.0.0.0:8801"
+metrics:
+  listen: "0.0.0.0:9901"
