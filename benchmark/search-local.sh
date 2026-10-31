@@ -19,7 +19,10 @@ cleanup() {
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
   fi
-  if [[ "$has_container" == true ]]; then docker rm -fv "$container" > "$output_directory/container-removal.txt"; fi
+  if [[ "$has_container" == true ]]; then
+    docker logs "$container" > "$output_directory/database-container.txt" 2>&1
+    docker rm -fv "$container" > "$output_directory/container-removal.txt"
+  fi
   docker ps -a --filter "name=^${container}$" --format '{{.Names}}' >> "$output_directory/container-removal.txt"
   if [[ -f "$output_directory/server.log" ]]; then gzip "$output_directory/server.log"; fi
   rm -rf "$run_directory"
@@ -48,7 +51,7 @@ if [[ "$backend" != builtin ]]; then
   has_container=true
   database_port="$(docker port "$container" 5432/tcp | awk -F: '{print $NF}')"
   for attempt in {1..60}; do
-    if docker exec "$container" pg_isready -U postgres -d dexzd > /dev/null 2>&1; then break; fi
+    if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres -d dexzd > /dev/null 2>&1; then break; fi
     sleep 1
   done
   printf '  %s: postgres://postgres:bench@127.0.0.1:%s/dexzd\n' "$connection_key" "$database_port" >> "$output_directory/zd-config.yaml"
