@@ -19,7 +19,7 @@ cleanup() {
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
   fi
-  if [[ "$has_container" == true ]]; then docker rm -f "$container" > "$output_directory/container-removal.txt"; fi
+  if [[ "$has_container" == true ]]; then docker rm -fv "$container" > "$output_directory/container-removal.txt"; fi
   docker ps -a --filter "name=^${container}$" --format '{{.Names}}' >> "$output_directory/container-removal.txt"
   if [[ -f "$output_directory/server.log" ]]; then gzip "$output_directory/server.log"; fi
   rm -rf "$run_directory"
