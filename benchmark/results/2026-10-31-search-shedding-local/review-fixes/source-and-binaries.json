@@ -1,0 +1,11 @@
+{
+  "source_commit": "27a0295842b2bd3f91ae054a5440846d94ed6e2e",
+  "binaries": {
+    "server": {
+      "sha256": "a460f37a22771780cb3279f4ae0d9810306163d87423210bc1d11e02492fed04"
+    },
+    "benchmark": {
+      "sha256": "f1f184bcec46a9d9751e41ec38dc57e0f63ae048d023bc6ab78b747119b554e2"
+    }
+  }
+}

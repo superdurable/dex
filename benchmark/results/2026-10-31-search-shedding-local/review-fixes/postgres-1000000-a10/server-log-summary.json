@@ -1,0 +1,43 @@
+{
+  "source_file": "server.log.gz",
+  "source_sha256": "38af1cc4b02f10ed9b6aa425dc66aeaca966afd371e918ff0adab2605642e194",
+  "source_compressed_bytes": 5126285,
+  "line_count": 410698,
+  "projection_queue_overflow_count": 0,
+  "error_level_line_count": 0,
+  "overflow_match": "a committed frame could not be queued for the search projection; rebuilding its partition",
+  "error_level_match": " ERROR ",
+  "metrics_before_file": "metrics-before.openmetrics",
+  "metrics_after_file": "metrics-after.openmetrics",
+  "projection_counter_deltas": {
+    "dexzd_search_projection_coalesced_changes_total": 13869,
+    "dexzd_search_projection_dropped_updates_total{reason=\"intermediate\"}": 0,
+    "dexzd_search_projection_dropped_updates_total{reason=\"close\"}": 927130,
+    "dexzd_search_projection_dropped_updates_total{reason=\"start\"}": 985414,
+    "dexzd_search_projection_repaired_runs_total{reason=\"intermediate\"}": 0,
+    "dexzd_search_projection_repaired_runs_total{reason=\"close\"}": 6830,
+    "dexzd_search_projection_repaired_runs_total{reason=\"start\"}": 985929,
+    "dexzd_search_projection_repair_overflow_total": 0,
+    "dexzd_search_projection_repair_pending": 0,
+    "dexzd_search_projection_rebuild_requests_total": 0,
+    "dexzd_search_skipped_documents_total": 0,
+    "dexzd_search_projection_pending_objects_synced_total": 17782,
+    "dexzd_search_projection_pending_sync_failures_total": 0,
+    "dexzd_search_projection_partitions_needing_rebuild": 0,
+    "dexzd_search_projection_delete_overflow_total": 0,
+    "dexzd_search_projection_unknown_pending_objects_total": 0,
+    "dexzd_search_projection_permanent_failures_total": 0
+  },
+  "pending_object_request_activity": {
+    "put_count": 17381,
+    "delete_count": 529,
+    "put_bytes": 252308098,
+    "server_duration_ms_sum": 53825,
+    "server_duration_ms_max": 41
+  },
+  "projected_total": 1000000,
+  "projected_running": 50000,
+  "projected_completed": 950000,
+  "absent_runs": 0,
+  "stale_running": 0
+}

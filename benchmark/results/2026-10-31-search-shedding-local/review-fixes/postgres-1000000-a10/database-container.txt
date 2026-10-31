@@ -1,0 +1,60 @@
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "en_US.utf8".
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+fixing permissions on existing directory /var/lib/postgresql/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Etc/UTC
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+
+Success. You can now start the database server using:
+
+    pg_ctl -D /var/lib/postgresql/data -l logfile start
+
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+waiting for server to start....2026-10-31 22:06:56.350 UTC [62] LOG:  starting PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 22:06:56.351 UTC [62] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 22:06:56.354 UTC [65] LOG:  database system was shut down at 2026-10-31 22:06:53 UTC
+2026-10-31 22:06:56.356 UTC [62] LOG:  database system is ready to accept connections
+ done
+server started
+CREATE DATABASE
+
+
+/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+
+waiting for server to shut down....2026-10-31 22:06:56.470 UTC [62] LOG:  received fast shutdown request
+2026-10-31 22:06:56.472 UTC [62] LOG:  aborting any active transactions
+2026-10-31 22:06:56.472 UTC [62] LOG:  background worker "logical replication launcher" (PID 68) exited with exit code 1
+2026-10-31 22:06:56.473 UTC [63] LOG:  shutting down
+2026-10-31 22:06:56.474 UTC [63] LOG:  checkpoint starting: shutdown immediate
+2026-10-31 22:06:57.216 UTC [63] LOG:  checkpoint complete: wrote 925 buffers (2.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.061 s, sync=0.674 s, total=0.744 s; sync files=301, longest=0.123 s, average=0.003 s; distance=4256 kB, estimate=4256 kB; lsn=0/1917990, redo lsn=0/1917990
+2026-10-31 22:06:57.223 UTC [62] LOG:  database system is shut down
+ done
+server stopped
+
+PostgreSQL init process complete; ready for start up.
+
+2026-10-31 22:06:57.241 UTC [1] LOG:  starting PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 22:06:57.241 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-10-31 22:06:57.241 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-10-31 22:06:57.265 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 22:06:57.269 UTC [83] LOG:  database system was shut down at 2026-10-31 22:06:57 UTC
+2026-10-31 22:06:57.272 UTC [1] LOG:  database system is ready to accept connections
+2026-10-31 22:11:57.587 UTC [81] LOG:  checkpoint starting: time
+2026-10-31 22:13:49.255 UTC [81] LOG:  checkpoint complete: wrote 5789 buffers (17.7%); 0 WAL file(s) added, 48 removed, 19 recycled; write=110.668 s, sync=0.798 s, total=111.669 s; sync files=120, longest=0.098 s, average=0.007 s; distance=1091462 kB, estimate=1091462 kB; lsn=0/BD7752D8, redo lsn=0/442F9248
+2026-10-31 22:14:02.929 UTC [81] LOG:  checkpoint starting: wal
+2026-10-31 22:15:46.457 UTC [81] LOG:  checkpoint complete: wrote 6458 buffers (19.7%); 0 WAL file(s) added, 0 removed, 134 recycled; write=102.025 s, sync=0.955 s, total=103.528 s; sync files=38, longest=0.105 s, average=0.026 s; distance=2193040 kB, estimate=2193040 kB; lsn=1/4366D888, redo lsn=0/CA09D5B0
