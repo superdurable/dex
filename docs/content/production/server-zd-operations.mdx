@@ -560,17 +560,19 @@ restarts with it.
 ## Performance tuning {#performance-tuning}
 
 The defaults suit most nodes. Change these keys only when a load test shows a
-bottleneck. None of them changes Flow behavior or results. Each applies when the
-node starts.
+bottleneck. They change throughput and memory use, not Flow results. One
+exception: **commit.maxUnappliedBytes** bounds the backlog of accepted commands,
+so a smaller value makes more requests fail with UNAVAILABLE under load. Each
+key applies when the node starts.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| **commit.applierLanes** | CPUs available to the process, from 1 to **cluster.partitionCount** | Lanes that apply committed commands to the local store in parallel. One partition always uses the same lane, so its commands apply in order. An explicit value must be from 1 to **cluster.partitionCount**. If the CPU count cannot be read, the default is 8. |
+| **commit.applierLanes** | The larger of 8 and the CPUs available to the process, at most **cluster.partitionCount** and 1024 | Lanes that apply committed commands to the local store in parallel. One partition always uses the same lane, so its commands apply in order. Applying a command reads and writes the local store, so even a small host uses at least 8 lanes. An explicit value must be from 1 to the smaller of **cluster.partitionCount** and 1024. If the CPU count cannot be read, the default is 8. |
 | **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
 | **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
-| **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Keep it larger than **api.grpcMaxMessageBytes**, or the largest commands always fail. |
-| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two per column family. Must not exceed **localStorage.maxWalBytes**. |
-| **localStorage.maxBackgroundJobs** | Half the CPUs available to the process, and at least 2 | Most RocksDB flushes and compactions that run at once. |
+| **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Must be at least the smaller of **api.grpcMaxMessageBytes** and 32 MiB, so that the largest command can fit. |
+| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. |
+| **localStorage.maxBackgroundJobs** | Half the CPUs available to the process, from 2 to 1024 | Most RocksDB flushes and compactions that run at once. RocksDB starts one thread for each job. An explicit value must be from 1 to 1024. |
 | **localStorage.maxSubcompactions** | 1 | Threads that one RocksDB compaction may split into. A larger value can reduce write stalls under sustained writes. |
 
 The node logs the resolved **applierLanes** and **maxBackgroundJobs** values at

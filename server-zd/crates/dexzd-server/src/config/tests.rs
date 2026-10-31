@@ -495,9 +495,6 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
             config.commit.max_unapplied_bytes = 0
         }),
         ("commit.applierLanes", |config| {
-            config.commit.applier_lanes = Some(0)
-        }),
-        ("commit.applierLanes", |config| {
             config.commit.applier_lanes = Some(config.cluster.partition_count + 1)
         }),
         ("commit.applierQueueFrames", |config| {

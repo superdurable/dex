@@ -49,14 +49,17 @@ pub struct CommitConfig {
     pub max_batch_records: u32,
     /// Defaults to 64 MiB; encoded bytes of submitted commands that are not yet applied locally.
     /// A submission that does not fit fails with UNAVAILABLE, and so does any single command
-    /// larger than this value. Must be positive.
+    /// larger than this value. Must be at least the smaller of `api.grpcMaxMessageBytes` and
+    /// 32 MiB, the largest log record, so that every accepted request can fit.
     pub max_unapplied_bytes: u32,
-    /// Defaults to None, which uses the number of CPUs available to the process, clamped to
-    /// between 1 and `cluster.partitionCount`. If the CPU count cannot be read, None uses 8, also
-    /// clamped. Number of applier lanes that apply committed commands to the local store in
-    /// parallel. Partition `p` is always applied by lane `p % applierLanes`, in log order, so the
-    /// value changes throughput only, never apply results. An explicit value must be between 1
-    /// and `cluster.partitionCount`.
+    /// Defaults to None, which uses the larger of 8 and the number of CPUs available to the
+    /// process, clamped to between 1 and the smaller of `cluster.partitionCount` and 1024. If the
+    /// CPU count cannot be read, None uses 8, also clamped. Apply is local-store read-modify-write
+    /// work, not pure CPU work, so small hosts keep at least 8 lanes. Number of applier lanes that
+    /// apply committed commands to the local store in parallel. Partition `p` is always applied by
+    /// lane `p % applierLanes`, in log order, so the value changes throughput only, never apply
+    /// results. An explicit value must be between 1 and the smaller of `cluster.partitionCount`
+    /// and 1024.
     pub applier_lanes: Option<u32>,
     /// Defaults to 64; committed partition frames queued per applier lane before the commit
     /// pipeline waits for that lane. Must be positive.
@@ -79,12 +82,16 @@ impl Default for CommitConfig {
     }
 }
 
-/// Applier lanes used when `commit.applierLanes` is unset and the CPU count cannot be read.
-const FALLBACK_APPLIER_LANES: u32 = 8;
+/// Fewest applier lanes that an unset `commit.applierLanes` uses before the partition clamp.
+const MIN_DEFAULT_APPLIER_LANES: u32 = 8;
+
+/// Most applier lanes; each lane is a task with its own queue.
+pub(crate) const MAX_APPLIER_LANES: u32 = 1024;
 
 impl CommitConfig {
-    /// Returns `applierLanes` when set. Otherwise returns `available_cpus`, or 8 when the CPU
-    /// count is unknown (`None`), clamped to between 1 and `partition_count`.
+    /// Returns `applierLanes` when set. Otherwise returns the larger of 8 and `available_cpus`
+    /// (8 when the CPU count is unknown), clamped to between 1 and the smaller of
+    /// `partition_count` and 1024.
     pub fn effective_applier_lanes(
         &self,
         partition_count: u32,
@@ -92,8 +99,9 @@ impl CommitConfig {
     ) -> u32 {
         self.applier_lanes.unwrap_or_else(|| {
             available_cpus
-                .unwrap_or(FALLBACK_APPLIER_LANES)
-                .clamp(1, partition_count.max(1))
+                .unwrap_or(MIN_DEFAULT_APPLIER_LANES)
+                .max(MIN_DEFAULT_APPLIER_LANES)
+                .clamp(1, partition_count.clamp(1, MAX_APPLIER_LANES))
         })
     }
 }

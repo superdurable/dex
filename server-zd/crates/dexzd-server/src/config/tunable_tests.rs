@@ -10,8 +10,10 @@ use std::path::PathBuf;
 
 use dexzd_engine::LocalStoreConfig;
 
-use super::{CommitConfig, Config, ConfigError, LocalStorageConfig, available_cpu_count};
+use super::{CommitConfig, Config, ConfigError, LocalStorageConfig};
 use crate::component_configs::ComponentConfigs;
+
+type OutOfBoundsCase = (&'static str, fn(&mut Config));
 
 fn valid_config() -> Config {
     let mut configuration = Config::default();
@@ -45,55 +47,52 @@ fn commit_and_local_store_tunables_parse_and_reach_the_engine_node() {
 
 #[test]
 fn unset_tunables_use_current_and_cpu_based_defaults() {
-    let configuration = valid_config();
+    let mut configuration = valid_config();
+    configuration.cluster.partition_count = 4;
     assert_eq!(configuration.commit.applier_lanes, None);
     assert_eq!(configuration.local_storage.max_background_jobs, None);
+    configuration.validate().expect("valid defaults");
     let components =
         ComponentConfigs::from_config(&configuration, false).expect("component config");
     let commit = &components.engine_node.commit;
     assert_eq!(commit.max_batch_records, 10_000);
     assert_eq!(commit.max_unapplied_bytes, 64 * 1024 * 1024);
     assert_eq!(commit.applier_queue_frames, 64);
-    let available_cpus = available_cpu_count();
-    assert_eq!(
-        commit.applier_lanes,
-        configuration
-            .commit
-            .effective_applier_lanes(configuration.cluster.partition_count, available_cpus)
-            as usize
-    );
+    // At least 8 lanes before the clamp, so four partitions always give four lanes.
+    assert_eq!(commit.applier_lanes, 4);
     let LocalStoreConfig::RocksDb { options, .. } = components.engine_node.local_store else {
         panic!("serve uses a RocksDB local store");
     };
     assert_eq!(options.write_buffer_bytes, 64 * 1024 * 1024);
     assert_eq!(options.max_subcompactions, 1);
-    assert_eq!(
-        i64::from(options.max_background_jobs),
-        i64::from(
-            configuration
-                .local_storage
-                .effective_max_background_jobs(available_cpus)
-        )
-    );
+    assert!((2..=1024).contains(&options.max_background_jobs));
 
-    let commit_defaults = &configuration.commit;
+    let commit_defaults = CommitConfig::default();
     assert_eq!(commit_defaults.effective_applier_lanes(1024, Some(16)), 16);
-    assert_eq!(commit_defaults.effective_applier_lanes(1024, Some(2)), 2);
-    assert_eq!(commit_defaults.effective_applier_lanes(4, Some(16)), 4);
-    assert_eq!(commit_defaults.effective_applier_lanes(1024, Some(0)), 1);
+    assert_eq!(commit_defaults.effective_applier_lanes(1024, Some(2)), 8);
+    assert_eq!(commit_defaults.effective_applier_lanes(1024, Some(0)), 8);
     assert_eq!(commit_defaults.effective_applier_lanes(1024, None), 8);
+    assert_eq!(commit_defaults.effective_applier_lanes(4, Some(16)), 4);
     assert_eq!(commit_defaults.effective_applier_lanes(2, None), 2);
+    assert_eq!(
+        commit_defaults.effective_applier_lanes(65_536, Some(4096)),
+        1024
+    );
     let explicit_lanes = CommitConfig {
         applier_lanes: Some(3),
         ..CommitConfig::default()
     };
     assert_eq!(explicit_lanes.effective_applier_lanes(1024, Some(16)), 3);
 
-    let storage_defaults = &configuration.local_storage;
+    let storage_defaults = LocalStorageConfig::default();
     assert_eq!(storage_defaults.effective_max_background_jobs(Some(16)), 8);
     assert_eq!(storage_defaults.effective_max_background_jobs(Some(2)), 2);
     assert_eq!(storage_defaults.effective_max_background_jobs(Some(1)), 2);
     assert_eq!(storage_defaults.effective_max_background_jobs(None), 2);
+    assert_eq!(
+        storage_defaults.effective_max_background_jobs(Some(4096)),
+        1024
+    );
     let explicit_jobs = LocalStorageConfig {
         max_background_jobs: Some(1),
         ..LocalStorageConfig::default()
@@ -107,11 +106,66 @@ fn zero_applier_lanes_in_yaml_fail_validation() {
     configuration.commit = Config::parse_yaml("commit:\n  applierLanes: 0\n")
         .expect("parse zero applier lanes")
         .commit;
-    assert!(matches!(
-        configuration.validate(),
-        Err(ConfigError::Invalid {
-            field: "commit.applierLanes",
-            ..
-        })
-    ));
+    assert_rejected(&configuration, "commit.applierLanes");
+}
+
+#[test]
+fn tunables_outside_their_bounds_fail_validation() {
+    let cases: [OutOfBoundsCase; 7] = [
+        ("commit.applierLanes", |config| {
+            config.cluster.partition_count = 2048;
+            config.commit.applier_lanes = Some(1025);
+        }),
+        ("commit.applierLanes", |config| {
+            config.cluster.partition_count = 16;
+            config.commit.applier_lanes = Some(17);
+        }),
+        ("localStorage.maxBackgroundJobs", |config| {
+            config.local_storage.max_background_jobs = Some(1025)
+        }),
+        ("localStorage.maxBackgroundJobs", |config| {
+            config.local_storage.max_background_jobs = Some(u32::MAX)
+        }),
+        ("localStorage.writeBufferBytes", |config| {
+            config.local_storage.write_buffer_bytes = 64 * 1024 - 1
+        }),
+        ("commit.maxUnappliedBytes", |config| {
+            config.commit.max_unapplied_bytes = 32 * 1024 * 1024 - 1
+        }),
+        ("commit.maxUnappliedBytes", |config| {
+            config.values.max_value_bytes = 1024 * 1024;
+            config.api.grpc_max_message_bytes = 2 * 1024 * 1024;
+            config.commit.max_unapplied_bytes = 2 * 1024 * 1024 - 1;
+        }),
+    ];
+    for (field, mutate) in cases {
+        let mut configuration = valid_config();
+        mutate(&mut configuration);
+        assert_rejected(&configuration, field);
+    }
+
+    let mut at_bounds = valid_config();
+    at_bounds.cluster.partition_count = 2048;
+    at_bounds.commit.applier_lanes = Some(1024);
+    at_bounds.local_storage.max_background_jobs = Some(1024);
+    at_bounds.local_storage.write_buffer_bytes = 64 * 1024;
+    at_bounds.values.max_value_bytes = 1024 * 1024;
+    at_bounds.api.grpc_max_message_bytes = 2 * 1024 * 1024;
+    at_bounds.commit.max_unapplied_bytes = 2 * 1024 * 1024;
+    at_bounds
+        .validate()
+        .expect("values at their bounds are valid");
+    let components = ComponentConfigs::from_config(&at_bounds, false).expect("component config");
+    assert_eq!(components.engine_node.commit.applier_lanes, 1024);
+    let LocalStoreConfig::RocksDb { options, .. } = components.engine_node.local_store else {
+        panic!("serve uses a RocksDB local store");
+    };
+    assert_eq!(options.max_background_jobs, 1024);
+}
+
+fn assert_rejected(configuration: &Config, expected_field: &str) {
+    match configuration.validate() {
+        Err(ConfigError::Invalid { field, .. }) => assert_eq!(field, expected_field),
+        other => panic!("{expected_field} must be rejected, got {other:?}"),
+    }
 }

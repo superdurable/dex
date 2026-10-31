@@ -128,19 +128,22 @@ pub struct LocalStorageConfig {
     /// Defaults to 256 MiB; total size of the RocksDB write-ahead log files kept in the directory.
     /// Beyond it, RocksDB flushes the column families whose memtables keep the oldest log file, so
     /// the file can be deleted. Lower values bound disk use more tightly at the cost of more, smaller
-    /// flushes. Must be at least 64 MiB, the memtable size of one column family. Without this cap,
-    /// a column family with few writes keeps every log file until they reach four times the memtable
-    /// budget of all column families, about 3 GiB. Must also be at least writeBufferBytes.
+    /// flushes. Must be at least 64 MiB, the default memtable size (writeBufferBytes) of one
+    /// column family. Without this cap, a column family with few writes keeps every log file until
+    /// they reach four times the memtable budget of all column families, about 3 GiB at the default
+    /// writeBufferBytes. Must also be at least writeBufferBytes.
     pub max_wal_bytes: u64,
-    /// Defaults to 64 MiB, the RocksDB default; size of one memtable of each column family. RocksDB
-    /// keeps up to two memtables per column family, so memtable memory can reach about twice this
-    /// value per column family. Larger values flush less often and absorb longer write bursts.
-    /// Must be positive and no larger than maxWalBytes.
+    /// Defaults to 64 MiB, the RocksDB default; size of one memtable of each column family.
+    /// RocksDB keeps up to two memtables for each of the six column families, so memtables can
+    /// use 12 times this value (768 MiB at the default) on top of blockCacheBytes. Larger values
+    /// flush less often and absorb longer write bursts. maxWalBytes forces flushes once the
+    /// write-ahead log reaches it, so raising this value usually requires raising maxWalBytes too.
+    /// Must be between 64 KiB, the RocksDB minimum, and maxWalBytes.
     pub write_buffer_bytes: u64,
-    /// Defaults to None, which uses half the CPUs available to the process and at least 2, the
-    /// RocksDB default. If the CPU count cannot be read, None uses 2. Most RocksDB flushes and
-    /// compactions that run at once; RocksDB grows its background thread pools to match. An
-    /// explicit value must be positive.
+    /// Defaults to None, which uses half the CPUs available to the process, at least 2 (the
+    /// RocksDB default) and at most 1024. If the CPU count cannot be read, None uses 2. Most
+    /// RocksDB flushes and compactions that run at once; RocksDB starts background threads to
+    /// match. An explicit value must be between 1 and 1024.
     pub max_background_jobs: Option<u32>,
     /// Defaults to 1, the RocksDB default; number of threads one compaction may split into.
     /// Values above 1 let a large level-0 to level-1 compaction use several background jobs, which
@@ -153,7 +156,8 @@ pub struct LocalStorageConfig {
     /// flushes the memtables, which releases the write-ahead log, and drops overwritten and deleted
     /// entries. Expected disk use: about the live data size right after the compaction; otherwise
     /// at most the live data plus maxWalBytes plus level-0 files that RocksDB has not compacted yet
-    /// (at most four 64 MiB files per column family). Graceful shutdown stops a running compaction.
+    /// (at most four files per column family, each about writeBufferBytes, 64 MiB by default).
+    /// Graceful shutdown stops a running compaction.
     pub compact_after_replay_bytes: u64,
     /// Defaults to 1; number of set-aside local stores kept for diagnosis. When the local store is
     /// corrupt, is missing files, has an incompatible format, or cannot be updated from the
@@ -188,14 +192,20 @@ impl Default for LocalStorageConfig {
 /// The RocksDB default number of background jobs, and the lower bound of the CPU-based default.
 const MIN_DEFAULT_BACKGROUND_JOBS: u32 = 2;
 
+/// Most RocksDB background jobs; RocksDB starts one thread per job when it opens.
+pub(crate) const MAX_BACKGROUND_JOBS: u32 = 1024;
+
+/// Smallest memtable that RocksDB accepts without raising it.
+pub(crate) const MIN_WRITE_BUFFER_BYTES: u64 = 64 * 1024;
+
 impl LocalStorageConfig {
-    /// Returns `maxBackgroundJobs` when set. Otherwise returns half of `available_cpus`, and at
-    /// least 2; an unknown CPU count (`None`) returns 2.
+    /// Returns `maxBackgroundJobs` when set. Otherwise returns half of `available_cpus`, from 2
+    /// to 1024; an unknown CPU count (`None`) returns 2.
     pub fn effective_max_background_jobs(&self, available_cpus: Option<u32>) -> u32 {
         self.max_background_jobs.unwrap_or_else(|| {
             available_cpus
                 .map_or(MIN_DEFAULT_BACKGROUND_JOBS, |cpus| cpus / 2)
-                .max(MIN_DEFAULT_BACKGROUND_JOBS)
+                .clamp(MIN_DEFAULT_BACKGROUND_JOBS, MAX_BACKGROUND_JOBS)
         })
     }
 }
