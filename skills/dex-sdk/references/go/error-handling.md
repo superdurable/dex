@@ -1,6 +1,6 @@
 # Go error handling
 
-Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC issued after a successful direct-state RPC write observes that write when it loads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
+Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC or `Client.GetAttributes` call issued after a successful direct-state RPC write observes that write when it reads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
 
 ## Error layers
 
@@ -14,7 +14,7 @@ For an explicitly best-effort external `Client.WriteStream`, an `errors.As` matc
 
 ## Flow close cleanup
 
-From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/sdk-go/dex/errors.go)
+From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/errors.go)
 
 ## StartFlow error handling
 
@@ -42,11 +42,23 @@ Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-
 
 Apply the shared [terminal read RPC rule](../core/error-handling.md#terminal-read-rpc-rule) before catching `*dex.FlowNotActiveOrNotFoundError` from a snapshot RPC. Inspect its `dex.DefineRPC` registration in `GetRPCs`: `dex.RPCOptions.LockAttributes` must be empty and `IsTransactional` false for a terminal query. Include any `RPCInvokeOptions.LockAttributeMapInstances` in that check; collection loads alone do not require a transaction. The handler must return only typed output, with no durable effects, and Server policy must permit the query path.
 
-Call `Client.InvokeRPC` (or `InvokeRPCWithOptions` for selective instance loads) directly on the typed `Get*` method. Do not catch not-active and decode historical Step outputs into the snapshot. Reserve `WaitForFlow` for its explicit lifecycle/completion or mutation-reconciliation contract. Prove the read through the real-server [terminal entity test](../core/testing.md#terminal-entity-reads).
+Call `Client.InvokeRPC` (or `InvokeRPCWithOptions` for selective instance loads) directly on the typed `Get*` method. When the snapshot is only stored Attributes and exact AttributeMap instances, [`Client.GetAttributes`](primitives.md#client-attribute-reads) reads the retained closed run directly, without a Worker. Do not catch not-active and decode historical Step outputs into the snapshot. Reserve `WaitForFlow` for its explicit lifecycle/completion or mutation-reconciliation contract. Prove the read through the real-server [terminal entity test](../core/testing.md#terminal-entity-reads).
 
 ## Query-only Get failures
 
-Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `*dex.FlowNotActiveOrNotFoundError` or `*dex.FlowNotFoundError` with `errors.As` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths.
+Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `*dex.FlowNotActiveOrNotFoundError` or `*dex.FlowNotFoundError` with `errors.As` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths. A business Get that reads with `Client.GetAttributes` translates `*dex.FlowNotFoundError` the same way; see [Client Attribute read errors](#client-attribute-read-errors).
+
+## Client Attribute read errors
+
+Match `Client.GetAttributes` errors with `errors.As`. Follow the shared [Attribute read rules](../core/primitives.md#read-attributes-from-outside-a-flow).
+
+- `*dex.FlowNotFoundError`: the Flow does not exist, or its latest run is being purged. A closed run is still readable, so this is never `*dex.FlowNotActiveOrNotFoundError`. At a business Get boundary, return the not-found result directly, without a lifecycle probe or retry.
+- `*dex.FlowDefinitionError`: no Flow in the Client's Registry registers a definition with the same name, Attribute or AttributeMap kind, index, `SyncToAttributeStore`, `HardDeleteOnNull` setting, and value type.
+- `*dex.ValueMappingError`: a stored value cannot be decoded into `T`.
+- `*dex.ServiceError`, or a concrete service error wrapping it: another server failure, including a failed LoadBlobs request.
+- A plain error: an empty Flow ID, no reads, a nil read or destination, an invalid instance, a duplicate read, an invalid server response, a large value that LoadBlobs omits, another failure that is not a gRPC status, or a context error.
+
+On every error the result is the zero `AttributeReadResult` and no destination has been written. Every error names the Flow ID, and an error about one read also names its Attribute or physical key. [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/client_attributes.go)
 
 ## Retry ownership
 
@@ -58,9 +70,9 @@ Before non-idempotent external work, use an idempotency key derived from durable
 
 Use Execute/WaitFor failure policies for automatic recovery, operator Channels for manual recovery, and a timeout handler for Flow-deadline semantics. Compensation must be idempotent and identify the original commit.
 
-A recovery path reads the final failure with **ctx.RecoveryError()**. It returns nil outside a recovery path. With Go SDK v1.17.0, recognize Dex time limits with **IsMethodTimeout()**, **IsHeartbeatTimeout()**, and **IsRetryTotalDurationExceeded()** on that value. Do not compare **ErrorType** with a fixed string, because each Dex backend spells these error types differently. The methods are nil-safe, so call them before the nil check. Keep a final branch for every other failure, which keeps the Worker's reported **ErrorType** and **Detail**. Read the documented false cases in [recovery error types](../core/error-handling.md#recovery-error-types): a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, and backend differences. The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/sdk-go/dex/context.go) includes a complete recovery Step for an Execute failure route. The README shows a timeout-handler recovery Step:
+A recovery path reads the final failure with **ctx.RecoveryError()**. It returns nil outside a recovery path. With Go SDK v1.17.0, recognize Dex time limits with **IsMethodTimeout()**, **IsHeartbeatTimeout()**, and **IsRetryTotalDurationExceeded()** on that value. Do not compare **ErrorType** with a fixed string, because each Dex backend spells these error types differently. The methods are nil-safe, so call them before the nil check. Keep a final branch for every other failure, which keeps the Worker's reported **ErrorType** and **Detail**. Read the documented false cases in [recovery error types](../core/error-handling.md#recovery-error-types): a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, and backend differences. The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/context.go) includes a complete recovery Step for an Execute failure route. The README shows a timeout-handler recovery Step:
 
-[Pinned SDK README](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/sdk-go/README.md)
+[Pinned SDK README](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/README.md)
 <!-- dex-source: sdk-go/README.md -->
 ```go
 type timeoutRecoveryStep struct {

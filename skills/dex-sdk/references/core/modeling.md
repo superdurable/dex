@@ -107,7 +107,7 @@ Treat StepOptions as part of the graph design, not tuning added after implementa
 
 ## Persist only durable coordination state
 
-Use Attributes for state that later Steps, RPCs, application RPC responses, search, or recovery need. Large size alone does not require a separate application store: Dex can keep large values as blobs and hydrate them through the SDK BlobCache. Read [data-handling.md](data-handling.md) before designing another blob or cache layer.
+Use Attributes for state that later Steps, RPCs, application RPC responses, Client Attribute reads, search, or recovery need. Large size alone does not require a separate application store: Dex can keep large values as blobs and hydrate them through the SDK BlobCache. Read [data-handling.md](data-handling.md) before designing another blob or cache layer.
 
 Keep authoritative long-lived business records in a stable owner Flow's typed
 Attributes or AttributeMaps when Dex can satisfy their access and retention

@@ -6,7 +6,7 @@ Read core semantics first; this page gives Python shapes at the pinned baseline.
 
 Subclass `Flow[InputT]` and `Step[InputT]`. `get_steps` returns `StepList.start_step(instance).other_steps(...)`. A Step without `wait_for` executes immediately. `Wait.until`, all/any condition APIs, and `Wait.skip_immediately` control waiting. Return `go_to`, `go_to_many`, `dead_end`, graceful, or force decisions.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/examples/python/dex_examples/primitives/flow/example_flow.py)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.29.0/examples/python/dex_examples/primitives/flow/example_flow.py)
 <!-- dex-source: examples/python/dex_examples/primitives/flow/example_flow.py -->
 ```python
 class Example(Step[int]):
@@ -43,7 +43,7 @@ Timer belongs in `wait_for` as a durable condition, never `asyncio.sleep` for du
 
 Streams are typed feeds registered in persistence schema. In sync generator handlers, `yield` every Stream output. In async handlers, Stream writes are synchronous API calls at the pinned surface while heartbeat is awaited. Consumers resume from tokens.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/examples/python/dex_examples/primitives/stream/stream_flow.py)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.29.0/examples/python/dex_examples/primitives/stream/stream_flow.py)
 <!-- dex-source: examples/python/dex_examples/primitives/stream/stream_flow.py -->
 ```python
 class RenderPreview(Step[str]):
@@ -59,7 +59,7 @@ class RenderPreview(Step[str]):
 
 Use `read_stream` for forward, one-at-a-time, optionally long-polling consumption. Use `list_stream_messages` on `Client` or `AsyncClient` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `next_page_token` unchanged until it is empty.
 
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/examples/python/dex_examples/primitives/stream/controller.py)
+[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-python/v1.29.0/examples/python/dex_examples/primitives/stream/controller.py)
 <!-- dex-source: examples/python/dex_examples/primitives/stream/controller.py -->
 ```python
 page = await app_state.client.list_stream_messages(
@@ -76,10 +76,35 @@ The before-page token is exclusive and scope-bound. The first page uses an empty
 
 ## Client
 
-`Client` and `AsyncClient` own Flow lifecycle, typed RPC invocation, Attribute-match waits, Stream reads/listing, history, search, config, timers, and reset. Read and write Flow-owned Attribute and Channel state through typed RPCs, not removed direct Client methods. Async calls must be awaited; sync calls must not run on an event loop thread. Use typed exceptions and explicit deadlines.
+`Client` and `AsyncClient` own Flow lifecycle, committed Attribute reads, typed RPC invocation, Attribute-match waits, Stream reads/listing, history, search, config, timers, and reset. Read committed Attributes with [`get_attributes`](#client-attribute-reads). Write Flow-owned Attribute and Channel state, and read pending Channel messages, through typed RPCs; the Client has no direct write method. Async calls must be awaited; sync calls must not run on an event loop thread. Use typed exceptions and explicit deadlines.
+
+## Client Attribute reads
+
+From Python SDK v1.29.0, `Client.get_attributes(flow_id, *reads)` and `await AsyncClient.get_attributes(flow_id, *reads)` read committed values of registered Attributes and AttributeMap instances in one request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass singleton Attributes, or AttributeMap instances selected with `AttributeMap.instance(key)`. There is no single-Attribute method; pass one read to read one value.
+
+[Released Python Client Attribute read](https://github.com/superdurable/dex/blob/sdk-python/v1.29.0/sdk-python/README.md)
+<!-- dex-source: sdk-python/README.md -->
+```python
+values = client.get_attributes(flow_id, ORDER_STATUS, NOTES.instance("n1"))
+status = values.get(ORDER_STATUS, "new")
+if NOTES.instance("n1") in values:
+    note = values[NOTES.instance("n1")]
+```
+
+The result is a read-only `AttributeValues` keyed by the reads, and type checkers infer each value type from its key. An unset Attribute or map instance is absent: `values[key]` raises `KeyError`, `values.get(key)` returns `None`, `values.get(key, default)` returns `default`, and `key in values` is `False`. A stored value that decodes to `None` is still present. A freshly built `NOTES.instance("n1")` looks up the same entry. `AttributeValues` is not iterable, and its `repr` omits values.
+
+Each read must equal a definition declared by some Flow in the Client's Registry: the same class, name, value type, index, `sync_to_attribute_store`, and `hard_delete_on_null`. Errors:
+
+- `FlowNotFoundError`: the Flow does not exist, or its latest run is being purged. A closed run is still readable. At a business Get boundary, return the not-found result directly.
+- `FlowDefinitionError`: no registered Flow declares a matching definition. It is raised before contacting Dex.
+- `ValueError`: an empty Flow ID, no reads, a duplicate read, or an invalid server response. `TypeError`: a read that is not an `Attribute` or `AttributeMapInstance`, such as a bare `AttributeMap`.
+- `ValueMappingError`: a value cannot be resolved or decoded as its value type.
+- `DexServiceError`: another FlowService or LoadBlobs failure. A LoadBlobs failure for a missing Flow raises `FlowNotFoundError`.
+
+On any error the call returns no values. [Released Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.29.0/sdk-python/dex/client.py)
 
 ## Selection
 
-Use `Client.describe_flow(flow_id)` or await `AsyncClient.describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow raises `FlowNotFoundError`. The call does not wait for terminal status: use `wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type` and `error_message`. Do not use `describe_flow` as a `start_flow` preflight. Use `search_flows` for indexed discovery. [Released Python Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/sdk-python/dex/client.py)
+Use `Client.describe_flow(flow_id)` or await `AsyncClient.describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow raises `FlowNotFoundError`. The call does not wait for terminal status: use `wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type` and `error_message`. Do not use `describe_flow` as a `start_flow` preflight. Use `search_flows` for indexed discovery. [Released Python Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.29.0/sdk-python/dex/client.py)
 
-Attribute = current state; Channel = queued intent; RPC = synchronous mutation/snapshot; Stream = incremental output; Timer = durable time; SubFlow = independently identified durable child.
+Attribute = current state; Channel = queued intent; `get_attributes` = direct read of committed Attributes; RPC = synchronous mutation or computed snapshot; Stream = incremental output; Timer = durable time; SubFlow = independently identified durable child.

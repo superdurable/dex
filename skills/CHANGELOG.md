@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.58.0 - 2026-10-30
+
+- Document the Client Attribute read for reading Flow state from outside a Flow: Go `Client.GetAttributes` (from Go SDK v1.25.0), Python `Client.get_attributes` and `AsyncClient.get_attributes`, and TypeScript `Client.getAttributes` (from v1.29.0). Core primitives explains that one call is one server read from one commit, needs no Worker, reads a closed run until purge, sees only committed state unlike an RPC handler, and is batch-only. It lists each language's unset representation and errors, and says when to choose it over a typed read-only RPC. Java and Rust state that the API is not available yet and that a typed read-only RPC is the way to read Flow state there.
+- Update the guidance that made a read-only RPC the only external read: the SDK entrypoint and routing table, Core read-after-write (a Client Attribute read after a successful RPC write is strong), error handling (Flow-not-found at a business Get, terminal reads), data handling (large values and hard-delete secrets), patterns (responsive update and entity store), and the terminal entity read test. Add Go, Python, and TypeScript Client Attribute read sections, errors, and data-handling notes, with excerpts from each SDK README at its v1.29.0 tag. Update App Builder backend, connector UI state, and test guidance to read stored Attributes with Go `Client.GetAttributes`.
+- Advance `DEX_BASELINE` to sdk-go/v1.29.0, `DEX_PYTHON_BASELINE` to sdk-python/v1.29.0, and `DEX_TYPESCRIPT_BASELINE` to sdk-typescript/v1.29.0, and refresh their pinned source links. The only other SDK changes since the previous baselines are generated protocol bindings and Python and TypeScript Flow visualization fixtures, which need no guidance change. Correct the Go example module pin to SDK v1.26.0. The Java, Rust, Server, CLI, and Web baselines are unchanged. Synchronize the bundle and plugin manifests at 0.58.0.
+- Check the Client Attribute read statements against the Go, Python, and TypeScript baselines, and fail when the Java or Rust baseline gains the API, in `check-upstream-baselines.py`, with mutation tests.
+
 ## 0.57.1 - 2026-10-30
 
 - Advance the CLI baseline to cli-v1.28.1 and refresh its pinned source links. The Python and TypeScript SDK baselines stay at v1.28.0 because sdk-python/v1.28.1 and sdk-typescript/v1.28.1 contain no runtime change. The Go, Java, and Rust, Server, and Web baselines are unchanged. Synchronize the bundle and plugin manifests at 0.57.1.

@@ -6,7 +6,7 @@ Read core primitive semantics first. This page supplies Go API shapes at the pin
 
 A Flow implements `dex.Flow`; embedding `dex.FlowDefaults` supplies optional behavior. Register the start Step with `dex.DefineStartStep` and every reachable Step with `dex.DefineStep`. Embed `dex.StepDefaultsNoWaitFor[T]` when there is no WaitFor; otherwise implement both methods. Use the inherited type-name defaults and a domain Flow type name such as `OrderFlow`, never just `Flow`; follow the [production-rename exception](versioning.md#default-flow-and-step-type-names) before adding `GetFlowType` or `GetStepType`.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/examples/go/primitives/flow/workflow.go)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/examples/go/primitives/flow/workflow.go)
 <!-- dex-source: examples/go/primitives/flow/workflow.go -->
 ```go
 func (ExampleStep) WaitFor(ctx dex.Context, _ int) (*dex.Wait, error) {
@@ -27,7 +27,7 @@ Use `GoTo`, `GoToMany`, or `DeadEnd` to keep work open. Graceful completion wait
 
 `dex.Until(condition)` waits for one condition; `AllOf` and `AnyOf` combine conditions. Among ready `AnyOf` candidates, Dex uses canonical Timer, Channel, then SubFlow order and preserves argument order within each kind. An earlier unready Condition does not block a later ready one. Only the winning Channel consumes messages. For strict priority, return only the current higher-priority Condition until it resolves. Timers are durable conditions, not sleeps inside Execute.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/examples/go/primitives/timer/workflow.go)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/examples/go/primitives/timer/workflow.go)
 <!-- dex-source: examples/go/primitives/timer/workflow.go -->
 ```go
 func (timerStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
@@ -49,7 +49,7 @@ Channels are durable queues. `ForOne` and `ForN` create conditions; after firing
 
 Pending-message reads inside a Step or RPC are invocation snapshots. Other handlers may consume, delete, or publish concurrently. Transactional execution validates selected deletions and commits writes atomically, but does not lock the whole snapshot. Read and write pending messages directly only when the operation explicitly tolerates that race. When a decision requires the queue to remain unchanged, every cooperating Step and RPC writer must use the same Attribute lock.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/examples/go/primitives/channel/workflow.go)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/examples/go/primitives/channel/workflow.go)
 <!-- dex-source: examples/go/primitives/channel/workflow.go -->
 ```go
 func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
@@ -68,7 +68,7 @@ Only methods returned from `GetRPCs` are Worker RPCs. Register direct bound Flow
 
 Define a Stream with a byte limit and register it. A Step writes ordered progress; consumers resume from the Client token. A Stream is a feed, not authoritative state.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/examples/go/primitives/stream/workflow.go)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/examples/go/primitives/stream/workflow.go)
 <!-- dex-source: examples/go/primitives/stream/workflow.go -->
 ```go
 var Progress = dex.DefineStream[string]("Progress", 10<<20)
@@ -80,7 +80,7 @@ type StreamFlow struct {
 
 Use `Client.ReadStream` for forward, one-at-a-time, optionally long-polling consumption. Use `Client.ListStreamMessages` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `NextPageToken` unchanged to the next call until it is empty.
 
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/examples/go/primitives/stream/controller.go)
+[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/examples/go/primitives/stream/controller.go)
 <!-- dex-source: examples/go/primitives/stream/controller.go -->
 ```go
 var page sdk.StreamMessagesPage[string]
@@ -98,10 +98,35 @@ The before-page token is exclusive and scope-bound. The first page uses an empty
 
 ## SubFlow and Client
 
-`dex.SubFlow(child, input)` is a parent-owned Wait condition. Register parent and child, and explicitly model what parent completion means for unfinished children. Client owns Flow lifecycle, typed RPC invocation, Attribute-match waits, Stream operations, history, search, config, timers, and reset. Read and write Flow-owned Attribute and Channel state through typed RPCs, not removed direct Client methods. Always pass a bounded context and match typed errors with `errors.As`.
+`dex.SubFlow(child, input)` is a parent-owned Wait condition. Register parent and child, and explicitly model what parent completion means for unfinished children. Client owns Flow lifecycle, committed Attribute reads, typed RPC invocation, Attribute-match waits, Stream operations, history, search, config, timers, and reset. Read committed Attributes with [`Client.GetAttributes`](#client-attribute-reads). Write Flow-owned Attribute and Channel state, and read pending Channel messages, through typed RPCs; the Client has no direct write method. Always pass a bounded context and match typed errors with `errors.As`.
+
+## Client Attribute reads
+
+From Go SDK v1.25.0, `Client.GetAttributes(ctx, flowID, reads...)` reads committed values of registered Attributes and AttributeMap instances in one server call, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass one `dex.ReadAttribute(attribute, &value)` or `dex.ReadAttributeMapInstance(attributeMap, instance, &value)` per value; destinations are plain `*T`. There is no single-Attribute method.
+
+[Released Go Client Attribute read](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/README.md)
+<!-- dex-source: sdk-go/README.md -->
+```go
+orderStatus := dex.DefineAttribute[string]("order-status")
+notes := dex.DefineAttributeMap[Note]("notes")
+var status string
+var note Note
+result, err := client.GetAttributes(ctx, flowID,
+	dex.ReadAttribute(orderStatus, &status),
+	dex.ReadAttributeMapInstance(notes, "n1", &note),
+)
+if err != nil {
+	return err
+}
+if !result.IsSet(orderStatus) {
+	status = "new"
+}
+```
+
+An unset Attribute or AttributeMap instance leaves its destination unchanged. Most callers ignore the returned `AttributeReadResult`; use `IsSet` or `IsMapInstanceSet` when an unset value must be told apart from a stored zero value. The zero result reports nothing as set. Destinations are written only after every value decodes, so an error never leaves partial writes. Each definition must match one registered by a Flow in the Client's Registry: the same name, Attribute or AttributeMap kind, index, `SyncToAttributeStore`, `HardDeleteOnNull` setting, and value type `T`. `IsSet` and `IsMapInstanceSet` report true only for a definition deeply equal to the one passed to the read; another definition with the same name reports false. Duplicate reads, an empty Flow ID, a nil destination, and an invalid instance name fail before the server call. See [Client Attribute read errors](error-handling.md#client-attribute-read-errors). [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/client_attributes.go)
 
 ## Selection rule
 
-With Go SDK v1.21.0, use `Client.DescribeFlow(ctx, flowID)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state and the caller needs to know whether the Flow has failed. The pinned example module still selects SDK v1.15.0, which lacks it, so check the project's installed SDK first. It returns `dex.FlowInfo` with Flow ID, run ID, Flow type, status, start time, and close time; zero `ClosedAt` means the run is open or its close time is unavailable. A missing Flow returns `*dex.FlowNotFoundError`. It does not wait: use `Client.WaitForFlow` for a terminal result, repeat it after its long-poll timeout, and do not loop on DescribeFlow. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `WaitForFlow` returns immediately, and a failed result carries them in `FlowResult.ErrorType` and `ErrorMessage`. Do not use DescribeFlow as a StartFlow preflight. Use `Client.SearchFlows` to discover Flows by query. [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.26.0/sdk-go/dex/client.go)
+With Go SDK v1.21.0, use `Client.DescribeFlow(ctx, flowID)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state and the caller needs to know whether the Flow has failed. The pinned example module selects SDK v1.26.0, which has it; still check the project's installed SDK first. It returns `dex.FlowInfo` with Flow ID, run ID, Flow type, status, start time, and close time; zero `ClosedAt` means the run is open or its close time is unavailable. A missing Flow returns `*dex.FlowNotFoundError`. It does not wait: use `Client.WaitForFlow` for a terminal result, repeat it after its long-poll timeout, and do not loop on DescribeFlow. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `WaitForFlow` returns immediately, and a failed result carries them in `FlowResult.ErrorType` and `ErrorMessage`. Do not use DescribeFlow as a StartFlow preflight. Use `Client.SearchFlows` to discover Flows by query. [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/client.go)
 
-Use Attribute for current state, Channel for queued intent, RPC for synchronous mutation/snapshot, Stream for incremental output, Timer for durable time, and SubFlow for an independently identified durable child.
+Use Attribute for current state, Channel for queued intent, `Client.GetAttributes` for a direct read of committed Attributes, RPC for synchronous mutation or a computed snapshot, Stream for incremental output, Timer for durable time, and SubFlow for an independently identified durable child.

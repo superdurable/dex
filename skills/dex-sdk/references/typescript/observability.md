@@ -12,7 +12,7 @@ From SDK v1.28.0, `AsyncContext.recordHeartbeat` reports every failure through i
 
 server-zd enforces the Step HeartbeatTimeout for pull Workers and sends cancellation directly to the pull Worker. Record heartbeats within the timeout, stop promptly when the SDK reports cancellation, and keep side effects idempotent. Later attempts receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
 
-[Pinned heartbeat source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.28.0/examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts)
+[Pinned heartbeat source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.29.0/examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts)
 <!-- dex-source: examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts -->
 ```typescript
 public async execute(context: AsyncContext, batches: number): Promise<StepDecision> {

@@ -1122,6 +1122,102 @@ def check_release_1_28_statements(checkout: Path, baselines: dict[str, str]) -> 
     )
 
 
+# Per language: (tagged path, needles) for the Client Attribute read the references describe.
+CLIENT_ATTRIBUTE_READ_TAGGED_STATEMENTS = (
+    ("go", "sdk-go/README.md", (
+        "`GetAttributes` reads selected registered Attributes in one server call, without\ndispatching a Worker.",
+        "A read sees committed state, including on a closed run\nuntil it is purged.",
+        "An unset Attribute or AttributeMap instance leaves its destination unchanged.",
+        "A missing Flow or a run being purged\nreturns `*FlowNotFoundError`",
+    )),
+    ("go", "sdk-go/dex/client_attributes.go", (
+        "func (client *Client) GetAttributes(",
+        "// The Client sends all keys in one server request and does not dispatch a Worker.",
+        "// A closed run stays readable until it is purged.",
+    )),
+    ("python", "sdk-python/README.md", (
+        "`AsyncClient.get_attributes` is the awaitable form. There is no single-Attribute\nmethod;",
+        "so all values come from the same committed state.",
+        "closed run stays readable until Dex purges it.",
+        "is absent: `values[key]` raises `KeyError`",
+    )),
+    ("python", "sdk-python/dex/async_client.py", ("    async def get_attributes(",)),
+    ("typescript", "sdk-typescript/README.md", (
+        "each element is `T | undefined`; `undefined` means the value is not set:",
+        "- One FlowService request reads every key from the same committed state. No\n  Worker runs,",
+        "A closed\n  run stays readable until Dex purges it.",
+    )),
+    ("typescript", "sdk-typescript/src/client.ts", ("  public async getAttributes<",)),
+)
+# Per language without the API: (hand-written source tree, file suffix, search token, declaration pattern).
+# A baseline bump that adds a public Client Attribute read anywhere in the tree fails.
+CLIENT_ATTRIBUTE_READ_ABSENT = (
+    ("java", "sdk-java/src/main/java/io/superdurable/dex", ".java", "getAttributes", re.compile(
+        r"\bpublic\b[^;{}()=]*\bgetAttributes\s*\(\s*(?:@\w+\s+)*(?:final\s+)?String\b",
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src", ".rs", "get_attributes", re.compile(
+        r"\bpub\s+(?:async\s+)?fn\s+get_attributes\b",
+    )),
+)
+CLIENT_ATTRIBUTE_READ_REFERENCES = (
+    ("core/primitives.md", (
+        "### Read Attributes from outside a Flow",
+        "Go has **Client.GetAttributes** from Go SDK v1.25.0.",
+        "The Java and Rust SDKs do not have this API yet; read Flow state there through a typed read-only RPC.",
+        "Hard-delete values are no exception: the call returns only committed values.",
+        "TypeScript requires the exact registered definition object.",
+    )),
+    ("core/read-after-write.md", (
+        "| Client Attribute read (Go **GetAttributes**, Python **get_attributes**, TypeScript **getAttributes**)",
+        "| Step or RPC write or delete of a hard-delete Attribute | Typed read RPC, another Step or RPC, or a retried attempt |",
+    )),
+    ("go/primitives.md", (
+        "## Client Attribute reads",
+        "From Go SDK v1.25.0, `Client.GetAttributes(ctx, flowID, reads...)`",
+        "`IsSet` and `IsMapInstanceSet` report true only for a definition deeply equal to the one passed to the read",
+    )),
+    ("python/primitives.md", (
+        "## Client Attribute reads",
+        "From Python SDK v1.29.0, `Client.get_attributes(flow_id, *reads)` and `await AsyncClient.get_attributes(flow_id, *reads)`",
+    )),
+    ("typescript/primitives.md", (
+        "## Client Attribute reads",
+        "From TypeScript SDK v1.29.0, `client.getAttributes(flowId, ...reads)`",
+    )),
+    ("java/primitives.md", ("The Java SDK does not have the Client Attribute read API yet",)),
+    ("rust/primitives.md", ("The Rust SDK does not have the Client Attribute read API yet",)),
+)
+
+
+def tagged_files_containing(checkout: Path, tag: str, tree: str, suffix: str, token: str) -> list[str]:
+    """Returns the tagged files under tree with suffix whose content contains token, skipping generated code."""
+    result = subprocess.run(
+        ["git", "grep", "-l", "-F", "-e", token, f"refs/tags/{tag}", "--", tree],
+        cwd=checkout,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode not in (0, 1):
+        fail(f"cannot search {tag}:{tree}: {result.stderr.strip()}")
+    prefix = f"refs/tags/{tag}:"
+    paths = [line.removeprefix(prefix) for line in result.stdout.splitlines()]
+    return [path for path in paths if path.endswith(suffix) and "/gen/" not in path]
+
+
+def check_client_attribute_reads(checkout: Path, baselines: dict[str, str], references: Path) -> None:
+    """Checks the Client Attribute read statements against each SDK baseline and the references."""
+    for language, path, needles in CLIENT_ATTRIBUTE_READ_TAGGED_STATEMENTS:
+        require_tagged_text(checkout, baselines[language], path, *needles)
+    for language, tree, suffix, token, declaration in CLIENT_ATTRIBUTE_READ_ABSENT:
+        tag = baselines[language]
+        for path in tagged_files_containing(checkout, tag, tree, suffix, token):
+            if declaration.search(git(checkout, "show", f"refs/tags/{tag}:{path}")):
+                fail(f"{tag}:{path} declares a public Client Attribute read; document it for {language}")
+    for page, needles in CLIENT_ATTRIBUTE_READ_REFERENCES:
+        require_text(references / page, *needles)
+
+
 def require_ancestor(checkout: Path, ancestor: str, descendant: str, label: str) -> None:
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", ancestor, descendant],
@@ -1285,6 +1381,7 @@ def main() -> None:
     check_flow_service_tls(arguments.dex_root, go_sdk_baseline, sdk_baselines, SDK_REFERENCES)
     check_pull_only_workers(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_release_1_28_statements(arguments.dex_root, sdk_baselines)
+    check_client_attribute_reads(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

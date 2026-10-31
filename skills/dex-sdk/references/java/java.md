@@ -1,6 +1,6 @@
 # Java handbook
 
-The SDK API reference uses the [released v1.25.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
+The SDK API reference uses the [released v1.26.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
 
 Use this page first for Java application work. Then load the topic page that matches the task. The [baseline build](https://github.com/superdurable/dex/blob/sdk-java/v1.26.0/examples/java/build.gradle) uses `io.superdurable:dex-sdk:1.25.0`, Spring Boot, and JDK 17 or newer. The application's Gradle or Maven lockfile remains authoritative.
 
@@ -125,7 +125,7 @@ public BlobCache blobCache(
 
 Start the blocking Worker on a managed thread and close Worker, Client, and BlobCache during application shutdown. Do not create a cache per request.
 
-Add `io.superdurable:dex-sdk:<resolved-version>` to Gradle or Maven. Application adapters call the injected Client to start a registered Flow, invoke typed RPC stubs for Flow-owned state, wait for Attribute matches, or wait for terminal status.
+Add `io.superdurable:dex-sdk:<resolved-version>` to Gradle or Maven. Application adapters call the injected Client to start a registered Flow, invoke typed RPC stubs for Flow-owned state, wait for Attribute matches, or wait for terminal status. The Java SDK has no Client Attribute read yet, so read Flow state through a typed read-only RPC; see [Client interaction](primitives.md#client-interaction).
 
 ## Run locally
 
