@@ -29,6 +29,9 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           filters: |
+            agents:
+              - 'agents/**'
+              - '.github/workflows/agents-ci.yml'
             sdk_go:
               - 'sdk-go/**'
               - 'blob-cache-go/**'
@@ -183,6 +186,7 @@ jobs:
               - 'skills/**'
               - '.github/workflows/skills-ci.yml'
             copyright:
+              - 'agents/**'
               - 'cli/**'
               - 'sdk-go/**'
               - 'sdk-java/**'
@@ -210,6 +214,7 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          FILTER_AGENTS: ${{ steps.filter.outputs.agents }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
           FILTER_SDK_JAVA: ${{ steps.filter.outputs.sdk_java }}
@@ -240,6 +245,7 @@ jobs:
           expected=()
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
             expected=(
+              "Agents CI"
               "Blob Cache Go CI"
               "Dex CLI CI"
               "Copyright"
@@ -264,6 +270,7 @@ jobs:
             )
           else
             expected+=("CLA")
+            [[ "$FILTER_AGENTS" == "true" ]] && expected+=("Agents CI")
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
             [[ "$FILTER_SDK_JAVA" == "true" ]] && expected+=("Java SDK CI")
@@ -289,11 +296,12 @@ jobs:
             [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
           fi
 
-          # ci:fast-merge stops the SDK, CLI, Web, and examples
+          # ci:fast-merge stops the SDK, CLI, Web, examples, and agents
           # suites from blocking the merge. They still run on the pull request and on main.
           # The SDK suites on server-zd are non-blocking too; Server ZD CI still blocks.
           if [[ "$EVENT_NAME" == "pull_request" && "$IS_FAST_MERGE" == "true" ]]; then
             non_blocking=(
+              "Agents CI"
               "Blob Cache Go CI"
               "Dex CLI CI"
               "Go SDK CI"

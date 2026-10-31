@@ -1,0 +1,113 @@
+name: Agents CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agents/**"
+      - ".github/workflows/agents-ci.yml"
+  pull_request:
+    paths:
+      - "agents/**"
+      - ".github/workflows/agents-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEXCLI_RELEASE_TAG: cli-v1.30.0
+  DEXCLI_ARCHIVE: dexcli_v1.30.0_linux_amd64.tar.gz
+
+jobs:
+  discover:
+    name: Discover agent packages
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.discover.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v7
+      # Every package with an executable agents/<language>/<package>/ci.sh gets a matrix job.
+      - name: List packages with an executable ci.sh
+        id: discover
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          package_paths=()
+          for script in agents/*/*/ci.sh; do
+            if [[ ! -x "$script" ]]; then
+              echo "::error file=$script::$script is not executable; run chmod +x and commit it"
+              exit 1
+            fi
+            package_paths+=("$(dirname "$script")")
+          done
+          if (( ${#package_paths[@]} == 0 )); then
+            echo "::error::found no agents/<language>/<package>/ci.sh"
+            exit 1
+          fi
+          packages="$(printf '%s\n' "${package_paths[@]}" | jq -R -s -c '
+            split("\n")
+            | map(select(length > 0))
+            | map({path: ., language: (split("/")[1]), name: (split("/")[2])})
+          ')"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          jq . <<<"$packages"
+
+  package:
+    name: ${{ matrix.package.path }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.discover.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: ${{ matrix.package.path }}
+          enable-cache: ${{ matrix.package.language == 'python' }}
+      - name: Install Node
+        if: matrix.package.language == 'typescript'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download and verify dexcli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEXCLI_DIR: ${{ runner.temp }}/dexcli
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEXCLI_DIR"
+          cd "$DEXCLI_DIR"
+          gh release download "$DEXCLI_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$DEXCLI_ARCHIVE" \
+            --pattern checksums.txt
+          if ! grep -E "^[0-9a-f]{64}  (\./)?${DEXCLI_ARCHIVE//./\\.}\$" checksums.txt > archive.sha256; then
+            echo "checksums.txt has no entry for $DEXCLI_ARCHIVE"
+            exit 1
+          fi
+          sha256sum --check --strict archive.sha256
+          tar -xzf "$DEXCLI_ARCHIVE"
+          test -x dexcli && test -x dex-server-zd
+          ./dexcli --version
+          echo "DEXCLI=$DEXCLI_DIR/dexcli" >> "$GITHUB_ENV"
+      - name: Run ci.sh
+        working-directory: ${{ matrix.package.path }}
+        run: ./ci.sh
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agents-${{ matrix.package.language }}-${{ matrix.package.name }}-logs
+          path: /tmp/pytest-of-*/pytest-*/**/*.log
+          if-no-files-found: ignore

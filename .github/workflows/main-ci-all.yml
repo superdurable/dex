@@ -25,6 +25,7 @@ jobs:
           set -euo pipefail
 
           workflows=(
+            agents-ci.yml
             blob-cache-go-ci.yml
             cli-ci.yml
             copyright-ci.yml

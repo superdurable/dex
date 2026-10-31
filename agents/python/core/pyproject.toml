@@ -1,0 +1,54 @@
+[project]
+name = "dex-agents"
+version = "0.1.0"
+description = "Durable agent sessions for Dex, shared by the Dex agent framework adapters"
+authors = [{name = "Super Durable"}]
+readme = "README.md"
+license = "LicenseRef-Sustainable-Use-1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "dex-python-sdk==1.30.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/core"
+Repository = "https://github.com/superdurable/dex"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15,<2",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.26,<2",
+    "ruff>=0.8,<0.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = "==0.12.2"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
+# Timeout parameters mirror the Dex SDK; test helpers poll files and spawn children on purpose.
+ignore = ["ASYNC109", "ASYNC110", "ASYNC220"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dex_agents", "tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

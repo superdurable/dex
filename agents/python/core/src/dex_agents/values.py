@@ -1,0 +1,449 @@
+# Copyright (c) 2026 Super Durable, Inc.
+#
+# Licensed under the Sustainable Use License 1.0.
+# You may not use this file except in compliance with the License.
+# See the LICENSE file in the repository root.
+#
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+"""Wire value types of the shared agent session Flow.
+
+Every type here is a JSON wire contract shared by the Python and TypeScript
+cores. Field names are snake_case in both languages. A UI or another Dex
+client can decode them without the framework adapter that wrote them.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
+
+
+class AgentSessionStatus(StrEnum):
+    """Name what an agent session is doing now.
+
+    The session Flow stores the status in ``AgentState.status``. A UI reads it
+    from ``get_agent_snapshot`` or with ``AsyncClient.get_attributes``. The
+    values are JSON strings on the wire.
+
+    Attributes:
+        WAITING_FOR_USER_MESSAGE: The session waits for the next user message.
+        RUNNING_TURN: ``RunAgentTurn`` runs or resumes the framework.
+        WAITING_FOR_INTERRUPT: The turn waits for ``resolve_interrupt`` on at
+            least one pending interrupt.
+        EXECUTING_TOOL: A tool Step runs one deferred tool call.
+    """
+
+    WAITING_FOR_USER_MESSAGE = "waiting_for_user_message"
+    RUNNING_TURN = "running_turn"
+    WAITING_FOR_INTERRUPT = "waiting_for_interrupt"
+    EXECUTING_TOOL = "executing_tool"
+
+
+class MessageRole(StrEnum):
+    """Name the author of one stored agent message.
+
+    Attributes:
+        USER: A message the user sent.
+        ASSISTANT: Model output, including a tool call request.
+        TOOL: A tool result returned to the model.
+    """
+
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class ToolEffect(StrEnum):
+    """Classify what a tool call does to the world outside the session.
+
+    The effect decides where the call runs and how often it may run. ``READ``
+    tools run inside ``RunAgentTurn`` and run again when a turn segment
+    reruns. ``IDEMPOTENT_WRITE`` tools run in ``ExecuteToolCall`` with up to
+    three attempts and a stable idempotency key. ``NON_IDEMPOTENT_WRITE`` and
+    ``UNCLASSIFIED`` tools run in ``ExecuteSingleAttemptToolCall`` exactly
+    once; a crash during the call records ``outcome_unknown``. The values are
+    JSON strings on the wire.
+
+    Attributes:
+        READ: The tool only reads. Running it again is harmless.
+        IDEMPOTENT_WRITE: The tool writes, and repeating it with the same
+            idempotency key has no further effect.
+        NON_IDEMPOTENT_WRITE: The tool writes, and repeating it can repeat the
+            effect.
+        UNCLASSIFIED: Nothing is known about the tool. It is treated like a
+            non-idempotent write.
+    """
+
+    READ = "read"
+    IDEMPOTENT_WRITE = "idempotent_write"
+    NON_IDEMPOTENT_WRITE = "non_idempotent_write"
+    UNCLASSIFIED = "unclassified"
+
+
+class ToolCallStatus(StrEnum):
+    """Name the lifecycle state of one deferred tool call record.
+
+    ``SUCCEEDED``, ``FAILED``, ``REJECTED``, and ``OUTCOME_UNKNOWN`` are final.
+    A runner resuming a turn reads final records and returns their results to
+    the model instead of running the tools again.
+
+    Attributes:
+        AWAITING_APPROVAL: The call waits for ``resolve_interrupt``.
+        APPROVED: The call may run; its tool Step has not finished yet.
+        REJECTED: The user or an expired deadline rejected the call. It never ran.
+        SUCCEEDED: The tool ran and returned ``output``.
+        FAILED: The tool raised ``ToolExecutionError``; ``error`` holds the
+            message for the model to see.
+        OUTCOME_UNKNOWN: The tool Step ended without a result, through a
+            Worker crash, a timeout, or another exception after its attempts
+            ran out, so the effect may or may not have happened.
+    """
+
+    AWAITING_APPROVAL = "awaiting_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    OUTCOME_UNKNOWN = "outcome_unknown"
+
+    @property
+    def is_final(self) -> bool:
+        """Report whether the record has a result the model can see.
+
+        Returns:
+            ``True`` for ``REJECTED``, ``SUCCEEDED``, ``FAILED``, and
+            ``OUTCOME_UNKNOWN``; ``False`` while the call waits or may still run.
+        """
+        return self not in (ToolCallStatus.AWAITING_APPROVAL, ToolCallStatus.APPROVED)
+
+
+class InterruptKind(StrEnum):
+    """Name why a turn paused for a person.
+
+    Attributes:
+        TOOL_APPROVAL: A tool call needs approval before it runs.
+    """
+
+    TOOL_APPROVAL = "tool_approval"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentSessionStartInput:
+    """Start one agent session Flow, optionally with its first user message.
+
+    Pass it as the input of ``AsyncClient.start_flow`` for an
+    ``AgentSessionFlow``. The Flow ID you choose is the session ID.
+
+    Example:
+        >>> await client.start_flow(flow, "session-42", AgentSessionStartInput(
+        ...     initial_message="Summarize my open tickets"))
+
+    Attributes:
+        initial_message: Text of the first user message. ``None`` or
+            whitespace-only text starts the session in ``AwaitUserMessage``.
+    """
+
+    initial_message: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentState:
+    """Describe the current position of one agent session.
+
+    The ``AgentState`` Attribute holds one value. Every Step that changes the
+    session position replaces it.
+
+    Attributes:
+        status: What the session is doing now.
+        turn_count: Number of turns that completed or failed.
+        active_turn_id: ``"turn-<n>"`` of the running turn, or ``None`` between
+            turns. ``n`` is ``turn_count + 1`` when the turn starts.
+        next_message_sequence: Sequence the next stored message receives.
+            Sequences start at 1 and have no gaps.
+        executing_tool_call_id: Tool call ID that the current or next tool Step
+            runs, or ``None``.
+        last_turn_error: Recovery error text of the last finished turn when it
+            failed, or ``None`` when it completed.
+    """
+
+    status: AgentSessionStatus
+    turn_count: int = 0
+    active_turn_id: str | None = None
+    next_message_sequence: int = 1
+    executing_tool_call_id: str | None = None
+    last_turn_error: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentMessage:
+    """Store one framework item of the session conversation.
+
+    The ``AgentMessages`` AttributeMap holds one value per message, keyed by
+    its sequence as a 12-digit zero-padded decimal. ``framework_item`` is the
+    replay truth: the framework adapter writes it and reads it back unchanged
+    to rebuild framework input. The other fields are a display projection.
+
+    Attributes:
+        sequence: Position in the session, starting at 1.
+        turn_id: ``"turn-<n>"`` of the turn that produced the message.
+        role: Author of the message.
+        text: Display text, or ``None`` for an item without text.
+        tool_call_id: Tool call ID for a tool request or result item.
+        tool_name: Tool name for a tool request or result item.
+        tool_arguments: Tool arguments as JSON text for a tool request item.
+        tool_output: Tool result text for a tool result item.
+        framework_item: Framework-native JSON text, replayed unchanged.
+        created_at: RFC 3339 time when the session stored the message.
+    """
+
+    sequence: int
+    turn_id: str
+    role: MessageRole
+    text: str | None = None
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    tool_arguments: str | None = None
+    tool_output: str | None = None
+    framework_item: str
+    created_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentToolCall:
+    """Record one tool call that a turn deferred to a Dex Step.
+
+    The ``AgentToolCalls`` AttributeMap holds one record per deferred call,
+    keyed by tool call ID. Records exist only while their turn runs. When the
+    turn completes or fails, the session deletes them, because the results are
+    already conversation messages.
+
+    Attributes:
+        tool_call_id: Framework tool call ID. It is non-empty and has no ``/``.
+        turn_id: ``"turn-<n>"`` of the turn that deferred the call.
+        tool_name: Name of the tool the model asked for.
+        arguments: Tool arguments as JSON text.
+        effect: Effect that decides which Step runs the call.
+        requires_approval: Whether ``resolve_interrupt`` must approve the call.
+        status: Lifecycle state of the call.
+        output: Tool output text after ``SUCCEEDED``.
+        error: The ``ToolExecutionError`` message after ``FAILED``, or the
+            recovery detail of the failed Step after ``OUTCOME_UNKNOWN``.
+        rejection_message: Message after ``REJECTED``, or ``None`` when the
+            person gave none.
+        deferral_order: Zero-based order in which the turn deferred the call.
+            Approved calls run in this order. This field extends the planned
+            contract so the order survives storage in an AttributeMap.
+    """
+
+    tool_call_id: str
+    turn_id: str
+    tool_name: str
+    arguments: str
+    effect: ToolEffect
+    requires_approval: bool
+    status: ToolCallStatus
+    output: str | None = None
+    error: str | None = None
+    rejection_message: str | None = None
+    deferral_order: int = 0
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentInterrupt:
+    """Describe one question the session waits for a person to answer.
+
+    The ``PendingInterrupts`` Attribute holds the list of unresolved
+    interrupts. A UI shows them and answers each with ``resolve_interrupt``.
+
+    Attributes:
+        interrupt_id: ID passed to ``resolve_interrupt``. It equals the tool
+            call ID for a tool approval.
+        kind: Why the turn paused.
+        tool_call_id: Tool call that waits for approval.
+        tool_name: Name of that tool.
+        arguments: Tool arguments as JSON text.
+        created_at: RFC 3339 time when the interrupt was raised.
+        deadline: RFC 3339 time after which the session rejects the call with
+            ``"approval deadline passed"``, or ``None`` for no deadline.
+    """
+
+    interrupt_id: str
+    kind: InterruptKind
+    tool_call_id: str
+    tool_name: str
+    arguments: str
+    created_at: str
+    deadline: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentInterruptResolution:
+    """Carry one answer to an interrupt through ``InterruptResolutions``.
+
+    ``resolve_interrupt`` publishes it to the ChannelMap instance named by the
+    interrupt ID. ``AwaitInterruptResolution`` consumes it.
+
+    Attributes:
+        approved: Whether the tool call may run.
+        rejection_message: Message the model sees after a rejection, or ``None``.
+    """
+
+    approved: bool
+    rejection_message: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ResolveInterruptRequest:
+    """Answer one pending interrupt through the ``resolve_interrupt`` RPC.
+
+    Attributes:
+        interrupt_id: ``AgentInterrupt.interrupt_id`` of a pending interrupt.
+        approved: ``True`` to run the tool call; ``False`` to reject it.
+        rejection_message: Message the model sees after a rejection. ``None``
+            makes the model see a generic rejection.
+    """
+
+    interrupt_id: str
+    approved: bool
+    rejection_message: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentUsage:
+    """Count model usage, for one turn segment or for the whole session.
+
+    A runner returns the usage of one turn segment in ``TurnCompleted`` or
+    ``TurnSuspended``. The session adds it to the ``AgentUsage`` Attribute.
+    Report zero for a count the framework does not expose.
+
+    Attributes:
+        model_calls: Number of model requests.
+        input_tokens: Input tokens, including cached input tokens.
+        output_tokens: Output tokens, including reasoning tokens.
+        cached_input_tokens: Input tokens served from a provider cache.
+        reasoning_tokens: Output tokens spent on reasoning.
+    """
+
+    model_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_input_tokens: int = 0
+    reasoning_tokens: int = 0
+
+    def combined_with(self, other: AgentUsage) -> AgentUsage:
+        """Return the field-by-field sum of this usage and another.
+
+        Args:
+            other: Usage to add.
+
+        Returns:
+            A new ``AgentUsage``; neither input changes.
+        """
+        return AgentUsage(
+            model_calls=self.model_calls + other.model_calls,
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            cached_input_tokens=self.cached_input_tokens + other.cached_input_tokens,
+            reasoning_tokens=self.reasoning_tokens + other.reasoning_tokens,
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentUserMessage:
+    """Send one user message through the ``send_user_message`` RPC.
+
+    The RPC queues the message in the ``QueuedUserMessages`` Channel. The
+    session consumes queued messages in order, one per turn, after the current
+    turn ends.
+
+    Attributes:
+        text: Message text. Whitespace-only text is rejected.
+    """
+
+    text: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEvent:
+    """Carry one live update on the ``AgentEvents`` Stream.
+
+    Streams are best effort. A Step retry can repeat events, and a lost
+    consumer can miss them. Rebuild durable state from ``get_agent_snapshot``.
+
+    Group live text by ``(turn_id, step_execution_id, attempt)``. Within one
+    ``step_execution_id``, keep only the events of the highest ``attempt``
+    seen, and drop the partial text of lower attempts. Different
+    ``step_execution_id`` values of one turn are consecutive turn segments
+    and Steps, and each keeps its own events. After ``turn_completed`` or
+    ``turn_failed``, replace the turn's live text with the stored messages.
+
+    Attributes:
+        type: One of the ``AgentEventType`` values.
+        turn_id: Turn the event belongs to, or ``None``.
+        attempt: One-based attempt of the Step that wrote the event.
+        payload: Event-specific JSON object text.
+        step_execution_id: Dex Step execution ID of the Step that wrote the
+            event. All attempts of one Step execution share it. Events written
+            before this field existed decode with ``""``.
+    """
+
+    type: str
+    turn_id: str | None
+    attempt: int
+    payload: str
+    step_execution_id: str = ""
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentSnapshot:
+    """Return everything a UI needs to render one agent session.
+
+    ``get_agent_snapshot`` returns it. The RPC reads committed state, so a
+    retained closed session stays readable.
+
+    Attributes:
+        state: Current session position, or ``None`` before
+            ``StartAgentSession`` committed.
+        messages: The last 200 messages in sequence order.
+        pending_interrupts: Unresolved interrupts.
+        tool_calls: Deferred tool call records of the active turn, in
+            ``deferral_order``.
+        usage: Model usage of the whole session.
+        queued_message_count: User messages queued for later turns.
+    """
+
+    state: AgentState | None
+    messages: list[AgentMessage] = field(default_factory=list)
+    pending_interrupts: list[AgentInterrupt] = field(default_factory=list)
+    tool_calls: list[AgentToolCall] = field(default_factory=list)
+    usage: AgentUsage = field(default_factory=AgentUsage)
+    queued_message_count: int = 0
+
+
+@dataclass(frozen=True, kw_only=True)
+class ListAgentMessagesRequest:
+    """Select one page of stored messages for ``list_agent_messages``.
+
+    Attributes:
+        before_sequence: Return messages with a smaller sequence. ``None``
+            starts after the newest message.
+        limit: Maximum messages to return, clamped to 1 through 200.
+    """
+
+    before_sequence: int | None = None
+    limit: int = 50
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentMessagesPage:
+    """Return one page of stored messages, oldest first.
+
+    Attributes:
+        messages: Messages in sequence order.
+        next_before_sequence: Pass as ``before_sequence`` to read the previous
+            page, or ``None`` when this page starts at the first message.
+    """
+
+    messages: list[AgentMessage]
+    next_before_sequence: int | None
