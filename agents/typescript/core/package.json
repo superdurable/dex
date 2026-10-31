@@ -1,0 +1,43 @@
+{
+  "name": "@superdurable/dex-agents",
+  "version": "0.1.0",
+  "description": "Durable agent sessions for Dex, shared by the Dex TypeScript agent framework adapters",
+  "license": "LicenseRef-Sustainable-Use-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "agents/typescript/core"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/agents/typescript/core#readme",
+  "type": "module",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./testing": {
+      "types": "./dist/src/testing/index.d.ts",
+      "import": "./dist/src/testing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:integration": "npm run build && node --test --test-concurrency=1 --test-timeout=240000 'dist/test/integ/*.integration.test.js'"
+  },
+  "peerDependencies": {
+    "@superdurable/dex": "1.30.0"
+  },
+  "devDependencies": {
+    "@superdurable/dex": "1.30.0",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}
