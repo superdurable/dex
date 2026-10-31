@@ -265,7 +265,9 @@ collect_stop() {
 record_crash() {
   local directory="$1" core
   echo "server was not running at collect-stop" > "$directory/crash.txt"
-  find "$core_dir" -maxdepth 1 -name 'core.*' -newer "$directory/.collect-start" 2>/dev/null | while read -r core; do
+  # A missing core_dir must not fail collect-stop under pipefail.
+  { find "$core_dir" -maxdepth 1 -name 'core.*' -newer "$directory/.collect-start" 2>/dev/null || true; } |
+  while read -r core; do
     {
       echo "== $core"
       if command -v eu-stack >/dev/null; then
