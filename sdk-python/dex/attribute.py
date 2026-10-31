@@ -378,6 +378,37 @@ class AttributeMap(Generic[ValueT]):
         """
         return AttributeMapLoad(self, require_map_instance(instance))
 
+    def instance(self, instance: str) -> AttributeMapInstance[ValueT]:
+        """Select one typed instance for a Client Attribute read.
+
+        Pass the result to ``Client.get_attributes`` or
+        ``AsyncClient.get_attributes``, and use the same selector, or an equal
+        one, to look up the value in the returned ``AttributeValues``. The
+        selector keeps the AttributeMap value type, so type checkers infer the
+        value type of the lookup.
+
+        This differs from :meth:`load`. ``load`` selects an instance that an RPC
+        handler receives in its snapshot. ``instance`` selects an instance that
+        a Client reads from outside the Flow.
+
+        Example::
+
+            notes = AttributeMap("notes", Note)
+            values = client.get_attributes("order-42", notes.instance("n1"))
+            note = values.get(notes.instance("n1"))
+
+        Args:
+            instance: The non-empty, slash-free logical map key to read.
+
+        Returns:
+            A typed selector for this one instance.
+
+        Raises:
+            TypeError: If ``instance`` is not a string.
+            ValueError: If ``instance`` is empty or contains ``/``.
+        """
+        return AttributeMapInstance(self, instance)
+
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.
 
@@ -449,6 +480,46 @@ class AttributeMap(Generic[ValueT]):
         """
         require_map_instance(instance)
         return AttributeLock(self, instance)
+
+
+@dataclass(frozen=True)
+class AttributeMapInstance(Generic[ValueT]):
+    """Select one typed AttributeMap instance for a Client Attribute read.
+
+    Create a selector with :meth:`AttributeMap.instance`. Pass it to
+    ``Client.get_attributes`` or ``AsyncClient.get_attributes`` together with
+    singleton Attributes. Then use it as the key of the returned
+    ``AttributeValues``. Selectors are immutable and hashable. Two selectors are
+    equal when their AttributeMap definitions are equal and their instance keys
+    are the same string.
+
+    Example::
+
+        notes = AttributeMap("notes", Note)
+        first_note = notes.instance("n1")
+        values = client.get_attributes("order-42", first_note)
+        if first_note in values:
+            print(values[first_note].text)
+
+    Attributes:
+        attribute_map: The AttributeMap definition that owns the instance.
+        instance: The non-empty logical map key. It must not contain ``/``.
+
+    Raises:
+        TypeError: If ``attribute_map`` is not an AttributeMap, or ``instance`` is
+            not a string.
+        ValueError: If ``instance`` is empty or contains ``/``.
+    """
+
+    attribute_map: AttributeMap[ValueT]
+    instance: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.attribute_map, AttributeMap):
+            raise TypeError("AttributeMapInstance requires an AttributeMap definition")
+        if not isinstance(self.instance, str):
+            raise TypeError("attribute-map instance must be a string")
+        require_map_instance(self.instance)
 
 
 @dataclass(frozen=True)

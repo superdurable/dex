@@ -7,13 +7,16 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 from dataclasses import dataclass
-from typing import Generator, cast
+from typing import Generator, assert_type, cast
 
 from dex import (
     ApiKeyCredential,
+    AsyncClient,
     AsyncContext,
     Attribute,
     AttributeMap,
+    AttributeMapInstance,
+    AttributeValues,
     BlobCache,
     ChannelMap,
     Client,
@@ -163,6 +166,30 @@ start_options: StartFlowOptions = (
     .with_attribute(status, "ready")
     .with_attribute(items, "order-1", 1)
 )
+
+
+note_instance: AttributeMapInstance[dict[str, str]] = profiles.instance("n1")
+attribute_values: AttributeValues = client.get_attributes(
+    "flow-id", status, items.instance("order-1"), note_instance
+)
+assert_type(attribute_values[status], str)
+assert_type(attribute_values[items.instance("order-1")], int)
+assert_type(attribute_values[note_instance], dict[str, str])
+assert_type(attribute_values.get(status), str | None)
+assert_type(attribute_values.get(items.instance("order-1")), int | None)
+assert_type(attribute_values.get(status, 0), str | int)
+assert_type(attribute_values.get(items.instance("order-1"), "none"), int | str)
+is_status_set: bool = status in attribute_values
+
+
+async def compile_async_get_attributes(async_client: AsyncClient) -> None:
+    async_values = await async_client.get_attributes(
+        "flow-id", api_key, provider_tokens.instance("payments")
+    )
+    assert_type(async_values, AttributeValues)
+    assert_type(async_values[api_key], str)
+    assert_type(async_values[provider_tokens.instance("payments")], bytes)
+    assert_type(async_values.get(api_key, None), str | None)
 
 
 def compile_lifecycle(client: Client, worker: Worker) -> None:

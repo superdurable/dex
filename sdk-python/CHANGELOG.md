@@ -4,6 +4,15 @@
 
 ### Added and fixed
 
+- Add `Client.get_attributes` and `AsyncClient.get_attributes`, which read
+  committed Attribute and AttributeMap instance values of the current or latest
+  Flow run in one request, without an RPC or a Worker. Select a map instance
+  with the new `AttributeMap.instance(key)`, which returns an
+  `AttributeMapInstance`. The call returns `AttributeValues`, a read-only
+  result keyed by the reads, whose lookups are typed by each read's value type.
+  Unset reads are absent. Hard-delete Attributes are readable, and large values
+  are resolved through LoadBlobs. A missing Flow raises `FlowNotFoundError`, and
+  a definition that no registered Flow declares raises `FlowDefinitionError`.
 - Add `Context.flow_started_at`, the timezone-aware UTC server start time shared by Steps, retries, Flow timeout handlers, and RPC handlers in one run.
 
 - Add `Context.deadline`, a timezone-aware UTC datetime for the current Step method attempt; RPC handlers return `None`.
