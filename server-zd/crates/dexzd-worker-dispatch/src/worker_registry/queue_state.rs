@@ -19,7 +19,7 @@ pub(super) struct QueueWaiter {
 }
 
 impl QueueWaiter {
-    fn may_use(&self, worker: &WorkerStream, now: Instant) -> bool {
+    fn can_use(&self, worker: &WorkerStream, now: Instant) -> bool {
         !self.excluded_worker_ids.contains(&worker.app_worker_id)
             && self
                 .excluded_streams
@@ -109,10 +109,10 @@ impl QueueState {
 
     /// Removes a registered waiter.
     ///
-    /// Returns true when a wakeup removed it first. That waiter then owes the wakeup to another
-    /// waiter unless it takes an idle stream.
-    pub(super) fn remove_waiter(&mut self, waiter_sequence: u64) -> bool {
-        self.waiters.remove(&waiter_sequence).is_none()
+    /// Returns the waiter, or `None` when a wakeup removed it first. A woken waiter owes the
+    /// wakeup to another waiter unless it takes an idle stream.
+    pub(super) fn remove_waiter(&mut self, waiter_sequence: u64) -> Option<QueueWaiter> {
+        self.waiters.remove(&waiter_sequence)
     }
 
     /// Wakes the longest-waiting dispatch that may use the newly idle `worker`.
@@ -120,7 +120,7 @@ impl QueueState {
         let sequence = self
             .waiters
             .iter()
-            .find(|(_, waiter)| waiter.may_use(worker, now))
+            .find(|(_, waiter)| waiter.can_use(worker, now))
             .map(|(sequence, _)| *sequence);
         self.wake_waiter(sequence);
     }
@@ -137,7 +137,7 @@ impl QueueState {
             .iter()
             .find(|(_, waiter)| {
                 idle.iter().any(|id| {
-                    waiter.may_use(streams.get(id).expect("idle stream is registered"), now)
+                    waiter.can_use(streams.get(id).expect("idle stream is registered"), now)
                 })
             })
             .map(|(sequence, _)| *sequence);
@@ -363,7 +363,7 @@ mod tests {
     }
 
     /// Returns whether `lease` holds a wakeup, consuming it.
-    fn take_wakeup(lease: &QueueLease) -> bool {
+    fn has_pending_wakeup(lease: &QueueLease) -> bool {
         lease.wakeup.notified().now_or_never().is_some()
     }
 
@@ -377,8 +377,8 @@ mod tests {
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         // The stream goes idle after the waiter registers but before it awaits its wakeup.
         dispatch.make_idle(&worker);
-        assert!(take_wakeup(&older));
-        assert!(!take_wakeup(&newer));
+        assert!(has_pending_wakeup(&older));
+        assert!(!has_pending_wakeup(&newer));
         assert_eq!(
             pick(&dispatch, &mut older, "older", &[]).as_deref(),
             Some("worker")
@@ -394,10 +394,10 @@ mod tests {
         assert_eq!(pick(&dispatch, &mut cancelled, "cancelled", &[]), None);
         assert_eq!(pick(&dispatch, &mut waiting, "waiting", &[]), None);
         dispatch.make_idle(&worker);
-        assert!(!take_wakeup(&waiting));
+        assert!(!has_pending_wakeup(&waiting));
         // Cancellation or the end of the search drops the lease before it picks again.
         drop(cancelled);
-        assert!(take_wakeup(&waiting));
+        assert!(has_pending_wakeup(&waiting));
         assert_eq!(
             pick(&dispatch, &mut waiting, "waiting", &[]).as_deref(),
             Some("worker")
@@ -429,9 +429,9 @@ mod tests {
         assert_eq!(pick(&dispatch, &mut eligible, "eligible", &[]), None);
         dispatch.make_idle(&first);
         dispatch.make_idle(&second);
-        assert!(take_wakeup(&affine));
-        assert!(take_wakeup(&excluding));
-        assert!(!take_wakeup(&eligible));
+        assert!(has_pending_wakeup(&affine));
+        assert!(has_pending_wakeup(&excluding));
+        assert!(!has_pending_wakeup(&eligible));
         // Affinity takes the stream the second wakeup was for, leaving one this waiter excludes.
         assert_eq!(
             pick(&dispatch, &mut affine, "affine", &[]).as_deref(),
@@ -441,7 +441,7 @@ mod tests {
             pick(&dispatch, &mut excluding, "excluding", &["first"]),
             None
         );
-        assert!(take_wakeup(&eligible));
+        assert!(has_pending_wakeup(&eligible));
         assert_eq!(
             pick(&dispatch, &mut eligible, "eligible", &[]).as_deref(),
             Some("first")
@@ -458,12 +458,12 @@ mod tests {
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         dispatch.disconnect(first.id);
-        assert!(!take_wakeup(&older));
-        assert!(!take_wakeup(&newer));
+        assert!(!has_pending_wakeup(&older));
+        assert!(!has_pending_wakeup(&newer));
         // Sticky searches must learn that their queue has no streams left.
         dispatch.disconnect(second.id);
-        assert!(take_wakeup(&older));
-        assert!(take_wakeup(&newer));
+        assert!(has_pending_wakeup(&older));
+        assert!(has_pending_wakeup(&newer));
         let picked = dispatch.pick_worker(
             &mut older,
             "older",

@@ -707,7 +707,7 @@ impl WorkerDispatch {
         let registry = &mut *guard;
         let queue = registry.queues.get_mut(key).expect("leased queue exists");
         if let Some(sequence) = waiter_sequence
-            && queue.remove_waiter(sequence)
+            && queue.remove_waiter(sequence).is_none()
             && !registry.is_closing
         {
             // A dispatch that ends after its wakeup hands that wakeup to another waiter.
@@ -737,8 +737,8 @@ impl WorkerDispatch {
             .queues
             .get_mut(&lease.key)
             .expect("queue lease exists");
-        let was_woken =
-            std::mem::take(&mut lease.is_waiting) && queue.remove_waiter(lease.waiter_sequence);
+        let has_been_woken = std::mem::take(&mut lease.is_waiting)
+            && queue.remove_waiter(lease.waiter_sequence).is_none();
         let has_streams = !queue.stream_ids.is_empty();
         if registry.is_closing {
             return QueuePick::without_worker(has_streams);
@@ -765,7 +765,7 @@ impl WorkerDispatch {
             }
         }
         let Some((index, worker)) = selected else {
-            if was_woken {
+            if has_been_woken {
                 // Idle streams this dispatch excludes may suit another waiter.
                 queue.wake_waiter_for_any_idle(&registry.streams, now);
             }
