@@ -58,7 +58,8 @@ Step 事件。右侧的 **Selected event** 面板会显示事件编号和类型�
 切换。使用 **Newest** 回到 **Live** 持续追加事件的最新一页。
 
 **Selected event** 面板会列出 **Related events**：该事件的 WaitFor、它的来源 execution，
-以及它启动的 execution。每一项都会标明已加载、位于其他页面或已被 pruned。选择位于其他页面的
+以及它启动的 execution。每一项都会标明已加载、位于其他页面、已被 pruned，或不在此页面。
+**不在此页面**表示 Dex Web 知道相关事件存在但无法定位它，因此不提供跳转。选择位于其他页面的
 条目，或 **Timeline** 顶部或底部对应的 stub，即可加载该页面并高亮该事件。**Back** 会返回上一个
 页面。Dex Server 只保留[最近的 history 窗口](/production/server-zd-operations#history-window)。
 已被 pruned 的相关事件会以弱化样式显示，并带有 **pruned** 标记。最早保留的一页会说明哪些事件编号

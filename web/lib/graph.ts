@@ -16,6 +16,8 @@ import { isHandlerTimeoutPolicy, subFlowReusePolicyLabel, subFlowStatusName } fr
 import { generatedSubFlowID } from './subflows';
 
 export const START_NODE_ID = '__start__';
+/** Stands in for a source Step execution recorded before the loaded history window. */
+export const EARLIER_EVENTS_NODE_ID = '__earlier_events__';
 export const FLOW_TIMEOUT_HANDLER_STEP_TYPE = 'sys:timeout_handler';
 
 const stepEventTypes = new Set([
@@ -53,6 +55,7 @@ export function buildStepGraph(
   events: FlowHistoryEvent[],
   activeSteps: ActiveStepExecution[] = [],
   parentFlowID = '',
+  { hasEarlierEvents = false }: { hasEarlierEvents?: boolean } = {},
 ): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes = new Map<string, StepGraphNode>();
   const plannedNodesByLineage = new Map<string, string[]>();
@@ -132,11 +135,24 @@ export function buildStepGraph(
     }
     if (node.kind !== 'step') continue;
     const requestedSource = node.fromStepExecutionId || START_NODE_ID;
-    const source = nodes.has(requestedSource) ? requestedSource : START_NODE_ID;
+    const source = nodes.has(requestedSource) ? requestedSource : missingSourceNodeID(hasEarlierEvents);
     edges.push({ id: `${source}->${node.id}`, source, target: node.id });
+  }
+  // A Step started before the window is not attributed to Flow start.
+  if (edges.some((edge) => edge.source === EARLIER_EVENTS_NODE_ID)) {
+    nodes.set(EARLIER_EVENTS_NODE_ID, {
+      id: EARLIER_EVENTS_NODE_ID,
+      label: 'Earlier events, not loaded',
+      kind: 'source',
+      status: 'Source',
+    });
   }
 
   return { nodes: [...nodes.values()], edges };
+}
+
+function missingSourceNodeID(hasEarlierEvents: boolean): string {
+  return hasEarlierEvents ? EARLIER_EVENTS_NODE_ID : START_NODE_ID;
 }
 
 export function stepGraphSelection(

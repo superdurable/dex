@@ -106,6 +106,19 @@ describe('history windows', () => {
     expect(eventIds(older.events)).toEqual(range(1, 300));
   });
 
+  it('follows page tokens when a Server returns short pages for an older window', async () => {
+    const server = historyTestServer(sequentialStepHistory(2500));
+    const shortPages: typeof server.loadPage = (request) => server.loadPage({
+      ...request,
+      estimatePageSize: Math.min(request.estimatePageSize, 300),
+    });
+
+    const older = await loadOlderHistoryWindow(shortPages, 1501, undefined);
+
+    expect(eventIds(older.events)).toEqual(range(501, 1500));
+    expect(server.requests.map((request) => request.startInternalEventId)).toEqual([501, 801, 1101, 1401]);
+  });
+
   it('loads a window around a jump target', async () => {
     const server = historyTestServer(sequentialStepHistory(20_000));
 

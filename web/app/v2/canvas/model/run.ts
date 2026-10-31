@@ -75,6 +75,8 @@ export interface StepExecution {
   fromStepExecutionId?: string
   /** Null when the Step has no WaitFor at all — absent, not merely unstarted. */
   waitFor: { status: PhaseStatus; conditions: RunCondition[] } | null
+  /** True when the WaitFor ran before the loaded history window, so its event is not loaded. */
+  isWaitForNotLoaded?: boolean
   execute: { status: PhaseStatus }
   attempts: number
   lastFailure?: string
@@ -119,6 +121,8 @@ export interface RunOverlay {
    * observed a state transition arrive from the server rather than on the strength of being configured.
    */
   readonly simulated: boolean
+  /** True when executions recorded before the loaded history window are missing. */
+  hasEarlierExecutions?: boolean
   note: string
   /**
    * The run's own clock, so elapsed values are stable and testable.
@@ -404,8 +408,10 @@ export function terminalReason(verb: string | undefined): Reason | null {
 export function barDecode(
   bar: { status: PhaseStatus; count: number }[],
   execs: StepExecution[],
+  isPartial = false,
 ): string {
   const lines = bar.map((s) => `${s.count} ${PHASE_LABEL[s.status]}`)
+  if (isPartial) lines.push('Counts only executions in the loaded history window')
   const kinds = new Map<string, number>()
   for (const e of execs) {
     for (const c of e.waitFor?.conditions ?? []) {

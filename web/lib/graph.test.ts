@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest';
-import { buildStepGraph, stepGraphSelection } from './graph';
+import { buildStepGraph, EARLIER_EVENTS_NODE_ID, START_NODE_ID, stepGraphSelection } from './graph';
 import type { FlowHistoryEvent } from './types';
 
 function event(
@@ -482,3 +482,30 @@ describe('step graph', () => {
     });
   });
 });
+
+describe('buildStepGraph for a partial history window', () => {
+  const boundaryStep: FlowHistoryEvent = {
+    eventId: 5001,
+    eventTime: null,
+    type: 'StepExecuteCompleted',
+    payload: { context: { stepExecutionId: 'Review-9', fromStepExecutionId: 'Intake-9', stepType: 'Review' } },
+  };
+
+  it('starts a Step whose source is before the window from an earlier-events placeholder', () => {
+    const graph = buildStepGraph([boundaryStep], [], '', { hasEarlierEvents: true });
+
+    expect(graph.edges).toEqual([{ id: `${EARLIER_EVENTS_NODE_ID}->Review-9`, source: EARLIER_EVENTS_NODE_ID, target: 'Review-9' }]);
+    expect(graph.nodes.find((node) => node.id === EARLIER_EVENTS_NODE_ID)).toMatchObject({
+      kind: 'source',
+      label: 'Earlier events, not loaded',
+    });
+  });
+
+  it('keeps Flow start as the fallback source for a complete history', () => {
+    const graph = buildStepGraph([boundaryStep]);
+
+    expect(graph.edges.map((edge) => edge.source)).toEqual([START_NODE_ID]);
+    expect(graph.nodes.some((node) => node.id === EARLIER_EVENTS_NODE_ID)).toBe(false);
+  });
+});
+

@@ -302,12 +302,13 @@ const PILL_TEXT: Record<PhaseStatus, string> = {
   canceled: 'Canceled',
 }
 
-function pillOf(run: RunState | null, isPerson: boolean): RunPill | undefined {
+function pillOf(run: RunState | null, isPerson: boolean, isPartial: boolean): RunPill | undefined {
   if (run === null) return undefined
   if (!isExecutedRun(run)) return { status: 'planned', text: 'Next' }
   const status = cardStatus(run.current)
   const base = (status === 'waiting' || status === 'pending') && isPerson ? 'Waiting for you' : PILL_TEXT[status]
-  return { status, text: run.count > 1 ? `${base} ×${run.count}` : base }
+  // A partial overlay counts only the loaded executions, so the count is a lower bound.
+  return { status, text: run.count > 1 ? `${base} ×${run.count}${isPartial ? '+' : ''}` : base }
 }
 
 /** The title a reader sees: the analyzer's display name, or the Step type in words. */
@@ -386,11 +387,13 @@ export function stepBox(
     actor: step.actor,
     ...(step.agentRole === undefined ? {} : { agentRole: step.agentRole }),
     chips,
-    pill: pillOf(run, whoActs(flow, step) === 'person'),
+    pill: pillOf(run, whoActs(flow, step) === 'person', overlay?.hasEarlierExecutions === true),
     reason,
     bar,
     barTitle:
-      bar === undefined || overlay === null ? undefined : barDecode(bar, executionsOf(overlay, step.stepType)),
+      bar === undefined || overlay === null
+        ? undefined
+        : barDecode(bar, executionsOf(overlay, step.stepType), overlay.hasEarlierExecutions === true),
     loops: flow.transitions.some((t) => t.isSelfLoop && t.fromStepId === step.id),
     recovery: recoveryMark(flow, step),
     failures: failures > 0 ? failures : undefined,

@@ -215,6 +215,12 @@
   font-size: 12px;
 }
 
+.v2-window-note {
+  margin: 0 12px 8px;
+  color: var(--p-ink-2);
+  font-size: 12px;
+}
+
 .v2-shell .sq-list {
   list-style: none;
   margin: 0;

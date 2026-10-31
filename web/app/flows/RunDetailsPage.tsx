@@ -418,7 +418,7 @@ export function RunDetailsPage({
   const selectionEvents = isSelectionOnTimeline ? displayedTimelineEvents : displayedHistory;
   const selectionWindow = isSelectionOnTimeline ? timelineWindow : runHistory.newest;
   const selectionHasOlder = selectionWindow?.hasOlder ?? false;
-  const selectionHasNewer = selectionWindow?.hasNewer ?? false;
+  const selectionHasNewer = isSelectionOnTimeline && runHistory.timelineHasNewer;
   const selectedRelations = useMemo(() => buildSelectedTimelineRelations(selectionEvents, selectedRaw, {
     hasOlder: selectionHasOlder,
     hasNewer: selectionHasNewer,
@@ -431,9 +431,10 @@ export function RunDetailsPage({
     setTab('timeline');
     persistRunTab('timeline');
     try {
-      const target = await jumpInTimeline(eventId, selectedEvent);
-      if (target) setSelectedEvent(target);
-      else setError(`Event #${eventId} is not in the retained history.`);
+      const result = await jumpInTimeline(eventId, selectedEvent);
+      // A pruned target needs no error: the refreshed pruned range turns its stub into a pruned stub.
+      if (result.kind === 'loaded') setSelectedEvent(result.event);
+      else if (result.kind === 'missing') setError(`Event #${eventId} is not in the retained history.`);
     } catch (jumpError) {
       setError(jumpError instanceof Error ? jumpError.message : 'History page failed to load');
     }
@@ -452,6 +453,10 @@ export function RunDetailsPage({
       setError(navigationError instanceof Error ? navigationError.message : 'History page failed to load');
     });
   }, []);
+
+  const goBackInTimeline = useCallback(() => {
+    navigateTimeline(async () => setSelectedEvent(await backInTimeline()));
+  }, [backInTimeline, navigateTimeline]);
 
   useEffect(() => {
     if (selectedRaw) void hydrateEvent(selectedRaw);
@@ -700,6 +705,7 @@ export function RunDetailsPage({
             <ExecutionGraph
               flowId={flowId}
               events={displayedHistory}
+              hasEarlierEvents={runHistory.newest?.hasOlder ?? false}
               state={state}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
@@ -717,14 +723,14 @@ export function RunDetailsPage({
               relations={selectedEvent ? selectedRelations : undefined}
               paging={{
                 hasOlder: timelineWindow?.hasOlder ?? false,
-                hasNewer: timelineWindow?.hasNewer ?? false,
+                hasNewer: runHistory.timelineHasNewer,
                 isNewest: runHistory.isTimelineOnNewest,
                 isLoading: runHistory.isLoadingTimelinePage,
                 canGoBack: runHistory.canGoBack,
                 onOlder: () => navigateTimeline(runHistory.showOlder),
                 onNewer: () => navigateTimeline(runHistory.showNewer),
                 onNewest: runHistory.showNewest,
-                onBack: () => setSelectedEvent(backInTimeline()),
+                onBack: goBackInTimeline,
               }}
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
@@ -757,6 +763,7 @@ export function RunDetailsPage({
               relatedEvents={selectedRelations.related}
               onSelectRelatedEvent={selectRelatedEvent}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
+              isJumpDisabled={runHistory.isLoadingTimelinePage}
             />
           </aside>
         )}

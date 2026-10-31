@@ -353,6 +353,23 @@ function timelineRow(eventId: number): HTMLElement {
   return row;
 }
 
+/** FlowStart, filler events, a WaitFor, and an Execute that reports the WaitFor event ID. */
+function crossPageHistory(waitForEventId: number, executeEventId: number, lastEventId: number): FlowHistoryEvent[] {
+  const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review' };
+  return Array.from({ length: lastEventId }, (_, offset): FlowHistoryEvent => {
+    const eventId = offset + 1;
+    if (eventId === 1) return sequentialStepHistory(1)[0];
+    if (eventId === waitForEventId) return stepEvent(eventId, 'StepWaitForCompleted', review);
+    if (eventId === executeEventId) {
+      return {
+        ...stepEvent(eventId, 'StepExecuteCompleted', review),
+        payload: { context: { ...review, waitForCompletedEventId: String(waitForEventId) }, input: { conditionResults: {} } },
+      };
+    }
+    return { eventId, eventTime: '2026-10-24T18:00:00Z', type: 'ChannelExternalPublish', payload: { messages: [] }, runAttempt: 1 };
+  });
+}
+
 describe('paged Timeline on the run page', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', memoryStorage({ 'dex.run.selected-tab': 'timeline' }));
@@ -399,7 +416,11 @@ describe('paged Timeline on the run page', () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
     fireEvent.click(screen.getByRole('button', { name: 'Newer events' }));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2500'));
-    expect(screen.queryByRole('button', { name: 'Newest' })).toBeNull();
+    // The fetched page stays even at the end, so the view does not switch windows.
+    expect(timelineRowIDs().at(-1)).toBe('1501');
+    expect((screen.getByRole('button', { name: 'Newer events' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Newest' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Newest' })).toBeNull());
   });
 
   it('jumps from a cross-page stub to the far end, highlights it, and goes back', async () => {
@@ -426,7 +447,7 @@ describe('paged Timeline on the run page', () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
     fireEvent.click(timelineRow(3000));
     const stub = await screen.findByRole('button', {
-      name: '↑ from Review-1 WaitFor completed, event #2 (older page)',
+      name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
     });
     expect(await screen.findByRole('button', { name: 'Older page · jump' })).toBeTruthy();
     fireEvent.click(stub);
@@ -455,7 +476,7 @@ describe('paged Timeline on the run page', () => {
     expect(timelineRowIDs().at(-2)).toBe('4001');
     fireEvent.click(timelineRow(4001));
 
-    const stub = await screen.findByText('↑ from Step-2000 WaitFor completed (removed by the history window)');
+    const stub = await screen.findByText('↓ from Step-2000 WaitFor completed (removed by the history window)');
     expect(stub.tagName).toBe('SPAN');
     expect(stub.querySelector('.timeline-pruned-badge')?.textContent).toBe('pruned');
     expect(stub.getAttribute('title')).toContain('The server keeps only the most recent window of history');
@@ -480,4 +501,56 @@ describe('paged Timeline on the run page', () => {
     expect(server.requests).toEqual([{ startInternalEventId: 1501, estimatePageSize: 1000, nextPageToken: '' }]);
     await waitFor(() => expect(dex.liveWaits.at(-1)?.get('nextInternalEventId')).toBe('1502'));
   });
+
+  it('refreshes a stale pruned range when a window that starts at FlowStart loads', async () => {
+    const server = historyTestServer(sequentialStepHistory(6000).filter((event) => event.eventId === 1 || event.eventId >= 4001));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('6000'));
+    // server-zd prunes another chunk after the run page inferred events #2 to #4000.
+    server.events = server.events.filter((event) => event.eventId === 1 || event.eventId >= 5001);
+    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+
+    await screen.findByText('Events #2 to #5000 were removed by the history window; FlowStart is kept.');
+    expect(timelineRowIDs().at(-2)).toBe('5001');
+  });
+
+  it('reclassifies a jump target that was pruned after the page loaded', async () => {
+    const server = historyTestServer(crossPageHistory(4500, 6000, 6000).filter((event) => event.eventId === 1 || event.eventId >= 4001));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('6000'));
+    fireEvent.click(timelineRow(6000));
+    const stub = await screen.findByRole('button', { name: '↓ from Review-1 WaitFor completed, event #4500 (older page)' });
+    server.events = server.events.filter((event) => event.eventId === 1 || event.eventId >= 5001);
+    fireEvent.click(stub);
+
+    const prunedStub = await screen.findByText('↓ from Review-1 WaitFor completed (event #4500, removed by the history window)');
+    expect(prunedStub.tagName).toBe('SPAN');
+    expect(screen.queryByText(/is not in the retained history/)).toBeNull();
+    expect(timelineRowIDs()[0]).toBe('6000');
+  });
+
+  it('reloads the older page on Back after a jump from it', async () => {
+    const server = historyTestServer(crossPageHistory(2, 1500, 3000));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
+    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('2000'));
+    fireEvent.click(timelineRow(1500));
+    fireEvent.click(await screen.findByRole('button', { name: '↓ from Review-1 WaitFor completed, event #2 (older page)' }));
+    await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
+    server.requests.length = 0;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('2000'));
+    expect(timelineRow(1500).className).toContain('selected');
+    expect(server.requests.map((request) => request.startInternalEventId)).toEqual([1001]);
+  });
 });
+

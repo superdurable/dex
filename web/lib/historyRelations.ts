@@ -19,8 +19,21 @@ export interface EventIdRange {
 
 /** What a history page response reports about the retained history window. */
 export interface ReportedRetainedHistory {
-  /** The pruned event IDs, or undefined when the Server reports that nothing is pruned. */
+  /** The pruned event IDs, or undefined when the Server reports no gap. */
   prunedEventIdRange?: EventIdRange;
+}
+
+/**
+ * Chooses the pruned range: a reported range is authoritative, and the inference fills in otherwise.
+ *
+ * Returns undefined when neither the Server nor the oldest retained events show a gap.
+ */
+export function prunedEventIdRangeOf(
+  reported: ReportedRetainedHistory | undefined,
+  oldestRetainedEvents: FlowHistoryEvent[],
+): EventIdRange | undefined {
+  // A report of no gap does not hide a gap the oldest retained events show.
+  return reported?.prunedEventIdRange ?? inferPrunedEventIdRange(oldestRetainedEvents);
 }
 
 /**
@@ -62,8 +75,8 @@ export function decidingEventIdOf(event: FlowHistoryEvent): number | undefined {
 }
 
 /**
- * Heuristic for Servers that do not report pruning: server-zd keeps FlowStart and numbers events
- * contiguously, so a gap after FlowStart means pruning.
+ * Heuristic: server-zd keeps FlowStart and numbers events contiguously,
+ * so a gap after FlowStart means pruning.
  *
  * Returns undefined for a gap before a Time Travel fork or another run attempt's event, and for
  * Servers without run attempts, whose event IDs are not contiguous.

@@ -70,6 +70,8 @@ export type TabBody =
       winner: string | null
       answeredBy: string[]
       hasWaitEvent: boolean
+      /** True when the WaitFor ran before the loaded history window. */
+      isWaitForBeforeWindow: boolean
     }
   | {
       kind: 'executeOutput'
@@ -102,6 +104,8 @@ export interface PanelModel {
   defaultSection: SectionId
   definition: DefinitionModel
   executions: ExecutionChoice[]
+  /** True when executions before the loaded history window are missing from `executions`. */
+  isPartial: boolean
   phases: ExecutionPhase[]
 }
 
@@ -190,6 +194,7 @@ export function buildPanel(
             winner: live.find((condition) => condition.satisfied)?.label ?? null,
             answeredBy: answeredBy(flow, step),
             hasWaitEvent,
+            isWaitForBeforeWindow: current?.isWaitForNotLoaded === true,
           },
         },
       ],
@@ -252,9 +257,12 @@ export function buildPanel(
     stepType: step.stepType,
     defaultSection,
     definition,
+    isPartial: overlay?.hasEarlierExecutions === true,
     executions: execs.map((execution) => ({
       id: execution.stepExecutionId,
-      wait: execution.waitFor === null ? 'no wait' : statusWord(execution.waitFor.status),
+      wait: execution.isWaitForNotLoaded
+        ? 'earlier, not loaded'
+        : execution.waitFor === null ? 'no wait' : statusWord(execution.waitFor.status),
       execute: statusWord(execution.execute.status),
       won: waitKind(execution, [execution]) ?? '—',
     })),

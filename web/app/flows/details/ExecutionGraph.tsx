@@ -302,12 +302,15 @@ function nodeHandles(
 export function ExecutionGraph({
   flowId,
   events,
+  hasEarlierEvents = false,
   state,
   selectedEvent,
   onSelectEvent,
 }: {
   flowId: string;
   events: FlowHistoryEvent[];
+  /** True when the events omit history before the newest window, so missing sources are earlier events. */
+  hasEarlierEvents?: boolean;
   state: FlowState | null;
   selectedEvent: FlowHistoryEvent | null;
   onSelectEvent: (event: FlowHistoryEvent | null) => void;
@@ -317,8 +320,8 @@ export function ExecutionGraph({
   const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<StepNodeData>, Edge> | null>(null);
   const graph = useMemo(
-    () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId),
-    [events, flowId, state],
+    () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId, { hasEarlierEvents }),
+    [events, flowId, hasEarlierEvents, state],
   );
   const selection = useMemo(
     () => stepGraphSelection(graph.nodes, graph.edges, selectedEvent),

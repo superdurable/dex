@@ -179,7 +179,11 @@ function WaitOutputBody({
           />
         </>
       ) : (
-        <p className="ppan-note">No WaitFor event is loaded for this execution yet.</p>
+        <p className="ppan-note">
+          {body.isWaitForBeforeWindow
+            ? 'WaitFor: earlier, not loaded. It ran before the loaded history window.'
+            : 'No WaitFor event is loaded for this execution yet.'}
+        </p>
       )}
     </>
   )
@@ -190,13 +194,13 @@ function ExecuteOutputBody({
   event,
   history,
   parentFlowId,
-  canLoadPrevious,
+  loadMoreHint,
 }: {
   body: Extract<TabBody, { kind: 'executeOutput' }>
   event: FlowHistoryEvent | null
   history: FlowHistoryEvent[]
   parentFlowId: string
-  canLoadPrevious: boolean
+  loadMoreHint: string
 }): JSX.Element {
   if (!body.hasExecuteEvent) {
     return (
@@ -206,9 +210,7 @@ function ExecuteOutputBody({
           : body.executeStatus === 'notStarted'
             ? 'Execute has not started for this instance yet.'
             : 'Loaded history has no Execute event for this Step yet.'}
-        {canLoadPrevious
-          ? ' Use Load more from previous run if Continue-as-New moved it.'
-          : ''}
+        {loadMoreHint}
       </p>
     )
   }
@@ -274,14 +276,14 @@ function TabContent({
   event,
   history,
   parentFlowId,
-  canLoadPrevious,
+  loadMoreHint,
   phaseLabel,
 }: {
   tab: PhaseTab
   event: FlowHistoryEvent | null
   history: FlowHistoryEvent[]
   parentFlowId: string
-  canLoadPrevious: boolean
+  loadMoreHint: string
   phaseLabel: string
 }): JSX.Element {
   if (tab.body.kind === 'stepMethod') {
@@ -317,7 +319,7 @@ function TabContent({
       event={event}
       history={history}
       parentFlowId={parentFlowId}
-      canLoadPrevious={canLoadPrevious}
+      loadMoreHint={loadMoreHint}
     />
   )
 }
@@ -329,7 +331,7 @@ function PhaseBlock({
   event,
   history,
   parentFlowId,
-  canLoadPrevious,
+  loadMoreHint,
 }: {
   phase: ExecutionPhase
   openTab: PhaseTabId
@@ -337,7 +339,7 @@ function PhaseBlock({
   event: FlowHistoryEvent | null
   history: FlowHistoryEvent[]
   parentFlowId: string
-  canLoadPrevious: boolean
+  loadMoreHint: string
 }): JSX.Element {
   const tab = phase.tabs.find((candidate) => candidate.id === openTab) ?? phase.tabs[0]
   return (
@@ -365,7 +367,7 @@ function PhaseBlock({
             event={event}
             history={history}
             parentFlowId={parentFlowId}
-            canLoadPrevious={canLoadPrevious}
+            loadMoreHint={loadMoreHint}
             phaseLabel={phase.label}
           />
         )}
@@ -397,6 +399,7 @@ export function DetailPanel({
   initialSection,
   onSection,
   canLoadPrevious = false,
+  loadMoreScope = 'previous-run',
   loadPreviousBusy = false,
   previousEmpty = false,
   onLoadPrevious,
@@ -414,6 +417,8 @@ export function DetailPanel({
   initialSection?: SectionId | null
   onSection?: (id: SectionId) => void
   canLoadPrevious?: boolean
+  /** Whether Load more reads this run's events before the loaded window or a previous run. */
+  loadMoreScope?: 'this-run' | 'previous-run'
   loadPreviousBusy?: boolean
   previousEmpty?: boolean
   onLoadPrevious?: () => void
@@ -588,7 +593,7 @@ export function DetailPanel({
                 >
                   {model.executions.map((execution, index) => (
                     <option key={execution.id} value={execution.id}>
-                      {`${index + 1}/${model.executions.length} · ${execution.id} · ${execution.execute}`}
+                      {`${index + 1}/${model.executions.length}${model.isPartial ? ' loaded' : ''} · ${execution.id} · ${execution.execute}`}
                     </option>
                   ))}
                 </select>
@@ -600,6 +605,9 @@ export function DetailPanel({
             ) : (
               <p className="ppan-note">No executions loaded for this Step.</p>
             )}
+            {model.isPartial ? (
+              <p className="ppan-note">Only executions in the loaded history window are listed.</p>
+            ) : null}
           </div>
 
           <div className="ppan-body">
@@ -612,7 +620,11 @@ export function DetailPanel({
                 event={eventForPhase(phase.id)}
                 history={history}
                 parentFlowId={parentFlowId}
-                canLoadPrevious={canLoadPrevious}
+                loadMoreHint={!canLoadPrevious
+                  ? ''
+                  : loadMoreScope === 'this-run'
+                    ? ' Use Load earlier executions if it ran before the loaded history window.'
+                    : ' Use Load more from previous run if Continue-as-New moved it.'}
               />
             ))}
 
@@ -624,9 +636,17 @@ export function DetailPanel({
                   disabled={loadPreviousBusy || onLoadPrevious === undefined}
                   onClick={onLoadPrevious}
                 >
-                  {loadPreviousBusy ? 'Loading…' : 'Load more from previous run'}
+                  {loadPreviousBusy
+                    ? 'Loading…'
+                    : loadMoreScope === 'this-run' ? 'Load earlier executions of this run' : 'Load more from previous run'}
                 </button>
-                {previousEmpty ? (
+                {loadMoreScope === 'this-run' ? (
+                  <p className="ppan-note">
+                    {previousEmpty
+                      ? 'Those earlier events have no executions of this step. Load again to read further back.'
+                      : 'This run has events before the loaded history window. This loads the next older window and keeps only this step.'}
+                  </p>
+                ) : previousEmpty ? (
                   <p className="ppan-note">That earlier run has no executions of this step.</p>
                 ) : (
                   <p className="ppan-note">

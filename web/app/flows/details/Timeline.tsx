@@ -293,7 +293,13 @@ export function Timeline({
         </div>
       )}
       <div className="timeline" ref={timelineRef} style={timelineStyle}>
-        <TimelineEdgeStubs edge="newer" stubs={newerStubs} onJumpToEvent={onJumpToEvent} registerStub={registerStub} />
+        <TimelineEdgeStubs
+          edge="newer"
+          isJumpDisabled={paging?.isLoading ?? false}
+          stubs={newerStubs}
+          onJumpToEvent={onJumpToEvent}
+          registerStub={registerStub}
+        />
         {(stepLinkLayout.paths.length > 0 || stepLinkLayout.stubPaths.length > 0) && (
           <svg
             aria-label="Step execution lineage and condition links"
@@ -444,7 +450,13 @@ export function Timeline({
             </article>
           );
         })}
-        <TimelineEdgeStubs edge="older" stubs={olderStubs} onJumpToEvent={onJumpToEvent} registerStub={registerStub} />
+        <TimelineEdgeStubs
+          edge="older"
+          isJumpDisabled={paging?.isLoading ?? false}
+          stubs={olderStubs}
+          onJumpToEvent={onJumpToEvent}
+          registerStub={registerStub}
+        />
       </div>
     </div>
   );
@@ -487,11 +499,13 @@ function TimelinePager({ paging }: { paging: TimelinePaging }) {
 /** Ends links whose far end is on another page, or was pruned, at the top or bottom edge. */
 function TimelineEdgeStubs({
   edge,
+  isJumpDisabled,
   stubs,
   onJumpToEvent,
   registerStub,
 }: {
   edge: 'newer' | 'older';
+  isJumpDisabled: boolean;
   stubs: TimelineRelatedEvent[];
   onJumpToEvent?: (eventId: number) => void;
   registerStub: (id: string, node: HTMLElement | null) => void;
@@ -501,13 +515,15 @@ function TimelineEdgeStubs({
     <div className={`timeline-edge-stubs edge-${edge}`}>
       <div className="timeline-edge-stub-list">
         {stubs.map((stub) => {
-          const label = `↑ ${timelineRelatedEventLabel(stub)}`;
+          // Newest-first order puts older stubs at the bottom edge and newer ones at the top.
+          const label = `${edge === 'older' ? '↓' : '↑'} ${timelineRelatedEventLabel(stub)}`;
           const jumpEventId = stub.location === 'other-page' ? stub.eventId : undefined;
           if (jumpEventId !== undefined && onJumpToEvent) {
             return (
               <button
                 className={`timeline-edge-stub kind-${stub.kind}`}
                 data-related-event-location={stub.location}
+                disabled={isJumpDisabled}
                 key={stub.id}
                 onClick={() => onJumpToEvent(jumpEventId)}
                 ref={(node) => registerStub(stub.id, node)}

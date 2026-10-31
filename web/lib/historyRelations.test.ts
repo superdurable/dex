@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decidingEventIdOf,
   inferPrunedEventIdRange,
+  prunedEventIdRangeOf,
   reportedRetainedHistoryOf,
   waitForCompletedEventIdOf,
   waitForCompletedTimeOf,
@@ -44,6 +45,19 @@ describe('retained history fields', () => {
       prunedEventIdRange: { startEventId: 0, endEventId: 0 },
     })).toBeUndefined();
     expect(reportedRetainedHistoryOf({ firstRetainedEventId: null, prunedEventIdRange: null })).toBeUndefined();
+  });
+
+  it('prefers a reported range and keeps an inferred gap over a report of no gap', () => {
+    const oldest = [flowStart, stepEvent(4001, 'StepWaitForCompleted', { stepExecutionId: 'Step-2000' })];
+    const inferred = { firstEventId: 2, lastEventId: 4000 };
+
+    expect(prunedEventIdRangeOf(undefined, oldest)).toEqual(inferred);
+    expect(prunedEventIdRangeOf(reportedRetainedHistoryOf({ firstRetainedEventId: 1 }), oldest)).toEqual(inferred);
+    expect(prunedEventIdRangeOf(
+      reportedRetainedHistoryOf({ firstRetainedEventId: 5001, prunedEventIdRange: { startEventId: 2, endEventId: 5000 } }),
+      oldest,
+    )).toEqual({ firstEventId: 2, lastEventId: 5000 });
+    expect(prunedEventIdRangeOf(reportedRetainedHistoryOf({ firstRetainedEventId: 2 }), [flowStart])).toBeUndefined();
   });
 
   it('reads related event IDs from the event context', () => {

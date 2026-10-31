@@ -10,6 +10,7 @@ import { asData } from '@/app/flows/details/StepMethodSections';
 import { flowRoutingData, type FlowRoutingData } from '@/app/flows/details/PullRouting';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { hydrateBlobs } from '@/lib/blobs';
+import { createHistoryPageLoader, loadOlderHistoryWindow } from '@/lib/history';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, FlowDefinitionEntry, FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { safeDecode } from './canvas/model/decode';
@@ -22,7 +23,9 @@ import {
 import {
   loadCurrentRun,
   loadRecentRunHistory,
+  mergeOlderExecutionRecords,
   recentRunEvents,
+  recentRunLoadedFromEventId,
   attemptCountFromRecord,
   overlayFromHistory,
   prependStepRecords,
@@ -117,7 +120,7 @@ export function V2Canvas({
   const [loadedFlowId, setLoadedFlowId] = useState('');
   const [currentBundle, setCurrentBundle] = useState<RunOverlayBundle | null>(null);
   const [olderByStep, setOlderByStep] = useState<Record<string, ExecutionRecord[]>>({});
-  const [previousCursorByStep, setPreviousCursorByStep] = useState<Record<string, string>>({});
+  const [historyCursorByStep, setHistoryCursorByStep] = useState<Record<string, StepHistoryCursor>>({});
   const [loadPreviousBusy, setLoadPreviousBusy] = useState(false);
   const [previousEmpty, setPreviousEmpty] = useState(false);
   const [historyEvents, setHistoryEvents] = useState<FlowHistoryEvent[]>([]);
@@ -135,7 +138,7 @@ export function V2Canvas({
     setCurrentBundle(null);
     onRouting?.(null);
     setOlderByStep({});
-    setPreviousCursorByStep({});
+    setHistoryCursorByStep({});
     setPreviousEmpty(false);
     setHistoryEvents([]);
     setHydratedWaitEvent(null);
@@ -158,6 +161,7 @@ export function V2Canvas({
           status: summary.flowStatus,
           events,
           activeSteps: state?.activeStepExecutions ?? [],
+          loadedFromEventId: recentRunLoadedFromEventId(history),
         }));
         setRunError('');
         setLoadedFlowId(flowId);
@@ -413,39 +417,49 @@ export function V2Canvas({
     selectedStep,
   ]);
 
-  const previousCursor = selectedStep
-    ? (previousCursorByStep[selectedStep.stepType] ?? bundle?.previousRunId ?? '')
-    : '';
+  // This run's events before the loaded window come before any previous run.
+  const historyCursor: StepHistoryCursor | null = selectedStep && bundle
+    ? historyCursorByStep[selectedStep.stepType] ?? {
+      runId: bundle.overlay.runId,
+      beforeEventId: bundle.loadedFromEventId,
+      hasEarlierEvents: bundle.loadedFromEventId > 1,
+      previousRunId: bundle.previousRunId,
+    }
+    : null;
+  const canLoadMore = historyCursor !== null && (historyCursor.hasEarlierEvents || historyCursor.previousRunId !== '');
 
   const loadPrevious = useCallback(async () => {
-    if (!flowId || !selectedStep || !previousCursor) return;
+    if (!flowId || !selectedStep || !historyCursor || !canLoadMore) return;
     setLoadPreviousBusy(true);
     setPreviousEmpty(false);
     try {
-      const events = recentRunEvents(await loadRecentRunHistory(flowId, previousCursor));
+      const loaded = historyCursor.hasEarlierEvents
+        ? await loadEarlierRunEvents(flowId, historyCursor)
+        : await loadPreviousRunEvents(flowId, historyCursor.previousRunId);
       const hop = overlayFromHistory({
         flowId,
-        runId: previousCursor,
-        status: 'Continued as new',
-        events,
+        runId: loaded.cursor.runId,
+        status: loaded.cursor.runId === bundle?.overlay.runId ? bundle.overlay.status : 'Continued as new',
+        events: loaded.events,
+        loadedFromEventId: loaded.cursor.beforeEventId,
       });
       const older = hop.records.filter((record) => record.execution.stepType === selectedStep.stepType);
-      setHistoryEvents((current) => [...events, ...current]);
+      setHistoryEvents((current) => [...loaded.events, ...current]);
       setOlderByStep((current) => ({
         ...current,
-        [selectedStep.stepType]: [...older, ...(current[selectedStep.stepType] ?? [])],
+        [selectedStep.stepType]: mergeOlderExecutionRecords(older, current[selectedStep.stepType] ?? []),
       }));
-      setPreviousCursorByStep((current) => ({
+      setHistoryCursorByStep((current) => ({
         ...current,
-        [selectedStep.stepType]: hop.previousRunId,
+        [selectedStep.stepType]: { ...loaded.cursor, previousRunId: hop.previousRunId || loaded.cursor.previousRunId },
       }));
       setPreviousEmpty(older.length === 0);
     } catch (loadError: unknown) {
-      setRunError(loadError instanceof Error ? loadError.message : 'Previous run failed to load');
+      setRunError(loadError instanceof Error ? loadError.message : 'Earlier history failed to load');
     } finally {
       setLoadPreviousBusy(false);
     }
-  }, [flowId, previousCursor, selectedStep]);
+  }, [bundle, canLoadMore, flowId, historyCursor, selectedStep]);
 
   const commitPanelWidth = useCallback((width: number) => {
     const next = Math.round(width);
@@ -461,6 +475,7 @@ export function V2Canvas({
   if (!scene) return <div className="v2-empty">Drawing the Flow…</div>;
 
   const ownsPanel = showStepPanel && panel !== null;
+  const loadedEventCount = recentRunHistory.current?.historyWindow.events.length ?? 0;
   const canvasStyle = ownsPanel
     ? ({ '--v2-panel-w': `${Math.round(panelWidth)}px` } as CSSProperties)
     : undefined;
@@ -478,6 +493,11 @@ export function V2Canvas({
         />
       </div>
       {runError ? <p className="v2-error v2-run-error">{runError}</p> : null}
+      {bundle && bundle.loadedFromEventId > 1 ? (
+        <p className="v2-window-note" role="note">
+          Showing executions from the newest {loadedEventCount} events. Earlier executions are not loaded.
+        </p>
+      ) : null}
       <Stage
         // A new drawing enters afresh; another run of the same drawing moves into place.
         key={`${flowType}|${selected.file}`}
@@ -578,7 +598,8 @@ export function V2Canvas({
               setInspectSection(null);
             }}
             onSelectExecution={setSelectedExecutionId}
-            canLoadPrevious={Boolean(previousCursor)}
+            canLoadPrevious={canLoadMore}
+            loadMoreScope={historyCursor?.hasEarlierEvents ? 'this-run' : 'previous-run'}
             loadPreviousBusy={loadPreviousBusy}
             previousEmpty={previousEmpty}
             onLoadPrevious={() => { void loadPrevious(); }}
@@ -587,4 +608,45 @@ export function V2Canvas({
       ) : null}
     </div>
   );
+}
+
+/** Where Load more continues for one Step type: a run, and the event before which it has not loaded. */
+interface StepHistoryCursor {
+  runId: string;
+  beforeEventId: number;
+  hasEarlierEvents: boolean;
+  previousRunId: string;
+}
+
+interface LoadedStepHistory {
+  events: FlowHistoryEvent[];
+  cursor: StepHistoryCursor;
+}
+
+/** Loads the window before the cursor in the same run, keeping only events not loaded yet. */
+async function loadEarlierRunEvents(flowId: string, cursor: StepHistoryCursor): Promise<LoadedStepHistory> {
+  const olderWindow = await loadOlderHistoryWindow(
+    createHistoryPageLoader(flowId, cursor.runId, 0),
+    cursor.beforeEventId,
+    undefined,
+  );
+  const events = olderWindow.events.filter((event) => event.eventId < cursor.beforeEventId);
+  const firstStepEventId = events.find((event) => event.eventId > 1)?.eventId ?? 1;
+  return {
+    events,
+    cursor: {
+      ...cursor,
+      beforeEventId: firstStepEventId,
+      hasEarlierEvents: firstStepEventId > 1 && olderWindow.hasOlder,
+    },
+  };
+}
+
+async function loadPreviousRunEvents(flowId: string, previousRunId: string): Promise<LoadedStepHistory> {
+  const previous = await loadRecentRunHistory(flowId, previousRunId);
+  const beforeEventId = recentRunLoadedFromEventId(previous);
+  return {
+    events: recentRunEvents(previous),
+    cursor: { runId: previousRunId, beforeEventId, hasEarlierEvents: beforeEventId > 1, previousRunId: '' },
+  };
 }

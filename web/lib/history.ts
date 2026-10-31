@@ -162,50 +162,48 @@ export async function loadOlderHistoryWindow(
 ): Promise<HistoryWindow> {
   let start = Math.max(1, beforeEventId - limit);
   if (isEventIdInRange(prunedEventIdRange, start)) start = 1;
-  let page = await loadPage(historyPageRequest(start, limit));
-  let reportedRetainedHistory = reportedRetainedHistoryOf(page);
-  let events = sortedUniqueEvents(page.events).filter((event) => event.eventId < beforeEventId);
-  if (events.length === 0 && start > 1) {
+  let older = await readEventsBefore(loadPage, start, beforeEventId, limit);
+  if (older.events.length === 0 && start > 1) {
     // Time travel leaves event IDs that the lineage skips.
     const lastEventId = await findLastEventIdBefore(loadPage, start, limit);
     if (lastEventId > 0) {
-      page = await loadPage(historyPageRequest(Math.max(1, lastEventId - limit + 1), limit));
-      reportedRetainedHistory = reportedRetainedHistoryOf(page) ?? reportedRetainedHistory;
-      events = sortedUniqueEvents(page.events).filter((event) => event.eventId <= lastEventId);
+      const reportedRetainedHistory = older.reportedRetainedHistory;
+      older = await readEventsBefore(loadPage, Math.max(1, lastEventId - limit + 1), lastEventId + 1, limit);
+      older.reportedRetainedHistory ??= reportedRetainedHistory;
     }
   }
-  if (events.length === 0 || (events.length === 1 && events[0].eventId === 1)) {
+  if (older.events.length === 0 || (older.events.length === 1 && older.events[0].eventId === 1)) {
     return loadHistoryWindowFrom(loadPage, 1, limit);
   }
-  const window = events.slice(-limit);
+  const olderEvents = older.events.slice(-limit);
   return {
-    events: window,
-    hasOlder: window[0].eventId > 1,
+    events: olderEvents,
+    hasOlder: olderEvents[0].eventId > 1,
     hasNewer: true,
-    nextInternalEventId: window[window.length - 1].eventId + 1,
-    reportedRetainedHistory,
+    nextInternalEventId: olderEvents[olderEvents.length - 1].eventId + 1,
+    reportedRetainedHistory: older.reportedRetainedHistory,
   };
 }
 
 /** Appends new events, keeping the newest `limit`; reloads the window when the hint is a window ahead. */
 export async function appendToNewestHistoryWindow(
   loadPage: HistoryPageLoader,
-  window: HistoryWindow,
+  newestWindow: HistoryWindow,
   latestEventIdHint: number,
   limit = HISTORY_WINDOW_EVENT_LIMIT,
 ): Promise<HistoryWindow> {
-  if (latestEventIdHint >= window.nextInternalEventId + limit) {
+  if (latestEventIdHint >= newestWindow.nextInternalEventId + limit) {
     return loadNewestHistoryWindow(loadPage, latestEventIdHint, limit);
   }
-  const page = await loadPage(historyPageRequest(window.nextInternalEventId, limit));
+  const page = await loadPage(historyPageRequest(newestWindow.nextInternalEventId, limit));
   if (page.nextPageToken) return readToNewestWindow(loadPage, page, limit);
-  const events = sortedUniqueEvents([...window.events, ...page.events]).slice(-limit);
+  const events = sortedUniqueEvents([...newestWindow.events, ...page.events]).slice(-limit);
   return {
     events,
     hasOlder: events.length > 0 && events[0].eventId > 1,
     hasNewer: false,
-    nextInternalEventId: Math.max(window.nextInternalEventId, page.nextInternalEventId),
-    reportedRetainedHistory: reportedRetainedHistoryOf(page) ?? window.reportedRetainedHistory,
+    nextInternalEventId: Math.max(newestWindow.nextInternalEventId, page.nextInternalEventId),
+    reportedRetainedHistory: reportedRetainedHistoryOf(page) ?? newestWindow.reportedRetainedHistory,
   };
 }
 
@@ -252,6 +250,29 @@ async function readToNewestWindow(
     nextInternalEventId: page.nextInternalEventId,
     reportedRetainedHistory,
   };
+}
+
+/** Reads events in [startEventId, beforeEventId), following page tokens until a read reaches the end. */
+async function readEventsBefore(
+  loadPage: HistoryPageLoader,
+  startEventId: number,
+  beforeEventId: number,
+  limit: number,
+): Promise<{ events: FlowHistoryEvent[]; reportedRetainedHistory?: ReportedRetainedHistory }> {
+  const seenPageTokens = new Set<string>();
+  let page = await loadPage(historyPageRequest(startEventId, limit));
+  let reportedRetainedHistory = reportedRetainedHistoryOf(page);
+  const events = page.events.filter((event) => event.eventId < beforeEventId);
+  while (page.nextPageToken && !page.events.some((event) => event.eventId >= beforeEventId)) {
+    if (seenPageTokens.has(page.nextPageToken)) {
+      throw new Error('History pagination returned a repeated page token');
+    }
+    seenPageTokens.add(page.nextPageToken);
+    page = await loadPage(historyPageRequest(page.nextInternalEventId, limit, page.nextPageToken));
+    events.push(...page.events.filter((event) => event.eventId < beforeEventId));
+    reportedRetainedHistory = reportedRetainedHistoryOf(page) ?? reportedRetainedHistory;
+  }
+  return { events: sortedUniqueEvents(events), reportedRetainedHistory };
 }
 
 /**

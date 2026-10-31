@@ -46,6 +46,7 @@ export function FlowStatePanel({
   relatedEvents = [],
   onSelectRelatedEvent,
   onJumpToEvent,
+  isJumpDisabled = false,
 }: {
   selectedEvent: FlowHistoryEvent | null;
   history: FlowHistoryEvent[];
@@ -53,6 +54,8 @@ export function FlowStatePanel({
   relatedEvents?: TimelineRelatedEvent[];
   onSelectRelatedEvent?: (eventId: number) => void;
   onJumpToEvent?: (eventId: number) => void;
+  /** True while a Timeline page loads, so a second jump cannot race it. */
+  isJumpDisabled?: boolean;
 }) {
   const sidebar = useRef<HTMLDivElement>(null);
 
@@ -78,6 +81,7 @@ export function FlowStatePanel({
           {relatedEvents.length > 0 && (
             <RelatedEvents
               relatedEvents={relatedEvents}
+              isJumpDisabled={isJumpDisabled}
               onJumpToEvent={onJumpToEvent}
               onSelectRelatedEvent={onSelectRelatedEvent}
             />
@@ -110,10 +114,12 @@ const relationTitles: Record<TimelineRelatedEvent['relation'], string> = {
 
 function RelatedEvents({
   relatedEvents,
+  isJumpDisabled,
   onSelectRelatedEvent,
   onJumpToEvent,
 }: {
   relatedEvents: TimelineRelatedEvent[];
+  isJumpDisabled: boolean;
   onSelectRelatedEvent?: (eventId: number) => void;
   onJumpToEvent?: (eventId: number) => void;
 }) {
@@ -127,6 +133,7 @@ function RelatedEvents({
             <span className="related-event-label">{timelineRelatedEventLabel(related)}</span>
             <RelatedEventAction
               related={related}
+              isJumpDisabled={isJumpDisabled}
               onJumpToEvent={onJumpToEvent}
               onSelectRelatedEvent={onSelectRelatedEvent}
             />
@@ -139,10 +146,12 @@ function RelatedEvents({
 
 function RelatedEventAction({
   related,
+  isJumpDisabled,
   onSelectRelatedEvent,
   onJumpToEvent,
 }: {
   related: TimelineRelatedEvent;
+  isJumpDisabled: boolean;
   onSelectRelatedEvent?: (eventId: number) => void;
   onJumpToEvent?: (eventId: number) => void;
 }) {
@@ -156,7 +165,12 @@ function RelatedEventAction({
   }
   if (related.location === 'other-page' && eventId !== undefined && onJumpToEvent) {
     return (
-      <button className="button ghost related-event-action" onClick={() => onJumpToEvent(eventId)} type="button">
+      <button
+        className="button ghost related-event-action"
+        disabled={isJumpDisabled}
+        onClick={() => onJumpToEvent(eventId)}
+        type="button"
+      >
         {related.direction === 'older' ? 'Older page · jump' : 'Newer page · jump'}
       </button>
     );

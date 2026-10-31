@@ -753,13 +753,21 @@ Timeline shows one window per page, newest first, with **Older events**,
 stable across pages and pruning. Condition-wait and lineage links are resolved
 by event ID. A link whose far end is on another page ends in an edge stub. The
 stub loads the page that holds the far end, highlights it, and offers **Back**.
+Back remembers up to 20 positions and reloads the page it returns to. A far end
+that Dex Web cannot locate is labeled not on this page and has no jump. A jump
+to an event pruned since the page loaded refreshes the pruned range instead.
 A far end removed by the server-zd history window shows as a muted **pruned**
 stub, and the oldest retained page names the removed event range. Selected
 event lists the same **Related events**. `web/lib/historyRelations.ts` is the
 only reader of the optional retained-history boundary and related event IDs.
 Without them, Dex Web scans the loaded page, and it infers pruning from a gap
 after FlowStart. Execution graph, Overview, and the v2 canvas read the newest
-window, so Step executions recorded before it do not appear there.
+window, so Step executions recorded before it do not appear there. The
+Execution graph starts a Step whose source is before the window from an
+**Earlier events, not loaded** node, never from Flow start. The v2 canvas says
+how many events it shows, marks per-Step counts as lower bounds, and labels a
+WaitFor before the window as earlier, not loaded. Its Step panel loads the
+run's older windows before any previous run.
 
 A continued-as-new run remains on screen until the
 operator follows **Next run**; Dex Web never combines two runs into one graph or timeline.

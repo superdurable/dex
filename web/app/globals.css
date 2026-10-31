@@ -2754,7 +2754,12 @@ button.timeline-edge-stub {
   cursor: pointer;
 }
 
-button.timeline-edge-stub:hover,
+button.timeline-edge-stub:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+button.timeline-edge-stub:hover:not(:disabled),
 button.timeline-edge-stub:focus-visible {
   border-style: solid;
   color: var(--ink);

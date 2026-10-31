@@ -18,6 +18,7 @@ import {
   attemptCountFromRecord,
   loadRecentRunHistory,
   mergeStepExecutions,
+  prependStepRecords,
   overlayFromHistory,
   payloadFromRecord,
   previousRunIdFromEvents,
@@ -211,7 +212,70 @@ describe('loadRecentRunHistory', () => {
     server.requests.length = 0;
     server.events.push(stepEvent(20_001, 'StepExecuteCompleted', { stepExecutionId: 'Step-10000' }));
     const next = await loadRecentRunHistory('flow-1', 'run-1', 1, first);
-    expect(next.window.events.at(-1)?.eventId).toBe(20_001);
+    expect(next.historyWindow.events.at(-1)?.eventId).toBe(20_001);
     expect(server.requests.map((request) => request.startInternalEventId)).toEqual([20_001]);
   });
 });
+
+describe('overlay of a partial history window', () => {
+  const executeAfterEarlierWaitFor: FlowHistoryEvent = {
+    eventId: 5001,
+    eventTime: '2026-09-18T00:00:09.000Z',
+    type: 'StepExecuteCompleted',
+    payload: {
+      context: { stepExecutionId: 'Review-1', stepType: 'Review', startedTime: '2026-09-18T00:00:08.000Z' },
+      input: { conditionResults: {} },
+    },
+  };
+
+  it('marks the overlay partial and shows an edge WaitFor as earlier, not loaded', () => {
+    const bundle = overlayFromHistory({
+      flowId: 'flow-1',
+      runId: 'run-1',
+      status: 'Running',
+      events: [executeAfterEarlierWaitFor],
+      loadedFromEventId: 5001,
+    });
+
+    expect(bundle.overlay.hasEarlierExecutions).toBe(true);
+    expect(bundle.loadedFromEventId).toBe(5001);
+    expect(bundle.overlay.executions[0]).toMatchObject({
+      waitFor: { status: 'completed', conditions: [] },
+      isWaitForNotLoaded: true,
+    });
+    const complete = overlayFromHistory({ flowId: 'flow-1', runId: 'run-1', status: 'Running', events: [executeAfterEarlierWaitFor] });
+    expect(complete.overlay.hasEarlierExecutions).toBe(false);
+    expect(complete.overlay.executions[0].waitFor).toBeNull();
+  });
+
+  it('merges an execution that straddles the window edge when older events load', () => {
+    const current = overlayFromHistory({
+      flowId: 'flow-1',
+      runId: 'run-1',
+      status: 'Running',
+      events: [executeAfterEarlierWaitFor],
+      loadedFromEventId: 5001,
+    });
+    const earlier = overlayFromHistory({
+      flowId: 'flow-1',
+      runId: 'run-1',
+      status: 'Running',
+      events: [{
+        eventId: 4000,
+        eventTime: '2026-09-18T00:00:01.000Z',
+        type: 'StepWaitForCompleted',
+        payload: { context: { stepExecutionId: 'Review-1', stepType: 'Review' } },
+      }],
+      loadedFromEventId: 4000,
+    });
+
+    const merged = prependStepRecords(current, earlier.records, 'Review');
+
+    expect(merged.records).toHaveLength(1);
+    expect(merged.records[0].waitEvent?.eventId).toBe(4000);
+    expect(merged.records[0].executeEvent?.eventId).toBe(5001);
+    expect(merged.records[0].execution.isWaitForNotLoaded).toBe(false);
+    expect(current.records[0].waitEvent).toBeUndefined();
+  });
+});
+
