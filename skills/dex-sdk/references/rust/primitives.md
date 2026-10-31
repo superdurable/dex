@@ -6,7 +6,7 @@ Read the core primitives guide first for product semantics. This page records th
 
 `Flow::StartInput` is the input accepted by `Client::start_flow`. `steps` returns the closed Step graph. A Step's WaitFor phase decides durable readiness; Execute performs side effects and returns the next graph movement. `Wait::until`, `any_of`, `all_of`, and `any_combination_of` compose Conditions. `Wait::skip_immediately` bypasses waiting.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/wait_types/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/primitives/wait_types/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/wait_types/flow.rs -->
 ```rust
 fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
@@ -55,7 +55,7 @@ Use `StepMovement::to_with_options` when one transition needs different options 
 
 An `Attribute<T>` stores one typed durable value. `AttributeMap<T>` stores independently addressable instances. Both belong in `PersistenceSchema`. Indexed attributes support Flow search; `sync_to_attribute_store` projects values into an Attribute Store configured by `FlowConfig`. For a short-lived secret, such as an API key, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes); it supports only string and object values and cannot be indexed or synced.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/attribute/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/primitives/attribute/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/attribute/flow.rs -->
 ```rust
 static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
@@ -78,7 +78,7 @@ Call `get`, `set`, or `clear` through `&mut Context`. Load only the map instance
 
 Channels are durable message queues. `for_one` and `for_n` create wait Conditions; `publish` appends; `pending_messages`, `find_pending_message`, and `delete` support explicit queue management. A `ChannelMap<T>` partitions queues by instance key. Declare the definition before attaching instance loads.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/channel/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/primitives/channel/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/channel/flow.rs -->
 ```rust
 fn rpcs(&self) -> RpcList<Self> {
@@ -122,7 +122,7 @@ RPCs can declare locks, timeout, transactions, and selective loads. An RPC witho
 
 `Stream<T>` is append-oriented output. Give it a maximum payload size and add it to `PersistenceSchema`. Text output can be buffered to avoid one remote write per fragment.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/stream/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/primitives/stream/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/stream/flow.rs -->
 ```rust
 let progress = PROGRESS.buffered_text_with_options(
@@ -137,7 +137,7 @@ Buffered writes are asynchronous; use them for progress-like output, not as the 
 
 Use `Client::read_stream_with_timeout` for forward, one-at-a-time, long-polling consumption. Use `Client::list_stream_messages` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `next_page_token` unchanged until it is empty.
 
-[Runnable listing source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/stream/controller.rs)
+[Runnable listing source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/primitives/stream/controller.rs)
 <!-- dex-source: examples/rust/src/primitives/stream/controller.rs -->
 ```rust
 client
@@ -157,8 +157,34 @@ The before-page token is exclusive and scope-bound. The first page uses an empty
 
 ## Client
 
-`Client` starts, stops, searches, and inspects Flows; invokes typed RPCs; waits for Attribute matches and Flow or Step completion; and retrieves Stream output. Read and write Flow-owned Attribute and Channel state through typed RPCs, not removed direct Client methods. Controllers should map `SdkError` explicitly and move blocking client calls off async executor threads. Use a unique Flow ID for each test or logical entity, and a stable request ID when retrying the same command.
+`Client` starts, stops, searches, and inspects Flows; reads committed Attributes with [`Client::get_attributes`](#client-attribute-reads); invokes typed RPCs; waits for Attribute matches and Flow or Step completion; and retrieves Stream output. Write Flow-owned Attribute and Channel state, and read pending Channel messages, through typed RPCs; the Client has no direct write method. Controllers should map `SdkError` explicitly and move blocking client calls off async executor threads. Use a unique Flow ID for each test or logical entity, and a stable request ID when retrying the same command.
 
-The Rust SDK does not have the Client Attribute read API yet; the Go, Python, and TypeScript SDKs have it. To read Flow state from outside a Flow in Rust, define a typed read-only RPC without Attribute locks, transactional execution, or returned durable effects, and invoke it through the `Client`. That RPC dispatches to a Worker, so it needs an available Worker, and it can read a retained closed run. Do not call the FlowService GetAttributes RPC through the generated protocol bindings; that skips the SDK's definition checks, typed decoding, and large-value hydration. See the shared [Attribute read rules](../core/primitives.md#read-attributes-from-outside-a-flow).
+Use `Client::describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow returns `SdkError::FlowNotFound`. The call does not wait for terminal status: use `Client::wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type()` and `error_message()`. Do not use `describe_flow` as a `start_flow` preflight. Use `Client::search_flows` for indexed discovery. [Released Rust Client API](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/crates/dex-sdk/src/client.rs)
 
-Use `Client::describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow returns `SdkError::FlowNotFound`. The call does not wait for terminal status: use `Client::wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type()` and `error_message()`. Do not use `describe_flow` as a `start_flow` preflight. Use `Client::search_flows` for indexed discovery. [Released Rust Client API](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/sdk-rust/crates/dex-sdk/src/client.rs)
+## Client Attribute reads
+
+From Rust SDK v1.31.0, `Client::get_attributes(flow_id, reads)` reads committed values of registered Attributes and AttributeMap instances in one server request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass a tuple of reads. Each read is an `Attribute<T>`, or an `AttributeMapInstance<T>` selected with `AttributeMap::instance(key)`. A reference to either, or a module-level `LazyLock` static of either, also works.
+
+[Released Rust Client Attribute read](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/README.md)
+<!-- dex-source: sdk-rust/README.md -->
+```rust
+let (status, note) = client.get_attributes(flow_id, (&ORDER_STATUS, &NOTES.instance("n1")))?;
+let status = status.unwrap_or_else(|| "new".to_string());
+```
+
+- **Blocking.** The call blocks the calling thread until Dex responds and every value decodes; there is no `.await`. Move it off async executor threads, like other Client calls.
+- **Tuple of 1 to 12 reads.** The result is a tuple of the same arity with one `Option<T>` per read, in read order. `None` means the value is not set. A set empty string or `0` is `Some`. Use a one-element tuple, such as `(&ORDER_STATUS,)`, to read one value. An empty tuple does not compile.
+- **More than 12 values.** Values from separate calls can come from different commits. When a response needs more than 12 values from one commit, assemble it in a typed read-only RPC instead.
+- **Instance selector.** `AttributeMap::instance(key)` returns an `AttributeMapInstance<T>` for a Client read. It is a different type from the `AttributeMapLoad` that `AttributeMap::load` returns for handler loads, so passing a `load()` result does not compile. Creating the selector does not validate the key; the call rejects an empty key or one that contains `/`.
+- **Definition match.** Each read must match a definition that some Flow in the Client's `Registry` declares: the same name, Attribute or AttributeMap kind, Rust value type, index, `sync_to_attribute_store`, and `hard_delete_on_null` settings. A Channel or Stream with the same name does not count.
+- **Hard-delete and large values.** Hard-delete Attributes are readable, and a deleted value reads as `None`. The Client resolves large values through the shared `BlobCache` before it decodes them.
+
+Every error except the blank Flow ID error names the Flow ID, and an error about one read also names its Attribute name or physical key. A decode error never quotes the stored value.
+
+- `SdkError::InvalidArgument`: a blank Flow ID, an empty or `/`-containing map instance key, or a duplicate read. The Client does not contact Dex.
+- `SdkError::FlowDefinition`: no Flow in the Registry declares a matching definition. The Client does not contact Dex.
+- `SdkError::FlowNotFound`: the Flow does not exist, or its latest run is being purged. A closed run is still readable, so the call never returns `FlowNotActiveOrNotFound`. At a business Get boundary, return the not-found result directly.
+- `SdkError::ValueMapping`: a stored value cannot be decoded into its value type, or a large value cannot be resolved. A purge of the run, or a concurrent overwrite of a large value, between the read and the large-value resolution also returns this error. Retry the call to read fresh state.
+- `SdkError::Service`: an invalid server response, a failed large-value request, or another server or transport failure. Other service-backed variants are possible when Dex reports a more specific status. `ServiceError::operation()` is `get_attributes`. `Display` adds the call context, while `ServiceError::detail()` keeps the Server detail unchanged.
+
+On any error the call returns no values. [Released Rust Client API](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/crates/dex-sdk/src/client/attribute_reads.rs)

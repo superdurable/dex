@@ -6,7 +6,7 @@ Prefer integration tests against a real Dex Server. Unit tests can validate pure
 
 Start `dexcli dev`, build the same Registry used by production, create a temporary BlobCache, and run the Worker on a dedicated thread. Construct the Worker and Client with the same Dex Server address. Stop and join the Worker and close the cache during teardown.
 
-[Released Worker and Client setup](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/sdk-rust/README.md#pull-mode)
+[Released Worker and Client setup](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/README.md#pull-mode)
 <!-- dex-source: sdk-rust/README.md -->
 ```rust
 let worker = Worker::try_new(
@@ -32,7 +32,7 @@ Use `tempfile::TempDir` for BlobCache isolation. Do not share a fixed Flow ID ac
 
 Poll observable Dex state until a short deadline. Do not use a fixed sleep as the assertion mechanism; scheduling and retries are asynchronous.
 
-[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/tests/dex_integration.rs)
+[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/tests/dex_integration.rs)
 <!-- dex-source: examples/rust/tests/dex_integration.rs -->
 ```rust
 fn await_engagement_status(&self, flow_id: &str, expected: &str) -> EngagementStatus {
@@ -70,7 +70,7 @@ For a nontrivial Flow, cover:
 
 ## Client and persistence assertions
 
-Read Flow-owned state through typed application RPCs. The baseline test for Channel moves asserts source ordering, deletion by `message_id`, destination publication, and the typed missing-message error. Use the same style for Attribute, ChannelMap, RPC, and Stream behavior. Avoid removed direct Client state methods and Dex Server storage.
+Read Flow-owned state through typed application RPCs or `Client::get_attributes`. The baseline test for Channel moves asserts source ordering, deletion by `message_id`, destination publication, and the typed missing-message error. Use the same style for Attribute, ChannelMap, RPC, and Stream behavior. Avoid removed direct Client state methods and Dex Server storage.
 
 ## Registry and compile contracts
 
