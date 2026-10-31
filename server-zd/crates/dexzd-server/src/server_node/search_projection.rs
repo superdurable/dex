@@ -21,6 +21,7 @@ use dexzd_search::sql_visibility::{
     AttributeIndexRegistryReader, ProjectionVisibilityWait, SqlVisibilityProjector,
     SqlVisibilitySearchBackend, VisibilityDialect,
 };
+#[cfg(test)]
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -30,13 +31,8 @@ use crate::config::{ConfigError, SearchBackend as SearchBackendKind, SearchConfi
 
 pub(crate) use committed_search_frames::CommittedSearchFrames;
 
-use committed_search_frames::CommittedSearchFrame;
 use projection_worker::SearchProjectionWorker;
 
-/// Frames waiting for the projection; when full, commits continue and the partition rebuilds later.
-const PROJECTION_QUEUE_FRAMES: usize = 4_096;
-/// Search document bytes waiting for the projection; beyond it, frames also become rebuilds.
-const PROJECTION_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 /// Startup waits for another node's schema migration, which holds its lock for at most 5 s.
 const CONNECT_ATTEMPTS: u32 = 3;
 const CONNECT_RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -46,7 +42,6 @@ const DEFAULT_SCHEMA: &str = "public";
 pub(crate) struct SqlVisibilitySearch {
     backend: Arc<SqlVisibilitySearchBackend>,
     frames: Arc<CommittedSearchFrames>,
-    queue: mpsc::Receiver<CommittedSearchFrame>,
 }
 
 impl SqlVisibilitySearch {
@@ -54,6 +49,7 @@ impl SqlVisibilitySearch {
     pub(crate) async fn connect(
         search: &SearchConfig,
         registry_reader: Arc<dyn AttributeIndexRegistryReader>,
+        metrics: Arc<NodeMetrics>,
     ) -> Result<Self, ServerError> {
         let configuration = postgres_configuration(search)?;
         let is_postgres = search.backend == SearchBackendKind::Postgres;
@@ -89,8 +85,7 @@ impl SqlVisibilitySearch {
                 "search.paradeDbConnectionPoolSize"
             },
         })?;
-        let (frames, queue) =
-            CommittedSearchFrames::new(PROJECTION_QUEUE_FRAMES, PROJECTION_QUEUE_BYTES);
+        let frames = CommittedSearchFrames::new(Arc::new(search.projection_queue.clone()), metrics);
         let frames = Arc::new(frames);
         let visibility_wait: Arc<dyn ProjectionVisibilityWait> = frames.clone();
         let mut attempt = 1;
@@ -121,7 +116,6 @@ impl SqlVisibilitySearch {
         Ok(Self {
             backend: Arc::new(backend),
             frames,
-            queue,
         })
     }
 
@@ -147,13 +141,8 @@ impl SqlVisibilitySearch {
             Arc::new(SearchProjectionMetrics(metrics)),
         );
         let backfill = refresh_attribute_slots(projector.clone());
-        let worker = SearchProjectionWorker::new(
-            projector,
-            committer,
-            self.frames,
-            self.queue,
-            partition_count,
-        );
+        let worker =
+            SearchProjectionWorker::new(projector, committer, self.frames, partition_count);
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         let task = tokio::spawn(async move {
@@ -294,12 +283,16 @@ mod tests {
             postgres_connection_string: "postgres://localhost:1/unreachable".into(),
             ..Default::default()
         };
-        let error =
-            match SqlVisibilitySearch::connect(&config, Arc::new(ExcessiveAttributeRegistry)).await
-            {
-                Ok(_) => panic!("over-capacity registry must fail startup"),
-                Err(error) => error,
-            };
+        let error = match SqlVisibilitySearch::connect(
+            &config,
+            Arc::new(ExcessiveAttributeRegistry),
+            Arc::new(NodeMetrics::unregistered()),
+        )
+        .await
+        {
+            Ok(_) => panic!("over-capacity registry must fail startup"),
+            Err(error) => error,
+        };
         let message = error.to_string();
         assert!(message.contains("capacity exceeded"), "{message}");
         for position in 0..11 {

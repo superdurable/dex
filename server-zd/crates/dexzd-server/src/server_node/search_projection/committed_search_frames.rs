@@ -6,19 +6,24 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
-use std::sync::{Mutex, MutexGuard};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dexzd_engine::CommittedFlowCommand;
-use dexzd_keyspace::PartitionId;
-use dexzd_protocol::dexzd::v1::LogPosition;
+use dexzd_keyspace::{PartitionId, RunId, TenantId};
+use dexzd_metrics::NodeMetrics;
+use dexzd_protocol::dex::FlowStatus;
+use dexzd_protocol::dexzd::v1::{LogPosition, SearchDocumentRecord};
 use dexzd_search::sql_visibility::{
     ProjectionVisibilityWait, SearchDocumentChange, extract_search_document_changes,
 };
 use dexzd_search::{SearchError, SearchRequest};
-use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{Notify, mpsc, watch};
+use prost::Message;
+use tokio::sync::{Notify, watch};
+
+use crate::config::SearchProjectionQueueConfig;
 
 /// Estimated memory of one change besides its encoded document: identifiers and enum layout.
 const CHANGE_OVERHEAD_BYTES: usize = 64;
@@ -36,9 +41,9 @@ pub(crate) struct CommittedSearchFrame {
 /// Feeds committed frames' search document changes to the SQL visibility projection without delaying commits.
 pub(crate) struct CommittedSearchFrames {
     tracking: Mutex<FrameTracking>,
-    queue: mpsc::Sender<CommittedSearchFrame>,
-    /// Frames that would raise the queued bytes above this become rebuild requests instead.
-    max_queued_bytes: usize,
+    cfg: Arc<SearchProjectionQueueConfig>,
+    metrics: Arc<NodeMetrics>,
+    available: Notify,
     rebuild_requested: Notify,
     /// Highest frame sequence searchable along with all earlier frames; `None` until startup catch-up.
     projected_through: watch::Sender<Option<u64>>,
@@ -52,7 +57,12 @@ struct FrameTracking {
     /// Estimated bytes of frames queued or being projected.
     queued_bytes: usize,
     /// Open and queued frames; frames waiting for a rebuild move to `rebuild_requests`.
-    unprojected: BTreeMap<u64, PartitionId>,
+    unprojected: BTreeMap<u64, FrameWatermark>,
+    pending_watermarks: BTreeSet<(u64, u64)>,
+    queued: BTreeMap<u64, QueuedSearchFrame>,
+    queue_order: VecDeque<u64>,
+    queued_upserts: BTreeMap<(TenantId, RunId), u64>,
+    last_rebuild_warning: Option<Instant>,
     rebuild_requests: BTreeMap<PartitionId, RebuildRequest>,
 }
 
@@ -64,26 +74,22 @@ struct RebuildRequest {
 
 struct OpenSearchFrame {
     sequence: u64,
-    changes: Vec<SearchDocumentChange>,
+    changes: BTreeMap<(TenantId, RunId), PrioritizedSearchChange>,
     is_unreadable: bool,
 }
 
 impl CommittedSearchFrames {
-    /// Returns the frames and the receiving end of their queue, bounded by frames and by bytes.
-    pub(crate) fn new(
-        queue_frames: usize,
-        max_queued_bytes: usize,
-    ) -> (Self, mpsc::Receiver<CommittedSearchFrame>) {
-        let (queue, receiver) = mpsc::channel(queue_frames);
-        let frames = Self {
+    /// Returns a queue bounded by frames and by bytes, including protected changes above the soft limits.
+    pub(crate) fn new(cfg: Arc<SearchProjectionQueueConfig>, metrics: Arc<NodeMetrics>) -> Self {
+        Self {
             tracking: Mutex::new(FrameTracking::default()),
-            queue,
-            max_queued_bytes,
+            cfg,
+            metrics,
+            available: Notify::new(),
             rebuild_requested: Notify::new(),
             projected_through: watch::Sender::new(None),
             permanent_failure: watch::Sender::new(None),
-        };
-        (frames, receiver)
+        }
     }
 
     /// Adds one committed command's search document changes to its partition's open frame.
@@ -96,7 +102,18 @@ impl CommittedSearchFrames {
         let mut tracking = self.lock_tracking();
         let frame = tracking.open_frame(partition);
         match extracted {
-            Ok(changes) => frame.changes.extend(changes),
+            Ok(changes) => {
+                for change in changes {
+                    let priority = change_priority(&change);
+                    let identity = change_identity(&change);
+                    let mut prioritized = PrioritizedSearchChange { change, priority };
+                    if let Some(previous) = frame.changes.remove(&identity) {
+                        prioritized.inherit_priority(&previous);
+                        self.metrics.search_projection_coalesced_changes.inc();
+                    }
+                    frame.changes.insert(identity, prioritized);
+                }
+            }
             Err(error) => {
                 tracing::error!(
                     partition = partition.0,
@@ -118,29 +135,57 @@ impl CommittedSearchFrames {
             self.request_rebuild(&mut tracking, partition, frame.sequence);
             return;
         }
-        let size_bytes = frame.changes.iter().map(change_size_bytes).sum::<usize>();
-        if tracking.queued_bytes.saturating_add(size_bytes) > self.max_queued_bytes {
-            self.request_rebuild(&mut tracking, partition, frame.sequence);
-            return;
-        }
-        let queued = self.queue.try_send(CommittedSearchFrame {
+        let mut queued = QueuedSearchFrame {
             sequence: frame.sequence,
             partition,
             position: position.clone(),
             changes: frame.changes,
-            size_bytes,
-        });
-        match queued {
-            Ok(()) => tracking.queued_bytes += size_bytes,
-            Err(TrySendError::Full(frame)) => {
-                self.request_rebuild(&mut tracking, partition, frame.sequence);
+        };
+        tracking.coalesce_upserts(&mut queued, &self.metrics);
+        let mut size_bytes = queued.size_bytes();
+        let would_exceed_soft_limit = tracking.queue_order.len() >= self.cfg.soft_frames
+            || tracking.queued_bytes.saturating_add(size_bytes) > self.cfg.soft_bytes;
+        if would_exceed_soft_limit {
+            queued.changes.retain(|_, change| {
+                if change.priority == ChangePriority::Intermediate {
+                    self.metrics.search_projection_dropped_updates.inc();
+                    false
+                } else {
+                    true
+                }
+            });
+            size_bytes = queued.size_bytes();
+        }
+        if queued.changes.is_empty() {
+            tracking.remove_unprojected(queued.sequence);
+            self.available.notify_one();
+            return;
+        }
+        if tracking.queue_order.len() >= self.cfg.hard_frames
+            || tracking.queued_bytes.saturating_add(size_bytes) > self.cfg.hard_bytes
+        {
+            self.request_rebuild(&mut tracking, partition, queued.sequence);
+            return;
+        }
+        for (identity, change) in &queued.changes {
+            if matches!(change.change, SearchDocumentChange::Upsert { .. }) {
+                tracking.queued_upserts.insert(*identity, queued.sequence);
             }
-            Err(TrySendError::Closed(_)) => {
-                tracing::debug!(
-                    partition = partition.0,
-                    "the search projection stopped; a committed frame was not projected"
-                );
+        }
+        tracking.queued_bytes += size_bytes;
+        tracking.queue_order.push_back(queued.sequence);
+        tracking.queued.insert(queued.sequence, queued);
+        self.available.notify_one();
+    }
+
+    pub(crate) async fn next_frame(&self) -> CommittedSearchFrame {
+        loop {
+            let available = self.available.notified();
+            if let Some(frame) = self.lock_tracking().take_frame() {
+                return frame;
             }
+            self.publish_projected_through();
+            available.await;
         }
     }
 
@@ -170,18 +215,14 @@ impl CommittedSearchFrames {
     /// Marks a dequeued frame searchable and releases its bytes from the queue's limit.
     pub(crate) fn finish_projected_frame(&self, frame: &CommittedSearchFrame) {
         let mut tracking = self.lock_tracking();
-        tracking.unprojected.remove(&frame.sequence);
+        tracking.remove_unprojected(frame.sequence);
         tracking.queued_bytes = tracking.queued_bytes.saturating_sub(frame.size_bytes);
     }
 
     /// Marks the partition's frames through `sequence` searchable after a rebuild.
     pub(crate) fn finish_rebuild(&self, partition: PartitionId, sequence: u64) {
         let mut tracking = self.lock_tracking();
-        tracking
-            .unprojected
-            .retain(|frame_sequence, frame_partition| {
-                *frame_partition != partition || *frame_sequence > sequence
-            });
+        tracking.finish_through(Some(partition), sequence);
         if let Some(request) = tracking.rebuild_requests.get_mut(&partition) {
             if request.last_sequence <= sequence {
                 tracking.rebuild_requests.remove(&partition);
@@ -194,9 +235,7 @@ impl CommittedSearchFrames {
     /// Marks every frame through `sequence` searchable once all partitions caught up after startup.
     pub(crate) fn finish_catch_up(&self, sequence: u64) {
         let mut tracking = self.lock_tracking();
-        tracking
-            .unprojected
-            .retain(|frame_sequence, _| *frame_sequence > sequence);
+        tracking.finish_through(None, sequence);
         tracking.rebuild_requests.retain(|_, request| {
             request.first_sequence = request.first_sequence.max(sequence + 1);
             request.last_sequence > sequence
@@ -207,7 +246,7 @@ impl CommittedSearchFrames {
     pub(crate) fn publish_projected_through(&self) {
         let projected_through = {
             let tracking = self.lock_tracking();
-            let first_unprojected = tracking.unprojected.keys().next().copied();
+            let first_unprojected = tracking.pending_watermarks.first().map(|(first, _)| *first);
             let first_to_rebuild = tracking
                 .rebuild_requests
                 .values()
@@ -237,18 +276,29 @@ impl CommittedSearchFrames {
     }
 
     fn request_rebuild(&self, tracking: &mut FrameTracking, partition: PartitionId, sequence: u64) {
-        tracking.unprojected.remove(&sequence);
+        let first_sequence = tracking.remove_unprojected(sequence).unwrap_or(sequence);
         match tracking.rebuild_requests.get_mut(&partition) {
-            Some(request) => request.last_sequence = sequence,
+            Some(request) => {
+                request.first_sequence = request.first_sequence.min(first_sequence);
+                request.last_sequence = request.last_sequence.max(sequence);
+            }
             None => {
-                tracing::warn!(
-                    partition = partition.0,
-                    "a committed frame could not be queued for the search projection; rebuilding its partition"
-                );
+                self.metrics.search_projection_rebuild_requests.inc();
+                let now = Instant::now();
+                if tracking
+                    .last_rebuild_warning
+                    .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1))
+                {
+                    tracing::warn!(
+                        partition = partition.0,
+                        "a committed frame could not be queued for the search projection; rebuilding its partition"
+                    );
+                    tracking.last_rebuild_warning = Some(now);
+                }
                 tracking.rebuild_requests.insert(
                     partition,
                     RebuildRequest {
-                        first_sequence: sequence,
+                        first_sequence,
                         last_sequence: sequence,
                     },
                 );
@@ -278,16 +328,97 @@ impl FrameTracking {
     fn open_frame(&mut self, partition: PartitionId) -> &mut OpenSearchFrame {
         if !self.open_frames.contains_key(&partition) {
             self.last_sequence += 1;
-            self.unprojected.insert(self.last_sequence, partition);
+            self.unprojected.insert(
+                self.last_sequence,
+                FrameWatermark {
+                    partition,
+                    first_sequence: self.last_sequence,
+                },
+            );
+            self.pending_watermarks
+                .insert((self.last_sequence, self.last_sequence));
         }
         let sequence = self.last_sequence;
         self.open_frames
             .entry(partition)
             .or_insert_with(|| OpenSearchFrame {
                 sequence,
-                changes: Vec::new(),
+                changes: BTreeMap::new(),
                 is_unreadable: false,
             })
+    }
+
+    fn coalesce_upserts(&mut self, frame: &mut QueuedSearchFrame, metrics: &NodeMetrics) {
+        for (identity, change) in &mut frame.changes {
+            let Some(previous_sequence) = self.queued_upserts.remove(identity) else {
+                continue;
+            };
+            let previous = self
+                .queued
+                .get_mut(&previous_sequence)
+                .expect("indexed upsert belongs to a queued frame")
+                .changes
+                .remove(identity)
+                .expect("indexed upsert is still queued");
+            self.queued_bytes -= change_size_bytes(&previous.change);
+            change.inherit_priority(&previous);
+            metrics.search_projection_coalesced_changes.inc();
+            if let Some(previous_watermark) = self.unprojected.get(&previous_sequence) {
+                let first_sequence = previous_watermark.first_sequence;
+                let watermark = self
+                    .unprojected
+                    .get_mut(&frame.sequence)
+                    .expect("an admitted frame has a watermark");
+                self.pending_watermarks
+                    .remove(&(watermark.first_sequence, frame.sequence));
+                watermark.first_sequence = watermark.first_sequence.min(first_sequence);
+                self.pending_watermarks
+                    .insert((watermark.first_sequence, frame.sequence));
+            }
+        }
+    }
+
+    fn take_frame(&mut self) -> Option<CommittedSearchFrame> {
+        let sequence = self.queue_order.pop_front()?;
+        let queued = self
+            .queued
+            .remove(&sequence)
+            .expect("queued frame exists until taken");
+        for identity in queued.changes.keys() {
+            if self.queued_upserts.get(identity) == Some(&sequence) {
+                self.queued_upserts.remove(identity);
+            }
+        }
+        Some(CommittedSearchFrame {
+            sequence,
+            partition: queued.partition,
+            position: queued.position.clone(),
+            size_bytes: queued.size_bytes(),
+            changes: queued
+                .changes
+                .into_values()
+                .map(|change| change.change)
+                .collect(),
+        })
+    }
+
+    fn finish_through(&mut self, partition: Option<PartitionId>, sequence: u64) {
+        self.unprojected.retain(|frame_sequence, watermark| {
+            let is_covered = *frame_sequence <= sequence
+                && partition.is_none_or(|partition| watermark.partition == partition);
+            if is_covered {
+                self.pending_watermarks
+                    .remove(&(watermark.first_sequence, *frame_sequence));
+            }
+            !is_covered
+        });
+    }
+
+    fn remove_unprojected(&mut self, sequence: u64) -> Option<u64> {
+        let watermark = self.unprojected.remove(&sequence)?;
+        self.pending_watermarks
+            .remove(&(watermark.first_sequence, sequence));
+        Some(watermark.first_sequence)
     }
 }
 
@@ -316,125 +447,79 @@ impl ProjectionVisibilityWait for CommittedSearchFrames {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use dexzd_apply::{ApplyContext, ApplyOutcome, StateWrite};
-    use dexzd_engine::CommittedCommand;
-    use dexzd_keyspace::row_keys::run_singleton_key;
-    use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable};
-    use dexzd_protocol::dexzd::v1::{CommandReply, FlowCommand, SearchDocumentRecord};
-    use prost::Message;
+struct FrameWatermark {
+    partition: PartitionId,
+    first_sequence: u64,
+}
 
-    use super::*;
+struct QueuedSearchFrame {
+    sequence: u64,
+    partition: PartitionId,
+    position: LogPosition,
+    changes: BTreeMap<(TenantId, RunId), PrioritizedSearchChange>,
+}
 
-    const PARTITION: PartitionId = PartitionId(3);
-    const DOCUMENT_BYTES: usize = 1024;
-
-    fn committed_upsert(run_number: u8) -> CommittedFlowCommand {
-        let flow_hash = FlowHash(7);
-        let run_id = RunId([run_number; 16]);
-        let document = SearchDocumentRecord {
-            tenant_id: 1,
-            run_id: run_id.as_bytes().to_vec(),
-            flow_type: "x".repeat(DOCUMENT_BYTES),
-            ..SearchDocumentRecord::default()
-        };
-        CommittedFlowCommand {
-            command: FlowCommand::default(),
-            context: ApplyContext {
-                partition: PARTITION,
-                flow_hash,
-            },
-            committed: CommittedCommand {
-                outcome: ApplyOutcome {
-                    writes: vec![StateWrite::Put {
-                        column_family: ColumnFamily::Flow,
-                        key: run_singleton_key(flow_hash, run_id, RunTable::SearchDocument),
-                        value: document.encode_to_vec(),
-                    }],
-                    effects: Vec::new(),
-                    reply: CommandReply::default(),
-                    run_id: Some(run_id),
-                },
-                position: LogPosition::default(),
-            },
-        }
-    }
-
-    fn commit_frame(frames: &CommittedSearchFrames, run_number: u8) {
-        frames.record_command(&committed_upsert(run_number));
-        frames.finish_frame(
-            PARTITION,
-            &LogPosition {
-                seq: u64::from(run_number),
-                ..LogPosition::default()
-            },
-        );
-    }
-
-    /// A stalled projection, as during a SQL visibility outage, holds at most the byte limit in memory.
-    #[test]
-    fn queued_bytes_stay_bounded_while_the_projection_is_stalled() {
-        let frame_bytes = DOCUMENT_BYTES + CHANGE_OVERHEAD_BYTES + 32;
-        let (frames, mut queue) = CommittedSearchFrames::new(1_000, 3 * frame_bytes);
-        for run_number in 1..=20 {
-            commit_frame(&frames, run_number);
-        }
-        assert_eq!(
-            queue.len(),
-            3,
-            "frames beyond the byte limit are not queued"
-        );
-        assert!(frames.lock_tracking().queued_bytes <= 3 * frame_bytes);
-        assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
-        frames.publish_projected_through();
-        assert_eq!(*frames.projected_through.borrow(), Some(0));
-
-        // The projection recovers: it drains the queue, then rebuilds the partition.
-        while let Ok(frame) = queue.try_recv() {
-            frames.finish_projected_frame(&frame);
-        }
-        frames.finish_rebuild(PARTITION, frames.last_sequence());
-        frames.publish_projected_through();
-        assert_eq!(*frames.projected_through.borrow(), Some(20));
-        assert_eq!(frames.lock_tracking().queued_bytes, 0);
-        assert!(frames.rebuild_requests().is_empty());
-
-        commit_frame(&frames, 21);
-        assert_eq!(queue.len(), 1, "freed bytes let new frames queue again");
-        assert!(frames.rebuild_requests().is_empty());
-    }
-
-    #[test]
-    fn frame_count_overflow_coalesces_into_a_partition_rebuild() {
-        let max_queued_bytes = 1024 * 1024;
-        let (frames, mut queue) = CommittedSearchFrames::new(2, max_queued_bytes);
-        for run_number in 1..=20 {
-            commit_frame(&frames, run_number);
-        }
-        assert_eq!(queue.len(), 2);
-        assert!(frames.lock_tracking().queued_bytes < max_queued_bytes);
-        assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
-        assert_eq!(frames.lock_tracking().rebuild_requests.len(), 1);
-        frames.publish_projected_through();
-        assert_eq!(*frames.projected_through.borrow(), Some(0));
-
-        while let Ok(frame) = queue.try_recv() {
-            frames.finish_projected_frame(&frame);
-        }
-        frames.finish_rebuild(PARTITION, frames.last_sequence());
-        frames.publish_projected_through();
-        assert_eq!(*frames.projected_through.borrow(), Some(20));
-        assert!(frames.rebuild_requests().is_empty());
-    }
-
-    #[test]
-    fn permanent_projection_failure_records_partition_and_sqlstate() {
-        let (frames, _queue) = CommittedSearchFrames::new(1, 1024);
-        frames.record_permanent_failure(PARTITION, "upsert run failed: SQLSTATE 54023");
-        let failure = frames.permanent_failure.borrow();
-        let reason = failure.as_ref().expect("the failure is recorded");
-        assert!(reason.contains("partition 3"));
-        assert!(reason.contains("SQLSTATE 54023"));
+impl QueuedSearchFrame {
+    fn size_bytes(&self) -> usize {
+        self.changes
+            .values()
+            .map(|change| change_size_bytes(&change.change))
+            .sum()
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChangePriority {
+    Start,
+    Delete,
+    Close,
+    Intermediate,
+}
+
+struct PrioritizedSearchChange {
+    change: SearchDocumentChange,
+    priority: ChangePriority,
+}
+
+impl PrioritizedSearchChange {
+    fn inherit_priority(&mut self, previous: &Self) {
+        // A newer Running document also carries a queued start or a reopened run's protected state.
+        if self.priority == ChangePriority::Intermediate {
+            self.priority = previous.priority;
+        }
+    }
+}
+
+fn change_identity(change: &SearchDocumentChange) -> (TenantId, RunId) {
+    match change {
+        SearchDocumentChange::Upsert {
+            tenant_id, run_id, ..
+        }
+        | SearchDocumentChange::Delete { tenant_id, run_id } => (*tenant_id, *run_id),
+        _ => panic!("every extracted change has a run identity"),
+    }
+}
+
+fn change_priority(change: &SearchDocumentChange) -> ChangePriority {
+    match change {
+        SearchDocumentChange::Delete { .. } => ChangePriority::Delete,
+        SearchDocumentChange::Upsert {
+            encoded_document, ..
+        } => {
+            let document = SearchDocumentRecord::decode(encoded_document.as_slice())
+                .expect("extraction has already decoded the committed search document");
+            if document.version == 1 {
+                ChangePriority::Start
+            } else if document.status == FlowStatus::Running as i32 {
+                ChangePriority::Intermediate
+            } else {
+                ChangePriority::Close
+            }
+        }
+        _ => panic!("every extracted change has a projection priority"),
+    }
+}
+
+#[cfg(test)]
+#[path = "committed_search_frames_tests.rs"]
+mod tests;

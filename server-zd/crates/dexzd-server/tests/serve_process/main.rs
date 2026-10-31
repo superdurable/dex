@@ -18,6 +18,7 @@ mod lease_release;
 mod lease_validity;
 mod metrics;
 mod object_store_compatibility;
+mod projection_shedding;
 mod purging_reads;
 mod robustness;
 mod standby_health;
@@ -669,11 +670,11 @@ async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write() {
+async fn paradedb_outage_coalesces_the_queue_and_projects_every_committed_write() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(
+    run_outage_coalesces_the_queue_and_projects_every_committed_write_for_test(
         &database_url,
         false,
     )
@@ -681,15 +682,15 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn postgres_outage_overflows_the_queue_and_rebuilds_every_committed_write() {
+async fn postgres_outage_coalesces_the_queue_and_projects_every_committed_write() {
     let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
         return;
     };
-    run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(&database_url, true)
+    run_outage_coalesces_the_queue_and_projects_every_committed_write_for_test(&database_url, true)
         .await;
 }
 
-async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(
+async fn run_outage_coalesces_the_queue_and_projects_every_committed_write_for_test(
     database_url: &str,
     is_postgres: bool,
 ) {
@@ -770,10 +771,10 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
         .expect("an Attribute write commits during the SQL visibility outage");
     }
     assert!(
-        server
+        !server
             .log()
             .contains("a committed frame could not be queued for the search projection"),
-        "the bounded projection queue overflows during the outage: {}",
+        "coalescing one run keeps the projection queue below its limits: {}",
         server.log()
     );
     proxy.restore();
@@ -801,7 +802,7 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
     .await
     .unwrap_or_else(|error| {
         panic!(
-            "the partition rebuild makes every committed write searchable: {error}; last SearchFlows result: {last_search_result}; server log: {}",
+            "the newest queued document makes every committed write searchable: {error}; last SearchFlows result: {last_search_result}; server log: {}",
             server.log()
         )
     });
@@ -815,7 +816,7 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
             .and_then(|attribute| attribute.value.as_ref());
         assert_eq!(actual_value, Some(&expected_value), "{attribute_name}");
     }
-    // Overflowed frames reach SQL visibility only through the partition rebuild.
+    // Coalesced frames reach SQL visibility through the newest queued document.
     let exit_status = server.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(exit_status.code(), Some(0), "{}", server.log());
     proxy.shutdown().await;

@@ -386,6 +386,27 @@ impl Config {
     }
 
     fn validate_search_and_limits(&self) -> Result<(), ConfigError> {
+        let queue = &self.search.projection_queue;
+        ensure(
+            queue.soft_frames > 0,
+            "search.projectionQueue.softFrames",
+            "must be positive",
+        )?;
+        ensure(
+            queue.soft_bytes > 0,
+            "search.projectionQueue.softBytes",
+            "must be positive",
+        )?;
+        ensure(
+            queue.hard_frames >= queue.soft_frames,
+            "search.projectionQueue.hardFrames",
+            "must be at least softFrames",
+        )?;
+        ensure(
+            queue.hard_bytes >= queue.soft_bytes,
+            "search.projectionQueue.hardBytes",
+            "must be at least softBytes",
+        )?;
         ensure(
             self.search.builtin_scan_budget_documents > 0,
             "search.builtinScanBudgetDocuments",

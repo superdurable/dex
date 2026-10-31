@@ -1053,3 +1053,53 @@ The server rebuilds its search projection from committed state automatically.
 Existing ParadeDB version-three schemas gain the dialect marker without clearing
 data or changing their version. Older releases that accept schema version 3
 can still use them. PostgreSQL uses schema version 4; older releases reject it.
+
+## SQL search projection overload
+
+PostgreSQL and ParadeDB share an asynchronous projection queue. Flow commits
+continue when projection falls behind. Builtin search does not use this queue.
+Each queued upsert contains the run's complete latest document. A newer upsert
+replaces an older queued upsert for the same run. A purge delete also supersedes
+that run's queued upsert. Coalescing preserves the newest document, and the
+projection watermark waits for the replacement before passing an emptied frame.
+
+The queue has soft and hard limits. These defaults apply to both SQL backends:
+
+~~~yaml
+search:
+  projectionQueue:
+    softFrames: 4096
+    softBytes: 67108864
+    hardFrames: 8192
+    hardBytes: 134217728
+~~~
+
+**softBytes** defaults to 64 MiB, and **hardBytes** defaults to 128 MiB.
+Byte accounting estimates document and change memory, including the batch
+being projected. Frame limits count frames waiting for the worker. All limits
+must be positive. Each hard limit must be at least its corresponding soft limit.
+
+If admitting a frame would exceed either soft limit after coalescing, the queue
+drops that frame's intermediate updates to Running runs. These include Attribute,
+active Step, and permission changes. Flow starts, purge deletes, and terminal
+documents are kept. A newer document that replaces a queued start keeps its
+priority. Kept changes can use the space between the soft and hard limits.
+If they still exceed either hard limit, the server requests the existing
+partition rebuild from committed state. Rebuild requests coalesce per partition.
+The overflow warning is limited to once per second per node.
+
+Dropped intermediate updates are counted and are not repaired. A run's next
+update or close brings its search document up to date. While shedding,
+**SearchFlows** can return a stale Running document even after its
+**readYourWritesWait** succeeds. Starts, closes, and deletes still wait for
+projection or a rebuild. Without dropped updates, read-your-writes behavior is
+unchanged. Increasing queue limits uses more memory and can delay catch-up.
+
+The metrics endpoint exposes these counters without labels:
+
+| Counter | Meaning |
+| --- | --- |
+| **dexzd_search_projection_coalesced_changes_total** | Queued changes replaced by a newer complete document or delete, including changes within one frame. |
+| **dexzd_search_projection_dropped_updates_total** | Intermediate Running updates dropped above a soft limit. |
+| **dexzd_search_projection_rebuild_requests_total** | New pending partition rebuild requests after queue admission fails or a committed document is unreadable. Further requests for an already pending partition do not increment it. |
+| **dexzd_search_skipped_documents_total** | Committed documents omitted because their indexed values are unsupported. This is separate from overload shedding. |

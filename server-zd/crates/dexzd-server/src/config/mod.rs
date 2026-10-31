@@ -32,8 +32,8 @@ pub use engine_config::{
     RetentionConfig, SnapshotConfig, ValuesConfig,
 };
 pub use service_config::{
-    ApiConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig, StreamStoreBackend,
-    StreamStoreConfig,
+    ApiConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig,
+    SearchProjectionQueueConfig, StreamStoreBackend, StreamStoreConfig,
 };
 pub use source_config::ConfigError;
 pub use storage_config::{

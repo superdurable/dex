@@ -895,3 +895,48 @@ schema 会记录搜索后端。使用不同后端启动时，服务端会报错�
 服务端会自动从已提交状态重建搜索投影。
 已有的 ParadeDB 第三版 schema 只增加后端标记，不清空数据，也不改变版本号。
 接受 schema 版本 3 的旧版服务端仍可使用它。PostgreSQL 使用 schema 版本 4，旧版服务端会拒绝它。
+
+## SQL 搜索投影过载 {#sql-search-projection-overload}
+
+PostgreSQL 和 ParadeDB 共用异步投影队列。投影落后时，Flow 提交仍会继续。
+Builtin 搜索不使用此队列。每个排队的 upsert 都包含该 run 的完整最新文档。
+同一 run 的新 upsert 会替换尚未取出的旧 upsert。清除操作的 delete 也会替换
+该 run 排队的 upsert。合并会保留最新文档；空帧的投影水位线会等待替代文档
+完成投影后再推进。
+
+队列有软限制和硬限制。两个 SQL 后端使用相同的默认值：
+
+~~~yaml
+search:
+  projectionQueue:
+    softFrames: 4096
+    softBytes: 67108864
+    hardFrames: 8192
+    hardBytes: 134217728
+~~~
+
+**softBytes** 默认为 64 MiB，**hardBytes** 默认为 128 MiB。
+字节计数估算文档和变更占用的内存，包括正在投影的批次。帧数限制只计算
+等待 worker 的帧。所有限制都必须为正数。每个硬限制必须不小于对应的软限制。
+
+合并后，如果接纳一帧会超过任一软限制，队列会丢弃该帧中 Running run 的中间
+更新，包括 Attribute、活跃 Step 和权限变更。Flow 启动、清除 delete 和终态
+文档都会保留。替换排队启动文档的新文档会继承其优先级。保留的变更可以使用
+软限制和硬限制之间的空间。如果仍会超过任一硬限制，服务器会沿用现有机制，
+从已提交状态重建该 partition。同一 partition 的待处理重建请求会合并。
+每个节点每秒最多记录一次溢出警告。
+
+被丢弃的中间更新只记录计数，不会补偿。run 的下一次更新或关闭会使搜索文档
+恢复到最新状态。丢弃更新期间，即使 **readYourWritesWait** 成功，
+**SearchFlows** 仍可能返回过时的 Running 文档。启动、关闭和删除仍会等待
+投影或重建完成。没有更新被丢弃时，read-your-writes 行为不变。提高队列限制
+会增加内存用量，也可能延长追赶时间。
+
+指标端点提供以下无标签计数器：
+
+| 计数器 | 含义 |
+| --- | --- |
+| **dexzd_search_projection_coalesced_changes_total** | 被更新的完整文档或 delete 替换的排队变更，包括同一帧内的变更。 |
+| **dexzd_search_projection_dropped_updates_total** | 超过软限制时丢弃的 Running 中间更新。 |
+| **dexzd_search_projection_rebuild_requests_total** | 队列接纳失败或已提交文档无法读取时新增的待处理 partition 重建请求。同一 partition 已有待处理请求时，后续请求不增加计数。 |
+| **dexzd_search_skipped_documents_total** | 因索引值不受支持而从搜索中省略的已提交文档，与过载丢弃更新分开计数。 |

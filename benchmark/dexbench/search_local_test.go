@@ -115,6 +115,7 @@ if [[ "$FAIL_CLEANUP" == gzip || "$FAIL_CLEANUP" == all ]]; then exit 43; fi
 exit 0
 `,
 		"bin/sleep": "#!/usr/bin/env bash\nexit 0\n",
+		"bin/curl":  "#!/usr/bin/env bash\nprintf 'dexzd_search_projection_coalesced_changes_total 0\\n'\n",
 		"bin/mktemp": `#!/usr/bin/env bash
 mkdir "$FIXTURE_ROOT/run-data"
 printf '%s\n' "$FIXTURE_ROOT/run-data"

@@ -17,7 +17,6 @@ use dexzd_keyspace::{ColumnFamily, PartitionId, partition_meta_key};
 use dexzd_protocol::dexzd::v1::{LogPosition, PartitionMeta};
 use dexzd_search::sql_visibility::{ProjectionError, SqlVisibilityProjector};
 use prost::Message;
-use tokio::sync::mpsc;
 
 use super::committed_search_frames::{CommittedSearchFrame, CommittedSearchFrames};
 
@@ -29,7 +28,6 @@ pub(crate) struct SearchProjectionWorker {
     projector: SqlVisibilityProjector,
     committer: CommandCommitter,
     frames: Arc<CommittedSearchFrames>,
-    queue: mpsc::Receiver<CommittedSearchFrame>,
     partition_count: u32,
     /// The last position projected for each partition; the previous position of its next frame.
     projected_positions: BTreeMap<PartitionId, LogPosition>,
@@ -57,14 +55,12 @@ impl SearchProjectionWorker {
         projector: SqlVisibilityProjector,
         committer: CommandCommitter,
         frames: Arc<CommittedSearchFrames>,
-        queue: mpsc::Receiver<CommittedSearchFrame>,
         partition_count: u32,
     ) -> Self {
         Self {
             projector,
             committer,
             frames,
-            queue,
             partition_count,
             projected_positions: BTreeMap::new(),
         }
@@ -77,9 +73,8 @@ impl SearchProjectionWorker {
         }
         loop {
             tokio::select! {
-                frame = self.queue.recv() => match frame {
-                    Some(frame) => if !self.project_frame(frame).await { return; },
-                    None => return,
+                frame = self.frames.next_frame() => {
+                    if !self.project_frame(frame).await { return; }
                 },
                 () = self.frames.rebuild_requested().notified() => {}
             }

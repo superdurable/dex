@@ -31,15 +31,40 @@ outcome of one partition frame in apply order with
 frame with the partition's previous and new full `LogPosition` values. The
 method writes data and progress in one transaction. Sparse log sequences are
 normal; a stored position that differs from the caller's previous position
-requires a rebuild. On a mismatch or queue overflow, obtain a consistent
+requires a rebuild. On a mismatch or hard queue overflow, obtain a consistent
 committed local view and call `rebuild_partition` with that view's applied
 position. Only the current partition owner may project or rebuild a partition.
 Projection failures must not affect command commits.
 
+The server queue coalesces complete queued upserts per tenant and run. Deletes
+supersede queued upserts. Empty frames retain ordered progress, and their
+read-your-writes watermark waits for the replacement document. Document version
+1 identifies starts, including child starts; non-Running status protects all
+terminal writes without enumerating command types. Newer documents inherit a
+superseded start's protection. Protecting every terminal write also covers
+updates to an already closed run.
+
+`search.projectionQueue` defaults to `softFrames: 4096`, `softBytes: 67108864`
+(64 MiB), `hardFrames: 8192`, and `hardBytes: 134217728` (128 MiB). Byte limits
+include in-flight changes; frame limits count waiting frames. Above a soft
+limit, only the incoming frame's intermediate Running updates are shed, without
+repair. Starts, deletes, and terminal documents use hard-limit headroom; if
+those cannot fit, the partition rebuild path is unchanged. A coalesced start's
+newest Running document remains protected. While shedding, SearchFlows may
+observe stale Running documents after its visibility wait succeeds. A later
+update or close catches the document up. Builtin search is unaffected.
+
+The label-free counters are
+`dexzd_search_projection_coalesced_changes_total`,
+`dexzd_search_projection_dropped_updates_total`, and
+`dexzd_search_projection_rebuild_requests_total`. The last counts newly pending
+partition rebuild requests, not every rejected frame or completed rebuild.
+Overflow warnings are rate-limited to once per second per node.
+
 An unindexable committed document is recorded in
 `dexzd_visibility_skipped_documents`, omitted from search, and logged as an
 error. Construct the projector with `new_with_metric_recorder` to count these
-events. A later valid upsert or delete removes its skipped-document record.
+events in `dexzd_search_skipped_documents_total`, separately from shedding. A later valid upsert or delete removes its skipped-document record.
 The progress position still advances after the skip.
 
 ## SQL dialects and Attribute slots

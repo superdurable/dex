@@ -169,6 +169,10 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_attribute_sync_write_failures_total` | counter | `failure_kind`: retryable, non_retryable | Failed Attribute Store write transactions; non-retryable failures drop their entries |
 | `dexzd_attribute_sync_dropped_entries_total` | counter | — | Attribute Sync entries dropped after `syncRetryPolicy` was exhausted or the store rejected them |
 | `dexzd_attribute_sync_fenced_writes_total` | counter | — | Attribute Store writes rejected because a newer owner raised the fencing token |
+| `dexzd_search_projection_coalesced_changes_total` | counter | — | Queued changes superseded by newer documents or deletes |
+| `dexzd_search_projection_dropped_updates_total` | counter | — | Intermediate Running updates dropped above a soft queue limit |
+| `dexzd_search_projection_rebuild_requests_total` | counter | — | Newly pending partition rebuild requests after admission failure or unreadable committed documents |
+| `dexzd_search_skipped_documents_total` | counter | — | Committed documents omitted because their indexed values are unsupported |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.
 Worker results return on that same stream. There is no separate Worker response RPC, so `worker_respond` remains a zero latency series.
@@ -411,11 +415,15 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
 - A `search.paradeDbSchema` other than `public` is applied as the `search_path` connection option.
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.
 - A background task copies each committed partition frame's search documents to ParadeDB. Commits
-  never wait for it. When ParadeDB is unavailable, the task retries. When it falls behind its queue
-  or its stored position diverges, it rebuilds the partition from committed local state.
+  never wait for it. When ParadeDB is unavailable, the task retries. The queue coalesces complete
+  documents per run, sheds intermediate Running updates above its soft limits, and keeps starts,
+  deletes, and terminal documents up to its hard limits. Admission beyond a hard limit or a
+  diverged stored position rebuilds the partition from committed local state. See the
+  [queue policy and defaults](crates/dexzd-search/README.md#sql-visibility-projection).
 - On startup, every partition whose ParadeDB position differs from the local store is rebuilt.
 - SearchFlows waits up to `search.readYourWritesWait` until frames committed before the request are
-  searchable, then returns Unavailable.
+  searchable, then returns Unavailable on timeout. While shedding, dropped intermediate updates
+  can leave a Running document stale even after the wait succeeds; its next update or close catches it up.
 - One ParadeDB schema belongs to one Dex cluster.
 
 On SIGTERM or SIGINT the node stops within 14.5 seconds. Health reports NOT_SERVING, Workers are

@@ -117,6 +117,11 @@ search:
   postgresConnectionPoolSize: 10
   postgresSchema: public
   readYourWritesWait: 2s
+  projectionQueue:
+    softFrames: 4096
+    softBytes: 67108864
+    hardFrames: 8192
+    hardBytes: 134217728
 limits:
   maxFlowStateBytes: 67108864
   maxChannelMessages: 10000

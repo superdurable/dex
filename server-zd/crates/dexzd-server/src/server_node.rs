@@ -499,7 +499,11 @@ impl ServerNode {
         let sql_visibility_search = match config.search.backend {
             SearchBackendKind::Builtin => None,
             SearchBackendKind::Paradedb | SearchBackendKind::Postgres => match until_cancelled(
-                SqlVisibilitySearch::connect(&config.search, attribute_indexes.clone()),
+                SqlVisibilitySearch::connect(
+                    &config.search,
+                    attribute_indexes.clone(),
+                    metrics.clone(),
+                ),
                 cancellation,
             )
             .await

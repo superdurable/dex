@@ -190,6 +190,8 @@ pub struct SearchConfig {
     /// Defaults to 2 s; maximum wait for the external search projection to catch up to the node's committed position.
     #[serde(with = "humantime_serde")]
     pub read_your_writes_wait: Duration,
+    /// Defaults to 4096 frames and 64 MiB soft limits; bounds pending SQL projection work.
+    pub projection_queue: SearchProjectionQueueConfig,
 }
 
 fn serialize_parade_db_connection_string<S>(
@@ -227,6 +229,7 @@ impl fmt::Debug for SearchConfig {
                 &self.postgres_connection_pool_size,
             )
             .field("postgres_schema", &self.postgres_schema)
+            .field("projection_queue", &self.projection_queue)
             .field("read_your_writes_wait", &self.read_your_writes_wait)
             .finish()
     }
@@ -244,6 +247,32 @@ impl Default for SearchConfig {
             postgres_connection_pool_size: 10,
             postgres_schema: "public".to_owned(),
             read_your_writes_wait: Duration::from_secs(2),
+            projection_queue: SearchProjectionQueueConfig::default(),
+        }
+    }
+}
+
+/// Bounds asynchronous SQL search projection work without delaying Flow commits.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchProjectionQueueConfig {
+    /// Defaults to 4096 frames; admission above this limit sheds intermediate Running updates. Must be positive.
+    pub soft_frames: usize,
+    /// Defaults to 67108864 bytes (64 MiB); estimated queued and in-flight change bytes before shedding. Must be positive.
+    pub soft_bytes: usize,
+    /// Defaults to 8192 frames; admission above this limit requests a partition rebuild. Must be at least softFrames.
+    pub hard_frames: usize,
+    /// Defaults to 134217728 bytes (128 MiB); estimated queued and in-flight change bytes before rebuilding. Must be at least softBytes.
+    pub hard_bytes: usize,
+}
+
+impl Default for SearchProjectionQueueConfig {
+    fn default() -> Self {
+        Self {
+            soft_frames: 4096,
+            soft_bytes: 64 * 1024 * 1024,
+            hard_frames: 8192,
+            hard_bytes: 128 * 1024 * 1024,
         }
     }
 }

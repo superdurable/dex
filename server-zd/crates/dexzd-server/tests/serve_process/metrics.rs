@@ -186,6 +186,9 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         "dexzd_attribute_sync_dropped_entries_total",
         "dexzd_attribute_sync_fenced_writes_total",
         "dexzd_search_skipped_documents_total",
+        "dexzd_search_projection_coalesced_changes_total",
+        "dexzd_search_projection_dropped_updates_total",
+        "dexzd_search_projection_rebuild_requests_total",
     ] {
         let family = name.strip_suffix("_total").unwrap_or(name);
         assert!(
@@ -355,7 +358,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
     assert_eq!(status.code(), Some(0), "{}", recovered.log());
 }
 
-async fn scrape(address: SocketAddr, path: &str) -> String {
+pub(crate) async fn scrape(address: SocketAddr, path: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(address)
         .await
         .expect("metrics listener is reachable");
@@ -374,7 +377,7 @@ async fn scrape(address: SocketAddr, path: &str) -> String {
     String::from_utf8(response).expect("metrics text is UTF-8")
 }
 
-fn sample_sum(body: &str, name: &str) -> f64 {
+pub(crate) fn sample_sum(body: &str, name: &str) -> f64 {
     body.lines()
         .filter(|line| line.starts_with(name))
         .map(|line| {

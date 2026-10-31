@@ -169,3 +169,34 @@ fn assert_rejected(configuration: &Config, expected_field: &str) {
         other => panic!("{expected_field} must be rejected, got {other:?}"),
     }
 }
+
+#[test]
+fn projection_queue_limits_parse_and_validate() {
+    let parsed = Config::parse_yaml("search:\n  projectionQueue:\n    softFrames: 4\n    softBytes: 1024\n    hardFrames: 8\n    hardBytes: 2048\n").expect("queue limits parse");
+    assert_eq!(parsed.search.projection_queue.soft_frames, 4);
+    assert_eq!(parsed.search.projection_queue.soft_bytes, 1024);
+    assert_eq!(parsed.search.projection_queue.hard_frames, 8);
+    assert_eq!(parsed.search.projection_queue.hard_bytes, 2048);
+    let cases: [OutOfBoundsCase; 4] = [
+        ("search.projectionQueue.softFrames", |configuration| {
+            configuration.search.projection_queue.soft_frames = 0
+        }),
+        ("search.projectionQueue.softBytes", |configuration| {
+            configuration.search.projection_queue.soft_bytes = 0
+        }),
+        ("search.projectionQueue.hardFrames", |configuration| {
+            configuration.search.projection_queue.hard_frames = 1
+        }),
+        ("search.projectionQueue.hardBytes", |configuration| {
+            configuration.search.projection_queue.hard_bytes = 1
+        }),
+    ];
+    for (field, change) in cases {
+        let mut configuration = valid_config();
+        change(&mut configuration);
+        let error = configuration
+            .validate()
+            .expect_err("invalid queue limit fails validation");
+        assert!(error.to_string().contains(field), "{error}");
+    }
+}

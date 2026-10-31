@@ -126,6 +126,12 @@ pub struct NodeMetrics {
     pub attribute_sync_fenced_writes: Counter,
     /// Committed search documents omitted because their indexed values are unsupported.
     pub search_skipped_documents: Counter,
+    /// Queued search changes superseded by a newer complete document or delete.
+    pub search_projection_coalesced_changes: Counter,
+    /// Intermediate Running search updates dropped during queue overload.
+    pub search_projection_dropped_updates: Counter,
+    /// New pending partition rebuild requests after queue admission fails or documents are unreadable.
+    pub search_projection_rebuild_requests: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -375,6 +381,21 @@ impl NodeMetrics {
             "Committed documents omitted from the search projection.",
             metrics.search_skipped_documents.clone(),
         );
+        registry.register(
+            "dexzd_search_projection_coalesced_changes",
+            "Queued search changes superseded by newer changes.",
+            metrics.search_projection_coalesced_changes.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_dropped_updates",
+            "Intermediate Running search updates dropped during overload.",
+            metrics.search_projection_dropped_updates.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_rebuild_requests",
+            "New pending search projection partition rebuild requests.",
+            metrics.search_projection_rebuild_requests.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -426,6 +447,9 @@ impl NodeMetrics {
             attribute_sync_dropped_entries: Counter::default(),
             attribute_sync_fenced_writes: Counter::default(),
             search_skipped_documents: Counter::default(),
+            search_projection_coalesced_changes: Counter::default(),
+            search_projection_dropped_updates: Counter::default(),
+            search_projection_rebuild_requests: Counter::default(),
         }
     }
 
