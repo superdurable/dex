@@ -29,6 +29,7 @@ import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.dex.exceptions.RequestTimeoutException;
+import io.superdurable.dex.exceptions.ValueMappingException;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
@@ -37,6 +38,8 @@ import io.superdurable.gen.FlowResetStepMethod;
 import io.superdurable.gen.FlowResetType;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.FlowStartOptions;
+import io.superdurable.gen.GetAttributesRequest;
+import io.superdurable.gen.GetAttributesResponse;
 import io.superdurable.gen.GetFlowSummaryRequest;
 import io.superdurable.gen.GetFlowSummaryResponse;
 import io.superdurable.gen.InvokeRPCRequest;
@@ -76,11 +79,15 @@ import java.lang.reflect.Type;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -807,6 +814,261 @@ public final class Client implements AutoCloseable {
                 response.getFlowType(),
                 mapFlowStatus(response.getFlowStatus()),
                 instant(response.getStartTime()));
+    }
+
+    /**
+     * Reads committed Attribute and AttributeMap instance values from the current or latest Flow
+     * run.
+     *
+     * <p>Use {@code getAttributes} to read Flow state from outside the Flow without defining an
+     * RPC. Pass one read per value: a singleton {@link Attribute}, or an AttributeMap instance
+     * selected with {@link AttributeMap#instance(String)}. To read one value, pass a single read.
+     * The returned {@link AttributeValues} maps each read to an {@link Optional} of its typed
+     * value. An unset Attribute or AttributeMap instance reads as {@link Optional#empty()}.
+     *
+     * <p>The Client sends all keys in one FlowService request, so every value comes from the same
+     * committed state. No Worker runs, so the call works while no Worker is available. The read
+     * targets the current run, or the latest run when no run is open. A closed run stays readable
+     * until Dex purges it. The call sees only committed state. It does not see writes that a
+     * running Step or RPC has not committed yet. An Attribute read inside an RPC handler, by
+     * contrast, also sees that RPC's own uncommitted writes.
+     *
+     * <p>Hard-delete Attributes from {@link Attribute#hardDeleteOnNull()} and
+     * {@link AttributeMap#hardDeleteOnNull()} are supported. Dex returns their current committed
+     * values, and a deleted value reads as {@link Optional#empty()}. The Client loads large values
+     * through LoadBlobs and its {@link BlobCache}, then decodes every value with its definition's
+     * value class and the Client's {@code ObjectMapper}. The call returns only after every value
+     * decodes. On any error it throws and returns no values.
+     *
+     * <p>Every definition must be registered by some Flow in this Client's {@link Registry}.
+     * Registered means the exact definition object that the Flow's
+     * {@link Flow#getPersistenceSchema()} returns. Another object with the same name is rejected,
+     * even when its value class is the same. A definition created by calling
+     * {@code hardDeleteOnNull()} again is also another object. The definition need not belong to
+     * the target Flow's type, because Dex reads each key by name. A same-named Attribute with an
+     * incompatible value class in the target Flow fails to decode.
+     *
+     * <pre>{@code
+     * final class OrderFlow implements Flow<Void> {
+     *     final Attribute<String> orderStatus = Attribute.define("order-status", String.class);
+     *     final AttributeMap<Note> notes = AttributeMap.define("notes", Note.class);
+     *
+     *     @Override
+     *     public PersistenceSchema getPersistenceSchema() {
+     *         return PersistenceSchema.of(orderStatus, notes);
+     *     }
+     * }
+     *
+     * OrderFlow orderFlow = new OrderFlow();
+     * try (Client client = new Client(
+     *         new Registry(Collections.<Flow<?>>singletonList(orderFlow)), blobCache)) {
+     *     AttributeValues values = client.getAttributes(
+     *             "order-42",
+     *             orderFlow.orderStatus,
+     *             orderFlow.notes.instance("n1"));
+     *     String status = values.get(orderFlow.orderStatus).orElse("new");
+     *     Optional<Note> note = values.get(orderFlow.notes.instance("n1"));
+     * } catch (FlowNotFoundException missing) {
+     *     log.info("order-42 does not exist");
+     * }
+     * }</pre>
+     *
+     * @param flowId the non-blank Flow ID
+     * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
+     *     the same Attribute or AttributeMap instance are rejected
+     * @return the decoded values, with one entry for every read
+     * @throws IllegalArgumentException before any request when {@code flowId} is blank, no read is
+     *     passed, a read is {@code null} or is not an {@link Attribute} or
+     *     {@link AttributeMapInstance}, or two reads select the same physical key
+     * @throws FlowDefinitionException before any request when a definition is not registered by a
+     *     Flow in the Client's Registry, or differs from the registered definition object
+     * @throws FlowNotFoundException when the Flow does not exist or its latest run is being purged,
+     *     including when Dex purges it between the read and the LoadBlobs request
+     * @throws ValueMappingException when a stored value cannot be loaded or decoded as its
+     *     definition's value class
+     * @throws IllegalStateException when Dex returns an unexpected key, a duplicate key, or a key
+     *     without a value
+     * @throws DexServiceException for other FlowService failures, including a failed LoadBlobs
+     *     request; the exception keeps the gRPC code and Dex sub-status, and both its message and
+     *     its {@link DexServiceException#getDetail() detail} start with the call context, such as
+     *     {@code getAttributes Flow order-42 Attributes order-status}, before the Server detail
+     */
+    public AttributeValues getAttributes(final String flowId, final AttributeRead<?>... reads) {
+        return getAttributes(
+                flowId,
+                reads == null
+                        ? Collections.<AttributeRead<?>>emptyList()
+                        : Arrays.<AttributeRead<?>>asList(reads));
+    }
+
+    /**
+     * Reads committed values for a list of Attribute and AttributeMap instance reads.
+     *
+     * <p>This overload behaves exactly like {@link #getAttributes(String, AttributeRead...)}. Use it
+     * when the reads are assembled at runtime. The list is copied before the request, so later
+     * changes to it do not affect the call.
+     *
+     * <pre>{@code
+     * List<AttributeRead<?>> reads = new ArrayList<AttributeRead<?>>();
+     * reads.add(orderFlow.orderStatus);
+     * for (String noteId : noteIds) {
+     *     reads.add(orderFlow.notes.instance(noteId));
+     * }
+     * AttributeValues values = client.getAttributes("order-42", reads);
+     * }</pre>
+     *
+     * @param flowId the non-blank Flow ID
+     * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
+     *     the same Attribute or AttributeMap instance are rejected
+     * @return the decoded values, with one entry for every read
+     * @throws IllegalArgumentException before any request when {@code flowId} is blank,
+     *     {@code reads} is {@code null} or empty, a read is {@code null} or is not an
+     *     {@link Attribute} or {@link AttributeMapInstance}, or two reads select the same physical
+     *     key
+     * @throws FlowDefinitionException before any request when a definition is not registered by a
+     *     Flow in the Client's Registry, or differs from the registered definition object
+     * @throws FlowNotFoundException when the Flow does not exist or its latest run is being purged,
+     *     including when Dex purges it between the read and the LoadBlobs request
+     * @throws ValueMappingException when a stored value cannot be loaded or decoded as its
+     *     definition's value class
+     * @throws IllegalStateException when Dex returns an unexpected key, a duplicate key, or a key
+     *     without a value
+     * @throws DexServiceException for other FlowService failures, including a failed LoadBlobs
+     *     request; both its message and its detail start with the call context
+     */
+    public AttributeValues getAttributes(
+            final String flowId,
+            final List<? extends AttributeRead<?>> reads) {
+        final Map<String, PersistenceDefinition> requested = validateAttributeReads(flowId, reads);
+        final Map<String, Value> setValues = fetchAttributeValues(flowId, requested.keySet());
+        final Map<String, AttributeValues.ReadValue> decoded =
+                new LinkedHashMap<String, AttributeValues.ReadValue>();
+        for (Map.Entry<String, PersistenceDefinition> read : requested.entrySet()) {
+            final Value value = setValues.get(read.getKey());
+            final Object decodedValue = value == null
+                    ? null
+                    : decodeAttributeValue(flowId, read.getKey(), read.getValue(), value);
+            decoded.put(read.getKey(), new AttributeValues.ReadValue(read.getValue(), decodedValue));
+        }
+        return new AttributeValues(flowId, decoded);
+    }
+
+    // Returns each read's definition keyed by physical key, in read order.
+    private Map<String, PersistenceDefinition> validateAttributeReads(
+            final String flowId,
+            final List<? extends AttributeRead<?>> reads) {
+        if (flowId == null || flowId.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "getAttributes requires a non-blank Flow ID, got '" + flowId + "'");
+        }
+        final String context = "getAttributes Flow " + flowId;
+        if (reads == null || reads.isEmpty()) {
+            throw new IllegalArgumentException(context + " requires at least one Attribute read");
+        }
+        final Map<String, PersistenceDefinition> requested =
+                new LinkedHashMap<String, PersistenceDefinition>();
+        for (int position = 0; position < reads.size(); position++) {
+            final AttributeRead<?> read = reads.get(position);
+            if (read == null) {
+                throw new IllegalArgumentException(
+                        context + " has a null Attribute read at position " + position);
+            }
+            final String key;
+            final PersistenceDefinition definition;
+            try {
+                key = AttributeValues.physicalKey(read);
+                definition = AttributeValues.definition(read);
+            } catch (IllegalArgumentException invalid) {
+                throw new IllegalArgumentException(
+                        context + " read " + position + ": " + invalid.getMessage(), invalid);
+            }
+            try {
+                registry.requireRegisteredAttribute(definition);
+            } catch (FlowDefinitionException unregistered) {
+                throw new FlowDefinitionException(
+                        context + " Attribute " + key + ": " + unregistered.getMessage(),
+                        unregistered);
+            }
+            if (requested.put(key, definition) != null) {
+                throw new IllegalArgumentException(
+                        context + " has duplicate Attribute read " + key);
+            }
+        }
+        return requested;
+    }
+
+    // Returns the hydrated value of every set key; an absent key is unset.
+    private Map<String, Value> fetchAttributeValues(
+            final String flowId,
+            final Set<String> keys) {
+        final String context = "getAttributes Flow " + flowId + " Attributes "
+                + String.join(", ", keys);
+        final GetAttributesResponse response;
+        try {
+            response = GrpcCredential.callUnaryWithRetry(
+                    options.getCredential(),
+                    () -> service.getAttributes(GetAttributesRequest.newBuilder()
+                            .setFlowId(flowId)
+                            .addAllKeys(keys)
+                            .build()));
+        } catch (StatusRuntimeException failure) {
+            throw GrpcExceptionTranslator.translate(
+                    failure, FlowTargetRequirement.EXISTING, flowId, context);
+        }
+        final List<String> returnedKeys = new ArrayList<String>(response.getAttributesCount());
+        final Set<String> returnedKeySet = new HashSet<String>();
+        final List<Value> returnedValues = new ArrayList<Value>(response.getAttributesCount());
+        for (KV attribute : response.getAttributesList()) {
+            if (!keys.contains(attribute.getKey())) {
+                throw new IllegalStateException("getAttributes Flow " + flowId
+                        + " returned unexpected Attribute " + attribute.getKey());
+            }
+            if (!returnedKeySet.add(attribute.getKey())) {
+                throw new IllegalStateException("getAttributes Flow " + flowId
+                        + " returned duplicate Attribute " + attribute.getKey());
+            }
+            if (!attribute.hasValue()
+                    || attribute.getValue().getKindCase() == Value.KindCase.KIND_NOT_SET) {
+                throw new IllegalStateException("getAttributes Flow " + flowId
+                        + " returned Attribute " + attribute.getKey() + " without a value");
+            }
+            returnedKeys.add(attribute.getKey());
+            returnedValues.add(attribute.getValue());
+        }
+        final List<Value> hydrated;
+        try {
+            hydrated = hydrator.hydrateAll(flowId, returnedValues);
+        } catch (StatusRuntimeException failure) {
+            throw GrpcExceptionTranslator.translate(
+                    failure, FlowTargetRequirement.EXISTING, flowId, context + " LoadBlobs");
+        } catch (IllegalArgumentException | IllegalStateException failure) {
+            // ValueHydrator reports invalid, omitted, or mistyped blob values with these types.
+            throw new ValueMappingException(
+                    context + " returned a value that cannot be loaded: " + failure.getMessage(),
+                    failure);
+        }
+        final Map<String, Value> values = new LinkedHashMap<String, Value>();
+        for (int index = 0; index < returnedKeys.size(); index++) {
+            values.put(returnedKeys.get(index), hydrated.get(index));
+        }
+        return values;
+    }
+
+    private Object decodeAttributeValue(
+            final String flowId,
+            final String key,
+            final PersistenceDefinition definition,
+            final Value value) {
+        final String context = "getAttributes Flow " + flowId + " Attribute " + key
+                + " cannot be decoded as " + definition.getValueType().getName();
+        try {
+            return values.decode(value, definition.getValueType());
+        } catch (ValueMappingException failure) {
+            throw new ValueMappingException(context + ": " + failure.getMessage(), failure);
+        } catch (RuntimeException failure) {
+            // Third-party messages, such as a parser's, may quote the stored value.
+            throw new ValueMappingException(context, failure);
+        }
     }
 
     /**

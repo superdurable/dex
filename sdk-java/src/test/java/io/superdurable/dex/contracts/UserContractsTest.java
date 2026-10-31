@@ -18,6 +18,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.AttributeMap;
+import io.superdurable.dex.AttributeMapInstance;
+import io.superdurable.dex.AttributeRead;
+import io.superdurable.dex.AttributeValues;
 import io.superdurable.dex.BlobCache;
 import io.superdurable.dex.BlobCacheConfig;
 import io.superdurable.dex.BufferedTextStream;
@@ -48,8 +51,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 public class UserContractsTest {
@@ -195,6 +200,130 @@ public class UserContractsTest {
     }
 
     @Test
+    public void attributeMapInstanceSelectsOneTypedInstance() {
+        final AttributeMapInstance<String> first = ITEMS.instance("tenant a");
+        Assertions.assertSame(ITEMS, first.getAttributeMap());
+        Assertions.assertEquals("tenant a", first.getInstance());
+        Assertions.assertEquals("items/tenant%20a", first.toString());
+        Assertions.assertEquals(first, ITEMS.instance("tenant a"));
+        Assertions.assertEquals(first.hashCode(), ITEMS.instance("tenant a").hashCode());
+        Assertions.assertNotEquals(first, ITEMS.instance("tenant-b"));
+        Assertions.assertNotEquals(
+                first,
+                AttributeMap.define("items", String.class).instance("tenant a"));
+        assertMessageContains(
+                Assertions.assertThrows(
+                        IllegalArgumentException.class,
+                        () -> ITEMS.instance("a/b")),
+                "AttributeMap items instance key is invalid",
+                "must not contain '/'");
+        assertMessageContains(
+                Assertions.assertThrows(IllegalArgumentException.class, () -> ITEMS.instance(" ")),
+                "AttributeMap items instance key must not be blank");
+        assertMessageContains(
+                Assertions.assertThrows(IllegalArgumentException.class, () -> ITEMS.instance(null)),
+                "AttributeMap items instance key must not be blank");
+    }
+
+    @Test
+    public void clientValidatesGetAttributesBeforeTransport() {
+        final Client client = new Client(
+                new Registry(Collections.<Flow<?>>singletonList(ORDERS)),
+                BLOB_CACHE,
+                new ClientOptions("127.0.0.1:1"));
+        try {
+            final IllegalArgumentException blankFlowId = Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> client.getAttributes(" ", STATUS));
+            Assertions.assertTrue(blankFlowId.getMessage().contains("non-blank Flow ID"));
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            IllegalArgumentException.class,
+                            () -> client.getAttributes("order-1")),
+                    "order-1",
+                    "at least one Attribute read");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            IllegalArgumentException.class,
+                            () -> client.getAttributes(
+                                    "order-1",
+                                    Collections.<AttributeRead<?>>emptyList())),
+                    "order-1",
+                    "at least one Attribute read");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            IllegalArgumentException.class,
+                            () -> client.getAttributes("order-1", STATUS, null)),
+                    "order-1",
+                    "null Attribute read at position 1");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            IllegalArgumentException.class,
+                            () -> client.getAttributes("order-1", STATUS, STATUS)),
+                    "order-1",
+                    "duplicate Attribute read status");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            IllegalArgumentException.class,
+                            () -> client.getAttributes(
+                                    "order-1",
+                                    ITEMS.instance("tenant a"),
+                                    ITEMS.instance("tenant a"))),
+                    "order-1",
+                    "duplicate Attribute read items/tenant%20a");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            IllegalArgumentException.class,
+                            () -> client.getAttributes("order-1", new ApplicationAttributeRead())),
+                    "order-1",
+                    "must be an Attribute or an AttributeMapInstance");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            FlowDefinitionException.class,
+                            () -> client.getAttributes(
+                                    "order-1",
+                                    Attribute.define("unregistered", String.class))),
+                    "order-1",
+                    "Attribute unregistered is not registered");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            FlowDefinitionException.class,
+                            () -> client.getAttributes(
+                                    "order-1",
+                                    Attribute.define("status", Integer.class))),
+                    "order-1",
+                    "Attribute status differs from the definition registered by Flow OrderFlow");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            FlowDefinitionException.class,
+                            () -> client.getAttributes(
+                                    "order-1",
+                                    Attribute.define("status", String.class))),
+                    "order-1",
+                    "Attribute status differs from the definition registered by Flow OrderFlow",
+                    "pass the same definition object that the Flow registers");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            FlowDefinitionException.class,
+                            () -> client.getAttributes(
+                                    "order-1",
+                                    AttributeMap.define("items", String.class).instance("a"))),
+                    "order-1",
+                    "AttributeMap items differs from the definition registered by Flow OrderFlow");
+            assertMessageContains(
+                    Assertions.assertThrows(
+                            FlowDefinitionException.class,
+                            () -> client.getAttributes(
+                                    "order-1",
+                                    Attribute.define("commands", String.class))),
+                    "order-1",
+                    "Attribute commands is not registered");
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
     public void rpcStubBypassesFlowConstructors() {
         ConstructorOnlyRpcFlow.constructorCalls = 0;
         final ConstructorOnlyRpcFlow flow = new ConstructorOnlyRpcFlow("registered");
@@ -281,6 +410,33 @@ public class UserContractsTest {
         client.invokeRPC(rpcStub::recordHeartbeat, options);
         if (output == null || selected == null || current == null) {
             throw new AssertionError("compile-only contract");
+        }
+    }
+
+    @SuppressWarnings("unused")
+    private static void compileGetAttributesContract(final Client client) {
+        final AttributeValues values = client.getAttributes(
+                "order-1",
+                STATUS,
+                ITEMS.instance("tenant-a"));
+        final Optional<String> status = values.get(STATUS);
+        final Optional<String> item = values.get(ITEMS.instance("tenant-a"));
+        final List<AttributeRead<?>> reads = new ArrayList<AttributeRead<?>>();
+        reads.add(STATUS);
+        reads.add(ITEMS.instance("tenant-b"));
+        final Optional<String> listedStatus = client.getAttributes("order-1", reads).get(STATUS);
+        if (!status.isPresent() || !item.isPresent() || !listedStatus.isPresent()) {
+            throw new AssertionError("compile-only contract");
+        }
+    }
+
+    private static void assertMessageContains(
+            final RuntimeException exception,
+            final String... fragments) {
+        for (String fragment : fragments) {
+            Assertions.assertTrue(
+                    exception.getMessage().contains(fragment),
+                    exception.getMessage() + " does not contain " + fragment);
         }
     }
 
@@ -454,6 +610,9 @@ public class UserContractsTest {
         public final RPCResult<String> read(final Context context) {
             return RPCResult.of("local");
         }
+    }
+
+    private static final class ApplicationAttributeRead implements AttributeRead<String> {
     }
 
     private static final class ContractBlobCache implements BlobCache {

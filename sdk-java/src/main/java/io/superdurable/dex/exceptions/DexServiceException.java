@@ -73,7 +73,13 @@ public class DexServiceException extends RuntimeException {
     }
 
     /**
-     * Returns the server-provided error detail.
+     * Returns the error detail, which is the server-provided detail, preceded by call context for
+     * some Client operations.
+     *
+     * <p>Some Client operations start the detail with their call context, so the message names the
+     * target. For example, a {@code Client.getAttributes} failure starts with
+     * {@code getAttributes Flow order-42 Attributes order-status: } before the Server detail. The
+     * detail equals the exception message.
      *
      * @return the detail, which may be {@code null}
      */
