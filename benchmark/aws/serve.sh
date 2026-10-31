@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs dex-server-zd and collects server-side data on the benchmark server host.
 # Usage: serve.sh start | stop | status | config | collect-start DIR | collect-stop DIR | host-info
+#        serve.sh profile DIR PID (started by collect-start when DEXBENCH_PROFILE_DELAY is set)
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +22,10 @@ config_path="$state_dir/zd-config.yaml"
 pid_path="$state_dir/server.pid"
 log_path="$state_dir/server.log"
 collectors_path="$state_dir/collectors.pid"
+core_dir="${DEXBENCH_CORE_DIR:-/mnt/nvme/cores}"
+profile_delay="${DEXBENCH_PROFILE_DELAY:-}"
+profile_seconds="${DEXBENCH_PROFILE_SECONDS:-10}"
+profile_frequency="${DEXBENCH_PROFILE_FREQUENCY:-49}"
 
 # Maps each tunable variable to its server-zd YAML key; edit here when a key is renamed.
 tunable_keys="
@@ -136,6 +141,8 @@ start_server() {
   # The server must be stopped first: RocksDB holds a lock on its directory.
   rm -rf "$storage_dir"
   mkdir -p "$storage_dir"
+  # A crash leaves a core in core_dir when launch.sh set kernel.core_pattern.
+  ulimit -c unlimited
   nohup "$zd_binary" serve --config "$config_path" </dev/null >"$log_path" 2>&1 &
   echo $! > "$pid_path"
 }
@@ -159,6 +166,45 @@ collect_start() {
   else
     echo "iostat unavailable on this host" > "$directory/iostat.txt"
   fi
+  if [[ -n "$profile_delay" ]]; then
+    nohup bash "${BASH_SOURCE[0]}" profile "$directory" "$(cat "$pid_path")" \
+      </dev/null >"$directory/profile.log" 2>&1 &
+    echo $! > "$directory/.profile.pid"
+    echo $! >> "$collectors_path"
+  fi
+}
+
+# capture_profile records thread stacks and a perf profile in the middle of the measurement.
+capture_profile() {
+  local directory="$1" server_pid="$2"
+  sleep "$profile_delay"
+  kill -0 "$server_pid" 2>/dev/null || { echo "server exited before profiling"; return 0; }
+  capture_thread_stacks "$server_pid" > "$directory/thread-stacks-1.txt"
+  if command -v perf >/dev/null; then
+    sudo -n perf record -F "$profile_frequency" --call-graph dwarf,8192 -p "$server_pid" \
+      -o "$directory/perf.data" -- sleep "$profile_seconds" || echo "perf record failed"
+  else
+    echo "perf unavailable on this host"
+    sleep "$profile_seconds"
+  fi
+  capture_thread_stacks "$server_pid" > "$directory/thread-stacks-2.txt"
+  if [[ -s "$directory/perf.data" ]]; then
+    # shellcheck disable=SC2024 # The outputs stay owned by the benchmark user.
+    sudo -n perf report -i "$directory/perf.data" --stdio --no-children --sort comm,symbol --percent-limit 0.3 \
+      > "$directory/perf-report.txt" 2>/dev/null || echo "perf report failed"
+    sudo -n perf script -i "$directory/perf.data" 2>/dev/null | gzip > "$directory/perf-script.txt.gz" \
+      || echo "perf script failed"
+    # perf.data needs this exact binary to symbolize; the text outputs do not.
+    sudo -n rm -f "$directory/perf.data"
+  fi
+}
+
+capture_thread_stacks() {
+  if command -v eu-stack >/dev/null; then
+    sudo -n eu-stack -p "$1" 2>&1 || true
+  else
+    echo "eu-stack unavailable on this host"
+  fi
 }
 
 collect_stop() {
@@ -173,7 +219,17 @@ collect_stop() {
   if [[ -f "$directory/.iostat.pid" ]]; then
     kill -TERM "$(cat "$directory/.iostat.pid")" 2>/dev/null || true
   fi
-  rm -f "$directory/.sampler.pid" "$directory/.iostat.pid" "$collectors_path"
+  if [[ -f "$directory/.profile.pid" ]]; then
+    # Symbolizing the profile can outlast the measurement.
+    local profile_pid
+    profile_pid="$(cat "$directory/.profile.pid")"
+    for _ in $(seq 1 1200); do
+      kill -0 "$profile_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -TERM "$profile_pid" 2>/dev/null || true
+  fi
+  rm -f "$directory/.sampler.pid" "$directory/.iostat.pid" "$directory/.profile.pid" "$collectors_path"
   [[ -s "$directory/server-samples.json" ]] || fail "the sampler wrote no samples; see $directory/sampler.log"
   scrape_metrics "$directory/metrics-after.txt"
   {
@@ -184,6 +240,24 @@ collect_stop() {
     done
   } > "$directory/rocksdb-stalls.txt"
   cp "$log_path" "$directory/server.log"
+  if ! is_running; then
+    record_crash "$directory"
+  fi
+}
+
+# record_crash keeps the backtrace of every core; the cores stay on the server host.
+record_crash() {
+  local directory="$1" core
+  echo "server was not running at collect-stop" > "$directory/crash.txt"
+  for core in "$core_dir"/core.*; do
+    [[ -f "$core" ]] || continue
+    {
+      echo "== $core"
+      if command -v eu-stack >/dev/null; then
+        sudo -n eu-stack --core="$core" --executable="$zd_binary" 2>&1 || true
+      fi
+    } >> "$directory/crash.txt"
+  done
 }
 
 scrape_metrics() {
@@ -229,5 +303,6 @@ case "${1:-}" in
   collect-start) collect_start "${2:?collect-start needs a directory}" ;;
   collect-stop) collect_stop "${2:?collect-stop needs a directory}" ;;
   host-info) host_info ;;
-  *) fail "usage: serve.sh start|stop|status|config|collect-start DIR|collect-stop DIR|host-info" ;;
+  profile) capture_profile "${2:?profile needs a directory}" "${3:?profile needs a server PID}" ;;
+  *) fail "usage: serve.sh start|stop|status|config|collect-start DIR|collect-stop DIR|host-info|profile DIR PID" ;;
 esac

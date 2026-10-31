@@ -96,12 +96,16 @@ launch_instance() {
   {
     echo '#!/bin/bash'
     echo "shutdown -h +$shutdown_minutes"
-    echo 'apt-get -o DPkg::Lock::Timeout=300 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y sysstat'
+    echo 'apt-get -o DPkg::Lock::Timeout=300 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y sysstat elfutils'
+    # perf comes from the kernel-specific package; a missing one only disables profiling.
+    # shellcheck disable=SC2016
+    echo 'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y linux-tools-aws "linux-tools-$(uname -r)" || true'
     if [[ "$role" == server ]]; then
       # Pick the instance store by model name; device numbering is not stable.
       echo "device=\$(lsblk -dpno NAME,MODEL | awk '/Instance Storage/ {print \$1; exit}')"
       # shellcheck disable=SC2016
       echo 'mkfs.ext4 -F "$device" && mkdir -p /mnt/nvme && mount "$device" /mnt/nvme && chown ubuntu: /mnt/nvme'
+      echo 'mkdir -p /mnt/nvme/cores && chmod 1777 /mnt/nvme/cores && sysctl -w kernel.core_pattern=/mnt/nvme/cores/core.%e.%p.%t'
     fi
   } > "$user_data"
   # Binaries are built on Ubuntu, so both hosts run the same Ubuntu release for a matching glibc.
