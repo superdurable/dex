@@ -39,10 +39,16 @@ jobs:
           shopt -s nullglob
           package_paths=()
           for script in agents/*/*/ci.sh; do
-            if [[ -x "$script" ]]; then
-              package_paths+=("$(dirname "$script")")
+            if [[ ! -x "$script" ]]; then
+              echo "::error file=$script::$script is not executable; run chmod +x and commit it"
+              exit 1
             fi
+            package_paths+=("$(dirname "$script")")
           done
+          if (( ${#package_paths[@]} == 0 )); then
+            echo "::error::found no agents/<language>/<package>/ci.sh"
+            exit 1
+          fi
           packages="$(printf '%s\n' "${package_paths[@]}" | jq -R -s -c '
             split("\n")
             | map(select(length > 0))
@@ -54,7 +60,6 @@ jobs:
   package:
     name: ${{ matrix.package.path }}
     needs: discover
-    if: needs.discover.outputs.packages != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
