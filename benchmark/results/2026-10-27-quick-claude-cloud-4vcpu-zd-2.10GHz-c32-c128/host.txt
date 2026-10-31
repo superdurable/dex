@@ -1,4 +1,0 @@
-cpu_model= Intel(R) Xeon(R) Processor @ 2.10GHz
-cpu_count=4
-ram_bytes=16872812544
-free_disk_kb=5133536

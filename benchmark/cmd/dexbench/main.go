@@ -45,10 +45,6 @@ func execute(args []string) error {
 		return report(args[1:])
 	case "chart":
 		return chart(args[1:])
-	case "seed-recovery":
-		return seedRecovery(args[1:])
-	case "record-recovery":
-		return recordRecovery(args[1:])
 	case "probe":
 		return probe(args[1:])
 	case "wait-ready":
@@ -98,21 +94,16 @@ func waitReady(args []string) error {
 	var address string
 	var interval, timeout time.Duration
 	var processID int
-	var startedUnixNano int64
 	flags.StringVar(&address, "address", "127.0.0.1:8801", "Dex FlowService address")
 	flags.DurationVar(&interval, "interval", 10*time.Millisecond, "poll interval")
 	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "maximum wait")
 	flags.IntVar(&processID, "pid", 0, "server process that must stay alive while waiting")
-	flags.Int64Var(&startedUnixNano, "started-unix-nano", 0, "when set, print seconds from this time until ready")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(timeout)
 	for {
 		if isReady(address, interval) {
-			if startedUnixNano > 0 {
-				fmt.Printf("%.6f\n", time.Since(time.Unix(0, startedUnixNano)).Seconds())
-			}
 			return nil
 		}
 		if processID > 0 && syscall.Kill(processID, 0) != nil {
@@ -148,13 +139,12 @@ func isReady(address string, interval time.Duration) bool {
 
 func printVariants(args []string) error {
 	flags := flag.NewFlagSet("variants", flag.ContinueOnError)
-	var scenarios, attributeStoreName string
+	var scenarios string
 	flags.StringVar(&scenarios, "scenarios", "", "comma-separated scenarios")
-	flags.StringVar(&attributeStoreName, "attribute-store-name", "", "PostgreSQL Attribute Store name for synchronized writes")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	variants, err := expandScenarios(scenarios, attributeStoreName)
+	variants, err := expandScenarios(scenarios)
 	if err != nil {
 		return err
 	}
@@ -164,7 +154,7 @@ func printVariants(args []string) error {
 	return nil
 }
 
-func expandScenarios(scenarios, attributeStoreName string) ([]string, error) {
+func expandScenarios(scenarios string) ([]string, error) {
 	var variants []string
 	for _, requested := range strings.Split(scenarios, ",") {
 		selected := []string{strings.TrimSpace(requested)}
@@ -174,12 +164,7 @@ func expandScenarios(scenarios, attributeStoreName string) ([]string, error) {
 		case "rpc":
 			selected = []string{"rpc-plain", "rpc-locking"}
 		case "attribute-read":
-			selected = []string{"attribute-read-rpc", "attribute-read-direct"}
-		case "attribute-write":
-			selected = []string{"attribute-write-local"}
-			if attributeStoreName != "" {
-				selected = append(selected, "attribute-write-sync")
-			}
+			selected = []string{"attribute-read-direct"}
 		}
 		for _, scenario := range selected {
 			if !isKnownScenario(scenario) {
@@ -191,68 +176,6 @@ func expandScenarios(scenarios, attributeStoreName string) ([]string, error) {
 	return variants, nil
 }
 
-func seedRecovery(args []string) error {
-	flags := flag.NewFlagSet("seed-recovery", flag.ContinueOnError)
-	var config benchmark.Config
-	var sizeMB int
-	flags.StringVar(&config.Address, "address", "127.0.0.1:8801", "Dex FlowService address")
-	flags.IntVar(&sizeMB, "size-mb", 100, "target command payload size in MiB")
-	flags.Float64Var(&config.TimeoutSeconds, "timeout", 30, "write timeout in seconds")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if sizeMB < 1 {
-		return fmt.Errorf("size-mb must be positive")
-	}
-	config.Scenario = "attribute-write-local"
-	config.Target = "zd"
-	config.Engine = "zd"
-	config.Concurrency = 1
-	config.WorkerPool = 1
-	config.Steps = 1
-	config.AttributeBytes = 32
-	config.DurationSeconds = 1
-	runner, err := benchmark.NewRunner(config)
-	if err != nil {
-		return err
-	}
-	submittedBytes, seedErr := runner.SeedRecovery(context.Background(), uint64(sizeMB)<<20)
-	closeErr := runner.Close()
-	if seedErr != nil || closeErr != nil {
-		return errors.Join(seedErr, closeErr)
-	}
-	fmt.Printf("submitted_bytes=%d\n", submittedBytes)
-	return nil
-}
-
-func recordRecovery(args []string) error {
-	flags := flag.NewFlagSet("record-recovery", flag.ContinueOnError)
-	var config benchmark.Config
-	var outputPath string
-	var elapsedSeconds float64
-	flags.IntVar(&config.RecoveryTargetMB, "size-mb", 100, "target command payload size in MiB")
-	flags.Float64Var(&elapsedSeconds, "elapsed-seconds", 0, "restart to serving seconds")
-	flags.StringVar(&config.MetricsURL, "metrics-url", "http://127.0.0.1:9901/metrics", "server-zd metrics URL")
-	flags.StringVar(&config.Mode, "mode", "quick", "run mode label")
-	flags.StringVar(&config.GitCommit, "git-commit", os.Getenv("DEXBENCH_GIT_COMMIT"), "SDK checkout commit")
-	flags.StringVar(&outputPath, "out", "", "JSON result path")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if config.RecoveryTargetMB < 1 || elapsedSeconds <= 0 || outputPath == "" {
-		return fmt.Errorf("positive size-mb, elapsed-seconds, and out are required")
-	}
-	config.Target = "zd"
-	config.Engine = "zd"
-	config.Scenario = "recovery"
-	config.Concurrency = 1
-	result, err := benchmark.RecoveryResult(context.Background(), config, elapsedSeconds)
-	if err != nil {
-		return err
-	}
-	return benchmark.WriteResult(outputPath, result)
-}
-
 func run(args []string) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	var config benchmark.Config
@@ -261,11 +184,10 @@ func run(args []string) error {
 	var isShort bool
 	var concurrencyValues string
 	var resourcePIDs string
-	var resourceCgroups string
 	flags.StringVar(&config.Address, "address", "127.0.0.1:8801", "Dex FlowService address")
 	flags.StringVar(&config.Target, "target", "zd", "target name")
 	flags.StringVar(&config.Engine, "engine", "zd", "server engine")
-	flags.StringVar(&scenarios, "scenarios", "start-complete,sequential-steps,rpc,attribute-read,channel-wake,attribute-write", "comma-separated scenarios")
+	flags.StringVar(&scenarios, "scenarios", "start-complete,sequential-steps,sequential-steps-async,rpc,attribute-read,channel-wake", "comma-separated scenarios")
 	flags.Float64Var(&config.DurationSeconds, "duration", 180, "measurement seconds per scenario")
 	flags.Float64Var(&config.WarmupSeconds, "warmup", 30, "warmup seconds per scenario")
 	flags.Float64Var(&config.TimeoutSeconds, "timeout", 30, "timeout seconds per operation")
@@ -273,12 +195,10 @@ func run(args []string) error {
 	flags.IntVar(&config.WorkerPool, "workers", 0, "pull Worker task pool size; defaults to concurrency")
 	flags.IntVar(&config.Steps, "steps", 10, "Steps per chain Flow")
 	flags.IntVar(&config.AttributeBytes, "attribute-bytes", 16384, "bytes per read Attribute")
-	flags.StringVar(&config.AttributeStoreName, "attribute-store-name", "", "PostgreSQL Attribute Store name for synchronized writes")
 	flags.StringVar(&config.Mode, "mode", "quick", "run mode label")
 	flags.StringVar(&config.GitCommit, "git-commit", os.Getenv("DEXBENCH_GIT_COMMIT"), "SDK checkout commit")
 	flags.IntVar(&config.ServerPID, "server-pid", 0, "root server PID; its whole process tree is sampled for CPU and RSS")
 	flags.StringVar(&resourcePIDs, "resource-pids", "", "additional comma-separated root process IDs; each root's process tree is sampled")
-	flags.StringVar(&resourceCgroups, "resource-cgroups", "", "comma-separated cgroup v2 directories to sample, such as Docker container cgroups")
 	flags.StringVar(&config.MetricsURL, "metrics-url", "", "server-zd /metrics URL")
 	flags.StringVar(&outputDirectory, "out", "results", "result directory")
 	flags.BoolVar(&isShort, "short", false, "ten-second low-concurrency smoke mode")
@@ -301,13 +221,8 @@ func run(args []string) error {
 		}
 		config.ResourcePIDs = append(config.ResourcePIDs, processID)
 	}
-	for _, value := range strings.Split(resourceCgroups, ",") {
-		if directory := strings.TrimSpace(value); directory != "" {
-			config.ResourceCgroups = append(config.ResourceCgroups, directory)
-		}
-	}
 	requestedWorkerPool := config.WorkerPool
-	variants, err := expandScenarios(scenarios, config.AttributeStoreName)
+	variants, err := expandScenarios(scenarios)
 	if err != nil {
 		return err
 	}
@@ -381,7 +296,7 @@ func readResults(paths []string) ([]benchmark.Result, error) {
 
 func isKnownScenario(scenario string) bool {
 	switch scenario {
-	case "start-complete", "sequential-steps", "rpc-plain", "rpc-locking", "channel-wake", "attribute-read-rpc", "attribute-read-direct", "attribute-write-local", "attribute-write-sync":
+	case "start-complete", "sequential-steps", "sequential-steps-async", "rpc-plain", "rpc-locking", "channel-wake", "attribute-read-direct":
 		return true
 	default:
 		return false

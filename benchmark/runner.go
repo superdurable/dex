@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -27,7 +26,6 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/proto"
 )
 
 type Runner struct {
@@ -41,6 +39,7 @@ type Runner struct {
 	cacheDir             string
 	completion           completionFlow
 	chain                *chainFlow
+	asyncChain           *asyncChainFlow
 	rpc                  rpcFlow
 	attribute            *attributeFlow
 	wake                 *wakeFlow
@@ -60,6 +59,7 @@ func NewRunner(config Config) (*Runner, error) {
 	}
 	runner := &Runner{config: config, workerResult: make(chan error, 1), runPrefix: fmt.Sprintf("bench-%d", time.Now().UnixNano())}
 	runner.chain = &chainFlow{latencies: &runner.stepLatencies}
+	runner.asyncChain = &asyncChainFlow{latencies: &runner.stepLatencies}
 	runner.wake = &wakeFlow{signals: newWakeSignals(config.Concurrency)}
 	runner.expectedReadValues = make(map[string]string, len(benchmarkReadAttributes))
 	for index, attribute := range benchmarkReadAttributes {
@@ -67,8 +67,8 @@ func NewRunner(config Config) (*Runner, error) {
 		runner.expectedReadValues[attribute.AttributeName()] = value
 		runner.expectedBytesPerRead += int64(len(value))
 	}
-	runner.attribute = &attributeFlow{expectedValues: runner.expectedReadValues}
-	registry, err := dex.NewRegistry([]dex.Flow{runner.completion, runner.chain, runner.rpc, runner.attribute, runner.wake})
+	runner.attribute = &attributeFlow{}
+	registry, err := dex.NewRegistry([]dex.Flow{runner.completion, runner.chain, runner.asyncChain, runner.rpc, runner.attribute, runner.wake})
 	if err != nil {
 		return nil, err
 	}
@@ -149,9 +149,9 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	if config.ServerPID > 0 {
 		rootPIDs = append(rootPIDs, config.ServerPID)
 	}
-	if len(rootPIDs) != 0 || len(config.ResourceCgroups) != 0 {
+	if len(rootPIDs) != 0 {
 		result.CPUMethod = resourceSamplingMethod()
-		go sampleResources(sampleContext, newResourceSampler(rootPIDs, config.ResourceCgroups), sampleResult)
+		go sampleResources(sampleContext, newResourceSampler(rootPIDs), sampleResult)
 	} else {
 		sampleResult <- nil
 	}
@@ -268,7 +268,7 @@ func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isM
 		result.MeasuredSeconds = elapsed.Seconds()
 		result.ThroughputUnit = throughputUnit(runner.config.Scenario)
 		factor := int64(1)
-		if runner.config.Scenario == "sequential-steps" {
+		if isSequentialStepsScenario(runner.config.Scenario) {
 			factor = int64(runner.config.Steps)
 		}
 		// Operations that finish after the deadline still count, so divide by elapsed time.
@@ -279,19 +279,21 @@ func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isM
 
 func throughputUnit(scenario string) string {
 	switch {
-	case scenario == "sequential-steps":
+	case isSequentialStepsScenario(scenario):
 		return "steps"
 	case strings.HasPrefix(scenario, "rpc-"):
 		return "rpcs"
 	case strings.HasPrefix(scenario, "attribute-read"):
 		return "reads"
-	case strings.HasPrefix(scenario, "attribute-write"):
-		return "writes"
 	case scenario == "channel-wake":
 		return "wakes"
 	default:
 		return "flows"
 	}
+}
+
+func isSequentialStepsScenario(scenario string) bool {
+	return scenario == "sequential-steps" || scenario == "sequential-steps-async"
 }
 
 func (runner *Runner) startPersistentFlow(ctx context.Context, flowID string) error {
@@ -312,14 +314,7 @@ func (runner *Runner) startPersistentFlow(ctx context.Context, flowID string) er
 		}
 		initialAttributes = append(initialAttributes, initialAttribute)
 	}
-	options := dex.StartFlowOptions{Attributes: initialAttributes}
-	if runner.config.Scenario == "attribute-write-sync" {
-		if runner.config.AttributeStoreName == "" {
-			return fmt.Errorf("attribute store name required for synchronized writes")
-		}
-		options.ConfigOverride = &dex.FlowConfig{AttributeStoreNames: []string{runner.config.AttributeStoreName}}
-	}
-	_, err := runner.client.StartFlow(ctx, runner.attribute, flowID, nil, options)
+	_, err := runner.client.StartFlow(ctx, runner.attribute, flowID, nil, dex.StartFlowOptions{Attributes: initialAttributes})
 	return err
 }
 
@@ -331,10 +326,14 @@ func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persist
 			return 0, err
 		}
 		return 0, runner.waitForCompletion(ctx, flowID)
-	case "sequential-steps":
+	case "sequential-steps", "sequential-steps-async":
+		var flow dex.Flow = runner.chain
+		if runner.config.Scenario == "sequential-steps-async" {
+			flow = runner.asyncChain
+		}
 		flowID := runner.newFlowID()
 		input := chainInput{Remaining: runner.config.Steps}
-		if _, err := runner.client.StartFlow(ctx, runner.chain, flowID, input, dex.StartFlowOptions{}); err != nil {
+		if _, err := runner.client.StartFlow(ctx, flow, flowID, input, dex.StartFlowOptions{}); err != nil {
 			return 0, err
 		}
 		return 0, runner.waitForCompletion(ctx, flowID)
@@ -346,25 +345,8 @@ func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persist
 		return 0, runner.client.InvokeRPC(ctx, persistentFlowID, runner.rpc.IncrementCounter, nil, &output)
 	case "channel-wake":
 		return runner.wakeWaitingFlow(ctx, clientIndex)
-	case "attribute-read-rpc":
-		var output attributeReadOutput
-		if err := runner.client.InvokeRPC(ctx, persistentFlowID, runner.attribute.ReadAttributes, nil, &output); err != nil {
-			return 0, err
-		}
-		if output.VerifiedValues != len(runner.expectedReadValues) || output.VerifiedBytes != runner.expectedBytesPerRead {
-			return 0, fmt.Errorf("RPC verified %d values and %d bytes, expected %d and %d", output.VerifiedValues, output.VerifiedBytes, len(runner.expectedReadValues), runner.expectedBytesPerRead)
-		}
-		return 0, nil
 	case "attribute-read-direct":
 		return 0, runner.readAttributesDirect(ctx, persistentFlowID)
-	case "attribute-write-local", "attribute-write-sync":
-		value := &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: time.Now().UnixNano()}}
-		write := &dexpb.AttributeWrite{Key: benchmarkWriteAttribute.AttributeName(), Value: value}
-		if runner.config.Scenario == "attribute-write-sync" {
-			write.SyncConfig = &dexpb.AttributeSyncConfig{Enabled: true}
-		}
-		_, err := runner.service.SetAttributes(ctx, &dexpb.SetAttributesRequest{FlowId: persistentFlowID, Attributes: []*dexpb.AttributeWrite{write}, RequestId: runner.newFlowID()})
-		return 0, err
 	default:
 		return 0, fmt.Errorf("unknown scenario %s", runner.config.Scenario)
 	}
@@ -418,7 +400,7 @@ func (runner *Runner) wakeWaitingFlow(ctx context.Context, clientIndex int) (tim
 	}
 }
 
-// waitForWaitForReturn keeps GetFlowState polls, which are Temporal queries on the Go Server, near one per wake.
+// waitForWaitForReturn keeps GetFlowState polls, which are server state reads, near one per wake.
 func (runner *Runner) waitForWaitForReturn(ctx context.Context, clientIndex int, sequence int64) error {
 	waited := runner.wake.signals.waitedChannels[clientIndex]
 	for {
@@ -507,37 +489,6 @@ func (runner *Runner) readAttributesDirect(ctx context.Context, flowID string) e
 		return fmt.Errorf("direct read %d bytes, expected %d", bytesRead, runner.expectedBytesPerRead)
 	}
 	return nil
-}
-
-func (runner *Runner) SeedRecovery(ctx context.Context, targetBytes uint64) (uint64, error) {
-	flowID := runner.newFlowID()
-	if err := runner.startPersistentFlow(ctx, flowID); err != nil {
-		return 0, err
-	}
-	var submittedBytes uint64
-	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for submittedBytes < targetBytes {
-		writes := make([]*dexpb.AttributeWrite, 512)
-		for index := range writes {
-			payload := make([]byte, 72)
-			for offset := range payload {
-				payload[offset] = byte('a' + random.Intn(26))
-			}
-			writes[index] = &dexpb.AttributeWrite{
-				Key:   fmt.Sprintf("recovery-%03d", index),
-				Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: string(payload)}},
-			}
-		}
-		request := &dexpb.SetAttributesRequest{FlowId: flowID, Attributes: writes, RequestId: runner.newFlowID()}
-		operationContext, cancel := context.WithTimeout(ctx, time.Duration(runner.config.TimeoutSeconds*float64(time.Second)))
-		_, err := runner.service.SetAttributes(operationContext, request)
-		cancel()
-		if err != nil {
-			return submittedBytes, fmt.Errorf("seed recovery after %d bytes: %w", submittedBytes, err)
-		}
-		submittedBytes += uint64(proto.Size(request))
-	}
-	return submittedBytes, nil
 }
 
 func (runner *Runner) Close() error {
