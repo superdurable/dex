@@ -6,8 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use dexzd_protocol::attribute_index::inferred_index_type;
-use dexzd_protocol::dex::{AttributeWrite, IndexType, value};
+use dexzd_protocol::attribute_index::{indexed_keyword_strings, inferred_index_type};
+use dexzd_protocol::dex::{AttributeWrite, ErrorSubStatus, IndexType};
 
 use crate::shared::{ValidationConfig, ValidationError, invalid};
 
@@ -45,21 +45,10 @@ pub(crate) fn validate_indexed_keyword(
     } else {
         IndexType::try_from(index_config.r#type).unwrap_or(IndexType::Unspecified)
     };
-    let bytes = match value.kind.as_ref() {
-        Some(value::Kind::StringValue(text)) => text.as_bytes(),
-        Some(value::Kind::ObjValue(object)) => object.payload.as_slice(),
-        _ => return Ok(()),
+    let Some(strings) = indexed_keyword_strings(value, index_type) else {
+        return Ok(());
     };
-    let largest_bytes = match index_type {
-        IndexType::Keyword => bytes.len(),
-        IndexType::KeywordArray => {
-            let Ok(elements) = serde_json::from_slice::<Vec<String>>(bytes) else {
-                return Ok(());
-            };
-            elements.iter().map(String::len).max().unwrap_or(0)
-        }
-        _ => return Ok(()),
-    };
+    let largest_bytes = strings.iter().map(String::len).max().unwrap_or(0);
     if largest_bytes > limit.maximum_bytes {
         let mut error = invalid(
             path,
@@ -68,7 +57,7 @@ pub(crate) fn validate_indexed_keyword(
                 write.key, limit.maximum_bytes
             ),
         );
-        error.sub_status = dexzd_protocol::dex::ErrorSubStatus::IndexedKeywordTooLong;
+        error.sub_status = ErrorSubStatus::IndexedKeywordTooLong;
         return Err(error);
     }
     Ok(())

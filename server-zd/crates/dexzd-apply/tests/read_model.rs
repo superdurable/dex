@@ -766,6 +766,29 @@ fn search_document_tracks_attributes_permissions_active_steps_and_status() {
                 ..AttributeWrite::default()
             },
             AttributeWrite {
+                key: "large_keyword".to_owned(),
+                value: Some(string_value(&"x".repeat(300 * 1024))),
+                index_config: Some(IndexConfig {
+                    r#type: IndexType::Keyword as i32,
+                    ..index_config("LargeKeyword")
+                }),
+                ..AttributeWrite::default()
+            },
+            AttributeWrite {
+                key: "binary_keyword".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::ObjValue(dexzd_protocol::dex::EncodedObject {
+                        encoding: "binary".to_owned(),
+                        payload: vec![0xff; 1025],
+                    })),
+                }),
+                index_config: Some(IndexConfig {
+                    r#type: IndexType::Keyword as i32,
+                    ..index_config("BinaryKeyword")
+                }),
+                ..AttributeWrite::default()
+            },
+            AttributeWrite {
                 key: "largest_allowed".to_owned(),
                 value: Some(string_value(&"x".repeat(256 * 1024))),
                 index_config: Some(index_config("LargestAllowed")),

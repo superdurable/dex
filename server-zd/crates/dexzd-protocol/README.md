@@ -2,4 +2,4 @@
 
 ## Purpose
 
-Generated protobuf and gRPC bindings for the public Dex protocol and the server-zd internal formats.
+Protobuf and gRPC bindings plus shared Attribute index conversion rules for the public Dex protocol and server-zd internal formats.

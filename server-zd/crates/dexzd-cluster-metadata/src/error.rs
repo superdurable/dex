@@ -99,7 +99,7 @@ pub enum MetadataError {
     },
     /// A tenant has no remaining slots for this Attribute index type.
     #[error(
-        "tenant {tenant_id} Attribute index type {index_type:?} exceeds limit {limit}; registered keys: {registered_keys:?}"
+        "tenant {tenant_id} Attribute index type {index_type:?} exceeds limit {limit}; registered keys: {registered_keys:?}; rejected new keys: {rejected_keys:?}"
     )]
     AttributeIndexCapacityExceeded {
         /// Tenant whose capacity is exhausted.
@@ -110,6 +110,8 @@ pub enum MetadataError {
         limit: usize,
         /// Keys occupying this tenant's slots for the type.
         registered_keys: Vec<String>,
+        /// New keys rejected for this tenant and type; empty during startup validation.
+        rejected_keys: Vec<String>,
     },
     /// Another process holds the requested node lease.
     #[error("node {node_id:?} lease is held by another process until {expires_at_unix_micros}")]

@@ -160,13 +160,8 @@ pub(crate) fn check_worker_result(
     if let Err(error) = validation {
         if error.sub_status == ErrorSubStatus::IndexedKeywordTooLong {
             return WorkerResultCheck::Invalid {
-                kind: StepAttemptFailureKind::InvalidResponse,
-                detail: format!(
-                    "INVALID_ARGUMENT ({}): {}: {}",
-                    error.sub_status.as_str_name(),
-                    error.field_path,
-                    error.message
-                ),
+                kind: StepAttemptFailureKind::ValueTooLarge,
+                detail: error.message,
                 is_non_retryable: true,
             };
         }

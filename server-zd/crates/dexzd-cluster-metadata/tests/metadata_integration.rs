@@ -1474,10 +1474,12 @@ async fn registry_capacity_is_per_type_and_tenant_and_preserves_objects_on_rejec
                 index_type: rejected_type,
                 limit: rejected_limit,
                 registered_keys,
+                rejected_keys,
             } => {
                 assert_eq!(tenant_id, 7);
                 assert_eq!(rejected_type, index_type);
                 assert_eq!(rejected_limit, limit);
+                assert_eq!(rejected_keys, vec![additional.index_key.clone()]);
                 assert_eq!(
                     registered_keys,
                     declarations
@@ -1524,7 +1526,7 @@ async fn registry_without_capacity_allows_existing_behavior_and_startup_detects_
         .unwrap();
     assert!(
         matches!(validate_attribute_index_capacity(&registry, &capacity),
-        Err(MetadataError::AttributeIndexCapacityExceeded { tenant_id: 7, index_type: dexzd_protocol::dex::IndexType::Keyword, limit: 10, registered_keys }) if registered_keys.len() == 11)
+        Err(MetadataError::AttributeIndexCapacityExceeded { tenant_id: 7, index_type: dexzd_protocol::dex::IndexType::Keyword, limit: 10, registered_keys, rejected_keys }) if registered_keys.len() == 11 && rejected_keys.is_empty())
     );
     let mut duplicate_registry = registry;
     duplicate_registry.registrations.truncate(10);
@@ -1570,4 +1572,112 @@ async fn concurrent_registry_cas_never_exceeds_capacity() {
     let registry = read_attribute_index_registry(&store).await.unwrap();
     assert_eq!(registry.registrations.len(), 10);
     assert_eq!(registry.version, 2);
+}
+
+#[tokio::test]
+async fn registration_only_checks_new_types_for_the_requesting_tenant() {
+    use dexzd_protocol::dex::IndexType;
+
+    let store = MemoryStore::default();
+    let clock = TestClock::default();
+    let capacity = AttributeIndexCapacity::postgres();
+    let declarations: Vec<_> = (0..11)
+        .map(|index| AttributeIndexDeclaration {
+            index_key: format!("private-key-{index}"),
+            index_type: IndexType::Keyword as i32,
+        })
+        .collect();
+    let registry = register_attribute_indexes(&store, &clock, 7, &declarations, None)
+        .await
+        .unwrap();
+    let repeated = register_attribute_indexes(&store, &clock, 7, &declarations, Some(&capacity))
+        .await
+        .unwrap();
+    assert_eq!(repeated, registry);
+    let new_keyword = AttributeIndexDeclaration {
+        index_key: "new-keyword".to_owned(),
+        index_type: IndexType::Keyword as i32,
+    };
+    register_attribute_indexes(
+        &store,
+        &clock,
+        8,
+        std::slice::from_ref(&new_keyword),
+        Some(&capacity),
+    )
+    .await
+    .unwrap();
+    let int_key = AttributeIndexDeclaration {
+        index_key: "new-int".to_owned(),
+        index_type: IndexType::Int as i32,
+    };
+    register_attribute_indexes(
+        &store,
+        &clock,
+        7,
+        std::slice::from_ref(&int_key),
+        Some(&capacity),
+    )
+    .await
+    .unwrap();
+    let mut request = declarations.clone();
+    request.extend([new_keyword.clone(), new_keyword.clone(), int_key]);
+    let error = register_attribute_indexes(&store, &clock, 7, &request, Some(&capacity))
+        .await
+        .unwrap_err();
+    match error {
+        MetadataError::AttributeIndexCapacityExceeded {
+            tenant_id,
+            index_type,
+            registered_keys,
+            rejected_keys,
+            ..
+        } => {
+            assert_eq!(tenant_id, 7);
+            assert_eq!(index_type, IndexType::Keyword);
+            assert_eq!(registered_keys.len(), 11);
+            assert_eq!(rejected_keys, vec![new_keyword.index_key]);
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    let overflow: Vec<_> = (0..11)
+        .map(|index| AttributeIndexDeclaration {
+            index_key: format!("tenant-b-{index}"),
+            index_type: IndexType::Keyword as i32,
+        })
+        .collect();
+    let error = register_attribute_indexes(&store, &clock, 8, &overflow, Some(&capacity))
+        .await
+        .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("tenant 8"));
+    assert!(!message.contains("tenant 7"));
+    assert!(!message.contains("private-key"));
+}
+
+#[tokio::test]
+async fn startup_capacity_check_rejects_unknown_stored_index_types() {
+    let store = MemoryStore::default();
+    let registry = register_attribute_indexes(
+        &store,
+        &TestClock::default(),
+        7,
+        &[AttributeIndexDeclaration {
+            index_key: "unknown".to_owned(),
+            index_type: i32::MAX,
+        }],
+        None,
+    )
+    .await
+    .unwrap();
+    let error = validate_attribute_index_capacity(&registry, &AttributeIndexCapacity::postgres())
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        MetadataError::InvalidMetadata {
+            key: "registry/attribute-indexes",
+            ..
+        }
+    ));
+    assert!(error.to_string().contains("stored type 2147483647"));
 }

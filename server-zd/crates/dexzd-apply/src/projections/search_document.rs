@@ -12,7 +12,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_keyspace::row_keys::{flow_list_index_key, tenant_run_index_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind, TenantId};
-use dexzd_protocol::attribute_index::inferred_index_type;
+use dexzd_protocol::attribute_index::{
+    MAX_SEARCH_VALUE_BYTES, indexed_keyword_strings, inferred_index_type, search_value_payload_size,
+};
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, EncodedObject, FlowStatus, IndexConfig, IndexType, Value, value,
 };
@@ -29,8 +31,6 @@ use crate::projections::work_queue_permissions;
 use crate::read_model::search_order_index_keys_of_document;
 use crate::state_access::FlowTransaction;
 use crate::values::load_stored_value;
-
-const MAX_SEARCH_VALUE_BYTES: usize = 256 * 1024;
 
 pub(crate) fn refresh_search_document(
     transaction: &mut FlowTransaction<'_>,
@@ -251,7 +251,7 @@ fn indexed_attribute_value(
     value: &Value,
     index_config: &IndexConfig,
 ) -> Option<SearchAttributeValue> {
-    if value_payload_size(value) > MAX_SEARCH_VALUE_BYTES {
+    if search_value_payload_size(value) > MAX_SEARCH_VALUE_BYTES {
         return None;
     }
     let index_type = if index_config.r#type == IndexType::Unspecified as i32 {
@@ -266,35 +266,20 @@ fn indexed_attribute_value(
     })
 }
 
-fn value_payload_size(value: &Value) -> usize {
-    match value.kind.as_ref() {
-        Some(value::Kind::StringValue(text)) => text.len(),
-        Some(value::Kind::ObjValue(object)) => object.payload.len(),
-        _ => prost::Message::encoded_len(value),
-    }
-}
-
 fn convert_index_value(value: &Value, index_type: IndexType) -> Option<Value> {
     use value::Kind;
 
     let kind = match (index_type, value.kind.as_ref()?) {
-        (IndexType::Keyword | IndexType::Text, Kind::StringValue(text)) => {
-            Kind::StringValue(text.clone())
+        (IndexType::Keyword | IndexType::Text, _) => {
+            Kind::StringValue(indexed_keyword_strings(value, IndexType::Keyword)?.pop()?)
         }
-        (IndexType::Keyword | IndexType::Text, Kind::ObjValue(object)) => {
-            Kind::StringValue(String::from_utf8(object.payload.clone()).ok()?)
+        (IndexType::KeywordArray, _) => {
+            let values = indexed_keyword_strings(value, IndexType::KeywordArray)?;
+            Kind::ObjValue(EncodedObject {
+                encoding: "json".to_owned(),
+                payload: serde_json::to_vec(&values).ok()?,
+            })
         }
-        (IndexType::Keyword | IndexType::Text, Kind::IntValue(number)) => {
-            Kind::StringValue(number.to_string())
-        }
-        (IndexType::Keyword | IndexType::Text, Kind::DoubleValue(number)) => {
-            Kind::StringValue(format_go_float(*number))
-        }
-        (IndexType::Keyword | IndexType::Text, Kind::BoolValue(boolean)) => {
-            Kind::StringValue(boolean.to_string())
-        }
-        (IndexType::KeywordArray, Kind::StringValue(text)) => keyword_array_value(text.as_bytes())?,
-        (IndexType::KeywordArray, Kind::ObjValue(object)) => keyword_array_value(&object.payload)?,
         (IndexType::Int, Kind::IntValue(number)) => Kind::IntValue(*number),
         (IndexType::Int, Kind::StringValue(text)) => Kind::IntValue(text.parse().ok()?),
         (IndexType::Double, Kind::DoubleValue(number)) => Kind::DoubleValue(*number),
@@ -316,37 +301,4 @@ fn parse_go_bool(text: &str) -> Option<bool> {
         "0" | "f" | "F" | "FALSE" | "false" | "False" => Some(false),
         _ => None,
     }
-}
-
-fn format_go_float(number: f64) -> String {
-    if number.is_nan() {
-        return "NaN".to_owned();
-    }
-    if number == f64::INFINITY {
-        return "+Inf".to_owned();
-    }
-    if number == f64::NEG_INFINITY {
-        return "-Inf".to_owned();
-    }
-    let magnitude = number.abs();
-    if magnitude >= 1_000_000.0 || (magnitude > 0.0 && magnitude < 0.0001) {
-        let scientific = format!("{number:e}");
-        let (mantissa, exponent) = scientific
-            .split_once('e')
-            .expect("Rust scientific formatting always includes an exponent");
-        let exponent: i32 = exponent
-            .parse()
-            .expect("Rust scientific formatting always uses an integer exponent");
-        return format!("{mantissa}e{exponent:+03}");
-    }
-    number.to_string()
-}
-
-fn keyword_array_value(bytes: &[u8]) -> Option<value::Kind> {
-    let values: Vec<String> = serde_json::from_slice(bytes).ok()?;
-    let payload = serde_json::to_vec(&values).ok()?;
-    Some(value::Kind::ObjValue(EncodedObject {
-        encoding: "json".to_owned(),
-        payload,
-    }))
 }

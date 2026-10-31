@@ -140,6 +140,31 @@ fn keyword_arrays_measure_decoded_elements_and_keywords_measure_utf8_bytes() {
     }
 }
 
+#[test]
+fn every_ingress_accepts_keyword_values_that_apply_does_not_index() {
+    let config = ValidationConfig {
+        keyword_value_limit: Some(KeywordValueLimit::postgres()),
+        ..validation_config()
+    };
+    for ingress in INGRESSES {
+        for index_type in [
+            IndexType::Keyword,
+            IndexType::Unspecified,
+            IndexType::KeywordArray,
+        ] {
+            validate_ingress(ingress, indexed_write(300 * 1024, index_type), &config).unwrap();
+            let mut write = indexed_write(0, index_type);
+            write.value = Some(Value {
+                kind: Some(value::Kind::ObjValue(EncodedObject {
+                    encoding: "binary".to_owned(),
+                    payload: vec![0xff; 1025],
+                })),
+            });
+            validate_ingress(ingress, write, &config).unwrap();
+        }
+    }
+}
+
 fn validate_ingress(
     ingress: Ingress,
     write: AttributeWrite,

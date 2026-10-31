@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use dexzd_protocol::dex::{
-    AttributeWrite, ExecuteMethodFailurePolicy, FlowStatus, IndexConfig, IndexType,
+    AttributeWrite, ExecuteMethodFailurePolicy, FlowErrorType, FlowStatus, IndexConfig, IndexType,
     InvokeWaitForMethodResponse, StepOptions, WaitForMethodFailurePolicy,
 };
 use dexzd_protocol::dexzd::v1::{StepAttemptFailureKind, flow_command};
@@ -64,14 +64,10 @@ async fn oversized_indexed_worker_results_fail_without_completion_or_retry() {
             else {
                 panic!("expected failure");
             };
-            assert_eq!(failure.kind, StepAttemptFailureKind::InvalidResponse as i32);
+            assert_eq!(failure.kind, StepAttemptFailureKind::ValueTooLarge as i32);
             assert!(failure.is_non_retryable);
-            assert!(failure.server_detail.contains("INVALID_ARGUMENT"));
-            assert!(
-                failure
-                    .server_detail
-                    .contains("ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG")
-            );
+            let expected_message = "indexed Attribute \"status\" has a Keyword value or KeywordArray element of 1025 bytes; maximum is 1024 bytes";
+            assert_eq!(failure.server_detail, expected_message);
             assert_eq!(
                 harness
                     .flow_effect_operations
@@ -92,21 +88,22 @@ async fn oversized_indexed_worker_results_fail_without_completion_or_retry() {
                     }
                     MethodRequest::Execute(request) if !is_execute => {
                         assert_eq!(request.step_type, "ChargeStep");
-                        assert!(
-                            request
-                                .context
-                                .as_ref()
-                                .unwrap()
-                                .recovery_error
-                                .as_ref()
-                                .unwrap()
-                                .detail
-                                .contains("INVALID_ARGUMENT")
-                        );
+                        let recovery_error = request
+                            .context
+                            .as_ref()
+                            .unwrap()
+                            .recovery_error
+                            .as_ref()
+                            .unwrap();
+                        assert_eq!(recovery_error.detail, expected_message);
+                        assert_eq!(recovery_error.error_type, "ValueTooLarge");
                     }
                     other => panic!("unexpected recovery: {other:?}"),
                 }
             } else {
+                let close = harness.run_record("keyword-result", run_id).close.unwrap();
+                assert_eq!(close.error_type, FlowErrorType::WorkerApiFail as i32);
+                assert_eq!(close.error_message, expected_message);
                 assert_eq!(
                     harness.run_record("keyword-result", run_id).status,
                     FlowStatus::Failed as i32

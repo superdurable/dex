@@ -14,6 +14,6 @@ Manifest changes use `update_manifest` and ETag comparison. `raise_version_barri
 
 ## Optional Attribute index capacity
 
-Pass `Some(&AttributeIndexCapacity::postgres())` to `register_attribute_indexes` to limit each tenant to ten Keyword keys and three keys per other supported type. The CAS loop checks the complete proposed registry before writing. Re-registering a key does not consume another slot. Capacity rejection includes the tenant, type, limit, and previously registered keys. Registrations are append-only; there is no delete operation.
+Pass `Some(&AttributeIndexCapacity::postgres())` to `register_attribute_indexes` to limit each tenant to ten Keyword keys and three keys per other supported type. The CAS loop checks only the requesting tenant and types receiving new keys before writing. Re-registering existing keys succeeds even when that tenant is already over capacity. Other tenants and unchanged types do not affect registration. Capacity rejection includes the requesting tenant, type, limit, previously registered keys, and rejected new keys. Registrations are append-only; there is no delete operation.
 
 Call `validate_attribute_index_capacity` on a loaded registry before enabling a backend with fixed slots. It returns the same typed error for existing excess occupancy. Passing `None` disables capacity checks; server-zd currently wires `None` for every search backend.

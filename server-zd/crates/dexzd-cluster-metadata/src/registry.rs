@@ -111,30 +111,11 @@ pub async fn register_attribute_indexes(
                 registered_at_unix_micros: clock.now_unix_micros(),
             });
         }
-        if let Some(capacity) = capacity {
-            validate_attribute_index_capacity(&proposed, capacity).map_err(|mut error| {
-                if let MetadataError::AttributeIndexCapacityExceeded {
-                    tenant_id,
-                    index_type,
-                    registered_keys,
-                    ..
-                } = &mut error
-                {
-                    *registered_keys = current
-                        .registrations
-                        .iter()
-                        .filter(|registration| {
-                            registration.tenant_id == *tenant_id
-                                && registration.index_type == *index_type as i32
-                        })
-                        .map(|registration| registration.index_key.clone())
-                        .collect();
-                }
-                error
-            })?;
-        }
         if proposed == current {
             return Ok(current);
+        }
+        if let Some(capacity) = capacity {
+            validate_added_attribute_indexes(&current, &proposed, tenant_id, capacity)?;
         }
         proposed.version = current
             .version
@@ -176,9 +157,7 @@ pub fn validate_attribute_index_capacity(
 ) -> Result<(), MetadataError> {
     let mut keys_by_type: BTreeMap<(u64, IndexType), BTreeSet<&str>> = BTreeMap::new();
     for registration in &registry.registrations {
-        let Ok(index_type) = IndexType::try_from(registration.index_type) else {
-            continue;
-        };
+        let index_type = stored_index_type(registration)?;
         keys_by_type
             .entry((registration.tenant_id, index_type))
             .or_default()
@@ -193,8 +172,59 @@ pub fn validate_attribute_index_capacity(
                 index_type,
                 limit,
                 registered_keys: keys.into_iter().map(str::to_owned).collect(),
+                rejected_keys: Vec::new(),
             });
         }
     }
     Ok(())
+}
+
+fn validate_added_attribute_indexes(
+    current: &AttributeIndexRegistry,
+    proposed: &AttributeIndexRegistry,
+    tenant_id: u64,
+    capacity: &AttributeIndexCapacity,
+) -> Result<(), MetadataError> {
+    let mut added_keys_by_type: BTreeMap<IndexType, BTreeSet<&str>> = BTreeMap::new();
+    for registration in &proposed.registrations[current.registrations.len()..] {
+        added_keys_by_type
+            .entry(stored_index_type(registration)?)
+            .or_default()
+            .insert(&registration.index_key);
+    }
+    for (index_type, added_keys) in added_keys_by_type {
+        let Some(&limit) = capacity.maximum_keys_by_type.get(&index_type) else {
+            continue;
+        };
+        let registered_keys: BTreeSet<_> = current
+            .registrations
+            .iter()
+            .filter(|registration| {
+                registration.tenant_id == tenant_id && registration.index_type == index_type as i32
+            })
+            .map(|registration| registration.index_key.as_str())
+            .collect();
+        if registered_keys.len() + added_keys.len() > limit {
+            return Err(MetadataError::AttributeIndexCapacityExceeded {
+                tenant_id,
+                index_type,
+                limit,
+                registered_keys: registered_keys.into_iter().map(str::to_owned).collect(),
+                rejected_keys: added_keys.into_iter().map(str::to_owned).collect(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn stored_index_type(
+    registration: &AttributeIndexRegistration,
+) -> Result<IndexType, MetadataError> {
+    IndexType::try_from(registration.index_type).map_err(|_| MetadataError::InvalidMetadata {
+        key: REGISTRY_KEY,
+        detail: format!(
+            "attribute index {:?} has stored type {}",
+            registration.index_key, registration.index_type
+        ),
+    })
 }
