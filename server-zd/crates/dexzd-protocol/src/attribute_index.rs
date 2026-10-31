@@ -79,3 +79,20 @@ fn format_go_float(number: f64) -> String {
     }
     number.to_string()
 }
+
+/// Returns whether a search field belongs to Dex rather than an application's Attribute registry.
+pub fn is_system_search_field(index_key: &str) -> bool {
+    matches!(
+        index_key,
+        "WorkflowId"
+            | "RunId"
+            | "WorkflowType"
+            | "FlowType"
+            | "ExecutionStatus"
+            | "StartTime"
+            | "CloseTime"
+            | "DexParentFlowID"
+            | "ActiveStepTypes"
+            | "DexWorkQueuePermissions"
+    )
+}

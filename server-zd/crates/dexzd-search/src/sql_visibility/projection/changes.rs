@@ -19,7 +19,7 @@ use prost::Message;
 
 use super::projector::ProjectionError;
 
-/// One committed search document change to project into ParadeDB.
+/// One committed search document change to project into SQL visibility.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SearchDocumentChange {

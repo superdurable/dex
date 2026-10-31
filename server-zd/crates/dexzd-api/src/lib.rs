@@ -19,7 +19,7 @@ mod flow_service_config;
 mod health_status;
 mod stream_operations;
 
-pub use attribute_indexes::AttributeIndexes;
+pub use attribute_indexes::{AttributeIndexRegistryRefresh, AttributeIndexes};
 pub use authentication::{
     AuthenticatedService, AuthenticationSetupError, CredentialAuthenticatorConfig,
     EndpointUrlError, JwtAuthenticatorConfig, PublicApiAuthenticator, check_endpoint_url,

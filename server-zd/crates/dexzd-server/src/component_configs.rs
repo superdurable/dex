@@ -61,7 +61,8 @@ impl ComponentConfigs {
             )?,
             attribute_store_names: config.attribute_store.stores.keys().cloned().collect(),
             has_blob_store: true,
-            keyword_value_limit: None,
+            keyword_value_limit: (config.search.backend == crate::config::SearchBackend::Postgres)
+                .then(dexzd_request_validation::KeywordValueLimit::postgres),
             ..ValidationConfig::default()
         };
         let available_cpus = available_cpu_count();

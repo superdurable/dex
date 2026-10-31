@@ -223,11 +223,12 @@ pub(crate) struct ServeConfig<'a> {
     pub(crate) lease_duration: &'a str,
     pub(crate) fail_if_held: bool,
     /// Selects `search.backend: paradedb` when set; builtin otherwise.
-    pub(crate) parade_db: Option<ParadeDbSettings<'a>>,
+    pub(crate) parade_db: Option<SqlVisibilitySettings<'a>>,
 }
 
 /// The ParadeDB database and schema that `search.backend: paradedb` uses.
-pub(crate) struct ParadeDbSettings<'a> {
+pub(crate) struct SqlVisibilitySettings<'a> {
+    pub(crate) is_postgres: bool,
     pub(crate) connection_string: &'a str,
     pub(crate) schema: &'a str,
 }
@@ -283,10 +284,17 @@ impl ServeConfig<'_> {
             None => String::new(),
         };
         let search = match &self.parade_db {
-            Some(parade_db) => format!(
-                "search:\n  backend: paradedb\n  paradeDbConnectionString: '{}'\n  paradeDbSchema: {}\n  paradeDbConnectionPoolSize: 2\n",
-                parade_db.connection_string, parade_db.schema
-            ),
+            Some(settings) => {
+                let (backend, prefix) = if settings.is_postgres {
+                    ("postgres", "postgres")
+                } else {
+                    ("paradedb", "paradeDb")
+                };
+                format!(
+                    "search:\n  backend: {backend}\n  {prefix}ConnectionString: '{}'\n  {prefix}Schema: {}\n  {prefix}ConnectionPoolSize: 2\n",
+                    settings.connection_string, settings.schema
+                )
+            }
             None => "search:\n  backend: builtin\n".to_owned(),
         };
         let contents = format!(
@@ -577,15 +585,19 @@ impl ServeProcess {
 }
 
 /// An isolated schema in the ParadeDB database that `DEX_ZD_PARADEDB_URL` names.
-pub(crate) struct ParadeDbSchema {
+pub(crate) struct SqlVisibilitySchema {
     client: tokio_postgres::Client,
     connection: JoinHandle<()>,
     name: String,
 }
 
-impl ParadeDbSchema {
+impl SqlVisibilitySchema {
     /// Installs `pg_search` and creates an empty schema with a name unique to this run.
     pub(crate) async fn create(database_url: &str) -> Self {
+        Self::create_for_dialect(database_url, false).await
+    }
+
+    pub(crate) async fn create_for_dialect(database_url: &str, is_postgres: bool) -> Self {
         let (client, connection) = tokio_postgres::connect(database_url, NoTls)
             .await
             .expect("the test connects to ParadeDB");
@@ -594,10 +606,12 @@ impl ParadeDbSchema {
                 eprintln!("the ParadeDB test connection closed: {error}");
             }
         });
-        client
-            .batch_execute("CREATE EXTENSION IF NOT EXISTS pg_search")
-            .await
-            .expect("pg_search is installed");
+        if !is_postgres {
+            client
+                .batch_execute("CREATE EXTENSION IF NOT EXISTS pg_search")
+                .await
+                .expect("pg_search is installed");
+        }
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the wall clock is after the Unix epoch")
@@ -639,14 +653,14 @@ impl ParadeDbSchema {
 }
 
 /// Relays PostgreSQL connections and can cut them while the server keeps committing.
-pub(crate) struct ParadeDbTcpProxy {
+pub(crate) struct SqlVisibilityTcpProxy {
     address: SocketAddr,
     availability: watch::Sender<bool>,
     active_connections: watch::Receiver<usize>,
     task: JoinHandle<()>,
 }
 
-impl ParadeDbTcpProxy {
+impl SqlVisibilityTcpProxy {
     pub(crate) async fn start(database_url: &str) -> Self {
         let configuration = database_url
             .parse::<tokio_postgres::Config>()
@@ -734,7 +748,7 @@ impl ParadeDbTcpProxy {
     }
 }
 
-impl Drop for ParadeDbTcpProxy {
+impl Drop for SqlVisibilityTcpProxy {
     fn drop(&mut self) {
         self.task.abort();
     }

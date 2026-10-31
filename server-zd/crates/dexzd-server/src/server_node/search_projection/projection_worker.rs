@@ -15,7 +15,7 @@ use dexzd_apply::FlowStateReader;
 use dexzd_engine::{CommandCommitter, CommittedStateView};
 use dexzd_keyspace::{ColumnFamily, PartitionId, partition_meta_key};
 use dexzd_protocol::dexzd::v1::{LogPosition, PartitionMeta};
-use dexzd_search::paradedb::{ParadeDbProjector, ProjectionError};
+use dexzd_search::sql_visibility::{ProjectionError, SqlVisibilityProjector};
 use prost::Message;
 use tokio::sync::mpsc;
 
@@ -24,9 +24,9 @@ use super::committed_search_frames::{CommittedSearchFrame, CommittedSearchFrames
 const FIRST_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(10);
 
-/// Projects committed frames into ParadeDB in commit order and rebuilds partitions it cannot follow.
+/// Projects committed frames into SQL visibility in commit order and rebuilds partitions it cannot follow.
 pub(crate) struct SearchProjectionWorker {
-    projector: ParadeDbProjector,
+    projector: SqlVisibilityProjector,
     committer: CommandCommitter,
     frames: Arc<CommittedSearchFrames>,
     queue: mpsc::Receiver<CommittedSearchFrame>,
@@ -54,7 +54,7 @@ impl SearchProjectionError {
 
 impl SearchProjectionWorker {
     pub(crate) fn new(
-        projector: ParadeDbProjector,
+        projector: SqlVisibilityProjector,
         committer: CommandCommitter,
         frames: Arc<CommittedSearchFrames>,
         queue: mpsc::Receiver<CommittedSearchFrame>,
@@ -92,7 +92,7 @@ impl SearchProjectionWorker {
         }
     }
 
-    /// Frames lost before startup leave ParadeDB behind the local store, so differing partitions rebuild.
+    /// Frames lost before startup leave SQL visibility behind the local store, so differing partitions rebuild.
     async fn catch_up_partitions(&mut self) -> bool {
         let caught_up_sequence = self.frames.last_sequence();
         let mut rebuilt_partitions = 0_u32;
@@ -127,7 +127,7 @@ impl SearchProjectionWorker {
         tracing::info!(
             partitions = self.partition_count,
             rebuilt_partitions,
-            "the ParadeDB search projection caught up"
+            "the SQL visibility search projection caught up"
         );
         true
     }
@@ -144,7 +144,7 @@ impl SearchProjectionWorker {
             (Some(progress), None) => {
                 tracing::warn!(
                     partition = partition.0,
-                    "ParadeDB has search progress for a partition without committed state"
+                    "SQL visibility has search progress for a partition without committed state"
                 );
                 self.projected_positions.insert(partition, progress);
                 Ok(false)
@@ -213,7 +213,7 @@ impl SearchProjectionWorker {
                     tracing::warn!(
                         partition = frame.partition.0,
                         %error,
-                        "projecting a committed frame into ParadeDB failed; retrying"
+                        "projecting a committed frame into SQL visibility failed; retrying"
                     );
                     retry_delay.wait().await;
                 }
@@ -368,7 +368,7 @@ mod tests {
     use async_trait::async_trait;
     use dexzd_keyspace::PartitionId;
 
-    use dexzd_search::paradedb::ProjectionError;
+    use dexzd_search::sql_visibility::ProjectionError;
 
     use super::{PartitionRebuilder, SearchProjectionError, retry_partition_rebuild};
 

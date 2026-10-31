@@ -20,15 +20,18 @@ use tokio_postgres::Transaction;
 use tokio_postgres::types::{ToSql, Type};
 
 use super::super::SearchRow;
-use super::super::row::is_system_field;
 use super::super::search_backend::{
-    DATABASE_OPERATION_TIMEOUT, ParadeDbSearchBackend, database_error_message,
+    DATABASE_OPERATION_TIMEOUT, SqlVisibilitySearchBackend, database_error_message,
     is_transient_database_error,
 };
-use super::super::upsert::upsert_statements;
+use super::super::upsert::upsert_statements_with_slots;
+use super::super::{AttributeSlot, VisibilityDialect};
 use super::changes::{SearchDocumentChange, decode_search_index_key};
+use super::skipped_document::{SkippedSearchDocument, record_skipped_documents};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
+use dexzd_protocol::attribute_index::indexed_keyword_strings;
+use dexzd_protocol::attribute_index::is_system_search_field;
 
 const REBUILD_SCAN_PAGE_SIZE: usize = 256;
 
@@ -37,14 +40,7 @@ struct RebuildPage {
     changes: Vec<SearchDocumentChange>,
 }
 
-struct SkippedSearchDocument {
-    partition_id: PartitionId,
-    tenant_id: TenantId,
-    run_id: RunId,
-    reason: String,
-}
-
-/// Receives a countable event for each committed search document omitted from ParadeDB.
+/// Receives a countable event for each committed search document omitted from SQL visibility.
 pub trait ProjectionMetricRecorder: Send + Sync {
     /// Records a document omitted because its committed value cannot be indexed.
     fn record_skipped_search_document(
@@ -64,12 +60,12 @@ pub enum ProjectionError {
     InvalidState(String),
     /// The stored position differs from the caller's previous position.
     #[error(
-        "ParadeDB projection partition {partition_id} has position {stored:?}, expected {expected:?} before {offered:?}"
+        "SQL visibility projection partition {partition_id} has position {stored:?}, expected {expected:?} before {offered:?}"
     )]
     PositionMismatch {
         /// Partition being projected.
         partition_id: PartitionId,
-        /// Position stored in ParadeDB.
+        /// Position stored in SQL visibility.
         stored: Option<LogPosition>,
         /// Previous position expected by the caller.
         expected: Option<LogPosition>,
@@ -78,7 +74,7 @@ pub enum ProjectionError {
     },
     /// A rebuild source is older than the committed projection.
     #[error(
-        "ParadeDB partition {partition_id} is at position {current:?}, newer than rebuild position {offered:?}"
+        "SQL visibility partition {partition_id} is at position {current:?}, newer than rebuild position {offered:?}"
     )]
     StaleRebuild {
         /// Partition being rebuilt.
@@ -89,7 +85,7 @@ pub enum ProjectionError {
         offered: LogPosition,
     },
     /// Postgres could not complete a projection operation.
-    #[error("{operation} ParadeDB projection: {message}")]
+    #[error("{operation} SQL visibility projection: {message}")]
     Database {
         /// Failed operation.
         operation: &'static str,
@@ -99,7 +95,7 @@ pub enum ProjectionError {
         is_transient: bool,
     },
     /// Postgres rejected one committed run's upsert.
-    #[error("upsert run {run_id} in partition {} into ParadeDB projection: {message}", partition_id.0)]
+    #[error("upsert run {run_id} in partition {} into SQL visibility projection: {message}", partition_id.0)]
     RowDatabase {
         /// Partition containing the run.
         partition_id: PartitionId,
@@ -111,7 +107,7 @@ pub enum ProjectionError {
         is_transient: bool,
     },
     /// Postgres rejected a statement containing multiple committed runs.
-    #[error("upsert {row_count} runs from {first_run_id} through {last_run_id} in partition {} into ParadeDB projection: {message}", partition_id.0)]
+    #[error("upsert {row_count} runs from {first_run_id} through {last_run_id} in partition {} into SQL visibility projection: {message}", partition_id.0)]
     BatchDatabase {
         /// Partition containing the runs.
         partition_id: PartitionId,
@@ -127,7 +123,7 @@ pub enum ProjectionError {
         is_transient: bool,
     },
     /// A pooled connection could not be reopened.
-    #[error("reconnect ParadeDB projector: {0}")]
+    #[error("reconnect SQL visibility projector: {0}")]
     Connection(#[from] SearchError),
     /// Reading a committed local-store row failed.
     #[error("read committed search state: {0}")]
@@ -148,11 +144,17 @@ impl ProjectionError {
         }
     }
 
-    /// Redacts database messages before they leave the projector; [`Self::Connection`] is already redacted.
+    /// Redacts database messages before they leave the projector; [`Self::Connection`] also carries backfill failures.
     fn redact_credentials(mut self, configuration: &ConnectionSettings) -> Self {
         if let Self::Database { message, .. }
         | Self::RowDatabase { message, .. }
-        | Self::BatchDatabase { message, .. } = &mut self
+        | Self::BatchDatabase { message, .. }
+        | Self::Connection(
+            SearchError::InvalidArgument(message)
+            | SearchError::ResourceExhausted(message)
+            | SearchError::Unavailable(message)
+            | SearchError::Internal(message),
+        ) = &mut self
         {
             *message = configuration.redact_credentials(std::mem::take(message));
         }
@@ -161,15 +163,16 @@ impl ProjectionError {
 }
 
 /// Projects committed partition documents through the search backend's shared connection pool.
-pub struct ParadeDbProjector {
-    backend: Arc<ParadeDbSearchBackend>,
+#[derive(Clone)]
+pub struct SqlVisibilityProjector {
+    backend: Arc<SqlVisibilitySearchBackend>,
     metric_recorder: Option<Arc<dyn ProjectionMetricRecorder>>,
 }
 
-impl ParadeDbProjector {
+impl SqlVisibilityProjector {
     /// Shares the backend's `pool_size` connections with SearchFlows requests.
     #[must_use]
-    pub fn new(backend: Arc<ParadeDbSearchBackend>) -> Self {
+    pub fn new(backend: Arc<SqlVisibilitySearchBackend>) -> Self {
         Self {
             backend,
             metric_recorder: None,
@@ -179,13 +182,22 @@ impl ParadeDbProjector {
     /// Shares backend connections and reports committed poison documents to `metric_recorder`.
     #[must_use]
     pub fn new_with_metric_recorder(
-        backend: Arc<ParadeDbSearchBackend>,
+        backend: Arc<SqlVisibilitySearchBackend>,
         metric_recorder: Arc<dyn ProjectionMetricRecorder>,
     ) -> Self {
         Self {
             backend,
             metric_recorder: Some(metric_recorder),
         }
+    }
+
+    /// Refreshes and backfills registered slots, including when no document writes arrive.
+    pub async fn synchronize_attribute_slots(&self) -> Result<(), ProjectionError> {
+        self.backend
+            .backfill_registered_attributes(self.metric_recorder.as_deref())
+            .await
+            .map_err(ProjectionError::from)
+            .map_err(|error| error.redact_credentials(self.backend.configuration()))
     }
 
     /// Returns the last committed log position for one partition, if any.
@@ -253,6 +265,7 @@ impl ParadeDbProjector {
                     previous_position,
                     applied_position,
                     changes,
+                    &self.backend,
                 ),
             )
             .await;
@@ -270,7 +283,7 @@ impl ParadeDbProjector {
             }
             drop(slot);
             return result
-                .map(|skipped| self.record_skipped_documents(skipped))
+                .map(|skipped| record_skipped_documents(skipped, self.metric_recorder.as_deref()))
                 .map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
@@ -296,6 +309,7 @@ impl ParadeDbProjector {
                     partition_id,
                     applied_position,
                     committed_view.clone(),
+                    &self.backend,
                 ),
             )
             .await;
@@ -313,27 +327,8 @@ impl ParadeDbProjector {
             }
             drop(slot);
             return result
-                .map(|skipped| self.record_skipped_documents(skipped))
+                .map(|skipped| record_skipped_documents(skipped, self.metric_recorder.as_deref()))
                 .map_err(|error| error.redact_credentials(self.backend.configuration()));
-        }
-    }
-
-    fn record_skipped_documents(&self, skipped_documents: Vec<SkippedSearchDocument>) {
-        for skipped in skipped_documents {
-            tracing::error!(
-                partition_id = skipped.partition_id.0,
-                tenant_id = skipped.tenant_id.0,
-                run_id = %skipped.run_id,
-                reason = %skipped.reason,
-                "committed search document omitted from ParadeDB projection"
-            );
-            if let Some(recorder) = &self.metric_recorder {
-                recorder.record_skipped_search_document(
-                    skipped.partition_id,
-                    skipped.tenant_id,
-                    skipped.run_id,
-                );
-            }
         }
     }
 }
@@ -344,11 +339,13 @@ async fn apply_batch_transaction(
     previous_position: Option<&LogPosition>,
     applied_position: &LogPosition,
     changes: &[SearchDocumentChange],
+    backend: &SqlVisibilitySearchBackend,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let transaction = client
         .transaction()
         .await
         .map_err(|source| database_error("begin", source))?;
+    let assignments = prepare_attribute_slots(&transaction, backend).await?;
     let current = lock_progress(&transaction, partition_id).await?;
     if is_replay(current.as_ref(), applied_position) {
         transaction
@@ -365,7 +362,15 @@ async fn apply_batch_transaction(
             offered: applied_position.clone(),
         });
     }
-    let skipped_documents = apply_changes(&transaction, partition_id, changes).await?;
+    let skipped_documents = apply_changes(
+        &transaction,
+        partition_id,
+        changes,
+        assignments
+            .as_ref()
+            .map(|snapshot| snapshot.assignments.as_slice()),
+    )
+    .await?;
     update_progress(&transaction, partition_id, applied_position).await?;
     transaction
         .commit()
@@ -379,11 +384,13 @@ async fn rebuild_transaction(
     partition_id: PartitionId,
     applied_position: &LogPosition,
     committed_view: Arc<dyn FlowStateReader + Send + Sync>,
+    backend: &SqlVisibilitySearchBackend,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let transaction = client
         .transaction()
         .await
         .map_err(|source| database_error("begin rebuild of", source))?;
+    let assignments = prepare_attribute_slots(&transaction, backend).await?;
     let current = lock_progress(&transaction, partition_id).await?;
     if current.as_ref().is_some_and(|stored| {
         same_stream(stored, applied_position) && stored.seq > applied_position.seq
@@ -430,7 +437,17 @@ async fn rebuild_transaction(
             break;
         };
         start = next_start;
-        skipped_documents.extend(apply_changes(&transaction, partition_id, &changes).await?);
+        skipped_documents.extend(
+            apply_changes(
+                &transaction,
+                partition_id,
+                &changes,
+                assignments
+                    .as_ref()
+                    .map(|snapshot| snapshot.assignments.as_slice()),
+            )
+            .await?,
+        );
     }
     update_progress(&transaction, partition_id, applied_position).await?;
     transaction
@@ -500,10 +517,21 @@ fn read_rebuild_page(
     }))
 }
 
+async fn prepare_attribute_slots(
+    transaction: &Transaction<'_>,
+    backend: &SqlVisibilitySearchBackend,
+) -> Result<Option<Arc<super::super::slots::AttributeSlotSnapshot>>, ProjectionError> {
+    if backend.dialect() != VisibilityDialect::Postgres {
+        return Ok(None);
+    }
+    Ok(Some(backend.attribute_slots_for_write(transaction).await?))
+}
+
 async fn apply_changes(
     transaction: &Transaction<'_>,
     partition_id: PartitionId,
     changes: &[SearchDocumentChange],
+    assignments: Option<&[AttributeSlot]>,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let mut pending_rows = Vec::new();
     let mut skipped_documents = Vec::new();
@@ -513,12 +541,19 @@ async fn apply_changes(
                 tenant_id,
                 run_id,
                 encoded_document,
-            } => match row_from_document(partition_id, *tenant_id, *run_id, encoded_document) {
+            } => match row_from_document_for_dialect(
+                partition_id,
+                *tenant_id,
+                *run_id,
+                encoded_document,
+                assignments,
+            ) {
                 Ok(row) => {
                     pending_rows.push(row);
                 }
                 Err(reason) => {
-                    flush_upserts(transaction, partition_id, &mut pending_rows).await?;
+                    flush_upserts(transaction, partition_id, &mut pending_rows, assignments)
+                        .await?;
                     delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
                     record_skipped_document(
                         transaction,
@@ -537,13 +572,13 @@ async fn apply_changes(
                 }
             },
             SearchDocumentChange::Delete { tenant_id, run_id } => {
-                flush_upserts(transaction, partition_id, &mut pending_rows).await?;
+                flush_upserts(transaction, partition_id, &mut pending_rows, assignments).await?;
                 delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
                 delete_skipped_document(transaction, *tenant_id, *run_id).await?;
             }
         }
     }
-    flush_upserts(transaction, partition_id, &mut pending_rows).await?;
+    flush_upserts(transaction, partition_id, &mut pending_rows, assignments).await?;
     Ok(skipped_documents)
 }
 
@@ -551,8 +586,9 @@ async fn flush_upserts(
     transaction: &Transaction<'_>,
     partition_id: PartitionId,
     pending_rows: &mut Vec<SearchRow>,
+    assignments: Option<&[AttributeSlot]>,
 ) -> Result<(), ProjectionError> {
-    let statements = upsert_statements(pending_rows)
+    let statements = upsert_statements_with_slots(pending_rows, assignments)
         .map_err(|error| ProjectionError::InvalidState(error.to_string()))?;
     for chunk in statements {
         transaction
@@ -659,15 +695,54 @@ async fn delete_search_row(
     Ok(())
 }
 
+#[cfg(test)]
 fn row_from_document(
     partition_id: PartitionId,
     tenant_id: TenantId,
     run_id: RunId,
     encoded_document: &[u8],
 ) -> Result<SearchRow, ProjectionError> {
+    row_from_document_for_dialect(partition_id, tenant_id, run_id, encoded_document, None)
+}
+
+fn row_from_document_for_dialect(
+    partition_id: PartitionId,
+    tenant_id: TenantId,
+    run_id: RunId,
+    encoded_document: &[u8],
+    assignments: Option<&[AttributeSlot]>,
+) -> Result<SearchRow, ProjectionError> {
     let record = SearchDocumentRecord::decode(encoded_document).map_err(|error| {
         ProjectionError::InvalidState(format!("decode committed search document: {error}"))
     })?;
+    if let Some(assignments) = assignments {
+        for attribute in &record.attributes {
+            if is_system_search_field(&attribute.index_key) {
+                continue;
+            }
+            let registered_type = assignments
+                .iter()
+                .find(|assignment| {
+                    assignment.tenant_id == tenant_id.0
+                        && assignment.index_key == attribute.index_key
+                })
+                .map(|assignment| assignment.index_type as i32);
+            if registered_type != Some(attribute.index_type) {
+                continue;
+            }
+            if let (Some(value), Ok(index_type)) =
+                (&attribute.value, IndexType::try_from(attribute.index_type))
+                && let Some(strings) = indexed_keyword_strings(value, index_type)
+                && let Some(value) = strings.iter().find(|value| value.len() > 1024)
+            {
+                return Err(ProjectionError::InvalidState(format!(
+                    "indexed Keyword {:?} has {} bytes; PostgreSQL maximum is 1024 bytes",
+                    attribute.index_key,
+                    value.len()
+                )));
+            }
+        }
+    }
     let version = i64::try_from(record.version).map_err(|_| {
         ProjectionError::InvalidState("search document version exceeds bigint".into())
     })?;
@@ -675,7 +750,7 @@ fn row_from_document(
     let application_fields = record
         .attributes
         .iter()
-        .filter(|attribute| !is_system_field(&attribute.index_key))
+        .filter(|attribute| !is_system_search_field(&attribute.index_key))
         .map(|attribute| {
             IndexType::try_from(attribute.index_type)
                 .map(|index_type| (attribute.index_key.clone(), index_type))
@@ -761,14 +836,14 @@ fn position_from_row(row: &tokio_postgres::Row) -> Result<Option<LogPosition>, P
         (Some(node_id), Some(incarnation), Some(sequence)) => Ok(Some(LogPosition {
             node_id,
             incarnation: u32::try_from(incarnation).map_err(|_| {
-                ProjectionError::InvalidState("invalid ParadeDB progress incarnation".into())
+                ProjectionError::InvalidState("invalid SQL visibility progress incarnation".into())
             })?,
             seq: u64::try_from(sequence).map_err(|_| {
-                ProjectionError::InvalidState("invalid ParadeDB progress sequence".into())
+                ProjectionError::InvalidState("invalid SQL visibility progress sequence".into())
             })?,
         })),
         _ => Err(ProjectionError::InvalidState(
-            "incomplete ParadeDB projection position".into(),
+            "incomplete SQL visibility projection position".into(),
         )),
     }
 }
@@ -844,7 +919,7 @@ fn row_database_error(
 
 fn operation_timeout(operation: &'static str) -> ProjectionError {
     ProjectionError::Connection(SearchError::Unavailable(format!(
-        "{operation} ParadeDB projection timed out after {DATABASE_OPERATION_TIMEOUT:?}"
+        "{operation} SQL visibility projection timed out after {DATABASE_OPERATION_TIMEOUT:?}"
     )))
 }
 
@@ -852,16 +927,19 @@ fn should_retry(result: &Result<impl Sized, ProjectionError>, has_retried: bool)
     !has_retried
         && matches!(
             result,
-            Err(ProjectionError::Database {
-                is_transient: true,
-                ..
-            } | ProjectionError::RowDatabase {
-                is_transient: true,
-                ..
-            } | ProjectionError::BatchDatabase {
-                is_transient: true,
-                ..
-            })
+            Err(ProjectionError::Connection(SearchError::Unavailable(_))
+                | ProjectionError::Database {
+                    is_transient: true,
+                    ..
+                }
+                | ProjectionError::RowDatabase {
+                    is_transient: true,
+                    ..
+                }
+                | ProjectionError::BatchDatabase {
+                    is_transient: true,
+                    ..
+                })
         )
 }
 

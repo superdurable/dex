@@ -20,9 +20,13 @@ use dexzd_visibility_query::FieldRegistry;
 use prost::Message;
 use tokio_postgres::{Client, Config};
 
-use super::super::ParadeDbSearchBackend;
-use super::{ParadeDbProjector, ProjectionError, ProjectionMetricRecorder, SearchDocumentChange};
+use super::super::integration::TestAttributeRegistry;
+use super::super::{SqlVisibilitySearchBackend, VisibilityDialect};
+use super::{
+    ProjectionError, ProjectionMetricRecorder, SearchDocumentChange, SqlVisibilityProjector,
+};
 use crate::{SearchBackend, SearchError, SearchRequest};
+use dexzd_postgres_connection::ConnectionSettings;
 
 #[derive(Default)]
 struct CommittedDocuments(BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>);
@@ -194,7 +198,7 @@ fn position(sequence: u64) -> LogPosition {
 
 fn assert_send<T: Send>(_: T) {}
 
-async fn listed_runs(backend: &ParadeDbSearchBackend, tenant_id: TenantId) -> Vec<String> {
+async fn listed_runs(backend: &SqlVisibilitySearchBackend, tenant_id: TenantId) -> Vec<String> {
     backend
         .search(SearchRequest {
             tenant_id,
@@ -212,7 +216,7 @@ async fn listed_runs(backend: &ParadeDbSearchBackend, tenant_id: TenantId) -> Ve
 }
 
 async fn skipped_reason(
-    backend: &ParadeDbSearchBackend,
+    backend: &SqlVisibilitySearchBackend,
     tenant_id: TenantId,
     run_id: RunId,
 ) -> Option<String> {
@@ -232,11 +236,12 @@ async fn skipped_reason(
         .map(|row| row.get(0))
 }
 
-async fn verify_ordered_batch_changes(backend: &Arc<ParadeDbSearchBackend>) {
+async fn verify_ordered_batch_changes(backend: &Arc<SqlVisibilitySearchBackend>) {
     let partition_id = PartitionId(6);
     let tenant_id = TenantId(19);
     let metrics = Arc::new(CountingProjectionMetrics::new(partition_id, tenant_id));
-    let projector = ParadeDbProjector::new_with_metric_recorder(backend.clone(), metrics.clone());
+    let projector =
+        SqlVisibilityProjector::new_with_metric_recorder(backend.clone(), metrics.clone());
     let run_id = RunId([9; 16]);
     let newest = document(tenant_id, run_id, 10);
     let older = document(tenant_id, run_id, 1);
@@ -329,6 +334,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
     database_url: &str,
     admin_client: &Client,
     nonce: u128,
+    dialect: VisibilityDialect,
 ) {
     for pool_size in [1, 2] {
         let schema_name = format!(
@@ -341,15 +347,22 @@ pub(crate) async fn run_projector_scenarios_for_test(
             .batch_execute(&format!("CREATE SCHEMA {schema_name}"))
             .await
             .expect("create empty projector schema");
-        let mut configuration: Config = database_url.parse().expect("parse CI ParadeDB URL");
+        let mut configuration: Config = database_url.parse().expect("parse CI SQL visibility URL");
         configuration.options(format!("-c search_path={schema_name},public,pdb"));
         let backend = Arc::new(
-            ParadeDbSearchBackend::connect(&configuration, pool_size, None, Duration::from_secs(2))
-                .await
-                .expect("create schema on empty database"),
+            SqlVisibilitySearchBackend::connect_dialect_with_settings(
+                &ConnectionSettings::from_config(configuration.clone()),
+                pool_size,
+                None,
+                Duration::from_secs(2),
+                dialect,
+                Some(Arc::new(TestAttributeRegistry::default())),
+            )
+            .await
+            .expect("create schema on empty database"),
         );
         let metrics = Arc::new(CountingProjectionMetrics::new(PartitionId(4), TenantId(17)));
-        let projector = Arc::new(ParadeDbProjector::new_with_metric_recorder(
+        let projector = Arc::new(SqlVisibilityProjector::new_with_metric_recorder(
             backend.clone(),
             metrics.clone(),
         ));
@@ -363,7 +376,32 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .expect("read created schema version")
         };
-        assert_eq!(schema_row.get::<_, i32>(0), 3);
+        assert_eq!(
+            schema_row.get::<_, i32>(0),
+            if dialect == VisibilityDialect::ParadeDb {
+                3
+            } else {
+                4
+            }
+        );
+        let other_dialect = if dialect == VisibilityDialect::ParadeDb {
+            VisibilityDialect::Postgres
+        } else {
+            VisibilityDialect::ParadeDb
+        };
+        let mismatched = SqlVisibilitySearchBackend::connect_dialect_with_settings(
+            &ConnectionSettings::from_config(configuration.clone()),
+            1,
+            None,
+            Duration::from_secs(2),
+            other_dialect,
+            Some(Arc::new(TestAttributeRegistry::default())),
+        )
+        .await;
+        assert!(
+            matches!(mismatched, Err(SearchError::Internal(message)) if message.contains("dialect") && message.contains("does not match"))
+        );
+
         assert_eq!(projector.read_progress(PartitionId(4)).await.unwrap(), None);
         let mut locked_slot = backend.lock_next_slot().await;
         let table_lock = locked_slot
@@ -377,7 +415,14 @@ pub(crate) async fn run_projector_scenarios_for_test(
             .expect("hold visibility writer lock");
         let repeated_backend = tokio::time::timeout(
             Duration::from_secs(3),
-            ParadeDbSearchBackend::connect(&configuration, 1, None, Duration::from_secs(2)),
+            SqlVisibilitySearchBackend::connect_dialect_with_settings(
+                &ConnectionSettings::from_config(configuration.clone()),
+                1,
+                None,
+                Duration::from_secs(2),
+                dialect,
+                Some(Arc::new(TestAttributeRegistry::default())),
+            ),
         )
         .await
         .expect("current schema setup does not wait on visibility table")
@@ -775,6 +820,45 @@ pub(crate) async fn run_projector_scenarios_for_test(
         drop(projector);
         drop(backend);
 
+        if dialect == VisibilityDialect::ParadeDb {
+            admin_client.batch_execute(&format!("UPDATE {schema_name}.dexzd_visibility_schema_version SET version = 3 WHERE id = 1; ALTER TABLE {schema_name}.dexzd_visibility_schema_version DROP COLUMN dialect")).await.unwrap();
+            let previous_count: i64 = admin_client
+                .query_one(
+                    &format!("SELECT count(*) FROM {schema_name}.dexzd_visibility_runs"),
+                    &[],
+                )
+                .await
+                .unwrap()
+                .get(0);
+            let upgraded = SqlVisibilitySearchBackend::connect_dialect_with_settings(
+                &ConnectionSettings::from_config(configuration.clone()),
+                1,
+                None,
+                Duration::from_secs(2),
+                dialect,
+                Some(Arc::new(TestAttributeRegistry::default())),
+            )
+            .await
+            .unwrap();
+            let preserved_count: i64 = admin_client
+                .query_one(
+                    &format!("SELECT count(*) FROM {schema_name}.dexzd_visibility_runs"),
+                    &[],
+                )
+                .await
+                .unwrap()
+                .get(0);
+            let metadata = admin_client.query_one(&format!("SELECT version, dialect FROM {schema_name}.dexzd_visibility_schema_version WHERE id = 1"), &[]).await.unwrap();
+            assert_eq!(metadata.get::<_, i32>(0), 3);
+            assert_eq!(metadata.get::<_, String>(1), "paradedb");
+            assert!(
+                metadata.get::<_, i32>(0) <= 3,
+                "the older binary's schema version check still accepts ParadeDB"
+            );
+            assert_eq!(previous_count, preserved_count);
+            assert!(previous_count > 0);
+            drop(upgraded);
+        }
         admin_client
             .batch_execute(&format!(
                 "DROP TABLE {schema_name}.dexzd_visibility_skipped_documents; \
@@ -783,11 +867,18 @@ pub(crate) async fn run_projector_scenarios_for_test(
             .await
             .expect("simulate schema version without skipped-document records");
         let version_two_backend = Arc::new(
-            ParadeDbSearchBackend::connect(&configuration, 1, None, Duration::from_secs(2))
-                .await
-                .expect("upgrade schema version two"),
+            SqlVisibilitySearchBackend::connect_dialect_with_settings(
+                &ConnectionSettings::from_config(configuration.clone()),
+                1,
+                None,
+                Duration::from_secs(2),
+                dialect,
+                Some(Arc::new(TestAttributeRegistry::default())),
+            )
+            .await
+            .expect("upgrade schema version two"),
         );
-        let version_two_projector = ParadeDbProjector::new(version_two_backend.clone());
+        let version_two_projector = SqlVisibilityProjector::new(version_two_backend.clone());
         assert_eq!(
             version_two_projector
                 .read_progress(partition_id)
@@ -810,11 +901,18 @@ pub(crate) async fn run_projector_scenarios_for_test(
             .await
             .expect("simulate an older visibility schema");
         let upgraded_backend = Arc::new(
-            ParadeDbSearchBackend::connect(&configuration, 1, None, Duration::from_secs(2))
-                .await
-                .expect("upgrade an existing visibility schema"),
+            SqlVisibilitySearchBackend::connect_dialect_with_settings(
+                &ConnectionSettings::from_config(configuration.clone()),
+                1,
+                None,
+                Duration::from_secs(2),
+                dialect,
+                Some(Arc::new(TestAttributeRegistry::default())),
+            )
+            .await
+            .expect("upgrade an existing visibility schema"),
         );
-        let upgraded_projector = ParadeDbProjector::new(upgraded_backend.clone());
+        let upgraded_projector = SqlVisibilityProjector::new(upgraded_backend.clone());
         assert_eq!(
             upgraded_projector
                 .read_progress(partition_id)
@@ -832,8 +930,15 @@ pub(crate) async fn run_projector_scenarios_for_test(
             ))
             .await
             .expect("set future schema version");
-        let newer_schema =
-            ParadeDbSearchBackend::connect(&configuration, 1, None, Duration::from_secs(2)).await;
+        let newer_schema = SqlVisibilitySearchBackend::connect_dialect_with_settings(
+            &ConnectionSettings::from_config(configuration.clone()),
+            1,
+            None,
+            Duration::from_secs(2),
+            dialect,
+            Some(Arc::new(TestAttributeRegistry::default())),
+        )
+        .await;
         assert!(
             matches!(newer_schema, Err(SearchError::Internal(message)) if message.contains("version 99"))
         );

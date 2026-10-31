@@ -702,3 +702,22 @@ From server-zd 1.0 on, add the next version in the change that does any of the f
   version with a named predicate. Before 1.0, regenerate `v1` instead.
 - Persistent formats (`proto/dexzd/`, key layout, object storage layout, snapshots) change only
   additively, following the same rules as `protos/dex.proto`.
+
+### PostgreSQL visibility
+
+`search.backend: postgres` uses PostgreSQL 15+ with no extensions. Configure
+`postgresConnectionString` (or `DEX_ZD_POSTGRES_CONNECTION_STRING`),
+`postgresConnectionPoolSize` (default 10), and `postgresSchema` (default public).
+TLS and `readYourWritesWait` work as for ParadeDB. A database schema records its
+dialect and refuses the other backend; switch to a new database or schema to
+rebuild automatically from committed state. ParadeDB version 3 upgrades without
+clearing documents.
+
+Each tenant receives ten Keyword slots and three each of Int, Datetime, Double,
+Bool, KeywordArray, and Text, in registration order. Full types reject new
+registrations, and an over-capacity registry prevents startup. The append-only
+registry has no delete API. Indexed Keyword values and KeywordArray elements
+are limited to 1024 UTF-8 bytes; ingress rejects larger writes, and projection
+records previously committed oversized documents as skipped. Attributes use
+JSONB until backfill finishes. Explicit StartTime/CloseTime ordering sorts all
+matches; negative predicates may not use an index.

@@ -151,13 +151,15 @@ pub enum SearchBackend {
     Builtin,
     /// Queries the external ParadeDB projection using the configured connection string.
     Paradedb,
+    /// Queries the external PostgreSQL projection without extensions.
+    Postgres,
 }
 
-/// Configures builtin search or the optional ParadeDB projection.
+/// Configures builtin search or the optional SQL visibility projection.
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchConfig {
-    /// Defaults to builtin; production deployments may select paradedb for indexed queries.
+    /// Defaults to builtin; production deployments may select paradedb or postgres for indexed queries.
     pub backend: SearchBackend,
     /// Defaults to 100000 documents; maximum builtin documents inspected by one SearchFlows query.
     /// A query without ORDER BY reads runs in default order and stops once its page is full, so
@@ -175,7 +177,17 @@ pub struct SearchConfig {
     pub parade_db_connection_pool_size: u32,
     /// Defaults to public; schema containing the external search projection.
     pub parade_db_schema: String,
-    /// Defaults to 2 s; maximum wait for ParadeDB projection to catch up to the node's committed position.
+    /// Defaults to empty; PostgreSQL protocol endpoint required for the postgres backend.
+    /// The server connects to this address; it neither binds nor advertises it.
+    /// When empty, loading reads DEX_ZD_POSTGRES_CONNECTION_STRING; serialization redacts non-empty values.
+    /// Supports the same PostgreSQL TLS settings as paradeDbConnectionString.
+    #[serde(serialize_with = "serialize_parade_db_connection_string")]
+    pub postgres_connection_string: String,
+    /// Defaults to 10; maximum PostgreSQL search connections held by one node.
+    pub postgres_connection_pool_size: u32,
+    /// Defaults to public; schema containing the PostgreSQL search projection.
+    pub postgres_schema: String,
+    /// Defaults to 2 s; maximum wait for the external search projection to catch up to the node's committed position.
     #[serde(with = "humantime_serde")]
     pub read_your_writes_wait: Duration,
 }
@@ -209,6 +221,12 @@ impl fmt::Debug for SearchConfig {
                 &self.parade_db_connection_pool_size,
             )
             .field("parade_db_schema", &self.parade_db_schema)
+            .field("postgres_connection_string", &"[redacted]")
+            .field(
+                "postgres_connection_pool_size",
+                &self.postgres_connection_pool_size,
+            )
+            .field("postgres_schema", &self.postgres_schema)
             .field("read_your_writes_wait", &self.read_your_writes_wait)
             .finish()
     }
@@ -222,6 +240,9 @@ impl Default for SearchConfig {
             parade_db_connection_string: String::new(),
             parade_db_connection_pool_size: 10,
             parade_db_schema: "public".to_owned(),
+            postgres_connection_string: String::new(),
+            postgres_connection_pool_size: 10,
+            postgres_schema: "public".to_owned(),
             read_your_writes_wait: Duration::from_secs(2),
         }
     }

@@ -1,0 +1,744 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+use dexzd_protocol::dex::IndexType;
+use dexzd_visibility_query::{Expression, Literal, Operator, Predicate, Query, SortDirection};
+use thiserror::Error;
+
+use super::{AttributeSlot, SearchRow, SqlStatement, SqlValue, VisibilityDialect};
+
+pub(super) const SELECT_COLUMNS: &str = "tenant_id, run_id, workflow_id, workflow_type, flow_type, execution_status, start_time_ns, close_time_ns, dex_parent_flow_id, active_step_types, dex_work_queue_permissions, version, sa_keyword::text AS sa_keyword, sa_text::text AS sa_text, sa_number::text AS sa_number, sa_number_types::text AS sa_number_types, sa_datetime::text AS sa_datetime, sa_bool::text AS sa_bool, sa_wire::text AS sa_wire";
+pub(super) const DEFAULT_ORDER: &str = "ORDER BY is_running DESC, close_time_ns DESC NULLS LAST, start_time_ns DESC, run_id COLLATE \"C\" ASC";
+
+/// Keyset position for one returned run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageCursor {
+    /// Whether the run was running when the page was read.
+    pub is_running: bool,
+    /// Close time in Unix nanoseconds, if closed.
+    pub close_time_ns: Option<i64>,
+    /// Start time in Unix nanoseconds.
+    pub start_time_ns: i64,
+    /// Stable run identifier used to break sort ties.
+    pub run_id: String,
+}
+
+impl PageCursor {
+    /// Captures the sort position of a projected row.
+    #[must_use]
+    pub fn from_row(row: &SearchRow) -> Self {
+        Self {
+            is_running: row.execution_status == "Running",
+            close_time_ns: row.close_time_ns,
+            start_time_ns: row.start_time_ns,
+            run_id: row.run_id.clone(),
+        }
+    }
+}
+
+/// Invalid input or unsupported expression for SQL visibility translation.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SqlTranslationError {
+    /// The query uses a feature this backend cannot express.
+    #[error("unsupported SQL visibility query: {feature}")]
+    Unsupported { feature: String },
+    /// The page size, tenant ID, or cursor is invalid.
+    #[error("invalid SQL visibility pagination: {reason}")]
+    InvalidPagination { reason: &'static str },
+}
+
+/// Selects tenant runs with bound values, query order, and an optional keyset cursor.
+pub fn translate_query(
+    query: &Query,
+    tenant_id: &str,
+    page_size: i64,
+    cursor: Option<&PageCursor>,
+) -> Result<SqlStatement, SqlTranslationError> {
+    translate_query_for_dialect(
+        query,
+        tenant_id,
+        page_size,
+        cursor,
+        VisibilityDialect::ParadeDb,
+        &[],
+    )
+}
+
+/// Selects tenant runs using ready slots only for the PostgreSQL dialect.
+pub fn translate_query_for_dialect(
+    query: &Query,
+    tenant_id: &str,
+    page_size: i64,
+    cursor: Option<&PageCursor>,
+    dialect: VisibilityDialect,
+    assignments: &[AttributeSlot],
+) -> Result<SqlStatement, SqlTranslationError> {
+    if tenant_id.is_empty() {
+        return Err(SqlTranslationError::InvalidPagination {
+            reason: "tenant ID is empty",
+        });
+    }
+    if page_size <= 0 {
+        return Err(SqlTranslationError::InvalidPagination {
+            reason: "page size must be positive",
+        });
+    }
+    if cursor.is_some_and(|cursor| cursor.run_id.is_empty()) {
+        return Err(SqlTranslationError::InvalidPagination {
+            reason: "cursor run ID is empty",
+        });
+    }
+    let mut renderer = Renderer {
+        parameters: vec![SqlValue::Text(tenant_id.to_owned())],
+        dialect,
+        assignments,
+        tenant_id,
+    };
+    let predicate = renderer.render_expression(query.expression())?;
+    let has_application_field =
+        dialect == VisibilityDialect::ParadeDb && contains_application_field(query.expression());
+    let filtered_predicate = if has_application_field {
+        // Coalesce prevents pg_search pushdown from dropping empty arrays that satisfy IS NOT NULL.
+        format!("coalesce(({predicate}), FALSE)")
+    } else {
+        format!("({predicate})")
+    };
+    let mut sql = format!(
+        "SELECT {SELECT_COLUMNS} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND {filtered_predicate}"
+    );
+    if has_application_field {
+        sql.push_str(" AND tenant_id @@@ pdb.term($1::text)");
+    }
+    if let Some(cursor) = cursor {
+        let cursor_sql = renderer.render_cursor(query, cursor)?;
+        sql.push_str(" AND (");
+        sql.push_str(&cursor_sql);
+        sql.push(')');
+    }
+    let ordering = match query.order_by() {
+        None => DEFAULT_ORDER,
+        Some(("StartTime", SortDirection::Ascending)) => {
+            "ORDER BY start_time_ns ASC, run_id COLLATE \"C\" ASC"
+        }
+        Some(("StartTime", SortDirection::Descending)) => {
+            "ORDER BY start_time_ns DESC, run_id COLLATE \"C\" ASC"
+        }
+        Some(("CloseTime", SortDirection::Ascending)) => {
+            "ORDER BY close_time_ns ASC NULLS LAST, run_id COLLATE \"C\" ASC"
+        }
+        Some(("CloseTime", SortDirection::Descending)) => {
+            "ORDER BY close_time_ns DESC NULLS LAST, run_id COLLATE \"C\" ASC"
+        }
+        Some((field, _)) => {
+            return Err(SqlTranslationError::Unsupported {
+                feature: format!("ORDER BY {field}"),
+            });
+        }
+    };
+    sql.push(' ');
+    sql.push_str(ordering);
+    let limit = renderer.bind(SqlValue::Int(page_size), "bigint");
+    sql.push_str(&format!(" LIMIT {limit}"));
+    Ok(SqlStatement {
+        sql,
+        parameters: renderer.parameters,
+    })
+}
+
+struct Renderer<'registry> {
+    dialect: VisibilityDialect,
+    assignments: &'registry [AttributeSlot],
+    tenant_id: &'registry str,
+    parameters: Vec<SqlValue>,
+}
+
+impl Renderer<'_> {
+    fn bind(&mut self, value: SqlValue, sql_type: &str) -> String {
+        self.parameters.push(value);
+        format!("${}::{sql_type}", self.parameters.len())
+    }
+
+    fn render_expression(
+        &mut self,
+        expression: &Expression,
+    ) -> Result<String, SqlTranslationError> {
+        self.do_render_expression(expression, true)
+    }
+
+    fn do_render_expression(
+        &mut self,
+        expression: &Expression,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
+        match expression {
+            Expression::True => Ok("TRUE".to_owned()),
+            Expression::NoMatch(predicate) => {
+                if self.dialect == VisibilityDialect::Postgres {
+                    let presence = self.field_presence(predicate)?;
+                    Ok(format!("CASE WHEN {presence} THEN FALSE ELSE NULL END"))
+                } else {
+                    let source = self.field_source(predicate, false)?;
+                    Ok(format!(
+                        "CASE WHEN {} IS NULL THEN NULL ELSE FALSE END",
+                        source.expression
+                    ))
+                }
+            }
+            Expression::Not(inner) => Ok(format!(
+                "NOT ({})",
+                self.do_render_expression(inner, false)?
+            )),
+            Expression::And(children) => self.render_children(children, "AND", should_use_slots),
+            Expression::Or(children) => self.render_children(children, "OR", should_use_slots),
+            Expression::Predicate(predicate) => self.render_predicate(predicate, should_use_slots),
+            _ => Err(SqlTranslationError::Unsupported {
+                feature: "unknown expression".to_owned(),
+            }),
+        }
+    }
+
+    fn render_children(
+        &mut self,
+        children: &[Expression],
+        operator: &str,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
+        let mut expressions = Vec::with_capacity(children.len());
+        for child in children {
+            expressions.push(format!(
+                "({})",
+                self.do_render_expression(child, should_use_slots)?
+            ));
+        }
+        Ok(expressions.join(&format!(" {operator} ")))
+    }
+
+    fn render_predicate(
+        &mut self,
+        predicate: &Predicate,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
+        if predicate.field() == "WorkflowType"
+            && predicate.operator() == Operator::Equal
+            && matches!(predicate.literals().first(), Some(Literal::String(value)) if value == "Engine")
+        {
+            return Ok("TRUE".to_owned());
+        }
+        if predicate.field() == "ExecutionStatus"
+            && predicate.operator() == Operator::Equal
+            && matches!(predicate.literals().first(), Some(Literal::String(value)) if value == "ContinuedAsNew")
+        {
+            return Ok("FALSE".to_owned());
+        }
+        if self.dialect == VisibilityDialect::Postgres
+            && matches!(predicate.operator(), Operator::IsNull | Operator::IsNotNull)
+        {
+            let presence = self.field_presence(predicate)?;
+            return Ok(if predicate.operator() == Operator::IsNull {
+                format!("NOT ({presence})")
+            } else {
+                presence
+            });
+        }
+        let is_negative = matches!(predicate.operator(), Operator::NotEqual | Operator::NotIn);
+        let should_use_slots = should_use_slots && !is_negative;
+        let source = self.field_source(predicate, should_use_slots)?;
+        match predicate.operator() {
+            Operator::IsNull => return Ok(format!("{} IS NULL", source.expression)),
+            Operator::IsNotNull => return Ok(format!("{} IS NOT NULL", source.expression)),
+            _ => {}
+        }
+        let has_ready_slot = should_use_slots
+            && self.dialect == VisibilityDialect::Postgres
+            && self.assignments.iter().any(|assignment| {
+                assignment.tenant_id.to_string() == self.tenant_id
+                    && assignment.index_key == predicate.field()
+                    && assignment.index_type == predicate.index_type()
+            });
+        let positive = if predicate.index_type() == IndexType::Text {
+            self.render_text(predicate, &source.expression, should_use_slots)?
+        } else if predicate.index_type() == IndexType::KeywordArray {
+            self.render_array(predicate, &source)?
+        } else {
+            self.render_scalar(predicate, &source.expression, should_use_slots)?
+        };
+        let positive = if self.dialect == VisibilityDialect::Postgres
+            && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+            && !has_ready_slot
+        {
+            let presence = self.field_presence(predicate)?;
+            format!("CASE WHEN {presence} THEN coalesce(({positive}), FALSE) ELSE NULL END")
+        } else {
+            positive
+        };
+        if is_negative {
+            if self.dialect == VisibilityDialect::ParadeDb
+                && predicate.operator() == Operator::NotIn
+                && !matches!(
+                    predicate.index_type(),
+                    IndexType::Text | IndexType::KeywordArray
+                )
+            {
+                Ok(format!("NOT {positive}"))
+            } else {
+                Ok(format!("NOT ({positive})"))
+            }
+        } else {
+            Ok(positive)
+        }
+    }
+
+    fn field_presence(&mut self, predicate: &Predicate) -> Result<String, SqlTranslationError> {
+        if dexzd_protocol::attribute_index::is_system_search_field(predicate.field()) {
+            return Ok(format!(
+                "{} IS NOT NULL",
+                self.field_source(predicate, false)?.expression
+            ));
+        }
+        let name = self.bind(SqlValue::Text(predicate.field().to_owned()), "text");
+        Ok([
+            "sa_keyword",
+            "sa_text",
+            "sa_number",
+            "sa_datetime",
+            "sa_bool",
+        ]
+        .iter()
+        .map(|bucket| {
+            format!("(({bucket} -> {name}) IS NOT NULL AND {bucket} -> {name} <> 'null'::jsonb)")
+        })
+        .collect::<Vec<_>>()
+        .join(" OR "))
+    }
+
+    fn field_source(
+        &mut self,
+        predicate: &Predicate,
+        should_use_slots: bool,
+    ) -> Result<FieldSource, SqlTranslationError> {
+        let system_column = match predicate.field() {
+            "WorkflowId" => Some("workflow_id"),
+            "RunId" => Some("run_id"),
+            "WorkflowType" => Some("workflow_type"),
+            "FlowType" => Some("flow_type"),
+            "ExecutionStatus" => Some("execution_status"),
+            "StartTime" => Some("start_time_ns"),
+            "CloseTime" => Some("close_time_ns"),
+            "DexParentFlowID" => Some("dex_parent_flow_id"),
+            "ActiveStepTypes" => Some("active_step_types"),
+            "DexWorkQueuePermissions" => Some("dex_work_queue_permissions"),
+            _ => None,
+        };
+        if let Some(column) = system_column {
+            return Ok(FieldSource {
+                expression: column.to_owned(),
+                is_json_array: false,
+                is_slot: false,
+            });
+        }
+        if should_use_slots
+            && self.dialect == VisibilityDialect::Postgres
+            && let Some(assignment) = self.assignments.iter().find(|assignment| {
+                assignment.tenant_id.to_string() == self.tenant_id
+                    && assignment.index_key == predicate.field()
+                    && assignment.index_type == predicate.index_type()
+            })
+            && predicate.index_type() != IndexType::Text
+            && !(predicate.index_type() == IndexType::KeywordArray
+                && matches!(predicate.operator(), Operator::IsNull | Operator::IsNotNull))
+        {
+            return Ok(FieldSource {
+                expression: assignment.slot_column.as_str().to_owned(),
+                is_json_array: false,
+                is_slot: true,
+            });
+        }
+        let bucket = match predicate.index_type() {
+            IndexType::Keyword | IndexType::KeywordArray => "sa_keyword",
+            IndexType::Text => "sa_text",
+            IndexType::Int | IndexType::Double => "sa_number",
+            IndexType::Datetime => "sa_datetime",
+            IndexType::Bool => "sa_bool",
+            IndexType::Unspecified => {
+                return Err(SqlTranslationError::Unsupported {
+                    feature: format!("index type for {}", predicate.field()),
+                });
+            }
+        };
+        let name = self.bind(SqlValue::Text(predicate.field().to_owned()), "text");
+        let expression = if self.dialect == VisibilityDialect::Postgres {
+            match predicate.index_type() {
+                IndexType::Keyword | IndexType::Text => {
+                    super::slots::values::string_source(&name, "")
+                }
+                IndexType::KeywordArray => super::slots::values::string_array_source(&name, ""),
+                IndexType::Int | IndexType::Double => super::slots::values::slot_value_expression(
+                    predicate.index_type(),
+                    bucket,
+                    &name,
+                ),
+                IndexType::Datetime => format!("({bucket} ->> {name})::bigint"),
+                IndexType::Bool => format!("({bucket} ->> {name})::boolean"),
+                IndexType::Unspecified => unreachable!("unspecified fields are rejected above"),
+            }
+        } else if predicate.index_type() == IndexType::KeywordArray {
+            format!("{bucket} -> {name}")
+        } else {
+            let text_value = format!("{bucket} ->> {name}");
+            match predicate.index_type() {
+                IndexType::Int | IndexType::Datetime => format!("({text_value})::bigint"),
+                IndexType::Double => format!("({text_value})::double precision"),
+                IndexType::Bool => format!("({text_value})::boolean"),
+                _ => text_value,
+            }
+        };
+        Ok(FieldSource {
+            expression,
+            is_json_array: self.dialect == VisibilityDialect::ParadeDb
+                && predicate.index_type() == IndexType::KeywordArray,
+            is_slot: false,
+        })
+    }
+
+    fn render_scalar(
+        &mut self,
+        predicate: &Predicate,
+        expression: &str,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
+        let first = &predicate.literals()[0];
+        let result = match predicate.operator() {
+            Operator::Equal | Operator::NotEqual => {
+                self.render_scalar_comparison(predicate, expression, first, "=", should_use_slots)?
+            }
+            Operator::Greater => {
+                self.render_scalar_comparison(predicate, expression, first, ">", should_use_slots)?
+            }
+            Operator::GreaterEqual => {
+                self.render_scalar_comparison(predicate, expression, first, ">=", should_use_slots)?
+            }
+            Operator::Less => {
+                self.render_scalar_comparison(predicate, expression, first, "<", should_use_slots)?
+            }
+            Operator::LessEqual => {
+                self.render_scalar_comparison(predicate, expression, first, "<=", should_use_slots)?
+            }
+            Operator::StartsWith => {
+                let (parameter, _) = literal_parameter(first)?;
+                let bound = self.bind(parameter, "text");
+                let recheck = format!("left({expression}, char_length({bound})) = {bound}");
+                if self.dialect == VisibilityDialect::Postgres {
+                    if let Literal::String(prefix) = first {
+                        let lower = format!("({expression}) COLLATE \"C\" >= {bound}");
+                        if let Some(successor) = prefix_successor(prefix) {
+                            let upper = self.bind(SqlValue::Text(successor), "text");
+                            format!(
+                                "({lower} AND ({expression}) COLLATE \"C\" < {upper} AND {recheck})"
+                            )
+                        } else {
+                            format!("({lower} AND {recheck})")
+                        }
+                    } else {
+                        recheck
+                    }
+                } else {
+                    recheck
+                }
+            }
+            Operator::Between => format!(
+                "({}) AND ({})",
+                self.render_scalar_comparison(
+                    predicate,
+                    expression,
+                    first,
+                    ">=",
+                    should_use_slots
+                )?,
+                self.render_scalar_comparison(
+                    predicate,
+                    expression,
+                    &predicate.literals()[1],
+                    "<=",
+                    should_use_slots,
+                )?
+            ),
+            Operator::In | Operator::NotIn => {
+                let mut parts = Vec::new();
+                for literal in predicate.literals() {
+                    parts.push(self.render_scalar_comparison(
+                        predicate,
+                        expression,
+                        literal,
+                        "=",
+                        should_use_slots,
+                    )?);
+                }
+                let any = format!("({})", parts.join(" OR "));
+                any
+            }
+            Operator::IsNull | Operator::IsNotNull => {
+                unreachable!("NULL operator handled before scalar rendering")
+            }
+            _ => {
+                return Err(SqlTranslationError::Unsupported {
+                    feature: format!("operator {:?}", predicate.operator()),
+                });
+            }
+        };
+        Ok(result)
+    }
+
+    fn render_scalar_comparison(
+        &mut self,
+        predicate: &Predicate,
+        expression: &str,
+        literal: &Literal,
+        operator: &str,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
+        let (parameter, sql_type) = literal_parameter(literal)?;
+        let bound = self.bind(parameter, sql_type);
+        let left = if predicate.index_type() == IndexType::Keyword {
+            format!("({expression}) COLLATE \"C\"")
+        } else {
+            expression.to_owned()
+        };
+        let comparison = format!("{left} {operator} {bound}");
+        if self.dialect == VisibilityDialect::Postgres
+            && !should_use_slots
+            && predicate.index_type() == IndexType::Keyword
+            && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+            && operator == "="
+        {
+            let key = self.bind(SqlValue::Text(predicate.field().to_owned()), "text");
+            return Ok(format!(
+                "({comparison} OR sa_keyword @> jsonb_build_object({key}, jsonb_build_array({bound})))"
+            ));
+        }
+        Ok(comparison)
+    }
+
+    fn render_array(
+        &mut self,
+        predicate: &Predicate,
+        source: &FieldSource,
+    ) -> Result<String, SqlTranslationError> {
+        let positive = match predicate.operator() {
+            Operator::Equal | Operator::NotEqual => {
+                self.render_array_contains(predicate, source, &predicate.literals()[0])?
+            }
+            Operator::In | Operator::NotIn => {
+                let mut parts = Vec::new();
+                for literal in predicate.literals() {
+                    parts.push(self.render_array_contains(predicate, source, literal)?);
+                }
+                format!("({})", parts.join(" OR "))
+            }
+            _ => {
+                return Err(SqlTranslationError::Unsupported {
+                    feature: format!("{:?} on KEYWORD_ARRAY", predicate.operator()),
+                });
+            }
+        };
+        Ok(positive)
+    }
+
+    fn render_array_contains(
+        &mut self,
+        predicate: &Predicate,
+        source: &FieldSource,
+        literal: &Literal,
+    ) -> Result<String, SqlTranslationError> {
+        let (parameter, _) = literal_parameter(literal)?;
+        let bound = self.bind(parameter, "text");
+        if source.is_json_array {
+            Ok(format!(
+                "CASE WHEN ({}) IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM jsonb_array_elements_text({}) AS element(value) WHERE element.value = {bound}) END",
+                source.expression, source.expression
+            ))
+        } else if source.is_slot
+            || self.dialect == VisibilityDialect::Postgres
+                && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+        {
+            Ok(format!("{} @> ARRAY[{bound}]", source.expression))
+        } else {
+            Ok(format!("{bound} = ANY({})", source.expression))
+        }
+    }
+
+    fn render_text(
+        &mut self,
+        predicate: &Predicate,
+        expression: &str,
+        should_use_slots: bool,
+    ) -> Result<String, SqlTranslationError> {
+        let positive = match predicate.operator() {
+            Operator::Equal | Operator::NotEqual => self.render_text_terms(
+                predicate,
+                expression,
+                should_use_slots,
+                &predicate.literals()[0],
+            ),
+            Operator::In | Operator::NotIn => {
+                let mut parts = Vec::new();
+                for literal in predicate.literals() {
+                    parts.push(self.render_text_terms(
+                        predicate,
+                        expression,
+                        should_use_slots,
+                        literal,
+                    ));
+                }
+                format!("({})", parts.join(" OR "))
+            }
+            _ => {
+                return Err(SqlTranslationError::Unsupported {
+                    feature: format!("{:?} on TEXT", predicate.operator()),
+                });
+            }
+        };
+        Ok(positive)
+    }
+
+    fn render_text_terms(
+        &mut self,
+        predicate: &Predicate,
+        expression: &str,
+        should_use_slots: bool,
+        literal: &Literal,
+    ) -> String {
+        let Literal::String(value) = literal else {
+            return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
+        };
+        let terms = tokenize_text(value);
+        if terms.is_empty() {
+            return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
+        }
+        let bound = self.bind(SqlValue::TextArray(terms), "text[]");
+        let recheck =
+            format!("regexp_split_to_array(lower({expression}), '[^[:alnum:]]+') @> {bound}");
+        if let Some(assignment) = self.assignments.iter().find(|assignment| {
+            should_use_slots
+                && self.dialect == VisibilityDialect::Postgres
+                && assignment.tenant_id.to_string() == self.tenant_id
+                && assignment.index_key == predicate.field()
+                && assignment.index_type == IndexType::Text
+        }) {
+            let column = assignment.slot_column.clone();
+            let hashes = super::slots::text_term_hashes(value);
+            let hash_bound = self.bind(SqlValue::TextArray(hashes), "text[]");
+            format!("({column} @> {hash_bound} AND {recheck})")
+        } else {
+            recheck
+        }
+    }
+
+    fn render_cursor(
+        &mut self,
+        query: &Query,
+        cursor: &PageCursor,
+    ) -> Result<String, SqlTranslationError> {
+        let run_id = self.bind(SqlValue::Text(cursor.run_id.clone()), "text");
+        match query.order_by() {
+            None => {
+                let running = self.bind(SqlValue::Bool(cursor.is_running), "boolean");
+                let close = self.bind(SqlValue::OptionalInt(cursor.close_time_ns), "bigint");
+                let start = self.bind(SqlValue::Int(cursor.start_time_ns), "bigint");
+                Ok(format!(
+                    "is_running <= {running} AND (is_running < {running} OR (is_running = {running} AND ((close_time_ns IS NULL AND {close} IS NOT NULL) OR close_time_ns < {close} OR (close_time_ns IS NOT DISTINCT FROM {close} AND (start_time_ns < {start} OR (start_time_ns = {start} AND run_id COLLATE \"C\" > {run_id}))))))"
+                ))
+            }
+            Some(("StartTime", direction)) => {
+                let start = self.bind(SqlValue::Int(cursor.start_time_ns), "bigint");
+                let operator = if direction == SortDirection::Ascending {
+                    ">"
+                } else {
+                    "<"
+                };
+                Ok(format!(
+                    "start_time_ns {operator} {start} OR (start_time_ns = {start} AND run_id COLLATE \"C\" > {run_id})"
+                ))
+            }
+            Some(("CloseTime", direction)) => {
+                let close = self.bind(SqlValue::OptionalInt(cursor.close_time_ns), "bigint");
+                let operator = if direction == SortDirection::Ascending {
+                    ">"
+                } else {
+                    "<"
+                };
+                Ok(format!(
+                    "(close_time_ns IS NULL AND {close} IS NOT NULL) OR (close_time_ns {operator} {close}) OR (close_time_ns IS NOT DISTINCT FROM {close} AND run_id COLLATE \"C\" > {run_id})"
+                ))
+            }
+            Some((field, _)) => Err(SqlTranslationError::Unsupported {
+                feature: format!("ORDER BY {field}"),
+            }),
+        }
+    }
+}
+
+struct FieldSource {
+    expression: String,
+    is_json_array: bool,
+    is_slot: bool,
+}
+
+fn literal_parameter(literal: &Literal) -> Result<(SqlValue, &'static str), SqlTranslationError> {
+    match literal {
+        Literal::String(value) => Ok((SqlValue::Text(value.clone()), "text")),
+        Literal::Int(value) | Literal::Datetime(value) => Ok((SqlValue::Int(*value), "bigint")),
+        Literal::Double(value) => Ok((SqlValue::Double(*value), "double precision")),
+        Literal::Bool(value) => Ok((SqlValue::Bool(*value), "boolean")),
+        _ => Err(SqlTranslationError::Unsupported {
+            feature: "unknown literal".to_owned(),
+        }),
+    }
+}
+
+pub(crate) fn tokenize_text(value: &str) -> Vec<String> {
+    value
+        .to_lowercase()
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|term| !term.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+pub(super) fn contains_application_field(expression: &Expression) -> bool {
+    match expression {
+        Expression::True => false,
+        Expression::Not(inner) => contains_application_field(inner),
+        Expression::And(children) | Expression::Or(children) => {
+            children.iter().any(contains_application_field)
+        }
+        Expression::Predicate(predicate) | Expression::NoMatch(predicate) => {
+            !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+        }
+        _ => false,
+    }
+}
+
+fn prefix_successor(prefix: &str) -> Option<String> {
+    let mut characters = prefix.chars().collect::<Vec<_>>();
+    while let Some(character) = characters.pop() {
+        let mut next = u32::from(character) + 1;
+        if (0xD800..=0xDFFF).contains(&next) {
+            next = 0xE000;
+        }
+        if let Some(successor) = char::from_u32(next) {
+            characters.push(successor);
+            return Some(characters.into_iter().collect());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+#[path = "query_tests.rs"]
+mod tests;

@@ -43,8 +43,8 @@ use tempfile::TempDir;
 use tonic::transport::Channel;
 
 use harness::{
-    ParadeDbSchema, ParadeDbSettings, ParadeDbTcpProxy, PullWorker, S3Emulator, ServeConfig,
-    ServeProcess, free_loopback_address,
+    PullWorker, S3Emulator, ServeConfig, ServeProcess, SqlVisibilitySchema, SqlVisibilitySettings,
+    SqlVisibilityTcpProxy, free_loopback_address,
 };
 
 const NODE_ID: &str = "serve-node";
@@ -548,7 +548,22 @@ async fn paradedb_search_projects_commits_and_rebuilds_on_startup() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    let schema = ParadeDbSchema::create(&database_url).await;
+    run_search_projects_commits_and_rebuilds_on_startup_for_test(&database_url, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_search_projects_commits_and_rebuilds_on_startup() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    run_search_projects_commits_and_rebuilds_on_startup_for_test(&database_url, true).await;
+}
+
+async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
+    database_url: &str,
+    is_postgres: bool,
+) {
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
@@ -561,8 +576,9 @@ async fn paradedb_search_projects_commits_and_rebuilds_on_startup() {
             local_directory: &directory.path().join(format!("{name}-store")),
             lease_duration: HELD_LEASE_DURATION,
             fail_if_held: true,
-            parade_db: Some(ParadeDbSettings {
-                connection_string: &database_url,
+            parade_db: Some(SqlVisibilitySettings {
+                is_postgres,
+                connection_string: database_url,
                 schema: schema.name(),
             }),
         }
@@ -579,6 +595,34 @@ async fn paradedb_search_projects_commits_and_rebuilds_on_startup() {
     let channel = first.wait_until_serving().await;
     let worker = start_greeting_worker(channel.clone()).await;
     let mut flow_client = FlowServiceClient::new(channel);
+    if is_postgres {
+        let indexes = (0..10)
+            .map(|position| {
+                (
+                    format!("capacity_keyword_{position}"),
+                    IndexType::Keyword as i32,
+                )
+            })
+            .collect();
+        flow_client
+            .sync_attribute_indexes(dexzd_protocol::dex::SyncAttributeIndexRequest {
+                attribute_indexes: indexes,
+            })
+            .await
+            .expect("fill PostgreSQL Keyword capacity");
+        let rejected = flow_client
+            .sync_attribute_indexes(dexzd_protocol::dex::SyncAttributeIndexRequest {
+                attribute_indexes: [(
+                    "capacity_keyword_overflow".into(),
+                    IndexType::Keyword as i32,
+                )]
+                .into_iter()
+                .collect(),
+            })
+            .await
+            .expect_err("eleventh Keyword registration is rejected");
+        assert_eq!(rejected.code(), tonic::Code::FailedPrecondition);
+    }
     let first_run_id = run_greeting_flow(&mut flow_client, "search-flow-1").await;
     let found = search_until_completed(&mut flow_client, "search-flow-1").await;
     assert_eq!(found.run_id, first_run_id);
@@ -588,7 +632,7 @@ async fn paradedb_search_projects_commits_and_rebuilds_on_startup() {
     let first_log = first.log();
     assert_eq!(first_status.code(), Some(0), "{first_log}");
     assert!(
-        first_log.contains("the ParadeDB search projection caught up"),
+        first_log.contains("the SQL visibility search projection caught up"),
         "{first_log}"
     );
 
@@ -629,9 +673,29 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    let schema = ParadeDbSchema::create(&database_url).await;
-    let mut proxy = ParadeDbTcpProxy::start(&database_url).await;
-    let proxied_database_url = proxy.connection_string(&database_url);
+    run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(
+        &database_url,
+        false,
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_outage_overflows_the_queue_and_rebuilds_every_committed_write() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(&database_url, true)
+        .await;
+}
+
+async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(
+    database_url: &str,
+    is_postgres: bool,
+) {
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
+    let mut proxy = SqlVisibilityTcpProxy::start(database_url).await;
+    let proxied_database_url = proxy.connection_string(database_url);
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
@@ -644,7 +708,8 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
         local_directory: &directory.path().join("store"),
         lease_duration: HELD_LEASE_DURATION,
         fail_if_held: true,
-        parade_db: Some(ParadeDbSettings {
+        parade_db: Some(SqlVisibilitySettings {
+            is_postgres,
             connection_string: &proxied_database_url,
             schema: schema.name(),
         }),
@@ -678,7 +743,7 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
 
     proxy.cut().await;
     const WRITE_COUNT: usize = 600;
-    let value_text = "x".repeat(1024);
+    let value_text = "x".repeat(if is_postgres { 1019 } else { 1024 });
     for write_number in 0..WRITE_COUNT {
         let attribute_name = format!("outage-{write_number:04}");
         let value = string_value(&format!("{write_number:04}-{value_text}"));
@@ -701,8 +766,8 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
             }),
         )
         .await
-        .expect("commits continue during the ParadeDB outage")
-        .expect("an Attribute write commits during the ParadeDB outage");
+        .expect("commits continue during the SQL visibility outage")
+        .expect("an Attribute write commits during the SQL visibility outage");
     }
     assert!(
         server
@@ -729,7 +794,7 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
                     }
                 }
                 Err(status) if status.code() == tonic::Code::Unavailable => {}
-                Err(status) => panic!("SearchFlows failed after ParadeDB recovery: {status}"),
+                Err(status) => panic!("SearchFlows failed after SQL visibility recovery: {status}"),
             }
         }
     })
@@ -750,7 +815,7 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
             .and_then(|attribute| attribute.value.as_ref());
         assert_eq!(actual_value, Some(&expected_value), "{attribute_name}");
     }
-    // Overflowed frames reach ParadeDB only through the partition rebuild.
+    // Overflowed frames reach SQL visibility only through the partition rebuild.
     let exit_status = server.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(exit_status.code(), Some(0), "{}", server.log());
     proxy.shutdown().await;
@@ -764,7 +829,22 @@ async fn paradedb_search_finds_flows_with_work_queue_permissions() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    let schema = ParadeDbSchema::create(&database_url).await;
+    run_search_finds_flows_with_work_queue_permissions_for_test(&database_url, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_search_finds_flows_with_work_queue_permissions() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    run_search_finds_flows_with_work_queue_permissions_for_test(&database_url, true).await;
+}
+
+async fn run_search_finds_flows_with_work_queue_permissions_for_test(
+    database_url: &str,
+    is_postgres: bool,
+) {
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
@@ -777,8 +857,9 @@ async fn paradedb_search_finds_flows_with_work_queue_permissions() {
         local_directory: &directory.path().join("store"),
         lease_duration: HELD_LEASE_DURATION,
         fail_if_held: true,
-        parade_db: Some(ParadeDbSettings {
-            connection_string: &database_url,
+        parade_db: Some(SqlVisibilitySettings {
+            is_postgres,
+            connection_string: database_url,
             schema: schema.name(),
         }),
     }

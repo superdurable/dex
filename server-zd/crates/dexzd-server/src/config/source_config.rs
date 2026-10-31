@@ -185,6 +185,15 @@ impl Config {
         {
             self.search.parade_db_connection_string = connection_string;
         }
+        if self.search.backend == SearchBackend::Postgres
+            && self.search.postgres_connection_string.is_empty()
+            && let Some(connection_string) = read_environment_credential(
+                "DEX_ZD_POSTGRES_CONNECTION_STRING",
+                "search.postgresConnectionString",
+            )?
+        {
+            self.search.postgres_connection_string = connection_string;
+        }
         self.object_store.credentials = credentials_from_lookup(
             self.object_store.credentials_source,
             "objectStore.credentialsSource",

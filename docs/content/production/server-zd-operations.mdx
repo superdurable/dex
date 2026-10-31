@@ -965,8 +965,13 @@ graphs, and persisted payloads.
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The local store is
-rebuilt from it. A ParadeDB search projection is rebuilt from the local store
-after startup. When **objectStore.hardDeleteStore** is configured, its prefix
+rebuilt from it. An external search projection is rebuilt from the local store
+after startup. With **search.backend: postgres**, restoring an older prefix can
+leave the database's Attribute registry version ahead of the restored registry.
+Startup then fails with an Attribute slot registry mismatch. Before restarting,
+configure a new **search.postgresSchema** or a new PostgreSQL database so the
+projection and slot assignments rebuild from the restored registry.
+When **objectStore.hardDeleteStore** is configured, its prefix
 holds hard-delete Attribute values. Protect it the same way.
 
 Protect the prefix with bucket versioning or with replication to another bucket.
@@ -986,3 +991,65 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
+
+## PostgreSQL search
+
+Choose **search.backend: postgres** to run indexed search on PostgreSQL 15 or
+newer without extensions. It does not require **pg_search**, **btree_gin**, or
+any other extension. Choose ParadeDB when you need more indexed Attributes
+than the PostgreSQL slot limits allow.
+
+~~~yaml
+search:
+  backend: postgres
+  postgresConnectionString: "postgres://USER:PASSWORD@HOST:5432/DATABASE"
+  postgresConnectionPoolSize: 10
+  postgresSchema: public
+  readYourWritesWait: 2s
+~~~
+
+The server connects to **postgresConnectionString** using the PostgreSQL
+protocol. It neither binds nor advertises that address. Leave the field empty
+to read **DEX_ZD_POSTGRES_CONNECTION_STRING**. The connection supports the same
+TLS options as **paradeDbConnectionString**, and serialized configuration
+redacts it. The default pool size is 10, and the default schema is **public**.
+
+Each tenant has 10 Keyword slots and 3 slots each for Int, Datetime, Double,
+Bool, KeywordArray, and Text. Registrations take slots in registration order.
+System fields, including **DexWorkQueuePermissions**, do not consume slots.
+The registry is shared by the applications on the server. Registering another
+Attribute after a type reaches its limit returns **FAILED_PRECONDITION**.
+Startup also fails if the existing registry exceeds these limits. The registry
+has no delete operation. A full registry requires a new server.
+
+An indexed Keyword value or KeywordArray element may contain at most 1024
+UTF-8 bytes. A larger new write returns **INVALID_ARGUMENT**. A rejected
+Worker Step result causes that Step to fail. A previously committed document
+with an oversized value whose stored type matches its registered Keyword or
+KeywordArray type is omitted from search and recorded as a skipped document.
+Its Flow state remains committed. Unregistered keys do not trigger this skip.
+
+A newly registered Attribute uses the existing JSONB query path until its
+slot backfill finishes. Results stay correct during that window, but queries
+can be slower. Backfill commits bounded batches and resumes after a restart.
+It does not pause projection of other partitions. Unregistered index keys also
+use JSONB. **IS NULL**, **IS NOT NULL**, and negations use stored key presence,
+including when the stored type differs from the registered type. Int and Double
+values remain distinct. A scalar string stored under KeywordArray matches as
+one element. One mismatch has a stricter result: positive Keyword predicates
+do not match a stored KeywordArray. The document remains searchable, and
+negations retain the builtin evaluator result. Negative predicates,
+such as **!=** and **NOT IN**, often cannot use an index. Explicit
+**ORDER BY StartTime** and **ORDER BY CloseTime** sort all matching rows.
+Their cost grows with the number of matching rows.
+
+Text matches all query terms. It does not rank results by BM25 relevance.
+Projection is asynchronous, and the same **readYourWritesWait** applies to
+both external search backends.
+
+A schema records its search backend. Starting with a different backend fails.
+To switch between PostgreSQL and ParadeDB, select a new database or schema.
+The server rebuilds its search projection from committed state automatically.
+Existing ParadeDB version-three schemas gain the dialect marker without clearing
+data or changing their version. Older releases that accept schema version 3
+can still use them. PostgreSQL uses schema version 4; older releases reject it.

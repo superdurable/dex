@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_object_store::{ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome};
+use dexzd_protocol::attribute_index::is_system_search_field;
 use dexzd_protocol::dex::IndexType;
 use dexzd_protocol::dexzd::v1::{AttributeIndexRegistration, AttributeIndexRegistry};
 use prost::Message;
@@ -157,6 +158,9 @@ pub fn validate_attribute_index_capacity(
 ) -> Result<(), MetadataError> {
     let mut keys_by_type: BTreeMap<(u64, IndexType), BTreeSet<&str>> = BTreeMap::new();
     for registration in &registry.registrations {
+        if is_system_search_field(&registration.index_key) {
+            continue;
+        }
         let index_type = stored_index_type(registration)?;
         keys_by_type
             .entry((registration.tenant_id, index_type))
@@ -187,6 +191,9 @@ fn validate_added_attribute_indexes(
 ) -> Result<(), MetadataError> {
     let mut added_keys_by_type: BTreeMap<IndexType, BTreeSet<&str>> = BTreeMap::new();
     for registration in &proposed.registrations[current.registrations.len()..] {
+        if is_system_search_field(&registration.index_key) {
+            continue;
+        }
         added_keys_by_type
             .entry(stored_index_type(registration)?)
             .or_default()
@@ -200,7 +207,9 @@ fn validate_added_attribute_indexes(
             .registrations
             .iter()
             .filter(|registration| {
-                registration.tenant_id == tenant_id && registration.index_type == index_type as i32
+                registration.tenant_id == tenant_id
+                    && registration.index_type == index_type as i32
+                    && !is_system_search_field(&registration.index_key)
             })
             .map(|registration| registration.index_key.as_str())
             .collect();

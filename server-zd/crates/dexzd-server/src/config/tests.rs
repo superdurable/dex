@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+#![cfg(test)]
+
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -951,4 +953,86 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
             ..
         }
     ));
+}
+
+#[test]
+fn postgres_configuration_parses_validates_and_redacts_credentials() {
+    let mut config = valid_config();
+    config.search = super::SearchConfig {
+        backend: SearchBackend::Postgres,
+        postgres_connection_string: "postgres://role:private-password@localhost/dex".into(),
+        ..Default::default()
+    };
+    config.validate().unwrap();
+    assert_eq!(config.search.postgres_connection_pool_size, 10);
+    assert_eq!(config.search.postgres_schema, "public");
+    let serialized = serde_yaml_ng::to_string(&config.search).unwrap();
+    assert!(serialized.contains("postgresConnectionString: '[redacted]'"));
+    assert!(!serialized.contains("private-password"));
+    assert!(!format!("{:?}", config.search).contains("private-password"));
+    let parsed: super::SearchConfig = serde_yaml_ng::from_str("backend: postgres\npostgresConnectionString: postgres://localhost/dex\npostgresSchema: visibility\npostgresConnectionPoolSize: 3\n").unwrap();
+    assert_eq!(parsed.backend, SearchBackend::Postgres);
+    assert_eq!(parsed.postgres_schema, "visibility");
+    for (field, mutate) in [
+        (
+            "search.postgresConnectionString",
+            (|config: &mut Config| config.search.postgres_connection_string.clear())
+                as fn(&mut Config),
+        ),
+        (
+            "search.postgresConnectionPoolSize",
+            |config: &mut Config| config.search.postgres_connection_pool_size = 0,
+        ),
+        ("search.postgresSchema", |config: &mut Config| {
+            config.search.postgres_schema = "invalid,schema".into()
+        }),
+    ] {
+        let mut invalid = config.clone();
+        mutate(&mut invalid);
+        assert!(invalid.validate().unwrap_err().to_string().contains(field));
+    }
+    let components = ComponentConfigs::from_config(&config, false).unwrap();
+    assert!(
+        components
+            .flow_coordination
+            .validation
+            .keyword_value_limit
+            .is_some()
+    );
+}
+
+#[test]
+fn postgres_connection_string_uses_environment_only_when_configuration_is_empty() {
+    const CHILD_MARKER: &str = "DEX_ZD_TEST_POSTGRES_ENVIRONMENT";
+    if std::env::var_os(CHILD_MARKER).is_some() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let path = directory.path().join("postgres.yaml");
+        for (configured, expected) in [
+            ("", "postgres://environment/dex"),
+            ("postgres://configured/dex", "postgres://configured/dex"),
+        ] {
+            let mut config = valid_config();
+            config.object_store.credentials_source = CredentialSource::Anonymous;
+            config.search.backend = SearchBackend::Postgres;
+            config.search.postgres_connection_string = configured.into();
+            let mut value = serde_yaml_ng::to_value(config).unwrap();
+            value["search"]["postgresConnectionString"] =
+                serde_yaml_ng::Value::String(configured.into());
+            fs::write(&path, serde_yaml_ng::to_string(&value).unwrap()).unwrap();
+            assert_eq!(
+                Config::load_file(&path)
+                    .unwrap()
+                    .search
+                    .postgres_connection_string,
+                expected
+            );
+        }
+        return;
+    }
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "config::tests::postgres_connection_string_uses_environment_only_when_configuration_is_empty"])
+        .env(CHILD_MARKER, "1")
+        .env("DEX_ZD_POSTGRES_CONNECTION_STRING", "postgres://environment/dex")
+        .status().unwrap();
+    assert!(status.success());
 }

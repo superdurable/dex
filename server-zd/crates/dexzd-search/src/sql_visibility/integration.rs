@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+#![cfg(test)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,9 +25,9 @@ use prost::Message;
 use tokio_postgres::NoTls;
 
 use super::{
-    MIGRATION_SQL, PageCursor, ParadeDbProjector, ParadeDbSearchBackend, ProjectionVisibilityWait,
-    SearchDocumentChange, SearchRow, ensure_schema, tenant_column_value, translate_query,
-    upsert_statement,
+    PageCursor, ProjectionVisibilityWait, SearchDocumentChange, SearchRow, SqlVisibilityProjector,
+    SqlVisibilitySearchBackend, VisibilityDialect, assign_attribute_slots,
+    ensure_schema_for_dialect, tenant_column_value, translate_query_for_dialect,
 };
 use crate::{SearchBackend, SearchError, SearchRequest};
 
@@ -106,7 +108,7 @@ async fn paradedb_projection_and_search_use_direct_tls() {
         let settings =
             ConnectionSettings::parse_for_search(&dsn).expect("parse direct TLS ParadeDB DSN");
         let backend = Arc::new(
-            ParadeDbSearchBackend::connect_with_settings(
+            SqlVisibilitySearchBackend::connect_with_settings(
                 &settings,
                 1,
                 None,
@@ -115,7 +117,7 @@ async fn paradedb_projection_and_search_use_direct_tls() {
             .await
             .expect("connect ParadeDB through direct TLS"),
         );
-        let projector = ParadeDbProjector::new(backend.clone());
+        let projector = SqlVisibilityProjector::new(backend.clone());
         let tenant_id = TenantId(17);
         let document = SearchDocumentRecord {
             version: 1,
@@ -195,19 +197,94 @@ fn run(run_id: &str, workflow_id: &str, status: &str, start: i64, close: Option<
     document
 }
 
+#[derive(Default)]
+pub(super) struct TestAttributeRegistry(dexzd_protocol::dexzd::v1::AttributeIndexRegistry);
+
+#[async_trait]
+impl super::AttributeIndexRegistryReader for TestAttributeRegistry {
+    async fn read_attribute_index_registry(
+        &self,
+    ) -> Result<dexzd_protocol::dexzd::v1::AttributeIndexRegistry, SearchError> {
+        Ok(self.0.clone())
+    }
+}
+
 #[tokio::test]
 async fn paradedb_matches_builtin_evaluator() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+    run_differential_for_test(&database_url, VisibilityDialect::ParadeDb, false).await;
+}
+
+#[tokio::test]
+async fn postgres_matches_builtin_evaluator() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    for has_slots in [false, true] {
+        run_differential_for_test(&database_url, VisibilityDialect::Postgres, has_slots).await;
+    }
+}
+
+async fn run_differential_for_test(
+    database_url: &str,
+    dialect: VisibilityDialect,
+    has_slots: bool,
+) {
+    let (_, application_fields) = fields();
+    let registry_reader = Arc::new(TestAttributeRegistry(
+        dexzd_protocol::dexzd::v1::AttributeIndexRegistry {
+            version: 1,
+            registrations: [1, 3]
+                .into_iter()
+                .flat_map(|tenant_id| {
+                    application_fields.iter().map(move |(key, index_type)| {
+                        dexzd_protocol::dexzd::v1::AttributeIndexRegistration {
+                            tenant_id,
+                            index_key: key.clone(),
+                            index_type: *index_type as i32,
+                            ..Default::default()
+                        }
+                    })
+                })
+                .collect(),
+        },
+    ));
+    let assignments = if has_slots {
+        assign_attribute_slots(&registry_reader.0).expect("assign test slots")
+    } else {
+        Vec::new()
+    };
+    let translate_query = |query: &dexzd_visibility_query::Query,
+                           tenant: &str,
+                           limit: i64,
+                           cursor: Option<&PageCursor>| {
+        translate_query_for_dialect(query, tenant, limit, cursor, dialect, &assignments)
+    };
+    let upsert_statement = |row: &SearchRow| {
+        if dialect == VisibilityDialect::Postgres {
+            super::upsert::upsert_statements_with_slots(
+                std::slice::from_ref(row),
+                Some(&assignments),
+            )
+            .expect("build slotted upsert")
+            .remove(0)
+            .statement
+        } else {
+            super::upsert_statement(row)
+        }
+    };
+    let (mut client, connection) = tokio_postgres::connect(database_url, NoTls)
         .await
-        .expect("connect to CI ParadeDB");
+        .expect("connect to CI SQL visibility database");
     let connection_task = tokio::spawn(connection);
-    client
-        .batch_execute("CREATE EXTENSION IF NOT EXISTS pg_search")
-        .await
-        .expect("install pg_search");
+    if dialect == VisibilityDialect::ParadeDb {
+        client
+            .batch_execute("CREATE EXTENSION IF NOT EXISTS pg_search")
+            .await
+            .expect("install pg_search");
+    }
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("wall clock after Unix epoch")
@@ -219,11 +296,7 @@ async fn paradedb_matches_builtin_evaluator() {
         ))
         .await
         .expect("create isolated schema");
-    client
-        .batch_execute(MIGRATION_SQL)
-        .await
-        .expect("create visibility schema");
-    ensure_schema(&mut client)
+    ensure_schema_for_dialect(&mut client, dialect)
         .await
         .expect("record visibility schema version");
 
@@ -471,7 +544,7 @@ async fn paradedb_matches_builtin_evaluator() {
             .map(|row| row.get::<_, String>("run_id"))
             .collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
-        println!("ParadeDB differential case passed: {input}");
+        println!("SQL visibility differential case passed: {input}");
     }
 
     for (input, expected_ids) in [
@@ -494,7 +567,7 @@ async fn paradedb_matches_builtin_evaluator() {
             .map(|row| row.get::<_, String>("run_id"))
             .collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
-        println!("ParadeDB differential case passed: {input}");
+        println!("SQL visibility differential case passed: {input}");
     }
 
     for (input, expected_ids) in [
@@ -542,7 +615,7 @@ async fn paradedb_matches_builtin_evaluator() {
             .collect();
         let expected_ids: BTreeSet<String> = expected_ids.into_iter().map(str::to_owned).collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
-        println!("ParadeDB differential case passed: {input}");
+        println!("SQL visibility differential case passed: {input}");
     }
     for input in [
         "number = '9223372036854775808'",
@@ -635,7 +708,7 @@ async fn paradedb_matches_builtin_evaluator() {
             }
             assert_eq!(actual_ids, expected_ids, "{input}, page size {page_size}");
             println!(
-                "ParadeDB differential paging passed: {input:?}, page_size={page_size}, rows={}",
+                "SQL visibility differential paging passed: {input:?}, page_size={page_size}, rows={}",
                 actual_ids.len()
             );
         }
@@ -696,15 +769,17 @@ async fn paradedb_matches_builtin_evaluator() {
             .expect("insert backend fixture");
     }
     let mut configuration: tokio_postgres::Config =
-        database_url.parse().expect("parse CI ParadeDB URL");
+        database_url.parse().expect("parse CI SQL visibility URL");
     configuration.options(format!("-c search_path={schema_name},public,pdb"));
     configuration.application_name(&schema_name);
     let visibility_wait = Arc::new(CountVisibilityWait(AtomicUsize::new(0)));
-    let backend = ParadeDbSearchBackend::connect(
-        &configuration,
+    let backend = SqlVisibilitySearchBackend::connect_dialect_with_settings(
+        &ConnectionSettings::from_config(configuration.clone()),
         2,
         Some(visibility_wait.clone()),
         Duration::from_secs(2),
+        dialect,
+        Some(registry_reader.clone()),
     )
     .await
     .expect("connect backend pool");
@@ -878,11 +953,13 @@ async fn paradedb_matches_builtin_evaluator() {
         .expect("other tenant page");
     assert!(other_tenant.entries.is_empty());
 
-    let stalled_backend = ParadeDbSearchBackend::connect(
-        &configuration,
+    let stalled_backend = SqlVisibilitySearchBackend::connect_dialect_with_settings(
+        &ConnectionSettings::from_config(configuration.clone()),
         1,
         Some(Arc::new(NeverVisibilityWait)),
         Duration::from_millis(50),
+        dialect,
+        Some(registry_reader.clone()),
     )
     .await
     .expect("connect stalled backend");
@@ -959,7 +1036,8 @@ async fn paradedb_matches_builtin_evaluator() {
         .expect("reconnect terminated backend connection");
     assert_eq!(recovered.entries.len(), 3);
 
-    super::projection::run_projector_scenarios_for_test(&database_url, &client, nonce).await;
+    super::projection::run_projector_scenarios_for_test(database_url, &client, nonce, dialect)
+        .await;
 
     client
         .batch_execute("DROP TABLE dexzd_visibility_runs")

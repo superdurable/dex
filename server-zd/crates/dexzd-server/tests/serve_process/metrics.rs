@@ -185,6 +185,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         "dexzd_attribute_sync_write_failures_total",
         "dexzd_attribute_sync_dropped_entries_total",
         "dexzd_attribute_sync_fenced_writes_total",
+        "dexzd_search_skipped_documents_total",
     ] {
         let family = name.strip_suffix("_total").unwrap_or(name);
         assert!(

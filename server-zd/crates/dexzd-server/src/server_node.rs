@@ -66,7 +66,7 @@ pub(crate) use search_projection::CommittedSearchFrames;
 use attribute_sync::{AttributeStores, AttributeSyncService, AttributeSyncStart};
 use bounded_teardown::BoundedTeardown;
 pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
-use search_projection::{ParadeDbSearch, SearchProjection};
+use search_projection::{SearchProjection, SqlVisibilitySearch};
 
 /// Part of the budget for open calls, so the engine still stops cleanly after a stuck call.
 const GRPC_DRAIN_BUDGET: Duration = Duration::from_secs(4);
@@ -485,21 +485,35 @@ impl ServerNode {
                 .map_err(|source| ServerError::StreamStore { source })?,
         );
         let partition_count = config.cluster.partition_count;
-        let parade_db_search = match config.search.backend {
+        let attribute_indexes = Arc::new(AttributeIndexes::new_with_registry_refresh(
+            object_stores.primary.clone(),
+            clock.clone(),
+            (config.search.backend == SearchBackendKind::Postgres)
+                .then(dexzd_cluster_metadata::AttributeIndexCapacity::postgres),
+            if config.search.backend == SearchBackendKind::Postgres {
+                dexzd_api::AttributeIndexRegistryRefresh::ExternalRegistrations
+            } else {
+                dexzd_api::AttributeIndexRegistryRefresh::LocalRegistrations
+            },
+        ));
+        let sql_visibility_search = match config.search.backend {
             SearchBackendKind::Builtin => None,
-            SearchBackendKind::Paradedb => {
-                match until_cancelled(ParadeDbSearch::connect(&config.search), cancellation).await {
-                    Some(connected) => Some(connected?),
-                    None => {
-                        close_stream_store(&stream_store).await;
-                        return Ok(None);
-                    }
+            SearchBackendKind::Paradedb | SearchBackendKind::Postgres => match until_cancelled(
+                SqlVisibilitySearch::connect(&config.search, attribute_indexes.clone()),
+                cancellation,
+            )
+            .await
+            {
+                Some(connected) => Some(connected?),
+                None => {
+                    close_stream_store(&stream_store).await;
+                    return Ok(None);
                 }
-            }
+            },
         };
-        let committed_search_frames = parade_db_search
+        let committed_search_frames = sql_visibility_search
             .as_ref()
-            .map(ParadeDbSearch::committed_frames);
+            .map(SqlVisibilitySearch::committed_frames);
         let attribute_stores = match until_cancelled(
             AttributeStores::connect(&config.attribute_store, &components.attribute_sync),
             cancellation,
@@ -618,12 +632,13 @@ impl ServerNode {
             effect_tasks,
             partition_hasher,
         } = parts.expect("the engine calls the runtime factory before it starts serving");
-        let (search_backend, search_projection) = match parade_db_search {
-            Some(parade_db_search) => (
-                Some(parade_db_search.search_backend()),
-                Some(parade_db_search.start_projection(
+        let (search_backend, search_projection) = match sql_visibility_search {
+            Some(sql_visibility_search) => (
+                Some(sql_visibility_search.search_backend()),
+                Some(sql_visibility_search.start_projection(
                     engine.committer().clone(),
                     partition_count,
+                    metrics.clone(),
                     engine.wait_for_stop(),
                 )),
             ),
@@ -661,11 +676,7 @@ impl ServerNode {
                     stream_store.clone(),
                     components.flow_service.max_wait,
                 ),
-                attribute_indexes: Arc::new(AttributeIndexes::new(
-                    object_stores.primary.clone(),
-                    clock,
-                    None,
-                )),
+                attribute_indexes,
                 search_backend,
             },
         );

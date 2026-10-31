@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! ParadeDB schema, projection rows, and parameterized SearchFlows SQL.
+//! SQL visibility schema, projection rows, and parameterized SearchFlows SQL.
 
 mod projection;
 mod query;
@@ -14,6 +14,7 @@ mod row;
 mod schema;
 mod search_backend;
 mod search_result;
+mod slots;
 mod upsert;
 mod wire_value;
 
@@ -21,13 +22,13 @@ use dexzd_keyspace::TenantId;
 use tokio_postgres::types::{ToSql, Type};
 
 pub use projection::{
-    ParadeDbProjector, ProjectionError, ProjectionMetricRecorder, SearchDocumentChange,
+    ProjectionError, ProjectionMetricRecorder, SearchDocumentChange, SqlVisibilityProjector,
     extract_batch_search_document_changes, extract_search_document_changes,
 };
-pub use query::{PageCursor, SqlTranslationError, translate_query};
+pub use query::{PageCursor, SqlTranslationError, translate_query, translate_query_for_dialect};
 pub use row::{SearchRow, SearchRowError};
-pub use schema::{SchemaError, ensure_schema};
-pub use search_backend::{ParadeDbSearchBackend, ProjectionVisibilityWait};
+pub use schema::{SchemaError, ensure_schema, ensure_schema_for_dialect};
+pub use search_backend::{ProjectionVisibilityWait, SqlVisibilitySearchBackend};
 pub use upsert::upsert_statement;
 
 pub(crate) fn tenant_column_value(tenant_id: TenantId) -> String {
@@ -35,7 +36,34 @@ pub(crate) fn tenant_column_value(tenant_id: TenantId) -> String {
 }
 
 /// Fresh ParadeDB migration for versioned Dex run documents.
-pub const MIGRATION_SQL: &str = include_str!("migration.sql");
+pub const MIGRATION_SQL: &str = concat!(
+    include_str!("migration.sql"),
+    "\n",
+    include_str!("paradedb.sql")
+);
+
+pub use slots::{
+    AttributeIndexRegistryReader, AttributeSlot, AttributeSlotColumn, assign_attribute_slots,
+};
+
+/// SQL visibility schema and indexing strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VisibilityDialect {
+    /// ParadeDB with the pg_search extension.
+    ParadeDb,
+    /// PostgreSQL 15 or newer without extensions.
+    Postgres,
+}
+
+impl VisibilityDialect {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::ParadeDb => "paradedb",
+            Self::Postgres => "postgres",
+        }
+    }
+}
 
 /// One parameterized SQL statement and its owned bind values.
 #[derive(Debug, Clone, PartialEq)]

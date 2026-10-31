@@ -50,6 +50,6 @@ fn hex_digit(byte: u8) -> Option<u8> {
 
 fn invalid_wire_value(field: &str) -> SearchError {
     SearchError::Internal(format!(
-        "ParadeDB field {field} has an invalid stored wire value"
+        "SQL visibility field {field} has an invalid stored wire value"
     ))
 }
