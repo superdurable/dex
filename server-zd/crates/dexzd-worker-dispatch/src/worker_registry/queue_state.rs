@@ -70,10 +70,57 @@ impl QueuePick {
     }
 }
 
+impl QueueLease {
+    /// Counts one queue search as a user of its queue, creating the queue when needed.
+    pub(super) fn acquire(
+        dispatch: &WorkerDispatch,
+        tenant_id: u64,
+        queue_name: &str,
+        waiter_sequence: u64,
+    ) -> Self {
+        let key = (tenant_id, queue_name.to_owned());
+        let mut registry = dispatch
+            .inner
+            .registry
+            .lock()
+            .expect("matching registry lock poisoned");
+        registry
+            .queues
+            .entry(key.clone())
+            .or_insert_with(QueueState::new)
+            .users += 1;
+        Self {
+            dispatch: dispatch.clone(),
+            key,
+            waiter_sequence,
+            wakeup: Arc::new(Notify::new()),
+            is_waiting: false,
+        }
+    }
+}
+
 impl Drop for QueueLease {
     fn drop(&mut self) {
-        let waiter_sequence = self.is_waiting.then_some(self.waiter_sequence);
-        self.dispatch.release_queue(&self.key, waiter_sequence);
+        let mut guard = self
+            .dispatch
+            .inner
+            .registry
+            .lock()
+            .expect("matching registry lock poisoned");
+        let registry = &mut *guard;
+        let queue = registry
+            .queues
+            .get_mut(&self.key)
+            .expect("leased queue exists");
+        if self.is_waiting {
+            // A dispatch that ends after its wakeup hands that wakeup to another waiter.
+            let woken_for = queue.remove_waiter(self.waiter_sequence);
+            queue.pass_on_wakeup(woken_for, None, &registry.streams, Instant::now());
+        }
+        queue.users -= 1;
+        if queue.users == 0 {
+            registry.queues.remove(&self.key);
+        }
     }
 }
 
@@ -85,11 +132,12 @@ impl QueueState {
             affinity: HashMap::new(),
             affinity_order: VecDeque::new(),
             waiters: BTreeMap::new(),
+            woken_waiter_streams: HashMap::new(),
             users: 0,
         }
     }
 
-    /// Registers `lease` in arrival order until a stream it may use becomes idle.
+    /// Registers `lease` in dispatch order until a stream it may use becomes idle.
     pub(super) fn start_waiting(
         &mut self,
         lease: &mut QueueLease,
@@ -107,51 +155,58 @@ impl QueueState {
         lease.is_waiting = true;
     }
 
-    /// Removes a registered waiter.
+    /// Unregisters a waiter.
     ///
-    /// Returns the waiter, or `None` when a wakeup removed it first. A woken waiter owes the
-    /// wakeup to another waiter unless it takes an idle stream.
-    pub(super) fn remove_waiter(&mut self, waiter_sequence: u64) -> Option<QueueWaiter> {
-        self.waiters.remove(&waiter_sequence)
+    /// Returns the stream named by the wakeup that removed the waiter first, or `None` when the
+    /// waiter was still registered or every waiter was woken. The caller owes that stream's
+    /// wakeup to another waiter unless it takes that stream; see `pass_on_wakeup`.
+    pub(super) fn remove_waiter(&mut self, waiter_sequence: u64) -> Option<Uuid> {
+        if self.waiters.remove(&waiter_sequence).is_some() {
+            return None;
+        }
+        self.woken_waiter_streams.remove(&waiter_sequence)
     }
 
     /// Wakes the longest-waiting dispatch that may use the newly idle `worker`.
+    ///
+    /// The scan stops at the first such dispatch, so it passes only waiters that exclude
+    /// `worker`.
     pub(super) fn wake_waiter_for(&mut self, worker: &WorkerStream, now: Instant) {
-        let sequence = self
+        let Some(sequence) = self
             .waiters
             .iter()
             .find(|(_, waiter)| waiter.can_use(worker, now))
-            .map(|(sequence, _)| *sequence);
-        self.wake_waiter(sequence);
+            .map(|(sequence, _)| *sequence)
+        else {
+            return;
+        };
+        let waiter = self.waiters.remove(&sequence).expect("found waiter exists");
+        self.woken_waiter_streams.insert(sequence, worker.id);
+        waiter.wakeup.notify_one();
     }
 
-    /// Wakes the longest-waiting dispatch that may use any idle stream.
-    pub(super) fn wake_waiter_for_any_idle(
+    /// Hands on the wakeup a dispatch consumed for the stream `woken_for`.
+    ///
+    /// Another waiter is woken when that stream is still idle and the dispatch took a different
+    /// stream, recorded as `taken_stream`, or none.
+    pub(super) fn pass_on_wakeup(
         &mut self,
+        woken_for: Option<Uuid>,
+        taken_stream: Option<Uuid>,
         streams: &HashMap<Uuid, Arc<WorkerStream>>,
         now: Instant,
     ) {
-        let idle = &self.idle;
-        let sequence = self
-            .waiters
-            .iter()
-            .find(|(_, waiter)| {
-                idle.iter().any(|id| {
-                    waiter.can_use(streams.get(id).expect("idle stream is registered"), now)
-                })
-            })
-            .map(|(sequence, _)| *sequence);
-        self.wake_waiter(sequence);
+        let Some(stream_id) =
+            woken_for.filter(|id| Some(*id) != taken_stream && self.idle.contains(id))
+        else {
+            return;
+        };
+        let worker = streams.get(&stream_id).expect("idle stream is registered");
+        self.wake_waiter_for(worker, now);
     }
 
     pub(super) fn wake_all_waiters(&mut self) {
         for waiter in std::mem::take(&mut self.waiters).into_values() {
-            waiter.wakeup.notify_one();
-        }
-    }
-
-    fn wake_waiter(&mut self, sequence: Option<u64>) {
-        if let Some(waiter) = sequence.and_then(|sequence| self.waiters.remove(&sequence)) {
             waiter.wakeup.notify_one();
         }
     }
@@ -212,7 +267,7 @@ mod tests {
     #[tokio::test]
     async fn empty_queue_leases_and_absent_sticky_queues_are_removed() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
-        let lease = dispatch.acquire_queue(0, "Flow");
+        let lease = QueueLease::acquire(&dispatch, 0, "Flow", 1);
         assert_eq!(
             dispatch
                 .inner
@@ -346,6 +401,23 @@ mod tests {
         flow_id: &str,
         excluded_worker_ids: &[&str],
     ) -> Option<String> {
+        pick_excluding(
+            dispatch,
+            lease,
+            flow_id,
+            excluded_worker_ids,
+            &HashMap::new(),
+        )
+    }
+
+    /// Like `pick`, with streams in capacity backoff until the given times.
+    fn pick_excluding(
+        dispatch: &WorkerDispatch,
+        lease: &mut QueueLease,
+        flow_id: &str,
+        excluded_worker_ids: &[&str],
+        excluded_streams: &HashMap<Uuid, Instant>,
+    ) -> Option<String> {
         let excluded_worker_ids = excluded_worker_ids
             .iter()
             .map(|worker_id| (*worker_id).to_owned())
@@ -355,8 +427,9 @@ mod tests {
                 lease,
                 flow_id,
                 "task",
+                false,
                 &excluded_worker_ids,
-                &HashMap::new(),
+                excluded_streams,
             )
             .worker
             .map(|worker| worker.app_worker_id.clone())
@@ -371,8 +444,8 @@ mod tests {
     fn a_stream_idle_before_the_wait_wakes_only_the_oldest_waiter() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut older = dispatch.acquire_queue(7, "Flow");
-        let mut newer = dispatch.acquire_queue(7, "Flow");
+        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         // The stream goes idle after the waiter registers but before it awaits its wakeup.
@@ -389,8 +462,8 @@ mod tests {
     fn a_waiter_that_ends_after_its_wakeup_passes_it_on() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut cancelled = dispatch.acquire_queue(7, "Flow");
-        let mut waiting = dispatch.acquire_queue(7, "Flow");
+        let mut cancelled = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut waiting = QueueLease::acquire(&dispatch, 7, "Flow", 2);
         assert_eq!(pick(&dispatch, &mut cancelled, "cancelled", &[]), None);
         assert_eq!(pick(&dispatch, &mut waiting, "waiting", &[]), None);
         dispatch.make_idle(&worker);
@@ -405,13 +478,13 @@ mod tests {
     }
 
     #[test]
-    fn a_woken_waiter_that_excludes_every_idle_stream_passes_its_wakeup_on() {
+    fn a_woken_waiter_that_takes_its_affine_stream_passes_its_wakeup_on() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let first = register_busy_stream(&dispatch, "first");
         let second = register_busy_stream(&dispatch, "second");
-        let mut affine = dispatch.acquire_queue(7, "Flow");
-        let mut excluding = dispatch.acquire_queue(7, "Flow");
-        let mut eligible = dispatch.acquire_queue(7, "Flow");
+        let mut affine = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut excluding = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let mut eligible = QueueLease::acquire(&dispatch, 7, "Flow", 3);
         dispatch
             .inner
             .registry
@@ -432,19 +505,70 @@ mod tests {
         assert!(has_pending_wakeup(&affine));
         assert!(has_pending_wakeup(&excluding));
         assert!(!has_pending_wakeup(&eligible));
-        // Affinity takes the stream the second wakeup was for, leaving one this waiter excludes.
+        // Affinity takes the stream the second wakeup was for, so the first wakeup moves on.
         assert_eq!(
             pick(&dispatch, &mut affine, "affine", &[]).as_deref(),
             Some("second")
         );
+        assert!(has_pending_wakeup(&eligible));
         assert_eq!(
             pick(&dispatch, &mut excluding, "excluding", &["first"]),
             None
         );
-        assert!(has_pending_wakeup(&eligible));
         assert_eq!(
             pick(&dispatch, &mut eligible, "eligible", &[]).as_deref(),
             Some("first")
+        );
+    }
+
+    #[test]
+    fn a_woken_waiter_whose_backoff_expired_passes_its_wakeup_on() {
+        let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
+        let backoff_stream = register_busy_stream(&dispatch, "a");
+        let woken_stream = register_busy_stream(&dispatch, "b");
+        dispatch.make_idle(&backoff_stream);
+        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let backoff = HashMap::from([(
+            backoff_stream.id,
+            Instant::now() + Duration::from_secs(3600),
+        )]);
+        assert_eq!(
+            pick_excluding(&dispatch, &mut older, "older", &[], &backoff),
+            None
+        );
+        assert_eq!(pick(&dispatch, &mut newer, "newer", &["a"]), None);
+        dispatch.make_idle(&woken_stream);
+        assert!(has_pending_wakeup(&older));
+        assert!(!has_pending_wakeup(&newer));
+        // The backoff ended before the woken dispatch picked, so it takes the other idle stream.
+        assert_eq!(
+            pick(&dispatch, &mut older, "older", &[]).as_deref(),
+            Some("a")
+        );
+        assert!(has_pending_wakeup(&newer));
+        assert_eq!(
+            pick(&dispatch, &mut newer, "newer", &["a"]).as_deref(),
+            Some("b")
+        );
+    }
+
+    #[test]
+    fn a_woken_waiter_that_takes_nothing_passes_its_wakeup_on() {
+        let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
+        let worker = register_busy_stream(&dispatch, "worker");
+        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
+        assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
+        dispatch.make_idle(&worker);
+        assert!(has_pending_wakeup(&older));
+        // Search exclusions never grow while waiting; this guards the wakeup if they ever do.
+        assert_eq!(pick(&dispatch, &mut older, "older", &["worker"]), None);
+        assert!(has_pending_wakeup(&newer));
+        assert_eq!(
+            pick(&dispatch, &mut newer, "newer", &[]).as_deref(),
+            Some("worker")
         );
     }
 
@@ -453,8 +577,8 @@ mod tests {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let first = register_busy_stream(&dispatch, "first");
         let second = register_busy_stream(&dispatch, "second");
-        let mut older = dispatch.acquire_queue(7, "Flow");
-        let mut newer = dispatch.acquire_queue(7, "Flow");
+        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         dispatch.disconnect(first.id);
@@ -464,13 +588,17 @@ mod tests {
         dispatch.disconnect(second.id);
         assert!(has_pending_wakeup(&older));
         assert!(has_pending_wakeup(&newer));
+        let mut sticky = QueueLease::acquire(&dispatch, 7, "Flow", 3);
         let picked = dispatch.pick_worker(
-            &mut older,
-            "older",
+            &mut sticky,
+            "sticky",
             "task",
+            true,
             &HashSet::new(),
             &HashMap::new(),
         );
         assert!(picked.worker.is_none() && !picked.has_streams);
+        // A sticky search on an empty queue returns without registering as a waiter.
+        assert!(!sticky.is_waiting);
     }
 }

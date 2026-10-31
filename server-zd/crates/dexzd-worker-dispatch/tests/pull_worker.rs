@@ -1297,14 +1297,15 @@ async fn an_idle_stream_skips_a_waiter_that_excludes_it() {
     );
     let server = start_server(dispatch.clone(), 0).await;
     let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
-    let _backoff_handle = dispatch
-        .dispatch(request_for_step("backoff", "BackoffStep"))
+    let _unknown_handle = dispatch
+        .dispatch(request_for_step("unknown", "UnknownStep"))
         .expect("dispatch starts");
     let (rejected, _) = step_task(&mut worker).await;
+    // Unlike a capacity backoff, this exclusion lasts for the whole search, so no timing matters.
     worker.send(poll_worker_task_request::Frame::Reject(
         PollWorkerTaskReject {
             task_id: rejected,
-            reason: PollWorkerTaskRejectReason::NoCapacity as i32,
+            reason: PollWorkerTaskRejectReason::UnknownStep as i32,
         },
     ));
     let mut busy_handle = dispatch
@@ -1325,7 +1326,7 @@ async fn an_idle_stream_skips_a_waiter_that_excludes_it() {
         completed(&mut busy_handle).await,
         DispatchOutcome::WorkerResult { .. }
     ));
-    // The older waiter is still in capacity backoff, so the stream must wake the newer one.
+    // The older waiter excludes this Worker ID, so the stream must wake the newer one.
     let (eligible_task, eligible_step) = step_task(&mut worker).await;
     assert_eq!(eligible_step, "EligibleStep");
     worker
