@@ -4,6 +4,10 @@
 
 Runtime that proposes, commits, and applies server-zd commands and runs their effects: dispatch, timers, deliveries, and recovery.
 
+Before draining SQL projections, the server calls `EngineNode::stop_committing_after_position_advance`.
+It advances running partitions, stops later store writes, and retains the lease until ordinary
+engine shutdown finishes. Projection drains can read committed views after writes stop.
+
 ## SubFlow hard-delete Attributes
 
 WaitFor results upload hard-delete values before the parent command enters the log. Object reference indices cover the parent Attribute writes, then each SubFlow's initial Attributes in condition order. Apply places the SubFlow references in its child-start outbox message without doing I/O.

@@ -219,6 +219,10 @@ impl CommittedSearchFrames {
         }
     }
 
+    pub(crate) fn try_next_frame(&self) -> Option<CommittedSearchFrame> {
+        self.lock_tracking().take_frame()
+    }
+
     #[cfg(test)]
     fn take_repair_batch(&self) -> Vec<ProjectionRepair> {
         let mut tracking = self.lock_tracking();

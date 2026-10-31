@@ -11,6 +11,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
@@ -616,7 +617,9 @@ impl SqlVisibilitySchema {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the wall clock is after the Unix epoch")
             .as_nanos();
-        let name = format!("dexzd_serve_{}_{nonce}", std::process::id());
+        static NEXT_SCHEMA_NUMBER: AtomicU64 = AtomicU64::new(0);
+        let schema_number = NEXT_SCHEMA_NUMBER.fetch_add(1, Ordering::Relaxed);
+        let name = format!("dexzd_serve_{}_{nonce}_{schema_number}", std::process::id());
         client
             .batch_execute(&format!("CREATE SCHEMA {name}"))
             .await
@@ -648,6 +651,39 @@ impl SqlVisibilitySchema {
             "UPDATE {0}.dexzd_visibility_progress SET applied_node_id = 'unexpected-owner' WHERE partition_id = (SELECT partition_id FROM {0}.dexzd_visibility_runs WHERE workflow_id = $1 LIMIT 1) RETURNING partition_id", self.name
         ), &[&flow_id]).await.expect("inject a divergent partition checkpoint");
         u32::try_from(row.get::<_, i32>(0)).expect("partition fits u32")
+    }
+
+    pub(crate) async fn assert_idle_checkpoints_match_local_store(
+        &self,
+        directory: &Path,
+        server_log: &str,
+    ) {
+        use dexzd_storage::LocalReadView;
+        let local = dexzd_storage::RocksDbLocalStore::open(directory, Default::default())
+            .expect("closed local store opens for checkpoint verification");
+        for metadata in local.partition_metas().expect("read partition positions") {
+            let Some(position) = metadata.applied else {
+                continue;
+            };
+            let partition_number =
+                i32::try_from(metadata.partition).expect("partition fits integer");
+            let row = self.client.query_one(&format!("SELECT applied_node_id, applied_incarnation, applied_seq FROM {}.dexzd_visibility_progress WHERE partition_id = $1", self.name), &[&partition_number]).await.expect("idle SQL partition has progress");
+            assert_eq!(
+                row.get::<_, String>(0),
+                position.node_id,
+                "partition {partition_number}: {server_log}"
+            );
+            assert_eq!(
+                row.get::<_, i64>(1),
+                i64::from(position.incarnation),
+                "partition {partition_number}: {server_log}"
+            );
+            assert_eq!(
+                row.get::<_, i64>(2),
+                i64::try_from(position.seq).expect("sequence fits bigint"),
+                "partition {partition_number}: {server_log}"
+            );
+        }
     }
 
     pub(crate) async fn drop_schema(self) {

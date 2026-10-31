@@ -547,6 +547,22 @@ impl EngineNode {
         self.snapshots.take_snapshot().await
     }
 
+    /// Advances applied positions and stops store writes while retaining the lease for dependent projection drains.
+    /// Returns the node's stop reason if its applier lanes have closed.
+    pub async fn stop_committing_after_position_advance(&self) -> Result<(), NodeStopReason> {
+        self.applied_positions
+            .advance_to_last_routed()
+            .await
+            .map_err(|error| {
+                self.stop_reason()
+                    .unwrap_or_else(|| NodeStopReason::CommitPipelineFailed {
+                        detail: format!("advance applied partition positions: {error}"),
+                    })
+            })?;
+        self.state.stop(NodeStopReason::Shutdown);
+        Ok(())
+    }
+
     /// Stops serving, fails waiting tickets, stops every task, and releases the lease.
     ///
     /// It first records the last routed batch as every running partition's position, for at most

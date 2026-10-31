@@ -703,7 +703,28 @@ impl ServerNode {
         let (has_search_projection_stopped, has_attribute_sync_stopped) = tokio::join!(
             async {
                 match search_projection {
-                    Some(projection) => projection.shutdown(SEARCH_PROJECTION_STOP_BUDGET).await,
+                    Some(projection) => {
+                        let deadline = tokio::time::Instant::now() + SEARCH_PROJECTION_STOP_BUDGET;
+                        match tokio::time::timeout_at(
+                            deadline,
+                            engine.stop_committing_after_position_advance(),
+                        )
+                        .await
+                        {
+                            Ok(Ok(())) => {}
+                            Ok(Err(error)) => {
+                                tracing::warn!(%error, "advancing partition positions before search shutdown failed")
+                            }
+                            Err(_) => tracing::warn!(
+                                "advancing partition positions before search shutdown timed out"
+                            ),
+                        }
+                        projection
+                            .shutdown(
+                                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                            )
+                            .await
+                    }
                     None => true,
                 }
             },

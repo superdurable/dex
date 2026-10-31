@@ -177,7 +177,10 @@ impl SearchProjectionWorker {
             tokio::select! {
                 biased;
                 () = stop.cancelled() => {
-                    if let Err(error) = self.synchronize_pending().await {
+                    while let Some(frame) = self.frames.try_next_frame() {
+                        if !self.project_frame(frame).await { return; }
+                    }
+                    if let Err(error) = self.checkpoint_before_shutdown().await {
                         self.frames.record_global_failure(&error.to_string());
                     }
                     return;
@@ -215,6 +218,19 @@ impl SearchProjectionWorker {
             );
             self.frames.publish_projected_through();
         }
+    }
+
+    async fn checkpoint_before_shutdown(&mut self) -> Result<(), SearchProjectionError> {
+        let repairs = self.frames.take_staged_repairs();
+        {
+            let mut pending = self.pending.lock().await;
+            pending.record(&repairs)?;
+            pending.store_rebuild_markers(&self.frames.rebuild_status().0)?;
+        }
+        while super::sync_pending_objects(&self.pending, self.cfg.pending_sync_partitions).await?
+            > 0
+        {}
+        self.synchronize_pending().await
     }
 
     async fn restore_rebuild_markers(&self) -> Result<(), PendingStoreError> {

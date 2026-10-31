@@ -344,8 +344,12 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
     let entries =
         wait_for_exact_projection(&mut client, &server, &committed_versions, &purged_runs).await;
     assert_committed_versions(&entries, &committed_versions);
+    wait_for_repairs_to_drain(metrics_address).await;
     let status = server.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", server.log());
+    schema
+        .assert_idle_checkpoints_match_local_store(&directory.path().join("store"), &server.log())
+        .await;
     proxy.shutdown().await;
     primary.shutdown().await;
     schema.drop_schema().await;
