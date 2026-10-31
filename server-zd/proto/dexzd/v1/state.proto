@@ -143,10 +143,7 @@ message RunRecord {
   int64 last_pruned_semantic_timestamp_micros = 55;
   // Set while a natural close waits for the Attribute Sync outbox; the status stays RUNNING.
   PendingFlowClose pending_close = 56;
-  // Largest event ID that window pruning deleted, taken from the deleted rows' metadata. The
-  // window's first move past FlowStart sets it to 1, the FlowStart event ID, so 1 means no event
-  // was deleted. Zero when the window moved before this field existed, or after pruning deleted a
-  // metadata row without last_assigned_event_id; history reads then scan for the first kept event.
+  // Largest event ID deleted by window pruning; 1 means none deleted, 0 means unknown and reads scan.
   int64 max_pruned_event_id = 57;
 }
 
@@ -195,8 +192,7 @@ message HistoryRowMetadata {
   bool is_external_input = 3;
   uint32 attempt = 4;
   int64 timestamp_micros = 5;
-  // Newest event ID of the run when the history record was written; zero for checkpoints and older
-  // rows. Window pruning keeps RunRecord.max_pruned_event_id from it without reading records.
+  // Run's newest event ID when this record was written; zero for checkpoints and older rows.
   int64 last_assigned_event_id = 6;
 }
 
