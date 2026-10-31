@@ -15,15 +15,28 @@ These results were measured on 2026-10-31 in AWS us-west-2.
 
 | Scenario | c7gd.large (2 vCPU) | c7gd.4xlarge (16 vCPU) |
 | --- | --- | --- |
-| S2 SYNC Steps | **1,305 Steps/s** at C=256; Step p50 173 ms | **7,544 Steps/s** at C=2,048; Step p50 243 ms |
-| S3 ASYNC Steps | **1,492 Steps/s** at C=32; Step p50 7.1 ms | **10,007 Steps/s** at C=256; Step p50 5.8 ms |
+| S2 SYNC Steps | **1,305 Steps/s** median, 1,361 max, at C=256; Step p50 173 ms | **7,544 Steps/s** median, 8,506 max, at C=2,048; Step p50 243 ms |
+| S3 ASYNC Steps | **1,492 Steps/s** median, 1,537 max, at C=32; Step p50 7.1 ms | **10,007 Steps/s** median, 10,050 max, at C=256; Step p50 5.8 ms |
 | S1 Flows started and completed | 855 Flows/s at C=256 | 5,104 Flows/s at C=3,072 |
 | S4 plain RPC | 6,681 RPCs/s at C=32; p50 3.5 ms | 34,611 RPCs/s at C=48; p50 1.2 ms |
 | S4 Attribute-locking RPC | 1,324 RPCs/s at C=256 | 8,359 RPCs/s at C=1,024 |
 | S5 reads of ten 16 KiB Attributes | 6,034 reads/s at C=512 | 11,257 reads/s at C=256 |
 | S6 Channel wake latency, p50 / p99 | 106 / 258 ms at C=64 | 83 / 216 ms at C=64 |
 
-C is the number of concurrent clients. Every number is the best point found by searching concurrency. S4 plain RPC on c7gd.large peaked at the lowest concurrency tested, so a lower one may do slightly better. S5 on c7gd.4xlarge was flat from 256 to 1,024.
+C is the number of concurrent clients. Every number is the best point found by searching concurrency.
+
+For S2 and S3, the median is over the three final trials. The max is the best single run with the same settings and concurrency, from any round. Each of the other scenarios was measured once at each concurrency.
+
+| Runs with the headline settings | Steps/s, sorted | Median of final trials | Max |
+| --- | --- | --- | --- |
+| c7gd.large S2, C=256 | 1,295 · 1,305 · 1,319 · 1,361 | 1,305 | 1,361 |
+| c7gd.large S3, C=32 | 1,472 · 1,492 · 1,529 · 1,537 | 1,492 | 1,537 |
+| c7gd.4xlarge S2, C=2,048 | 7,343 · 7,544 · 7,666 · 8,506 | 7,544 | 8,506 |
+| c7gd.4xlarge S3, C=256 | 9,451 · 9,900 · 10,007 · 10,050 | 10,007 | 10,050 |
+
+The extra run in each row is from an earlier round: `04-scenarios` on c7gd.large and `01-concurrency` on c7gd.4xlarge. Single runs vary by about 10%, so the median is the number to compare.
+
+S4 plain RPC on c7gd.large peaked at the lowest concurrency tested, so a lower one may do slightly better. S5 on c7gd.4xlarge was flat from 256 to 1,024.
 
 ### Settings that produced these numbers
 
