@@ -36,6 +36,7 @@ OpenAI-compatible Chat Completions API.
 | Variable | Default |
 | --- | --- |
 | `DEX_FLOW_SERVICE_ADDRESS` | `127.0.0.1:8801` |
+| `DEX_SERVER`, `DEX_TLS`, `DEX_TOKEN_URL`, `DEX_SERVER_ID`, `DEX_API_KEY` | unset; a Dex Cloud engine, as its Connect panel exports them |
 | `DEX_AI_AGENT_HTTP_ADDRESS` | `127.0.0.1:8090` |
 | `DEX_AI_AGENT_NOTES_FILE` | `$TMPDIR/dex-ai-agent/notes.jsonl` |
 | `DEX_AI_AGENT_STAGE_PAUSE` | `1.5s`, the pause between the stages of `fetch_page` and `publish_note` |
@@ -48,6 +49,13 @@ pass the folder to `dexcli dev`. Slack setup needs it too:
 dexcli visualize products/ai-agent/workflow.go --json --schema-version 2.0 --out /tmp/dex-flows/ai-agent
 dexcli dev --engine zd --flow-rendering-dir /tmp/dex-flows
 ```
+
+## Run on Dex Cloud
+
+Open the engine in Dex Cloud, create an API key, and run the commands in its
+Connect panel in the shell that starts the app. The app reads the same
+variables, so its Worker and Client connect to that engine over TLS with the
+API key. The chat page and Slack setup work the same way.
 
 ## Set up Slack
 
