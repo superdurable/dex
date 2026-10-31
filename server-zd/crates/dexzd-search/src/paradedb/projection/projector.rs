@@ -19,12 +19,13 @@ use thiserror::Error;
 use tokio_postgres::Transaction;
 use tokio_postgres::types::{ToSql, Type};
 
+use super::super::SearchRow;
 use super::super::row::is_system_field;
 use super::super::search_backend::{
     DATABASE_OPERATION_TIMEOUT, ParadeDbSearchBackend, database_error_message,
     is_transient_database_error,
 };
-use super::super::{SearchRow, SqlStatement, upsert_statement};
+use super::super::upsert::upsert_statements;
 use super::changes::{SearchDocumentChange, decode_search_index_key};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
@@ -109,6 +110,22 @@ pub enum ProjectionError {
         /// Whether the database failure is transient, classified before its raw Postgres error was dropped.
         is_transient: bool,
     },
+    /// Postgres rejected a statement containing multiple committed runs.
+    #[error("upsert {row_count} runs from {first_run_id} through {last_run_id} in partition {} into ParadeDB projection: {message}", partition_id.0)]
+    BatchDatabase {
+        /// Partition containing the runs.
+        partition_id: PartitionId,
+        /// Number of distinct rows in the failed statement.
+        row_count: usize,
+        /// First run in the statement's row order.
+        first_run_id: RunId,
+        /// Last run in the statement's row order.
+        last_run_id: RunId,
+        /// The Postgres error; the projector redacts the DSN and password before returning it.
+        message: String,
+        /// Whether the database failure is transient, classified before its raw Postgres error was dropped.
+        is_transient: bool,
+    },
     /// A pooled connection could not be reopened.
     #[error("reconnect ParadeDB projector: {0}")]
     Connection(#[from] SearchError),
@@ -123,9 +140,9 @@ impl ProjectionError {
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::Connection(SearchError::Unavailable(_)) => true,
-            Self::Database { is_transient, .. } | Self::RowDatabase { is_transient, .. } => {
-                *is_transient
-            }
+            Self::Database { is_transient, .. }
+            | Self::RowDatabase { is_transient, .. }
+            | Self::BatchDatabase { is_transient, .. } => *is_transient,
             Self::StateRead(_) => true,
             _ => false,
         }
@@ -133,7 +150,10 @@ impl ProjectionError {
 
     /// Redacts database messages before they leave the projector; [`Self::Connection`] is already redacted.
     fn redact_credentials(mut self, configuration: &ConnectionSettings) -> Self {
-        if let Self::Database { message, .. } | Self::RowDatabase { message, .. } = &mut self {
+        if let Self::Database { message, .. }
+        | Self::RowDatabase { message, .. }
+        | Self::BatchDatabase { message, .. } = &mut self
+        {
             *message = configuration.redact_credentials(std::mem::take(message));
         }
         self
@@ -345,12 +365,7 @@ async fn apply_batch_transaction(
             offered: applied_position.clone(),
         });
     }
-    let mut skipped_documents = Vec::new();
-    for change in changes {
-        if let Some(skipped) = apply_change(&transaction, partition_id, change).await? {
-            skipped_documents.push(skipped);
-        }
-    }
+    let skipped_documents = apply_changes(&transaction, partition_id, changes).await?;
     update_progress(&transaction, partition_id, applied_position).await?;
     transaction
         .commit()
@@ -415,11 +430,7 @@ async fn rebuild_transaction(
             break;
         };
         start = next_start;
-        for change in changes {
-            if let Some(skipped) = apply_change(&transaction, partition_id, &change).await? {
-                skipped_documents.push(skipped);
-            }
-        }
+        skipped_documents.extend(apply_changes(&transaction, partition_id, &changes).await?);
     }
     update_progress(&transaction, partition_id, applied_position).await?;
     transaction
@@ -489,40 +500,94 @@ fn read_rebuild_page(
     }))
 }
 
-async fn apply_change(
+async fn apply_changes(
     transaction: &Transaction<'_>,
     partition_id: PartitionId,
-    change: &SearchDocumentChange,
-) -> Result<Option<SkippedSearchDocument>, ProjectionError> {
-    match change {
-        SearchDocumentChange::Upsert {
-            tenant_id,
-            run_id,
-            encoded_document,
-        } => match row_from_document(partition_id, *tenant_id, *run_id, encoded_document) {
-            Ok(row) => {
-                let statement = upsert_statement(&row);
-                execute_statement(transaction, partition_id, *run_id, &statement).await?;
+    changes: &[SearchDocumentChange],
+) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
+    let mut pending_rows = Vec::new();
+    let mut skipped_documents = Vec::new();
+    for change in changes {
+        match change {
+            SearchDocumentChange::Upsert {
+                tenant_id,
+                run_id,
+                encoded_document,
+            } => match row_from_document(partition_id, *tenant_id, *run_id, encoded_document) {
+                Ok(row) => {
+                    pending_rows.push(row);
+                }
+                Err(reason) => {
+                    flush_upserts(transaction, partition_id, &mut pending_rows).await?;
+                    delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
+                    record_skipped_document(
+                        transaction,
+                        partition_id,
+                        *tenant_id,
+                        *run_id,
+                        &reason,
+                    )
+                    .await?;
+                    skipped_documents.push(SkippedSearchDocument {
+                        partition_id,
+                        tenant_id: *tenant_id,
+                        run_id: *run_id,
+                        reason: reason.to_string(),
+                    });
+                }
+            },
+            SearchDocumentChange::Delete { tenant_id, run_id } => {
+                flush_upserts(transaction, partition_id, &mut pending_rows).await?;
+                delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
                 delete_skipped_document(transaction, *tenant_id, *run_id).await?;
             }
-            Err(reason) => {
-                delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
-                record_skipped_document(transaction, partition_id, *tenant_id, *run_id, &reason)
-                    .await?;
-                return Ok(Some(SkippedSearchDocument {
-                    partition_id,
-                    tenant_id: *tenant_id,
-                    run_id: *run_id,
-                    reason: reason.to_string(),
-                }));
-            }
-        },
-        SearchDocumentChange::Delete { tenant_id, run_id } => {
-            delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
-            delete_skipped_document(transaction, *tenant_id, *run_id).await?;
         }
     }
-    Ok(None)
+    flush_upserts(transaction, partition_id, &mut pending_rows).await?;
+    Ok(skipped_documents)
+}
+
+async fn flush_upserts(
+    transaction: &Transaction<'_>,
+    partition_id: PartitionId,
+    pending_rows: &mut Vec<SearchRow>,
+) -> Result<(), ProjectionError> {
+    let statements = upsert_statements(pending_rows)
+        .map_err(|error| ProjectionError::InvalidState(error.to_string()))?;
+    for chunk in statements {
+        transaction
+            .execute_typed(
+                &chunk.statement.sql,
+                &chunk.statement.typed_parameter_refs(),
+            )
+            .await
+            .map_err(|source| upsert_database_error(partition_id, &chunk.rows, source))?;
+        delete_skipped_documents(transaction, &chunk.rows).await?;
+    }
+    pending_rows.clear();
+    Ok(())
+}
+
+async fn delete_skipped_documents(
+    transaction: &Transaction<'_>,
+    rows: &[&SearchRow],
+) -> Result<(), ProjectionError> {
+    let tenant_columns = rows
+        .iter()
+        .map(|row| row.tenant_id.as_str())
+        .collect::<Vec<_>>();
+    let run_columns = rows
+        .iter()
+        .map(|row| row.run_id.as_str())
+        .collect::<Vec<_>>();
+    transaction.execute_typed(
+        "DELETE FROM dexzd_visibility_skipped_documents WHERE (tenant_id, run_id) IN (SELECT * FROM unnest($1::text[], $2::text[]))",
+        &[
+            (&tenant_columns as &(dyn ToSql + Sync), Type::TEXT_ARRAY),
+            (&run_columns, Type::TEXT_ARRAY),
+        ],
+    ).await.map_err(|source| database_error("clear skipped documents from", source))?;
+    Ok(())
 }
 
 async fn record_skipped_document(
@@ -631,19 +696,6 @@ fn row_from_document(
     Ok(row)
 }
 
-async fn execute_statement(
-    transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-    run_id: RunId,
-    statement: &SqlStatement,
-) -> Result<(), ProjectionError> {
-    transaction
-        .execute_typed(&statement.sql, &statement.typed_parameter_refs())
-        .await
-        .map_err(|source| row_database_error(partition_id, run_id, source))?;
-    Ok(())
-}
-
 async fn lock_progress(
     transaction: &Transaction<'_>,
     partition_id: PartitionId,
@@ -747,6 +799,36 @@ fn database_error(operation: &'static str, source: tokio_postgres::Error) -> Pro
     }
 }
 
+fn upsert_database_error(
+    partition_id: PartitionId,
+    rows: &[&SearchRow],
+    source: tokio_postgres::Error,
+) -> ProjectionError {
+    let first_run_id = rows
+        .first()
+        .expect("upsert chunks contain at least one row")
+        .run_id
+        .parse()
+        .expect("projected rows preserve canonical run identifiers");
+    if rows.len() == 1 {
+        return row_database_error(partition_id, first_run_id, source);
+    }
+    let last_run_id = rows
+        .last()
+        .expect("upsert chunks contain at least one row")
+        .run_id
+        .parse()
+        .expect("projected rows preserve canonical run identifiers");
+    ProjectionError::BatchDatabase {
+        partition_id,
+        row_count: rows.len(),
+        first_run_id,
+        last_run_id,
+        message: database_error_message(&source),
+        is_transient: is_transient_database_error(&source),
+    }
+}
+
 fn row_database_error(
     partition_id: PartitionId,
     run_id: RunId,
@@ -776,151 +858,13 @@ fn should_retry(result: &Result<impl Sized, ProjectionError>, has_retried: bool)
             } | ProjectionError::RowDatabase {
                 is_transient: true,
                 ..
+            } | ProjectionError::BatchDatabase {
+                is_transient: true,
+                ..
             })
         )
 }
 
 #[cfg(test)]
-mod tests {
-    use dexzd_keyspace::{PartitionId, RunId, TenantId};
-    use dexzd_postgres_connection::{ConnectionSettings, error_with_sources};
-    use dexzd_protocol::dex::{EncodedObject, FlowStatus, IndexType, Value, value};
-    use dexzd_protocol::dexzd::v1::{LogPosition, SearchAttributeValue, SearchDocumentRecord};
-    use prost::Message;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-    use tokio_postgres::{Config, NoTls};
-
-    use super::{database_error, row_database_error, row_from_document, validate_position};
-
-    #[test]
-    fn permits_zero_incarnation_with_positive_sequence() {
-        let position = LogPosition {
-            node_id: "node".into(),
-            incarnation: 0,
-            seq: 1,
-        };
-        assert!(validate_position(&position).is_ok());
-    }
-
-    #[test]
-    fn projects_work_queue_permissions_into_their_column_only() {
-        let tenant_id = TenantId(1);
-        let run_id = RunId([9; 16]);
-        let record = SearchDocumentRecord {
-            version: 2,
-            tenant_id: tenant_id.0,
-            flow_id: "permission-flow".into(),
-            run_id: run_id.as_bytes().to_vec(),
-            flow_type: "PermissionFlow".into(),
-            status: FlowStatus::Running.into(),
-            started_at_micros: 1_000_000,
-            work_queue_permissions: vec!["approve".into()],
-            attributes: vec![
-                SearchAttributeValue {
-                    index_key: "DexWorkQueuePermissions".into(),
-                    index_type: IndexType::KeywordArray.into(),
-                    value: Some(Value {
-                        kind: Some(value::Kind::ObjValue(EncodedObject {
-                            encoding: "json".into(),
-                            payload: br#"["approve"]"#.to_vec(),
-                        })),
-                    }),
-                },
-                SearchAttributeValue {
-                    index_key: "ReviewState".into(),
-                    index_type: IndexType::Keyword.into(),
-                    value: Some(Value {
-                        kind: Some(value::Kind::StringValue("ready".into())),
-                    }),
-                },
-            ],
-            ..SearchDocumentRecord::default()
-        };
-        let row = row_from_document(PartitionId(3), tenant_id, run_id, &record.encode_to_vec())
-            .expect("a document with server-managed permissions projects");
-        assert_eq!(row.dex_work_queue_permissions, Some(vec!["approve".into()]));
-        assert!(!row.sa_keyword.contains_key("DexWorkQueuePermissions"));
-        assert!(row.sa_keyword.contains_key("ReviewState"));
-        assert!(row.sa_wire.contains_key("DexWorkQueuePermissions"));
-    }
-
-    #[tokio::test]
-    async fn database_errors_keep_neither_credentials_nor_the_raw_postgres_error() {
-        let dsn = "postgres://dex:p%40ss-word@db.example.com/dex?sslmode=disable";
-        let settings = ConnectionSettings::parse_for_search(dsn).expect("valid URL DSN");
-        let fields = |sqlstate: &str| {
-            format!(
-                "SFATAL\0VFATAL\0C{sqlstate}\0Mrejected {dsn}\0Dpassword p@ss-word or p%40ss-word expired\0\0"
-            )
-        };
-        let errors = [
-            (
-                database_error(
-                    "read progress from",
-                    rejected_startup_error(fields("08006")).await,
-                ),
-                true,
-            ),
-            (
-                row_database_error(
-                    PartitionId(3),
-                    RunId([7; 16]),
-                    rejected_startup_error(fields("28P01")).await,
-                ),
-                false,
-            ),
-        ];
-        for (error, is_retryable) in errors {
-            let error = error.redact_credentials(&settings);
-            assert_eq!(error.is_retryable(), is_retryable, "{error}");
-            assert!(std::error::Error::source(&error).is_none(), "{error:?}");
-            for text in [
-                error.to_string(),
-                format!("{error:?}"),
-                error_with_sources(&error),
-            ] {
-                assert!(text.contains("SQLSTATE"), "{text}");
-                assert!(text.contains("[REDACTED]"), "{text}");
-                for secret in [dsn, "p@ss-word", "p%40ss-word"] {
-                    assert!(!text.contains(secret), "{text}");
-                }
-            }
-        }
-    }
-
-    /// Returns the client error after a fake server rejects its startup with `fields`.
-    async fn rejected_startup_error(fields: String) -> tokio_postgres::Error {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("fake PostgreSQL listener binds");
-        let port = listener
-            .local_addr()
-            .expect("listener has an address")
-            .port();
-        let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("client connects");
-            let startup_length = stream.read_u32().await.expect("startup has a length");
-            let mut startup = vec![0; startup_length as usize - 4];
-            stream
-                .read_exact(&mut startup)
-                .await
-                .expect("client sends startup parameters");
-            let mut message = vec![b'E'];
-            message.extend_from_slice(&((fields.len() + 4) as u32).to_be_bytes());
-            message.extend_from_slice(fields.as_bytes());
-            stream
-                .write_all(&message)
-                .await
-                .expect("server rejects startup");
-        });
-        let mut configuration = Config::new();
-        configuration.host("127.0.0.1").port(port).user("test");
-        let error = match configuration.connect(NoTls).await {
-            Ok(_) => panic!("the rejected startup cannot connect"),
-            Err(error) => error,
-        };
-        server.await.expect("fake server sends its rejection");
-        error
-    }
-}
+#[path = "projector_tests.rs"]
+mod tests;

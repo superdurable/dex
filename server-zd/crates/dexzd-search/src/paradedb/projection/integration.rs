@@ -104,8 +104,21 @@ struct FailingDocuments {
     reads: AtomicUsize,
 }
 
-#[derive(Default)]
-struct CountingProjectionMetrics(AtomicUsize);
+struct CountingProjectionMetrics {
+    skipped_documents: AtomicUsize,
+    partition_id: PartitionId,
+    tenant_id: TenantId,
+}
+
+impl CountingProjectionMetrics {
+    fn new(partition_id: PartitionId, tenant_id: TenantId) -> Self {
+        Self {
+            skipped_documents: AtomicUsize::new(0),
+            partition_id,
+            tenant_id,
+        }
+    }
+}
 
 impl ProjectionMetricRecorder for CountingProjectionMetrics {
     fn record_skipped_search_document(
@@ -114,9 +127,9 @@ impl ProjectionMetricRecorder for CountingProjectionMetrics {
         tenant_id: TenantId,
         _run_id: RunId,
     ) {
-        assert_eq!(partition_id, PartitionId(4));
-        assert_eq!(tenant_id, TenantId(17));
-        self.0.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(partition_id, self.partition_id);
+        assert_eq!(tenant_id, self.tenant_id);
+        self.skipped_documents.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -219,6 +232,98 @@ async fn skipped_reason(
         .map(|row| row.get(0))
 }
 
+async fn verify_ordered_batch_changes(backend: &Arc<ParadeDbSearchBackend>) {
+    let partition_id = PartitionId(6);
+    let tenant_id = TenantId(19);
+    let metrics = Arc::new(CountingProjectionMetrics::new(partition_id, tenant_id));
+    let projector = ParadeDbProjector::new_with_metric_recorder(backend.clone(), metrics.clone());
+    let run_id = RunId([9; 16]);
+    let newest = document(tenant_id, run_id, 10);
+    let older = document(tenant_id, run_id, 1);
+    let deleted = SearchDocumentChange::Delete { tenant_id, run_id };
+    let invalid = SearchDocumentChange::Upsert {
+        tenant_id,
+        run_id,
+        encoded_document: vec![0xff],
+    };
+    for (sequence, changes, should_exist, should_be_skipped, skipped_count) in [
+        (
+            1,
+            vec![
+                upsert(tenant_id, run_id, &newest),
+                deleted.clone(),
+                upsert(tenant_id, run_id, &older),
+            ],
+            true,
+            false,
+            0,
+        ),
+        (
+            2,
+            vec![
+                upsert(tenant_id, run_id, &newest),
+                invalid.clone(),
+                upsert(tenant_id, run_id, &older),
+            ],
+            true,
+            false,
+            1,
+        ),
+        (
+            3,
+            vec![upsert(tenant_id, run_id, &newest), invalid],
+            false,
+            true,
+            2,
+        ),
+        (
+            4,
+            vec![upsert(tenant_id, run_id, &older), deleted],
+            false,
+            false,
+            2,
+        ),
+    ] {
+        let previous = (sequence > 1).then(|| position(sequence - 1));
+        projector
+            .apply_batch(
+                partition_id,
+                previous.as_ref(),
+                &position(sequence),
+                &changes,
+            )
+            .await
+            .expect("apply ordered changes within one batch");
+        assert_eq!(
+            !listed_runs(backend, tenant_id).await.is_empty(),
+            should_exist
+        );
+        assert_eq!(
+            skipped_reason(backend, tenant_id, run_id).await.is_some(),
+            should_be_skipped
+        );
+        if should_exist {
+            let slot = backend.lock_next_slot().await;
+            let stored = slot.client.query_typed_one(
+                "SELECT version FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND run_id = $2::text",
+                &[
+                    (&tenant_id.0.to_string() as &(dyn tokio_postgres::types::ToSql + Sync), tokio_postgres::types::Type::TEXT),
+                    (&run_id.to_string(), tokio_postgres::types::Type::TEXT),
+                ],
+            ).await.expect("read version after an ordering barrier");
+            assert_eq!(stored.get::<_, i64>(0), 1);
+        }
+        assert_eq!(
+            metrics.skipped_documents.load(Ordering::Relaxed),
+            skipped_count
+        );
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            Some(position(sequence))
+        );
+    }
+}
+
 #[cfg(test)]
 pub(crate) async fn run_projector_scenarios_for_test(
     database_url: &str,
@@ -243,7 +348,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .expect("create schema on empty database"),
         );
-        let metrics = Arc::new(CountingProjectionMetrics::default());
+        let metrics = Arc::new(CountingProjectionMetrics::new(PartitionId(4), TenantId(17)));
         let projector = Arc::new(ParadeDbProjector::new_with_metric_recorder(
             backend.clone(),
             metrics.clone(),
@@ -363,12 +468,12 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .is_some_and(|reason| reason.contains("decode committed search document"))
         );
-        assert_eq!(metrics.0.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 1);
         projector
             .apply_batch(partition_id, Some(&position(10)), &position(11), &[])
             .await
             .expect("skip replay without recording poison twice");
-        assert_eq!(metrics.0.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 1);
         let second_record = document(tenant_id, second_run, 1);
         projector
             .apply_batch(
@@ -376,7 +481,9 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 Some(&position(11)),
                 &position(13),
                 &[
+                    upsert(tenant_id, first_run, &first_record),
                     upsert(tenant_id, first_run, &changed_record),
+                    upsert(tenant_id, first_run, &first_record),
                     upsert(tenant_id, second_run, &second_record),
                 ],
             )
@@ -387,6 +494,18 @@ pub(crate) async fn run_projector_scenarios_for_test(
             Some(position(13))
         );
         assert_eq!(skipped_reason(&backend, tenant_id, first_run).await, None);
+        let stored_version = {
+            let slot = backend.lock_next_slot().await;
+            slot.client.query_typed_one(
+                "SELECT version FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND run_id = $2::text",
+                &[
+                    (&tenant_id.0.to_string() as &(dyn tokio_postgres::types::ToSql + Sync), tokio_postgres::types::Type::TEXT),
+                    (&first_run.to_string(), tokio_postgres::types::Type::TEXT),
+                ],
+            ).await.expect("read deduplicated version").get::<_, i64>(0)
+        };
+        assert_eq!(stored_version, 2);
+
         projector
             .apply_batch(
                 partition_id,
@@ -530,7 +649,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .is_some()
         );
-        assert_eq!(metrics.0.load(Ordering::Relaxed), 2);
+        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 2);
         projector
             .apply_batch(
                 partition_id,
@@ -550,6 +669,8 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await,
             Err(ProjectionError::StaleRebuild { .. })
         ));
+
+        verify_ordered_batch_changes(&backend).await;
 
         let mut held_slots = Vec::new();
         for _ in 0..pool_size {

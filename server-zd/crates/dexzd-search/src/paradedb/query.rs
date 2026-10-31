@@ -79,10 +79,17 @@ pub fn translate_query(
         parameters: vec![SqlValue::Text(tenant_id.to_owned())],
     };
     let predicate = renderer.render_expression(query.expression())?;
+    let has_application_field = contains_application_field(query.expression());
+    let filtered_predicate = if has_application_field {
+        // Coalesce prevents pg_search pushdown from dropping empty arrays that satisfy IS NOT NULL.
+        format!("coalesce(({predicate}), FALSE)")
+    } else {
+        format!("({predicate})")
+    };
     let mut sql = format!(
-        "SELECT {SELECT_COLUMNS} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND coalesce(({predicate}), FALSE)"
+        "SELECT {SELECT_COLUMNS} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND {filtered_predicate}"
     );
-    if contains_application_field(query.expression()) {
+    if has_application_field {
         sql.push_str(" AND tenant_id @@@ pdb.term($1::text)");
     }
     if let Some(cursor) = cursor {
@@ -394,7 +401,7 @@ impl Renderer {
                 let close = self.bind(SqlValue::OptionalInt(cursor.close_time_ns), "bigint");
                 let start = self.bind(SqlValue::Int(cursor.start_time_ns), "bigint");
                 Ok(format!(
-                    "is_running < {running} OR (is_running = {running} AND ((close_time_ns IS NULL AND {close} IS NOT NULL) OR close_time_ns < {close} OR (close_time_ns IS NOT DISTINCT FROM {close} AND (start_time_ns < {start} OR (start_time_ns = {start} AND run_id COLLATE \"C\" > {run_id})))))"
+                    "is_running <= {running} AND (is_running < {running} OR (is_running = {running} AND ((close_time_ns IS NULL AND {close} IS NOT NULL) OR close_time_ns < {close} OR (close_time_ns IS NOT DISTINCT FROM {close} AND (start_time_ns < {start} OR (start_time_ns = {start} AND run_id COLLATE \"C\" > {run_id}))))))"
                 ))
             }
             Some(("StartTime", direction)) => {
