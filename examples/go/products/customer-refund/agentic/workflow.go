@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"time"
 
-	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
+	openai "github.com/superdurable/dex-connectors-library/connectors/openai/go"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
 	refundmodel "github.com/superdurable/dex/examples/go/products/customer-refund/model"
 	"github.com/superdurable/dex/sdk-go/dex"

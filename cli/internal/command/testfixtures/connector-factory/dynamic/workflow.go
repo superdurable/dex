@@ -9,7 +9,7 @@
 package connectorfactorydynamic
 
 import (
-	openaifactory "github.com/superdurable/dex-connectors-library/connectors/openai"
+	openaifactory "github.com/superdurable/dex-connectors-library/connectors/openai/go"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -52,8 +52,8 @@ func (flow *dynamicFactoryFlow) GetSteps() []dex.StepDef {
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Omit a required branch target.",
 			},
 			Connection: flow.connection, MapToOperationInput: mapToOperationInput,
-			Completed: sdkgo.GoTo(finishStep{}), Failed: sdkgo.GoTo(finishStep{}),
-			Uncertain:       sdkgo.GoTo(finishStep{}),
+			Failed: sdkgo.GoTo(finishStep{}), Uncertain: sdkgo.GoTo(finishStep{}),
+			Defect:          sdkgo.GoTo(finishStep{}),
 			ResultAttribute: &result,
 		})),
 		dex.DefineStep(finishStep{}),

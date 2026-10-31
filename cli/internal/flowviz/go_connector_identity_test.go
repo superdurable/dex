@@ -16,32 +16,48 @@ import (
 )
 
 func TestConnectorIdentityUsesExactModuleAndStaticConnectionName(t *testing.T) {
-	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/google/gmail"
-	analyzer := connectorIdentityTestAnalyzer(packagePath, goModule{path: packagePath, version: "v0.1.1"})
-	identity := analyzer.parseConnectorIdentity(
-		goConnectorFactoryConfig{
-			connectorID: "gmail", operationID: "sendMessage", packagePath: packagePath,
-			fieldNames: map[string]string{"connectionName": "ConnectionName"},
-		},
-		map[string]ast.Expr{"ConnectionName": &ast.BasicLit{Kind: token.STRING, Value: `"sender"`}},
-		&ast.CallExpr{Fun: &ast.Ident{Name: "NewSendMessageStep"}},
-		connectorMutationFactory,
-		true,
-	)
-	if identity == nil || !identity.configurationEnabled || identity.connectionName != "sender" ||
-		identity.modulePath != packagePath || identity.moduleVersion != "v0.1.1" {
-		t.Fatalf("identity = %+v", identity)
-	}
-	metadata := analyzer.connectorFactoryMetadata(connectorMutationFactory, identity)
-	connector, ok := metadata["connector"].(map[string]any)
-	if !ok || connector["connectorId"] != "gmail" || connector["operationId"] != "sendMessage" ||
-		connector["connectionName"] != "sender" || connector["moduleVersion"] != "v0.1.1" {
-		t.Fatalf("metadata = %+v", metadata)
+	for _, scenario := range []struct {
+		name          string
+		connectorID   string
+		operationID   string
+		factoryName   string
+		modulePath    string
+		moduleVersion string
+	}{
+		{"legacy-nested", "gmail", "sendMessage", "NewSendMessageStep", "github.com/superdurable/dex-connectors-library/connectors/google/gmail", "v0.1.1"},
+		{"legacy-root", "openai", "createResponse", "NewCreateResponseStep", "github.com/superdurable/dex-connectors-library/connectors/openai", "v0.22.2"},
+		{"go-module", "openai", "createResponse", "NewCreateResponseStep", "github.com/superdurable/dex-connectors-library/connectors/openai/go", "v0.23.0"},
+		{"nested-go-module", "gmail", "sendMessage", "NewSendMessageStep", "github.com/superdurable/dex-connectors-library/connectors/google/gmail/go", "v0.25.0"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			analyzer := connectorIdentityTestAnalyzer(scenario.modulePath, goModule{path: scenario.modulePath, version: scenario.moduleVersion})
+			identity := analyzer.parseConnectorIdentity(
+				goConnectorFactoryConfig{
+					connectorID: scenario.connectorID, operationID: scenario.operationID, packagePath: scenario.modulePath,
+					fieldNames: map[string]string{"connectionName": "ConnectionName"},
+				},
+				map[string]ast.Expr{"ConnectionName": &ast.BasicLit{Kind: token.STRING, Value: `"sender"`}},
+				&ast.CallExpr{Fun: &ast.Ident{Name: scenario.factoryName}},
+				connectorMutationFactory,
+				true,
+			)
+			if identity == nil || !identity.configurationEnabled || identity.connectionName != "sender" ||
+				identity.modulePath != scenario.modulePath || identity.moduleVersion != scenario.moduleVersion {
+				t.Fatalf("identity = %+v", identity)
+			}
+			metadata := analyzer.connectorFactoryMetadata(connectorMutationFactory, identity)
+			connector, ok := metadata["connector"].(map[string]any)
+			if !ok || connector["connectorId"] != scenario.connectorID || connector["operationId"] != scenario.operationID ||
+				connector["connectionName"] != "sender" || connector["modulePath"] != scenario.modulePath ||
+				connector["moduleVersion"] != scenario.moduleVersion || connector["configurationEnabled"] != true {
+				t.Fatalf("metadata = %+v", metadata)
+			}
+		})
 	}
 }
 
 func TestConnectorIdentityAcceptsReleaseCandidatesButNotOtherPrereleases(t *testing.T) {
-	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/newsapi"
+	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/newsapi/go"
 	for version, enabled := range map[string]bool{
 		"v0.2.0":                             true,
 		"v0.2.0-rc.1":                        true,
@@ -74,9 +90,9 @@ func TestConnectorIdentityAcceptsReleaseCandidatesButNotOtherPrereleases(t *test
 }
 
 func TestConnectorIdentityWarnsAndDisablesLocalReplacementOrMissingName(t *testing.T) {
-	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/github"
+	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/github/go"
 	analyzer := connectorIdentityTestAnalyzer(packagePath, goModule{
-		path: packagePath, version: "v0.1.1", replaced: true,
+		path: packagePath, version: "v0.24.0", replaced: true,
 	})
 	identity := analyzer.parseConnectorIdentity(
 		goConnectorFactoryConfig{

@@ -1603,8 +1603,8 @@
           },
           "connectionName": "customer-refund-demo",
           "connectorId": "openai",
-          "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
-          "moduleVersion": "v0.22.2",
+          "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai/go",
+          "moduleVersion": "v0.23.0",
           "operationId": "createResponse",
           "operationKind": "mutation"
         },

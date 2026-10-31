@@ -145,6 +145,66 @@ func TestConnectorReleaseResolverResolvesReleaseCandidateTags(t *testing.T) {
 	}
 }
 
+func TestConnectorReleaseResolverVerifiesGoModuleLayout(t *testing.T) {
+	for _, scenario := range []struct {
+		connectorID   string
+		releaseTag    string
+		modulePath    string
+		moduleVersion string
+	}{
+		{"stripe", "connectors/stripe/go/v0.25.0", "github.com/superdurable/dex-connectors-library/connectors/stripe/go", "v0.25.0"},
+		{"gmail", "connectors/google/gmail/go/v0.25.0-rc.1", "github.com/superdurable/dex-connectors-library/connectors/google/gmail/go", "v0.25.0-rc.1"},
+	} {
+		t.Run(scenario.connectorID, func(t *testing.T) {
+			identity := connectorDefinitionIdentity{
+				ConnectorID: scenario.connectorID, ModulePath: scenario.modulePath, ModuleVersion: scenario.moduleVersion,
+			}
+			archive := connectorUITestArchive(t, "index.html", []byte("<main>Connection setup</main>"))
+			for _, metadataCase := range []string{"matching", "wrong-module-path", "wrong-tag"} {
+				t.Run(metadataCase, func(t *testing.T) {
+					release := connectorTestRelease(identity, archive, connectorUIHostAPIRange)
+					switch metadataCase {
+					case "wrong-module-path":
+						release.ModulePath = strings.TrimSuffix(scenario.modulePath, "/go")
+					case "wrong-tag":
+						release.Tag = strings.Replace(scenario.releaseTag, "/go/", "/", 1)
+					}
+					metadata, err := json.Marshal(release)
+					if err != nil {
+						t.Fatal(err)
+					}
+					releaseServer := connectorReleaseTestServer(t, metadata, archive)
+					defer releaseServer.Close()
+					server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+						if !strings.Contains(request.URL.Path, "/"+scenario.releaseTag+"/") {
+							t.Errorf("download path %q does not name %q", request.URL.Path, scenario.releaseTag)
+						}
+						releaseServer.Config.Handler.ServeHTTP(response, request)
+					}))
+					defer server.Close()
+					resolver := &connectorReleaseResolver{
+						baseURL: server.URL, artifactRoot: filepath.Join(t.TempDir(), "artifacts"), httpClient: server.Client(),
+					}
+					resolved, err := resolver.resolve(context.Background(), identity)
+					if metadataCase != "matching" {
+						if err == nil {
+							t.Fatalf("mismatched metadata accepted: %+v", release)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					if resolved.release.ModulePath != scenario.modulePath || resolved.release.Tag != scenario.releaseTag ||
+						resolved.release.Version != scenario.moduleVersion || resolved.uiRoot == "" {
+						t.Fatalf("resolved release = %+v", resolved)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestConnectorReleaseResolverLoadsLocalOverride(t *testing.T) {
 	identity := connectorDefinitionIdentity{
 		ConnectorID: "slack", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/slack",

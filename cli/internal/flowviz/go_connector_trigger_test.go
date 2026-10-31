@@ -16,21 +16,21 @@ import (
 )
 
 func TestConnectorTriggerBindingUsesStaticIdentityAndExactModule(t *testing.T) {
-	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/slack"
+	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/slack/go"
 	configType := connectorTriggerTestConfigType(packagePath)
 	literal := &ast.CompositeLit{Type: &ast.Ident{Name: "ChannelThreadCreatedFlowTriggerBindingConfig"}, Elts: []ast.Expr{
 		&ast.KeyValueExpr{Key: &ast.Ident{Name: "ConnectionName"}, Value: &ast.BasicLit{Kind: token.STRING, Value: `"slack-workspace"`}},
 		&ast.KeyValueExpr{Key: &ast.Ident{Name: "BindingName"}, Value: &ast.BasicLit{Kind: token.STRING, Value: `"slack-thread-approval-start"`}},
 	}}
 	call := &ast.CallExpr{Fun: &ast.Ident{Name: "DefineChannelThreadCreatedFlowTriggerBinding"}, Args: []ast.Expr{literal}}
-	analyzer := connectorIdentityTestAnalyzer(packagePath, goModule{path: packagePath, version: "v0.1.0"})
+	analyzer := connectorIdentityTestAnalyzer(packagePath, goModule{path: packagePath, version: "v1.3.0"})
 	analyzer.typeInfo.Types = make(map[ast.Expr]types.TypeAndValue)
 	analyzer.typeInfo.Types[literal] = types.TypeAndValue{Type: configType}
 	binding, ok := analyzer.parseConnectorTriggerBinding(call)
 	if !ok || !binding.ConfigurationEnabled || binding.ConnectorID != "slack" ||
 		binding.TriggerName != "channelThreadCreated" ||
 		binding.ConnectionName != "slack-workspace" || binding.BindingName != "slack-thread-approval-start" ||
-		binding.ModulePath != packagePath || binding.ModuleVersion != "v0.1.0" {
+		binding.ModulePath != packagePath || binding.ModuleVersion != "v1.3.0" {
 		t.Fatalf("binding = %+v, ok = %v", binding, ok)
 	}
 }

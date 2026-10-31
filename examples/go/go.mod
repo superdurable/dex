@@ -7,9 +7,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/stretchr/testify v1.11.1
-	github.com/superdurable/dex-connectors-library/connectors/openai v0.22.2
-	github.com/superdurable/dex-connectors-library/connectors/slack v1.2.0
-	github.com/superdurable/dex-connectors-library/sdkgo v0.33.0
+	github.com/superdurable/dex-connectors-library/connectors/openai/go v0.23.0
+	github.com/superdurable/dex-connectors-library/connectors/slack/go v1.3.0
+	github.com/superdurable/dex-connectors-library/sdkgo v0.34.0
 	github.com/superdurable/dex/blob-cache-go v0.1.2
 	github.com/superdurable/dex/sdk-go v1.26.0
 )

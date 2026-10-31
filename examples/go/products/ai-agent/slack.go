@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/superdurable/dex-connectors-library/connectors/slack"
+	"github.com/superdurable/dex-connectors-library/connectors/slack/go"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex-connectors-library/sdkgo/projectconfig"
 	"github.com/superdurable/dex-connectors-library/sdkgo/projectconfig/provider"
