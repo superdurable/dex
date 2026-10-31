@@ -1,6 +1,6 @@
 # Dex server benchmark
 
-`dexbench` measures server-zd with a Go SDK Worker. It runs six scenarios at
+`dexbench` measures server-zd with a Go SDK Worker. It runs six execution scenarios at
 fixed client concurrency and records throughput, latency percentiles, server
 CPU and memory, and object storage requests for each run.
 
@@ -85,6 +85,7 @@ concurrency.
 | S4 | `rpc-plain`, `rpc-locking` | A plain RPC, and an RPC that locks one Attribute |
 | S5 | `attribute-read-direct` | Read ten 16 KiB Attributes from the client |
 | S6 | `channel-wake` | Latency from a Channel publish to the waiting Step |
+| S7 | `dexbench search` | Search latency, seed projection throughput, WAL, and PostgreSQL backfill |
 
 The scenario name `rpc` runs both S4 variants. The name `attribute-read` runs
 S5.
@@ -477,3 +478,76 @@ objects. It deletes only the bucket named in `~/.dexbench-<run id>.env` or
 `DEXBENCH_S3_BUCKET`, and only when its `dex-benchmark` tag matches the run. It then lists each resource type by tag or name and fails if anything
 remains. An S3 gateway endpoint that existed before `launch.sh` is left in
 place.
+
+## S7 search backend benchmark
+
+S7 runs separately from the timed execution scenarios. Use a fresh server and
+empty search database for each point. Build the release server and harness:
+
+```bash
+(cd server-zd && cargo build --release -p dexzd-server)
+(cd benchmark && GOWORK=off go build -o bin/dexbench ./cmd/dexbench)
+benchmark/search-local.sh builtin 100000 10 /tmp/search-builtin-100k
+benchmark/search-local.sh paradedb 100000 10 /tmp/search-paradedb-100k
+benchmark/search-local.sh postgres 100000 10 /tmp/search-postgres-100k
+benchmark/search-local.sh postgres 100000 10 /tmp/search-backfill-100k --backfill
+```
+
+The runner starts a release server with embedded s3mock and the default 1,024
+partitions. External backends use temporary, uniquely named Docker containers:
+PostgreSQL 17 or ParadeDB 0.26.1, matching server-zd CI. It removes its server,
+data directory, and container on exit. It does not use docker compose.
+`DEXBENCH_PARTITIONS`, `DEXBENCH_SEARCH_SAMPLES` (default 100),
+`DEXBENCH_SEARCH_CONCURRENCY` (128), `DEXBENCH_SEARCH_PORT` (18815), and
+`DEXBENCH_SEARCH_METRICS_PORT` (19195) override runner settings.
+
+Each point seeds N unique runs in one tenant. Initial indexed Attribute writes
+are followed by a short completing Step; 5% proceed to a waiting Step instead.
+Flow types are about 80% common, 19.95% secondary, and 0.05% rare. Keyword
+values are about 80% common, 19.9% secondary, and 0.1% rare. Int values cycle
+through 0–99,999; KeywordArray has a shared element and one of 100 tags; Text
+has three shared words and one of 100 topic terms. The ten-Attribute case adds
+six Keywords to those four fields. The three-Attribute case omits Text.
+
+Seed throughput is N divided by elapsed time from the first start through
+projection convergence. It includes Flow execution, so it measures achieved
+projection throughput under this workload, not the projection's maximum
+capacity in isolation. Every completing Flow is awaited. Builtin search reads
+the committed local view; external search additionally waits for exact row
+and Completed/Running counts. Initial PostgreSQL slots must be ready before
+seeding. Run 0, 3, and 10 Attributes on separate fresh servers:
+
+```bash
+for attributes in 0 3 10; do
+  benchmark/search-local.sh postgres 100000 "$attributes" "/tmp/search-pg-$attributes"
+done
+```
+
+Zero- and three-Attribute runner points measure projection only. The ten-Attribute
+point measures every query at page size 20, with ten warmups and 100 sequential
+samples: default order, common/rare Flow type, Keyword equality, Int range,
+KeywordArray membership, Text terms, explicit StartTime descending, and page
+500 reached by following 499 opaque next-page tokens. Only the final page
+request is timed. These are end-to-end Go Client timings, including transport
+and indexed-value hydration; compare them cautiously with SQL EXPLAIN results.
+Raw JSON retains each successful latency and each error. Builtin scan-budget
+failures are recorded rather than changing the server's default scan budget.
+
+PostgreSQL and ParadeDB record pg_current_wal_lsn before and after seeding and
+catchup. Their difference divided by N includes all database WAL in that
+interval, including updates, checkpoints, and background maintenance. The
+container contains only this experiment's database.
+
+The separate `--backfill` run withholds Keyword registration while writing its
+indexed values. After catchup it registers that key, observes backfilling,
+and measures rare and common equality while the slot is still backfilling.
+A sample is retained only when state probes bracket it with backfilling.
+An independent readiness monitor measures registration-to-ready time. It then
+measures the same equality predicates with the ready slot. This diagnostic
+point has nine registered Attributes during seeding; exclude its seed throughput
+and WAL from the ordinary ten-Attribute comparison.
+
+For an already running isolated server, invoke `dexbench search --help`.
+Use `--projection-only` to omit query timings. Small smoke runs must reduce
+`--deep-page` to fit their dataset. Result sets are local measurements and
+should state host contention, versions, Docker resources, and method explicitly.

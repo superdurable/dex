@@ -40,6 +40,8 @@ func execute(args []string) error {
 		return fmt.Errorf("usage: dexbench run [flags] | report FILE... | chart FILE... | sample --pid PID --out FILE | merge-server --result FILE --samples FILE")
 	}
 	switch args[0] {
+	case "search":
+		return runSearch(args[1:])
 	case "run":
 		return run(args[1:])
 	case "report":
