@@ -448,6 +448,71 @@ async fn verify_projection_skip(
         assert_eq!(count, i64::from(is_skipped));
         previous = Some(position);
     }
+    let run_id = RunId([31; 16]);
+    let mixed_array = serde_json::to_string(&vec!["x".repeat(100); 50]).unwrap();
+    let record = SearchDocumentRecord {
+        version: 1,
+        tenant_id: 1,
+        run_id: run_id.as_bytes().to_vec(),
+        flow_id: "large-mixed-array".into(),
+        flow_type: "LargeMixedArrayFlow".into(),
+        status: dex::FlowStatus::Running as i32,
+        started_at_micros: 1,
+        attributes: vec![SearchAttributeValue {
+            index_key: "keyword".into(),
+            index_type: IndexType::KeywordArray as i32,
+            value: Some(dex::Value {
+                kind: Some(dex::value::Kind::StringValue(mixed_array)),
+            }),
+        }],
+        ..Default::default()
+    };
+    projector
+        .apply_batch(
+            PartitionId(9),
+            previous.as_ref(),
+            &LogPosition {
+                node_id: "slot-test".into(),
+                incarnation: 1,
+                seq: 4,
+            },
+            &[SearchDocumentChange::Upsert {
+                tenant_id: TenantId(1),
+                run_id,
+                encoded_document: record.encode_to_vec(),
+            }],
+        )
+        .await
+        .unwrap();
+    let slot = backend.lock_next_slot().await;
+    let preserved = slot.client.query_one("SELECT keyword_01, jsonb_array_length(sa_keyword -> 'keyword') FROM dexzd_visibility_runs WHERE run_id = $1", &[&run_id.to_string()]).await.unwrap();
+    assert!(preserved.get::<_, Option<String>>(0).is_none());
+    assert_eq!(preserved.get::<_, i32>(1), 50);
+    drop(slot);
+    let mut fields = FieldRegistry::new();
+    fields.insert("keyword", IndexType::Keyword);
+    let page = backend
+        .search(SearchRequest {
+            tenant_id: TenantId(1),
+            query: "FlowType = 'LargeMixedArrayFlow'",
+            page_size: 10,
+            page_token: None,
+            field_registry: &fields,
+        })
+        .await
+        .unwrap();
+    assert_eq!(page.entries.len(), 1);
+    let unmatched = backend
+        .search(SearchRequest {
+            tenant_id: TenantId(1),
+            query: "FlowType = 'LargeMixedArrayFlow' AND keyword STARTS_WITH '['",
+            page_size: 10,
+            page_token: None,
+            field_registry: &fields,
+        })
+        .await
+        .unwrap();
+    assert!(unmatched.entries.is_empty());
     assert_eq!(metrics.0.load(Ordering::Relaxed), 2);
     let page = backend
         .search(SearchRequest {

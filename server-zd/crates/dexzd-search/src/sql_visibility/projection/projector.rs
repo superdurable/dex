@@ -561,7 +561,7 @@ async fn apply_changes(
                 *tenant_id,
                 *run_id,
                 encoded_document,
-                assignments.is_some(),
+                assignments,
             ) {
                 Ok(row) => {
                     pending_rows.push(row);
@@ -717,7 +717,7 @@ fn row_from_document(
     run_id: RunId,
     encoded_document: &[u8],
 ) -> Result<SearchRow, ProjectionError> {
-    row_from_document_for_dialect(partition_id, tenant_id, run_id, encoded_document, false)
+    row_from_document_for_dialect(partition_id, tenant_id, run_id, encoded_document, None)
 }
 
 fn row_from_document_for_dialect(
@@ -725,14 +725,24 @@ fn row_from_document_for_dialect(
     tenant_id: TenantId,
     run_id: RunId,
     encoded_document: &[u8],
-    has_keyword_limit: bool,
+    assignments: Option<&[AttributeSlot]>,
 ) -> Result<SearchRow, ProjectionError> {
     let record = SearchDocumentRecord::decode(encoded_document).map_err(|error| {
         ProjectionError::InvalidState(format!("decode committed search document: {error}"))
     })?;
-    if has_keyword_limit {
+    if let Some(assignments) = assignments {
         for attribute in &record.attributes {
             if is_system_field(&attribute.index_key) {
+                continue;
+            }
+            let registered_type = assignments
+                .iter()
+                .find(|assignment| {
+                    assignment.tenant_id == tenant_id.0
+                        && assignment.index_key == attribute.index_key
+                })
+                .map(|assignment| assignment.index_type as i32);
+            if registered_type.is_some_and(|index_type| index_type != attribute.index_type) {
                 continue;
             }
             if let (Some(value), Ok(index_type)) =

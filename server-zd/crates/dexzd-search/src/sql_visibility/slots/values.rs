@@ -66,7 +66,10 @@ pub(crate) fn row_slot_values(
 pub(crate) fn slot_value_expression(index_type: IndexType, bucket: &str, key: &str) -> String {
     let text = format!("({bucket} ->> {key})");
     match index_type {
-        IndexType::Keyword => text,
+        IndexType::Keyword => {
+            // Oversized mismatched Keywords project NULL; comparisons cannot match, but other fields remain searchable.
+            format!("CASE WHEN octet_length({text}) <= 1024 THEN {text} END")
+        }
         IndexType::KeywordArray => format!(
             "CASE WHEN jsonb_typeof({bucket} -> {key}) = 'array' THEN ARRAY(SELECT jsonb_array_elements_text({bucket} -> {key})) END"
         ),

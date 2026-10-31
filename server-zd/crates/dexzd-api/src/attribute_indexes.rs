@@ -100,10 +100,12 @@ impl AttributeIndexes {
         tenant_id: TenantId,
     ) -> Result<FieldRegistry, FlowOperationError> {
         let mut cached_registry = self.cached_registry.lock().await;
-        let registry = read_attribute_index_registry(self.object_store.as_ref())
-            .await
-            .map_err(registry_error)?;
-        *cached_registry = Some(registry);
+        if cached_registry.is_none() || self.capacity.is_some() {
+            let registry = read_attribute_index_registry(self.object_store.as_ref())
+                .await
+                .map_err(registry_error)?;
+            *cached_registry = Some(registry);
+        }
         let mut fields = FieldRegistry::new();
         for registration in cached_registry
             .iter()
