@@ -509,9 +509,10 @@ async fn late_registered_oversized_keywords_are_skipped_and_counted() {
             2,
             "tags",
             IndexType::KeywordArray,
-            value::Kind::StringValue(
-                serde_json::to_string(&["a".into(), "é".repeat(1025)]).unwrap(),
-            ),
+            value::Kind::ObjValue(dexzd_protocol::dex::EncodedObject {
+                encoding: "json".into(),
+                payload: serde_json::to_vec(&["a".into(), "é".repeat(1025)]).unwrap(),
+            }),
         ),
         (
             3,
@@ -529,9 +530,10 @@ async fn late_registered_oversized_keywords_are_skipped_and_counted() {
             5,
             "keyword",
             IndexType::KeywordArray,
-            value::Kind::StringValue(
-                serde_json::to_string(&["a".into(), "x".repeat(2048)]).unwrap(),
-            ),
+            value::Kind::ObjValue(dexzd_protocol::dex::EncodedObject {
+                encoding: "json".into(),
+                payload: serde_json::to_vec(&["a".into(), "x".repeat(2048)]).unwrap(),
+            }),
         ),
         (
             6,
@@ -584,6 +586,16 @@ async fn late_registered_oversized_keywords_are_skipped_and_counted() {
         .unwrap()
         .get(0);
     assert_eq!(count, 6);
+    let skipped: i64 = fixture
+        .client
+        .query_one(
+            "SELECT count(*) FROM dexzd_visibility_skipped_documents",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(skipped, 0);
     drop(initial_projector);
     drop(initial_backend);
     let mut registry = registry();
