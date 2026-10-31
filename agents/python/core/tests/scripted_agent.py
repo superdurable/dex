@@ -19,6 +19,10 @@ from the user message:
   `` && call ``. The second model call summarizes the results.
 * ``call-then-fail <tool> <json>`` does the same, then fails in the second call.
 * ``call-then-stall <gate> <tool> <json>`` waits at a gate in the second call.
+* ``chain <tool> <json> && <tool> <json> then <tool> <json> [then fail]`` asks
+  for two tool batches in the first two model calls, then answers or fails.
+* ``chain-reusing-ids ...`` does the same, but repeats the first batch's tool
+  call IDs in the second batch.
 
 Every tool accepts ``"gate"``, which waits at that ``FileGate`` first, and
 ``"fail_attempts"``, which raises on attempts up to that number.
@@ -110,6 +114,8 @@ class ScriptedRunner(AgentFrameworkRunner):
             raise RuntimeError("scripted failure")
         if command.startswith(("call ", "call-then-fail ", "call-then-stall ")):
             return self._request_tool_calls(turn, command)
+        if command.startswith(("chain ", "chain-reusing-ids ")):
+            return self._request_chain_batch(turn, command, [], batch_index=0, model_calls=1)
         raise ValueError(f"unknown scripted command {command!r}")
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -177,6 +183,16 @@ class ScriptedRunner(AgentFrameworkRunner):
         command = str(state["command"])
         if command.startswith("call-then-fail "):
             raise RuntimeError("scripted failure after the tool calls ran")
+        requested_batches = int(state.get("batches", 1))
+        if command.startswith(("chain ", "chain-reusing-ids ")) and requested_batches < len(
+            _chain_batches(command)
+        ):
+            earlier = [ScriptedToolCall(**call) for call in state["calls"]]
+            return self._request_chain_batch(
+                turn, command, earlier, batch_index=requested_batches, model_calls=model_call
+            )
+        if command.startswith("chain ") and command.endswith(" then fail"):
+            raise RuntimeError("scripted failure after two tool batches")
         if command.startswith("call-then-stall "):
             await self._wait_at_gate(turn, command.split(" ", 2)[1])
         calls = [ScriptedToolCall(**call) for call in state["calls"]]
@@ -187,6 +203,42 @@ class ScriptedRunner(AgentFrameworkRunner):
                 raise RuntimeError(f"no record for tool call {call.tool_call_id}")
             results[call.tool_call_id] = describe_tool_call_outcome(record)
         return _complete_tool_turn(command, calls, results)
+
+    def _request_chain_batch(
+        self,
+        turn: AgentTurnContext,
+        command: str,
+        earlier: list[ScriptedToolCall],
+        batch_index: int,
+        model_calls: int,
+    ) -> AgentTurnOutcome:
+        batches = _chain_batches(command)
+        label = "a" if command.startswith("chain-reusing-ids ") else "ab"[batch_index]
+        requested = [
+            ScriptedToolCall(f"{turn.turn_id}-{label}-{index}", *request.split(" ", 1))
+            for index, request in enumerate(batches[batch_index].split(" && "))
+        ]
+        calls = [*earlier, *requested]
+        return ToolCallsRequested(
+            framework_run_state=json.dumps(
+                {
+                    "command": command,
+                    "model_calls": model_calls,
+                    "batches": batch_index + 1,
+                    "calls": [asdict(call) for call in calls],
+                }
+            ),
+            tool_calls=[
+                DeferredToolCall(
+                    tool_call_id=call.tool_call_id,
+                    tool_name=call.tool_name,
+                    arguments=call.arguments,
+                    policy=turn.resolve_tool_policy(call.tool_name),
+                )
+                for call in requested
+            ],
+            usage=MODEL_CALL_USAGE,
+        )
 
     async def _wait_at_gate(self, turn: AgentTurnContext, gate_name: str) -> None:
         turn.events.write_text_delta(f"thinking before {gate_name}")
@@ -214,6 +266,11 @@ def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
     )
+
+
+def _chain_batches(command: str) -> list[str]:
+    batches = command.split(" ", 1)[1].removesuffix(" then fail")
+    return batches.split(" then ")
 
 
 def _current_user_text(turn: AgentTurnContext) -> str:

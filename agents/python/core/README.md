@@ -168,8 +168,9 @@ Single-attempt calls do not retry; `RecordToolOutcomeUnknown` records
 
 Before calling the runner, the tool Step writes `tool_call_started` and awaits
 a heartbeat. Dex can redeliver a task to another Worker at the same attempt
-when the first Worker disconnects before any output; this output ends that
-window before the tool runs.
+when the first Worker disconnects before Dex receives any output, so this
+output narrows that window before the tool runs. Awaiting the heartbeat only
+queues the frame on the Worker; it does not wait for Dex to receive it.
 
 ## Effects and policies
 
@@ -204,7 +205,7 @@ ResumeTurn -> RunModel
 | `StartAgentSession` (`AgentSessionStartInput`) | Start Step. Initializes state, usage, and interrupts. | `RunModel` with a non-blank `initial_message`, else `AwaitUserMessage` |
 | `AwaitUserMessage` (none) | Waits for `QueuedUserMessages.for_one()`, stores the user message, starts the turn. | `RunModel` |
 | `RunModel` (none) | Calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts. | `AwaitUserMessage`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
-| `AwaitToolApproval` (tool call ID) | Waits for `InterruptResolutions.for_one(id)`, plus a Timer at the deadline while the interrupt is pending. Approved: marks the record `approved`. Rejected or expired: records `rejected` and publishes `ToolCallResults`. | `CallTool` or `CallSingleAttemptTool`, or ends |
+| `AwaitToolApproval` (tool call ID) | Waits for `InterruptResolutions.for_one(id)`, plus a Timer at the deadline, rounded up to whole seconds, while the interrupt is pending. Approved: marks the record `approved`. Rejected or expired: records `rejected` and publishes `ToolCallResults`. A Timer that fires before the deadline waits again. | `CallTool` or `CallSingleAttemptTool`, or ends |
 | `CallTool` (tool call ID) | Runs one `read` or `idempotent_write` call. 3 attempts, failure route `RecordToolFailure`. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. | Ends |
 | `CallSingleAttemptTool` (tool call ID) | Runs one `non_idempotent_write` or `unclassified` call. 1 attempt, failure route `RecordToolOutcomeUnknown`. | Ends |
 | `RecordToolFailure` (tool call ID) | Records `failed` for a read and `outcome_unknown` for a write, with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
@@ -218,7 +219,9 @@ call Step and its failure route receive the tool call ID as input, so parallel
 Steps never share state. Every tool call publishes exactly one `ToolCallResults`
 message, when its record becomes final, and a tool Step whose record is already
 final ends without running or publishing. `ResumeTurn` goes back to waiting if
-a consumed result left a record of the turn unfinished.
+a consumed result left a record of the turn unfinished. `AwaitToolApproval`
+and the tool Steps load only their own `AgentToolCalls` instance, through
+per-movement `StepOptions`.
 
 Persistence, shared by every agent Flow type and exported from `dex_agents`:
 
@@ -243,7 +246,7 @@ RPCs:
 | RPC | Input | Output | Notes |
 | --- | --- | --- | --- |
 | `send_user_message` | `AgentUserMessage` | `bool` | Transactional; `False` for blank text. |
-| `resolve_interrupt` | `ResolveInterruptRequest` | `bool` | Locks `PendingInterrupts`; `False` when not pending; removes the interrupt and publishes the answer in one commit. A concurrent Step can raise `RpcLockConflictError`; `AgentSessionClient` retries it for 5 seconds. |
+| `resolve_interrupt` | `ResolveInterruptRequest` | `bool` | Locks `PendingInterrupts`; `False` when not pending or past its deadline; removes the interrupt and publishes the answer in one commit. A concurrent Step can raise `RpcLockConflictError`; `AgentSessionClient` retries it for 5 seconds. |
 | `get_agent_snapshot` | none | `AgentSnapshot` | State, last 200 messages, pending interrupts, the active turn's tool calls, usage, queued message count. Serves retained closed sessions. |
 | `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first; limit clamped to 1..200. |
 
@@ -365,10 +368,10 @@ The plan records each of these decisions too.
 - Interrupt deadlines use the Worker clock.
 - One `text_delta` call writes one Stream message; batch very small chunks.
 - Tool call IDs that are empty or contain `/` fail the turn.
-- A tool Step's first output ends Dex's redelivery window, but a frame that
-  left the Worker and never reached Dex leaves a small gap: if the Worker dies
-  then, Dex can redeliver the same attempt and a single-attempt tool can run
-  twice.
+- A tool Step's first output narrows Dex's redelivery window but does not
+  close it. The awaited heartbeat only queues the frame. If the Worker dies
+  before the frame leaves it, or after it left but before Dex received it, Dex
+  can redeliver the same attempt and a single-attempt tool can run twice.
 - A tool the framework cannot defer runs inside `RunModel` and repeats on a
   `RunModel` retry.
 - Whether turn records cleared at turn end still count against the Server's

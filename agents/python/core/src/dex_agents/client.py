@@ -140,7 +140,8 @@ class AgentSessionClient:
             rejection_message: Message the model sees after a rejection.
 
         Returns:
-            ``True`` when resolved; ``False`` when it is unknown or already resolved.
+            ``True`` when resolved; ``False`` when it is unknown, already resolved,
+            or past its deadline.
 
         Raises:
             RpcLockConflictError: If the lock stays busy past the retry timeout.

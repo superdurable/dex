@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -338,14 +339,15 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
         Returns:
             ``True`` when the interrupt was pending and is now resolved;
-            ``False`` when it is unknown or already resolved.
+            ``False`` when it is unknown, already resolved, or past its
+            deadline, which rejects the call.
         """
         pending = _pending_interrupts(context)
         resolved = next(
             (interrupt for interrupt in pending if interrupt.interrupt_id == input.interrupt_id),
             None,
         )
-        if resolved is None:
+        if resolved is None or _is_deadline_passed(resolved):
             return RPCResult(False)
         PENDING_INTERRUPTS.set(
             context, [interrupt for interrupt in pending if interrupt is not resolved]
@@ -543,9 +545,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 },
             )
             if not requires_approval:
-                movements.append(
-                    StepMovement.of(self._tool_call_step(tool_call), tool_call.tool_call_id)
-                )
+                movements.append(self._tool_call_movement(tool_call))
                 continue
             interrupt = AgentInterrupt(
                 interrupt_id=tool_call.tool_call_id,
@@ -566,7 +566,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     "deadline": interrupt.deadline,
                 },
             )
-            movements.append(StepMovement.of(self._await_tool_approval, tool_call.tool_call_id))
+            movements.append(self._tool_approval_movement(tool_call.tool_call_id))
         PENDING_INTERRUPTS.set(context, interrupts)
         _record_usage(context, events, outcome.usage)
         AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_TOOLS))
@@ -581,7 +581,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         # After resolve_interrupt removed the interrupt, its deadline no longer applies.
         if interrupt is not None and interrupt.deadline is not None:
             remaining = datetime.fromisoformat(interrupt.deadline) - datetime.now(UTC)
-            conditions.append(Timer.by_duration(max(remaining, timedelta(0))))
+            # Dex Timers take whole seconds; an early fire waits again in execute.
+            whole_seconds = math.ceil(max(remaining.total_seconds(), 0))
+            conditions.append(Timer.by_duration(timedelta(seconds=whole_seconds)))
         return Wait.any_of(*conditions)
 
     def _apply_tool_approval(self, context: AsyncContext, tool_call_id: str) -> StepDecision:
@@ -597,9 +599,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         interrupt = _pending_interrupt(context, tool_call_id)
         if interrupt is None or interrupt.deadline is None:
             # resolve_interrupt answered first; the next wait consumes that answer.
-            return go_to(self._await_tool_approval, tool_call_id)
-        if datetime.fromisoformat(interrupt.deadline) > datetime.now(UTC):
-            return go_to(self._await_tool_approval, tool_call_id)
+            return go_to_many(self._tool_approval_movement(tool_call_id))
+        if not _is_deadline_passed(interrupt):
+            return go_to_many(self._tool_approval_movement(tool_call_id))
         PENDING_INTERRUPTS.set(
             context,
             [
@@ -633,7 +635,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         if resolution.approved:
             approved = replace(tool_call, status=ToolCallStatus.APPROVED)
             AGENT_TOOL_CALLS.set(context, approved.tool_call_id, approved)
-            return go_to(self._tool_call_step(approved), approved.tool_call_id)
+            return go_to_many(self._tool_call_movement(approved))
         rejected = replace(
             tool_call,
             status=ToolCallStatus.REJECTED,
@@ -719,10 +721,34 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         return go_to(self._await_user_message, None)
 
-    def _tool_call_step(self, tool_call: AgentToolCall) -> CallTool | CallSingleAttemptTool:
+    def _tool_call_movement(self, tool_call: AgentToolCall) -> StepMovement[str]:
+        # Per-movement options load only this call's record, not the whole map.
+        record_load = AGENT_TOOL_CALLS.load(tool_call.tool_call_id)
         if tool_call.effect in MULTI_ATTEMPT_TOOL_EFFECTS:
-            return self._call_tool
-        return self._call_single_attempt_tool
+            step: CallTool | CallSingleAttemptTool = self._call_tool
+            recovery_step: RecordToolFailure | RecordToolOutcomeUnknown = self._record_tool_failure
+        else:
+            step = self._call_single_attempt_tool
+            recovery_step = self._record_tool_outcome_unknown
+        recovery_options = replace(
+            recovery_step.get_step_options(),
+            execute_load_attribute_maps=(),
+            execute_load_attribute_map_instances=(record_load,),
+        )
+        options = replace(
+            step.get_step_options(),
+            execute_load_attribute_maps=(),
+            execute_load_attribute_map_instances=(record_load,),
+        ).on_execute_failure_proceed_to(recovery_step, recovery_options)
+        return StepMovement.of(step, tool_call.tool_call_id, options=options)
+
+    def _tool_approval_movement(self, tool_call_id: str) -> StepMovement[str]:
+        options = replace(
+            self._await_tool_approval.get_step_options(),
+            execute_load_attribute_maps=(),
+            execute_load_attribute_map_instances=(AGENT_TOOL_CALLS.load(tool_call_id),),
+        )
+        return StepMovement.of(self._await_tool_approval, tool_call_id, options=options)
 
     def _event_writer(self, context: AsyncContext, turn_id: str | None) -> AgentEventWriter:
         return AgentEventWriter(
@@ -1108,6 +1134,12 @@ def _require_active_turn_id(state: AgentState) -> str:
 
 def _pending_interrupts(context: Context) -> list[AgentInterrupt]:
     return list(cast(list[AgentInterrupt] | None, PENDING_INTERRUPTS.get(context)) or [])
+
+
+def _is_deadline_passed(interrupt: AgentInterrupt) -> bool:
+    return interrupt.deadline is not None and datetime.fromisoformat(
+        interrupt.deadline
+    ) <= datetime.now(UTC)
 
 
 def _pending_interrupt(context: Context, interrupt_id: str) -> AgentInterrupt | None:

@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from datetime import UTC, datetime
 
 from dex_agents import (
     APPROVAL_DEADLINE_PASSED,
@@ -26,7 +29,7 @@ from dex_agents import (
     ToolCallStatus,
     ToolEffect,
 )
-from dex_agents.testing import wait_for_agent_snapshot
+from dex_agents.testing import WAIT_FOR_COMPLETED_EVENT, wait_for_agent_snapshot
 from tests.conftest import ScriptedAgentHarness
 from tests.scripted_agent import INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE
 
@@ -204,6 +207,44 @@ async def test_expired_interrupt_deadline_rejects_the_call(harness: ScriptedAgen
         session_id, interrupt.interrupt_id, approved=True
     )
     assert harness.invocations.count("publish") == 0
+    assert await _approval_wait_attempts(harness, session_id) == [1]
+
+
+async def test_an_approval_before_a_long_deadline_resumes_the_turn_at_once(
+    harness: ScriptedAgentHarness,
+) -> None:
+    await harness.stack.start_worker({INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE: "60"})
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call publish {"message": "prompt"}')
+    interrupt = await _wait_for_pending_interrupt(harness, session_id)
+
+    approved_at = time.monotonic()
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert time.monotonic() - approved_at < 10
+    assert snapshot.messages[-1].text == "publish: published prompt"
+    assert await _approval_wait_attempts(harness, session_id) == [1]
+
+
+async def test_resolve_interrupt_after_the_deadline_returns_false(
+    harness: ScriptedAgentHarness,
+) -> None:
+    await harness.stack.start_worker({INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE: "3"})
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call publish {"message": "late"}')
+    interrupt = await _wait_for_pending_interrupt(harness, session_id)
+    assert interrupt.deadline is not None
+    remaining = datetime.fromisoformat(interrupt.deadline) - datetime.now(UTC)
+    await asyncio.sleep(remaining.total_seconds() + 0.1)
+
+    assert not await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == f"publish: {APPROVAL_DEADLINE_PASSED}"
+    assert harness.invocations.count("publish") == 0
 
 
 async def test_deadline_rejects_the_interrupt_left_after_another_is_resolved(
@@ -233,6 +274,7 @@ async def test_deadline_rejects_the_interrupt_left_after_another_is_resolved(
     assert not await harness.sessions.resolve_interrupt(
         session_id, second.interrupt_id, approved=True
     )
+    assert await _approval_wait_attempts(harness, session_id) == [1, 1]
 
 
 async def test_failed_turn_records_its_error_and_the_next_turn_runs(
@@ -286,6 +328,15 @@ async def test_failed_turn_after_a_write_leaves_a_note_and_the_write_runs_once(
         note.text or ""
     )
     assert harness.invocations.count("charge") == 1
+
+
+async def _approval_wait_attempts(harness: ScriptedAgentHarness, session_id: str) -> list[int]:
+    history = await harness.stack.read_step_history(session_id)
+    return [
+        entry.final_attempt
+        for entry in history
+        if entry.step_type == "AwaitToolApproval" and entry.event_type == WAIT_FOR_COMPLETED_EVENT
+    ]
 
 
 async def _wait_for_pending_interrupt(
