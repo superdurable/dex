@@ -25,6 +25,7 @@ import {
   PrivateDexEngine,
   executeCompletedEvent,
   readStepHistory,
+  waitForCompletedEvent,
 } from "../../src/testing/index.js";
 import { createScriptedAgentFlow } from "../fixtures/scripted-agent-runner.js";
 
@@ -33,6 +34,7 @@ describe("agent session turns with an in-process Worker", () => {
   let environment: AgentTestEnvironment;
   let sessions: AgentSessionTestClient;
   let deadlineSessions: AgentSessionTestClient;
+  let longDeadlineSessions: AgentSessionTestClient;
   let markerDirectory: string;
 
   before(async () => {
@@ -43,11 +45,16 @@ describe("agent session turns with an in-process Worker", () => {
       flowType: "ScriptedAgentWithApprovalDeadline",
       interruptDeadlineMs: 3_000,
     });
+    const longDeadlineFlow = createScriptedAgentFlow(markerDirectory, {
+      flowType: "ScriptedAgentWithLongApprovalDeadline",
+      interruptDeadlineMs: 60_000,
+    });
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, deadlineFlow],
+      flows: [flow, deadlineFlow, longDeadlineFlow],
       isWorkerInProcess: true,
     });
+    longDeadlineSessions = new AgentSessionTestClient(environment.client, longDeadlineFlow);
     sessions = new AgentSessionTestClient(environment.client, flow);
     deadlineSessions = new AgentSessionTestClient(environment.client, deadlineFlow);
   });
@@ -337,6 +344,7 @@ describe("agent session turns with an in-process Worker", () => {
 
     await deadlineSessions.waitForCompletedTurns(sessionId, 1);
     assert.equal(await deadlineSessions.resolveInterrupt(sessionId, interrupt.interruptId, true), false);
+    assert.deepEqual(await approvalWaitAttempts(sessionId), [1]);
     const snapshot = await deadlineSessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
@@ -442,6 +450,92 @@ describe("agent session turns with an in-process Worker", () => {
     assert.equal(snapshot.queuedMessageCount, 0);
   });
 
+  test("an approval with a 60 second deadline resolves at once, on the first WaitFor attempt", async () => {
+    const sessionId = newSessionId("long-deadline");
+    await longDeadlineSessions.startSession(sessionId, "call send_email");
+    const interrupt = await longDeadlineSessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(Date.parse(interrupt.deadline ?? "") - Date.parse(interrupt.createdAt), 60_000);
+    const approvedAt = Date.now();
+    assert.equal(
+      await longDeadlineSessions.resolveInterrupt(sessionId, interrupt.interruptId, true),
+      true,
+    );
+    await longDeadlineSessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 10_000 });
+    assert.ok(Date.now() - approvedAt < 5_000, `turn took ${Date.now() - approvedAt} ms after approval`);
+    assert.deepEqual(await approvalWaitAttempts(sessionId), [1]);
+    assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-send_email attempt 1`]);
+  });
+
+  test("a turn with two tool batches offsets deferral order and resumes after each batch", async () => {
+    const sessionId = newSessionId("two-batches");
+    await sessions.startSession(
+      sessionId,
+      "call get_weather and refund_order, then call send_email and get_weather",
+    );
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(interrupt.interruptId, "turn-1-b1-send_email");
+    await sessions.waitForToolCall(sessionId, "turn-1-b1-get_weather", (toolCall) => toolCall.status === "succeeded");
+    const waitingSnapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      waitingSnapshot.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.status, toolCall.deferralOrder]),
+      [
+        ["turn-1-get_weather", "succeeded", 0],
+        ["turn-1-refund_order", "succeeded", 1],
+        ["turn-1-b1-send_email", "awaiting_approval", 2],
+        ["turn-1-b1-get_weather", "succeeded", 3],
+      ],
+    );
+    const [runState] = await environment.client.getAttributes(sessionId, sessions.flow.frameworkRunState);
+    assert.deepEqual((JSON.parse(runState ?? "null") as { pendingToolCallIds: string[] }).pendingToolCallIds, [
+      "turn-1-b1-send_email",
+      "turn-1-b1-get_weather",
+    ]);
+
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      "get_weather -> sunny in Paris | refund_order -> refund issued | " +
+        `send_email -> email sent for ${sessionId}/turn-1/turn-1-b1-send_email | get_weather -> sunny in Paris`,
+    );
+    assert.equal(snapshot.usage.modelCalls, 3);
+    assert.deepEqual(snapshot.toolCalls, []);
+    const [clearedRunState] = await environment.client.getAttributes(sessionId, sessions.flow.frameworkRunState);
+    assert.equal(clearedRunState, undefined);
+    assert.deepEqual(toolLog("get_weather", sessionId), [
+      `${sessionId} turn-1-get_weather attempt 1`,
+      `${sessionId} turn-1-b1-get_weather attempt 1`,
+    ]);
+    const executed = (await executedStepTypes(sessionId)).filter((stepType) => stepType !== "StartAgentSession");
+    assert.deepEqual(executed.filter((stepType) => stepType === "RunModel").length, 3);
+    assert.deepEqual(executed.filter((stepType) => stepType === "ResumeTurn").length, 2);
+    assert.deepEqual(executed.filter((stepType) => stepType === "CallTool").length, 3);
+    assert.deepEqual(executed.filter((stepType) => stepType === "CallSingleAttemptTool").length, 1);
+    assert.equal(executed.at(-1), "RunModel");
+  });
+
+  test("a turn that fails after two batches lists both batches in the note, and a reused ID is rejected", async () => {
+    const sessionId = newSessionId("two-batches-fail");
+    await sessions.startSession(sessionId, "call refund_order, then call send_email, then repeat");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.match(state.lastTurnError ?? "", /tool call turn-1-refund_order was already requested in turn-1/);
+    assert.deepEqual(toolLog("refund_order", sessionId), [`${sessionId} turn-1-refund_order attempt 1`]);
+    assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-b1-send_email attempt 1`]);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.toolCalls, []);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      "[Dex] The previous turn failed after these tool calls ran:\n" +
+        `- refund_order {"requested_by":"call refund_order, then call send_email, then repeat"} -> succeeded: refund issued\n` +
+        `- send_email {"requested_by":"call refund_order, then call send_email, then repeat"} -> succeeded: ` +
+        `email sent for ${sessionId}/turn-1/turn-1-b1-send_email\n` +
+        "Do not repeat these tool calls unless the user asks again.",
+    );
+  });
+
   test("with two interrupts, one is resolved and the deadline then rejects the other", async () => {
     const sessionId = newSessionId("two-interrupts");
     await deadlineSessions.startSession(sessionId, "call send_email and charge_card");
@@ -461,6 +555,7 @@ describe("agent session turns with an in-process Worker", () => {
       `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email | ` +
         "charge_card -> approval deadline passed",
     );
+    assert.deepEqual(await approvalWaitAttempts(sessionId), [1, 1]);
     const resolutions = (await deadlineSessions.listAgentEvents(sessionId))
       .filter((event) => event.type === "interrupt_resolved")
       .map((event) => JSON.parse(event.payload) as Record<string, unknown>);
@@ -473,6 +568,13 @@ describe("agent session turns with an in-process Worker", () => {
       },
     ]);
   });
+
+  /** Final attempts of every completed AwaitToolApproval WaitFor; 1 means no WaitFor failure was retried. */
+  async function approvalWaitAttempts(sessionId: string): Promise<number[]> {
+    return (await readStepHistory(engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === waitForCompletedEvent && entry.stepType === "AwaitToolApproval")
+      .map((entry) => entry.finalAttempt);
+  }
 
   async function executedStepTypes(sessionId: string): Promise<string[]> {
     return (await readStepHistory(engine.serverAddress, sessionId))

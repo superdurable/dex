@@ -287,7 +287,7 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 | RPC | Input | Output |
 | --- | --- | --- |
 | `send_user_message` | `{ text }` | `false` for blank text; a message sent during a turn starts the next turn |
-| `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | `false` when not pending; may throw `RpcLockConflictError`, which is safe to retry |
+| `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | `false` when not pending or past its deadline; may throw `RpcLockConflictError`, which is safe to retry |
 | `get_agent_snapshot` | none | `{ state, messages, pending_interrupts, tool_calls, usage, queued_message_count }`; `state` is `null` before the session starts |
 | `list_agent_messages` | `{ before_sequence, limit }` | `{ messages, next_before_sequence }`, oldest first; `limit` clamped to 1..200, default 50 |
 
@@ -417,7 +417,14 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
   definition objects; the persisted names are the same for every Flow type.
 - **Tool call ID as Step input.** Tool Steps run in parallel, so no shared
   "executing tool call" Attribute exists. The ID travels in each Step's input,
-  and failure routes receive it as the failed Step's input.
+  and failure routes receive it as the failed Step's input. Each tool Step and
+  its failure route load only that call's `AgentToolCalls` instance, through
+  per-movement Step options. `ResumeTurn` takes its count as an int64 Value,
+  as the Python core's `Step[int]` does.
+- **Whole-second deadline Timers.** Dex Timers take whole seconds, so
+  `AwaitToolApproval` rounds the remaining time up. A Timer can then fire up
+  to a second after the deadline; `resolve_interrupt` already returns `false`
+  from the deadline on, so a late answer never wins.
 - **`ToolCallResults` and `ResumeTurn`.** Each tool call publishes exactly one
   `ToolCallCompleted` when its record becomes final. `ResumeTurn` waits for one
   per call, then re-counts open records and waits again if any remain, so a
@@ -452,11 +459,13 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
   no output, Dex re-delivers it with the same `attempt`, so `attempt` does not
   reliably count reruns.
 - The single-attempt guarantee depends on the tool Step's output frame reaching
-  Dex before the tool runs. The Step awaits a heartbeat first, but that only
-  proves the Worker's gRPC stream accepted the frame, not that Dex received it.
-  If the Worker dies in that window, within the 10 second dispatch wait, Dex can
-  re-deliver the attempt and the tool can run a second time. The window is the
-  time from the local write to Dex's receipt, normally well under a second.
+  Dex before the tool runs. The Step awaits a heartbeat first, but that Promise
+  resolves when grpc-js takes the frame locally: it does not prove that the
+  frame left the Worker, let alone that Dex received it. If the Worker dies
+  before Dex receives the frame, whether the frame was still in the Worker's
+  buffers or on the network, and within the 10 second dispatch wait, Dex can
+  re-deliver the attempt and the tool can run a second time. The window is
+  normally well under a second.
 - Tools a framework cannot defer run inside `RunModel` and repeat with it; each
   adapter documents them as at-least-once.
 - Interrupts are only tool approvals. Queued user messages are consumed one per

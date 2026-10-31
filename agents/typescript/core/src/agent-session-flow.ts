@@ -151,7 +151,8 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - Interrupt ID and decision.
-   * @returns `true` when the interrupt was pending and is now resolved; `false` otherwise.
+   * @returns `true` when the interrupt was pending and is now resolved; `false` when it is unknown,
+   * already resolved, or past its deadline.
    */
   resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean>;
   /**
@@ -243,18 +244,8 @@ export function createAgentSessionFlow(
       new AwaitUserMessageStep(transitions),
       new RunModelStep(transitions),
       new AwaitToolApprovalStep(transitions),
-      new ToolCallStep(
-        transitions,
-        agentSessionStepTypes.callTool,
-        3,
-        agentSessionStepTypes.recordToolFailure,
-      ),
-      new ToolCallStep(
-        transitions,
-        agentSessionStepTypes.callSingleAttemptTool,
-        1,
-        agentSessionStepTypes.recordToolOutcomeUnknown,
-      ),
+      new ToolCallStep(transitions, agentSessionStepTypes.callTool),
+      new ToolCallStep(transitions, agentSessionStepTypes.callSingleAttemptTool),
       new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, true),
       new ToolCallFailureRecordingStep(
         transitions,
@@ -313,7 +304,12 @@ export function createAgentSessionFlow(
     })
     public resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean> {
       const pendingInterrupts = transitions.readPendingInterrupts(context);
-      if (!pendingInterrupts.some((interrupt) => interrupt.interruptId === input.interruptId)) {
+      const interrupt = pendingInterrupts.find((pending) => pending.interruptId === input.interruptId);
+      // After the deadline, AwaitToolApproval rejects the call; a late answer must not win.
+      if (
+        interrupt === undefined ||
+        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now())
+      ) {
         return { output: false };
       }
       persistence.pendingInterrupts.set(

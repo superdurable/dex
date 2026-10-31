@@ -9,16 +9,17 @@
 import {
   ExecuteFailure,
   StepMovement,
+  int64Codec,
   StepRef,
   Timer,
   Wait,
   deadEnd,
   goTo,
   goToMany,
-  jsonCodec,
   stringCodec,
   voidCodec,
   type AsyncContext,
+  type Codec,
   type Condition,
   type Context,
   type RetryPolicy,
@@ -42,6 +43,7 @@ import {
   toolStepTypeForEffect,
   type AgentSessionTransitions,
 } from "./agent-session-transitions.js";
+import type { AgentSessionPersistence } from "./agent-session-persistence.js";
 import {
   approvalDeadlinePassed,
   buildTurnFailureNote,
@@ -58,15 +60,13 @@ const minuteMs = 60_000;
 const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
 // An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
 const syncDurability = { waitForDurability: "sync", executeDurability: "sync" } as const;
-const expectedResultCountCodec = jsonCodec<number>({
+// An int64 Value, as the Python core's Step[int] encodes it.
+const expectedResultCountCodec: Codec<number> = {
   typeName: "ExpectedResultCount",
-  decode: (value) => {
-    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-      throw new TypeError("ResumeTurn input must be a positive integer");
-    }
-    return value;
-  },
-});
+  wireKind: "int64",
+  encode: (value) => int64Codec.encode(BigInt(requirePositiveResultCount(value))),
+  decode: (value) => requirePositiveResultCount(Number(int64Codec.decode(value))),
+};
 
 export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
   public readonly inputCodec = agentSessionStartInputCodec;
@@ -268,7 +268,7 @@ export class RunModelStep implements Step<void> {
       const nextStepType = requiresApproval
         ? agentSessionStepTypes.awaitToolApproval
         : toolStepTypeForEffect(effect);
-      movements.push(StepMovement.of(new StepRef(nextStepType), requestedToolCall.toolCallId));
+      movements.push(toolStepMovement(transitions.persistence, nextStepType, requestedToolCall.toolCallId));
       if (!requiresApproval) {
         continue;
       }
@@ -310,13 +310,7 @@ export class AwaitToolApprovalStep implements Step<string> {
   }
 
   public getStepOptions(): StepOptions {
-    const persistence = this.transitions.persistence;
-    // The deadline path rewrites PendingInterrupts, which resolve_interrupt and sibling Steps also write.
-    return {
-      ...syncDurability,
-      executeLoadAttributeMaps: [persistence.agentToolCalls],
-      executeLockAttributes: [persistence.pendingInterrupts.lock()],
-    };
+    return toolStepOptions(this.transitions.persistence, agentSessionStepTypes.awaitToolApproval);
   }
 
   public waitFor(context: Context, toolCallId: string): Wait {
@@ -327,7 +321,9 @@ export class AwaitToolApprovalStep implements Step<string> {
       .readPendingInterrupts(context)
       .find((pendingInterrupt) => pendingInterrupt.interruptId === toolCallId);
     if (interrupt?.deadline != null) {
-      conditions.push(Timer.byDuration(Math.max(0, Date.parse(interrupt.deadline) - Date.now())));
+      // Dex Timers take whole seconds; rounding up can only fire late, never early.
+      const remainingMs = Math.max(0, Date.parse(interrupt.deadline) - Date.now());
+      conditions.push(Timer.byDuration(Math.ceil(remainingMs / 1_000) * 1_000));
     }
     return Wait.anyOf(...conditions);
   }
@@ -348,7 +344,9 @@ export class AwaitToolApprovalStep implements Step<string> {
       const interrupt = pendingInterrupts.find((pending) => pending.interruptId === toolCallId);
       // resolve_interrupt answered first, or the Timer fired early; wait again.
       if (interrupt?.deadline == null || Date.parse(interrupt.deadline) > Date.now()) {
-        return goTo(new StepRef(agentSessionStepTypes.awaitToolApproval), toolCallId);
+        return goToMany(
+          toolStepMovement(persistence, agentSessionStepTypes.awaitToolApproval, toolCallId),
+        );
       }
       persistence.pendingInterrupts.set(
         context,
@@ -361,7 +359,7 @@ export class AwaitToolApprovalStep implements Step<string> {
     }
     transitions.writeToolCall(context, { ...toolCall, status: "approved" });
     this.writeInterruptResolved(context, toolCall, true, null);
-    return goTo(new StepRef(toolStepTypeForEffect(toolCall.effect)), toolCallId);
+    return goToMany(toolStepMovement(persistence, toolStepTypeForEffect(toolCall.effect), toolCallId));
   }
 
   private rejectToolCall(
@@ -401,8 +399,6 @@ export class ToolCallStep implements Step<string> {
   public constructor(
     private readonly transitions: AgentSessionTransitions,
     private readonly stepType: string,
-    private readonly maximumAttempts: number,
-    private readonly failureStepType: string,
   ) {}
 
   public getStepType(): string {
@@ -410,12 +406,7 @@ export class ToolCallStep implements Step<string> {
   }
 
   public getStepOptions(): StepOptions {
-    return {
-      ...syncDurability,
-      executeRetry: { maximumAttempts: this.maximumAttempts },
-      executeFailure: ExecuteFailure.proceedTo(new StepRef(this.failureStepType)),
-      executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls],
-    };
+    return toolStepOptions(this.transitions.persistence, this.stepType);
   }
 
   public async execute(context: AsyncContext, toolCallId: string): Promise<StepDecision> {
@@ -486,11 +477,7 @@ export class ToolCallFailureRecordingStep implements Step<string> {
   }
 
   public getStepOptions(): StepOptions {
-    return {
-      ...syncDurability,
-      executeRetry: recoveryRetry,
-      executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls],
-    };
+    return toolStepOptions(this.transitions.persistence, this.stepType);
   }
 
   public execute(context: Context, toolCallId: string): StepDecision {
@@ -616,4 +603,64 @@ function validateToolCallsRequested(
     }
     seenIds.add(toolCallId);
   }
+}
+
+/**
+ * Returns the full options of a tool Step type. With a tool call ID, the Step loads only that call's
+ * record; a movement's options replace the Step's static options, so every option is repeated here.
+ */
+function toolStepOptions(
+  persistence: AgentSessionPersistence,
+  stepType: string,
+  toolCallId?: string,
+): StepOptions {
+  const loads =
+    toolCallId === undefined
+      ? { executeLoadAttributeMaps: [persistence.agentToolCalls] }
+      : { executeLoadAttributeMapInstances: [persistence.agentToolCalls.load(toolCallId)] };
+  switch (stepType) {
+    case agentSessionStepTypes.awaitToolApproval:
+      // The deadline path rewrites PendingInterrupts, which resolve_interrupt and sibling Steps also write.
+      return { ...syncDurability, ...loads, executeLockAttributes: [persistence.pendingInterrupts.lock()] };
+    case agentSessionStepTypes.callTool:
+      return {
+        ...syncDurability,
+        ...loads,
+        executeRetry: { maximumAttempts: 3 },
+        executeFailure: ExecuteFailure.proceedTo(
+          new StepRef(agentSessionStepTypes.recordToolFailure),
+          toolStepOptions(persistence, agentSessionStepTypes.recordToolFailure, toolCallId),
+        ),
+      };
+    case agentSessionStepTypes.callSingleAttemptTool:
+      return {
+        ...syncDurability,
+        ...loads,
+        executeRetry: { maximumAttempts: 1 },
+        executeFailure: ExecuteFailure.proceedTo(
+          new StepRef(agentSessionStepTypes.recordToolOutcomeUnknown),
+          toolStepOptions(persistence, agentSessionStepTypes.recordToolOutcomeUnknown, toolCallId),
+        ),
+      };
+    case agentSessionStepTypes.recordToolFailure:
+    case agentSessionStepTypes.recordToolOutcomeUnknown:
+      return { ...syncDurability, ...loads, executeRetry: recoveryRetry };
+    default:
+      throw new TypeError(`${stepType} is not a tool Step type`);
+  }
+}
+
+function toolStepMovement(
+  persistence: AgentSessionPersistence,
+  stepType: string,
+  toolCallId: string,
+): StepMovement<string> {
+  return StepMovement.of(new StepRef(stepType), toolCallId, toolStepOptions(persistence, stepType, toolCallId));
+}
+
+function requirePositiveResultCount(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`ResumeTurn input must be a positive integer: ${value}`);
+  }
+  return value;
 }

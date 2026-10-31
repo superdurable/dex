@@ -51,7 +51,10 @@ type ScriptedItem =
 
 type ScriptedModelAction =
   | { readonly kind: "answer"; readonly text: string }
-  | { readonly kind: "call_tools"; readonly toolNames: readonly string[] };
+  | {
+      readonly kind: "call_tools";
+      readonly toolCalls: readonly { readonly toolCallId: string; readonly toolName: string }[];
+    };
 
 interface ScriptedRunState {
   readonly turnItems: readonly ScriptedItem[];
@@ -62,8 +65,11 @@ interface ScriptedRunState {
  * A deterministic framework runner in Step mode with a scripted model, so tests need no model key.
  *
  * Each `runModelStep` makes one scripted model decision. User commands:
- * - `call <tool> [and <tool> ...]`: the model requests every listed tool in one response, then answers
- *   `<tool> -> <result>` per tool, joined with ` | `.
+ * - `call <tool> [and <tool> ...][, then call <tool> [and <tool> ...] ...]`: each model call requests
+ *   the next batch of tools in one response, then the model answers `<tool> -> <result>` per tool,
+ *   joined with ` | `.
+ * - `call ..., then repeat`: after the batches, the model requests the first batch again, with the same
+ *   tool call IDs, which the session rejects.
  * - `history`: the model answers with every earlier user and assistant text it was replayed.
  * - `call ... then fail`: like `call`, but the model call after the tools throws on every attempt.
  * - `call ... then pause`: like `call`, but the model call after the tools waits at the `turn` FileGate.
@@ -118,14 +124,13 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
       await gate.waitForRelease(turn.cancellationSignal);
     }
     const usage = { modelCalls: 1, inputTokens: 10, outputTokens: 5, cachedInputTokens: 0, reasoningTokens: 0 };
-    const action = decideScriptedModelAction(history, turnItems);
+    const action = decideScriptedModelAction(turn.turnId, history, turnItems);
     if (action.kind === "answer") {
       turn.events.writeTextDelta(action.text);
       turnItems.push({ kind: "assistant", text: action.text });
       return { kind: "completed", newMessages: turnItems.map(toFrameworkMessage), usage };
     }
-    const toolCalls: DeferredToolCall[] = action.toolNames.map((toolName) => {
-      const toolCallId = `${turn.turnId}-${toolName}`;
+    const toolCalls: DeferredToolCall[] = action.toolCalls.map(({ toolCallId, toolName }) => {
       const toolArguments = JSON.stringify({ requested_by: userText });
       turnItems.push({ kind: "tool_call", toolCallId, toolName, arguments: toolArguments });
       return { toolCallId, toolName, arguments: toolArguments, policy: turn.resolveToolPolicy(toolName) };
@@ -209,28 +214,41 @@ export function createScriptedAgentFlow(
 }
 
 function decideScriptedModelAction(
+  turnId: string,
   history: readonly ScriptedItem[],
   turnItems: readonly ScriptedItem[],
 ): ScriptedModelAction {
   const userText = lastUserText(history);
   if (userText.startsWith("call ")) {
-    const toolNames = userText
-      .slice("call ".length)
-      .replace(/ then (fail|pause)$/, "")
-      .split(" and ")
-      .map((toolName) => toolName.trim());
-    const results = toolNames.map((toolName) =>
+    let body = userText.slice("call ".length).replace(/ then (fail|pause)$/, "");
+    const isRepeat = body.endsWith(", then repeat");
+    body = body.replace(/, then repeat$/, "");
+    const batches = body.split(", then call ").map((batch, batchIndex) =>
+      batch.split(" and ").map((toolName) => ({
+        toolName: toolName.trim(),
+        toolCallId: scriptedToolCallId(turnId, batchIndex, toolName.trim()),
+      })),
+    );
+    const resultOf = (toolCallId: string) =>
       turnItems.find(
         (item): item is Extract<ScriptedItem, { kind: "tool_result" }> =>
-          item.kind === "tool_result" && item.toolName === toolName,
-      ),
-    );
-    if (results.some((result) => result === undefined)) {
-      return { kind: "call_tools", toolNames };
+          item.kind === "tool_result" && item.toolCallId === toolCallId,
+      );
+    for (const batch of batches) {
+      if (batch.some((toolCall) => resultOf(toolCall.toolCallId) === undefined)) {
+        return { kind: "call_tools", toolCalls: batch };
+      }
+    }
+    // A misbehaving model that asks for the first batch again, with the same tool call IDs.
+    if (isRepeat) {
+      return { kind: "call_tools", toolCalls: batches[0] ?? [] };
     }
     return {
       kind: "answer",
-      text: toolNames.map((toolName, index) => `${toolName} -> ${results[index]?.output}`).join(" | "),
+      text: batches
+        .flat()
+        .map((toolCall) => `${toolCall.toolName} -> ${resultOf(toolCall.toolCallId)?.output}`)
+        .join(" | "),
     };
   }
   if (userText === "history") {
@@ -243,6 +261,11 @@ function decideScriptedModelAction(
     return { kind: "answer", text: "slow turn done" };
   }
   return { kind: "answer", text: `echo: ${userText}` };
+}
+
+/** Returns `<turnId>-<tool>` for the first batch and `<turnId>-b<n>-<tool>` for later ones. */
+export function scriptedToolCallId(turnId: string, batchIndex: number, toolName: string): string {
+  return batchIndex === 0 ? `${turnId}-${toolName}` : `${turnId}-b${batchIndex}-${toolName}`;
 }
 
 function lastUserText(history: readonly ScriptedItem[]): string {
