@@ -64,6 +64,7 @@ pub enum WriteOutcome {
 
 /// Result of deleting exactly the object version identified by an ETag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ConditionalDeleteOutcome {
     /// The matching object was deleted, or was already absent.
     Deleted,

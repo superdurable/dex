@@ -134,22 +134,7 @@ impl AdminService for SearchProjectionAdmin {
                     .get(&partition)
                     .into_iter()
                     .flatten()
-                    .map(|reason| {
-                        match reason {
-                            dexzd_metrics::ProjectionRebuildReason::StartupBehind => {
-                                "startup_behind"
-                            }
-                            dexzd_metrics::ProjectionRebuildReason::RepairOverflow => {
-                                "repair_overflow"
-                            }
-                            dexzd_metrics::ProjectionRebuildReason::DeleteOverflow => {
-                                "delete_overflow"
-                            }
-                            dexzd_metrics::ProjectionRebuildReason::Divergence => "divergence",
-                            dexzd_metrics::ProjectionRebuildReason::Unreadable => "unreadable",
-                        }
-                        .into()
-                    })
+                    .map(|reason| reason.metric_label_value().to_owned())
                     .collect(),
                 is_scheduled: scheduled.contains(&partition),
                 is_in_progress: active.contains(&partition),

@@ -203,6 +203,7 @@ impl EncodeMetric for AttributeSyncWriteFailures {
 
 /// The priority of an Upsert omitted during search projection overload.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ProjectionDropReason {
     /// An update to an existing Running run.
     Intermediate,
@@ -274,6 +275,7 @@ impl EncodeMetric for ProjectionDropCounters {
 
 /// A condition that operators can resolve with a manual partition rebuild.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum ProjectionRebuildReason {
     /// SQL projection progress is behind committed state.
     StartupBehind,
@@ -286,10 +288,26 @@ pub enum ProjectionRebuildReason {
     /// Committed search state cannot be decoded.
     Unreadable,
 }
-label_value!(ProjectionRebuildReason {
-    StartupBehind => "startup_behind", RepairOverflow => "repair_overflow",
-    DeleteOverflow => "delete_overflow", Divergence => "divergence", Unreadable => "unreadable"
-});
+impl ProjectionRebuildReason {
+    /// Returns the stable reason label used by projection metrics and administrative status responses.
+    pub fn metric_label_value(self) -> &'static str {
+        match self {
+            Self::StartupBehind => "startup_behind",
+            Self::RepairOverflow => "repair_overflow",
+            Self::DeleteOverflow => "delete_overflow",
+            Self::Divergence => "divergence",
+            Self::Unreadable => "unreadable",
+        }
+    }
+}
+impl prometheus_client::encoding::EncodeLabelValue for ProjectionRebuildReason {
+    fn encode(
+        &self,
+        encoder: &mut prometheus_client::encoding::LabelValueEncoder,
+    ) -> Result<(), std::fmt::Error> {
+        prometheus_client::encoding::EncodeLabelValue::encode(&self.metric_label_value(), encoder)
+    }
+}
 #[derive(EncodeLabelSet)]
 struct RebuildReasonLabel {
     reason: ProjectionRebuildReason,
