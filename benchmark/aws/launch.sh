@@ -96,7 +96,7 @@ launch_instance() {
   {
     echo '#!/bin/bash'
     echo "shutdown -h +$shutdown_minutes"
-    echo 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y sysstat'
+    echo 'apt-get -o DPkg::Lock::Timeout=300 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y sysstat'
     if [[ "$role" == server ]]; then
       # Pick the instance store by model name; device numbering is not stable.
       echo "device=\$(lsblk -dpno NAME,MODEL | awk '/Instance Storage/ {print \$1; exit}')"

@@ -150,7 +150,7 @@ remote "$(serve_command "DEXBENCH_S3_PREFIX=$prefix_root/base" config)" > "$outp
 { echo "# server-zd config before per-point overrides"; cat "$output_dir/zd-config.yaml"; } >> "$output_dir/host.txt"
 git_commit="${DEXBENCH_GIT_COMMIT:-$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || echo unknown)}"
 # The revision embedded in the dexbench binary identifies the load generator even off a clone.
-dexbench_revision="$(go version -m "$benchmark_binary" 2>/dev/null | awk '$2 == "vcs.revision" {r = $3} $2 == "vcs.modified" {m = $3} END {print (r == "" ? "unknown" : r) (m == "true" ? "-modified" : "")}' || echo unknown)"
+dexbench_revision="$(go version -m "$benchmark_binary" 2>/dev/null | awk '$2 == "vcs.revision" {r = $3} $2 == "vcs.modified" {m = $3} END {print (r == "" ? "unknown" : r) (m == "true" ? "-modified" : "")}' || true)"
 zd_version="$(sed -n 's/^server_zd_version=//p' "$output_dir/host.txt")"
 {
   echo "# Settings to rerun these points with benchmark/aws/reproduce.sh. Recorded values start with RECORDED_."
@@ -222,7 +222,7 @@ wait_for_server() {
 # run_point runs one point; it returns non-zero when any step fails, leaving the run to continue.
 run_point() {
   local variant="$1" point_concurrency="$2" overrides="$3" trial_flag="$4" point_id="$5"
-  local collect_dir="$server_state_dir/collect/$run_id/$point_id" point_dir="$output_dir/.work-$point_id"
+  local collect_dir="$server_state_dir/collect/$prefix_root/$point_id" point_dir="$output_dir/.work-$point_id"
   local run_status=0 collect_status=0 result_path
   mkdir -p "$point_dir"
   if ! remote "$(serve_command "$overrides DEXBENCH_S3_PREFIX=$prefix_root/$point_id" start)" || ! wait_for_server; then
