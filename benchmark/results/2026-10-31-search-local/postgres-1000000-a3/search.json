@@ -1,0 +1,33 @@
+{
+  "config": {
+    "projection_only": true,
+    "address": "127.0.0.1:18815",
+    "backend": "postgres",
+    "runs": 1000000,
+    "attributes": 3,
+    "concurrency": 128,
+    "samples": 100,
+    "warmup": 10,
+    "deep_page": 500,
+    "timeout_ns": 30000000000,
+    "database_container": "dex-pgvis-bench-postgres-50588",
+    "backfill": false,
+    "git_commit": "101304f41cb1b67b92ca425055ddf6c552a6c229"
+  },
+  "started_at": "2026-10-31T13:15:56.850062Z",
+  "machine": {
+    "cpu_model": "Apple M5 Pro",
+    "cores": 18,
+    "ram_bytes": 51539607552,
+    "os": "darwin",
+    "architecture": "arm64",
+    "free_disk_bytes": 180954030080
+  },
+  "seed_seconds": 310.120097458,
+  "catchup_seconds": 162.316439542,
+  "rows_per_second": 2116.6864079219185,
+  "wal_start": "0/19D4BA0",
+  "wal_end": "1/449C5FC8",
+  "wal_bytes_per_row": 5418.980392,
+  "queries": null
+}

@@ -192,7 +192,9 @@ func (benchmark *searchBenchmark) run(ctx context.Context) error {
 		}
 		benchmark.result.WALBytesPerRow = walBytes / float64(benchmark.config.Runs)
 	}
-	fmt.Fprintf(os.Stderr, "seed ready: %d rows, %.1f rows/s, %.1f WAL bytes/row\n", benchmark.config.Runs, benchmark.result.RowsPerSecond, benchmark.result.WALBytesPerRow)
+	if err := writeSearchProgress("seed ready: %d rows, %.1f rows/s, %.1f WAL bytes/row\n", benchmark.config.Runs, benchmark.result.RowsPerSecond, benchmark.result.WALBytesPerRow); err != nil {
+		return err
+	}
 	if benchmark.config.ShouldMeasureProjectionOnly {
 		return nil
 	}
@@ -239,7 +241,11 @@ func (benchmark *searchBenchmark) seedClient(ctx context.Context, cancel context
 			return
 		}
 		if index > 0 && index%10000 == 0 {
-			fmt.Fprintf(os.Stderr, "seeded %d/%d\n", index, benchmark.config.Runs)
+			if err := writeSearchProgress("seeded %d/%d\n", index, benchmark.config.Runs); err != nil {
+				failures <- err
+				cancel()
+				return
+			}
 		}
 	}
 }
@@ -383,7 +389,9 @@ func (benchmark *searchBenchmark) measureBackfillQueries(ctx context.Context) er
 	for index := range results {
 		results[index].Latency = calculatePercentiles(latencies[index])
 		benchmark.result.Queries = append(benchmark.result.Queries, results[index])
-		fmt.Fprintf(os.Stderr, "backfilling %s: n=%d p50=%.3fms p99=%.3fms\n", results[index].Name, results[index].Samples, results[index].Latency.P50, results[index].Latency.P99)
+		if err := writeSearchProgress("backfilling %s: n=%d p50=%.3fms p99=%.3fms\n", results[index].Name, results[index].Samples, results[index].Latency.P50, results[index].Latency.P99); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -468,7 +476,9 @@ func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name,
 	}
 	result.Latency = calculatePercentiles(latencies)
 	if samples > 1 {
-		fmt.Fprintf(os.Stderr, "%s %s: n=%d p50=%.3fms p99=%.3fms errors=%v\n", phase, name, result.Samples, result.Latency.P50, result.Latency.P99, result.Errors)
+		if err := writeSearchProgress("%s %s: n=%d p50=%.3fms p99=%.3fms errors=%v\n", phase, name, result.Samples, result.Latency.P50, result.Latency.P99, result.Errors); err != nil {
+			return result, err
+		}
 	}
 	return result, ctx.Err()
 }
@@ -631,4 +641,12 @@ func searchIndexDefinitions(count int) map[string]dexpb.IndexType {
 		definitions[fmt.Sprintf("SearchField%02d", index)] = indexType
 	}
 	return definitions
+}
+
+func writeSearchProgress(format string, arguments ...any) error {
+	_, err := fmt.Fprintf(os.Stderr, format, arguments...)
+	if err != nil {
+		return fmt.Errorf("write search benchmark progress: %w", err)
+	}
+	return nil
 }

@@ -1,0 +1,62 @@
+rare-flow-type
+                                                                                QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..20460.37 rows=21 width=486) (actual time=101.882..177.636 rows=21.00 loops=1)
+   Buffers: shared hit=25447 read=64250 written=26
+   ->  Index Scan using dexzd_visibility_default_idx on dexzd_visibility_runs  (cost=0.42..646924.52 rows=664 width=486) (actual time=101.880..177.628 rows=21.00 loops=1)
+         Index Cond: (tenant_id = '0'::text)
+         Filter: ((flow_type)::text = 'searchRareFlow'::text)
+         Rows Removed by Filter: 88039
+         Index Searches: 1
+         Buffers: shared hit=25447 read=64250 written=26
+ Planning:
+   Buffers: shared hit=877 read=94
+ Planning Time: 2.599 ms
+ Execution Time: 177.666 ms
+(12 rows)
+
+start-time-desc
+                                                                           QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=259883.77..259886.31 rows=21 width=485) (actual time=433.418..439.798 rows=21.00 loops=1)
+   Buffers: shared hit=31446 read=212821
+   ->  Gather Merge  (cost=259883.77..380397.43 rows=996600 width=485) (actual time=430.446..436.825 rows=21.00 loops=1)
+         Workers Planned: 5
+         Workers Launched: 5
+         Buffers: shared hit=31446 read=212821
+         ->  Sort  (cost=258883.69..259381.99 rows=199320 width=485) (actual time=421.711..421.712 rows=18.33 loops=6)
+               Sort Key: start_time_ns DESC, run_id COLLATE "C"
+               Sort Method: top-N heapsort  Memory: 69kB
+               Buffers: shared hit=31446 read=212821
+               Worker 0:  Sort Method: top-N heapsort  Memory: 70kB
+               Worker 1:  Sort Method: top-N heapsort  Memory: 73kB
+               Worker 2:  Sort Method: top-N heapsort  Memory: 69kB
+               Worker 3:  Sort Method: top-N heapsort  Memory: 64kB
+               Worker 4:  Sort Method: top-N heapsort  Memory: 65kB
+               ->  Parallel Seq Scan on dexzd_visibility_runs  (cost=0.00..253509.71 rows=199320 width=485) (actual time=24.936..397.593 rows=166666.67 loops=6)
+                     Filter: (tenant_id = '0'::text)
+                     Buffers: shared hit=31227 read=212815
+ Planning:
+   Buffers: shared hit=1 read=3
+ Planning Time: 0.208 ms
+ JIT:
+   Functions: 25
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 1.256 ms (Deform 0.452 ms), Inlining 0.000 ms, Optimization 1.113 ms, Emission 15.266 ms, Total 17.636 ms
+ Execution Time: 447.128 ms
+(26 rows)
+
+rare-flow-type-default-collation-control
+                                                                              QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..42.93 rows=21 width=486) (actual time=0.128..0.200 rows=21.00 loops=1)
+   Buffers: shared hit=15 read=9
+   ->  Index Scan using dexzd_visibility_flow_type_idx on dexzd_visibility_runs  (cost=0.42..1344.32 rows=664 width=486) (actual time=0.127..0.199 rows=21.00 loops=1)
+         Index Cond: ((tenant_id = '0'::text) AND (flow_type = 'searchRareFlow'::text))
+         Index Searches: 1
+         Buffers: shared hit=15 read=9
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.237 ms
+ Execution Time: 0.214 ms
+(10 rows)

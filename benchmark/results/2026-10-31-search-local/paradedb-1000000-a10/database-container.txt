@@ -1,0 +1,101 @@
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "en_US.utf8".
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are enabled.
+
+fixing permissions on existing directory /var/lib/postgresql/18/docker ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Etc/UTC
+creating configuration files ... ok
+running bootstrap script ... ok
+2026-10-31 13:00:35.330 UTC [49] LOG:  registered custom resource manager "pg_search" with ID 137
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+
+Success. You can now start the database server using:
+
+    pg_ctl -D /var/lib/postgresql/18/docker -l logfile start
+
+waiting for server to start....2026-10-31 13:00:36.598 UTC [71] LOG:  registered custom resource manager "pg_search" with ID 137
+2026-10-31 13:00:36.605 UTC [71] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 13:00:36.607 UTC [71] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 13:00:36.611 UTC [86] LOG:  database system was shut down at 2026-10-31 13:00:35 UTC
+2026-10-31 13:00:36.613 UTC [71] LOG:  database system is ready to accept connections
+2026-10-31 13:00:36.617 UTC [89] LOG:  pg_cron scheduler started
+ done
+server started
+CREATE DATABASE
+
+
+/usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE DATABASE
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+CREATE EXTENSION
+ParadeDB auto-tune: Writing configuration to /var/lib/postgresql/18/docker/postgresql.conf
+
+# Begin ParadeDB tuning recommendations
+# Parameters based on auto-detected 10 CPUs and 15035MB RAM
+shared_buffers = '3758MB'                     # 25% of RAM, capped at 16GB
+effective_cache_size = '11276MB'              # 75% of RAM, capped at 16TB
+maintenance_work_mem = '939MB'                # RAM / 16, capped at 2GB
+work_mem = '37MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+max_parallel_workers = '50'                   # CPUs * 5, capped at 1024
+max_worker_processes = '58'                   # max_parallel_workers + 8
+max_parallel_workers_per_gather = '5'         # CPUs / 2, between 1 and 128
+max_parallel_maintenance_workers = '5'        # CPUs / 2, at least 2, at most 8
+# End ParadeDB tuning recommendations
+ParadeDB bootstrap completed!
+
+waiting for server to shut down...2026-10-31 13:00:37.519 UTC [71] LOG:  received fast shutdown request
+.2026-10-31 13:00:37.520 UTC [71] LOG:  aborting any active transactions
+2026-10-31 13:00:37.520 UTC [89] LOG:  pg_cron scheduler shutting down
+2026-10-31 13:00:37.521 UTC [71] LOG:  background worker "pg_cron launcher" (PID 89) exited with exit code 1
+2026-10-31 13:00:37.522 UTC [71] LOG:  background worker "logical replication launcher" (PID 90) exited with exit code 1
+2026-10-31 13:00:37.522 UTC [84] LOG:  shutting down
+2026-10-31 13:00:37.524 UTC [84] LOG:  checkpoint starting: shutdown immediate
+.2026-10-31 13:00:39.327 UTC [84] LOG:  checkpoint complete: wrote 6696 buffers (20.4%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.299 s, sync=1.476 s, total=1.805 s; sync files=1383, longest=0.113 s, average=0.002 s; distance=51424 kB, estimate=51424 kB; lsn=0/4999B98, redo lsn=0/4999B98
+2026-10-31 13:00:39.355 UTC [71] LOG:  database system is shut down
+ done
+server stopped
+
+PostgreSQL init process complete; ready for start up.
+
+2026-10-31 13:00:39.393 UTC [1] LOG:  registered custom resource manager "pg_search" with ID 137
+2026-10-31 13:00:39.407 UTC [1] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 13:00:39.407 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-10-31 13:00:39.407 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-10-31 13:00:39.418 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 13:00:39.424 UTC [147] LOG:  database system was shut down at 2026-10-31 13:00:39 UTC
+2026-10-31 13:00:39.428 UTC [1] LOG:  database system is ready to accept connections
+2026-10-31 13:00:39.432 UTC [150] LOG:  pg_cron scheduler started
+2026-10-31 13:04:19.161 UTC [145] LOG:  checkpoint starting: wal
+2026-10-31 13:06:02.791 UTC [145] LOG:  checkpoint complete: wrote 9051 buffers (27.6%), wrote 6 SLRU buffers; 0 WAL file(s) added, 0 removed, 134 recycled; write=102.801 s, sync=0.208 s, total=103.631 s; sync files=165, longest=0.056 s, average=0.002 s; distance=2186117 kB, estimate=2186117 kB; lsn=1/2CEF9D8, redo lsn=0/8A07B0A8
+2026-10-31 13:06:18.303 UTC [145] LOG:  checkpoint starting: wal
+2026-10-31 13:07:16.812 UTC [145] LOG:  checkpoint complete: wrote 2097 buffers (6.4%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 134 recycled; write=57.456 s, sync=0.377 s, total=58.510 s; sync files=14, longest=0.101 s, average=0.027 s; distance=2195029 kB, estimate=2195029 kB; lsn=1/88E8FC58, redo lsn=1/10010718
+2026-10-31 13:07:32.851 UTC [145] LOG:  checkpoint starting: wal
+2026-10-31 13:12:03.002 UTC [145] LOG:  checkpoint complete: wrote 1749 buffers (5.3%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 134 recycled; write=269.173 s, sync=0.001 s, total=270.152 s; sync files=22, longest=0.001 s, average=0.001 s; distance=2195503 kB, estimate=2195503 kB; lsn=1/FE1CD810, redo lsn=1/9601C4C8

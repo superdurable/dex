@@ -1,0 +1,7 @@
+cluster:
+  partitionCount: 1024
+metrics:
+  listen: 127.0.0.1:19195
+search:
+  backend: builtin
+  builtinScanBudgetDocuments: 1000000

@@ -53,6 +53,11 @@ Each set's `README.md` lists every round of the search and its outcome. Each rou
 
 Rerun a headline point with `benchmark/aws/reproduce.sh`. See [Reproduce a result](#reproduce-a-result).
 
+The [local search backend results](results/2026-10-31-search-local/README.md)
+measure S7 at 100k and 1M runs on builtin, ParadeDB, and PostgreSQL. They include
+projection throughput, WAL, Attribute backfill, and a confirmed ParadeDB Flow
+type index collation finding.
+
 ## Reading the results
 
 ### What the numbers mean

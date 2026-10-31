@@ -1,0 +1,20 @@
+builtin-100000-a0: no ERROR-level server logs
+builtin-100000-a10: no ERROR-level server logs
+builtin-100000-a3: no ERROR-level server logs
+builtin-1000000-a0: no ERROR-level server logs
+builtin-1000000-a10: no ERROR-level server logs
+builtin-1000000-a3: no ERROR-level server logs
+paradedb-100000-a0: no ERROR-level server logs
+paradedb-100000-a10: no ERROR-level server logs
+paradedb-100000-a3: no ERROR-level server logs
+paradedb-1000000-a0: no ERROR-level server logs
+paradedb-1000000-a10: no ERROR-level server logs
+paradedb-1000000-a3: no ERROR-level server logs
+postgres-100000-a0: no ERROR-level server logs
+postgres-100000-a10: no ERROR-level server logs
+postgres-100000-a3: no ERROR-level server logs
+postgres-1000000-a0: no ERROR-level server logs
+postgres-1000000-a10: no ERROR-level server logs
+postgres-1000000-a3: no ERROR-level server logs
+postgres-1000000-backfill: no ERROR-level server logs
+No benchmark server or search load-generator process remains.

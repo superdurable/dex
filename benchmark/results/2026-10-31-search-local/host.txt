@@ -1,0 +1,69 @@
+Recorded UTC: 2026-10-31T11:26:58.524644+00:00
+
+hardware
+Hardware:
+
+    Hardware Overview:
+
+      Model Name: MacBook Pro
+      Model Identifier: Mac17,8
+      Model Number: MGEC4LL/A
+      Chip: Apple M5 Pro
+      Total Number of Cores: 18 (6 Super and 12 Performance)
+      Memory: 48 GB
+      System Firmware Version: 18000.161.10
+      OS Loader Version: 18000.161.10
+      Activation Lock Status: Enabled
+
+os
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+
+go
+go version go1.26.5 darwin/arm64
+
+rust
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+
+docker
+Client:
+ Version:           29.4.0
+ API version:       1.54
+ Go version:        go1.26.4
+ Git commit:        9d7ad9f
+ Built:             Thu Jul 30 02:36:38 2026
+ OS/Arch:           darwin/arm64
+ Context:           orbstack
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.4.0
+  API version:      1.54 (minimum version 1.40)
+  Go version:       go1.26.1
+  Git commit:       daa0cb7f
+  Built:            Tue Apr  7 08:35:43 2026
+  OS/Arch:          linux/arm64
+  Experimental:     true
+ containerd:
+  Version:          v2.2.2
+  GitCommit:        301b2dac98f15c27117da5c8af12118a041a31d9
+ runc:
+  Version:          1.5.1
+  GitCommit:        bb14dabeb7185bb72c8c86735d090dcb20f36587
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+
+docker_resources
+CPUs=10 Memory=15765602304 OS=OrbStack
+
+disk
+Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s5   926Gi   733Gi   169Gi    82%    8.4M  1.8G    0%   /System/Volumes/Data
+
+load
+ 4:26  up 10 days, 18:50, 24 users, load averages: 8.65 11.09 8.85
+
+source
+0f956d86b4a7213b746cdb5b782efe7d88932a6f

@@ -1,0 +1,73 @@
+rare-flow-type
+                                                                             QUERY PLAN
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..42.65 rows=21 width=491) (actual time=0.026..0.183 rows=21 loops=1)
+   Buffers: shared hit=5 read=19
+   ->  Index Scan using dexzd_visibility_flow_type_idx on dexzd_visibility_runs  (cost=0.42..1001.69 rows=498 width=491) (actual time=0.025..0.181 rows=21 loops=1)
+         Index Cond: ((tenant_id = '0'::text) AND (flow_type = 'searchRareFlow'::text))
+         Buffers: shared hit=5 read=19
+ Planning:
+   Buffers: shared hit=1057 read=35
+ Planning Time: 4.700 ms
+ Execution Time: 0.201 ms
+(9 rows)
+
+keyword-equality
+                                                                             QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..42.46 rows=21 width=491) (actual time=0.030..0.129 rows=21 loops=1)
+   Buffers: shared hit=13 read=12
+   ->  Index Scan using dexzd_visibility_keyword_01_idx on dexzd_visibility_runs  (cost=0.42..1794.08 rows=896 width=491) (actual time=0.030..0.129 rows=21 loops=1)
+         Index Cond: ((tenant_id = '0'::text) AND (keyword_01 = 'rare'::text))
+         Buffers: shared hit=13 read=12
+ Planning:
+   Buffers: shared hit=17
+ Planning Time: 0.072 ms
+ Execution Time: 0.135 ms
+(9 rows)
+
+int-range
+                                                                               QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=2022.88..2022.93 rows=21 width=491) (actual time=6.804..6.806 rows=21 loops=1)
+   Buffers: shared hit=210 read=840
+   ->  Sort  (cost=2022.88..2025.36 rows=994 width=491) (actual time=6.804..6.804 rows=21 loops=1)
+         Sort Key: is_running DESC, close_time_ns DESC NULLS LAST, start_time_ns DESC, run_id COLLATE "C"
+         Sort Method: top-N heapsort  Memory: 57kB
+         Buffers: shared hit=210 read=840
+         ->  Index Scan using dexzd_visibility_int_01_idx on dexzd_visibility_runs  (cost=0.42..1996.08 rows=994 width=491) (actual time=0.054..6.536 rows=1000 loops=1)
+               Index Cond: ((tenant_id = '0'::text) AND (int_01 >= 50000) AND (int_01 <= 50099))
+               Buffers: shared hit=199 read=840
+ Planning:
+   Buffers: shared hit=28
+ Planning Time: 0.064 ms
+ Execution Time: 6.818 ms
+(13 rows)
+
+start-time-desc
+                                                                         QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=261198.32..261200.77 rows=21 width=490) (actual time=757.256..761.675 rows=21 loops=1)
+   Buffers: shared hit=32040 read=197358
+   ->  Gather Merge  (cost=261198.32..357996.88 rows=829644 width=490) (actual time=753.889..758.307 rows=21 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=32040 read=197358
+         ->  Sort  (cost=260198.30..261235.36 rows=414822 width=490) (actual time=745.375..745.376 rows=17 loops=3)
+               Sort Key: start_time_ns DESC, run_id COLLATE "C"
+               Sort Method: top-N heapsort  Memory: 67kB
+               Buffers: shared hit=32040 read=197358
+               Worker 0:  Sort Method: top-N heapsort  Memory: 66kB
+               Worker 1:  Sort Method: top-N heapsort  Memory: 73kB
+               ->  Parallel Seq Scan on dexzd_visibility_runs  (cost=0.00..249014.04 rows=414822 width=490) (actual time=1.797..697.059 rows=333333 loops=3)
+                     Filter: (tenant_id = '0'::text)
+                     Buffers: shared hit=31952 read=197358
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.112 ms
+ JIT:
+   Functions: 13
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 0.540 ms (Deform 0.206 ms), Inlining 0.000 ms, Optimization 0.586 ms, Emission 8.080 ms, Total 9.207 ms
+ Execution Time: 778.548 ms
+(23 rows)

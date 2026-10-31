@@ -1,0 +1,10 @@
+seeded 10000/100000
+seeded 20000/100000
+seeded 30000/100000
+seeded 40000/100000
+seeded 50000/100000
+seeded 60000/100000
+seeded 70000/100000
+seeded 80000/100000
+seeded 90000/100000
+seed ready: 100000 rows, 2781.0 rows/s, 3312.5 WAL bytes/row

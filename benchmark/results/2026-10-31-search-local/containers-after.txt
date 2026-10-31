@@ -1,0 +1,3 @@
+UTC: 2026-10-31T14:15:55.382774+00:00
+Command: docker ps -a --filter name=dex-pgvis-bench- --format {{.Names}} {{.Status}}
+(no matching containers)
