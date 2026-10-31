@@ -186,6 +186,8 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 
 For coordinated releases, run **Release changed components** from the **main** branch and enter one semantic version. The workflow applies that version to every selected component. It compares each component with its own latest reachable release tag, uses that tag as the start of the component's generated release notes, preflights every selected target tag, creates the GitHub Releases, and directly invokes each publisher. Every generated release starts with a **Breaking Changes** section containing `None.`. The CLI release workflow adds that section to manually created CLI Releases when it is absent. Release owners may replace `None.` with the actual breaking changes. The run succeeds only after every selected registry, Docker, CLI asset, and Homebrew publication succeeds. Go SDK publication is complete when its module tag and GitHub Release exist.
 
+The agents packages under `agents/` keep their own version line, independent of the shared release version. Enter it in the optional **agents_version** input to release them as `agents/v<agents_version>` when `agents/**` changed. Leave it empty to skip them; the plan then reports that they changed. The workflow dispatches the two agents publishers instead of calling them, because PyPI and npm trusted publishing match the top-level workflow file.
+
 Coordinated releases do not create a cross-component compatibility manifest.
 Each selected component publishes its native immutable artifacts. CLI publishes
 `checksums.txt`, Dex Web publishes its versioned image, and SDK registries retain
@@ -206,6 +208,7 @@ The dependency-aware paths are:
 | TypeScript SDK | `sdk-typescript/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-node/**` |
 | Dex Web | `web/**`, `packages/flow-definition-renderer/**`, `sdk-go/**`, `protos/**`, `.dockerignore`, Web release workflow |
 | CLI | `cli/**`, `web/**`, `packages/flow-definition-renderer/**`, `sdk-go/**`, `protos/**`, `go.work` |
+| Agents packages | `agents/**` and the two agents publish workflows (released only when **agents_version** is set) |
 
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
@@ -218,6 +221,7 @@ The dependency-aware paths are:
 | TypeScript SDK | `sdk-typescript/vX.Y.Z` | `sdk-typescript/v0.1.0` | npm [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex) via [`.github/workflows/sdk-typescript-publish.yml`](.github/workflows/sdk-typescript-publish.yml) (version from the tag) |
 | Rust SDK | `sdk-rust/vX.Y.Z` | `sdk-rust/v0.1.0` | crates.io `dex-sdk`, `dex-blob-cache`, and `dex-protocol` via [`.github/workflows/sdk-rust-publish.yml`](.github/workflows/sdk-rust-publish.yml) (version from the tag) |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
+| Agents packages | `agents/vX.Y.Z` | `agents/v0.1.0` | PyPI `dex-agents` and its five adapters via [`.github/workflows/agents-python-publish.yml`](.github/workflows/agents-python-publish.yml), and npm `@superdurable/dex-agents` and its four adapters via [`.github/workflows/agents-typescript-publish.yml`](.github/workflows/agents-typescript-publish.yml) (one version for all eleven; see [`agents/README.md`](agents/README.md#releases)) |
 
 Notes:
 
@@ -225,6 +229,7 @@ Notes:
 - Go modules use path-style tags (`sdk-go/v…`, `blob-cache-go/v…`) so `go get` resolves each subdirectory module.
 - Python, Java, and Docker release workflows also support **workflow_dispatch** for manual runs. Python manual runs build without publishing unless `publish` is selected.
 - TypeScript publishing requires a GitHub Release after its one-time npm bootstrap publish.
+- The agents publish workflows run on a published `agents/v` Release, or on **workflow_dispatch**, which stamps, builds, and smoke-tests without uploading unless `publish` is selected.
 - Publish a manually created Dex CLI Release without marking it latest (`gh release create cli-vX.Y.Z --latest=false`). **Release Dex CLI** uploads the archives and `checksums.txt` minutes after the Release is published, and consumers that resolve the latest stable `cli-v` Release, such as a connector library's compatibility gate, fail until they exist. After that workflow succeeds, mark it latest with `gh release edit cli-vX.Y.Z --latest`.
 
 ### Committed `version` vs release tags (Python / TypeScript / Java / Rust)

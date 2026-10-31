@@ -9,13 +9,18 @@
     "directory": "agents/typescript/mastra"
   },
   "homepage": "https://github.com/superdurable/dex/tree/main/agents/typescript/mastra#readme",
+  "bugs": {
+    "url": "https://github.com/superdurable/dex/issues"
+  },
   "type": "module",
+  "types": "./dist/src/index.d.ts",
   "engines": {
     "node": "^22.0.0 || ^24.0.0"
   },
   "files": [
     "dist/src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "exports": {
     ".": {
@@ -28,18 +33,22 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:integration": "npm run build && node --test --test-concurrency=1 --test-timeout=240000 'dist/test/integ/*.integration.test.js'"
   },
-  "dependencies": {
-    "@superdurable/dex": "1.30.0",
-    "@superdurable/dex-agents": "file:../core"
-  },
   "peerDependencies": {
-    "@mastra/core": "^1.81.0"
+    "@mastra/core": "^1.81.0",
+    "@superdurable/dex": "1.30.0",
+    "@superdurable/dex-agents": "^0.1.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.19",
     "@mastra/core": "1.81.0",
+    "@superdurable/dex": "1.30.0",
+    "@superdurable/dex-agents": "file:../core",
     "@types/node": "22.20.5",
     "typescript": "5.9.3",
     "zod": "4.6.7"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

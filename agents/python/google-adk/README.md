@@ -3,7 +3,7 @@
 `dex-agents-google-adk` (import `dex_agents_google_adk`) runs
 [Google ADK](https://google.github.io/adk-docs/) agents as durable Dex agent
 sessions. It implements the `AgentFrameworkRunner` contract of
-[`dex-agents`](../core/README.md) and registers the shared agent session Flow
+[`dex-agents`](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md) and registers the shared agent session Flow
 for an ADK agent. One Flow execution is one session, and the Flow ID is both
 the Dex session ID and the ADK session ID.
 
@@ -13,24 +13,21 @@ invocation through ADK's own tool confirmation and runs in its own Dex Step;
 the tool calls of one response run in parallel. Each call therefore has its
 own retry policy, failure route, history entry, and Dex Web node, and a crash
 repeats at most the one call that was running. The plan is
-[agent-framework-adapters.md](../../../docs/design/plan/agent-framework-adapters.md).
+[agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 ## Installation
 
-The package needs Python 3.11 or later, `google-adk` 2.13 or a later 2.x
-release, and `dex-python-sdk==1.30.0`. Until the packages are published,
-depend on both by path:
+The package needs Python 3.11 or later. It requires `dex-agents` at the same
+version, `dex-python-sdk==1.30.0`, and `google-adk` 2.13 or a later 2.x
+release:
 
-```toml
-[project]
-dependencies = ["dex-agents-google-adk", "dex-python-sdk==1.30.0", "google-adk>=2.13,<3"]
-
-[tool.uv.sources]
-dex-agents = { path = "../dex/agents/python/core", editable = true }
-dex-agents-google-adk = { path = "../dex/agents/python/google-adk", editable = true }
+```bash
+pip install dex-agents-google-adk
 ```
 
-Develop the package itself with uv 0.12.2:
+Develop the package inside this repository with uv 0.12.2. There it resolves
+`dex-agents` from `../core` by path through `[tool.uv.sources]`; the published
+wheel requires `dex-agents==<same version>` from PyPI instead:
 
 ```bash
 cd agents/python/google-adk
@@ -147,7 +144,7 @@ AwaitUserMessage -> RunModel -> CallTool -> ResumeTurn -> RunModel -> AwaitUserM
 
 A response with several tool calls starts one Step per call, in parallel. A
 call that needs approval waits in `AwaitToolApproval` first. See the
-[core README](../core/README.md#flow-shape) for every Step.
+[core README](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#flow-shape) for every Step.
 
 ## Effects and policies
 
@@ -281,7 +278,7 @@ With the default `RunConfig`, model text streams to `AgentEvents` as
 events. Control tools write `tool_call_started` and `tool_call_finished`; the
 session writes them for every tool Step. Every event carries `turn_id`,
 `step_execution_id`, and `attempt`; group live text by them as the
-[core README](../core/README.md) describes. Usage comes from each response's
+[core README](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md) describes. Usage comes from each response's
 usage metadata: `input_tokens` counts prompt and tool-use prompt tokens,
 `output_tokens` counts candidate and thought tokens, and `model_calls` counts
 model requests.
@@ -291,7 +288,7 @@ model requests.
 `ci.sh` installs the locked dependencies, runs ruff, the format check, and
 mypy, and runs the integration tests against private `dexcli dev --engine zd`
 engines. It reads `DEXCLI`. The tests use real ADK agents, driven by scripted
-`BaseLlm` models in [`tests/`](tests), so no model key is needed. They assert
+`BaseLlm` models in [`tests/`](https://github.com/superdurable/dex/tree/main/agents/python/google-adk/tests), so no model key is needed. They assert
 each turn's Step history with `dex_agents.testing.read_step_history`. A Worker
 child runs in its own process group, so a test can SIGKILL it during
 `RunModel` or a tool Step.

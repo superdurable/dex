@@ -3,8 +3,8 @@
 `dex-agents-langgraph` (import `dex_agents_langgraph`) runs agents built with
 LangChain's `create_agent` and custom LangGraph graphs as durable Dex agent
 sessions. It implements the runner contract of the
-[`dex-agents` core](../core/README.md); the plan is
-[agent-framework-adapters.md](../../../docs/design/plan/agent-framework-adapters.md).
+[`dex-agents` core](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md); the plan is
+[agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 One Flow execution is one agent session; the Flow ID is the session ID. The
 session runs in the core's **Step mode**. Every model call is one `RunModel`
@@ -18,20 +18,17 @@ running.
 
 ## Installation
 
-The package needs Python 3.11 or later, `langchain>=1.4.7,<2`,
-`langchain-core>=1.7.3,<2`, `langgraph>=1.2.19,<2`, and the released
-`dex-python-sdk==1.30.0`. Until it is published, depend on it by path:
+The package needs Python 3.11 or later. It requires `dex-agents` at the same
+version, the released `dex-python-sdk==1.30.0`, `langchain>=1.4.7,<2`,
+`langchain-core>=1.7.3,<2`, and `langgraph>=1.2.19,<2`:
 
-```toml
-[project]
-dependencies = ["dex-agents-langgraph", "dex-python-sdk==1.30.0", "langchain>=1.4.7,<2"]
-
-[tool.uv.sources]
-dex-agents-langgraph = { path = "agents/python/langgraph", editable = true }
-dex-agents = { path = "agents/python/core", editable = true }
+```bash
+pip install dex-agents-langgraph
 ```
 
-Develop the package itself with uv 0.12.2:
+Develop the package inside this repository with uv 0.12.2. There it resolves
+`dex-agents` from `../core` by path through `[tool.uv.sources]`; the published
+wheel requires `dex-agents==<same version>` from PyPI instead:
 
 ```bash
 cd agents/python/langgraph
@@ -162,7 +159,7 @@ the agent and needs the model key. An `async` factory also works, for example
 to load MCP tools first.
 
 `AgentSessionClient`, the session RPCs, events, and the snapshot are the core's;
-see the [core README](../core/README.md#running-an-agent).
+see the [core README](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#running-an-agent).
 
 ## A custom LangGraph graph
 

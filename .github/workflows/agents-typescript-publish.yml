@@ -1,0 +1,171 @@
+name: Publish agents TypeScript packages to npm
+run-name: Publish agents TypeScript packages ${{ inputs.version || github.event.release.tag_name }}
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Agents release version shared by every agents package
+        required: true
+        type: string
+      publish:
+        description: Publish to npm; false stamps, builds, and smoke-tests only
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-typescript-publish-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+env:
+  DEXCLI_RELEASE_TAG: cli-v1.30.0
+  DEXCLI_ARCHIVE: dexcli_v1.30.0_linux_amd64.tar.gz
+
+jobs:
+  prepare:
+    name: Validate release
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (startsWith(github.event.release.tag_name, 'agents/v') && !github.event.release.draft)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      publish: ${{ steps.release.outputs.publish }}
+      dist_tag: ${{ steps.release.outputs.dist_tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Resolve release version
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            release_version="${RELEASE_TAG#agents/v}"
+            publish=true
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "Release tag must point to a commit on main" >&2
+              exit 1
+            fi
+          else
+            release_version="${DISPATCH_VERSION}"
+            publish="${DISPATCH_PUBLISH}"
+            if [[ "${publish}" == "true" && "${RELEASE_REF}" != "refs/heads/main" ]]; then
+              echo "Manual publishing is allowed only from main" >&2
+              exit 1
+            fi
+          fi
+          if [[ ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid npm release version: ${release_version}" >&2
+            exit 1
+          fi
+          echo "version=${release_version}" >> "${GITHUB_OUTPUT}"
+          echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+          if [[ "${release_version}" == *-* ]]; then
+            echo "dist_tag=next" >> "${GITHUB_OUTPUT}"
+          else
+            echo "dist_tag=latest" >> "${GITHUB_OUTPUT}"
+          fi
+
+  build:
+    name: Build and smoke-test tarballs
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: agents/python/core
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Download and verify dexcli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEXCLI_DIR: ${{ runner.temp }}/dexcli
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEXCLI_DIR"
+          cd "$DEXCLI_DIR"
+          gh release download "$DEXCLI_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$DEXCLI_ARCHIVE" \
+            --pattern checksums.txt
+          if ! grep -E "^[0-9a-f]{64}  (\./)?${DEXCLI_ARCHIVE//./\\.}\$" checksums.txt > archive.sha256; then
+            echo "checksums.txt has no entry for $DEXCLI_ARCHIVE"
+            exit 1
+          fi
+          sha256sum --check --strict archive.sha256
+          tar -xzf "$DEXCLI_ARCHIVE"
+          ./dexcli --version
+          echo "DEXCLI=$DEXCLI_DIR/dexcli" >> "$GITHUB_ENV"
+      - name: Stamp package versions from release
+        run: uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version.py '${{ needs.prepare.outputs.version }}'
+      - name: Build and smoke-test the built packages
+        env:
+          AGENTS_DIST_DIR: ${{ github.workspace }}/agents-dist
+        run: agents/script/smoke-test-built-packages.sh typescript
+      - name: Upload tarballs
+        uses: actions/upload-artifact@v7
+        with:
+          name: agents-typescript-tarballs
+          path: agents-dist/typescript/*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Publish agents TypeScript packages
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11.19.0
+      - name: Download tarballs
+        uses: actions/download-artifact@v7
+        with:
+          name: agents-typescript-tarballs
+          path: dist
+      # The core publishes first so every adapter's peer dependency on it resolves.
+      - name: Publish tarballs with trusted publishing
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          for package in dex-agents dex-agents-vercel-ai dex-agents-openai-agents \
+            dex-agents-mastra dex-agents-claude-agent-sdk; do
+            tarball="dist/superdurable-${package}-${RELEASE_VERSION}.tgz"
+            [[ -f "${tarball}" ]] || { echo "Missing ${tarball}" >&2; exit 1; }
+            if npm view "@superdurable/${package}@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+              echo "@superdurable/${package}@${RELEASE_VERSION} is already published"
+              continue
+            fi
+            npm publish "${tarball}" --access public --provenance --tag "${DIST_TAG}"
+          done

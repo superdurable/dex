@@ -8,47 +8,45 @@ It runs in Step mode: each model call and each tool call is its own Dex Step,
 and the tool calls of one model response run in parallel.
 
 The session Flow implements the contract in
-[`docs/design/plan/agent-framework-adapters.md`](../../../docs/design/plan/agent-framework-adapters.md).
+[`docs/design/plan/agent-framework-adapters.md`](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 Its Step types, persistence names, RPC names, wire values, and event payloads
 match the Python core (`agents/python/core`), so one UI reads sessions from
 either language.
 
 ## Installation
 
-The package is not published yet. An adapter in this repository depends on it
-by path, next to the released Dex SDK:
-
-```json
-{
-  "dependencies": {
-    "@superdurable/dex": "1.30.0",
-    "@superdurable/dex-agents": "file:../core"
-  }
-}
-```
-
-Add an `.npmrc` next to the adapter's `package.json`:
-
-```ini
-install-links=true
-```
-
-This is required. Without it npm symlinks `../core`, Node then loads a second
-copy of `@superdurable/dex` from `core/node_modules`, and the Registry rejects
-the Flow (`steps must be a StepList`) because the SDK matches its own classes
-and RPC registrations by identity. With `install-links=true`, npm packs the core
-and installs a copy whose `@superdurable/dex` peer dependency resolves to the
-adapter's single copy.
-
-npm packs the built output, so build the core before installing the adapter:
+Applications usually install an adapter next to this package. To build a
+runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-(cd ../core && npm ci && npm run build)
-npm ci
+npm i @superdurable/dex-agents @superdurable/dex@1.30.0
 ```
 
-Requirements: Node `^22.0.0 || ^24.0.0` and `@superdurable/dex` 1.30.0 (a peer
-dependency).
+`@superdurable/dex` 1.30.0 is a peer dependency, so the application, the core,
+and every adapter share one copy. The Dex Registry matches Flow classes and
+RPC registrations by identity, so a second copy makes it reject the Flow
+(`steps must be a StepList`). Adapters list this package as a peer dependency
+for the same reason. Requirements: Node `^22.0.0 || ^24.0.0`.
+
+The package also exports `@superdurable/dex-agents/testing`. It starts a
+private `dexcli dev --engine zd` engine and Worker processes for integration
+tests, and the adapters' own tests import it from the published core. It is
+for tests only; it needs `DEXCLI` and `dex-server-zd`.
+
+Develop the package inside this repository with `./ci.sh`. The adapters in
+this repository depend on it as a `file:../core` devDependency with
+`install-links=true` in their `.npmrc`, so npm copies the built core instead
+of symlinking it; a symlinked core would load a second `@superdurable/dex`.
+Consumers of the published packages need neither:
+
+```bash
+cd agents/typescript/core
+DEXCLI=/path/to/dexcli ./ci.sh
+```
+
+An adapter peer-depends on `@superdurable/dex-agents@^<same version>`. All
+agents packages share one version line; see the
+[compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
 
 ## Usage
 

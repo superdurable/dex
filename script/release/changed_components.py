@@ -29,6 +29,8 @@ class Component:
     tag_prefix: str
     baseline_patterns: tuple[str, ...]
     paths: tuple[str, ...]
+    # Releases from its own version argument instead of the shared release version.
+    is_independently_versioned: bool = False
 
 
 SHARED_RUST_PATHS = (
@@ -81,6 +83,18 @@ COMPONENTS = (
         "cli-v",
         ("cli-v*",),
         ("cli", "web", "packages/flow-definition-renderer", "sdk-go", "protos", "go.work"),
+    ),
+    Component(
+        "agents",
+        "Agents packages",
+        "agents/v",
+        ("agents/v*",),
+        (
+            "agents",
+            ".github/workflows/agents-python-publish.yml",
+            ".github/workflows/agents-typescript-publish.yml",
+        ),
+        is_independently_versioned=True,
     ),
 )
 
@@ -150,21 +164,27 @@ def append_summary(lines: list[str]) -> None:
             summary.write("\n".join(lines) + "\n")
 
 
-def write_outputs(output_path: Path, version: str) -> int:
-    selections: list[tuple[Component, str | None, bool, str]] = []
+def write_outputs(output_path: Path, version: str, agents_version: str | None) -> int:
+    selections: list[tuple[Component, str | None, bool, str, str]] = []
     collisions: list[str] = []
 
     for component in COMPONENTS:
         baseline = latest_reachable_tag(component)
-        selected = has_changes(component, baseline)
-        target = f"{component.tag_prefix}{version}"
-        selections.append((component, baseline, selected, target))
+        is_changed = has_changes(component, baseline)
+        component_version = agents_version if component.is_independently_versioned else version
+        selected = is_changed and component_version is not None
+        target = f"{component.tag_prefix}{component_version}" if component_version is not None else ""
+        if not selected and is_changed:
+            skip_reason = "skip (changed; pass --agents-version to release)"
+        else:
+            skip_reason = "skip (no changes)"
+        selections.append((component, baseline, selected, target, skip_reason))
         if selected and tag_exists(target):
             collisions.append(target)
 
     summary = ["### Changed-component release plan", "", "| Component | Baseline | Result |", "|---|---|---|"]
-    output_lines = [f"version={version}"]
-    for component, baseline, selected, target in selections:
+    output_lines = [f"version={version}", f"agents_version={agents_version or ''}"]
+    for component, baseline, selected, target, skip_reason in selections:
         output_lines.extend(
             (
                 f"{component.key}={'true' if selected else 'false'}",
@@ -173,7 +193,7 @@ def write_outputs(output_path: Path, version: str) -> int:
             )
         )
         baseline_text = baseline or "none (first release)"
-        result_text = f"release {target}" if selected else "skip (no changes)"
+        result_text = f"release {target}" if selected else skip_reason
         summary.append(f"| {component.name} | {baseline_text} | {result_text} |")
 
     append_summary(summary)
@@ -191,13 +211,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("version")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--agents-version", help="Agents packages version; omit to skip them")
     arguments = parser.parse_args()
+    agents_version = arguments.agents_version or None
 
-    if not VERSION_PATTERN.fullmatch(arguments.version):
-        print(f"Invalid semantic version: {arguments.version}", file=sys.stderr)
-        return 1
+    for candidate in (arguments.version, agents_version):
+        if candidate is not None and not VERSION_PATTERN.fullmatch(candidate):
+            print(f"Invalid semantic version: {candidate}", file=sys.stderr)
+            return 1
 
-    return write_outputs(arguments.output, arguments.version)
+    return write_outputs(arguments.output, arguments.version, agents_version)
 
 
 if __name__ == "__main__":

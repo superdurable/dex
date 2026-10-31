@@ -1,13 +1,21 @@
 [project]
 name = "dex-agents-openai-agents"
+# Every agents package shares one version; agents/script/stamp_agents_release_version.py sets it.
 version = "0.1.0"
 description = "Run OpenAI Agents SDK agents as durable Dex agent sessions"
 authors = [{name = "Super Durable"}]
 readme = "README.md"
 license = "LicenseRef-Sustainable-Use-1.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Typing :: Typed",
+]
 dependencies = [
-    "dex-agents",
+    "dex-agents==0.1.0",
     "dex-python-sdk==1.30.0",
     "openai-agents>=0.24,<0.25",
 ]
@@ -15,6 +23,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/openai-agents"
 Repository = "https://github.com/superdurable/dex"
+Changelog = "https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

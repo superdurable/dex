@@ -9,13 +9,18 @@
     "directory": "agents/typescript/core"
   },
   "homepage": "https://github.com/superdurable/dex/tree/main/agents/typescript/core#readme",
+  "bugs": {
+    "url": "https://github.com/superdurable/dex/issues"
+  },
   "type": "module",
+  "types": "./dist/src/index.d.ts",
   "engines": {
     "node": "^22.0.0 || ^24.0.0"
   },
   "files": [
     "dist/src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "exports": {
     ".": {
@@ -39,5 +44,9 @@
     "@superdurable/dex": "1.30.0",
     "@types/node": "22.20.5",
     "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

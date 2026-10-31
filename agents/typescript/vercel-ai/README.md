@@ -8,49 +8,36 @@ A crash reruns only the Step that was running, and a write runs at most once
 unless its policy allows retries.
 
 The session Flow, its RPCs, persistence, and live events come from
-[`@superdurable/dex-agents`](../core/README.md). This package supplies the AI
+[`@superdurable/dex-agents`](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md). This package supplies the AI
 SDK runner and a factory. It implements the Vercel AI SDK row of
-[`docs/design/plan/agent-framework-adapters.md`](../../../docs/design/plan/agent-framework-adapters.md).
+[`docs/design/plan/agent-framework-adapters.md`](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 ## Installation
 
-The package is not published yet. Depend on it and on the core by path, next
-to the released Dex SDK and AI SDK 7. List the core too: npm resolves this
-package's own `file:../core` dependency relative to its installed copy, where
-it does not exist.
-
-```json
-{
-  "dependencies": {
-    "@superdurable/dex": "1.30.0",
-    "@superdurable/dex-agents": "file:../dex/agents/typescript/core",
-    "@superdurable/dex-agents-vercel-ai": "file:../dex/agents/typescript/vercel-ai",
-    "ai": "^7.0.159",
-    "zod": "^4.1.8"
-  }
-}
-```
-
-`@superdurable/dex` and `ai` are peer dependencies, so the application, the
-core, and this package share one copy of each. The Dex Registry matches Flow
-classes and RPC registrations by identity, so a second copy of
-`@superdurable/dex` makes it reject the Flow (`steps must be a StepList`).
-`zod` is a peer dependency of `ai`.
-
-Add `install-links=true` to the `.npmrc` of every package that installs this
-one or the core by path, as this package's own `.npmrc` does for `../core`.
-npm then packs and copies the linked package instead of symlinking it, so its
-peer dependencies resolve to the installing package's copies. npm packs the
-built output, so build the core and this package before installing:
+Install the adapter with its peer dependencies, the session core, the Dex SDK,
+and AI SDK 7:
 
 ```bash
-(cd agents/typescript/core && npm ci && npm run build)
-(cd agents/typescript/vercel-ai && npm ci && npm run build)
-npm install
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
 ```
 
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.30.0, and `ai`
-7.0.159 or a later 7.x release.
+`@superdurable/dex` and `@superdurable/dex-agents` are peer dependencies.
+The application installs exactly one copy of each, because the Dex Registry
+matches Flow classes and RPC registrations by identity, and the session
+recognizes `ToolExecutionError` only from its own copy of the core. `ai` is a peer dependency too, and `zod` is a peer
+dependency of `ai`. Requirements: Node `^22.0.0 || ^24.0.0`,
+`@superdurable/dex` 1.30.0, and `ai` 7.0.159 or a later 7.x release.
+
+Develop the package inside this repository with `./ci.sh`. There
+`@superdurable/dex-agents` is a `file:../core` devDependency, and the
+package's `.npmrc` sets `install-links=true` so npm copies the built core
+instead of symlinking it; a symlinked core would load a second
+`@superdurable/dex`. Consumers of the published package need neither:
+
+```bash
+cd agents/typescript/vercel-ai
+DEXCLI=/path/to/dexcli ./ci.sh
+```
 
 ## Example
 

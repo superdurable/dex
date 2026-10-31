@@ -6,10 +6,14 @@ on:
     paths:
       - "agents/**"
       - ".github/workflows/agents-ci.yml"
+      - ".github/workflows/agents-python-publish.yml"
+      - ".github/workflows/agents-typescript-publish.yml"
   pull_request:
     paths:
       - "agents/**"
       - ".github/workflows/agents-ci.yml"
+      - ".github/workflows/agents-python-publish.yml"
+      - ".github/workflows/agents-typescript-publish.yml"
   workflow_dispatch:
 
 permissions:
@@ -111,3 +115,46 @@ jobs:
           name: agents-${{ matrix.package.language }}-${{ matrix.package.name }}-logs
           path: /tmp/pytest-of-*/pytest-*/**/*.log
           if-no-files-found: ignore
+
+  built-packages:
+    name: Built-package smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: agents/python/core
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download and verify dexcli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEXCLI_DIR: ${{ runner.temp }}/dexcli
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEXCLI_DIR"
+          cd "$DEXCLI_DIR"
+          gh release download "$DEXCLI_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$DEXCLI_ARCHIVE" \
+            --pattern checksums.txt
+          if ! grep -E "^[0-9a-f]{64}  (\./)?${DEXCLI_ARCHIVE//./\\.}\$" checksums.txt > archive.sha256; then
+            echo "checksums.txt has no entry for $DEXCLI_ARCHIVE"
+            exit 1
+          fi
+          sha256sum --check --strict archive.sha256
+          tar -xzf "$DEXCLI_ARCHIVE"
+          ./dexcli --version
+          echo "DEXCLI=$DEXCLI_DIR/dexcli" >> "$GITHUB_ENV"
+      - name: Check that every package carries one version
+        run: |
+          version="$(uv run --no-project --python 3.11 python -c 'import tomllib; print(tomllib.load(open("agents/python/core/pyproject.toml", "rb"))["project"]["version"])')"
+          uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version.py "$version" --check
+      - name: Build, install, and run the built packages
+        run: agents/script/smoke-test-built-packages.sh all

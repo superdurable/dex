@@ -3,9 +3,9 @@
 `dex-agents-pydantic-ai` (import `dex_agents_pydantic_ai`) runs a
 [Pydantic AI](https://ai.pydantic.dev) agent as a durable Dex agent session.
 It implements the runner contract of the Python core,
-[`dex-agents`](../core/README.md), so the session Flow, its RPCs, its live
+[`dex-agents`](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md), so the session Flow, its RPCs, its live
 events, and its persistence are the core's. The plan is
-[agent-framework-adapters.md](../../../docs/design/plan/agent-framework-adapters.md).
+[agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 One Flow execution is one session; the Flow ID is the session ID. The session
 runs in **Step mode**: each Pydantic AI model call is one `RunModel` Step, and
@@ -17,26 +17,17 @@ unchanged.
 
 ## Installation
 
-The package needs Python 3.11 or later, `dex-python-sdk==1.30.0`, and
-`pydantic-ai-slim` 2.64 or a later 2.x release. Add the Pydantic AI extras for
-your model provider, such as `pydantic-ai-slim[openai]`. Inside this
-repository, depend on the core and this package by path:
+The package needs Python 3.11 or later. It requires `dex-agents` at the same
+version, `dex-python-sdk==1.30.0`, and `pydantic-ai-slim` 2.64 or a later 2.x
+release. Add the Pydantic AI extras for your model provider:
 
-```toml
-[project]
-dependencies = [
-    "dex-agents",
-    "dex-agents-pydantic-ai",
-    "dex-python-sdk==1.30.0",
-    "pydantic-ai-slim[openai]>=2.64,<3",
-]
-
-[tool.uv.sources]
-dex-agents = { path = "agents/python/core", editable = true }
-dex-agents-pydantic-ai = { path = "agents/python/pydantic-ai", editable = true }
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
 ```
 
-Develop the package itself with uv 0.12.2:
+Develop the package inside this repository with uv 0.12.2. There it resolves
+`dex-agents` from `../core` by path through `[tool.uv.sources]`; the published
+wheel requires `dex-agents==<same version>` from PyPI instead:
 
 ```bash
 cd agents/python/pydantic-ai

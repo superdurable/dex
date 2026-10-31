@@ -8,45 +8,36 @@ stores the conversation, waits for tool approvals, and after a Worker crash
 reruns only the Step that was running.
 
 The package supplies a runner for the shared session Flow in
-[`@superdurable/dex-agents`](../core/README.md), so the Step types, persistence
+[`@superdurable/dex-agents`](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md), so the Step types, persistence
 names, RPCs, and events are the ones that core documents. The design is in
-[`docs/design/plan/agent-framework-adapters.md`](../../../docs/design/plan/agent-framework-adapters.md).
+[`docs/design/plan/agent-framework-adapters.md`](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 ## Installation
 
-The package is not published yet. Depend on it by path next to the released Dex
-SDK and Mastra:
-
-```json
-{
-  "dependencies": {
-    "@mastra/core": "^1.81.0",
-    "@superdurable/dex": "1.30.0",
-    "@superdurable/dex-agents": "file:../core",
-    "@superdurable/dex-agents-mastra": "file:../mastra",
-    "zod": "^4.1.0"
-  }
-}
-```
-
-Add an `.npmrc` next to the application's `package.json`:
-
-```ini
-install-links=true
-```
-
-Without it npm symlinks the path dependencies, Node loads a second copy of
-`@superdurable/dex`, and the Registry rejects the Flow. npm packs the built
-output, so build the core and this package before installing:
+Install the adapter with its peer dependencies, the session core, the Dex SDK,
+and Mastra:
 
 ```bash
-(cd ../core && npm ci && npm run build)
-(cd ../mastra && npm ci && npm run build)
-npm install
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
 ```
 
+`@superdurable/dex` and `@superdurable/dex-agents` are peer dependencies.
+The application installs exactly one copy of each, because the Dex Registry
+matches Flow classes and RPC registrations by identity, and the session
+recognizes `ToolExecutionError` only from its own copy of the core. `@mastra/core` is a peer dependency too.
 Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.30.0, and
-`@mastra/core` `^1.81.0` (a peer dependency; the tests run 1.81.0).
+`@mastra/core` `^1.81.0` (the tests run 1.81.0).
+
+Develop the package inside this repository with `./ci.sh`. There
+`@superdurable/dex-agents` is a `file:../core` devDependency, and the
+package's `.npmrc` sets `install-links=true` so npm copies the built core
+instead of symlinking it; a symlinked core would load a second
+`@superdurable/dex`. Consumers of the published package need neither:
+
+```bash
+cd agents/typescript/mastra
+DEXCLI=/path/to/dexcli ./ci.sh
+```
 
 ## Usage
 
@@ -142,7 +133,7 @@ session ID or look them up; do not capture per-request state. It must not set
 ## Integration mode
 
 The adapter uses the Step mode of the
-[adapters plan](../../../docs/design/plan/agent-framework-adapters.md#integration-modes):
+[adapters plan](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md#integration-modes):
 
 | Stop after one model call | Run state | Feed tool results back |
 | --- | --- | --- |
