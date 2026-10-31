@@ -10,6 +10,7 @@ Step streaming, heartbeat recovery, and cancellation scenarios.
 | `AnyCommandCombinationTest` | `any_command_combination_test.rs` |
 | `BasicTest` | `basic_test.rs` |
 | `ConditionalCompleteTest` | `conditional_complete_test.rs` |
+| Rust GetAttributes | `get_attributes_test.rs` |
 | Rust heartbeat recovery | `heartbeat_recovery_test.rs` |
 | `InternalChannelTest` | `internal_channel_test.rs` |
 | `NoStartStateTest` | `no_start_state_test.rs` |

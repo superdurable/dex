@@ -56,10 +56,12 @@ mod worker_options;
 mod worker_output;
 mod worker_pull;
 
-pub use attribute::{Attribute, AttributeIndex, AttributeLock, AttributeMap, AttributeMapLoad};
+pub use attribute::{
+    Attribute, AttributeIndex, AttributeLock, AttributeMap, AttributeMapInstance, AttributeMapLoad,
+};
 pub use attribute_match::AttributeMatch;
 pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};
-pub use client::Client;
+pub use client::{AttributeRead, AttributeReads, Client};
 pub use client_options::ClientOptions;
 pub use context::{Context, RecoveryErrorInfo};
 #[cfg(feature = "api-key-credential")]

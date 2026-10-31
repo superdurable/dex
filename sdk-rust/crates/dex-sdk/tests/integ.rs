@@ -33,6 +33,10 @@ mod conditional_complete_test;
 mod conditional_complete_workflow;
 #[path = "integ/flow_service_client.rs"]
 mod flow_service_client;
+#[path = "integ/get_attributes_test.rs"]
+mod get_attributes_test;
+#[path = "integ/get_attributes_workflow.rs"]
+mod get_attributes_workflow;
 #[path = "integ/hard_delete_attribute_test.rs"]
 mod hard_delete_attribute_test;
 #[path = "integ/hard_delete_attribute_workflow.rs"]

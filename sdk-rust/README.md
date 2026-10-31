@@ -36,8 +36,31 @@ plaintext gRPC, so protect the network path carrying the token.
 ## Flow state I/O
 
 Applications read and write Flow state through typed RPCs. The Client does not
-expose direct Attribute reads or writes, Channel publication, or pending-message
+expose direct Attribute writes, Channel publication, or pending-message
 mutation. This keeps each external state transition behind a Flow-owned method.
+
+`Client::get_attributes` reads committed Attribute values without an RPC. Pass
+a tuple of 1 to 12 reads. Each read is an `Attribute` or an AttributeMap
+instance selected with `AttributeMap::instance`. The call returns a tuple of
+`Option<T>`, where `None` means the value is not set:
+
+```rust
+let (status, note) = client.get_attributes(flow_id, (&ORDER_STATUS, &NOTES.instance("n1")))?;
+let status = status.unwrap_or_else(|| "new".to_string());
+```
+
+Use a one-element tuple, such as `(&ORDER_STATUS,)`, to read one value. The
+Client sends one server request, so all values come from the same commit. No
+Worker runs. The call reads the current run, or the latest run when no run is
+open, and a closed run stays readable until it is purged. It sees only
+committed state, not writes staged by a running RPC or Step. Hard-delete
+Attributes are readable, and large values are resolved through the blob cache.
+Every read must match a definition registered in the Client's `Registry`: the
+same name, kind, Rust value type, index, `sync_to_attribute_store`, and
+`hard_delete_on_null` settings. Otherwise the call returns
+`SdkError::FlowDefinition` before it contacts Dex. A missing Flow returns
+`SdkError::FlowNotFound`. `AttributeMap::load` results select instances for
+handler loading and do not compile as reads.
 
 An RPC can stage `channel.delete(context, message_id)`. Define it with
 `Rpc::is_transactional()` when a missing ID must abort all other RPC writes.
@@ -215,7 +238,7 @@ fn execute(&self, context: &mut Context, _input: ChargeInput) -> HandlerResult<S
 `SubFlowOptions` configures timing, timeout policy, retry, initial target Attributes,
 Flow config, Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
 
-Existing-Flow reads (`describe_flow`, `wait_for_flow`, and
+Existing-Flow reads (`describe_flow`, `get_attributes`, `wait_for_flow`, and
 `time_travel`) use `FlowNotFound`; operations requiring a running Flow use
 `FlowNotActiveOrNotFound`. Each remote variant owns a `ServiceError`, available through
 `SdkError::service_error()`, with gRPC code, Dex sub-status, detail, operation,
