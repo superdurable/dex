@@ -1,0 +1,248 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 6K of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 231669706792
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  ..........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+     3.56%  tokio-rt-worker  [.] __aarch64_cas4_acq
+     2.19%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     1.90%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               |
+               |--1.13%--wake_up_q
+               |          futex_wake
+               |          do_futex
+               |          __arm64_sys_futex
+               |          invoke_syscall
+               |          el0_svc_common.constprop.0
+               |          do_el0_svc
+               |          el0_svc
+               |          el0t_64_sync_handler
+               |          el0t_64_sync
+               |
+                --0.47%--mod_timer
+                          sk_reset_timer
+
+     1.82%  tokio-rt-worker  [.] malloc
+     1.67%  tokio-rt-worker  [.] __aarch64_swp4_rel
+     1.56%  tokio-rt-worker  [.] cfree
+     1.41%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+     1.19%  tokio-rt-worker  [.] __aarch64_cas8_acq_rel
+     1.18%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+     1.15%  tokio-rt-worker  [.] 0x0000000000140a04
+     1.13%  tokio-rt-worker  [.] <std::sys::sync::mutex::futex::Mutex>::lock_contended
+     1.09%  tokio-rt-worker  [.] memcmp
+     0.80%  tokio-rt-worker  [.] 0x00000000001406f4
+     0.67%  tokio-rt-worker  [.] __aarch64_ldadd8_acq_rel
+     0.65%  tokio-rt-worker  [.] 0x00000000001407b4
+     0.64%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.34%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.59%  tokio-rt-worker  [k] ena_start_xmit
+            |
+            ---ena_start_xmit
+               |
+                --0.53%--dev_hard_start_xmit
+                          sch_direct_xmit
+                          |
+                           --0.53%--__dev_xmit_skb
+                                     __dev_queue_xmit
+                                     neigh_hh_output
+                                     ip_finish_output2
+                                     __ip_finish_output
+                                     ip_finish_output
+                                     ip_output
+                                     __ip_queue_xmit
+                                     ip_queue_xmit
+                                     __tcp_transmit_skb
+                                     |
+                                      --0.38%--tcp_write_xmit
+                                                __tcp_push_pending_frames
+                                                tcp_push
+                                                tcp_sendmsg_locked
+                                                tcp_sendmsg
+                                                inet_sendmsg
+                                                __sock_sendmsg
+                                                sock_write_iter
+                                                do_iter_readv_writev
+                                                vfs_writev
+                                                do_writev
+                                                __arm64_sys_writev
+                                                invoke_syscall
+                                                el0_svc_common.constprop.0
+                                                do_el0_svc
+                                                el0_svc
+                                                el0t_64_sync_handler
+                                                el0t_64_sync
+
+     0.55%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     0.54%  tokio-rt-worker  [.] <h2::hpack::table::Table>::index
+     0.52%  tokio-rt-worker  [.] 0x00000000000a1ba4
+     0.49%  tokio-rt-worker  [k] _raw_spin_lock
+            |
+            ---_raw_spin_lock
+
+     0.47%  tokio-rt-worker  [.] <tokio::time::sleep::Sleep as core::future::future::Future>::poll
+     0.47%  tokio-rt-worker  [k] __fget_files
+            |
+            ---__fget_files
+               |
+                --0.31%--fdget_pos
+                          do_writev
+                          __arm64_sys_writev
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.47%  tokio-rt-worker  [.] __aarch64_cas8_acq
+     0.47%  tokio-rt-worker  [k] __pi_memcpy_generic
+            |
+            ---__pi_memcpy_generic
+               |
+                --0.42%--ena_clean_rx_irq
+                          ena_io_poll
+                          __napi_poll
+                          net_rx_action
+                          handle_softirqs
+                          __do_softirq
+                          ____do_softirq
+                          call_on_irq_stack
+                          do_softirq_own_stack
+                          |
+                           --0.40%--__irq_exit_rcu
+                                     irq_exit_rcu
+
+     0.47%  tokio-rt-worker  [.] 0x0000000000000574
+     0.46%  tokio-rt-worker  [.] __aarch64_ldset8_acq_rel
+     0.44%  tokio-rt-worker  [k] ena_clean_rx_irq
+            |
+            ---ena_clean_rx_irq
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               |
+                --0.43%--__irq_exit_rcu
+                          irq_exit_rcu
+                          |
+                           --0.31%--el0_interrupt
+                                     __el0_irq_handler_common
+                                     el0t_64_irq_handler
+                                     el0t_64_irq
+
+     0.43%  tokio-rt-worker  [k] __tcp_transmit_skb
+            |
+            ---__tcp_transmit_skb
+               |
+                --0.38%--tcp_write_xmit
+                          __tcp_push_pending_frames
+                          |
+                           --0.37%--tcp_push
+                                     tcp_sendmsg_locked
+                                     tcp_sendmsg
+                                     inet_sendmsg
+                                     __sock_sendmsg
+                                     sock_write_iter
+                                     do_iter_readv_writev
+                                     vfs_writev
+                                     do_writev
+                                     __arm64_sys_writev
+                                     invoke_syscall
+                                     el0_svc_common.constprop.0
+                                     do_el0_svc
+                                     el0_svc
+                                     el0t_64_sync_handler
+                                     el0t_64_sync
+
+     0.41%  tokio-rt-worker  [.] <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+     0.40%  tokio-rt-worker  [.] <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+     0.40%  tokio-rt-worker  [k] __pi_memset_generic
+            |
+            ---__pi_memset_generic
+
+     0.40%  tokio-rt-worker  [k] tcp_sendmsg_locked
+            |
+            ---tcp_sendmsg_locked
+               |
+                --0.38%--tcp_sendmsg
+                          inet_sendmsg
+                          __sock_sendmsg
+                          sock_write_iter
+                          do_iter_readv_writev
+                          vfs_writev
+                          do_writev
+                          __arm64_sys_writev
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.39%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}
+     0.37%  tokio-rt-worker  [.] http::header::name::parse_hdr
+     0.36%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::invoke_rpc_once::{closure#0}
+     0.35%  tokio-rt-worker  [.] <dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#20}
+     0.34%  tokio-rt-worker  [.] 0x00000000000a1c40
+     0.33%  tokio-rt-worker  [.] <h2::proto::streams::store::Ptr as core::ops::deref::Deref>::deref
+     0.33%  tokio-rt-worker  [k] ip_dst_mtu_maybe_forward.constprop.0
+            |
+            ---ip_dst_mtu_maybe_forward.constprop.0
+
+     0.32%  tokio-rt-worker  [k] skb_release_data
+            |
+            ---skb_release_data
+
+     0.32%  tokio-rt-worker  [k] ena_clean_tx_irq
+            |
+            ---ena_clean_tx_irq
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+
+     0.31%  tokio-rt-worker  [.] <tokio::runtime::time::handle::Handle>::reregister
+     0.31%  tokio-rt-worker  [.] <h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+     0.31%  tokio-rt-worker  [.] <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+     0.31%  tokio-rt-worker  [.] 0x00000000001409a4
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

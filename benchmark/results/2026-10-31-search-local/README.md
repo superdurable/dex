@@ -157,11 +157,11 @@ for backend in builtin paradedb postgres; do
     for attributes in 0 3 10; do
       scan_budget=100000
       if [[ "$backend" == builtin ]]; then scan_budget="$runs"; fi
-      DEXBENCH_SEARCH_SCAN_BUDGET="$scan_budget" benchmark/search-local.sh "$backend" "$runs" "$attributes" "/tmp/search-$backend-$runs-a$attributes"
+      DEXBENCH_SEARCH_SCAN_BUDGET="$scan_budget" benchmark/local/search-local.sh "$backend" "$runs" "$attributes" "/tmp/search-$backend-$runs-a$attributes"
     done
   done
 done
-benchmark/search-local.sh postgres 1000000 10 /tmp/search-postgres-backfill --backfill
+benchmark/local/search-local.sh postgres 1000000 10 /tmp/search-postgres-backfill --backfill
 ```
 
 Each point directory holds `search.json` (all successful latencies and errors), `client.txt`, the exact server configuration and server version. Compressed server logs were kept out of the repository because of their size; `server-log-summary.json` retains their counts and archive hashes, and `server-audit.txt` indexes the primary summaries. SQL points also hold engine/image metadata and removal confirmation; available counts, table sizes, and container logs are retained beside them. Early points predate some optional diagnostics. The 1M ten-Attribute SQL points retain `explain.sql` and `explain.txt`. Full host details are in `host.txt`.
@@ -171,7 +171,7 @@ Run `python3 benchmark/results/2026-10-31-search-local/validate_results.py` from
 ## Validation
 
 - Release server build: `cd server-zd && cargo build --release -p dexzd-server`.
-- Benchmark module: `GOWORK=off go test -count=1 ./...` and `GOWORK=off go vet ./...` from `benchmark/`.
+- Benchmark module: `GOWORK=off go test -count=1 ./...` and `GOWORK=off go vet ./...` from `benchmark/dexbench/`.
 - Go formatting, runner Bash syntax, `make copyright`, and `make copyright-check` passed.
 - The data validator passed all 19 primary points, 66 query distributions, 6,600 measured successful requests, and 23 archived-log summaries.
 - Follow-up regression tests cover failed cleanup commands, database-readiness timeout, consecutive backfill query failures, and errors spanning readiness. All 23 log summaries were independently recomputed from the archived backups and matched.

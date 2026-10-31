@@ -1,0 +1,157 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 800  of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 923423999
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     IPC   [IPC Coverage]
+# ........  ...............  .........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+    11.29%  tokio-rt-worker  [k] simple_copy_to_iter
+            |
+            ---simple_copy_to_iter
+               __skb_datagram_iter
+               skb_copy_datagram_iter
+               tcp_recvmsg_locked
+               tcp_recvmsg
+               inet_recvmsg
+               sock_recvmsg
+               __sys_recvfrom
+               __arm64_sys_recvfrom
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+    10.04%  tokio-rt-worker  [.] cfree
+     5.21%  tokio-rt-worker  [.] 0x000000000014099c
+     4.70%  tokio-rt-worker  [.] <aws_sdk_s3::operation::put_object::builders::PutObjectFluentBuilder>::send::{closure#0}
+     4.51%  tokio-rt-worker  [.] <http::header::map::HeaderMap>::try_reserve_one
+     4.21%  tokio-rt-worker  [.] prost::encoding::btree_map::encoded_len::<alloc::string::String, dexzd_protocol::dex::ChannelInfo, prost::encoding::string::encoded_len, prost::encoding::message::encoded_len<dexzd_protocol::dex::ChannelInfo>>
+     3.92%  tokio-rt-worker  [.] dexzd_keyspace::key_layout::run_key
+     3.79%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::FlowCommand as core::clone::Clone>::clone
+     3.18%  tokio-rt-worker  [.] 0x00000000000928d4
+     2.94%  tokio-rt-worker  [.] dexzd_log::batch_codec::encode_batch
+            |
+            ---dexzd_log::batch_codec::encode_batch
+               dexzd_log::commit_pipeline::run_pipeline::{closure#0}
+               <tokio::runtime::task::core::Core<dexzd_log::commit_pipeline::run_pipeline::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<dexzd_log::commit_pipeline::run_pipeline::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+
+     2.82%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     2.47%  tokio-rt-worker  [.] <aws_smithy_types::config_bag::value::Value<aws_smithy_runtime_api::client::ser_de::SharedResponseDeserializer> as core::any::Any>::type_id
+     2.45%  tokio-rt-worker  [.] prost::encoding::varint::decode_varint::<&mut &[u8]>
+     2.44%  tokio-rt-worker  [.] <aws_smithy_runtime_api::client::runtime_components::RuntimeComponentsBuilder>::with_retry_classifier::<aws_smithy_runtime::client::retries::classifiers::ModeledAsRetryableClassifier<aws_sdk_s3::operation::put_object::PutObjectError>>
+     2.21%  tokio-rt-worker  [.] 0x0000000000140a04
+     1.80%  tokio-rt-worker  [.] 0x00000000001406f4
+     1.59%  tokio-rt-worker  [.] prost::encoding::message::merge::<dexzd_protocol::dex::InvokeWaitForMethodResponse, &mut &mut tonic::codec::buffer::DecodeBuf>
+     1.48%  tokio-rt-worker  [.] malloc
+     1.45%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::HistoryRecord as prost::message::Message>::encode_to_vec
+     1.44%  tokio-rt-worker  [.] memcmp
+     0.92%  tokio-rt-worker  [k] ip_dst_mtu_maybe_forward.constprop.0
+            |
+            ---ip_dst_mtu_maybe_forward.constprop.0
+               ipv4_mtu
+               tcp_current_mss
+               tcp_send_mss
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.90%  tokio-rt-worker  [.] 0x00000000000a2e84
+     0.88%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     0.78%  tokio-rt-worker  [.] dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}
+     0.69%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.66%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+     0.63%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               |
+                --0.44%--wake_up_q
+                          futex_wake
+                          do_futex
+                          __arm64_sys_futex
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.60%  tokio-rt-worker  [.] <tracing::instrument::Instrumented<aws_smithy_runtime::client::orchestrator::invoke_with_stop_point::{closure#0}> as core::future::future::Future>::poll
+     0.51%  tokio-rt-worker  [.] 0x000000000009562c
+     0.50%  tokio-rt-worker  [k] __schedule
+            |
+            ---__schedule
+               schedule
+               do_sched_yield
+               __arm64_sys_sched_yield
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.44%  tokio-rt-worker  [.] 0x00000000000a1c34
+     0.43%  tokio-rt-worker  [.] <tokio::runtime::task::core::Core<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+     0.42%  tokio-rt-worker  [.] 0x0000000000092a00
+     0.38%  tokio-rt-worker  [.] syscall
+     0.35%  tokio-rt-worker  [.] <aws_smithy_runtime_api::client::interceptors::SharedInterceptor as aws_smithy_runtime_api::client::interceptors::Intercept>::read_before_execution
+     0.34%  tokio-rt-worker  [.] rocksdb::WriteThread::AwaitState(rocksdb::WriteThread::Writer*, unsigned char, rocksdb::WriteThread::AdaptationContext*)
+     0.33%  tokio-rt-worker  [.] <dexzd_protocol::dex::StepOptions as prost::message::Message>::encoded_len
+     0.31%  tokio-rt-worker  [.] 0x00000000000954cc
+     0.31%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.31%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.31%  tokio-rt-worker  [.] TLS init function for rocksdb::perf_context
+     0.31%  tokio-rt-worker  [.] free@plt
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

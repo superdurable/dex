@@ -1,55 +1,32 @@
-# c7gd.large on S3, 2026-10-31
+# server-zd on c7gd.large with S3
 
-These results are for server-zd on one c7gd.large (2 vCPU Graviton3, 4 GiB RAM) in AWS us-west-2b. RocksDB ran on the local NVMe instance store, and the log and blobs went to an S3 Standard bucket in the same Region. `dexbench` ran on a c7g.8xlarge in the same cluster placement group, over 4 gRPC connections. Load-host CPU stayed below 11% at every point.
+One server-zd node on a c7gd.large (2 vCPU Graviton3, local NVMe) in us-west-2b, with the log in S3 Standard. A c7g.8xlarge load host in the same zone ran `dexbench` with 4 gRPC connections. The server used the default configuration.
 
-- **server-zd:** built from commit `479ef22a9`, the head of PR #1110, which merged as `121a3c156`.
-- **dexbench:** built from commit `997b409e8`. The binary carries no VCS stamp, so `config.env` records its revision as `unknown`. Its measurement code matches main, except for one line that records the total number of Worker task slots.
-- **Scripts:** `run-remote.sh` from the commits recorded in each `config.env`.
-- **Timing:** every point used a 10-second warmup and a 45-second measurement, on a newly started server with an empty local store and a new S3 prefix.
+- server-zd: the final trials used commit `3784ba838`, merged as `f2e9dd611` (#1131, the Worker dispatch fix for #1118). The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
+- Each point: a newly started server, 10 s warmup, 45 s measurement.
+- Search rounds ran with `DEXBENCH_PROFILE=1`, so each point has a perf profile and thread stacks. The profile slows a 2-vCPU server noticeably, so search numbers are lower than the final trials.
+- `config.env` in each round records the exact settings. `benchmark/aws/reproduce.sh <round directory>` reruns a round.
 
-## Peak results
+## Results
 
-| Scenario | Concurrency | Throughput | Latency p50 / p99 | Server CPU | S3 PUT/s |
-| --- | ---: | ---: | --- | ---: | ---: |
-| S2 `sequential-steps` (SYNC) | 256 | **1,305 Steps/s**, median of 3 (max 1,361) | Step 173 / 434 ms | 180% of 200% | 101 |
-| S3 `sequential-steps-async` | 32 | **1,492 Steps/s**, median of 3 (max 1,529) | Step 7.1 / 51 ms | 186% | 92 |
-| S1 `start-complete` | 256 | 855 Flows/s | 279 / 650 ms | 192% | 108 |
-| S4 `rpc-plain` | 32 | 6,681 RPCs/s | 3.5 / 19.5 ms | 194% | 0 |
-| S4 `rpc-locking` | 256 | 1,324 RPCs/s | 151 / 712 ms | 192% | 110 |
-| S5 `attribute-read-direct` | 512 | 6,034 reads/s | 85 / 137 ms | 197% | 0 |
-| S6 `channel-wake` | 64 | latency only | 106 / 258 ms | 105% | 109 |
+Median and maximum of three runs, from `03-final-trials`, with profiling off.
 
-All points use the default server-zd configuration. The only change is `api.listen` and `metrics.listen` on all interfaces, as recorded in each `zd-config.yaml`. With PR #1110, the defaults on this host are 8 applier lanes and 2 RocksDB background jobs.
+| Scenario | Concurrency | Median | Max | Runs |
+| --- | ---: | ---: | ---: | --- |
+| S2 SYNC Steps | 512 | 1,436 Steps/s | 1,440 | 1,418 · 1,436 · 1,440 |
+| S3 ASYNC Steps | 32 | 1,538 Steps/s | 1,562 | 1,508 · 1,538 · 1,562 |
+| S1 Flows started and completed | 512 | 889 Flows/s | 892 | 880 · 889 · 892 |
+| S4 plain RPC | 32 | 7,426 RPCs/s | 7,544 | 7,169 · 7,426 · 7,544 |
+| S4 Attribute-locking RPC | 768 | 1,805 RPCs/s | 1,834 | 1,793 · 1,805 · 1,834 |
+| S5 Attribute reads | 256 | 6,032 reads/s | 6,332 | 5,579 · 6,032 · 6,332 |
+| S6 Channel wakes | 64 | 209 wakes/s; p50 93 ms | 226 | 199 · 209 · 226 |
 
-## What limits this instance
-
-- **CPU.** Both cores are close to saturation at every throughput peak. S6 measures latency only, and it uses about half the CPU.
-- **No tunable beats the defaults.**
-  - Applier lanes (2 instead of 8) and `commit.batchWindow` (50 ms instead of the default 20 ms) stay within the 5% run-to-run spread.
-  - `commit.maxInFlight: 8` makes S2 7.5% slower.
-  - For S3, `commit.maxInFlight` of 2 or 8 stays within noise.
-- **Fewer PUTs in flight hurts S2.** With `commit.maxInFlight: 2`, S2 CPU drops to about 75% and throughput falls 14%. With only two PUTs in flight, the S3 round trip becomes the limit.
-- **Commit latency is the S3 round trip.** It averaged 30–41 ms per log batch, and 35–40 ms at the headline points.
+Server CPU was 92–98% of both cores at every throughput point. The load host stayed below 11% of its CPU.
 
 ## Rounds
 
-Each directory is one `run-remote.sh` invocation, with its own `report.md`, `charts.html`, `config.env`, `zd-config.yaml`, and `points.txt`.
-
-| Directory | Purpose | Outcome |
+| Round | What it did | Outcome |
 | --- | --- | --- |
-| `01-concurrency` | S2 at 256–1,024 and S3 at 64–512, defaults | S2 peaks at 256, S3 at 64 or lower. Its first point reused an S3 prefix from an aborted run and replayed old state; treat it as a warmup. |
-| `02-tuning` | One setting changed per point at the peak | No variant beats the default. `maxInFlight` 2 and 8 make S2 slower. S3 at 32 is the best S3 point. |
-| `03-tuning` | `maxInFlight: 2` at higher concurrency; S2 at 384; S3 at 16 | None beats the defaults. |
-| `04-scenarios` | S1, S4, S5, S6 with defaults | S4 `rpc-plain` and S5 keep improving outside the tested range. |
-| `05-scenarios-extra` | S4 `rpc-plain` at 32 and 64, `rpc-locking` at 64, S5 at 512 and 1,024 | S5 peaks at 512. `rpc-plain` is best at 32, the lowest concurrency tested. |
-| `06-final-trials` | S2 at 256 and S3 at 32, three trials each | The headline medians. |
-
-## Reproduce
-
-From a clone on a load host set up as described in `benchmark/README.md`, rerun the S2 headline:
-
-```bash
-benchmark/aws/reproduce.sh benchmark/results/2026-10-31-aws-s3-c7gd-large/06-final-trials sequential-steps 256
-```
-
-`reproduce.sh` reads `config.env` and `points.txt` from that directory. Point it at your own server host and bucket with `DEXBENCH_SERVER_HOST`, `DEXBENCH_SERVER_ADDRESS`, and `DEXBENCH_S3_BUCKET`.
+| `01-search` | S1–S4 at three concurrencies around the previous peaks, S5 and S6 at one | S2 and S3 are flat above C=512 and C=32. Plain RPC is best at C=32. Attribute-locking RPC at C=1,024 hit the default 1,000 in-flight RPC limit, so that point is invalid. |
+| `02-search` | Edges: S2 at 768, plain RPC at 16, Attribute-locking RPC at 384 and 768, S5 at 256 and 1,024 | Attribute-locking RPC peaks at C=768. Plain RPC at 16 equals 32. S5 is best at 256. |
+| `03-final-trials` | Three runs of each chosen point, profiling off | The table above |

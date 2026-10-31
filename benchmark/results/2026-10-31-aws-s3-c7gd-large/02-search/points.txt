@@ -1,0 +1,6 @@
+sequential-steps 768
+rpc-plain 16
+rpc-locking 384
+rpc-locking 768
+attribute-read-direct 256
+attribute-read-direct 1024

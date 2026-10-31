@@ -1,0 +1,13 @@
+cluster:
+  nodeId: "dexbench-1"
+objectStore:
+  bucket: "dex-benchmark-2026-10-31-fix-6b3b0025"
+  prefix: "2026-10-31-fix-L/20261031T173552Z-821907/p017-attribute-read-direct-c256-t2"
+  region: "us-west-2"
+  credentialsSource: defaultChain
+localStorage:
+  directory: "/mnt/nvme/dexzd"
+api:
+  listen: "0.0.0.0:8801"
+metrics:
+  listen: "0.0.0.0:9901"

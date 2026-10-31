@@ -1,0 +1,148 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 40012220732
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  ...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+     5.46%  tokio-rt-worker  [.] rocksdb::MemTableIterator::NextAndGetResult(rocksdb::IterateResult*)
+     4.04%  tokio-rt-worker  [.] malloc
+     3.95%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     2.63%  tokio-rt-worker  [.] memcmp
+     2.16%  tokio-rt-worker  [.] cfree
+     1.67%  tokio-rt-worker  [.] 0x00000000000928f0
+     1.27%  tokio-rt-worker  [.] 0x0000000000092a00
+     1.27%  tokio-rt-worker  [.] <alloc::collections::btree::map::BTreeMap<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>>::insert
+     1.19%  tokio-rt-worker  [.] 0x0000000000140a04
+     0.96%  tokio-rt-worker  [.] rocksdb::ArenaWrappedDBIter::Next()
+     0.92%  tokio-rt-worker  [.] <alloc::collections::btree::map::BTreeMap<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>>::insert
+     0.90%  tokio-rt-worker  [.] rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+     0.84%  tokio-rt-worker  [.] __aarch64_cas4_acq
+     0.81%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               |
+                --0.67%--wake_up_q
+                          futex_wake
+                          do_futex
+                          __arm64_sys_futex
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.79%  tokio-rt-worker  [.] memcmp@plt
+     0.77%  tokio-rt-worker  [k] futex_wake
+            |
+            ---futex_wake
+               do_futex
+               __arm64_sys_futex
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.70%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.69%  tokio-rt-worker  [.] 0x00000000000a2e84
+     0.68%  tokio-rt-worker  [.] __aarch64_swp4_rel
+     0.68%  tokio-rt-worker  [.] 0x00000000000a1ba4
+     0.66%  tokio-rt-worker  [.] <tokio::sync::notify::NotifyGuard>::notify_waiters
+            |
+             --0.40%--<tokio::sync::notify::NotifyGuard>::notify_waiters
+                       <tokio::sync::watch::big_notify::BigNotify>::notify_waiters
+                       <tokio::sync::watch::Sender<u64>>::send_replace
+                       <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::apply_committed
+                       <dexzd_server::registry_committed_command_sink::RegistryCommittedCommandSink as dexzd_engine::recovery::engine_command_and_effect_hooks::CommittedCommandSink>::apply_committed
+                       <dexzd_engine::commit::partition_applier::FrameApplier>::apply_frame
+
+     0.66%  tokio-rt-worker  [.] rocksdb::MemTable::Get(rocksdb::LookupKey const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, unsigned long*, rocksdb::ReadOptions const&, bool, rocksdb::ReadCallback*, bool*, bool, rocksdb::BlobFetcher const*)
+     0.65%  tokio-rt-worker  [.] non-virtual thunk to rocksdb::(anonymous namespace)::BytewiseComparatorImpl::Compare(rocksdb::Slice const&, rocksdb::Slice const&) const
+     0.64%  tokio-rt-worker  [k] do_sched_yield
+            |
+            ---do_sched_yield
+               __arm64_sys_sched_yield
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.64%  tokio-rt-worker  [.] realloc
+     0.62%  tokio-rt-worker  [.] dexzd_apply::values::release_stored_value
+     0.58%  tokio-rt-worker  [.] 0x00000000000954dc
+     0.58%  tokio-rt-worker  [.] 0x0000000000095498
+     0.56%  tokio-rt-worker  [.] <dexzd_apply::state_access::flow_transaction::FlowTransaction>::scan
+     0.53%  tokio-rt-worker  [.] 0x00000000001407b4
+     0.52%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.51%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.51%  tokio-rt-worker  [.] 0x00000000001406f4
+     0.50%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.37%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.49%  tokio-rt-worker  [.] rocksdb::SaveValue(void*, char const*)
+     0.48%  tokio-rt-worker  [.] 0x0000000000094308
+     0.47%  tokio-rt-worker  [.] 0x00000000000928d4
+     0.47%  tokio-rt-worker  [.] rocksdb::MemTable::Add(unsigned long, rocksdb::ValueType, rocksdb::Slice const&, rocksdb::Slice const&, rocksdb::ProtectionInfoKVOS<unsigned long> const*, bool, rocksdb::MemTablePostProcessInfo*, void**)
+     0.46%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+     0.46%  tokio-rt-worker  [.] __aarch64_ldset8_acq_rel
+     0.45%  tokio-rt-worker  [.] rocksdb::DBIter::Next()
+     0.45%  tokio-rt-worker  [.] 0x0000000000000578
+     0.44%  tokio-rt-worker  [.] rocksdb::DBImpl::WriteImpl(rocksdb::WriteOptions const&, rocksdb::WriteBatch*, rocksdb::WriteCallback*, rocksdb::UserWriteCallback*, unsigned long*, unsigned long, bool, unsigned long*, unsigned long, rocksdb::PreReleaseCallback*, rocksdb::PostMemTableCallback*, std::shared_ptr<rocksdb::WriteBatchWithIndex>, rocksdb::WriteBatch*, bool, rocksdb::DBImpl::DeferredPutEntityBatch const*)
+     0.43%  tokio-rt-worker  [.] <alloc::raw_vec::RawVecInner>::finish_grow
+     0.42%  tokio-rt-worker  [.] rocksdb::GetLengthPrefixedSlice(char const*)
+     0.41%  tokio-rt-worker  [.] void rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindSpliceForLevel<true>(rocksdb::Slice const&, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, int, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**) const
+     0.41%  tokio-rt-worker  [.] <dexzd_protocol::dex::FlowConfig as prost::message::Message>::encode_raw::<alloc::vec::Vec<u8>>
+     0.38%  tokio-rt-worker  [.] clock_gettime
+     0.36%  tokio-rt-worker  [.] <axum::routing::Router>::call_with_state
+     0.36%  tokio-rt-worker  [k] ipv4_dst_check
+            |
+            ---ipv4_dst_check
+
+     0.35%  tokio-rt-worker  [.] prost::encoding::varint::decode_varint::<&mut &[u8]>
+     0.35%  tokio-rt-worker  [.] 0x0000000000092a50
+     0.34%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::pick_worker
+     0.34%  tokio-rt-worker  [.] rocksdb::(anonymous namespace)::BytewiseComparatorImpl::CompareWithoutTimestamp(rocksdb::Slice const&, bool, rocksdb::Slice const&, bool) const
+     0.33%  tokio-rt-worker  [.] 0x00000000000a1c40
+     0.33%  tokio-rt-worker  [.] rocksdb::DBIter::ParseKey(rocksdb::ParsedInternalKey*)
+     0.33%  tokio-rt-worker  [.] <alloc::raw_vec::RawVecInner>::finish_grow
+     0.32%  tokio-rt-worker  [.] rocksdb::DBImpl::Write(rocksdb::WriteOptions const&, rocksdb::WriteBatch*)
+     0.32%  tokio-rt-worker  [k] __futex_hash
+            |
+            ---__futex_hash
+
+     0.32%  tokio-rt-worker  [.] dexzd_keyspace::key_layout::parse_run_key
+     0.32%  tokio-rt-worker  [.] rocksdb::LookupKey::LookupKey(rocksdb::Slice const&, unsigned long, rocksdb::Slice const*)
+     0.31%  tokio-rt-worker  [.] 0x0000000000140734
+     0.31%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+     0.30%  tokio-rt-worker  [.] rocksdb::WriteBatch::WriteBatch(unsigned long, unsigned long, unsigned long, unsigned long)
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

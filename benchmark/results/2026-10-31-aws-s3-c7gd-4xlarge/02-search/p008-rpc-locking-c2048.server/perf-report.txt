@@ -1,0 +1,200 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 874  of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 794400286
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  .......................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+    20.83%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}
+            |
+            ---<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}
+               <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}
+               <tokio::runtime::task::core::Core<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+
+     5.78%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               wake_up_q
+               futex_wake
+               do_futex
+               __arm64_sys_futex
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     5.52%  tokio-rt-worker  [.] <hyper::proto::h1::role::Client as hyper::proto::h1::Http1Transaction>::parse
+     5.32%  tokio-rt-worker  [.] <aws_smithy_types::config_bag::ItemIter<aws_smithy_types::config_bag::storable::StoreReplace<aws_smithy_runtime::client::metrics::OperationTelemetry>> as core::iter::traits::iterator::Iterator>::next
+     5.09%  tokio-rt-worker  [.] <h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+     4.88%  tokio-rt-worker  [.] malloc
+     3.84%  tokio-rt-worker  [.] dexzd_log::commit_pipeline::run_pipeline::{closure#0}::{closure#1}
+     3.30%  tokio-rt-worker  [.] 0x0000000000094f08
+     2.92%  tokio-rt-worker  [.] 0x00000000000a2e8c
+     2.77%  tokio-rt-worker  [.] core::ptr::drop_glue::<[http::header::map::Bucket<http::header::value::HeaderValue>]>
+     2.12%  tokio-rt-worker  [.] 0x00000000001407b4
+     1.68%  tokio-rt-worker  [.] <alloc::vec::Vec<(alloc::string::String, dexzd_protocol::dexzd::v1::HardDeleteObjectReference)> as alloc::vec::spec_from_iter::SpecFromIter<(alloc::string::String, dexzd_protocol::dexzd::v1::HardDeleteObjectReference), core::iter::adapters::filter_map::FilterMap<core::iter::adapters::flatten::FlatMap<core::option::Iter<dexzd_protocol::dexzd::v1::MethodSnapshotRecord>, &alloc::vec::Vec<dexzd_protocol::dexzd::v1::StoredKeyValue>, <dexzd_engine::effects::method_request::MethodAttemptState>::hard_delete_attributes::{closure#0}>, <dexzd_engine::effects::method_request::MethodAttemptState>::hard_delete_attributes::{closure#1}>>>::from_iter
+     1.61%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+            |
+             --0.31%--__aarch64_ldadd8_rel
+                       <aws_smithy_runtime::client::interceptors::Interceptors<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::interceptors::SharedInterceptor>>, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::interceptors::{closure#0}>>>::modify_before_attempt_completion
+                       <tracing::instrument::Instrumented<aws_smithy_runtime::client::orchestrator::finally_attempt::{closure#0}> as core::future::future::Future>::poll
+                       <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+                       aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}
+
+     1.52%  tokio-rt-worker  [k] __futex_wait
+            |
+            ---__futex_wait
+               futex_wait
+               do_futex
+               __arm64_sys_futex
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     1.39%  tokio-rt-worker  [.] 0x0000000000140a04
+     1.39%  tokio-rt-worker  [.] pow@plt
+     1.34%  tokio-rt-worker  [.] core::ptr::drop_glue::<tokio::time::timeout::Timeout<<tokio::sync::semaphore::Semaphore>::acquire_many_owned::{closure#0}>>
+     1.15%  tokio-rt-worker  [.] __aarch64_cas4_acq
+     1.15%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     0.82%  tokio-rt-worker  [.] FSE_compress_usingCTable_generic
+     0.75%  tokio-rt-worker  [.] rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+     0.68%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.59%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.58%  tokio-rt-worker  [k] futex_hash
+            |
+            ---futex_hash
+               |
+                --0.37%--futex_wake
+                          do_futex
+                          __arm64_sys_futex
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.54%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+     0.50%  tokio-rt-worker  [.] 0x0000000000092a00
+     0.49%  tokio-rt-worker  [k] __mod_timer
+            |
+            ---__mod_timer
+               sk_reset_timer
+               tcp_rearm_rto
+               tcp_event_new_data_sent
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.49%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::StepExecutionRecord as prost::message::Message>::encode_to_vec
+     0.48%  tokio-rt-worker  [k] __futex_hash
+            |
+            ---__futex_hash
+
+     0.48%  tokio-rt-worker  [.] cfree
+     0.45%  tokio-rt-worker  [k] tcp_stream_memory_free
+            |
+            ---tcp_stream_memory_free
+               tcp_poll
+               sock_poll
+               ep_item_poll.isra.0
+               ep_send_events
+               ep_poll
+               do_epoll_wait
+               do_epoll_pwait.part.0
+               __arm64_sys_epoll_pwait
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.45%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+     0.45%  tokio-rt-worker  [.] 0x00000000001409a4
+     0.40%  tokio-rt-worker  [.] rocksdb::WriteThread::AwaitState(rocksdb::WriteThread::Writer*, unsigned char, rocksdb::WriteThread::AdaptationContext*)
+     0.39%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::AttemptRecord as prost::message::Message>::encode_to_vec
+     0.35%  tokio-rt-worker  [k] __radix_tree_lookup
+            |
+            ---__radix_tree_lookup
+               radix_tree_lookup
+               balance_dirty_pages_ratelimited_flags
+               balance_dirty_pages_ratelimited
+               generic_perform_write
+               ext4_buffered_write_iter
+               ext4_file_write_iter
+               vfs_write
+               ksys_write
+               __arm64_sys_write
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.33%  tokio-rt-worker  [.] prost::encoding::merge_loop::<dexzd_protocol::dex::Value, prost::encoding::message::merge<dexzd_protocol::dex::Value, &mut bytes::bytes::Bytes>::{closure#0}, &mut bytes::bytes::Bytes>
+     0.33%  tokio-rt-worker  [.] <tokio::runtime::task::harness::Harness<dexzd_log::commit_pipeline::run_pipeline::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+     0.32%  tokio-rt-worker  [.] rocksdb::DBImpl::Get(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*, rocksdb::Slice const&, rocksdb::PinnableSlice*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)
+     0.32%  tokio-rt-worker  [k] tcp_recvmsg_locked
+            |
+            ---tcp_recvmsg_locked
+               tcp_recvmsg
+               inet_recvmsg
+               sock_recvmsg
+               __sys_recvfrom
+               __arm64_sys_recvfrom
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.32%  tokio-rt-worker  [.] <std::sys::sync::mutex::futex::Mutex>::lock_contended
+     0.31%  tokio-rt-worker  [.] rocksdb::Status rocksdb::(anonymous namespace)::MemTableInserter::PutCFImpl<rocksdb::(anonymous namespace)::MemTableInserter::PutCF(unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)::{lambda(rocksdb::WriteBatch*, unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)#1}>(unsigned int, rocksdb::Slice const&, rocksdb::Slice const&, rocksdb::ValueType, rocksdb::(anonymous namespace)::MemTableInserter::PutCF(unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)::{lambda(rocksdb::WriteBatch*, unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)#1}, rocksdb::ProtectionInfoKVOS<unsigned long> const*) [clone .constprop.0]
+     0.31%  tokio-rt-worker  [.] <dexzd_storage::rocksdb_store::RocksDbLocalStore as dexzd_storage::local_store::LocalReadView>::get
+     0.31%  tokio-rt-worker  [k] __schedule
+            |
+            ---__schedule
+               schedule
+               do_sched_yield
+               __arm64_sys_sched_yield
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.30%  tokio-rt-worker  [.] core::ptr::drop_glue::<alloc::vec::Vec<dexzd_protocol::dex::AttributeWrite>>
+     0.30%  tokio-rt-worker  [.] <alloc::vec::Vec<dexzd_protocol::dexzd::v1::SearchAttributeValue> as core::clone::Clone>::clone
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

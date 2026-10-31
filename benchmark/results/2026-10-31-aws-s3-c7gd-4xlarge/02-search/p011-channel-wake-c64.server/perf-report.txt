@@ -1,0 +1,294 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 5K of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 5821509681
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  ..........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+     2.86%  tokio-rt-worker  [.] memcmp
+     2.61%  tokio-rt-worker  [k] __tcp_transmit_skb
+            |
+            ---__tcp_transmit_skb
+               |
+                --2.56%--tcp_write_xmit
+                          __tcp_push_pending_frames
+                          tcp_push
+                          tcp_sendmsg_locked
+                          tcp_sendmsg
+                          inet_sendmsg
+                          __sock_sendmsg
+                          sock_write_iter
+                          do_iter_readv_writev
+                          vfs_writev
+                          do_writev
+                          __arm64_sys_writev
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     2.54%  tokio-rt-worker  [.] <tokio::sync::mpsc::list::Rx<core::result::Result<dexzd_protocol::dex::PollWorkerTaskResponse, tonic::status::Status>>>::pop
+            |
+            ---<tokio::sync::mpsc::list::Rx<core::result::Result<dexzd_protocol::dex::PollWorkerTaskResponse, tonic::status::Status>>>::pop
+               <<tokio::sync::mpsc::chan::Rx<_, _> as core::ops::drop::Drop>::drop::{closure#0}::Guard<core::result::Result<dexzd_protocol::dex::PollWorkerTaskResponse, tonic::status::Status>, tokio::sync::mpsc::unbounded::Semaphore>>::drain
+               <tokio::sync::mpsc::chan::Rx<core::result::Result<dexzd_protocol::dex::PollWorkerTaskResponse, tonic::status::Status>, tokio::sync::mpsc::unbounded::Semaphore> as core::ops::drop::Drop>::drop
+               core::ptr::drop_glue::<dexzd_worker_dispatch::worker_registry::worker_protocol::PollResponseStream>
+               <tonic::codec::encode::EncodeBody<tonic_prost::codec::ProstEncoder<dexzd_protocol::dex::PollWorkerTaskResponse>, dexzd_worker_dispatch::worker_registry::worker_protocol::PollResponseStream> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<tonic::codec::encode::EncodeBody<tonic_prost::codec::ProstEncoder<dexzd_protocol::dex::PollWorkerTaskResponse>, dexzd_worker_dispatch::worker_registry::worker_protocol::PollResponseStream>, <tonic::status::Status>::map_error<tonic::status::Status>> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<tonic::body::Body, <axum_core::error::Error>::new<tonic::status::Status>> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<axum_core::body::Body, <tonic::status::Status>::map_error<axum_core::error::Error>> as http_body::Body>::poll_frame
+               <dexzd_api::request_metrics::RequestMetricsBody as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<dexzd_api::request_metrics::RequestMetricsBody, <tonic::status::Status>::map_error<tonic::status::Status>> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<http_body_util::combinators::map_err::MapErr<tonic::service::recover_error::ResponseBody<tonic::body::Body>, <tonic::status::Status as core::convert::Into<alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>>::into>, <tonic::status::Status>::map_error<alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>> as http_body::Body>::poll_frame
+               <hyper::proto::h2::PipeToSendStream<tonic::body::Body> as core::future::future::Future>::poll
+               <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+               <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+               <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xe5a3b28d582b
+
+     2.31%  tokio-rt-worker  [.] 0x0000000000092a00
+     2.18%  tokio-rt-worker  [.] <uuid::Uuid as core::hash::Hash>::hash::<std::hash::random::DefaultHasher>
+     1.99%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     1.97%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::RunSettings as prost::message::Message>::merge_field::<&mut &[u8]>
+            |
+            ---<dexzd_protocol::dexzd::v1::RunSettings as prost::message::Message>::merge_field::<&mut &[u8]>
+               prost::encoding::merge_loop::<dexzd_protocol::dexzd::v1::RunSettings, prost::encoding::message::merge<dexzd_protocol::dexzd::v1::RunSettings, &mut &[u8]>::{closure#0}, &mut &[u8]>
+               <dexzd_protocol::dexzd::v1::RunRecord as prost::message::Message>::decode::<&[u8]>
+               <dexzd_apply::state_access::flow_transaction::FlowTransaction>::get_message::<dexzd_protocol::dexzd::v1::RunRecord>
+               <dexzd_apply::read_model::RunView>::open
+               dexzd_apply::read_model::flow::get_flow_state
+
+     1.85%  tokio-rt-worker  [.] 0x0000000000094308
+     1.85%  tokio-rt-worker  [.] dexzd_apply::steps::invocations::make_invocation_pending
+     1.81%  tokio-rt-worker  [.] malloc
+     1.72%  tokio-rt-worker  [.] HUF_buildCTable_wksp
+     1.61%  tokio-rt-worker  [.] rocksdb::DBIter::DBIter(rocksdb::Env*, rocksdb::ReadOptions const&, rocksdb::ImmutableOptions const&, rocksdb::MutableCFOptions const&, rocksdb::Comparator const*, rocksdb::InternalIteratorBase<rocksdb::Slice>*, rocksdb::Version const*, unsigned long, bool, rocksdb::ReadCallback*, rocksdb::DBImpl*, rocksdb::ColumnFamilyData*, bool, rocksdb::ReadOnlyMemTable*)
+     1.59%  tokio-rt-worker  [.] <std::thread::local::LocalKey<tokio::runtime::context::Context>>::with::<tokio::runtime::context::thread_rng_n::{closure#0}, u32>
+     1.54%  tokio-rt-worker  [.] <h2::proto::streams::counts::Counts>::transition::<h2::proto::streams::streams::drop_stream_ref::{closure#0}, ()>
+     1.48%  tokio-rt-worker  [.] 0x00000000000a2e90
+     1.42%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               |
+                --0.84%--wake_up_q
+                          futex_wake
+                          do_futex
+                          __arm64_sys_futex
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     1.41%  tokio-rt-worker  [k] __schedule
+            |
+            ---__schedule
+               schedule
+               |
+                --1.17%--do_sched_yield
+                          __arm64_sys_sched_yield
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     1.39%  tokio-rt-worker  [.] core::str::converts::from_utf8
+     1.33%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     1.30%  tokio-rt-worker  [.] cfree
+     1.29%  tokio-rt-worker  [k] napi_consume_skb
+            |
+            ---napi_consume_skb
+               skb_defer_free_flush
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               el0_interrupt
+               __el0_irq_handler_common
+               el0t_64_irq_handler
+               el0t_64_irq
+
+     1.17%  tokio-rt-worker  [.] <dexzd_storage::rocksdb_store::RocksView as dexzd_storage::local_store::LocalReadView>::get
+     1.17%  tokio-rt-worker  [.] 0x0000000000095498
+     1.15%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+            |
+             --0.86%--__aarch64_ldadd8_rel
+                       <bytes::bytes_mut::BytesMut as core::ops::drop::Drop>::drop
+                       <h2::codec::framed_read::FrameDecoder>::decode
+                       <h2::codec::framed_read::FramedRead<h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>> as futures_core::stream::Stream>::poll_next
+                       <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+                       <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     1.10%  tokio-rt-worker  [.] void rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindSpliceForLevel<true>(rocksdb::Slice const&, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, int, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**) const
+     1.08%  tokio-rt-worker  [.] epoll_pwait
+     1.04%  tokio-rt-worker  [k] __sk_mem_reduce_allocated
+            |
+            ---__sk_mem_reduce_allocated
+               tcp_clean_rtx_queue
+               tcp_ack
+               tcp_rcv_established
+               tcp_v4_do_rcv
+               tcp_v4_rcv
+               ip_protocol_deliver_rcu
+               ip_local_deliver_finish
+               ip_local_deliver
+               ip_sublist_rcv_finish
+               ip_list_rcv_finish
+               ip_sublist_rcv
+               ip_list_rcv
+               __netif_receive_skb_list_core
+               netif_receive_skb_list_internal
+               napi_complete_done
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               el0_interrupt
+               __el0_irq_handler_common
+               el0t_64_irq_handler
+               el0t_64_irq
+
+     0.99%  tokio-rt-worker  [k] get_random_u16
+            |
+            ---get_random_u16
+               |
+                --0.99%--invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.97%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::RunRecord as prost::message::Message>::encode_to_vec
+     0.94%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::WorkerDispatch as dexzd_engine::effects::dispatch::method_dispatcher::MethodDispatcher>::dispatch_scheduled
+     0.91%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.85%  tokio-rt-worker  [.] 0x0000000000000760
+     0.80%  tokio-rt-worker  [.] prost::encoding::varint::decode_varint::<&mut &[u8]>
+     0.76%  tokio-rt-worker  [.] alloc::vec::in_place_collect::from_iter_in_place::<core::iter::adapters::GenericShunt<core::iter::adapters::map::Map<alloc::vec::into_iter::IntoIter<(alloc::vec::Vec<u8>, dexzd_protocol::dexzd::v1::AttributeRecord)>, <dexzd_apply::state_access::run_rows::RunRows>::scan_named<dexzd_protocol::dexzd::v1::AttributeRecord>::{closure#0}>, core::result::Result<core::convert::Infallible, dexzd_apply::apply_outcome::ApplyError>>, (alloc::string::String, dexzd_protocol::dexzd::v1::AttributeRecord)>
+     0.75%  tokio-rt-worker  [k] tcp_established_options
+            |
+            ---tcp_established_options
+               __tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.75%  tokio-rt-worker  [.] <http_body_util::combinators::map_err::MapErr<hyper::body::incoming::Incoming, <tonic::status::Status>::map_error<hyper::error::Error>> as http_body::Body>::is_end_stream
+     0.73%  tokio-rt-worker  [.] 0x0000000000094df8
+     0.73%  tokio-rt-worker  [.] <tokio::sync::mpsc::chan::Rx<core::result::Result<dexzd_protocol::dex::PollWorkerTaskResponse, tonic::status::Status>, tokio::sync::mpsc::unbounded::Semaphore>>::recv
+     0.73%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+     0.69%  tokio-rt-worker  [.] 0x00000000000941e4
+     0.68%  tokio-rt-worker  [.] <http_body_util::combinators::map_err::MapErr<axum_core::body::Body, <tonic::status::Status>::map_error<axum_core::error::Error>> as http_body::Body>::poll_frame
+     0.68%  tokio-rt-worker  [.] <h2::hpack::header::Name>::into_entry
+     0.67%  tokio-rt-worker  [.] prost::encoding::varint::decode_varint::<&mut &mut tonic::codec::buffer::DecodeBuf>
+     0.66%  tokio-rt-worker  [.] <tokio::runtime::task::harness::Harness<tonic::transport::server::serve_connection<tonic::body::Body, hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::body::Body>::{closure#0}::{closure#1}>>, hyper_util::rt::tokio::TokioExecutor>::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+     0.63%  tokio-rt-worker  [.] __aarch64_cas4_acq
+     0.62%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+     0.62%  tokio-rt-worker  [.] <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+     0.62%  tokio-rt-worker  [.] core::ptr::drop_glue::<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::forward_event::{closure#0}>
+     0.59%  tokio-rt-worker  [k] tcp_recvmsg
+            |
+            ---tcp_recvmsg
+               inet_recvmsg
+               sock_recvmsg
+               __sys_recvfrom
+               __arm64_sys_recvfrom
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.58%  tokio-rt-worker  [.] dexzd_apply::history::checkpoints::after_command
+     0.57%  tokio-rt-worker  [.] <core::iter::adapters::map::Map<core::slice::iter::Iter<dexzd_protocol::dex::ChannelCondition>, <dexzd_protocol::dex::ChannelCondition as prost::message::Message>::encoded_len> as core::iter::traits::iterator::Iterator>::fold::<usize, core::iter::adapters::map::map_fold<usize, usize, usize, prost::encoding::message::encoded_len_repeated<dexzd_protocol::dex::ChannelCondition>::{closure#0}, <usize as core::iter::traits::accum::Sum>::sum<core::iter::adapters::map::Map<core::iter::adapters::map::Map<core::slice::iter::Iter<dexzd_protocol::dex::ChannelCondition>, <dexzd_protocol::dex::ChannelCondition as prost::message::Message>::encoded_len>, prost::encoding::message::encoded_len_repeated<dexzd_protocol::dex::ChannelCondition>::{closure#0}>>::{closure#0}>::{closure#0}>
+     0.54%  tokio-rt-worker  [.] http::header::name::parse_hdr
+     0.53%  tokio-rt-worker  [.] rocksdb::WriteThread::AwaitState(rocksdb::WriteThread::Writer*, unsigned char, rocksdb::WriteThread::AdaptationContext*)
+     0.53%  tokio-rt-worker  [.] non-virtual thunk to rocksdb::(anonymous namespace)::BytewiseComparatorImpl::Compare(rocksdb::Slice const&, rocksdb::Slice const&) const
+     0.53%  tokio-rt-worker  [.] rocksdb_get_pinned_cf
+     0.52%  tokio-rt-worker  [.] 0x00000000001409a4
+     0.52%  tokio-rt-worker  [.] 0x0000000000140a04
+     0.50%  tokio-rt-worker  [.] __aarch64_swp4_rel
+     0.45%  tokio-rt-worker  [.] core::ptr::drop_glue::<rocksdb::db_options::ReadOptions>
+     0.43%  tokio-rt-worker  [.] 0x00000000000a1ba4
+     0.42%  tokio-rt-worker  [.] <tonic::status::Status>::to_header_map
+     0.42%  tokio-rt-worker  [k] futex_wake_mark
+            |
+            ---futex_wake_mark
+               futex_wake
+               do_futex
+               __arm64_sys_futex
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.39%  tokio-rt-worker  [.] <tokio::runtime::task::core::TaskIdGuard>::enter
+     0.38%  tokio-rt-worker  [.] <http::header::name::StandardHeader>::as_str
+     0.35%  tokio-rt-worker  [.] <dexzd_engine::commit::command_committer::CommandCommitter as dexzd_engine::flow_coordination::commit_port::FlowCommandCommitter>::committed_view
+     0.34%  tokio-rt-worker  [.] <tokio::sync::mpsc::chan::Rx<dexzd_worker_dispatch::worker_registry::DispatchEvent, tokio::sync::mpsc::bounded::Semaphore>>::recv
+     0.32%  tokio-rt-worker  [.] rocksdb::DBImpl::FailIfCfHasTs(rocksdb::ColumnFamilyHandle const*) const [clone .isra.0]
+     0.32%  tokio-rt-worker  [.] rocksdb::ArenaWrappedDBIter::Init(rocksdb::Env*, rocksdb::ReadOptions const&, rocksdb::ImmutableOptions const&, rocksdb::MutableCFOptions const&, rocksdb::Version const*, unsigned long const&, unsigned long, rocksdb::ReadCallback*, rocksdb::ColumnFamilyHandleImpl*, bool, bool, rocksdb::ReadOnlyMemTable*, rocksdb::DBImpl*, rocksdb::ColumnFamilyData*)
+     0.32%  tokio-rt-worker  [.] <dexzd_apply::state_access::flow_transaction::FlowTransaction>::scan
+     0.32%  tokio-rt-worker  [.] <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::body::Body>::{closure#0}::{closure#1}>>, tonic::body::Body, hyper_util::rt::tokio::TokioExecutor> as core::future::future::Future>::poll
+     0.31%  tokio-rt-worker  [.] core::iter::adapters::try_process::<core::iter::adapters::map::Map<alloc::collections::btree::map::Range<(dexzd_keyspace::key_layout::ColumnFamily, alloc::vec::Vec<u8>), core::option::Option<alloc::vec::Vec<u8>>>, <dexzd_apply::state_access::flow_transaction::FlowTransaction>::buffered_row_changes_with_prefix::{closure#0}>, dexzd_apply::state_access::flow_transaction::StateRowChange, core::result::Result<core::convert::Infallible, dexzd_apply::apply_outcome::ApplyError>, <core::result::Result<alloc::vec::Vec<dexzd_apply::state_access::flow_transaction::StateRowChange>, dexzd_apply::apply_outcome::ApplyError> as core::iter::traits::collect::FromIterator<core::result::Result<dexzd_apply::state_access::flow_transaction::StateRowChange, dexzd_apply::apply_outcome::ApplyError>>>::from_iter<core::iter::adapters::map::Map<alloc::collections::btree::map::Range<(dexzd_keyspace::key_layout::ColumnFamily, alloc::vec::Vec<u8>), core::option::Option<alloc::vec::Vec<u8>>>, <dexzd_apply::state_access::flow_transaction::FlowTransaction>::buffered_row_changes_with_prefix::{closure#0}>>::{closure#0}, alloc::vec::Vec<dexzd_apply::state_access::flow_transaction::StateRowChange>>
+     0.31%  tokio-rt-worker  [.] 0x00000000001406f4
+     0.30%  tokio-rt-worker  [.] 0x0000000000095b10
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

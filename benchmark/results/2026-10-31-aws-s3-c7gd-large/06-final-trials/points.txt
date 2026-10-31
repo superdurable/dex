@@ -1,2 +1,0 @@
-sequential-steps 256
-sequential-steps-async 32

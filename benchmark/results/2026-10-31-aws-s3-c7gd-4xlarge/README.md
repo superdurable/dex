@@ -1,69 +1,38 @@
-# c7gd.4xlarge on S3, 2026-10-31
+# server-zd on c7gd.4xlarge with S3
 
-These results are for server-zd on one c7gd.4xlarge (16 vCPU Graviton3, 32 GiB RAM) in AWS us-west-2b. RocksDB ran on the local NVMe instance store, and the log and blobs went to an S3 Standard bucket in the same Region. `dexbench` ran on a c7g.8xlarge in the same cluster placement group, over 8 gRPC connections. Load-host mean CPU stayed below 31% at every point.
+One server-zd node on a c7gd.4xlarge (16 vCPU Graviton3, local NVMe) in us-west-2b, with the log in S3 Standard. A c7g.8xlarge load host in the same zone ran `dexbench` with 16 gRPC connections. No cluster placement group had Spot capacity for the server, so it ran outside the group, in the same zone.
 
-- **server-zd:** built from commit `479ef22a9`, the head of PR #1110, which merged as `121a3c156`.
-- **dexbench:** built from commit `997b409e8`. The binary carries no VCS stamp, so `config.env` records its revision as `unknown`. Its measurement code matches main, except for one line that records the total number of Worker task slots.
-- **Timing:** every point used a 10-second warmup and a 45-second measurement, on a newly started server with an empty local store and a new S3 prefix.
+- server-zd: the final trials used commit `3784ba838`, merged as `f2e9dd611` (#1131, the Worker dispatch fix for #1118). The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
+- Server settings beyond the defaults: `commit.maxUnappliedBytes: 268435456`, `limits.maxInFlightRpcsPerNode: 4096`, `localStorage.blockCacheBytes: 8589934592`, `localStorage.writeBufferBytes: 134217728`. Rounds 03 and 05 raise `limits.maxInFlightRpcsPerNode` to 16,384.
+- Each point: a newly started server, 10 s warmup, 45 s measurement.
+- Search rounds ran with `DEXBENCH_PROFILE=1`, so each point has a perf profile and thread stacks.
+- `config.env` in each round records the exact settings. `benchmark/aws/reproduce.sh <round directory>` reruns a round.
 
-## Peak results
+## Results
 
-| Scenario | Concurrency | Throughput | Latency p50 / p99 | Server CPU | S3 PUT/s |
-| --- | ---: | ---: | --- | ---: | ---: |
-| S2 `sequential-steps` (SYNC) | 2,048 | **7,544 Steps/s**, median of 3 (max 7,666) | Step 243 / 407 ms | 968% of 1,600% | 64 |
-| S3 `sequential-steps-async` | 256 | **10,007 Steps/s**, median of 3 (max 10,050) | Step 5.8 / 53 ms | 1,249% | 92 |
-| S1 `start-complete` | 3,072 | 5,104 Flows/s | 559 / 1,553 ms | 1,213% | 76 |
-| S4 `rpc-plain` | 48 | 34,611 RPCs/s | 1.2 / 4.1 ms | 969% | 0 |
-| S4 `rpc-locking` | 1,024 | 8,359 RPCs/s | 116 / 318 ms | 1,166% | 91 |
-| S5 `attribute-read-direct` | 256 | 11,257 reads/s | 22 / 44 ms | 441% | 0 |
-| S6 `channel-wake` | 64 | latency only | 83 / 216 ms | 111% | 123 |
+Median and maximum of three runs, from `04-final-trials` and `05-final-trials-rpc-locking`, with profiling off.
 
-Every point uses these server-zd settings, recorded in each `zd-config.yaml`:
+| Scenario | Concurrency | Median | Max | Runs |
+| --- | ---: | ---: | ---: | --- |
+| S2 SYNC Steps | 8,192 | 10,765 Steps/s | 10,842 | 10,514 · 10,765 · 10,842 |
+| S2 SYNC Steps | 12,288 | 10,752 Steps/s | 10,861 | 10,574 · 10,752 · 10,861 |
+| S3 ASYNC Steps | 4,096 | 10,647 Steps/s | 10,655 | 10,528 · 10,647 · 10,655 |
+| S3 ASYNC Steps | 256 | 10,210 Steps/s; Step p50 7.1 ms | 10,271 | 10,171 · 10,210 · 10,271 |
+| S1 Flows started and completed | 12,288 | 6,176 Flows/s | 6,212 | 6,073 · 6,176 · 6,212 |
+| S4 plain RPC | 128 | 49,327 RPCs/s | 49,592 | 48,346 · 49,327 · 49,592 |
+| S4 Attribute-locking RPC, 16,384 RPC limit | 8,192 | 13,124 RPCs/s | 13,180 | 13,063 · 13,124 · 13,180 |
+| S4 Attribute-locking RPC, 4,096 RPC limit | 4,096 | 12,174 RPCs/s | 12,376 | 12,116 · 12,174 · 12,376 |
+| S5 Attribute reads | 256 | 11,258 reads/s | 11,259 | 11,257 · 11,258 · 11,259 |
+| S6 Channel wakes | 64 | 227 wakes/s; p50 84 ms | 239 | 217 · 227 · 239 |
 
-```yaml
-commit:
-  maxUnappliedBytes: 268435456      # 256 MiB, so thousands of concurrent Flows are not rejected
-limits:
-  maxInFlightRpcsPerNode: 4096      # lets S4 run above the default 1,000 callers
-localStorage:
-  blockCacheBytes: 8589934592       # 8 GiB
-  writeBufferBytes: 134217728       # 128 MiB
-```
-
-Everything else is the default. With PR #1110, the defaults on this host are 16 applier lanes and 8 RocksDB background jobs.
-
-## What limits this instance
-
-- **CPU is not the limit.** Server CPU stays at 60–80% of the 16 cores at the S1–S4 peaks.
-- **RocksDB does not stall.** Its `LOG` shows no write stalls or stops.
-- **S3 PUTs are not the limit.** Commit latency averages 32–71 ms per point, and 56–61 ms at the S2 headline.
-- **The load host is not the limit.** Raising the Worker task slots to 6,144 (`07-worker-slots`) does not change the result. That is three times the default at C=2,048 and twice at C=3,072.
-- **Throughput collapses above the peak concurrency.**
-  - S2 falls from about 7.5k Steps/s at 2,048 Flows to 2.6k at 3,072. Its Step schedule-to-start latency grows from a few milliseconds to over 600 ms.
-  - S3 and S4 `rpc-plain` also fall steadily as concurrency rises.
-  - Issue #1118 tracks this collapse. Until it is fixed, run this instance at or below the peak concurrency.
-- **S5 is limited by the network.** Each read moves 160 KiB, so 11.3k reads/s is about 14.8 Gbps, at the instance's 15 Gbps limit. Server CPU is only 28% there.
-- **Tuning has no effect.** `commit.maxInFlight` of 8 or 16, or 32 applier lanes, gives no gain beyond run-to-run noise.
-- **Run-to-run spread is about ±10% at the S2 peak.** One single run reached 8,506 Steps/s, and the three final trials ranged from 7,343 to 7,666.
+Server CPU was 77–86% of the host at the S1–S4 points. S5 is limited by the 15 Gbps network, at about 28% CPU. The load host mean CPU stayed below 47%.
 
 ## Rounds
 
-| Directory | Purpose | Outcome |
+| Round | What it did | Outcome |
 | --- | --- | --- |
-| `01-concurrency` | S2 at 512–4,096 and S3 at 256–2,048 | S2 peaks at 2,048 (8,506 in this single run) and collapses at 4,096 with client timeouts. S3 is best at 256. |
-| `02-tuning` | `maxInFlight` 8 and 16, 32 lanes at the peaks; S2 at 3,072; S3 at 128 | No setting beats the defaults beyond noise. S2 at 3,072 collapses. |
-| `03-scenarios` | S1, S4, S5, S6 | S1 keeps rising, and S4 `rpc-plain` falls with concurrency. |
-| `04-scenarios-extra` | S4 `rpc-plain` at 128 and 256; S1 at 3,072 and 4,096 | S1 peaks at 3,072. |
-| `05-rpc-plain-low-concurrency`, `06-rpc-plain-low-concurrency` | S4 `rpc-plain` at 32–96 | Peak of 34.6k RPCs/s at 48. |
-| `07-worker-slots` | S2 at 2,048 and 3,072 with 6,144 Worker task slots | No change, so the collapse is in the server. |
-| `08-final-trials` | S2 at 1,536 and 2,048, S3 at 256, three trials each | The headline medians. |
-
-## Reproduce
-
-From a clone on a load host set up as described in `benchmark/README.md`, rerun the S3 headline:
-
-```bash
-benchmark/aws/reproduce.sh benchmark/results/2026-10-31-aws-s3-c7gd-4xlarge/08-final-trials sequential-steps-async 256
-```
-
-`config.env` restores the `DEXBENCH_ZD_*` settings above, the 8 connections, and three trials.
+| `01-search` | Every scenario around and above the previous peaks | S2 rises to 9,829 Steps/s at C=8,192 with no collapse. S3 is flat at 9.4k–9.8k from 256 to 4,096. The Spot server was reclaimed during plain RPC at C=2,048, so that point and the four after it failed. |
+| `02-search` | On a new server: S2 at 12,288 and 16,384, the failed points, and higher S1 and Attribute-locking RPC concurrency | S2 stays at 9.8k–9.9k up to C=16,384. Plain RPC is flat at 41k–45k from 128 to 2,048. Attribute-locking RPC still rises at C=4,096, the RPC limit. |
+| `03-rpc-locking-limit` | On `3784ba838`: Attribute-locking RPC at 6,144 and 8,192 with a 16,384 RPC limit | 12,854 and 13,312 RPCs/s |
+| `04-final-trials` | Three runs of each chosen point, profiling off | The table above |
+| `05-final-trials-rpc-locking` | Three runs of Attribute-locking RPC at 8,192 with the 16,384 limit | 13,124 RPCs/s median |

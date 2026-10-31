@@ -107,7 +107,7 @@ if compgen -G "$output_dir/*.json" >/dev/null; then
 fi
 if [[ -z "${DEXBENCH_BENCH_BINARY:-}" ]]; then
   mkdir -p "$repo_root/benchmark/bin"
-  (cd "$repo_root/benchmark" && env GOWORK=off go build -buildvcs=true -o "$benchmark_binary" ./cmd/dexbench)
+  (cd "$repo_root/benchmark/dexbench" && env GOWORK=off go build -buildvcs=true -o "$benchmark_binary" ./cmd/dexbench)
 fi
 
 # Expand the points: one "variant concurrency [overrides]" line each.
