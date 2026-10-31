@@ -25,10 +25,10 @@ Success. You can now start the database server using:
 
 initdb: warning: enabling "trust" authentication for local connections
 initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
-waiting for server to start....2026-10-31 18:17:50.855 UTC [62] LOG:  starting PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-2026-10-31 18:17:50.857 UTC [62] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-2026-10-31 18:17:50.862 UTC [65] LOG:  database system was shut down at 2026-10-31 18:17:48 UTC
-2026-10-31 18:17:50.865 UTC [62] LOG:  database system is ready to accept connections
+waiting for server to start....2026-10-31 20:21:54.655 UTC [52] LOG:  starting PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 20:21:54.658 UTC [52] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 20:21:54.665 UTC [55] LOG:  database system was shut down at 2026-10-31 20:21:54 UTC
+2026-10-31 20:21:54.669 UTC [52] LOG:  database system is ready to accept connections
  done
 server started
 CREATE DATABASE
@@ -36,25 +36,26 @@ CREATE DATABASE
 
 /usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
 
-waiting for server to shut down....2026-10-31 18:17:51.018 UTC [62] LOG:  received fast shutdown request
-2026-10-31 18:17:51.023 UTC [62] LOG:  aborting any active transactions
-2026-10-31 18:17:51.024 UTC [62] LOG:  background worker "logical replication launcher" (PID 68) exited with exit code 1
-2026-10-31 18:17:51.024 UTC [63] LOG:  shutting down
-2026-10-31 18:17:51.025 UTC [63] LOG:  checkpoint starting: shutdown immediate
-2026-10-31 18:17:51.505 UTC [63] LOG:  checkpoint complete: wrote 925 buffers (2.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.040 s, sync=0.432 s, total=0.482 s; sync files=301, longest=0.011 s, average=0.002 s; distance=4256 kB, estimate=4256 kB; lsn=0/1917990, redo lsn=0/1917990
-2026-10-31 18:17:51.508 UTC [62] LOG:  database system is shut down
+waiting for server to shut down....2026-10-31 20:21:54.829 UTC [52] LOG:  received fast shutdown request
+2026-10-31 20:21:54.833 UTC [52] LOG:  aborting any active transactions
+2026-10-31 20:21:54.834 UTC [52] LOG:  background worker "logical replication launcher" (PID 58) exited with exit code 1
+2026-10-31 20:21:54.835 UTC [53] LOG:  shutting down
+2026-10-31 20:21:54.837 UTC [53] LOG:  checkpoint starting: shutdown immediate
+2026-10-31 20:21:55.612 UTC [53] LOG:  checkpoint complete: wrote 925 buffers (2.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.057 s, sync=0.712 s, total=0.778 s; sync files=301, longest=0.167 s, average=0.003 s; distance=4256 kB, estimate=4256 kB; lsn=0/1917990, redo lsn=0/1917990
+2026-10-31 20:21:55.616 UTC [52] LOG:  database system is shut down
  done
 server stopped
 
 PostgreSQL init process complete; ready for start up.
 
-2026-10-31 18:17:51.540 UTC [1] LOG:  starting PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-2026-10-31 18:17:51.540 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
-2026-10-31 18:17:51.540 UTC [1] LOG:  listening on IPv6 address "::", port 5432
-2026-10-31 18:17:51.543 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-2026-10-31 18:17:51.546 UTC [83] LOG:  database system was shut down at 2026-10-31 18:17:51 UTC
-2026-10-31 18:17:51.548 UTC [1] LOG:  database system is ready to accept connections
-2026-10-31 18:22:51.610 UTC [81] LOG:  checkpoint starting: time
-2026-10-31 18:26:01.877 UTC [81] LOG:  checkpoint complete: wrote 4195 buffers (12.8%); 1 WAL file(s) added, 6 removed, 0 recycled; write=189.800 s, sync=0.403 s, total=190.267 s; sync files=119, longest=0.128 s, average=0.004 s; distance=100620 kB, estimate=100620 kB; lsn=0/80C41758, redo lsn=0/7B5AAA8
-2026-10-31 18:26:09.828 UTC [81] LOG:  checkpoint starting: wal
-2026-10-31 18:27:49.098 UTC [81] LOG:  checkpoint complete: wrote 459 buffers (1.4%); 0 WAL file(s) added, 0 removed, 134 recycled; write=98.532 s, sync=0.059 s, total=99.270 s; sync files=35, longest=0.006 s, average=0.002 s; distance=2184096 kB, estimate=2184096 kB; lsn=1/5CC2208, redo lsn=0/8D042D48
+2026-10-31 20:21:55.671 UTC [1] LOG:  starting PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 20:21:55.671 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-10-31 20:21:55.671 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-10-31 20:21:55.674 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 20:21:55.677 UTC [73] LOG:  database system was shut down at 2026-10-31 20:21:55 UTC
+2026-10-31 20:21:55.680 UTC [1] LOG:  database system is ready to accept connections
+2026-10-31 20:26:55.777 UTC [71] LOG:  checkpoint starting: time
+2026-10-31 20:31:25.571 UTC [71] LOG:  checkpoint complete: wrote 2301 buffers (7.0%); 0 WAL file(s) added, 2 removed, 0 recycled; write=269.265 s, sync=0.474 s, total=269.794 s; sync files=119, longest=0.046 s, average=0.004 s; distance=38140 kB, estimate=38140 kB; lsn=0/6F899108, redo lsn=0/3E56A80
+2026-10-31 20:31:55.266 UTC [71] LOG:  checkpoint starting: time
+2026-10-31 20:33:56.332 UTC [71] LOG:  checkpoint complete: wrote 7140 buffers (21.8%); 0 WAL file(s) added, 0 removed, 128 recycled; write=119.688 s, sync=1.016 s, total=121.066 s; sync files=36, longest=0.209 s, average=0.029 s; distance=2087545 kB, estimate=2087545 kB; lsn=0/FC716D98, redo lsn=0/834F5110
+2026-10-31 20:34:14.444 UTC [71] LOG:  checkpoint starting: wal

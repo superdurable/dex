@@ -1,62 +1,62 @@
 rare-flow-type
                                                                                 QUERY PLAN
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.42..16031.63 rows=21 width=486) (actual time=138.197..153.789 rows=21.00 loops=1)
-   Buffers: shared hit=40567 read=47422 dirtied=25 written=8628
-   ->  Index Scan using dexzd_visibility_default_idx on dexzd_visibility_runs  (cost=0.42..406887.70 rows=533 width=486) (actual time=138.196..153.785 rows=21.00 loops=1)
+ Limit  (cost=0.42..17011.18 rows=21 width=486) (actual time=145.319..165.486 rows=21.00 loops=1)
+   Buffers: shared hit=41462 read=47756 written=4973
+   ->  Index Scan using dexzd_visibility_default_idx on dexzd_visibility_runs  (cost=0.42..405018.36 rows=500 width=486) (actual time=145.317..165.482 rows=21.00 loops=1)
          Index Cond: (tenant_id = '0'::text)
          Filter: ((flow_type)::text = 'searchRareFlow'::text)
-         Rows Removed by Filter: 88003
+         Rows Removed by Filter: 88073
          Index Searches: 1
-         Buffers: shared hit=40567 read=47422 dirtied=25 written=8628
+         Buffers: shared hit=41462 read=47756 written=4973
  Planning:
-   Buffers: shared hit=948 read=27 dirtied=14
- Planning Time: 2.920 ms
- Execution Time: 153.810 ms
+   Buffers: shared hit=949 read=21 dirtied=6
+ Planning Time: 2.339 ms
+ Execution Time: 165.502 ms
 (12 rows)
 
 start-time-desc
                                                                            QUERY PLAN
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=158779.92..158782.46 rows=21 width=485) (actual time=296.003..299.802 rows=21.00 loops=1)
-   Buffers: shared hit=29674 read=113438 written=57
-   ->  Gather Merge  (cost=158779.92..279708.97 rows=1000035 width=485) (actual time=293.226..297.024 rows=21.00 loops=1)
+ Limit  (cost=158764.58..158767.12 rows=21 width=485) (actual time=291.437..295.980 rows=21.00 loops=1)
+   Buffers: shared hit=30271 read=112825 written=1
+   ->  Gather Merge  (cost=158764.58..279699.07 rows=1000080 width=485) (actual time=288.840..293.383 rows=21.00 loops=1)
          Workers Planned: 5
          Workers Launched: 5
-         Buffers: shared hit=29674 read=113438 written=57
-         ->  Sort  (cost=157779.84..158279.86 rows=200007 width=485) (actual time=284.636..284.637 rows=17.67 loops=6)
+         Buffers: shared hit=30271 read=112825 written=1
+         ->  Sort  (cost=157764.50..158264.54 rows=200016 width=485) (actual time=280.655..280.656 rows=17.83 loops=6)
                Sort Key: start_time_ns DESC, run_id COLLATE "C"
-               Sort Method: top-N heapsort  Memory: 73kB
-               Buffers: shared hit=29674 read=113438 written=57
-               Worker 0:  Sort Method: top-N heapsort  Memory: 72kB
-               Worker 1:  Sort Method: top-N heapsort  Memory: 67kB
-               Worker 2:  Sort Method: top-N heapsort  Memory: 70kB
-               Worker 3:  Sort Method: top-N heapsort  Memory: 67kB
-               Worker 4:  Sort Method: top-N heapsort  Memory: 63kB
-               ->  Parallel Seq Scan on dexzd_visibility_runs  (cost=0.00..152387.34 rows=200007 width=485) (actual time=2.439..260.365 rows=166666.67 loops=6)
+               Sort Method: top-N heapsort  Memory: 74kB
+               Buffers: shared hit=30271 read=112825 written=1
+               Worker 0:  Sort Method: top-N heapsort  Memory: 76kB
+               Worker 1:  Sort Method: top-N heapsort  Memory: 79kB
+               Worker 2:  Sort Method: top-N heapsort  Memory: 74kB
+               Worker 3:  Sort Method: top-N heapsort  Memory: 77kB
+               Worker 4:  Sort Method: top-N heapsort  Memory: 76kB
+               ->  Parallel Seq Scan on dexzd_visibility_runs  (cost=0.00..152371.76 rows=200016 width=485) (actual time=2.442..257.496 rows=166666.67 loops=6)
                      Filter: (tenant_id = '0'::text)
-                     Buffers: shared hit=29450 read=113437 written=57
+                     Buffers: shared hit=30047 read=112824 written=1
  Planning:
    Buffers: shared hit=4
- Planning Time: 0.235 ms
+ Planning Time: 0.186 ms
  JIT:
    Functions: 25
    Options: Inlining false, Optimization false, Expressions true, Deforming true
-   Timing: Generation 1.450 ms (Deform 0.576 ms), Inlining 0.000 ms, Optimization 1.045 ms, Emission 15.988 ms, Total 18.483 ms
- Execution Time: 307.770 ms
+   Timing: Generation 1.477 ms (Deform 0.554 ms), Inlining 0.000 ms, Optimization 1.091 ms, Emission 15.753 ms, Total 18.321 ms
+ Execution Time: 302.694 ms
 (26 rows)
 
 rare-flow-type-default-collation-control
                                                                               QUERY PLAN
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.55..41.80 rows=21 width=486) (actual time=0.026..0.078 rows=21.00 loops=1)
-   Buffers: shared hit=24 read=1
-   ->  Index Scan using dexzd_visibility_flow_type_idx on dexzd_visibility_runs  (cost=0.55..1047.62 rows=533 width=486) (actual time=0.026..0.076 rows=21.00 loops=1)
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..41.61 rows=21 width=486) (actual time=0.023..0.071 rows=21.00 loops=1)
+   Buffers: shared hit=24
+   ->  Index Scan using dexzd_visibility_flow_type_idx on dexzd_visibility_runs  (cost=0.42..981.11 rows=500 width=486) (actual time=0.022..0.070 rows=21.00 loops=1)
          Index Cond: ((tenant_id = '0'::text) AND (flow_type = 'searchRareFlow'::text))
          Index Searches: 1
-         Buffers: shared hit=24 read=1
+         Buffers: shared hit=24
  Planning:
    Buffers: shared hit=4
- Planning Time: 0.230 ms
- Execution Time: 0.088 ms
+ Planning Time: 0.232 ms
+ Execution Time: 0.082 ms
 (10 rows)

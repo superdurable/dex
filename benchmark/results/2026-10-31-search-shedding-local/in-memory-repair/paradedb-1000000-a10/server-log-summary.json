@@ -1,0 +1,30 @@
+{
+  "source_file": "server.log.gz",
+  "source_sha256": "d50ba36908dadfc741ea87a28eacf5915d4f98164e6be40fad6f28b69d89440e",
+  "source_compressed_bytes": 5921308,
+  "line_count": 532765,
+  "projection_queue_overflow_count": 0,
+  "error_level_line_count": 0,
+  "overflow_match": "a committed frame could not be queued for the search projection; rebuilding its partition",
+  "error_level_match": " ERROR ",
+  "metrics_before_file": "metrics-before.openmetrics",
+  "metrics_after_file": "metrics-after.openmetrics",
+  "projection_counter_deltas": {
+    "dexzd_search_projection_coalesced_changes_total": 17558,
+    "dexzd_search_projection_dropped_updates_total{reason=\"intermediate\"}": 0,
+    "dexzd_search_projection_dropped_updates_total{reason=\"close\"}": 917338,
+    "dexzd_search_projection_dropped_updates_total{reason=\"start\"}": 981494,
+    "dexzd_search_projection_repaired_runs_total{reason=\"intermediate\"}": 0,
+    "dexzd_search_projection_repaired_runs_total{reason=\"close\"}": 90,
+    "dexzd_search_projection_repaired_runs_total{reason=\"start\"}": 981494,
+    "dexzd_search_projection_repair_overflow_total": 0,
+    "dexzd_search_projection_repair_pending": 0,
+    "dexzd_search_projection_rebuild_requests_total": 0,
+    "dexzd_search_skipped_documents_total": 0
+  },
+  "projected_total": 1000000,
+  "projected_running": 50000,
+  "projected_completed": 950000,
+  "absent_runs": 0,
+  "stale_running": 0
+}

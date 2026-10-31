@@ -1,11 +1,9 @@
-arm64
-ProductName:		macOS
-ProductVersion:		26.6.2
-BuildVersion:		25G83
-hw.model: Mac17,8
-hw.ncpu: 18
-hw.memsize: 51539607552
-Recorded UTC: 2026-10-31T18:15:42Z
-go version go1.26.5 darwin/arm64
+Sat Oct 31 20:21:53 UTC 2026
+Darwin Quanzhengs-MacBook-Pro.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:19:08 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T6050 arm64
+Apple M5 Pro
+18
+51539607552
 rustc 1.97.1 (8bab26f4f 2026-07-14)
+go version go1.26.5 darwin/arm64
 Docker CPUs=10 memory_bytes=15765602304
+d09000382d01d14b53dd89f1ab5a07908293c795

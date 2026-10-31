@@ -1,112 +1,114 @@
-# SQL search projection with in-memory idle repair — 2026-10-31
+# SQL search shedding with persisted pending runs — 2026-10-31
 
-All four primary points converged to exact final status counts with zero pending repairs, repair overflows, rebuild requests, skipped documents, and ERROR-level server lines. These results measure [#1128](https://github.com/superdurable/dex/issues/1128) against [the earlier ten-Attribute S7 set](../2026-10-31-search-local/README.md#projection-throughput-and-wal). They record the in-memory idle-repair policy, before the subsequent request for SQL-persisted repair and manual-only partition rebuilds: coalesce, shed intermediates above soft limits, shed closes and starts above hard limits, retain Deletes, and repair shed runs when live projection drains.
+The primary results below measure the final RocksDB and object-storage pending-run policy for [#1128](https://github.com/superdurable/dex/issues/1128). Both one-million-run points reach exact final status counts, with no pending repairs, automatic rebuilds, repair overflows, sync failures, skipped documents, or ERROR-level server lines at completion. The four completed in-memory points and the earlier protected policy remain archived as variants.
 
-## Source, host, and method
+## Source and method
 
-The release server and Go harness use **579ca2373**. All four primary points use the same [release binary SHA-256](server-binary-sha256.txt), with compiled version label **0.1.0**. The final artifact commit changes no server or harness source. The baseline used **131ebf1f0e0d899f94cbf246500adf9d0a37bb97**; the protected variant used **adf4ad317**; the no-repair variant used **dcf3492c09fe583df0dc8988ea3ccbf139a37458**. The intervening baseline-to-main server changes affect ParadeDB query translation and tests, rather than the seed write path.
+The release server uses **d09000382d01d14b53dd89f1ab5a07908293c795**; [binary SHA-256](server-binary-sha256.txt) and [host metadata](host.txt) identify the measured build. Its compiled version label is **0.1.0**. Artifact commits change no measured server or benchmark source. The [baseline](../2026-10-31-search-local/README.md#projection-throughput-and-wal) uses **131ebf1f0e0d899f94cbf246500adf9d0a37bb97**; the in-memory phase uses **579ca2373**.
 
-These are single trials on a shared Apple M5 Pro: 18 cores, 48 GiB RAM, macOS 26.6.2. [Host metadata](host.txt) records toolchains and the Docker VM allocation. Unrelated workloads remained active. Points ran serially after compilation and validation ended, each with a fresh temporary SQL container and native server directory. PostgreSQL used **postgres:17**, ParadeDB **paradedb/paradedb:0.26.1**, both with **shared_buffers=256MB** and **max_wal_size=4GB**. Exact engine versions, image IDs, configurations, and removal receipts are retained per point.
+These are single trials on a shared Apple M5 Pro, 18 cores and 48 GiB RAM, with unrelated workloads active. The two points ran serially after compilation and verification, each in a fresh temporary SQL container and native server directory. PostgreSQL uses **postgres:17** and ParadeDB uses **paradedb/paradedb:0.26.1**, with **shared_buffers=256MB** and **max_wal_size=4GB**. Exact images, engine versions, configurations and removal receipts are saved per point. The containers and native temporary directories were removed after each run.
 
-The unchanged S7 seed uses 128 clients, 1,024 partitions, and ten indexed Attributes: seven Keywords, one Int, one KeywordArray, and one Text. It starts 100k or 1M runs and executes one Step; 95% complete and 5% remain Running. Defaults are 4,096 frames / 64 MiB soft, 8,192 frames / 128 MiB hard, **maxRepairEntries=1000000**, and **repairBatchRuns=256**. Repair entries deduplicate by run and retain priority start, close, intermediate. The worker prefers live frames between repair batches and reads current committed documents for versioned multi-row upserts across partitions. Delete-only overflow and repair-set overflow retain partition rebuild fallback.
+The unchanged ten-Attribute S7 workload uses 128 clients and 1,024 partitions. It starts one million runs with seven Keywords, one Int, one KeywordArray and one Text; 95% complete and 5% remain Running. Queue defaults are 4,096 frames / 64 MiB soft and 8,192 frames / 128 MiB hard, staging capacity 1,000,000, repair batches of 256, pending sync every 1s and at most 64 serialized partition objects per batch. The primary points use **--projection-only**, without **--allow-shedding**. No query latency phase ran.
 
-**Full catch-up includes all repair time after seeding and requires exact total, Completed, and Running counts again.** Primary runs use **--projection-only**, without **--allow-shedding**. The diagnostic shedding option ends at the kept-change visibility barrier and is used only by the archived no-repair variant. No query-latency phase ran. EXPLAIN output has only trailing padding and terminal blank lines removed; plan text and timings are unchanged. Runs/s is unique runs divided by seed plus full catch-up seconds, not projected rows/s. WAL/run is the pre-seed to post-convergence WAL difference divided by unique runs, including maintenance and full-page images during that interval.
+**Full catch-up includes repair time and requires exact total, Completed and Running counts, with pending repair work drained.** Runs/s is unique runs divided by seed plus full catch-up seconds. WAL/run is the WAL difference from before seeding to convergence divided by unique runs, including maintenance and full-page images. It does not measure RocksDB or object-store bytes. Object-sync counts are shown separately.
 
-## Throughput and WAL
+## Before and after
 
-| Backend | Runs | Seed s, baseline → repair | Full catch-up s, baseline → repair | Runs/s, baseline → repair | Change | WAL bytes/run, baseline → repair | Change |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| postgres | 100,000 | 28.33 → 30.74 | 21.86 → 31.06 | 1,992.3 → 1,618.0 | -18.8% | 6,620.59 → 4,368.77 | -34.0% |
-| postgres | 1,000,000 | 353.73 → 343.86 | 338.36 → 257.55 | 1,444.9 → 1,662.7 | +15.1% | 10,670.61 → 4,525.75 | -57.6% |
-| paradedb | 100,000 | 27.61 → 28.12 | 13.47 → 25.06 | 2,434.5 → 1,880.4 | -22.8% | 4,078.74 → 2,444.19 | -40.1% |
-| paradedb | 1,000,000 | 302.21 → 361.32 | 167.50 → 204.95 | 2,129.0 → 1,765.9 | -17.1% | 7,934.30 → 2,343.21 | -70.5% |
+Every row represents one million runs with ten Attributes. Arrows mean **baseline → in-memory repair → persisted pending**.
 
-## Queue and repair events
+| Backend | Seed seconds | Full catch-up seconds | Runs/s | Persisted vs baseline | Persisted vs in-memory |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| postgres | 353.73 → 343.86 → 384.92 | 338.36 → 257.55 → 383.36 | 1,444.9 → 1,662.7 → 1,301.6 | -9.9% | -21.7% |
+| paradedb | 302.21 → 361.32 → 360.50 | 167.50 → 204.95 → 249.74 | 2,129.0 → 1,765.9 → 1,638.7 | -23.0% | -7.2% |
 
-| Backend | Runs | Coalesced | Dropped intermediate | Dropped close | Dropped start | Repaired intermediate | Repaired close | Repaired start | Rebuild requests | Repair overflows |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| postgres | 100,000 | 8,971 | 0 | 84,332 | 90,555 | 0 | 10 | 90,555 | 0 | 0 |
-| postgres | 1,000,000 | 14,905 | 0 | 921,976 | 984,307 | 0 | 71 | 984,307 | 0 | 0 |
-| paradedb | 100,000 | 11,878 | 0 | 78,904 | 87,497 | 0 | 19 | 87,497 | 0 | 0 |
-| paradedb | 1,000,000 | 17,558 | 0 | 917,338 | 981,494 | 0 | 90 | 981,494 | 0 | 0 |
+| Backend | Baseline WAL bytes/run | In-memory WAL bytes/run | Persisted WAL bytes/run | Persisted vs baseline | Persisted vs in-memory |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| postgres | 10,670.61 | 4,525.75 | 5,700.23 | -46.6% | +26.0% |
+| paradedb | 7,934.30 | 2,343.21 | 2,510.69 | -68.4% | +7.1% |
 
-Counters are exact differences between before/after OpenMetrics scrapes. Drops count changes, not unique runs; a run can contribute several drops. Repairs count current documents successfully offered by their retained repair priority. A start drop keeps the start repair priority even if closes are later dropped for that run. This short-Flow seed emphasizes starts and closes, so intermediate drops can remain zero. Zero rebuild requests refers to overload requests; ordinary startup catch-up is separate.
+The [machine-readable comparison](comparison.json) retains unrounded values. A shared-host single trial does not establish a causal improvement or a universal throughput result.
 
-## Final visibility
+## Shedding and repair
 
-| Backend | Runs | Projected | Completed | Running | Absent | Stale Running | Pending repairs at end |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| postgres | 100,000 | 100,000 | 95,000 | 5,000 | 0 | 0 | 0 |
-| postgres | 1,000,000 | 1,000,000 | 950,000 | 50,000 | 0 | 0 | 0 |
-| paradedb | 100,000 | 100,000 | 95,000 | 5,000 | 0 | 0 | 0 |
-| paradedb | 1,000,000 | 1,000,000 | 950,000 | 50,000 | 0 | 0 | 0 |
+| Backend | Coalesced | Dropped intermediate | Dropped close | Dropped start | Rebuild requests | Staging overflows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| postgres | 13,329 | 0 | 927,671 | 985,972 | 0 | 0 |
+| paradedb | 18,786 | 0 | 914,830 | 980,255 | 0 | 0 |
 
-**projected-counts.txt** records total and Running counts; **projected-state.txt** also checks the seed's run-number rule for stale Running or impossible Completed states. Each retained row is a complete committed version. The process tests additionally require equality of every SearchFlows entry to the latest committed version after repair, and every purged run absent. Raw scrapes and per-point log summaries are saved; compressed server logs remain local and gitignored.
+| Backend | Repaired intermediate | Repaired close | Repaired start | Synced/removed partition objects | Pending-object sync failures |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| postgres | 0 | 4,856 | 986,246 | 26,141 | 0 |
+| paradedb | 0 | 6,636 | 980,648 | 24,991 | 0 |
+
+All values above are exact differences between before/after OpenMetrics scrapes. Drops count changes, not distinct runs. A run can have several drops; its pending record retains the highest repair priority, so a dropped start later closed is repaired under **start**. This short-Flow workload emphasizes starts and closes and can have zero intermediate drops. Repairs count successful document offers; one run can be counted again after a concurrent drop. Synced-object counts include successful empty-list removals. Rebuild-needed partitions and the persisted pending gauge end at zero.
+
+| Backend | Projected | Completed | Running | Absent | Stale Running | Pending repairs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| postgres | 1,000,000 | 950,000 | 50,000 | 0 | 0 | 0 |
+| paradedb | 1,000,000 | 950,000 | 50,000 | 0 | 0 | 0 |
+
+Per-point **projected-counts.txt** and **projected-state.txt** check the seed's run-number status rule, including impossible Completed states. Raw OpenMetrics scrapes, results, EXPLAIN output and server-log hashes/counts are saved. Raw compressed server logs remain local and gitignored; they are not committed.
+
+## Pending object-store work
+
+| Backend | Pending PUT requests | Pending DELETE requests | PUT payload MiB | Sum of server request durations, s | Maximum request duration, ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| postgres | 25,782 | 423 | 385.08 | 56.69 | 3,561 |
+| paradedb | 24,868 | 187 | 395.14 | 62.02 | 3,732 |
+
+These activity totals come from the complete local server log, including startup and shutdown, rather than the exact metrics interval. Duration sums cover server request handling; they overlap other work and are not a critical-path or CPU attribution. Payload bytes cover pending-list PUTs, separate from SQL WAL. These numbers quantify the additional persistent-sync work without assigning the whole throughput difference to it. Catch-up ends at exact SQL visibility and local pending drain; it does not wait for every empty-list object cleanup.
+
+## Policy and durability changes
+
+- Coalesce complete documents; shed intermediate updates above soft limits, then closes and starts above hard limits. Inherited start priority does not prevent hard-limit shedding. Delete is never shed and can exceed hard limits. No automatic partition rebuild path remains.
+- Stage identities without object or SQL I/O on the commit callback. Persist pending identities in a separate local RocksDB sidecar and sync versioned per-partition objects. CAS writes, conditional deletes and owner epochs fence stale object writers. SQL checkpoints never pass unsynced shed work.
+- On takeover, load pending objects before projecting. For behind progress and new schemas, compare committed local identities/versions with bounded SQL pages, queue missing/newer rows and SQL-only purged Deletes, sync, then advance progress. No engine, replicated state or apply-format marker was added.
+- Idle repair reads the current committed document, uses versioned SQL writes, and removes local pending entries only after SQL commit. Revisions preserve new drops during a repair. Live frames have priority between batches, without a fixed pause between successful idle batches. Quarantined partitions cannot starve valid repairs.
+- Corruption and unsafe divergence mark/quarantine only affected partitions. Leader-only **AdminService** and **dexcli search-projection status/rebuild** schedule explicit partition/list, marked or all-partition rebuilding, one partition at a time. Configured authentication requires an existing JWT issuer and a dedicated **auth.adminAudiences** value; static tokens cannot administer, and the empty default denies admin calls. Unauthenticated dev servers allow admin calls.
+- Drop and repair counters retain reason labels. Added persisted pending, object sync/failure and rebuild-needed metrics. The pending gauge is published from persistent-store state, so staging counts cannot overwrite it. English and Simplified Chinese operations, CLI and module/layout docs describe the semantics and read-your-writes relaxation.
 
 ## Variant: protect closes and starts
 
-The [archived first-round report](protect-closes-and-starts/README.md) and all four raw points retain their original source and validation. This policy protected starts and closes, shed no intermediate updates in the seed, and rebuilt partitions under protected traffic. It required exact final-state convergence.
+The [first-round report](protect-closes-and-starts/README.md) and all four original raw points are preserved. This policy protected starts/closes, dropped no intermediate updates in this seed and triggered partition rebuilding.
 
-| Backend | Runs | Catch-up s | Runs/s | WAL bytes/run | Coalesced | Dropped | Rebuild requests |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| postgres | 100,000 | 26.47 | 1,752.9 | 6,353.41 | 4,145 | 0 | 2,172 |
-| postgres | 1,000,000 | 437.38 | 1,247.6 | 10,333.08 | 4,061 | 0 | 2,609 |
-| paradedb | 100,000 | 14.45 | 2,217.3 | 3,689.21 | 4,062 | 0 | 1,602 |
-| paradedb | 1,000,000 | 184.24 | 1,732.9 | 6,249.95 | 4,062 | 0 | 3,322 |
+| Backend | Runs | Catch-up seconds | Runs/s | WAL bytes/run | Rebuild requests |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| postgres | 100,000 | 26.47 | 1,752.9 | 6,353.41 | 2,172 |
+| postgres | 1,000,000 | 437.38 | 1,247.6 | 10,333.08 | 2,609 |
+| paradedb | 100,000 | 14.45 | 2,217.3 | 3,689.21 | 1,602 |
+| paradedb | 1,000,000 | 184.24 | 1,732.9 | 6,249.95 | 3,322 |
 
-## Variant: shed without repair
+The [four-point in-memory repair phase](in-memory-repair/README.md) keeps all of its 100k and 1M results, original counters and binary hash. The [no-repair variant](shed-without-repair/README.md) retains its completed PostgreSQL 100k point and explicit incompleteness; it is not compared at equal visibility.
 
-The [no-repair PostgreSQL 100k point](shed-without-repair/README.md) measured **1,955.8 runs/s**, **22.27 s** kept-change catch-up, and **768.71 WAL bytes/run**, with no rebuild requests. It dropped **81,965 close** and **89,925 start** changes. Only **17,194** runs were projected, **82,806** were absent, and **34** closed runs still appeared Running. These change counts do not equal unique absent runs. Its low WAL is not comparable at equal completeness. The owner replaced that policy with bounded repair. The following 1M seed was canceled at about 830k runs and its container removed; no partial throughput result is published.
+## Regression findings
 
-## Throughput regression investigation
+The bounded investigation found a redundant full SearchDocumentRecord decode under the queue mutex. Classification now reads only version/status before taking that mutex, avoiding a second set of Attribute allocations. Coalescing removes empty queued frames while transferring visibility dependencies, avoiding unnecessary empty SQL batches. The [paired timing probe](in-memory-repair/queue-timing.txt) used five optimized trials of 200,000 iterations on a 909-byte synthetic ten-Keyword document: median full decode **0.181889s / 0.909µs per change**, partial classification **0.010487s / 0.052µs**, a **17.3×** reduction in that classifier work. The in-memory phase's no-overload queue pipeline was **1.365µs/frame**; this is not a measurement of the new durable worker.
 
-The bounded investigation found a second full SearchDocumentRecord decode under the queue tracking mutex, after extraction had already decoded and validated it. The final code classifies only version and status using a small protobuf reader before taking the mutex, avoiding a second set of Attribute allocations. Coalescing now removes empty queued frames while transferring their visibility dependencies, avoiding unnecessary empty SQL batches. Encoded documents retain their existing single queue ownership copy from the borrowed committed outcome.
+The [slot-lock/version-read experiment](no-slot-lock/README.md) measured **1,628.4 runs/s** against the safe in-memory **1,662.7**, or **−2.1%**, with exact convergence. It demonstrated no throughput benefit. The unsafe patch was reverted, source restoration verified, and the safe binary restored before further implementation. The final source retains slot coordination and version checks.
 
-Five optimized paired trials used a 909-byte synthetic document with ten 64-byte Keyword Attributes and 200,000 iterations each. Median full second decode was **0.181889 s** (**0.909 us/change**); the two-field classifier was **0.010487 s** (**0.052 us/change**), **17.3x** faster. The final no-overload record/enqueue/dequeue/complete pipeline measured **0.272926 s / 200,000 frames**, or **1.365 us/frame**. [Timing output](queue-timing.txt) and the [temporary probe patch](queue-timing-probe.patch) make the measurement reviewable; the test patch was removed afterward.
+These probes do not causally decompose the historical 9–19% regression. SQL round trips, batching, full repair work, object synchronization and shared-host variation remain separate effects. The protected policy kept empty coalesced frames and allowed twice the baseline hard-frame count; these indicate possible extra per-frame transaction work, rather than measured transaction counts. The primary tables report the observed end-to-end result and include the work needed for equal final visibility.
 
-These synthetic CPU timings do not isolate mutex contention or causally decompose the historical 9–19% regression. The protected variant kept empty coalesced frames and allowed twice the baseline's hard frame count before rebuilding, increasing possible per-frame SQL transaction work. PostgreSQL's protected points coalesced 4,145 and 4,061 changes; these are potential work indicators, not measured empty-transaction counts. Full repair adds work that the no-repair policy omitted, and its full catch-up must be included. SQL round trips, rebuild batching, and shared-host variation remain separate effects. The extra experiment below measures one current SQL write-path cost without claiming that its unsafe patch is a shipping fix.
+## Verification and release follow-up
 
-## Experiment: no per-transaction slot lock
+- **30 policy/persistence tests** pass: ordered drops, protected Deletes, staging overflow without rebuilding, priority/deduplication, revision races, real RocksDB reopen, two owners sharing object storage, stale-owner fencing, outage guard, unreadable-object isolation, quarantine non-starvation, fair dirty-partition sync and persisted-gauge ownership.
+- Both actual SQL dialect process suites pass, including tiny limits, overflow-triggered version comparison, crashes before pending sync, purges while down, fresh-schema startup, injected SQL progress divergence, zero automatic rebuilds and successful explicit marked-partition recovery. Every projected test row must equal a committed version; final repairs require the latest version and every purged run absent. Ordinary outage/coalescing and warm restart recovery also pass.
+- Both actual SQL differential suites pass, including the projector/repair scenarios they invoke. Current-server **dexcli dev** E2E, admin selector/RPC tests and real JWT allow/deny/default-deny tests pass. The CLI E2E has its own temporary PostgreSQL container and a dedicated CI target.
+- Touched server/API/search/metrics all-target suites, object-store conformance, full s3mock tests, formatting and all-targets Clippy pass. Existing child/soak/audit ignores remain unchanged. **make rust-rules-check**, **make copyright-check**, **make -C server-zd/integ compile**, CLI tests and **cd docs && npm run check** pass; the docs audit covers **164 routes and 17 redirects**. Dedicated TLS and SQL Attribute Store scenarios remain CI coverage; no dependency Docker Compose stack ran locally.
+- Root **make generated-code** regenerated all checked-in SDK outputs after the additive AdminService proto change, using pinned protoc 35.1. Existing wire fields and persisted engine formats are unchanged.
 
-**Unsafe for production; measurement only.** On the final repair source, a [local patch](no-slot-lock/unsafe-local-experiment.patch) replaced **attribute_slots_for_write** with its cached snapshot, skipping both **lock_attribute_slots_shared** and the per-transaction registry-version read. This removes coordination with slot registration/backfill and registry-freshness validation. It measures the two operations together, not the advisory lock in isolation. The patch was not committed to server source and was reverted after the run; the safe release binary was restored.
-
-| PostgreSQL, 1M runs, ten Attributes | Primary repair | No per-transaction slot lock/version read | Change |
-| --- | ---: | ---: | ---: |
-| Seed s | 343.86 | 358.72 | +4.3% |
-| Full catch-up s | 257.55 | 255.38 | -0.8% |
-| Runs/s | 1,662.7 | 1,628.4 | -2.1% |
-| WAL bytes/run | 4,525.75 | 4,500.67 | -0.6% |
-
-Experiment counters: coalesced **14,075**; dropped intermediate/close/start **0 / 924,850 / 985,167**; repaired intermediate/close/start **0 / 63 / 985,167**; rebuild requests **0**; repair overflows **0**. Exact final counts converged, pending repairs reached zero, and the container was removed. The [experiment binary hash](no-slot-lock/server-binary-sha256.txt), raw scrapes, database metadata, and validation summary identify this trial. This is one intervention on a shared host; it does not establish a production-safe replacement or isolate the historical baseline regression.
+**Release-level completion remains blocked on a published Dex tag containing this work.** After that release, advance **skills/DEX_BASELINE** to the exact tag, refresh the five language references/source links and release metadata, and run skill validators. No skill baseline or pinned link was advanced to an unreleased commit.
 
 ## Reproduce
 
+Run from the recorded source above with the release binary built, using temporary containers:
+
 ```bash
 make -C server-zd build-server
-cd benchmark && GOWORK=off go build -o bin/dexbench ./cmd/dexbench && cd ..
 for backend in postgres paradedb; do
-  for runs in 100000 1000000; do
-    benchmark/search-local.sh "$backend" "$runs" 10 \
-      "benchmark/results/2026-10-31-search-shedding-local/$backend-$runs-a10" --projection-only
-  done
+  benchmark/search-local.sh "$backend" 1000000 10 \
+    "benchmark/results/2026-10-31-search-shedding-local/$backend-1000000-a10" --projection-only
 done
 python3 benchmark/results/2026-10-31-search-shedding-local/summarize.py
 ```
 
-The timing and experiment patches use zero context; apply them only to their recorded source revision with **git apply --unidiff-zero**.
-
-The summarizer validates all four points, success, exact final counts, full repair drain, zero overload rebuilds and repair overflows, nonnegative per-reason counters, zero skipped documents and ERROR-level lines, throughput/WAL arithmetic, stale/impossible status checks, and container removal. Raw compressed logs are required to regenerate log summaries; they are local, gitignored files.
-
-## Testing and release follow-up
-
-- All 20 queue-policy tests passed, including ordered shedding, inherited start shedding without resurrection, Delete reclamation by priority and age, Delete-only rebuilds, watermark transfer, in-flight byte bounds, repair priority/deduplication, live-frame preference, repair overflow, and drops during an in-flight repair.
-- All four forced-overload process scenarios passed against real temporary databases: normal repair and repair-set overflow on PostgreSQL and ParadeDB. They require exact latest-state convergence, every purge absent, pending repairs zero, and reason counters. Both actual outage/coalescing scenarios passed.
-- Both SQL differential evaluator/projector suites passed, including new cross-partition repair batching, version protection, unchanged live progress, and rejection of mismatched progress. Direct TLS branches without their dedicated environment remain CI coverage.
-- All targets for **dexzd-server**, **dexzd-metrics**, and **dexzd-search** passed with one test thread: 73 server-library tests, 54 search tests, 2 metrics tests, and 41 process tests, plus authentication and snapshot tests. Existing child scenarios and long soak retain their prior ignores. General SQL branches without environment variables are covered by the real database runs above.
-- Formatting; Clippy **--all-targets -- -D warnings** for all three crates; **make rust-rules-check**; **make copyright-check**; and **make -C server-zd/integ compile** passed.
-- **make -C server-zd/integ zdIntegTests** passed **TestSearchRunsTemporal**, **TestSetSearchAttributes**, and **TestWfStateOptionsSearchAttributesLoading** with the final release server. No Docker Compose stack was started.
-- **cd docs && npm run check** passed both locales and the 164-route / 17-redirect canonical, robots, and sitemap audit. Benchmark Go tests, vet, runner syntax, and release compilation passed.
-
-Repairs are in memory. During uninterrupted ownership, complete visibility returns when repair and live projection drain. Restart or leader loss discards repair entries; startup cannot detect every lost repair after SQL progress has advanced, so stale or missing rows may remain until a later write or purge. A zero pending gauge after restart does not prove pre-restart recovery. The operations docs in both locales state this limitation.
-
-The skill-release follow-up is blocked until a published Dex tag contains this change; **skills/DEX_BASELINE** and pinned references cannot use an unreleased commit, so **skills/** remains unchanged. All owned temporary verification and benchmark containers are removed after their runs; final removal receipts and the filtered container check record cleanup.
+The summarizer checks exact status counts, persisted repair drain, zero rebuilds/overflow/sync failures/skips/errors, reason counters, WAL and throughput arithmetic, and container removal. Regenerating log summaries requires the local ignored compressed logs. The [container audit](containers-after.txt) is empty after both final runs. EXPLAIN whitespace was trimmed without changing plan text or timings.

@@ -5,4 +5,4 @@ metrics:
 search:
   backend: postgres
   builtinScanBudgetDocuments: 100000
-  postgresConnectionString: postgres://postgres:bench@127.0.0.1:50333/dexzd
+  postgresConnectionString: postgres://postgres:bench@127.0.0.1:52707/dexzd

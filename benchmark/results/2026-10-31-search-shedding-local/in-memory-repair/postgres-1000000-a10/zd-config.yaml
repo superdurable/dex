@@ -1,0 +1,8 @@
+cluster:
+  partitionCount: 1024
+metrics:
+  listen: 127.0.0.1:19195
+search:
+  backend: postgres
+  builtinScanBudgetDocuments: 100000
+  postgresConnectionString: postgres://postgres:bench@127.0.0.1:50333/dexzd

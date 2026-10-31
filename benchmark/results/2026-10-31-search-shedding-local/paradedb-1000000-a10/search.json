@@ -11,24 +11,24 @@
     "warmup": 10,
     "deep_page": 500,
     "timeout_ns": 30000000000,
-    "database_container": "dex-pgvis-bench-paradedb-65500",
+    "database_container": "dex-pgvis-bench-paradedb-30577",
     "backfill": false,
-    "git_commit": "579ca2373219fd0a13d42f7eed289246fa705ffa"
+    "git_commit": "d09000382d01d14b53dd89f1ab5a07908293c795"
   },
-  "started_at": "2026-10-31T18:30:28.647848Z",
+  "started_at": "2026-10-31T20:36:20.964511Z",
   "machine": {
     "cpu_model": "Apple M5 Pro",
     "cores": 18,
     "ram_bytes": 51539607552,
     "os": "darwin",
     "architecture": "arm64",
-    "free_disk_bytes": 168487231488
+    "free_disk_bytes": 165369344000
   },
-  "seed_seconds": 361.32385625,
-  "catchup_seconds": 204.94535549999995,
-  "rows_per_second": 1765.9444927049497,
-  "wal_start": "0/4A3F218",
-  "wal_end": "0/904E8D98",
-  "wal_bytes_per_row": 2343.213952,
+  "seed_seconds": 360.501495584,
+  "catchup_seconds": 249.73698404099997,
+  "rows_per_second": 1638.7036067546223,
+  "wal_start": "0/4A3F7F8",
+  "wal_end": "0/9A4A0398",
+  "wal_bytes_per_row": 2510.687136,
   "queries": null
 }

@@ -87,6 +87,7 @@ dexzd_object_store_requests_total{operation="get",object_kind="manifest"} 3
 dexzd_object_store_requests_total{operation="get",object_kind="lease"} 1
 dexzd_object_store_requests_total{operation="get",object_kind="other"} 4
 dexzd_object_store_requests_total{operation="list",object_kind="log"} 2
+dexzd_object_store_requests_total{operation="list",object_kind="other"} 1
 dexzd_object_store_requests_total{operation="delete",object_kind="other"} 1
 # HELP dexzd_object_store_request_errors Failed object storage requests..
 # TYPE dexzd_object_store_request_errors counter
@@ -109,7 +110,7 @@ dexzd_snapshot_last_duration_seconds 0.0
 dexzd_snapshot_last_bytes 0
 # HELP dexzd_recovery_last_duration_seconds Last completed recovery duration..
 # TYPE dexzd_recovery_last_duration_seconds gauge
-dexzd_recovery_last_duration_seconds 0.020972167
+dexzd_recovery_last_duration_seconds 0.022497667
 # HELP dexzd_startup_read_retries Transient object storage reads retried during startup..
 # TYPE dexzd_startup_read_retries counter
 dexzd_startup_read_retries_total 0
@@ -205,6 +206,22 @@ dexzd_search_projection_repaired_runs_total{reason="start"} 0
 # HELP dexzd_search_projection_repair_overflow Dropped runs that overflowed the bounded projection repair set..
 # TYPE dexzd_search_projection_repair_overflow counter
 dexzd_search_projection_repair_overflow_total 0
+# HELP dexzd_search_projection_partitions_needing_rebuild Partitions needing an operator requested search rebuild..
+# TYPE dexzd_search_projection_partitions_needing_rebuild gauge
+dexzd_search_projection_partitions_needing_rebuild 0
+# HELP dexzd_search_projection_rebuild_needed Rebuild-needed observations by reason..
+# TYPE dexzd_search_projection_rebuild_needed counter
+dexzd_search_projection_rebuild_needed_total{reason="startup_behind"} 0
+dexzd_search_projection_rebuild_needed_total{reason="repair_overflow"} 0
+dexzd_search_projection_rebuild_needed_total{reason="delete_overflow"} 0
+dexzd_search_projection_rebuild_needed_total{reason="divergence"} 0
+dexzd_search_projection_rebuild_needed_total{reason="unreadable"} 0
+# HELP dexzd_search_projection_pending_objects_synced Pending partition objects synchronized or removed..
+# TYPE dexzd_search_projection_pending_objects_synced counter
+dexzd_search_projection_pending_objects_synced_total 0
+# HELP dexzd_search_projection_pending_sync_failures Failed pending partition object synchronization attempts..
+# TYPE dexzd_search_projection_pending_sync_failures counter
+dexzd_search_projection_pending_sync_failures_total 0
 # HELP dexzd_local_storage_bytes Local SST and WAL bytes.
 # TYPE dexzd_local_storage_bytes gauge
 dexzd_local_storage_bytes 24643

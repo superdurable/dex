@@ -15,23 +15,23 @@ selecting default "shared_buffers" ... 128MB
 selecting default time zone ... Etc/UTC
 creating configuration files ... ok
 running bootstrap script ... ok
-2026-10-31 18:30:24.097 UTC [49] LOG:  registered custom resource manager "pg_search" with ID 137
+2026-10-31 20:36:13.452 UTC [49] LOG:  registered custom resource manager "pg_search" with ID 137
 performing post-bootstrap initialization ... ok
 syncing data to disk ... ok
 
 
 Success. You can now start the database server using:
 
-    pg_ctl -D /var/lib/postgresql/18/docker -l logfile start
-
 initdb: warning: enabling "trust" authentication for local connections
 initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
-waiting for server to start....2026-10-31 18:30:25.428 UTC [71] LOG:  registered custom resource manager "pg_search" with ID 137
-2026-10-31 18:30:25.440 UTC [71] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-2026-10-31 18:30:25.441 UTC [71] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-2026-10-31 18:30:25.446 UTC [86] LOG:  database system was shut down at 2026-10-31 18:30:24 UTC
-2026-10-31 18:30:25.448 UTC [71] LOG:  database system is ready to accept connections
-2026-10-31 18:30:25.451 UTC [89] LOG:  pg_cron scheduler started
+    pg_ctl -D /var/lib/postgresql/18/docker -l logfile start
+
+waiting for server to start....2026-10-31 20:36:15.798 UTC [76] LOG:  registered custom resource manager "pg_search" with ID 137
+2026-10-31 20:36:15.808 UTC [76] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 20:36:15.812 UTC [76] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 20:36:15.818 UTC [91] LOG:  database system was shut down at 2026-10-31 20:36:13 UTC
+2026-10-31 20:36:15.820 UTC [76] LOG:  database system is ready to accept connections
+2026-10-31 20:36:15.824 UTC [94] LOG:  pg_cron scheduler started
  done
 server started
 CREATE DATABASE
@@ -71,28 +71,28 @@ max_parallel_maintenance_workers = '5'        # CPUs / 2, at least 2, at most 8
 # End ParadeDB tuning recommendations
 ParadeDB bootstrap completed!
 
-waiting for server to shut down....2026-10-31 18:30:26.265 UTC [71] LOG:  received fast shutdown request
-2026-10-31 18:30:26.267 UTC [71] LOG:  aborting any active transactions
-2026-10-31 18:30:26.267 UTC [89] LOG:  pg_cron scheduler shutting down
-2026-10-31 18:30:26.268 UTC [71] LOG:  background worker "pg_cron launcher" (PID 89) exited with exit code 1
-2026-10-31 18:30:26.268 UTC [71] LOG:  background worker "logical replication launcher" (PID 90) exited with exit code 1
-2026-10-31 18:30:26.268 UTC [84] LOG:  shutting down
-2026-10-31 18:30:26.269 UTC [84] LOG:  checkpoint starting: shutdown immediate
-.2026-10-31 18:30:27.385 UTC [84] LOG:  checkpoint complete: wrote 6696 buffers (20.4%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.132 s, sync=0.974 s, total=1.118 s; sync files=1383, longest=0.043 s, average=0.001 s; distance=51424 kB, estimate=51424 kB; lsn=0/4999B98, redo lsn=0/4999B98
-2026-10-31 18:30:27.398 UTC [71] LOG:  database system is shut down
+waiting for server to shut down...2026-10-31 20:36:16.825 UTC [76] LOG:  received fast shutdown request
+.2026-10-31 20:36:16.826 UTC [76] LOG:  aborting any active transactions
+2026-10-31 20:36:16.826 UTC [94] LOG:  pg_cron scheduler shutting down
+2026-10-31 20:36:16.827 UTC [76] LOG:  background worker "logical replication launcher" (PID 95) exited with exit code 1
+2026-10-31 20:36:16.828 UTC [76] LOG:  background worker "pg_cron launcher" (PID 94) exited with exit code 1
+2026-10-31 20:36:16.829 UTC [89] LOG:  shutting down
+2026-10-31 20:36:16.831 UTC [89] LOG:  checkpoint starting: shutdown immediate
+..2026-10-31 20:36:19.553 UTC [89] LOG:  checkpoint complete: wrote 6696 buffers (20.4%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 3 recycled; write=0.178 s, sync=2.517 s, total=2.724 s; sync files=1383, longest=0.097 s, average=0.002 s; distance=51424 kB, estimate=51424 kB; lsn=0/4999B98, redo lsn=0/4999B98
+2026-10-31 20:36:19.587 UTC [76] LOG:  database system is shut down
  done
 server stopped
 
 PostgreSQL init process complete; ready for start up.
 
-2026-10-31 18:30:27.427 UTC [1] LOG:  registered custom resource manager "pg_search" with ID 137
-2026-10-31 18:30:27.436 UTC [1] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-2026-10-31 18:30:27.436 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
-2026-10-31 18:30:27.436 UTC [1] LOG:  listening on IPv6 address "::", port 5432
-2026-10-31 18:30:27.439 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-2026-10-31 18:30:27.442 UTC [147] LOG:  database system was shut down at 2026-10-31 18:30:27 UTC
-2026-10-31 18:30:27.445 UTC [1] LOG:  database system is ready to accept connections
-2026-10-31 18:30:27.449 UTC [150] LOG:  pg_cron scheduler started
-2026-10-31 18:35:27.549 UTC [145] LOG:  checkpoint starting: time
-2026-10-31 18:39:40.636 UTC [145] LOG:  checkpoint complete: wrote 4554 buffers (13.9%), wrote 11 SLRU buffers; 0 WAL file(s) added, 6 removed, 0 recycled; write=252.948 s, sync=0.061 s, total=253.087 s; sync files=164, longest=0.028 s, average=0.001 s; distance=94474 kB, estimate=94474 kB; lsn=0/830D2788, redo lsn=0/A5DC4B0
-2026-10-31 18:39:54.786 UTC [145] LOG:  checkpoint starting: wal
+2026-10-31 20:36:19.601 UTC [1] LOG:  registered custom resource manager "pg_search" with ID 137
+2026-10-31 20:36:19.611 UTC [1] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-31 20:36:19.618 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-10-31 20:36:19.619 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-10-31 20:36:19.623 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-31 20:36:19.631 UTC [162] LOG:  database system was shut down at 2026-10-31 20:36:19 UTC
+2026-10-31 20:36:19.638 UTC [1] LOG:  database system is ready to accept connections
+2026-10-31 20:36:19.644 UTC [165] LOG:  pg_cron scheduler started
+2026-10-31 20:41:19.732 UTC [160] LOG:  checkpoint starting: time
+2026-10-31 20:45:49.388 UTC [160] LOG:  checkpoint complete: wrote 2806 buffers (8.6%), wrote 15 SLRU buffers; 1 WAL file(s) added, 4 removed, 0 recycled; write=269.227 s, sync=0.313 s, total=269.657 s; sync files=164, longest=0.077 s, average=0.002 s; distance=67071 kB, estimate=67071 kB; lsn=0/6EFBF620, redo lsn=0/8B199B8
+2026-10-31 20:46:19.623 UTC [160] LOG:  checkpoint starting: time

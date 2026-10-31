@@ -5,4 +5,4 @@ metrics:
 search:
   backend: paradedb
   builtinScanBudgetDocuments: 100000
-  paradeDbConnectionString: postgres://postgres:bench@127.0.0.1:50635/dexzd
+  paradeDbConnectionString: postgres://postgres:bench@127.0.0.1:53132/dexzd

@@ -1,0 +1,84 @@
+[
+  {
+    "backend": "postgres",
+    "runs": 1000000,
+    "baseline": {
+      "seed_seconds": 353.726110625,
+      "catchup_seconds": 338.363286166,
+      "rows_per_second": 1444.9000419171462,
+      "wal_bytes_per_row": 10670.608632
+    },
+    "in_memory": {
+      "seed_seconds": 343.862327,
+      "catchup_seconds": 257.55244687500004,
+      "rows_per_second": 1662.7459780438862,
+      "wal_bytes_per_row": 4525.75124
+    },
+    "persisted": {
+      "seed_seconds": 384.924195667,
+      "catchup_seconds": 383.356113292,
+      "rows_per_second": 1301.6082627705641,
+      "wal_bytes_per_row": 5700.230072
+    },
+    "runs_per_second_change_from_baseline_pct": -9.917072114999549,
+    "runs_per_second_change_from_in_memory_pct": -21.71935581514246,
+    "wal_per_run_change_from_baseline_pct": -46.58008489875988,
+    "projection_counter_deltas": {
+      "dexzd_search_projection_coalesced_changes_total": 13329,
+      "dexzd_search_projection_dropped_updates_total{reason=\"intermediate\"}": 0,
+      "dexzd_search_projection_dropped_updates_total{reason=\"close\"}": 927671,
+      "dexzd_search_projection_dropped_updates_total{reason=\"start\"}": 985972,
+      "dexzd_search_projection_repaired_runs_total{reason=\"intermediate\"}": 0,
+      "dexzd_search_projection_repaired_runs_total{reason=\"close\"}": 4856,
+      "dexzd_search_projection_repaired_runs_total{reason=\"start\"}": 986246,
+      "dexzd_search_projection_repair_overflow_total": 0,
+      "dexzd_search_projection_repair_pending": 0,
+      "dexzd_search_projection_rebuild_requests_total": 0,
+      "dexzd_search_skipped_documents_total": 0,
+      "dexzd_search_projection_pending_objects_synced_total": 26141,
+      "dexzd_search_projection_pending_sync_failures_total": 0,
+      "dexzd_search_projection_partitions_needing_rebuild": 0
+    }
+  },
+  {
+    "backend": "paradedb",
+    "runs": 1000000,
+    "baseline": {
+      "seed_seconds": 302.205313083,
+      "catchup_seconds": 167.50466295899997,
+      "rows_per_second": 2128.9732957526894,
+      "wal_bytes_per_row": 7934.295216
+    },
+    "in_memory": {
+      "seed_seconds": 361.32385625,
+      "catchup_seconds": 204.94535549999995,
+      "rows_per_second": 1765.9444927049497,
+      "wal_bytes_per_row": 2343.213952
+    },
+    "persisted": {
+      "seed_seconds": 360.501495584,
+      "catchup_seconds": 249.73698404099997,
+      "rows_per_second": 1638.7036067546223,
+      "wal_bytes_per_row": 2510.687136
+    },
+    "runs_per_second_change_from_baseline_pct": -23.028456485394024,
+    "runs_per_second_change_from_in_memory_pct": -7.205259648644368,
+    "wal_per_run_change_from_baseline_pct": -68.35651979602369,
+    "projection_counter_deltas": {
+      "dexzd_search_projection_coalesced_changes_total": 18786,
+      "dexzd_search_projection_dropped_updates_total{reason=\"intermediate\"}": 0,
+      "dexzd_search_projection_dropped_updates_total{reason=\"close\"}": 914830,
+      "dexzd_search_projection_dropped_updates_total{reason=\"start\"}": 980255,
+      "dexzd_search_projection_repaired_runs_total{reason=\"intermediate\"}": 0,
+      "dexzd_search_projection_repaired_runs_total{reason=\"close\"}": 6636,
+      "dexzd_search_projection_repaired_runs_total{reason=\"start\"}": 980648,
+      "dexzd_search_projection_repair_overflow_total": 0,
+      "dexzd_search_projection_repair_pending": 0,
+      "dexzd_search_projection_rebuild_requests_total": 0,
+      "dexzd_search_skipped_documents_total": 0,
+      "dexzd_search_projection_pending_objects_synced_total": 24991,
+      "dexzd_search_projection_pending_sync_failures_total": 0,
+      "dexzd_search_projection_partitions_needing_rebuild": 0
+    }
+  }
+]

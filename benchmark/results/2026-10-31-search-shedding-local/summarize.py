@@ -27,6 +27,9 @@ COUNTERS = (
     "dexzd_search_projection_repair_pending",
     "dexzd_search_projection_rebuild_requests_total",
     "dexzd_search_skipped_documents_total",
+    "dexzd_search_projection_pending_objects_synced_total",
+    "dexzd_search_projection_pending_sync_failures_total",
+    "dexzd_search_projection_partitions_needing_rebuild",
 )
 OVERFLOW = "a committed frame could not be queued for the search projection; rebuilding its partition"
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -42,6 +45,27 @@ def read_counters(path):
             samples[name] = int(value)
     assert set(samples) == set(COUNTERS), (path, samples)
     return samples
+
+
+def summarize_pending_object_requests(lines):
+    activity = {"put_count": 0, "delete_count": 0, "put_bytes": 0,
+                "server_duration_ms_sum": 0, "server_duration_ms_max": 0}
+    request_pattern = re.compile(r"operation=(PutObject|DeleteObject).* status=(\d+) duration_ms=(\d+) bytes_received=(\d+)")
+    for line in lines:
+        if "key=search-pending/partition-" not in line:
+            continue
+        matched = request_pattern.search(line)
+        if matched is None:
+            continue
+        operation, status, duration, received = matched.groups()
+        assert int(status) in (200, 204), line
+        duration = int(duration)
+        activity["put_count" if operation == "PutObject" else "delete_count"] += 1
+        if operation == "PutObject":
+            activity["put_bytes"] += int(received)
+        activity["server_duration_ms_sum"] += duration
+        activity["server_duration_ms_max"] = max(activity["server_duration_ms_max"], duration)
+    return activity
 
 
 def summarize(point):
@@ -73,6 +97,7 @@ def summarize(point):
         "metrics_before_file": "metrics-before.openmetrics",
         "metrics_after_file": "metrics-after.openmetrics",
         "projection_counter_deltas": {name: after[name] - before[name] for name in COUNTERS},
+        "pending_object_request_activity": summarize_pending_object_requests(lines),
     }
     assert summary["error_level_line_count"] == 0, point
     assert all(value >= 0 for value in summary["projection_counter_deltas"].values()), summary
@@ -83,6 +108,9 @@ def summarize(point):
     assert not result["config"]["allow_shedding"]
     assert total == runs and running == runs // 20, (point, counts)
     assert after["dexzd_search_projection_repair_pending"] == 0, point
+    assert after["dexzd_search_projection_partitions_needing_rebuild"] == 0, point
+    assert summary["projection_counter_deltas"]["dexzd_search_projection_pending_sync_failures_total"] == 0, point
+    assert summary["projection_counter_deltas"]["dexzd_search_projection_pending_objects_synced_total"] > 0, point
     assert summary["projection_counter_deltas"]["dexzd_search_projection_repair_overflow_total"] == 0, summary
     assert summary["projection_counter_deltas"]["dexzd_search_projection_rebuild_requests_total"] == 0, summary
     summary["projected_total"] = total
@@ -102,8 +130,8 @@ def summarize(point):
 
 if __name__ == "__main__":
     points = sorted(ROOT.glob("*-a10"))
-    assert len(points) == 4, points
+    assert len(points) == 2, points
     for point in points:
         summary = summarize(point)
         print(point.name, json.dumps(summary["projection_counter_deltas"], sort_keys=True))
-    print("Validated four ten-Attribute seed points, per-reason counters, projection completion, row counts, throughput arithmetic, and container removal.")
+    print("Validated two persisted-pending ten-Attribute million-run seed points, per-reason counters, projection completion, row counts, throughput arithmetic, and container removal.")
