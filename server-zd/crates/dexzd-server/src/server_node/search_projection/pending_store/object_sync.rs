@@ -89,15 +89,20 @@ impl PendingRunStore {
     }
 
     pub(crate) async fn sync_objects(&mut self, limit: usize) -> Result<usize, PendingStoreError> {
-        let partitions: Vec<_> = self
+        let mut partitions: Vec<_> = self
             .dirty
             .iter()
             .copied()
             .filter(|partition| !self.blocked_partitions.contains(partition))
-            .take(limit)
             .collect();
+        if let Some(previous) = self.last_attempted_partition {
+            let start = partitions.partition_point(|partition| *partition <= previous);
+            partitions.rotate_left(start);
+        }
+        partitions.truncate(limit);
         let mut synced = 0;
         for partition in partitions {
+            self.last_attempted_partition = Some(partition);
             let key = object_key(partition);
             let mut prefix = self.prefix(b'e');
             prefix.extend_from_slice(&partition.0.to_be_bytes());

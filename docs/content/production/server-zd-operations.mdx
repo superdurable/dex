@@ -1100,7 +1100,8 @@ Pending runs are deduplicated in a local RocksDB sidecar beside the configured
 local store. Each changed partition syncs its full pending list to one versioned
 object under **search-pending/partition-N** in the configured object-store prefix.
 **pendingSyncInterval** defaults to one second. **pendingSyncPartitions** defaults
-to 64 objects per sync batch; object writes are serialized. Empty lists remove
+to 64 objects per sync batch; object writes are serialized. Dirty partitions rotate,
+so a full pass can span several intervals when the batch limit is reached. Empty lists remove
 their objects. Sync runs independently of SQL retries.
 
 The server never advances a partition's SQL checkpoint past unsynced shed work.

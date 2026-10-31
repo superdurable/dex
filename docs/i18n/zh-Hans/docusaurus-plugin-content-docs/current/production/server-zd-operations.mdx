@@ -935,7 +935,8 @@ search:
 待处理 run 在配置的本地存储旁的 RocksDB sidecar 中去重保存。每个变更 partition
 将完整待处理列表同步到配置对象存储前缀下的版本化对象 **search-pending/partition-N**。
 **pendingSyncInterval** 默认为一秒；**pendingSyncPartitions** 默认为每批 64 个对象，
-对象写入串行执行。列表为空时删除对象。同步独立于 SQL 重试运行。
+对象写入串行执行。变更 partition 轮流同步；达到每批上限时，完整轮次可能跨越多个间隔。
+列表为空时删除对象。同步独立于 SQL 重试运行。
 
 在被丢弃工作同步到对象存储前，服务器不会把 partition 的 SQL 检查点推进到该工作之后。
 仅写入本地 RocksDB 不会解除此限制。接管时，新 owner 先加载待处理对象，再开始投影。

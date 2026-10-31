@@ -206,3 +206,35 @@ fn a_quarantined_start_does_not_starve_other_partitions_pending_repairs() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn hot_partitions_cannot_starve_other_pending_object_syncs() {
+    let directory = TempDir::new().unwrap();
+    let objects = Arc::new(InMemoryObjectStore::new());
+    let mut pending =
+        PendingRunStore::new(local_store(&directory), objects.clone(), [1; 16], 1).unwrap();
+    let mut later_partition = repair(2, RepairPriority::Start);
+    later_partition.partition = PartitionId(5);
+    pending
+        .record(&[repair(1, RepairPriority::Start), later_partition])
+        .unwrap();
+    pending.sync_objects(1).await.unwrap();
+    assert!(
+        objects
+            .get("search-pending/partition-4")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    pending.record(&[repair(1, RepairPriority::Close)]).unwrap();
+    pending.sync_objects(1).await.unwrap();
+    assert!(
+        objects
+            .get("search-pending/partition-5")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(pending.has_unsynced(PartitionId(4)));
+    assert!(!pending.has_unsynced(PartitionId(5)));
+}

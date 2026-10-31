@@ -58,6 +58,7 @@ pub(crate) struct PendingRunStore {
     dirty: BTreeSet<PartitionId>,
     blocked_partitions: BTreeSet<PartitionId>,
     known_partitions: BTreeSet<PartitionId>,
+    last_attempted_partition: Option<PartitionId>,
     etags: BTreeMap<PartitionId, String>,
     count: usize,
 }
@@ -80,6 +81,7 @@ impl PendingRunStore {
             dirty: BTreeSet::new(),
             blocked_partitions: BTreeSet::new(),
             known_partitions: BTreeSet::new(),
+            last_attempted_partition: None,
             etags: BTreeMap::new(),
             count: 0,
         };

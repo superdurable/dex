@@ -34,6 +34,7 @@ The run-record layout is documented in [dexzd-keyspace](../dexzd-keyspace/README
 Only identities, Flow hashes, priorities, and revisions are stored, not documents.
 
 Changed partition lists sync in serialized batches (defaults: one second, 64 partitions).
+Dirty partitions rotate across batches so hot partitions cannot starve other pending lists.
 New owners load objects before projecting and replace them with their owner epoch.
 ETag compare-and-swap protects writes. `delete_if_etag_matches` protects empty-list
 removal from concurrent replacements; implementations without conditional deletion fail
