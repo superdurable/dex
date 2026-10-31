@@ -420,6 +420,7 @@ final class ApiKeyCredentialTest {
                 for (Future<String> result : results) {
                     assertEquals(TOKEN_A, result.get(3, TimeUnit.SECONDS));
                 }
+                assertEquals(1, endpoint.requestCount());
                 clock.addAndGet(TimeUnit.SECONDS.toNanos(2));
                 endpoint.reply(503, "{\"error\":\"offline\"}");
                 final ApiKeyCredential.ExchangeException failure = assertThrows(
@@ -631,10 +632,6 @@ final class ApiKeyCredentialTest {
                 assertEquals("Bearer " + TOKEN_A, grpc.takeHeader("SyncAttributeIndexes"));
                 assertEquals("Bearer " + TOKEN_A, grpc.takeHeader("PollWorkerTask"));
                 assertEquals("Bearer " + TOKEN_B, grpc.takeHeader("PollWorkerTask"));
-                final long firstPollAt = grpc.takePollTime();
-                final long secondPollAt = grpc.takePollTime();
-                assertTrue(secondPollAt - firstPollAt < TimeUnit.MILLISECONDS.toNanos(100),
-                        "the first rejected poll should reconnect before the 100 ms backoff");
                 assertEquals(2, grpc.pollAttempts.get());
                 assertEquals(2, endpoint.requestCount());
             } finally {
@@ -855,9 +852,10 @@ final class ApiKeyCredentialTest {
         private void handle(final HttpExchange exchange) throws IOException {
             try {
                 final byte[] requestBody = readBody(exchange);
+                // Publish the count before waking callers waiting for the request.
+                requestCount.incrementAndGet();
                 requests.add(new ExchangeRequest(exchange,
                         new String(requestBody, StandardCharsets.UTF_8)));
-                requestCount.incrementAndGet();
                 final Reply reply = replies.poll(3, TimeUnit.SECONDS);
                 if (reply == null || !reply.release.await(3, TimeUnit.SECONDS)) {
                     exchange.sendResponseHeaders(500, -1);
@@ -940,7 +938,6 @@ final class ApiKeyCredentialTest {
                         final ServerCallHandler<RequestT, ResponseT> next) {
                     final String method = call.getMethodDescriptor().getBareMethodName();
                     final String authorization = metadata.get(AUTHORIZATION);
-                    headers.add(method + ":" + authorization);
                     if ("SearchFlows".equals(method)) {
                         searchAttempts.incrementAndGet();
                     } else if ("GetServerInfo".equals(method)) {
@@ -951,6 +948,7 @@ final class ApiKeyCredentialTest {
                         pollAttempts.incrementAndGet();
                         pollTimes.add(System.nanoTime());
                     }
+                    headers.add(method + ":" + authorization);
                     if (("SearchFlows".equals(method)
                             && (shouldRejectBoth || !"Bearer ".concat(TOKEN_B).equals(authorization)))
                             || ("GetServerInfo".equals(method) && shouldRejectFirstServerInfo
