@@ -27,6 +27,7 @@ from dex import (
 
 from dex_agents.client import AgentSessionClient
 from dex_agents.session_flow import AgentSessionFlow
+from dex_agents.testing.history import StepHistoryEntry, read_step_history
 from dex_agents.testing.processes import AgentWorkerProcess, PrivateDexEngine
 from dex_agents.testing.worker import TEST_BLOB_CACHE_BYTES
 
@@ -123,6 +124,17 @@ class AgentTestStack:
             A session Client over the stack's Client.
         """
         return AgentSessionClient(self.client, flow)
+
+    async def read_step_history(self, flow_id: str) -> list[StepHistoryEntry]:
+        """Return the completed Steps of a Flow on the stack's engine.
+
+        Args:
+            flow_id: Flow ID, such as a session ID.
+
+        Returns:
+            Completed ``wait_for`` and ``execute`` methods in history order.
+        """
+        return await read_step_history(self._engine.address, flow_id)
 
     async def start_worker(self, extra_env: Mapping[str, str] | None = None) -> AgentWorkerProcess:
         """Start a new Worker child and wait until it serves every pull queue.
