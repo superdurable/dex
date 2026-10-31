@@ -252,10 +252,10 @@ async fn postgres_mixed_values_match_builtin_with_the_authorized_keyword_array_e
     let assignments = assign_attribute_slots(&registry).unwrap();
     for should_use_slots in [false, true] {
         if should_use_slots {
-            initialize_attribute_slots(&mut client, registry.version, &assignments)
+            initialize_attribute_slots(&mut client, registry.version, &assignments, true)
                 .await
                 .unwrap();
-            while backfill_next_batch(&mut client).await.unwrap() {}
+            while backfill_next_batch(&mut client).await.unwrap().did_advance {}
         }
         for (input, has_keyword_array_exception) in [
             ("", false),

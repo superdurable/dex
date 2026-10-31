@@ -8,6 +8,9 @@
 
 mod changes;
 mod projector;
+mod skipped_document;
+
+pub(crate) use skipped_document::{SkippedSearchDocument, record_skipped_documents};
 
 pub use changes::{
     SearchDocumentChange, extract_batch_search_document_changes, extract_search_document_changes,

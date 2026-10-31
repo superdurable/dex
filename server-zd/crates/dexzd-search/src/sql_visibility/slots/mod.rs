@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-mod backfill;
+pub(super) mod backfill;
+mod oversized_documents;
 mod registry;
 mod slot_column;
 pub(super) mod values;

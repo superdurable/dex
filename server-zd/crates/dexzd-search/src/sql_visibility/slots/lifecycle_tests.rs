@@ -9,6 +9,7 @@
 #![cfg(test)]
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -208,7 +209,11 @@ async fn projection_advances_while_another_partition_backfills() {
     );
     transaction.rollback().await.unwrap();
     backfill.await.unwrap().unwrap();
-    while backfill_next_batch(&mut fixture.client).await.unwrap() {}
+    while backfill_next_batch(&mut fixture.client)
+        .await
+        .unwrap()
+        .did_advance
+    {}
     let value: String = fixture
         .client
         .query_one(
@@ -233,10 +238,15 @@ async fn committed_backfill_batches_survive_a_connection_crash() {
     fixture.seed_rows(800).await;
     let registry = registry();
     let assignments = assign_attribute_slots(&registry).unwrap();
-    initialize_attribute_slots(&mut fixture.client, registry.version, &assignments)
+    initialize_attribute_slots(&mut fixture.client, registry.version, &assignments, true)
         .await
         .unwrap();
-    assert!(backfill_next_batch(&mut fixture.client).await.unwrap());
+    assert!(
+        backfill_next_batch(&mut fixture.client)
+            .await
+            .unwrap()
+            .did_advance
+    );
     let checkpoint: String = fixture
         .client
         .query_one(
@@ -248,7 +258,12 @@ async fn committed_backfill_batches_survive_a_connection_crash() {
         .get(0);
     assert!(!checkpoint.is_empty());
     let transaction = fixture.client.transaction().await.unwrap();
-    assert!(apply_backfill_batch(&transaction).await.unwrap());
+    assert!(
+        apply_backfill_batch(&transaction)
+            .await
+            .unwrap()
+            .did_advance
+    );
     let process_id: i32 = transaction
         .query_one("SELECT pg_backend_pid()", &[])
         .await
@@ -278,7 +293,11 @@ async fn committed_backfill_batches_survive_a_connection_crash() {
         .unwrap()
         .get(0);
     assert_eq!(restored, checkpoint);
-    while backfill_next_batch(&mut fixture.client).await.unwrap() {}
+    while backfill_next_batch(&mut fixture.client)
+        .await
+        .unwrap()
+        .did_advance
+    {}
     assert_eq!(backfill_pending_count(&fixture.client).await.unwrap(), 0);
     let count: i64 = fixture
         .client
@@ -342,4 +361,280 @@ async fn distinct_schemas_do_not_share_registration_locks_and_reused_registries_
     drop(second_backend);
     first.cleanup().await;
     second.cleanup().await;
+}
+
+#[tokio::test]
+async fn missing_keys_advance_in_bounded_keyset_windows() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    let mut fixture = PostgresFixture::create(&database_url).await;
+    fixture.seed_rows(4097).await;
+    let mut registry = registry();
+    registry.registrations[0].index_key = "absent".into();
+    let assignments = assign_attribute_slots(&registry).unwrap();
+    initialize_attribute_slots(&mut fixture.client, registry.version, &assignments, true)
+        .await
+        .unwrap();
+    for scanned in (256..=4096).step_by(256).chain(std::iter::once(4097)) {
+        assert!(
+            backfill_next_batch(&mut fixture.client)
+                .await
+                .unwrap()
+                .did_advance
+        );
+        let row = fixture
+            .client
+            .query_one(
+                "SELECT state, backfill_after_run_id FROM dexzd_visibility_attribute_slots",
+                &[],
+            )
+            .await
+            .unwrap();
+        assert_eq!(row.get::<_, String>(0), "backfilling");
+        assert_eq!(row.get::<_, String>(1), format!("{scanned:08}"));
+    }
+    assert!(
+        backfill_next_batch(&mut fixture.client)
+            .await
+            .unwrap()
+            .did_advance
+    );
+    assert_eq!(backfill_pending_count(&fixture.client).await.unwrap(), 0);
+    assert!(
+        !backfill_next_batch(&mut fixture.client)
+            .await
+            .unwrap()
+            .did_advance
+    );
+    let count: i64 = fixture
+        .client
+        .query_one(
+            "SELECT count(*) FROM dexzd_visibility_runs WHERE keyword_01 IS NULL",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 4097);
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn one_refresh_crosses_multiple_partitions_without_matching_keys() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    let fixture = PostgresFixture::create(&database_url).await;
+    fixture.seed_rows(3).await;
+    fixture.client.batch_execute("UPDATE dexzd_visibility_runs SET partition_id = start_time_ns::integer, sa_keyword = '{}'::jsonb").await.unwrap();
+    let backend = fixture.backend(registry()).await;
+    backend.backfill_registered_attributes(None).await.unwrap();
+    assert_eq!(backfill_pending_count(&fixture.client).await.unwrap(), 0);
+    drop(backend);
+    fixture.cleanup().await;
+}
+
+struct AdvancingRegistry {
+    reads: AtomicUsize,
+}
+
+#[async_trait]
+impl AttributeIndexRegistryReader for AdvancingRegistry {
+    async fn read_attribute_index_registry(&self) -> Result<AttributeIndexRegistry, SearchError> {
+        if self.reads.fetch_add(1, Ordering::Relaxed) == 0 {
+            Ok(AttributeIndexRegistry::default())
+        } else {
+            Ok(registry())
+        }
+    }
+}
+
+#[tokio::test]
+async fn stale_registry_read_retries_with_a_fresh_registry() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    let mut fixture = PostgresFixture::create(&database_url).await;
+    let registry = registry();
+    initialize_attribute_slots(
+        &mut fixture.client,
+        registry.version,
+        &assign_attribute_slots(&registry).unwrap(),
+        true,
+    )
+    .await
+    .unwrap();
+    let error = initialize_attribute_slots(&mut fixture.client, 0, &[], false)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, SearchError::Unavailable(message) if message.contains("fresh registry read") && !message.contains("new database or schema"))
+    );
+    let reader = Arc::new(AdvancingRegistry {
+        reads: AtomicUsize::new(0),
+    });
+    let backend = SqlVisibilitySearchBackend::connect_dialect_with_settings(
+        &ConnectionSettings::from_config(fixture.configuration.clone()),
+        1,
+        None,
+        Duration::from_secs(2),
+        VisibilityDialect::Postgres,
+        Some(reader.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reader.reads.load(Ordering::Relaxed), 2);
+    drop(backend);
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn late_registered_oversized_keywords_are_skipped_and_counted() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    let fixture = PostgresFixture::create(&database_url).await;
+    let initial_backend = fixture.backend(AttributeIndexRegistry::default()).await;
+    let initial_projector = SqlVisibilityProjector::new(initial_backend.clone());
+    let mut previous = None;
+    for (sequence, key, index_type, attribute_value) in [
+        (
+            1,
+            "keyword",
+            IndexType::Keyword,
+            value::Kind::StringValue("x".repeat(1025)),
+        ),
+        (
+            2,
+            "tags",
+            IndexType::KeywordArray,
+            value::Kind::StringValue(
+                serde_json::to_string(&["a".into(), "é".repeat(1025)]).unwrap(),
+            ),
+        ),
+        (
+            3,
+            "unregistered",
+            IndexType::Keyword,
+            value::Kind::StringValue("x".repeat(2048)),
+        ),
+        (
+            4,
+            "keyword",
+            IndexType::Text,
+            value::Kind::StringValue("x".repeat(2048)),
+        ),
+        (
+            5,
+            "keyword",
+            IndexType::KeywordArray,
+            value::Kind::StringValue(
+                serde_json::to_string(&["a".into(), "x".repeat(2048)]).unwrap(),
+            ),
+        ),
+        (
+            6,
+            "tags",
+            IndexType::Keyword,
+            value::Kind::StringValue("x".repeat(2048)),
+        ),
+    ] {
+        let run_id = RunId([sequence as u8; 16]);
+        let SearchDocumentChange::Upsert {
+            mut encoded_document,
+            ..
+        } = document_change(run_id)
+        else {
+            unreachable!()
+        };
+        let mut record = SearchDocumentRecord::decode(encoded_document.as_slice()).unwrap();
+        record.attributes = vec![SearchAttributeValue {
+            index_key: key.into(),
+            index_type: index_type as i32,
+            value: Some(Value {
+                kind: Some(attribute_value),
+            }),
+        }];
+        encoded_document = record.encode_to_vec();
+        let position = LogPosition {
+            node_id: "late-registration".into(),
+            incarnation: 1,
+            seq: sequence,
+        };
+        initial_projector
+            .apply_batch(
+                PartitionId(0),
+                previous.as_ref(),
+                &position,
+                &[SearchDocumentChange::Upsert {
+                    tenant_id: TenantId(1),
+                    run_id,
+                    encoded_document,
+                }],
+            )
+            .await
+            .unwrap();
+        previous = Some(position);
+    }
+    let count: i64 = fixture
+        .client
+        .query_one("SELECT count(*) FROM dexzd_visibility_runs", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 6);
+    drop(initial_projector);
+    drop(initial_backend);
+    let mut registry = registry();
+    registry.version = 2;
+    registry.registrations.push(AttributeIndexRegistration {
+        tenant_id: 1,
+        index_key: "tags".into(),
+        index_type: IndexType::KeywordArray as i32,
+        ..Default::default()
+    });
+    let backend = fixture.backend(registry).await;
+    let metrics = Arc::new(super::SkippedDocumentCount(AtomicUsize::new(0)));
+    let projector =
+        SqlVisibilityProjector::new_with_metric_recorder(backend.clone(), metrics.clone());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            projector.synchronize_attribute_slots().await.unwrap();
+            if backfill_pending_count(&fixture.client).await.unwrap() == 0 {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let rows = fixture
+        .client
+        .query(
+            "SELECT run_id, reason FROM dexzd_visibility_skipped_documents ORDER BY run_id",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    for (row, sequence) in rows.iter().zip([1, 2]) {
+        assert_eq!(row.get::<_, String>(0), RunId([sequence; 16]).to_string());
+        assert!(
+            row.get::<_, String>(1)
+                .contains("PostgreSQL maximum is 1024 bytes")
+        );
+    }
+    assert_eq!(metrics.0.load(Ordering::Relaxed), 2);
+    projector.synchronize_attribute_slots().await.unwrap();
+    assert_eq!(metrics.0.load(Ordering::Relaxed), 2);
+    let count: i64 = fixture
+        .client
+        .query_one("SELECT count(*) FROM dexzd_visibility_runs", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 4);
+    drop(projector);
+    drop(backend);
+    fixture.cleanup().await;
 }

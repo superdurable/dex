@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
 use std::sync::Mutex as StandardMutex;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dexzd_keyspace::{RunId, TenantId};
@@ -34,6 +34,8 @@ use crate::{SearchBackend, SearchError, SearchPage, SearchRequest};
 use super::search_result::response_entry;
 
 pub(super) const DATABASE_OPERATION_TIMEOUT: Duration = Duration::from_secs(15);
+const BACKFILL_TICK_BUDGET: Duration = Duration::from_millis(500);
+const REGISTRY_REFRESH_ATTEMPTS: usize = 3;
 const SCHEMA_SETUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Waits for an application-defined projection watermark before reading search results.
@@ -47,8 +49,15 @@ enum AttributeSlotOperation<'assignments> {
     Register {
         registry_version: u64,
         assignments: &'assignments [AttributeSlot],
+        should_reject_older_registry: bool,
     },
     BackfillBatch,
+    ReadSnapshot,
+}
+
+enum AttributeSlotOperationResult {
+    Snapshot(super::slots::AttributeSlotSnapshot),
+    Backfill(super::slots::backfill::BackfillBatchResult),
 }
 
 /// Searches tenant runs through a bounded pool of PgBouncer-compatible connections.
@@ -164,7 +173,10 @@ impl SqlVisibilitySearchBackend {
         Ok(self.cache_attribute_slot_snapshot(snapshot))
     }
 
-    pub(crate) async fn backfill_registered_attributes(&self) -> Result<(), SearchError> {
+    pub(crate) async fn backfill_registered_attributes(
+        &self,
+        metric_recorder: Option<&dyn super::ProjectionMetricRecorder>,
+    ) -> Result<(), SearchError> {
         if self.dialect != VisibilityDialect::Postgres {
             return Ok(());
         }
@@ -175,9 +187,25 @@ impl SqlVisibilitySearchBackend {
         if snapshot.ready.len() == snapshot.assignments.len() {
             return Ok(());
         }
-        let snapshot = self
-            .run_attribute_slot_operation(AttributeSlotOperation::BackfillBatch)
-            .await?;
+        let started = Instant::now();
+        loop {
+            let AttributeSlotOperationResult::Backfill(batch) = self
+                .run_attribute_slot_operation(AttributeSlotOperation::BackfillBatch)
+                .await?
+            else {
+                unreachable!("a backfill operation returns a batch")
+            };
+            super::projection::record_skipped_documents(batch.skipped_documents, metric_recorder);
+            if !batch.did_advance || started.elapsed() >= BACKFILL_TICK_BUDGET {
+                break;
+            }
+        }
+        let AttributeSlotOperationResult::Snapshot(snapshot) = self
+            .run_attribute_slot_operation(AttributeSlotOperation::ReadSnapshot)
+            .await?
+        else {
+            unreachable!("a snapshot read returns a snapshot")
+        };
         self.cache_attribute_slot_snapshot(snapshot);
         Ok(())
     }
@@ -190,36 +218,52 @@ impl SqlVisibilitySearchBackend {
             .registry_reader
             .as_ref()
             .expect("PostgreSQL requires a registry reader at construction");
-        let registry = tokio::time::timeout(
-            DATABASE_OPERATION_TIMEOUT,
-            reader.refresh_attribute_index_registry(),
-        )
-        .await
-        .map_err(|_| {
-            SearchError::Unavailable("refresh Attribute index registry timed out".into())
-        })??;
-        if !should_reconcile
-            && self
-                .attribute_slot_snapshot()
-                .is_some_and(|snapshot| snapshot.registry_version == registry.version)
-        {
-            return Ok(());
+        for attempt in 0..REGISTRY_REFRESH_ATTEMPTS {
+            let registry = tokio::time::timeout(
+                DATABASE_OPERATION_TIMEOUT,
+                reader.refresh_attribute_index_registry(),
+            )
+            .await
+            .map_err(|_| {
+                SearchError::Unavailable("refresh Attribute index registry timed out".into())
+            })??;
+            if !should_reconcile
+                && attempt == 0
+                && self
+                    .attribute_slot_snapshot()
+                    .is_some_and(|snapshot| snapshot.registry_version == registry.version)
+            {
+                return Ok(());
+            }
+            let assignments = assign_attribute_slots(&registry)?;
+            let result = self
+                .run_attribute_slot_operation(AttributeSlotOperation::Register {
+                    registry_version: registry.version,
+                    assignments: &assignments,
+                    should_reject_older_registry: attempt + 1 == REGISTRY_REFRESH_ATTEMPTS,
+                })
+                .await;
+            match result {
+                Ok(AttributeSlotOperationResult::Snapshot(snapshot)) => {
+                    self.cache_attribute_slot_snapshot(snapshot);
+                    return Ok(());
+                }
+                Err(SearchError::Unavailable(_)) if attempt + 1 < REGISTRY_REFRESH_ATTEMPTS => {
+                    continue;
+                }
+                Ok(AttributeSlotOperationResult::Backfill(_)) => {
+                    unreachable!("registration returns a snapshot")
+                }
+                Err(error) => return Err(error),
+            }
         }
-        let assignments = assign_attribute_slots(&registry)?;
-        let snapshot = self
-            .run_attribute_slot_operation(AttributeSlotOperation::Register {
-                registry_version: registry.version,
-                assignments: &assignments,
-            })
-            .await?;
-        self.cache_attribute_slot_snapshot(snapshot);
-        Ok(())
+        unreachable!("the final registry refresh attempt returns its result")
     }
 
     async fn run_attribute_slot_operation(
         &self,
         operation: AttributeSlotOperation<'_>,
-    ) -> Result<super::slots::AttributeSlotSnapshot, SearchError> {
+    ) -> Result<AttributeSlotOperationResult, SearchError> {
         for attempt in 0..2 {
             let mut slot = self.lock_next_slot().await;
             if slot.is_disconnected() {
@@ -230,17 +274,26 @@ impl SqlVisibilitySearchBackend {
                     AttributeSlotOperation::Register {
                         registry_version,
                         assignments,
+                        should_reject_older_registry,
                     } => {
-                        super::slots::initialize_attribute_slots(
+                        let snapshot = super::slots::initialize_attribute_slots(
                             &mut slot.client,
                             *registry_version,
                             assignments,
+                            *should_reject_older_registry,
                         )
-                        .await
+                        .await?;
+                        Ok(AttributeSlotOperationResult::Snapshot(snapshot))
                     }
                     AttributeSlotOperation::BackfillBatch => {
-                        super::slots::backfill_next_batch(&mut slot.client).await?;
-                        super::slots::load_committed_attribute_slot_snapshot(&mut slot.client).await
+                        let batch = super::slots::backfill_next_batch(&mut slot.client).await?;
+                        Ok(AttributeSlotOperationResult::Backfill(batch))
+                    }
+                    AttributeSlotOperation::ReadSnapshot => {
+                        let snapshot =
+                            super::slots::load_committed_attribute_slot_snapshot(&mut slot.client)
+                                .await?;
+                        Ok(AttributeSlotOperationResult::Snapshot(snapshot))
                     }
                 }
             })

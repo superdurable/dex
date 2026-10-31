@@ -197,7 +197,7 @@ async fn postgres_backfill_plans_mixed_types_and_schema_isolation() {
     configuration.options(format!("-c search_path={schema},public"));
     let (mut second, second_driver) = configuration.connect(NoTls).await.unwrap();
     let second_task = tokio::spawn(second_driver);
-    initialize_attribute_slots(&mut client, registry.version, &assignments)
+    initialize_attribute_slots(&mut client, registry.version, &assignments, true)
         .await
         .unwrap();
     let first_backfill = finish_backfill(&mut client);
@@ -562,7 +562,7 @@ async fn verify_projection_skip(
 }
 
 async fn finish_backfill(client: &mut Client) {
-    while backfill_next_batch(client).await.unwrap() {}
+    while backfill_next_batch(client).await.unwrap().did_advance {}
 }
 
 async fn read_ready_slots(client: &mut Client) -> Result<Vec<super::AttributeSlot>, SearchError> {

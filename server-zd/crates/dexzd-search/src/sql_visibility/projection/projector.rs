@@ -27,6 +27,7 @@ use super::super::search_backend::{
 use super::super::upsert::upsert_statements_with_slots;
 use super::super::{AttributeSlot, VisibilityDialect};
 use super::changes::{SearchDocumentChange, decode_search_index_key};
+use super::skipped_document::{SkippedSearchDocument, record_skipped_documents};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
 use dexzd_protocol::attribute_index::indexed_keyword_strings;
@@ -37,13 +38,6 @@ const REBUILD_SCAN_PAGE_SIZE: usize = 256;
 struct RebuildPage {
     next_start: Vec<u8>,
     changes: Vec<SearchDocumentChange>,
-}
-
-struct SkippedSearchDocument {
-    partition_id: PartitionId,
-    tenant_id: TenantId,
-    run_id: RunId,
-    reason: String,
 }
 
 /// Receives a countable event for each committed search document omitted from SQL visibility.
@@ -200,7 +194,7 @@ impl SqlVisibilityProjector {
     /// Refreshes and backfills registered slots, including when no document writes arrive.
     pub async fn synchronize_attribute_slots(&self) -> Result<(), ProjectionError> {
         self.backend
-            .backfill_registered_attributes()
+            .backfill_registered_attributes(self.metric_recorder.as_deref())
             .await
             .map_err(ProjectionError::from)
             .map_err(|error| error.redact_credentials(self.backend.configuration()))
@@ -289,7 +283,7 @@ impl SqlVisibilityProjector {
             }
             drop(slot);
             return result
-                .map(|skipped| self.record_skipped_documents(skipped))
+                .map(|skipped| record_skipped_documents(skipped, self.metric_recorder.as_deref()))
                 .map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
@@ -333,27 +327,8 @@ impl SqlVisibilityProjector {
             }
             drop(slot);
             return result
-                .map(|skipped| self.record_skipped_documents(skipped))
+                .map(|skipped| record_skipped_documents(skipped, self.metric_recorder.as_deref()))
                 .map_err(|error| error.redact_credentials(self.backend.configuration()));
-        }
-    }
-
-    fn record_skipped_documents(&self, skipped_documents: Vec<SkippedSearchDocument>) {
-        for skipped in skipped_documents {
-            tracing::error!(
-                partition_id = skipped.partition_id.0,
-                tenant_id = skipped.tenant_id.0,
-                run_id = %skipped.run_id,
-                reason = %skipped.reason,
-                "committed search document omitted from SQL visibility projection"
-            );
-            if let Some(recorder) = &self.metric_recorder {
-                recorder.record_skipped_search_document(
-                    skipped.partition_id,
-                    skipped.tenant_id,
-                    skipped.run_id,
-                );
-            }
         }
     }
 }

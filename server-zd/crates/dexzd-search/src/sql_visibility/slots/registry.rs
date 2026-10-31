@@ -26,6 +26,7 @@ pub(crate) async fn initialize_attribute_slots(
     client: &mut Client,
     registry_version: u64,
     assignments: &[AttributeSlot],
+    should_reject_older_registry: bool,
 ) -> Result<AttributeSlotSnapshot, SearchError> {
     let transaction = client
         .transaction()
@@ -38,9 +39,16 @@ pub(crate) async fn initialize_attribute_slots(
     lock_attribute_slots_exclusive(&transaction).await?;
     let stored_version = read_slot_registry_version(&transaction).await?;
     if stored_version > registry_version {
-        return Err(registry_mismatch(format!(
+        let detail = format!(
             "stored registry version {stored_version} exceeds object-store registry version {registry_version}"
-        )));
+        );
+        return Err(if should_reject_older_registry {
+            registry_mismatch(detail)
+        } else {
+            SearchError::Unavailable(format!(
+                "PostgreSQL visibility Attribute registry read is stale: {detail}; retry with a fresh registry read"
+            ))
+        });
     }
     let existing = load_attribute_slot_snapshot(&transaction, stored_version).await?;
     for stored in &existing.assignments {
@@ -181,6 +189,6 @@ pub(crate) fn registry_database_error(
 
 fn registry_mismatch(detail: String) -> SearchError {
     SearchError::Internal(format!(
-        "PostgreSQL visibility Attribute slot registry mismatch: {detail}; use a new database or schema"
+        "PostgreSQL visibility Attribute slot registry mismatch: {detail}; after restoring an older object-store prefix or replacing the registry, use a new database or schema"
     ))
 }

@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use crate::sql_visibility::projection::SkippedSearchDocument;
 use dexzd_protocol::dex::IndexType;
 #[cfg(test)]
 use tokio_postgres::GenericClient;
@@ -13,13 +14,22 @@ use tokio_postgres::types::{ToSql, Type};
 use tokio_postgres::{Client, Transaction};
 
 use super::AttributeSlot;
+use super::oversized_documents::skip_oversized_documents;
 use super::registry::{assignment_from_row, registry_database_error, slot_database_error};
 use super::values::slot_value_expression;
 use crate::SearchError;
 
 const BACKFILL_BATCH_SIZE: i64 = 256;
 
-pub(crate) async fn backfill_next_batch(client: &mut Client) -> Result<bool, SearchError> {
+#[derive(Default)]
+pub(crate) struct BackfillBatchResult {
+    pub(crate) did_advance: bool,
+    pub(crate) skipped_documents: Vec<SkippedSearchDocument>,
+}
+
+pub(crate) async fn backfill_next_batch(
+    client: &mut Client,
+) -> Result<BackfillBatchResult, SearchError> {
     let transaction = client
         .transaction()
         .await
@@ -28,19 +38,19 @@ pub(crate) async fn backfill_next_batch(client: &mut Client) -> Result<bool, Sea
         .batch_execute("SET LOCAL statement_timeout = '15s'; SET LOCAL lock_timeout = '5s'")
         .await
         .map_err(|source| registry_database_error("bound Attribute slot backfill batch", source))?;
-    let did_advance = apply_backfill_batch(&transaction).await?;
+    let result = apply_backfill_batch(&transaction).await?;
     transaction.commit().await.map_err(|source| {
         registry_database_error("commit Attribute slot backfill batch", source)
     })?;
-    Ok(did_advance)
+    Ok(result)
 }
 
 pub(crate) async fn apply_backfill_batch(
     transaction: &Transaction<'_>,
-) -> Result<bool, SearchError> {
+) -> Result<BackfillBatchResult, SearchError> {
     let row = transaction.query_typed_opt("SELECT tenant_id, index_key, slot_column, backfill_partition_id, backfill_after_run_id FROM dexzd_visibility_attribute_slots WHERE state = 'backfilling' ORDER BY tenant_id, index_key FOR UPDATE SKIP LOCKED LIMIT 1", &[]).await.map_err(|source| registry_database_error("select pending Attribute slot backfill", source))?;
     let Some(row) = row else {
-        return Ok(false);
+        return Ok(BackfillBatchResult::default());
     };
     let assignment = assignment_from_row(&row)?;
     let mut partition_id: Option<i32> = row.get(3);
@@ -60,12 +70,15 @@ pub(crate) async fn apply_backfill_batch(
     }
     let Some(partition_id) = partition_id else {
         mark_ready(transaction, &assignment).await?;
-        return Ok(true);
+        return Ok(BackfillBatchResult {
+            did_advance: true,
+            ..Default::default()
+        });
     };
     let bucket = slot_bucket(assignment.index_type);
     let presence = "(sa_keyword ? $2::text OR sa_text ? $2::text OR sa_number ? $2::text OR sa_datetime ? $2::text OR sa_bool ? $2::text)";
-    let rows = transaction.query_typed(&format!("SELECT run_id FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id = $3::integer AND run_id > $4::text AND {} IS NULL AND {presence} ORDER BY run_id LIMIT $5::bigint", assignment.slot_column), &[
-        (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&partition_id, Type::INT4), (&after_run_id, Type::TEXT), (&BACKFILL_BATCH_SIZE, Type::INT8)
+    let rows = transaction.query_typed("SELECT run_id FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id = $2::integer AND run_id > $3::text ORDER BY run_id LIMIT $4::bigint", &[
+        (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&partition_id, Type::INT4), (&after_run_id, Type::TEXT), (&BACKFILL_BATCH_SIZE, Type::INT8)
     ]).await.map_err(|source| slot_database_error("read backfill batch for", &assignment, source))?;
     if rows.is_empty() {
         let next_partition: Option<i32> = transaction.query_typed_one("SELECT min(partition_id) FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id > $2::integer", &[(&tenant as &(dyn ToSql + Sync), Type::TEXT), (&partition_id, Type::INT4)]).await.map_err(|source| slot_database_error("find next backfill partition for", &assignment, source))?.get(0);
@@ -74,12 +87,16 @@ pub(crate) async fn apply_backfill_batch(
         } else {
             mark_ready(transaction, &assignment).await?;
         }
-        return Ok(true);
+        return Ok(BackfillBatchResult {
+            did_advance: true,
+            ..Default::default()
+        });
     }
     let run_ids = rows
         .iter()
         .map(|row| row.get::<_, String>(0))
         .collect::<Vec<_>>();
+    let skipped_documents = skip_oversized_documents(transaction, &assignment, &run_ids).await?;
     let expression = slot_value_expression(assignment.index_type, bucket, "$2::text");
     transaction.execute_typed(&format!("UPDATE dexzd_visibility_runs SET {} = {expression} WHERE tenant_id = $1::text AND run_id = ANY($3::text[]) AND {} IS NULL AND {presence}", assignment.slot_column, assignment.slot_column), &[
         (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&run_ids, Type::TEXT_ARRAY)
@@ -93,7 +110,10 @@ pub(crate) async fn apply_backfill_batch(
             .expect("a nonempty backfill batch has a last run"),
     )
     .await?;
-    Ok(true)
+    Ok(BackfillBatchResult {
+        did_advance: true,
+        skipped_documents,
+    })
 }
 
 async fn record_checkpoint(

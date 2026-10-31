@@ -805,7 +805,11 @@ Flow type 名称、Step 图和已持久化的 payload。
 ## 备份和恢复
 
 对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影在启动后从本地存储
-重建。配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
+重建。使用 **search.backend: postgres** 时，恢复较旧的前缀可能导致数据库中的 Attribute
+注册表版本高于恢复后的注册表版本。此时启动会报 Attribute slot 注册表不匹配错误。
+重新启动前，配置新的 **search.postgresSchema** 或新的 PostgreSQL 数据库，让搜索投影和
+slot 分配从恢复后的注册表重建。
+配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
 也要用同样的方式保护。
 
 用 bucket 版本控制或复制到另一个 bucket 来保护前缀。使用版本控制时，非当前版本的过期
