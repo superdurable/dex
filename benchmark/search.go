@@ -12,20 +12,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // SearchConfig selects the isolated S7 search dataset and measurement settings.
 type SearchConfig struct {
-	// ProjectionOnly omits queries. The command default is false.
-	ProjectionOnly bool `json:"projection_only"`
+	// ShouldMeasureProjectionOnly omits queries. The command default is false.
+	ShouldMeasureProjectionOnly bool `json:"projection_only"`
 	// Address serves FlowService. The command default is 127.0.0.1:8801.
 	Address string `json:"address"`
 	// Backend selects builtin, postgres, or paradedb. The command default is builtin.
@@ -46,8 +48,8 @@ type SearchConfig struct {
 	Timeout time.Duration `json:"timeout_ns"`
 	// DatabaseContainer names the owned database container. Default: empty; required for external backends.
 	DatabaseContainer string `json:"database_container,omitempty"`
-	// Backfill defers Keyword registration until after seeding. Default: false; requires postgres and 10 Attributes.
-	Backfill bool `json:"backfill"`
+	// ShouldMeasureBackfill defers Keyword registration until after seeding. Default: false; requires postgres and 10 Attributes.
+	ShouldMeasureBackfill bool `json:"backfill"`
 	// GitCommit records the source revision. Default: empty.
 	GitCommit string `json:"git_commit"`
 }
@@ -91,7 +93,15 @@ type searchBenchmark struct {
 	result         SearchResult
 }
 
+type searchQuery struct{ name, query string }
+
+type searchBackfillCompletion struct {
+	elapsed time.Duration
+	err     error
+}
+
 // RunSearch seeds a fresh server and measures search, projection, and backfill; partial results accompany errors.
+
 func RunSearch(ctx context.Context, config SearchConfig) (SearchResult, error) {
 	benchmark := &searchBenchmark{config: config, prefix: fmt.Sprintf("search-%d", time.Now().UnixNano())}
 	benchmark.result = SearchResult{Config: config, StartedAt: time.Now().UTC(), Machine: machineInfo()}
@@ -123,7 +133,7 @@ func (benchmark *searchBenchmark) validate() error {
 	if config.Backend != "builtin" && config.DatabaseContainer == "" {
 		return fmt.Errorf("external search requires database-container for convergence and WAL measurements")
 	}
-	if config.Backfill && (config.Backend != "postgres" || config.Attributes != 10) {
+	if config.ShouldMeasureBackfill && (config.Backend != "postgres" || config.Attributes != 10) {
 		return fmt.Errorf("backfill requires postgres with 10 Attributes")
 	}
 	return nil
@@ -184,10 +194,10 @@ func (benchmark *searchBenchmark) run(ctx context.Context) error {
 		benchmark.result.WALBytesPerRow = walBytes / float64(benchmark.config.Runs)
 	}
 	fmt.Fprintf(os.Stderr, "seed ready: %d rows, %.1f rows/s, %.1f WAL bytes/row\n", benchmark.config.Runs, benchmark.result.RowsPerSecond, benchmark.result.WALBytesPerRow)
-	if benchmark.config.ProjectionOnly {
+	if benchmark.config.ShouldMeasureProjectionOnly {
 		return nil
 	}
-	if benchmark.config.Backfill {
+	if benchmark.config.ShouldMeasureBackfill {
 		if err := benchmark.measureBackfill(ctx); err != nil {
 			return err
 		}
@@ -267,6 +277,305 @@ func (benchmark *searchBenchmark) seedRun(ctx context.Context, index int) error 
 	return nil
 }
 
+func (benchmark *searchBenchmark) measureBackfill(ctx context.Context) error {
+	started := time.Now()
+	if err := benchmark.registerIndexes(ctx, true); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		state, err := benchmark.slotState(ctx)
+		if err != nil {
+			return err
+		}
+		if state == "backfilling" {
+			break
+		}
+		if state == "ready" {
+			return fmt.Errorf("backfill finished before a backfilling state could be observed")
+		}
+		if time.Since(started) > time.Minute {
+			return fmt.Errorf("Attribute backfill did not start in one minute")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	readyResult := make(chan searchBackfillCompletion, 1)
+	monitorContext, stopMonitor := context.WithCancel(ctx)
+	defer stopMonitor()
+	go benchmark.monitorBackfill(monitorContext, started, readyResult)
+	if err := benchmark.measureBackfillQueries(ctx); err != nil {
+		return err
+	}
+	completion := <-readyResult
+	if completion.err != nil {
+		return completion.err
+	}
+	benchmark.result.BackfillSeconds = completion.elapsed.Seconds()
+	result, err := benchmark.measureQuery(ctx, "keyword-common-equality", "SearchField00 = 'common'", "", "ready", false)
+	benchmark.result.Queries = append(benchmark.result.Queries, result)
+	return err
+}
+
+func (benchmark *searchBenchmark) monitorBackfill(ctx context.Context, started time.Time, completion chan<- searchBackfillCompletion) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		state, err := benchmark.slotState(ctx)
+		if err != nil {
+			completion <- searchBackfillCompletion{err: err}
+			return
+		}
+		if state == "ready" {
+			completion <- searchBackfillCompletion{elapsed: time.Since(started)}
+			return
+		}
+		if time.Since(started) > 30*time.Minute {
+			completion <- searchBackfillCompletion{err: fmt.Errorf("backfill did not become ready in 30 minutes")}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			completion <- searchBackfillCompletion{err: ctx.Err()}
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (benchmark *searchBenchmark) measureBackfillQueries(ctx context.Context) error {
+	queries := []searchQuery{{"keyword-equality", "SearchField00 = 'rare'"}, {"keyword-common-equality", "SearchField00 = 'common'"}}
+	results := make([]SearchQueryResult, len(queries))
+	latencies := make([][]time.Duration, len(queries))
+	for index, query := range queries {
+		results[index] = SearchQueryResult{Name: query.name, Query: query.query, Phase: "backfilling", Errors: map[string]int{}}
+	}
+	for sample := 0; sample < benchmark.config.Samples; sample++ {
+		hasSamples := false
+		for index, query := range queries {
+			measured, err := benchmark.measureQuerySamples(ctx, query.name, query.query, "", "backfilling", true, 1, 0)
+			if err != nil {
+				return err
+			}
+			result := &results[index]
+			for failure, count := range measured.Errors {
+				result.Errors[failure] += count
+			}
+			if measured.Samples == 0 {
+				continue
+			}
+			hasSamples = true
+			if result.Samples == 0 {
+				result.FirstPageRows = measured.FirstPageRows
+			}
+			result.LastPageRows = measured.LastPageRows
+			result.Samples += measured.Samples
+			result.RawMilliseconds = append(result.RawMilliseconds, measured.RawMilliseconds...)
+			latencies[index] = append(latencies[index], time.Duration(measured.RawMilliseconds[0]*float64(time.Millisecond)))
+		}
+		if !hasSamples {
+			break
+		}
+	}
+	for index := range results {
+		results[index].Latency = calculatePercentiles(latencies[index])
+		benchmark.result.Queries = append(benchmark.result.Queries, results[index])
+		fmt.Fprintf(os.Stderr, "backfilling %s: n=%d p50=%.3fms p99=%.3fms\n", results[index].Name, results[index].Samples, results[index].Latency.P50, results[index].Latency.P99)
+	}
+	return nil
+}
+
+func (benchmark *searchBenchmark) measureQueries(ctx context.Context, phase string) error {
+	queries := []searchQuery{{"default-page-1", ""}, {"common-flow-type", "FlowType = 'searchCommonFlow'"}, {"rare-flow-type", "FlowType = 'searchRareFlow'"}, {"start-time-desc", "ORDER BY StartTime DESC"}}
+	if benchmark.config.Attributes >= 3 {
+		queries = append(queries, searchQuery{"keyword-equality", "SearchField00 = 'rare'"}, searchQuery{"int-range", "SearchField01 BETWEEN 50000 AND 50099"}, searchQuery{"keyword-array-contains", "SearchField02 = 'tag42'"})
+	}
+	if benchmark.config.Attributes == 10 {
+		queries = append(queries, searchQuery{"text-contains", "SearchField03 = 'topic42'"})
+	}
+	for _, query := range queries {
+		result, err := benchmark.measureQuery(ctx, query.name, query.query, "", phase, false)
+		benchmark.result.Queries = append(benchmark.result.Queries, result)
+		if err != nil {
+			return err
+		}
+	}
+	token := ""
+	for page := 1; page < benchmark.config.DeepPage; page++ {
+		response, err := benchmark.searchPage(ctx, "", token)
+		if err != nil {
+			return fmt.Errorf("reach deep page %d: %w", page+1, err)
+		}
+		if response.NextPageToken == "" {
+			return fmt.Errorf("only %d pages exist; cannot reach page %d", page, benchmark.config.DeepPage)
+		}
+		token = response.NextPageToken
+	}
+	result, err := benchmark.measureQuery(ctx, fmt.Sprintf("default-page-%d", benchmark.config.DeepPage), "", token, phase, false)
+	benchmark.result.Queries = append(benchmark.result.Queries, result)
+	return err
+}
+
+func (benchmark *searchBenchmark) measureQuery(ctx context.Context, name, query, token, phase string, shouldCheckBackfill bool) (SearchQueryResult, error) {
+	return benchmark.measureQuerySamples(ctx, name, query, token, phase, shouldCheckBackfill, benchmark.config.Samples, benchmark.config.Warmup)
+}
+
+func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name, query, token, phase string, shouldCheckBackfill bool, samples, warmup int) (SearchQueryResult, error) {
+	result := SearchQueryResult{Name: name, Query: query, Phase: phase, Errors: map[string]int{}, WarmupErrors: map[string]int{}}
+	latencies := make([]time.Duration, 0, samples)
+	for index := -warmup; index < samples; index++ {
+		if shouldCheckBackfill {
+			state, err := benchmark.slotState(ctx)
+			if err != nil {
+				return result, err
+			}
+			if state != "backfilling" {
+				break
+			}
+		}
+		started := time.Now()
+		page, err := benchmark.searchPage(ctx, query, token)
+		elapsed := time.Since(started)
+		if index < 0 {
+			if err != nil {
+				result.WarmupErrors[err.Error()]++
+			}
+			continue
+		}
+		if err != nil {
+			result.Errors[err.Error()]++
+			continue
+		}
+		if shouldCheckBackfill {
+			state, err := benchmark.slotState(ctx)
+			if err != nil {
+				return result, err
+			}
+			if state != "backfilling" {
+				break
+			}
+		}
+		if result.Samples == 0 {
+			result.FirstPageRows = len(page.Flows)
+		}
+		result.LastPageRows = len(page.Flows)
+		result.Samples++
+		latencies = append(latencies, elapsed)
+		result.RawMilliseconds = append(result.RawMilliseconds, float64(elapsed)/float64(time.Millisecond))
+	}
+	result.Latency = calculatePercentiles(latencies)
+	if samples > 1 {
+		fmt.Fprintf(os.Stderr, "%s %s: n=%d p50=%.3fms p99=%.3fms errors=%v\n", phase, name, result.Samples, result.Latency.P50, result.Latency.P99, result.Errors)
+	}
+	return result, ctx.Err()
+}
+
+func (benchmark *searchBenchmark) searchPage(ctx context.Context, query, token string) (dex.SearchFlowsPage, error) {
+	callContext, cancel := context.WithTimeout(ctx, benchmark.config.Timeout)
+	defer cancel()
+	return benchmark.connection.client.SearchFlows(callContext, query, 20, token)
+}
+
+func (benchmark *searchBenchmark) slotState(ctx context.Context) (string, error) {
+	return benchmark.databaseQuery(ctx, "SELECT state FROM dexzd_visibility_attribute_slots WHERE index_key = 'SearchField00'")
+}
+
+func (benchmark *searchBenchmark) registerIndexes(ctx context.Context, shouldIncludeDeferred bool) error {
+	definitions := searchIndexDefinitions(benchmark.config.Attributes)
+	if benchmark.config.ShouldMeasureBackfill && !shouldIncludeDeferred {
+		delete(definitions, "SearchField00")
+	}
+	_, err := benchmark.connection.service.SyncAttributeIndexes(ctx, &dexpb.SyncAttributeIndexRequest{AttributeIndexes: definitions})
+	return err
+}
+
+func (benchmark *searchBenchmark) waitForInitialSlots(ctx context.Context) error {
+	if benchmark.config.Backend != "postgres" {
+		return nil
+	}
+	expected := benchmark.config.Attributes
+	if benchmark.config.ShouldMeasureBackfill {
+		expected--
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.Now().Add(time.Minute)
+	for {
+		count, err := benchmark.databaseNumber(ctx, "SELECT count(*) FROM dexzd_visibility_attribute_slots WHERE state = 'ready' AND index_key LIKE 'SearchField%'")
+		if err != nil {
+			return err
+		}
+		if int(count) == expected {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("initial slots not ready: %v/%d", count, expected)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (benchmark *searchBenchmark) waitForProjection(ctx context.Context) error {
+	if benchmark.config.Backend == "builtin" {
+		// Builtin search reads the committed local view; seed waits for every closing Step.
+		_, err := benchmark.connection.client.SearchFlows(ctx, "", 20, "")
+		return err
+	}
+	deadline := time.Now().Add(15 * time.Minute)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	runningCount := (benchmark.config.Runs + 19) / 20
+	for {
+		counts, err := benchmark.databaseQuery(ctx, "SELECT count(*), count(*) FILTER (WHERE execution_status = 'Completed'), count(*) FILTER (WHERE execution_status = 'Running') FROM dexzd_visibility_runs")
+		if err != nil {
+			return err
+		}
+		expected := fmt.Sprintf("%d|%d|%d", benchmark.config.Runs, benchmark.config.Runs-runningCount, runningCount)
+		if counts == expected {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("projection did not converge: got %s, expected %s", counts, expected)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (benchmark *searchBenchmark) databaseNumber(ctx context.Context, query string) (float64, error) {
+	value, err := benchmark.databaseQuery(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse database number %q: %w", value, err)
+	}
+	return number, nil
+}
+
+func (benchmark *searchBenchmark) databaseQuery(ctx context.Context, query string) (string, error) {
+	callContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(callContext, "docker", "exec", benchmark.config.DatabaseContainer, "psql", "-U", "postgres", "-d", "dexzd", "-XAt", "-v", "ON_ERROR_STOP=1", "-c", query)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("database probe: %w: %s", err, output)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 func (benchmark *searchBenchmark) close() error {
 	var combined error
 	if benchmark.connection != nil {
@@ -279,24 +588,6 @@ func (benchmark *searchBenchmark) close() error {
 		combined = errors.Join(combined, os.RemoveAll(benchmark.cacheDirectory))
 	}
 	return combined
-}
-
-func searchIndexDefinitions(count int) map[string]dexpb.IndexType {
-	definitions := make(map[string]dexpb.IndexType)
-	for index := 0; index < count; index++ {
-		indexType := dexpb.IndexType_INDEX_TYPE_KEYWORD
-		if index == 1 {
-			indexType = dexpb.IndexType_INDEX_TYPE_INT
-		}
-		if index == 2 {
-			indexType = dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY
-		}
-		if index == 3 {
-			indexType = dexpb.IndexType_INDEX_TYPE_TEXT
-		}
-		definitions[fmt.Sprintf("SearchField%02d", index)] = indexType
-	}
-	return definitions
 }
 
 func searchAttributeWrites(index, count int) []*dexpb.AttributeWrite {
@@ -323,4 +614,22 @@ func searchAttributeWrites(index, count int) []*dexpb.AttributeWrite {
 		writes = append(writes, &dexpb.AttributeWrite{Key: key, Value: value, IndexConfig: &dexpb.IndexConfig{Enable: true, Type: definitions[key], IndexKey: key}})
 	}
 	return writes
+}
+
+func searchIndexDefinitions(count int) map[string]dexpb.IndexType {
+	definitions := make(map[string]dexpb.IndexType)
+	for index := 0; index < count; index++ {
+		indexType := dexpb.IndexType_INDEX_TYPE_KEYWORD
+		if index == 1 {
+			indexType = dexpb.IndexType_INDEX_TYPE_INT
+		}
+		if index == 2 {
+			indexType = dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY
+		}
+		if index == 3 {
+			indexType = dexpb.IndexType_INDEX_TYPE_TEXT
+		}
+		definitions[fmt.Sprintf("SearchField%02d", index)] = indexType
+	}
+	return definitions
 }
