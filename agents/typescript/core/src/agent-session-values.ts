@@ -10,15 +10,11 @@
  * Status of an agent session, stored in the `status` field of {@link AgentState}.
  *
  * - `waiting_for_user_message`: the session is idle in `AwaitUserMessage`.
- * - `running_turn`: `RunAgentTurn` runs or resumes the framework loop.
- * - `waiting_for_interrupt`: `AwaitInterruptResolution` waits for tool approvals.
- * - `executing_tool`: a tool Step runs one deferred tool call.
+ * - `running_model`: `RunModel` makes the turn's next model call.
+ * - `running_tools`: the requested tool calls run in parallel Steps, some possibly waiting for
+ *   approval, and `ResumeTurn` waits for their results.
  */
-export type AgentSessionStatus =
-  | "waiting_for_user_message"
-  | "running_turn"
-  | "waiting_for_interrupt"
-  | "executing_tool";
+export type AgentSessionStatus = "waiting_for_user_message" | "running_model" | "running_tools";
 
 /**
  * Input of the `StartAgentSession` Step, passed to `Client.startFlow`.
@@ -46,8 +42,6 @@ export interface AgentState {
   readonly activeTurnId: string | null;
   /** Sequence assigned to the next stored message; starts at 1. Wire field: `next_message_sequence`. */
   readonly nextMessageSequence: number;
-  /** Tool call that the next tool Step runs, or `null`. Wire field: `executing_tool_call_id`. */
-  readonly executingToolCallId: string | null;
   /** Error text of the most recent failed turn, or `null`. Wire field: `last_turn_error`. */
   readonly lastTurnError: string | null;
 }
@@ -91,10 +85,10 @@ export interface AgentMessage extends FrameworkMessage {
 /**
  * Side-effect class of a tool, which decides where and how often the session runs it.
  *
- * - `read`: runs inside `RunAgentTurn` and reruns with the turn segment.
- * - `idempotent_write`: runs in `ExecuteToolCall`, up to 3 attempts with one idempotency key; when
- *   they run out, the session records `outcome_unknown`.
- * - `non_idempotent_write`: runs once in `ExecuteSingleAttemptToolCall`; a crash records `outcome_unknown`.
+ * - `read`: runs in `CallTool`, up to 3 attempts; no approval by default.
+ * - `idempotent_write`: runs in `CallTool`, up to 3 attempts with one idempotency key; when they run
+ *   out, the session records `outcome_unknown`.
+ * - `non_idempotent_write`: runs once in `CallSingleAttemptTool`; a crash records `outcome_unknown`.
  * - `unclassified`: treated like `non_idempotent_write`; the default for tools without a policy.
  */
 export type ToolEffect = "read" | "idempotent_write" | "non_idempotent_write" | "unclassified";
@@ -104,8 +98,9 @@ export type ToolEffect = "read" | "idempotent_write" | "non_idempotent_write" | 
  *
  * `awaiting_approval` and `approved` are open. The other statuses are final: the session
  * never runs a call whose record is final, and the runner reports the result to the model.
- * `failed` means the tool threw {@link ToolExecutionError}. `outcome_unknown` means the tool Step ended
- * without a result, through a Worker crash, a timeout, or another error after its attempts ran out.
+ * `failed` means the tool threw {@link ToolExecutionError}, or a `read` call ended without a result after
+ * its attempts ran out. `outcome_unknown` means a write's tool Step ended without a result, through a
+ * Worker crash, a timeout, or another error after its attempts ran out.
  */
 export type AgentToolCallStatus =
   | "awaiting_approval"
@@ -134,8 +129,8 @@ export interface AgentToolCall {
   /** Tool output text after `succeeded`, otherwise `null`. Wire field: `output`. */
   readonly output: string | null;
   /**
-   * The `ToolExecutionError` message after `failed`, the failed Step's recovery detail after
-   * `outcome_unknown`, otherwise `null`. Wire field: `error`.
+   * The `ToolExecutionError` message, or the failed Step's recovery detail, after `failed` or
+   * `outcome_unknown`; otherwise `null`. Wire field: `error`.
    */
   readonly error: string | null;
   /** Rejection text after `rejected`, otherwise `null`. Wire field: `rejection_message`. */
@@ -176,7 +171,7 @@ export interface AgentInterruptResolution {
 /**
  * Model usage counters, stored cumulatively in the `AgentUsage` Attribute.
  *
- * Runners report the usage of one turn segment in an {@link AgentTurnOutcome}; the session adds it.
+ * Runners report the usage of one model call in an {@link AgentTurnOutcome}; the session adds it.
  * Use {@link emptyAgentUsage} and {@link addAgentUsage} to accumulate per-model-call usage.
  */
 export interface AgentUsage {
@@ -190,6 +185,16 @@ export interface AgentUsage {
   readonly cachedInputTokens: number;
   /** Reasoning tokens reported by the provider. Wire field: `reasoning_tokens`. */
   readonly reasoningTokens: number;
+}
+
+/**
+ * Notice that one tool call of the current batch reached a final record, published to the internal
+ * `ToolCallResults` Channel. `ResumeTurn` waits for one per requested tool call; the result itself is
+ * in the call's `AgentToolCalls` record.
+ */
+export interface ToolCallCompleted {
+  /** Tool call whose record is final. Wire field: `tool_call_id`. */
+  readonly toolCallId: string;
 }
 
 /** One user message, the input of the `send_user_message` RPC and the `QueuedUserMessages` Channel value. */
@@ -207,11 +212,13 @@ export interface AgentUserMessage {
  * - `turn_failed`: `{"error"}`.
  * - `text_delta` and `reasoning_delta`: `{"text"}`.
  * - `tool_call_started`: `{"tool_call_id","tool_name"}`.
- * - `tool_call_finished`: `{"tool_call_id","tool_name","status"}`.
- * - `tool_call_deferred`: `{"tool_call_id","tool_name","effect","requires_approval"}`.
+ * - `tool_call_finished`: `{"tool_call_id","tool_name","status"}`, when a record becomes final,
+ *   including a rejection.
+ * - `tool_call_deferred`: `{"tool_call_id","tool_name","effect","requires_approval"}`, when the model
+ *   asks for a call, which then runs in its own Step.
  * - `interrupt_raised`: `{"interrupt_id","tool_call_id","tool_name","deadline"}`.
  * - `interrupt_resolved`: `{"interrupt_id","approved","rejection_message"}`.
- * - `usage_recorded`: `{"recorded","session"}`: segment and cumulative usage, each with
+ * - `usage_recorded`: `{"recorded","session"}`: one model call's and the cumulative usage, each with
  *   {@link AgentUsage} wire fields.
  */
 export type AgentEventType =
@@ -241,7 +248,7 @@ export interface AgentEvent {
    *
    * Group live text by `(turnId, stepExecutionId, attempt)`. Within one `stepExecutionId`, keep only the
    * events of the highest `attempt` seen and drop the partial text of lower attempts. Different
-   * `stepExecutionId` values of one turn are consecutive turn segments and Steps, and each keeps its
+   * `stepExecutionId` values of one turn are its model calls and tool Steps, and each keeps its
    * own events. After `turn_completed` or `turn_failed`, replace the turn's live text with the stored
    * messages.
    */

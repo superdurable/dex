@@ -21,7 +21,7 @@ export {
   type ToolExecutionResult,
   type ToolPolicy,
   type TurnCompleted,
-  type TurnSuspended,
+  type ToolCallsRequested,
 } from "./agent-framework-runner.js";
 export {
   createAgentSessionFlow,
@@ -63,5 +63,6 @@ export {
   type FrameworkMessage,
   type ListAgentMessagesInput,
   type ResolveInterruptInput,
+  type ToolCallCompleted,
   type ToolEffect,
 } from "./agent-session-values.js";

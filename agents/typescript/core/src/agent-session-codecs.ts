@@ -25,6 +25,7 @@ import type {
   AgentUserMessage,
   ListAgentMessagesInput,
   ResolveInterruptInput,
+  ToolCallCompleted,
   ToolEffect,
 } from "./agent-session-values.js";
 
@@ -32,9 +33,8 @@ import type {
 
 const agentSessionStatuses: readonly AgentSessionStatus[] = [
   "waiting_for_user_message",
-  "running_turn",
-  "waiting_for_interrupt",
-  "executing_tool",
+  "running_model",
+  "running_tools",
 ];
 const agentMessageRoles: readonly AgentMessageRole[] = ["user", "assistant", "tool"];
 const toolEffects: readonly ToolEffect[] = [
@@ -152,7 +152,6 @@ export function encodeAgentState(value: AgentState): unknown {
     turn_count: value.turnCount,
     active_turn_id: value.activeTurnId,
     next_message_sequence: value.nextMessageSequence,
-    executing_tool_call_id: value.executingToolCallId,
     last_turn_error: value.lastTurnError,
   };
 }
@@ -164,7 +163,6 @@ export function decodeAgentState(value: unknown): AgentState {
     turnCount: reader.readInteger("turn_count"),
     activeTurnId: reader.readNullableString("active_turn_id"),
     nextMessageSequence: reader.readInteger("next_message_sequence"),
-    executingToolCallId: reader.readNullableString("executing_tool_call_id"),
     lastTurnError: reader.readNullableString("last_turn_error"),
   };
 }
@@ -300,6 +298,15 @@ export function decodeAgentUserMessage(value: unknown): AgentUserMessage {
   return { text: reader.readString("text") };
 }
 
+export function encodeToolCallCompleted(value: ToolCallCompleted): unknown {
+  return { tool_call_id: value.toolCallId };
+}
+
+export function decodeToolCallCompleted(value: unknown): ToolCallCompleted {
+  const reader = new WireRecordReader(value, "ToolCallCompleted");
+  return { toolCallId: reader.readString("tool_call_id") };
+}
+
 export function encodeAgentEvent(value: AgentEvent): unknown {
   return {
     type: value.type,
@@ -432,6 +439,11 @@ export const agentUserMessageCodec = snakeCaseJsonCodec(
   "AgentUserMessage",
   encodeAgentUserMessage,
   decodeAgentUserMessage,
+);
+export const toolCallCompletedCodec = snakeCaseJsonCodec(
+  "ToolCallCompleted",
+  encodeToolCallCompleted,
+  decodeToolCallCompleted,
 );
 export const agentEventCodec = snakeCaseJsonCodec("AgentEvent", encodeAgentEvent, decodeAgentEvent);
 export const resolveInterruptInputCodec = snakeCaseJsonCodec(

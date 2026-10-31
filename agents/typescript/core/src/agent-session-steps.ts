@@ -8,9 +8,15 @@
 
 import {
   ExecuteFailure,
+  StepMovement,
   StepRef,
   Timer,
   Wait,
+  deadEnd,
+  goTo,
+  goToMany,
+  jsonCodec,
+  stringCodec,
   voidCodec,
   type AsyncContext,
   type Condition,
@@ -26,8 +32,8 @@ import {
   ToolExecutionError,
   type AgentTurnContext,
   type DeferredToolExecution,
+  type ToolCallsRequested,
   type TurnCompleted,
-  type TurnSuspended,
 } from "./agent-framework-runner.js";
 import { agentSessionStartInputCodec } from "./agent-session-codecs.js";
 import {
@@ -42,7 +48,6 @@ import {
   emptyAgentUsage,
   isFinalToolCallStatus,
   type AgentInterrupt,
-  type AgentInterruptResolution,
   type AgentSessionStartInput,
   type AgentState,
   type AgentToolCall,
@@ -53,6 +58,15 @@ const minuteMs = 60_000;
 const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
 // An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
 const syncDurability = { waitForDurability: "sync", executeDurability: "sync" } as const;
+const expectedResultCountCodec = jsonCodec<number>({
+  typeName: "ExpectedResultCount",
+  decode: (value) => {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+      throw new TypeError("ResumeTurn input must be a positive integer");
+    }
+    return value;
+  },
+});
 
 export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
   public readonly inputCodec = agentSessionStartInputCodec;
@@ -74,7 +88,6 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
       turnCount: 0,
       activeTurnId: null,
       nextMessageSequence: 1,
-      executingToolCallId: null,
       lastTurnError: null,
     };
     this.transitions.writeAgentState(context, state);
@@ -114,13 +127,14 @@ export class AwaitUserMessageStep implements Step<void> {
   }
 }
 
-export class RunAgentTurnStep implements Step<void> {
+/** Makes the turn's next model call and fans the requested tool calls out to parallel Steps. */
+export class RunModelStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
   public constructor(private readonly transitions: AgentSessionTransitions) {}
 
   public getStepType(): string {
-    return agentSessionStepTypes.runAgentTurn;
+    return agentSessionStepTypes.runModel;
   }
 
   public getStepOptions(): StepOptions {
@@ -145,7 +159,7 @@ export class RunAgentTurnStep implements Step<void> {
     const toolCalls = transitions.readTurnToolCalls(context, turnId);
     const openToolCall = toolCalls.find((toolCall) => !isFinalToolCallStatus(toolCall.status));
     if (openToolCall !== undefined) {
-      throw new Error(`turn ${turnId} resumed before tool call ${openToolCall.toolCallId} finished`);
+      throw new Error(`RunModel for ${turnId} started before tool call ${openToolCall.toolCallId} finished`);
     }
     const toolCallsById = new Map(toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall]));
     const frameworkRunState = transitions.readFrameworkRunState(context);
@@ -168,15 +182,15 @@ export class RunAgentTurnStep implements Step<void> {
         heartbeat: () => transitions.recordHeartbeat(context),
       };
       const outcome = await transitions.runWithHeartbeats(context, () =>
-        transitions.runner.runTurn(turnContext),
+        transitions.runner.runModelStep(turnContext),
       );
       switch (outcome?.kind) {
         case "completed":
           return this.completeTurn(context, state, turnId, toolCalls, outcome, events);
-        case "suspended":
-          return this.suspendTurn(context, state, turnId, toolCalls, outcome, events);
+        case "tool_calls_requested":
+          return this.requestToolCalls(context, state, turnId, toolCalls, outcome, events);
         default:
-          throw new TypeError("runTurn must return a TurnCompleted or TurnSuspended outcome");
+          throw new TypeError("runModelStep must return a TurnCompleted or ToolCallsRequested outcome");
       }
     } finally {
       events.close();
@@ -204,22 +218,21 @@ export class RunAgentTurnStep implements Step<void> {
       status: "waiting_for_user_message",
       turnCount: state.turnCount + 1,
       activeTurnId: null,
-      executingToolCallId: null,
       lastTurnError: null,
     });
     events.writeEvent("turn_completed", { message_count: outcome.newMessages.length });
     return transitions.goToAwaitUserMessage();
   }
 
-  private suspendTurn(
+  private requestToolCalls(
     context: Context,
     state: AgentState,
     turnId: string,
     toolCalls: readonly AgentToolCall[],
-    outcome: TurnSuspended,
+    outcome: ToolCallsRequested,
     events: StreamAgentEventWriter,
   ): StepDecision {
-    validateTurnSuspension(turnId, toolCalls, outcome);
+    validateToolCallsRequested(turnId, toolCalls, outcome);
     const transitions = this.transitions;
     transitions.persistence.frameworkRunState.set(context, outcome.frameworkRunState);
     const createdAt = new Date();
@@ -228,14 +241,17 @@ export class RunAgentTurnStep implements Step<void> {
         ? null
         : new Date(createdAt.getTime() + transitions.config.interruptDeadlineMs).toISOString();
     const interrupts: AgentInterrupt[] = [];
-    for (const [index, deferredToolCall] of outcome.deferredToolCalls.entries()) {
-      const requiresApproval = deferredToolCall.policy.requiresApproval;
+    // goToMany takes movements of mixed input types, which the SDK types as StepMovement<any>.
+    const movements: StepMovement<any>[] = [];
+    for (const [index, requestedToolCall] of outcome.toolCalls.entries()) {
+      const requiresApproval = requestedToolCall.policy.requiresApproval;
+      const effect = requestedToolCall.policy.effect;
       transitions.writeToolCall(context, {
-        toolCallId: deferredToolCall.toolCallId,
+        toolCallId: requestedToolCall.toolCallId,
         turnId,
-        toolName: deferredToolCall.toolName,
-        arguments: deferredToolCall.arguments,
-        effect: deferredToolCall.policy.effect,
+        toolName: requestedToolCall.toolName,
+        arguments: requestedToolCall.arguments,
+        effect,
         requiresApproval,
         status: requiresApproval ? "awaiting_approval" : "approved",
         output: null,
@@ -244,20 +260,24 @@ export class RunAgentTurnStep implements Step<void> {
         deferralOrder: toolCalls.length + index,
       });
       events.writeEvent("tool_call_deferred", {
-        tool_call_id: deferredToolCall.toolCallId,
-        tool_name: deferredToolCall.toolName,
-        effect: deferredToolCall.policy.effect,
+        tool_call_id: requestedToolCall.toolCallId,
+        tool_name: requestedToolCall.toolName,
+        effect,
         requires_approval: requiresApproval,
       });
+      const nextStepType = requiresApproval
+        ? agentSessionStepTypes.awaitToolApproval
+        : toolStepTypeForEffect(effect);
+      movements.push(StepMovement.of(new StepRef(nextStepType), requestedToolCall.toolCallId));
       if (!requiresApproval) {
         continue;
       }
       const interrupt: AgentInterrupt = {
-        interruptId: deferredToolCall.toolCallId,
+        interruptId: requestedToolCall.toolCallId,
         kind: "tool_approval",
-        toolCallId: deferredToolCall.toolCallId,
-        toolName: deferredToolCall.toolName,
-        arguments: deferredToolCall.arguments,
+        toolCallId: requestedToolCall.toolCallId,
+        toolName: requestedToolCall.toolName,
+        arguments: requestedToolCall.arguments,
         createdAt: createdAt.toISOString(),
         deadline,
       };
@@ -271,129 +291,112 @@ export class RunAgentTurnStep implements Step<void> {
     }
     transitions.persistence.pendingInterrupts.set(context, interrupts);
     transitions.recordUsage(context, outcome.usage, events);
-    return transitions.routeToolCalls(context, state);
+    transitions.writeAgentState(context, { ...state, status: "running_tools" });
+    movements.push(
+      StepMovement.of(new StepRef(agentSessionStepTypes.resumeTurn), outcome.toolCalls.length),
+    );
+    return goToMany(...movements);
   }
 }
 
-export class AwaitInterruptResolutionStep implements Step<void> {
-  public readonly inputCodec = voidCodec;
+/** Waits for one tool call's approval or its deadline, then runs or rejects the call. */
+export class AwaitToolApprovalStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
 
   public constructor(private readonly transitions: AgentSessionTransitions) {}
 
   public getStepType(): string {
-    return agentSessionStepTypes.awaitInterruptResolution;
+    return agentSessionStepTypes.awaitToolApproval;
   }
 
   public getStepOptions(): StepOptions {
     const persistence = this.transitions.persistence;
-    // The deadline path rewrites PendingInterrupts, which resolve_interrupt also writes.
+    // The deadline path rewrites PendingInterrupts, which resolve_interrupt and sibling Steps also write.
     return {
       ...syncDurability,
-      waitForLoadAttributeMaps: [persistence.agentToolCalls],
       executeLoadAttributeMaps: [persistence.agentToolCalls],
       executeLockAttributes: [persistence.pendingInterrupts.lock()],
     };
   }
 
-  public waitFor(context: Context): Wait {
+  public waitFor(context: Context, toolCallId: string): Wait {
     const transitions = this.transitions;
-    const state = transitions.readAgentState(context);
-    const awaitingToolCalls = transitions
-      .readTurnToolCalls(context, state.activeTurnId)
-      .filter((toolCall) => toolCall.status === "awaiting_approval");
-    const conditions: Condition[] = awaitingToolCalls.map((toolCall) =>
-      transitions.persistence.interruptResolutions.forOne(toolCall.toolCallId),
-    );
-    // Resolved interrupts left PendingInterrupts, so their deadlines no longer apply.
-    const awaitingIds = new Set(awaitingToolCalls.map((toolCall) => toolCall.toolCallId));
-    const deadlines = transitions
+    const conditions: Condition[] = [transitions.persistence.interruptResolutions.forOne(toolCallId)];
+    // A resolved interrupt left PendingInterrupts, so its deadline no longer applies.
+    const interrupt = transitions
       .readPendingInterrupts(context)
-      .filter((interrupt) => interrupt.deadline !== null && awaitingIds.has(interrupt.interruptId))
-      .map((interrupt) => Date.parse(interrupt.deadline ?? ""));
-    if (deadlines.length > 0) {
-      conditions.push(Timer.byDuration(Math.max(0, Math.min(...deadlines) - Date.now())));
+      .find((pendingInterrupt) => pendingInterrupt.interruptId === toolCallId);
+    if (interrupt?.deadline != null) {
+      conditions.push(Timer.byDuration(Math.max(0, Date.parse(interrupt.deadline) - Date.now())));
     }
-    return conditions.length === 0 ? Wait.skipImmediately() : Wait.anyOf(...conditions);
+    return Wait.anyOf(...conditions);
   }
 
-  public execute(context: Context): StepDecision {
+  public execute(context: Context, toolCallId: string): StepDecision {
     const transitions = this.transitions;
-    const state = transitions.readAgentState(context);
-    const awaitingToolCalls = transitions
-      .readTurnToolCalls(context, state.activeTurnId)
-      .filter((toolCall) => toolCall.status === "awaiting_approval");
-    transitions.writeEvents(context, state.activeTurnId, (events) => {
-      if (context.hasTimerFired()) {
-        this.rejectExpiredInterrupts(context, awaitingToolCalls, events);
-        return;
+    const persistence = transitions.persistence;
+    const toolCall = transitions.readToolCall(context, toolCallId);
+    if (toolCall.status !== "awaiting_approval") {
+      return deadEnd();
+    }
+    const [resolution] = context.channelResults(persistence.interruptResolutions, toolCallId);
+    if (resolution === undefined) {
+      if (!context.hasTimerFired()) {
+        throw new Error(`the approval wait for ${toolCallId} completed without an answer`);
       }
-      for (const toolCall of awaitingToolCalls) {
-        const [resolution] = context.channelResults(
-          transitions.persistence.interruptResolutions,
-          toolCall.toolCallId,
-        );
-        if (resolution !== undefined) {
-          this.resolveToolCall(context, toolCall, resolution, events);
-        }
+      const pendingInterrupts = transitions.readPendingInterrupts(context);
+      const interrupt = pendingInterrupts.find((pending) => pending.interruptId === toolCallId);
+      // resolve_interrupt answered first, or the Timer fired early; wait again.
+      if (interrupt?.deadline == null || Date.parse(interrupt.deadline) > Date.now()) {
+        return goTo(new StepRef(agentSessionStepTypes.awaitToolApproval), toolCallId);
       }
-    });
-    return transitions.routeToolCalls(context, state);
+      persistence.pendingInterrupts.set(
+        context,
+        pendingInterrupts.filter((interrupt) => interrupt.interruptId !== toolCallId),
+      );
+      return this.rejectToolCall(context, toolCall, approvalDeadlinePassed);
+    }
+    if (!resolution.approved) {
+      return this.rejectToolCall(context, toolCall, resolution.rejectionMessage);
+    }
+    transitions.writeToolCall(context, { ...toolCall, status: "approved" });
+    this.writeInterruptResolved(context, toolCall, true, null);
+    return goTo(new StepRef(toolStepTypeForEffect(toolCall.effect)), toolCallId);
   }
 
-  private rejectExpiredInterrupts(
-    context: Context,
-    awaitingToolCalls: readonly AgentToolCall[],
-    events: StreamAgentEventWriter,
-  ): void {
-    const now = Date.now();
-    const pendingInterrupts = this.transitions.readPendingInterrupts(context);
-    const expiredIds = new Set(
-      pendingInterrupts
-        .filter((interrupt) => interrupt.deadline !== null && Date.parse(interrupt.deadline) <= now)
-        .map((interrupt) => interrupt.interruptId),
-    );
-    if (expiredIds.size === 0) {
-      return;
-    }
-    this.transitions.persistence.pendingInterrupts.set(
-      context,
-      pendingInterrupts.filter((interrupt) => !expiredIds.has(interrupt.interruptId)),
-    );
-    for (const toolCall of awaitingToolCalls) {
-      if (expiredIds.has(toolCall.toolCallId)) {
-        this.resolveToolCall(
-          context,
-          toolCall,
-          { approved: false, rejectionMessage: approvalDeadlinePassed },
-          events,
-        );
-      }
-    }
-  }
-
-  private resolveToolCall(
+  private rejectToolCall(
     context: Context,
     toolCall: AgentToolCall,
-    resolution: AgentInterruptResolution,
-    events: StreamAgentEventWriter,
-  ): void {
-    this.transitions.writeToolCall(
-      context,
-      resolution.approved
-        ? { ...toolCall, status: "approved" }
-        : { ...toolCall, status: "rejected", rejectionMessage: resolution.rejectionMessage },
+    rejectionMessage: string | null,
+  ): StepDecision {
+    this.transitions.writeToolCall(context, { ...toolCall, status: "rejected", rejectionMessage });
+    this.writeInterruptResolved(context, toolCall, false, rejectionMessage);
+    this.transitions.writeEvents(context, toolCall.turnId, (events) =>
+      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, "rejected"),
     );
-    events.writeEvent("interrupt_resolved", {
-      interrupt_id: toolCall.toolCallId,
-      approved: resolution.approved,
-      rejection_message: resolution.rejectionMessage,
-    });
+    this.transitions.publishToolCallResult(context, toolCall.toolCallId);
+    return deadEnd();
+  }
+
+  private writeInterruptResolved(
+    context: Context,
+    toolCall: AgentToolCall,
+    isApproved: boolean,
+    rejectionMessage: string | null,
+  ): void {
+    this.transitions.writeEvents(context, toolCall.turnId, (events) =>
+      events.writeEvent("interrupt_resolved", {
+        interrupt_id: toolCall.toolCallId,
+        approved: isApproved,
+        rejection_message: rejectionMessage,
+      }),
+    );
   }
 }
 
-/** Runs one approved deferred call; one class serves both tool Step types. */
-export class ToolCallExecutionStep implements Step<void> {
-  public readonly inputCodec = voidCodec;
+/** Runs one tool call; one class serves `CallTool` and `CallSingleAttemptTool`. */
+export class ToolCallStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
 
   public constructor(
     private readonly transitions: AgentSessionTransitions,
@@ -415,17 +418,16 @@ export class ToolCallExecutionStep implements Step<void> {
     };
   }
 
-  public async execute(context: AsyncContext): Promise<StepDecision> {
+  public async execute(context: AsyncContext, toolCallId: string): Promise<StepDecision> {
     const transitions = this.transitions;
-    const state = transitions.readAgentState(context);
-    const toolCall = transitions.readExecutingToolCall(context, state);
+    const toolCall = transitions.readToolCall(context, toolCallId);
     if (isFinalToolCallStatus(toolCall.status)) {
-      return transitions.routeToolCalls(context, state);
+      return deadEnd();
     }
     if (toolCall.status !== "approved" || toolStepTypeForEffect(toolCall.effect) !== this.stepType) {
-      throw new Error(`tool call ${toolCall.toolCallId} cannot run in ${this.stepType}`);
+      throw new Error(`tool call ${toolCallId} cannot run in ${this.stepType}`);
     }
-    const events = transitions.createEventWriter(context, state.activeTurnId);
+    const events = transitions.createEventWriter(context, toolCall.turnId);
     try {
       events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
       // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
@@ -446,7 +448,7 @@ export class ToolCallExecutionStep implements Step<void> {
           transitions.runner.executeDeferredToolCall(execution),
         );
         if (typeof result?.output !== "string") {
-          throw new TypeError(`executeDeferredToolCall returned no output for ${toolCall.toolCallId}`);
+          throw new TypeError(`executeDeferredToolCall returned no output for ${toolCallId}`);
         }
         finishedToolCall = { ...toolCall, status: "succeeded", output: result.output };
       } catch (error: unknown) {
@@ -457,7 +459,8 @@ export class ToolCallExecutionStep implements Step<void> {
       }
       transitions.writeToolCall(context, finishedToolCall);
       events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, finishedToolCall.status);
-      return transitions.routeToolCalls(context, state);
+      transitions.publishToolCallResult(context, toolCallId);
+      return deadEnd();
     } finally {
       events.close();
     }
@@ -465,15 +468,17 @@ export class ToolCallExecutionStep implements Step<void> {
 }
 
 /**
- * Failure route of a tool Step; one class serves `RecordToolFailure` and `RecordToolOutcomeUnknown`.
- * Both record `outcome_unknown`: a crash, timeout, or unexpected error leaves the effect unknown.
+ * Failure route of a tool Step; it receives the failed Step's input, the tool call ID.
+ * `RecordToolFailure` records `failed` for a `read` call and `outcome_unknown` for a write;
+ * `RecordToolOutcomeUnknown` always records `outcome_unknown`.
  */
-export class ToolCallOutcomeUnknownRecordingStep implements Step<void> {
-  public readonly inputCodec = voidCodec;
+export class ToolCallFailureRecordingStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
 
   public constructor(
     private readonly transitions: AgentSessionTransitions,
     private readonly stepType: string,
+    private readonly isReadFailureRecorded: boolean,
   ) {}
 
   public getStepType(): string {
@@ -488,22 +493,53 @@ export class ToolCallOutcomeUnknownRecordingStep implements Step<void> {
     };
   }
 
+  public execute(context: Context, toolCallId: string): StepDecision {
+    const transitions = this.transitions;
+    const toolCall = transitions.readToolCall(context, toolCallId);
+    if (isFinalToolCallStatus(toolCall.status)) {
+      return deadEnd();
+    }
+    const status =
+      this.isReadFailureRecorded && toolCall.effect === "read" ? "failed" : "outcome_unknown";
+    transitions.writeToolCall(context, { ...toolCall, status, error: readRecoveryDetail(context) });
+    transitions.writeEvents(context, toolCall.turnId, (events) =>
+      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, status),
+    );
+    transitions.publishToolCallResult(context, toolCallId);
+    return deadEnd();
+  }
+}
+
+/** Waits until every tool call of the batch has a final record, then makes the next model call. */
+export class ResumeTurnStep implements Step<number> {
+  public readonly inputCodec = expectedResultCountCodec;
+
+  public constructor(private readonly transitions: AgentSessionTransitions) {}
+
+  public getStepType(): string {
+    return agentSessionStepTypes.resumeTurn;
+  }
+
+  public getStepOptions(): StepOptions {
+    return { ...syncDurability, executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls] };
+  }
+
+  public waitFor(_context: Context, expectedResultCount: number): Wait {
+    return Wait.until(this.transitions.persistence.toolCallResults.forN(expectedResultCount));
+  }
+
   public execute(context: Context): StepDecision {
     const transitions = this.transitions;
     const state = transitions.readAgentState(context);
-    const toolCall = transitions.readExecutingToolCall(context, state);
-    if (isFinalToolCallStatus(toolCall.status)) {
-      return transitions.routeToolCalls(context, state);
+    const unfinishedCount = transitions
+      .readTurnToolCalls(context, state.activeTurnId)
+      .filter((toolCall) => !isFinalToolCallStatus(toolCall.status)).length;
+    if (unfinishedCount > 0) {
+      // A consumed result from an earlier turn must not resume this one early.
+      return goTo(new StepRef(agentSessionStepTypes.resumeTurn), unfinishedCount);
     }
-    transitions.writeToolCall(context, {
-      ...toolCall,
-      status: "outcome_unknown",
-      error: readRecoveryDetail(context),
-    });
-    transitions.writeEvents(context, state.activeTurnId, (events) =>
-      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, "outcome_unknown"),
-    );
-    return transitions.routeToolCalls(context, state);
+    transitions.writeAgentState(context, { ...state, status: "running_model" });
+    return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
   }
 }
 
@@ -549,7 +585,6 @@ export class RecordTurnFailureStep implements Step<void> {
       status: "waiting_for_user_message",
       turnCount: state.turnCount + 1,
       activeTurnId: null,
-      executingToolCallId: null,
       lastTurnError: turnError,
     });
     transitions.writeEvents(context, state.activeTurnId, (events) =>
@@ -559,25 +594,25 @@ export class RecordTurnFailureStep implements Step<void> {
   }
 }
 
-function validateTurnSuspension(
+function validateToolCallsRequested(
   turnId: string,
   existingToolCalls: readonly AgentToolCall[],
-  outcome: TurnSuspended,
+  outcome: ToolCallsRequested,
 ): void {
   if (typeof outcome.frameworkRunState !== "string" || outcome.frameworkRunState === "") {
-    throw new TypeError(`TurnSuspended for ${turnId} needs a non-empty frameworkRunState`);
+    throw new TypeError(`ToolCallsRequested for ${turnId} needs a non-empty frameworkRunState`);
   }
-  if (outcome.deferredToolCalls.length === 0) {
-    throw new TypeError(`TurnSuspended for ${turnId} needs at least one deferred tool call`);
+  if (outcome.toolCalls.length === 0) {
+    throw new TypeError(`ToolCallsRequested for ${turnId} needs at least one tool call`);
   }
   const seenIds = new Set(existingToolCalls.map((toolCall) => toolCall.toolCallId));
-  for (const deferredToolCall of outcome.deferredToolCalls) {
-    const toolCallId = deferredToolCall.toolCallId;
+  for (const requestedToolCall of outcome.toolCalls) {
+    const toolCallId = requestedToolCall.toolCallId;
     if (toolCallId.trim() === "" || toolCallId.includes("/")) {
       throw new TypeError(`tool call ID ${JSON.stringify(toolCallId)} is empty or contains '/'`);
     }
     if (seenIds.has(toolCallId)) {
-      throw new TypeError(`tool call ${toolCallId} was already deferred in ${turnId}`);
+      throw new TypeError(`tool call ${toolCallId} was already requested in ${turnId}`);
     }
     seenIds.add(toolCallId);
   }

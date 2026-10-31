@@ -30,13 +30,14 @@ import {
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import {
-  AwaitInterruptResolutionStep,
+  AwaitToolApprovalStep,
   AwaitUserMessageStep,
   RecordTurnFailureStep,
-  RunAgentTurnStep,
+  ResumeTurnStep,
+  RunModelStep,
   StartAgentSessionStep,
-  ToolCallExecutionStep,
-  ToolCallOutcomeUnknownRecordingStep,
+  ToolCallFailureRecordingStep,
+  ToolCallStep,
 } from "./agent-session-steps.js";
 import {
   AgentSessionTransitions,
@@ -80,7 +81,7 @@ export interface AgentSessionOptions {
    */
   readonly eventStreamCapacityBytes?: number;
   /**
-   * Milliseconds an approval may stay pending before `AwaitInterruptResolution` rejects it with
+   * Milliseconds an approval may stay pending before `AwaitToolApproval` rejects it with
    * `"approval deadline passed"`. Defaults to no deadline: approvals wait indefinitely.
    */
   readonly interruptDeadlineMs?: number;
@@ -145,7 +146,7 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
    *
    * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
    * one call succeeds per interrupt. It locks `PendingInterrupts`, so a call that races
-   * `AwaitInterruptResolution` can fail with `RpcLockConflictError`, which is safe to retry. The
+   * `AwaitToolApproval` can fail with `RpcLockConflictError`, which is safe to retry. The
    * rejection message is dropped when `approved` is `true`.
    *
    * @param context - RPC Context supplied by Dex.
@@ -234,30 +235,33 @@ export function createAgentSessionFlow(
     public readonly agentUsage = persistence.agentUsage;
     public readonly queuedUserMessages = persistence.queuedUserMessages;
     public readonly interruptResolutions = persistence.interruptResolutions;
+    public readonly toolCallResults = persistence.toolCallResults;
     public readonly agentEvents = persistence.agentEvents;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
       new AwaitUserMessageStep(transitions),
-      new RunAgentTurnStep(transitions),
-      new AwaitInterruptResolutionStep(transitions),
-      new ToolCallExecutionStep(
+      new RunModelStep(transitions),
+      new AwaitToolApprovalStep(transitions),
+      new ToolCallStep(
         transitions,
-        agentSessionStepTypes.executeToolCall,
+        agentSessionStepTypes.callTool,
         3,
         agentSessionStepTypes.recordToolFailure,
       ),
-      new ToolCallExecutionStep(
+      new ToolCallStep(
         transitions,
-        agentSessionStepTypes.executeSingleAttemptToolCall,
+        agentSessionStepTypes.callSingleAttemptTool,
         1,
         agentSessionStepTypes.recordToolOutcomeUnknown,
       ),
-      new ToolCallOutcomeUnknownRecordingStep(transitions, agentSessionStepTypes.recordToolFailure),
-      new ToolCallOutcomeUnknownRecordingStep(
+      new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, true),
+      new ToolCallFailureRecordingStep(
         transitions,
         agentSessionStepTypes.recordToolOutcomeUnknown,
+        false,
       ),
+      new ResumeTurnStep(transitions),
       new RecordTurnFailureStep(transitions),
     );
 
@@ -279,7 +283,11 @@ export function createAgentSessionFlow(
           persistence.pendingInterrupts,
           persistence.agentUsage,
         ],
-        channels: [persistence.queuedUserMessages, persistence.interruptResolutions],
+        channels: [
+          persistence.queuedUserMessages,
+          persistence.interruptResolutions,
+          persistence.toolCallResults,
+        ],
         streams: [persistence.agentEvents],
       };
     }
@@ -390,7 +398,7 @@ function resolveAgentSessionConfig(
 ): AgentSessionConfig {
   if (
     typeof runner?.buildUserMessage !== "function" ||
-    typeof runner.runTurn !== "function" ||
+    typeof runner.runModelStep !== "function" ||
     typeof runner.executeDeferredToolCall !== "function"
   ) {
     throw new TypeError("createAgentSessionFlow requires an AgentFrameworkRunner");
