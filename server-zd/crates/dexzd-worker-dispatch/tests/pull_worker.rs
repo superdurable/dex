@@ -10,13 +10,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use dexzd_clock::SystemWallClock;
+use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::{
     self, DispatchTaskErrorReason, InvokeExecuteMethodOutput, InvokeExecuteMethodRequest,
     InvokeWaitForMethodOutput, InvokeWaitForMethodRequest, InvokeWaitForMethodResponse,
     InvokeWorkerRpcRequest, PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskReject,
     PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse, StepMethodHeartbeat,
-    StepStreamWrite, Value, WorkerErrorResponse, poll_worker_task_frame, poll_worker_task_request,
-    poll_worker_task_response, worker_task_service_client::WorkerTaskServiceClient,
+    StepStreamWrite, Value, WorkerErrorResponse, poll_worker_task, poll_worker_task_frame,
+    poll_worker_task_request, poll_worker_task_response,
+    worker_task_service_client::WorkerTaskServiceClient,
     worker_task_service_server::WorkerTaskServiceServer,
 };
 use dexzd_worker_dispatch::{
@@ -1248,4 +1250,178 @@ async fn busy_workers_receive_no_idle_ping() {
         completed(&mut handle).await,
         DispatchOutcome::WorkerResult { .. }
     ));
+}
+
+fn request_for_step(flow_id: &str, step_type: &str) -> DispatchRequest {
+    let mut step_request = request(0, flow_id);
+    step_request.payload = DispatchTaskPayload::WaitFor(InvokeWaitForMethodRequest {
+        flow_type: "Flow".to_owned(),
+        step_type: step_type.to_owned(),
+        ..Default::default()
+    });
+    step_request.dispatch_wait = Some(Duration::from_secs(5));
+    step_request
+}
+
+/// Returns the next task's ID and Step type.
+async fn step_task(worker: &mut TestWorker) -> (String, String) {
+    match worker.next().await.frame.expect("frame exists") {
+        poll_worker_task_response::Frame::Task(task) => match task.request {
+            Some(poll_worker_task::Request::WaitFor(wait_for)) => {
+                (task.task_id, wait_for.step_type)
+            }
+            other => panic!("expected a WaitFor task, got {other:?}"),
+        },
+        other => panic!("expected task, got {other:?}"),
+    }
+}
+
+/// Polls until `count` dispatches are searching without an assigned Worker.
+async fn wait_for_queued_tasks(metrics: &NodeMetrics, count: i64) {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while metrics.matching_queued_tasks.get() != count {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("dispatches start waiting");
+}
+
+#[tokio::test]
+async fn an_idle_stream_skips_a_waiter_that_excludes_it() {
+    let metrics = NodeMetrics::unregistered();
+    let dispatch = WorkerDispatch::new_with_metrics(
+        MatchingConfig::default(),
+        Arc::new(SystemWallClock),
+        metrics.clone(),
+    );
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
+    let _unknown_handle = dispatch
+        .dispatch(request_for_step("unknown", "UnknownStep"))
+        .expect("dispatch starts");
+    let (rejected, _) = step_task(&mut worker).await;
+    // Unlike a capacity backoff, this exclusion lasts for the whole search, so no timing matters.
+    worker.send(poll_worker_task_request::Frame::Reject(
+        PollWorkerTaskReject {
+            task_id: rejected,
+            reason: PollWorkerTaskRejectReason::UnknownStep as i32,
+        },
+    ));
+    let mut busy_handle = dispatch
+        .dispatch(request_for_step("busy", "BusyStep"))
+        .expect("dispatch starts");
+    let (busy_task, busy_step) = step_task(&mut worker).await;
+    assert_eq!(busy_step, "BusyStep");
+    let mut eligible_handle = dispatch
+        .dispatch(request_for_step("eligible", "EligibleStep"))
+        .expect("dispatch starts");
+    // On this single-threaded runtime, counted dispatches have already registered as waiters.
+    wait_for_queued_tasks(&metrics, 2).await;
+    worker
+        .sender
+        .send(result(&busy_task))
+        .expect("result sends");
+    assert!(matches!(
+        completed(&mut busy_handle).await,
+        DispatchOutcome::WorkerResult { .. }
+    ));
+    // The older waiter excludes this Worker ID, so the stream must wake the newer one.
+    let (eligible_task, eligible_step) = step_task(&mut worker).await;
+    assert_eq!(eligible_step, "EligibleStep");
+    worker
+        .sender
+        .send(result(&eligible_task))
+        .expect("result sends");
+    assert!(matches!(
+        completed(&mut eligible_handle).await,
+        DispatchOutcome::WorkerResult { .. }
+    ));
+}
+
+#[tokio::test]
+async fn one_stream_serves_many_waiting_dispatches_in_arrival_order() {
+    let metrics = NodeMetrics::unregistered();
+    let dispatch = WorkerDispatch::new_with_metrics(
+        MatchingConfig::default(),
+        Arc::new(SystemWallClock),
+        metrics.clone(),
+    );
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
+    let mut busy_handle = dispatch
+        .dispatch(request_for_step("busy", "BusyStep"))
+        .expect("dispatch starts");
+    let (busy_task, _) = step_task(&mut worker).await;
+    let waiting_count = 64;
+    let mut handles = Vec::new();
+    for index in 0..waiting_count {
+        handles.push(
+            dispatch
+                .dispatch(request_for_step(
+                    &format!("waiting-{index}"),
+                    &format!("Step{index}"),
+                ))
+                .expect("dispatch starts"),
+        );
+    }
+    wait_for_queued_tasks(&metrics, waiting_count).await;
+    worker
+        .sender
+        .send(result(&busy_task))
+        .expect("result sends");
+    assert!(matches!(
+        completed(&mut busy_handle).await,
+        DispatchOutcome::WorkerResult { .. }
+    ));
+    for (index, handle) in handles.iter_mut().enumerate() {
+        let (assigned, step_type) = step_task(&mut worker).await;
+        assert_eq!(step_type, format!("Step{index}"));
+        worker.sender.send(result(&assigned)).expect("result sends");
+        assert!(matches!(
+            completed(handle).await,
+            DispatchOutcome::WorkerResult { .. }
+        ));
+    }
+    assert_eq!(metrics.matching_queued_tasks.get(), 0);
+}
+
+#[tokio::test]
+async fn a_sticky_search_falls_back_when_its_last_stream_disconnects() {
+    let metrics = NodeMetrics::unregistered();
+    let dispatch = WorkerDispatch::new_with_metrics(
+        MatchingConfig::default(),
+        Arc::new(SystemWallClock),
+        metrics.clone(),
+    );
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut sticky = register_worker(&server.channel, registration("sticky", "sticky")).await;
+    let mut fallback = register_worker(&server.channel, registration("Flow", "fallback")).await;
+    // The busy task's Flow type has no Worker, so it never competes for the fallback Worker.
+    let mut busy_request = request(0, "busy-sticky");
+    busy_request.flow_type = "Unserved".to_owned();
+    busy_request.sticky_app_worker_id = Some("sticky".to_owned());
+    let _busy = dispatch
+        .dispatch(busy_request)
+        .expect("busy dispatch starts");
+    task_id(&mut sticky).await;
+    let mut waiting_request = request_for_step("waiting-sticky", "WaitingStep");
+    waiting_request.sticky_app_worker_id = Some("sticky".to_owned());
+    let mut waiting = dispatch
+        .dispatch(waiting_request)
+        .expect("waiting dispatch starts");
+    wait_for_queued_tasks(&metrics, 1).await;
+    let disconnected_at = Instant::now();
+    drop(sticky);
+    // The default five-second sticky wait must not delay the fallback.
+    let (fallback_task, step_type) = step_task(&mut fallback).await;
+    assert_eq!(step_type, "WaitingStep");
+    assert!(disconnected_at.elapsed() < Duration::from_secs(2));
+    fallback
+        .sender
+        .send(result(&fallback_task))
+        .expect("fallback result sends");
+    assert!(
+        matches!(completed(&mut waiting).await, DispatchOutcome::WorkerResult { app_worker_id, .. } if app_worker_id == "fallback")
+    );
 }
