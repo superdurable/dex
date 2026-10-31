@@ -301,3 +301,44 @@ async fn rebuilt_markers_do_not_return_on_failback_and_unknown_keys_are_ignored(
     assert!(returned.load_rebuild_markers().unwrap().is_empty());
     assert_eq!(returned.unknown_objects, 2);
 }
+
+#[tokio::test]
+async fn paged_pending_scans_preserve_maximum_partition_and_tenant_keys() {
+    let directory = TempDir::new().unwrap();
+    let objects = Arc::new(InMemoryObjectStore::new());
+    let repairs: Vec<_> = (0..1025_u128)
+        .map(|run_number| {
+            ProjectionRepair::new(
+                TenantId(u64::MAX),
+                RunId(run_number.to_be_bytes()),
+                FlowHash(3),
+                PartitionId(u16::MAX),
+                RepairPriority::Start,
+            )
+        })
+        .collect();
+    let mut pending =
+        PendingRunStore::new(local_store(&directory), objects.clone(), [255; 16], 1).unwrap();
+    pending.record(&repairs).unwrap();
+    drop(pending);
+    let mut pending =
+        PendingRunStore::new(local_store(&directory), objects.clone(), [255; 16], 1).unwrap();
+    assert_eq!(pending.count(), 1025);
+    pending.sync_objects(1).await.unwrap();
+    let successor_directory = TempDir::new().unwrap();
+    let mut successor =
+        PendingRunStore::new(local_store(&successor_directory), objects, [255; 16], 2).unwrap();
+    successor.load_objects().await.unwrap();
+    let restored = successor.take_batch(2048).unwrap();
+    assert_eq!(restored.len(), 1025);
+    assert!(
+        restored
+            .iter()
+            .all(|repair| repair.partition == PartitionId(u16::MAX)
+                && repair.tenant_id == TenantId(u64::MAX))
+    );
+    assert_eq!(
+        restored.last().unwrap().run_id,
+        RunId(1024_u128.to_be_bytes())
+    );
+}

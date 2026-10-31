@@ -1117,7 +1117,8 @@ loads pending objects and rewrites them under its epoch before projecting. When 
 committed local run identities and document versions with bounded SQL pages,
 using a disk-backed sort and streaming merge. Idle partitions advance SQL progress
 to the applied position when retained frames and unsynced work have drained,
-including at graceful shutdown.
+including at graceful shutdown. Shutdown attempts one bounded sync batch; remaining
+unsynced work keeps its checkpoints held for recovery.
 It records missing or newer documents and Deletes for SQL-only purged runs,
 syncs that pending work, then advances the checkpoint. A fresh schema uses the
 same comparison. A crash before pending work is synced leaves the checkpoint

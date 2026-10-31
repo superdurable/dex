@@ -104,12 +104,12 @@ impl PendingRunStore {
             count: 0,
         };
         let prefix = store.prefix(b'e');
-        let mut start = prefix.clone();
+        let (mut start, end) = dexzd_keyspace::row_keys::prefix_range(&prefix);
         loop {
             let rows = store.local.scan(
                 ColumnFamily::NodeMeta,
                 Some(&start),
-                None,
+                Some(&end),
                 ScanDirection::Forward,
                 256,
             )?;

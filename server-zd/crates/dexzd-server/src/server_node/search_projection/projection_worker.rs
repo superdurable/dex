@@ -228,9 +228,8 @@ impl SearchProjectionWorker {
             pending.record(&repairs)?;
             pending.store_rebuild_markers(&self.frames.rebuild_status().0)?;
         }
-        while super::sync_pending_objects(&self.pending, self.cfg.pending_sync_partitions).await?
-            > 0
-        {}
+        // Unsynced partitions retain their checkpoint guard; shutdown cannot drain an unbounded object backlog.
+        super::sync_pending_objects(&self.pending, self.cfg.pending_sync_partitions).await?;
         self.synchronize_pending().await
     }
 

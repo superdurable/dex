@@ -57,12 +57,13 @@ struct SpoolVersion {
 impl LocalRunVersions {
     pub(super) fn next(&mut self) -> Result<Option<LocalRunVersion>, PartitionVersionReadError> {
         if self.buffered.is_empty() {
+            let (_, end) = dexzd_keyspace::row_keys::prefix_range(&self.prefix);
             let rows = self
                 .local
                 .scan(
                     ColumnFamily::NodeMeta,
                     Some(&self.start),
-                    None,
+                    Some(&end),
                     ScanDirection::Forward,
                     256,
                 )
@@ -115,8 +116,7 @@ fn clear_spool(
     local: &Arc<dyn LocalStore>,
     prefix: &[u8],
 ) -> Result<(), PartitionVersionReadError> {
-    let mut end = prefix.to_vec();
-    end.push(255);
+    let (_, end) = dexzd_keyspace::row_keys::prefix_range(prefix);
     let mut batch = WriteBatch::new();
     batch.delete_range(ColumnFamily::NodeMeta, prefix, end);
     local

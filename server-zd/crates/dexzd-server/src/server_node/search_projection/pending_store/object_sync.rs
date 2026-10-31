@@ -250,13 +250,13 @@ impl PendingRunStore {
         .encode_to_vec();
         let mut prefix = self.prefix(b'e');
         prefix.extend_from_slice(&partition.0.to_be_bytes());
-        let mut start = prefix.clone();
+        let (mut start, end) = dexzd_keyspace::row_keys::prefix_range(&prefix);
         let mut has_runs = false;
         loop {
             let rows = self.local.scan(
                 ColumnFamily::NodeMeta,
                 Some(&start),
-                None,
+                Some(&end),
                 ScanDirection::Forward,
                 256,
             )?;
