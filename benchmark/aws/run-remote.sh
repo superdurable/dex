@@ -46,11 +46,12 @@ tunable_names() {
 
 remote() {
   if [[ "$remote_mode" == local ]]; then
-    bash -c "$1"
+    bash -c "$1" < /dev/null
   else
     # The command is built and quoted locally on purpose.
     # shellcheck disable=SC2086,SC2029
-    ssh $ssh_options "$server_host" "$1"
+    # -n keeps ssh from reading the points list on stdin.
+    ssh -n $ssh_options "$server_host" "$1"
   fi
 }
 
