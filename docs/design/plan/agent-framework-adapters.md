@@ -139,7 +139,7 @@ languages.
 | `StartAgentSession` | `AgentSessionStartInput` | Start Step. Initializes `AgentState` (`next_message_sequence` 1), `AgentUsage`, and an empty `PendingInterrupts`. With a non-blank `initial_message`, appends it as the turn's user message. | `RunModel` when `initial_message` is set and not blank, else `AwaitUserMessage` |
 | `AwaitUserMessage` | none | WaitFor `QueuedUserMessages.for_one()`. Execute appends the user message and starts a turn. | `RunModel` |
 | `RunModel` | none | Async Execute. Calls `run_model_step` for one model call. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | `TurnCompleted`: appends `new_messages`, clears the turn, `AwaitUserMessage`. `ToolCallsRequested`: stores `FrameworkRunState`, one `AgentToolCalls` record per call, and the interrupts, then `go_to_many` with one Step per call plus `ResumeTurn(<call count>)` |
-| `AwaitToolApproval` | tool call ID | WaitFor any of `InterruptResolutions.for_one(id)` and, while the interrupt is in `PendingInterrupts` with a deadline, a Timer at that deadline. Execute locks `PendingInterrupts`. | Approved: records `approved`, then `CallTool` or `CallSingleAttemptTool` (id). Rejected or deadline passed: records `rejected`, publishes `ToolCallResults`, ends (dead end). Timer fired after `resolve_interrupt` already removed the interrupt: itself (id), which consumes that answer |
+| `AwaitToolApproval` | tool call ID | WaitFor any of `InterruptResolutions.for_one(id)` and, while the interrupt is in `PendingInterrupts` with a deadline, a Timer at that deadline, rounded up to whole seconds because Dex Timers take whole seconds. Execute locks `PendingInterrupts`. | Approved: records `approved`, then `CallTool` or `CallSingleAttemptTool` (id). Rejected or deadline passed: records `rejected`, publishes `ToolCallResults`, ends (dead end). Timer fired after `resolve_interrupt` already removed the interrupt, or before the deadline: itself (id), which waits again |
 | `CallTool` | tool call ID | Execute one `read` or `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. | Ends |
 | `CallSingleAttemptTool` | tool call ID | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. Same recording. | Ends |
 | `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for an `idempotent_write` call, with the recovery detail in `error`, and publishes `ToolCallResults`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts ran out. | Ends |
@@ -161,9 +161,11 @@ Rules:
 - Before a tool Step calls `execute_deferred_tool_call`, it writes
   `tool_call_started` and awaits a heartbeat. Dex can redeliver a task to
   another Worker at the same attempt when the first Worker disconnects before
-  sending any output; that output closes the window before the tool runs. A
-  frame that left the Worker but never reached Dex remains a small residual
-  window.
+  Dex receives any output; that output narrows the window before the tool
+  runs. Awaiting the heartbeat only queues the frame on the Worker. If the
+  Worker dies before the frame leaves it, or after it left but before Dex
+  received it, Dex can still redeliver the attempt, so a small residual window
+  remains.
 - `ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
   the error message and is not retried. Any other error fails the attempt.
 - A turn stores no messages while tool calls run. `TurnCompleted.new_messages`
@@ -284,7 +286,7 @@ AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | 
 | RPC | Input | Output | Notes |
 | --- | --- | --- | --- |
 | `send_user_message` | `AgentUserMessage` | bool | Transactional; false for blank text |
-| `resolve_interrupt` | `ResolveInterruptRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not pending; removes it and publishes the resolution in one commit, dropping `rejection_message` on approval |
+| `resolve_interrupt` | `ResolveInterruptRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not pending or its deadline has passed; removes it and publishes the resolution in one commit, dropping `rejection_message` on approval |
 | `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages` and `AgentToolCalls`; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, and the queued message count |
 | `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first. `before_sequence` null starts after the newest message. Limit clamped to 1..200. `next_before_sequence` is the page's first sequence, or null when the page starts at 1 |
 
