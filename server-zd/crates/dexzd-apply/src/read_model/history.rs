@@ -8,12 +8,12 @@
 
 use std::collections::BTreeMap;
 
-use dexzd_keyspace::row_keys::prefix_range;
+use dexzd_keyspace::row_keys::{history_record_key, prefix_range};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{GetHistoryEventsResponse, HistoryEventIdRange};
 use dexzd_protocol::dexzd::v1::HistoryRecord;
 
-use crate::history::{genesis_seq, history_page};
+use crate::history::genesis_seq;
 use crate::read_model::{ReadModelError, RunView};
 use crate::{ApplyError, FlowStateReader};
 
@@ -135,6 +135,9 @@ fn lineage_cutoffs(
     Ok(lineage)
 }
 
+/// History records one boundary probe reads; the first record after FlowStart usually has events.
+const RETAINED_BOUNDARY_PROBE_RECORDS: usize = 4;
+
 /// Event IDs that window pruning removed: every ID from `first_pruned_event_id` up to before
 /// `first_retained_event_id`.
 struct RetainedHistoryBoundary {
@@ -173,9 +176,27 @@ fn retained_history_boundary(
         .max()
         .unwrap_or(0)
         .saturating_add(1);
+    let prefix = run_table_prefix(
+        view.rows.flow_hash,
+        view.rows.run_id,
+        RunTable::HistoryRecord,
+    );
+    let (_, end) = prefix_range(&prefix);
     let mut next_seq = genesis_seq.saturating_add(1);
     let first_retained_event_id = loop {
-        let page = history_page(&view.transaction, view.rows, next_seq)?;
+        let start = history_record_key(view.rows.flow_hash, view.rows.run_id, next_seq);
+        let page: Vec<HistoryRecord> = view
+            .transaction
+            .scan_messages(
+                ColumnFamily::History,
+                &start,
+                &end,
+                RETAINED_BOUNDARY_PROBE_RECORDS,
+                "history record",
+            )?
+            .into_iter()
+            .map(|(_, record)| record)
+            .collect();
         if let Some(event_id) = page
             .iter()
             .find_map(|record| record.events.iter().map(|event| event.event_id).min())
