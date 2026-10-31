@@ -552,5 +552,66 @@ describe('paged Timeline on the run page', () => {
     expect(timelineRow(1500).className).toContain('selected');
     expect(server.requests.map((request) => request.startInternalEventId)).toEqual([1001]);
   });
+
+  it('reads the reported pruned range, retained boundary, and string context IDs', async () => {
+    const events = crossPageHistory(3000, 6000, 6000)
+      .filter((event) => event.eventId === 1 || event.eventId >= 4001)
+      .map((event) => {
+        const context = event.payload.context as Record<string, unknown> | undefined;
+        return context ? { ...event, payload: { ...event.payload, context: { ...context, fromEventId: '1' } } } : event;
+      });
+    const server = historyTestServer(events);
+    server.responseFields = { firstRetainedEventId: 4001, prunedEventIdRange: { startEventId: 2, endEventId: 4000 } };
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('6000'));
+    fireEvent.click(timelineRow(6000));
+    const stub = await screen.findByText('↓ from Review-1 WaitFor completed (event #3000, removed by the history window)');
+    expect(stub.tagName).toBe('SPAN');
+    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('5000'));
+    expect(timelineRowIDs().at(-1)).toBe('4001');
+    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+
+    await screen.findByText('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
+    expect(timelineRowIDs().slice(-2)).toEqual(['4001', '1']);
+  });
+
+  it('uses the reported run-wide pruned range after time travel, where the inference finds none', async () => {
+    const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review', fromEventId: '9001' };
+    const secondAttempt: FlowHistoryEvent[] = Array.from({ length: 1000 }, (_, offset): FlowHistoryEvent => {
+      const eventId = 9001 + offset;
+      if (eventId === 9001) {
+        return {
+          eventId,
+          eventTime: '2026-10-24T18:00:00Z',
+          type: 'TimeTravelFork',
+          payload: { previousRunAttempt: 1, targetRunAttempt: 1, targetEventId: '1' },
+          runAttempt: 2,
+        };
+      }
+      if (eventId === 10_000) {
+        return {
+          ...stepEvent(eventId, 'StepExecuteCompleted', review),
+          payload: { context: { ...review, waitForCompletedEventId: '4000' }, input: { conditionResults: {} } },
+          runAttempt: 2,
+        };
+      }
+      return { eventId, eventTime: '2026-10-24T18:00:00Z', type: 'ChannelExternalPublish', payload: { messages: [] }, runAttempt: 2 };
+    });
+    const server = historyTestServer([sequentialStepHistory(1)[0], ...secondAttempt]);
+    server.responseFields = { firstRetainedEventId: 5001, prunedEventIdRange: { startEventId: 2, endEventId: 5000 } };
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('10000'));
+    fireEvent.click(timelineRow(10_000));
+    await screen.findByText('↓ from Review-1 WaitFor completed (event #4000, removed by the history window)');
+    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+
+    await screen.findByText('Events #2 to #5000 were removed by the history window; FlowStart is kept.');
+    expect(timelineRowIDs().slice(-2)).toEqual(['9001', '1']);
+  });
 });
 

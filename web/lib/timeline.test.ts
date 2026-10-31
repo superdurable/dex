@@ -393,4 +393,26 @@ describe('selected event relations across pages', () => {
     expect(relations.related.map((entry) => entry.relation)).toEqual(['wait-for', 'started']);
     expect(elapsedMs).toBeLessThan(1000);
   });
+
+  it('prefers the reported deciding event over the in-page source search', () => {
+    const rpc = (eventId: number): FlowHistoryEvent => ({
+      eventId,
+      eventTime: null,
+      type: 'RpcExecutionCompleted',
+      payload: { rpcName: 'approve' },
+    });
+    const started = stepEvent(9, 'StepWaitForCompleted', {
+      stepExecutionId: 'Approval-1',
+      fromStepExecutionId: '__rpc/approve',
+      stepType: 'Approval',
+    });
+    const reported = { ...started, payload: { context: { ...(started.payload.context as object), fromEventId: '5' } } };
+
+    expect(buildTimelineLinks([rpc(5), rpc(8), started]).map((link) => link.fromEventId)).toEqual([8]);
+    expect(buildTimelineLinks([rpc(5), rpc(8), reported]).map((link) => link.fromEventId)).toEqual([5]);
+    const offPage = buildSelectedTimelineRelations([rpc(8), reported], reported, newestPage);
+    expect(offPage.links).toEqual([]);
+    expect(offPage.related.map((entry) => [entry.relation, entry.location, entry.eventId])).toEqual([['source', 'other-page', 5]]);
+  });
 });
+

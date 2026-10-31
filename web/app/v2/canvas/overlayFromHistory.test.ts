@@ -16,8 +16,10 @@ import {
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
   attemptCountFromRecord,
+  isWindowSlideContiguous,
   loadRecentRunHistory,
   mergeStepExecutions,
+  olderRecordsAfterWindowSlide,
   prependStepRecords,
   overlayFromHistory,
   payloadFromRecord,
@@ -276,6 +278,100 @@ describe('overlay of a partial history window', () => {
     expect(merged.records[0].executeEvent?.eventId).toBe(5001);
     expect(merged.records[0].execution.isWaitForNotLoaded).toBe(false);
     expect(current.records[0].waitEvent).toBeUndefined();
+  });
+});
+
+describe('older records while Live slides the window', () => {
+  function stepMethodEvent(
+    eventId: number,
+    type: FlowHistoryEvent['type'],
+    stepExecutionId: string,
+  ): FlowHistoryEvent {
+    return {
+      eventId,
+      eventTime: '2026-09-18T00:00:00.000Z',
+      type,
+      payload: {
+        context: { stepExecutionId, stepType: 'Review' },
+        ...(type.startsWith('StepExecute') ? { input: { conditionResults: {} } } : {}),
+      },
+    };
+  }
+
+  function windowBundle(loadedFromEventId: number, events: FlowHistoryEvent[]) {
+    return overlayFromHistory({ flowId: 'flow-1', runId: 'run-1', status: 'Running', events, loadedFromEventId });
+  }
+
+  it('keeps executions that slide out between the older records and the window', () => {
+    const olderWindow = windowBundle(900, [
+      stepMethodEvent(900, 'StepWaitForCompleted', 'Review-0'),
+      stepMethodEvent(901, 'StepExecuteCompleted', 'Review-0'),
+    ]);
+    const previous = windowBundle(1001, [
+      stepMethodEvent(1001, 'StepWaitForCompleted', 'Review-1'),
+      stepMethodEvent(1002, 'StepExecuteCompleted', 'Review-1'),
+      stepMethodEvent(1200, 'StepWaitForCompleted', 'Review-2'),
+      stepMethodEvent(1400, 'StepExecuteCompleted', 'Review-2'),
+    ]);
+    const next = windowBundle(1300, [
+      stepMethodEvent(1400, 'StepExecuteCompleted', 'Review-2'),
+      stepMethodEvent(1500, 'StepWaitForCompleted', 'Review-3'),
+    ]);
+    expect(isWindowSlideContiguous(previous, next)).toBe(true);
+
+    const older = olderRecordsAfterWindowSlide({ Review: olderWindow.records }, previous, next);
+    const shown = prependStepRecords(next, older.Review, 'Review');
+
+    expect(shown.records.map((record) => record.execution.stepExecutionId))
+      .toEqual(['Review-0', 'Review-1', 'Review-2', 'Review-3']);
+    expect(shown.records[2].waitEvent?.eventId).toBe(1200);
+    expect(shown.records[2].executeEvent?.eventId).toBe(1400);
+  });
+
+  it('reports a gap when the window reloads past the previous one', () => {
+    const previous = windowBundle(1001, [stepMethodEvent(1001, 'StepWaitForCompleted', 'Review-1')]);
+    const reloaded = windowBundle(5001, [stepMethodEvent(5001, 'StepWaitForCompleted', 'Review-9')]);
+    const otherRun = { ...reloaded, loadedFromEventId: 1001, overlay: { ...reloaded.overlay, runId: 'run-2' } };
+
+    expect(isWindowSlideContiguous(previous, reloaded)).toBe(false);
+    expect(isWindowSlideContiguous(previous, otherRun)).toBe(false);
+  });
+
+  it('shows an active Step whose WaitFor completed before the window as earlier, not loaded', () => {
+    const active = {
+      stepExecutionId: 'Review-1',
+      fromStepExecutionId: '__start__',
+      stepType: 'Review',
+      phase: 'Active' as const,
+      completedConditions: { completedTimerConditions: { 0: 2 } },
+      stepExecutionLocals: [],
+      timers: [],
+    };
+    const partial = overlayFromHistory({
+      flowId: 'flow-1',
+      runId: 'run-1',
+      status: 'Running',
+      events: [],
+      activeSteps: [active],
+      loadedFromEventId: 5001,
+    });
+    expect(partial.overlay.executions[0]).toMatchObject({
+      waitFor: { status: 'completed', conditions: [] },
+      isWaitForNotLoaded: true,
+      execute: { status: 'running' },
+    });
+
+    const withoutWaitFor = overlayFromHistory({
+      flowId: 'flow-1',
+      runId: 'run-1',
+      status: 'Running',
+      events: [],
+      activeSteps: [{ ...active, completedConditions: undefined }],
+      loadedFromEventId: 5001,
+    });
+    expect(withoutWaitFor.overlay.executions[0].waitFor).toBeNull();
+    const complete = overlayFromHistory({ flowId: 'flow-1', runId: 'run-1', status: 'Running', events: [], activeSteps: [active] });
+    expect(complete.overlay.executions[0].waitFor).toBeNull();
   });
 });
 

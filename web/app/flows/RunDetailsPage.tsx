@@ -455,7 +455,10 @@ export function RunDetailsPage({
   }, []);
 
   const goBackInTimeline = useCallback(() => {
-    navigateTimeline(async () => setSelectedEvent(await backInTimeline()));
+    navigateTimeline(async () => {
+      const result = await backInTimeline();
+      if (result.kind === 'restored') setSelectedEvent(result.selectedEvent);
+    });
   }, [backInTimeline, navigateTimeline]);
 
   useEffect(() => {

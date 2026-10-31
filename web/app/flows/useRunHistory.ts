@@ -35,6 +35,11 @@ interface TimelineLocation {
   selectedEventId: number | null;
 }
 
+/** What Back restored, or that a later navigation superseded it and nothing changed. */
+export type TimelineBackResult =
+  | { kind: 'restored'; selectedEvent: FlowHistoryEvent | null }
+  | { kind: 'superseded' };
+
 /** What a jump found: the event, an event the history window removed, or nothing. */
 export type TimelineJumpResult =
   | { kind: 'loaded'; event: FlowHistoryEvent }
@@ -63,8 +68,8 @@ export interface RunHistory {
   showNewest: () => void;
   /** Loads the page that holds an event when needed. */
   jumpToEvent: (eventId: number, selectedEvent: FlowHistoryEvent | null) => Promise<TimelineJumpResult>;
-  /** Returns the event that was selected before the last jump, or null. */
-  back: () => Promise<FlowHistoryEvent | null>;
+  /** Restores the page and the event selected before the last jump. */
+  back: () => Promise<TimelineBackResult>;
   highlightEvent: (eventId: number | null) => void;
 }
 
@@ -261,26 +266,28 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     timelinePage,
   ]);
 
-  const back = useCallback(async () => {
+  const back = useCallback(async (): Promise<TimelineBackResult> => {
     const location = backStack.at(-1);
-    if (!location) return null;
-    setBackStack(backStack.slice(0, -1));
+    if (!location) return { kind: 'superseded' };
     const findSelected = (events: FlowHistoryEvent[] | undefined) => (
       events?.find((event) => event.eventId === location.selectedEventId) ?? null
     );
     if (location.pageStartEventId === null) {
       navigationSequence.current += 1;
+      setBackStack(backStack.slice(0, -1));
       setTimelinePage(null);
       setHighlightedEventId(location.selectedEventId);
-      return findSelected(newestRef.current?.events);
+      return { kind: 'restored', selectedEvent: findSelected(newestRef.current?.events) };
     }
     const startEventId = location.pageStartEventId;
     const previousWindow = await loadTimelinePage(() => loadHistoryWindowFrom(pageLoader(), startEventId));
-    if (!previousWindow) return null;
+    // A superseded reload keeps the entry, so Back still returns there later.
+    if (!previousWindow) return { kind: 'superseded' };
+    setBackStack((stack) => (stack.at(-1) === location ? stack.slice(0, -1) : stack));
     acceptWindow(previousWindow);
     setTimelinePage(previousWindow);
     setHighlightedEventId(location.selectedEventId);
-    return findSelected(previousWindow.events);
+    return { kind: 'restored', selectedEvent: findSelected(previousWindow.events) };
   }, [acceptWindow, backStack, loadTimelinePage, pageLoader]);
 
   const timelineWindow = timelinePage ?? newest;

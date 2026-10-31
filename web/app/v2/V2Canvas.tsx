@@ -23,7 +23,9 @@ import {
 import {
   loadCurrentRun,
   loadRecentRunHistory,
+  isWindowSlideContiguous,
   mergeOlderExecutionRecords,
+  olderRecordsAfterWindowSlide,
   recentRunEvents,
   recentRunLoadedFromEventId,
   attemptCountFromRecord,
@@ -128,6 +130,7 @@ export function V2Canvas({
   const [hydratedExecuteEvent, setHydratedExecuteEvent] = useState<FlowHistoryEvent | null>(null);
   const blobCache = useRef(new Map<string, unknown>());
   const recentRunHistory = useRef<RecentRunHistory | undefined>(undefined);
+  const currentBundleRef = useRef<RunOverlayBundle | null>(null);
 
   useEffect(() => {
     setCatalog(definitions);
@@ -146,23 +149,29 @@ export function V2Canvas({
     setSelectedExecutionId(null);
     setRunError('');
     recentRunHistory.current = undefined;
+    currentBundleRef.current = null;
     if (!flowId) return undefined;
     let cancelled = false;
     let timer: number | undefined;
     const load = async () => {
       try {
-        const { summary, events, history, state } = await loadCurrentRun(flowId, recentRunHistory.current);
+        const previousHistory = recentRunHistory.current;
+        const { summary, events, history, state } = await loadCurrentRun(flowId, previousHistory);
         if (cancelled) return;
         recentRunHistory.current = history;
         setHistoryEvents(events);
-        setCurrentBundle(overlayFromHistory({
+        const nextBundle = overlayFromHistory({
           flowId,
           runId: summary.runId,
           status: summary.flowStatus,
           events,
           activeSteps: state?.activeStepExecutions ?? [],
           loadedFromEventId: recentRunLoadedFromEventId(history),
-        }));
+        });
+        const previousBundle = currentBundleRef.current;
+        currentBundleRef.current = nextBundle;
+        setCurrentBundle(nextBundle);
+        if (previousBundle) keepOlderRecordsContiguous(previousBundle, nextBundle, previousHistory?.runAttempt !== history.runAttempt);
         setRunError('');
         setLoadedFlowId(flowId);
         onSummary?.(summary);
@@ -427,6 +436,21 @@ export function V2Canvas({
     }
     : null;
   const canLoadMore = historyCursor !== null && (historyCursor.hasEarlierEvents || historyCursor.previousRunId !== '');
+
+  /** Older records must stay contiguous with the window as Live slides it; otherwise they are dropped. */
+  const keepOlderRecordsContiguous = useCallback((
+    previousBundle: RunOverlayBundle,
+    nextBundle: RunOverlayBundle,
+    hasRunAttemptChanged: boolean,
+  ) => {
+    if (hasRunAttemptChanged || !isWindowSlideContiguous(previousBundle, nextBundle)) {
+      setOlderByStep({});
+      setHistoryCursorByStep({});
+      setPreviousEmpty(false);
+      return;
+    }
+    setOlderByStep((current) => olderRecordsAfterWindowSlide(current, previousBundle, nextBundle));
+  }, []);
 
   const loadPrevious = useCallback(async () => {
     if (!flowId || !selectedStep || !historyCursor || !canLoadMore) return;

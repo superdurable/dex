@@ -49,6 +49,8 @@ export interface RunOverlayBundle {
   records: ExecutionRecord[];
   /** The first loaded event ID; executions recorded before it are missing when it is above 1. */
   loadedFromEventId: number;
+  /** The newest loaded event ID. */
+  loadedThroughEventId: number;
 }
 
 /** The newest history window of one run; executions before it are absent from the overlay. */
@@ -199,7 +201,7 @@ export function overlayFromHistory({
       records.set(active.stepExecutionId, record);
       order.push(active.stepExecutionId);
     }
-    applyActive(record, active);
+    applyActive(record, active, hasEarlierEvents);
   }
 
   const executions = order.map((id, index) => {
@@ -212,6 +214,7 @@ export function overlayFromHistory({
     previousRunId: previousRunIdFromEvents(events),
     records: order.map((id) => records.get(id)!),
     loadedFromEventId,
+    loadedThroughEventId: events.reduce((newest, event) => Math.max(newest, event.eventId), 0),
     overlay: {
       runId,
       flowId,
@@ -260,6 +263,35 @@ export function prependStepRecords(
         .sort((left, right) => left.ordinal - right.ordinal),
     },
   };
+}
+
+/** Whether the next window starts where the previous one could still be extended, in the same run. */
+export function isWindowSlideContiguous(previous: RunOverlayBundle, next: RunOverlayBundle): boolean {
+  return previous.overlay.runId === next.overlay.runId
+    && next.loadedFromEventId <= previous.loadedThroughEventId + 1;
+}
+
+/**
+ * Moves executions that slid out of the newest window into the older records of each Step.
+ *
+ * Returns `olderByStep` itself when nothing slid out; callers check `isWindowSlideContiguous` first.
+ */
+export function olderRecordsAfterWindowSlide(
+  olderByStep: Record<string, ExecutionRecord[]>,
+  previous: RunOverlayBundle,
+  next: RunOverlayBundle,
+): Record<string, ExecutionRecord[]> {
+  if (Object.keys(olderByStep).length === 0 || next.loadedFromEventId <= previous.loadedFromEventId) {
+    return olderByStep;
+  }
+  const slidOut = previous.records.filter((record) => {
+    const firstEventId = record.waitEvent?.eventId ?? record.executeEvent?.eventId;
+    return firstEventId !== undefined && firstEventId < next.loadedFromEventId;
+  });
+  return Object.fromEntries(Object.entries(olderByStep).map(([stepType, older]) => [
+    stepType,
+    mergeOlderExecutionRecords(older, slidOut.filter((record) => record.execution.stepType === stepType)),
+  ]));
 }
 
 /** Puts older records first; an execution in both keeps the newer record with the older WaitFor. */
@@ -390,21 +422,30 @@ function applyEvent(record: ExecutionRecord, event: FlowHistoryEvent): void {
   }
 }
 
-function applyActive(record: ExecutionRecord, active: ActiveStepExecution): void {
+function applyActive(record: ExecutionRecord, active: ActiveStepExecution, hasEarlierEvents: boolean): void {
   record.activeStep = active;
   if (active.phase === 'Waiting') {
     record.execution.waitFor = {
       status: 'waiting',
       conditions: conditionsFromWaiting(active.waitingCondition),
     };
-  } else if (record.execution.execute.status === 'notStarted') {
-    record.execution.execute = { status: 'running' };
+  } else {
+    if (record.execution.execute.status === 'notStarted') record.execution.execute = { status: 'running' };
+    if (hasEarlierEvents && !record.waitEvent && record.execution.waitFor === null && hasCompletedWaitFor(active)) {
+      record.execution.waitFor = { status: 'completed', conditions: [] };
+      record.execution.isWaitForNotLoaded = true;
+    }
   }
   if (active.lastFailureInfo) {
     record.execution.lastFailure = failureMessage(active.lastFailureInfo) ?? record.execution.lastFailure;
     const attempt = numberField(asData(active.lastFailureInfo).attempt);
     if (attempt > 0) record.execution.attempts = Math.max(record.execution.attempts, attempt);
   }
+}
+
+/** Completed conditions and WaitFor routing exist only after WaitFor ran; empty results are omitted. */
+function hasCompletedWaitFor(active: ActiveStepExecution): boolean {
+  return active.completedConditions !== undefined || active.waitForPullRouting !== undefined;
 }
 
 function conditionsFromEvent(event: FlowHistoryEvent): RunCondition[] {

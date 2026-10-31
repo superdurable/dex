@@ -264,7 +264,7 @@ function lineageLinks(index: TimelineEventIndex): UnassignedTimelineLink[] {
   for (const [stepExecutionId, stepEvents] of index.stepEventsByExecution) {
     const firstEvent = stepEvents[0];
     if (!isStepExecutionFirstEvent(firstEvent)) continue;
-    const source = findLineageSourceEvent(index, firstEvent);
+    const source = lineageSourceEvent(index, firstEvent);
     if (!source || source.eventId >= firstEvent.eventId) continue;
     links.push({
       kind: 'lineage',
@@ -276,6 +276,12 @@ function lineageLinks(index: TimelineEventIndex): UnassignedTimelineLink[] {
     });
   }
   return links;
+}
+
+/** A recorded deciding event ID is exact; the in-page search is the fallback for older events. */
+function lineageSourceEvent(index: TimelineEventIndex, target: FlowHistoryEvent): FlowHistoryEvent | undefined {
+  const decidingEventId = decidingEventIdOf(target);
+  return decidingEventId === undefined ? findLineageSourceEvent(index, target) : index.byId.get(decidingEventId);
 }
 
 /** Each lookup is a binary search over one key's events, so this costs O(log n). */
