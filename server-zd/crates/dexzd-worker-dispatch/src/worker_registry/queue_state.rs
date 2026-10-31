@@ -168,9 +168,6 @@ impl QueueState {
     }
 
     /// Wakes the longest-waiting dispatch that may use the newly idle `worker`.
-    ///
-    /// The scan stops at the first such dispatch, so it passes only waiters that exclude
-    /// `worker`.
     pub(super) fn wake_waiter_for(&mut self, worker: &WorkerStream, now: Instant) {
         let Some(sequence) = self
             .waiters
@@ -187,8 +184,7 @@ impl QueueState {
 
     /// Hands on the wakeup a dispatch consumed for the stream `woken_for`.
     ///
-    /// Another waiter is woken when that stream is still idle and the dispatch took a different
-    /// stream, recorded as `taken_stream`, or none.
+    /// Applies when that stream is still idle and was not `taken_stream`.
     pub(super) fn pass_on_wakeup(
         &mut self,
         woken_for: Option<Uuid>,
