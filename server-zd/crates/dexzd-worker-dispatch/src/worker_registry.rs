@@ -8,7 +8,7 @@
 
 //! In-memory, tenant-scoped pull Worker streams and task matching.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -24,7 +24,7 @@ use dexzd_protocol::dex::{
     worker_task_service_server,
 };
 use futures::Stream;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
@@ -35,7 +35,7 @@ mod dispatch_request;
 mod queue_state;
 mod worker_protocol;
 pub use dispatch_request::{DispatchRequest, DispatchTaskPayload};
-use queue_state::QueuedTaskMetric;
+use queue_state::{QueueWaiter, QueuedTaskMetric};
 pub use worker_protocol::WorkerTaskService;
 
 /// One ordered frame from the Worker, an assignment change, or the terminal dispatch outcome.
@@ -135,6 +135,7 @@ struct Registry {
     streams: HashMap<Uuid, Arc<WorkerStream>>,
     worker_counts: HashMap<(u64, String), usize>,
     queues: HashMap<(u64, String), QueueState>,
+    next_waiter_sequence: u64,
 }
 
 struct QueueState {
@@ -142,13 +143,17 @@ struct QueueState {
     idle: VecDeque<Uuid>,
     affinity: HashMap<String, (String, Instant)>,
     affinity_order: VecDeque<(String, Instant)>,
-    changes: watch::Sender<u64>,
+    // Each idle stream wakes one waiter; waking every waiter made dispatch cost grow with them.
+    waiters: BTreeMap<u64, QueueWaiter>,
     users: usize,
 }
 
 struct QueueLease {
     dispatch: WorkerDispatch,
     key: (u64, String),
+    waiter_sequence: u64,
+    wakeup: Arc<Notify>,
+    is_waiting: bool,
 }
 
 struct WorkerStream {
@@ -181,7 +186,6 @@ enum AssignmentFrame {
 struct QueuePick {
     worker: Option<Arc<WorkerStream>>,
     assignment_frames: Option<mpsc::Receiver<AssignmentFrame>>,
-    changes: watch::Receiver<u64>,
     has_streams: bool,
 }
 
@@ -385,10 +389,13 @@ impl WorkerDispatch {
         unknown: &mut bool,
         scheduled_at: &mut Option<Instant>,
     ) -> Option<DispatchOutcome> {
-        let _queue_lease = self.acquire_queue(request.tenant_id, queue_name);
+        let mut queue_lease = self.acquire_queue(request.tenant_id, queue_name);
+        let wakeup = queue_lease.wakeup.clone();
         let mut queued_task =
             QueuedTaskMetric::new(self.inner.metrics.matching_queued_tasks.clone());
         let mut shutdown = self.inner.shutdown.subscribe();
+        let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
+        tokio::pin!(search_timer);
         while Instant::now() < queue_end {
             if *shutdown.borrow() {
                 return Some(DispatchOutcome::ServerClosing);
@@ -399,8 +406,7 @@ impl WorkerDispatch {
             let now = Instant::now();
             excluded_streams.retain(|_, until| *until > now);
             let picked = self.pick_worker(
-                request.tenant_id,
-                queue_name,
+                &mut queue_lease,
                 &request.flow_id,
                 task_id,
                 excluded_worker_ids,
@@ -499,15 +505,13 @@ impl WorkerDispatch {
                 .copied()
                 .min()
                 .unwrap_or(queue_end);
-            let wake = next_backoff.min(queue_end);
-            let mut changes = picked.changes;
+            let wake = tokio::time::Instant::from_std(next_backoff.min(queue_end));
+            if search_timer.deadline() != wake {
+                search_timer.as_mut().reset(wake);
+            }
             tokio::select! {
-                _ = tokio::time::sleep_until(tokio::time::Instant::from_std(wake)) => {},
-                changed = changes.changed() => {
-                    if changed.is_err() && *shutdown.borrow() {
-                        return Some(DispatchOutcome::ServerClosing);
-                    }
-                },
+                () = &mut search_timer => {},
+                () = wakeup.notified() => {},
                 changed = cancel.changed() => { if changed.is_err() || *cancel.borrow() { return Some(DispatchOutcome::Cancelled); } },
                 changed = shutdown.changed() => { if changed.is_err() || *shutdown.borrow() { return Some(DispatchOutcome::ServerClosing); } },
             }
@@ -678,6 +682,8 @@ impl WorkerDispatch {
             .registry
             .lock()
             .expect("matching registry lock poisoned");
+        registry.next_waiter_sequence += 1;
+        let waiter_sequence = registry.next_waiter_sequence;
         registry
             .queues
             .entry(key.clone())
@@ -686,16 +692,27 @@ impl WorkerDispatch {
         QueueLease {
             dispatch: self.clone(),
             key,
+            waiter_sequence,
+            wakeup: Arc::new(Notify::new()),
+            is_waiting: false,
         }
     }
 
-    fn release_queue(&self, key: &(u64, String)) {
-        let mut registry = self
+    fn release_queue(&self, key: &(u64, String), waiter_sequence: Option<u64>) {
+        let mut guard = self
             .inner
             .registry
             .lock()
             .expect("matching registry lock poisoned");
+        let registry = &mut *guard;
         let queue = registry.queues.get_mut(key).expect("leased queue exists");
+        if let Some(sequence) = waiter_sequence
+            && queue.remove_waiter(sequence)
+            && !registry.is_closing
+        {
+            // A dispatch that ends after its wakeup hands that wakeup to another waiter.
+            queue.wake_waiter_for_any_idle(&registry.streams, Instant::now());
+        }
         queue.users -= 1;
         if queue.users == 0 {
             registry.queues.remove(key);
@@ -704,34 +721,33 @@ impl WorkerDispatch {
 
     fn pick_worker(
         &self,
-        tenant_id: u64,
-        queue_name: &str,
+        lease: &mut QueueLease,
         flow_id: &str,
         task_id: &str,
         excluded_worker_ids: &HashSet<String>,
         excluded_streams: &HashMap<Uuid, Instant>,
     ) -> QueuePick {
-        let mut registry = self
+        let mut guard = self
             .inner
             .registry
             .lock()
             .expect("matching registry lock poisoned");
-        let key = (tenant_id, queue_name.to_owned());
-        let queue = registry.queues.get(&key).expect("queue lease exists");
-        let changes = queue.changes.subscribe();
+        let registry = &mut *guard;
+        let queue = registry
+            .queues
+            .get_mut(&lease.key)
+            .expect("queue lease exists");
+        let was_woken =
+            std::mem::take(&mut lease.is_waiting) && queue.remove_waiter(lease.waiter_sequence);
         let has_streams = !queue.stream_ids.is_empty();
         if registry.is_closing {
-            return QueuePick {
-                worker: None,
-                assignment_frames: None,
-                changes,
-                has_streams,
-            };
+            return QueuePick::without_worker(has_streams);
         }
+        let now = Instant::now();
         let preferred = queue
             .affinity
             .get(flow_id)
-            .filter(|(_, expiry)| *expiry > Instant::now())
+            .filter(|(_, expiry)| *expiry > now)
             .map(|(worker_id, _)| worker_id.clone());
         let mut selected = None;
         for (index, id) in queue.idle.iter().enumerate() {
@@ -749,17 +765,15 @@ impl WorkerDispatch {
             }
         }
         let Some((index, worker)) = selected else {
-            return QueuePick {
-                worker: None,
-                assignment_frames: None,
-                changes,
-                has_streams,
-            };
+            if was_woken {
+                // Idle streams this dispatch excludes may suit another waiter.
+                queue.wake_waiter_for_any_idle(&registry.streams, now);
+            }
+            // Registering under the registry lock means no idle stream is missed before the wait.
+            queue.start_waiting(lease, excluded_worker_ids, excluded_streams);
+            return QueuePick::without_worker(has_streams);
         };
-        registry
-            .queues
-            .get_mut(&key)
-            .expect("queue lease exists")
+        queue
             .idle
             .remove(index)
             .expect("selected idle stream exists");
@@ -775,19 +789,14 @@ impl WorkerDispatch {
             frames: sender,
         });
         drop(state);
-        registry
-            .queues
-            .get_mut(&key)
-            .expect("queue lease exists")
-            .remember(
-                flow_id,
-                &worker.app_worker_id,
-                self.inner.config.affinity_duration,
-            );
+        queue.remember(
+            flow_id,
+            &worker.app_worker_id,
+            self.inner.config.affinity_duration,
+        );
         QueuePick {
             worker: Some(worker),
             assignment_frames: Some(receiver),
-            changes,
             has_streams,
         }
     }
@@ -813,7 +822,7 @@ impl WorkerDispatch {
             .get_mut(&(worker.tenant_id, worker.queue.clone()))
             .expect("registered queue exists");
         queue.idle.push_back(worker.id);
-        queue.signal();
+        queue.wake_waiter_for(worker, Instant::now());
     }
 
     fn disconnect(&self, id: Uuid) {
@@ -842,7 +851,10 @@ impl WorkerDispatch {
             queue.stream_ids.remove(&id);
             queue.idle.retain(|stream_id| *stream_id != id);
             queue.users -= 1;
-            queue.signal();
+            if queue.stream_ids.is_empty() {
+                // Sticky searches end as soon as their queue has no streams.
+                queue.wake_all_waiters();
+            }
             if queue.users == 0 {
                 registry.queues.remove(&queue_key);
             }
