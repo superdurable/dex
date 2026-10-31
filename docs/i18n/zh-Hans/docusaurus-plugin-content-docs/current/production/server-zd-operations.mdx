@@ -473,6 +473,22 @@ server-zd 执行以下限制。被限制拒绝的请求会立即失败，不会�
 
 每个 run 在启动时记录 **values.maxValueBytes**、**limits.maxFlowStateBytes** 和 **limits.maxRequestIdsPerRun**。新值只对节点用它重启之后启动的 run 生效。
 
+## 性能调优 {#performance-tuning}
+
+默认值适合大多数节点。只有负载测试显示出瓶颈时才修改这些 key。它们都不会改变 Flow 的行为或结果。每个 key 在节点启动时生效。
+
+| Key | 默认值 | 含义 |
+| --- | --- | --- |
+| **commit.applierLanes** | 进程可用的 CPU 数，取值范围为 1 到 **cluster.partitionCount** | 并行把已提交命令应用到本地存储的 lane 数。同一个 partition 总是使用同一个 lane，所以它的命令按顺序应用。显式设置的值必须在 1 到 **cluster.partitionCount** 之间。无法读取 CPU 数时，默认值为 8。 |
+| **commit.applierQueueFrames** | 64 | 每个 lane 排队的已提交 partition 批次数。lane 的队列满时，提交路径会等待它。 |
+| **commit.maxBatchRecords** | 10000 | 一个日志批次中的最大命令数。批次达到这个数量、**commit.sealAtBytes** 或 **commit.batchWindow** 时封口。 |
+| **commit.maxUnappliedBytes** | 67108864（64 MiB） | 节点已接受但尚未在本地应用的命令的编码字节数。放不下的命令以 UNAVAILABLE 失败。请让它大于 **api.grpcMaxMessageBytes**，否则最大的命令总会失败。 |
+| **localStorage.writeBufferBytes** | 67108864（64 MiB） | 每个 column family 的单个 RocksDB memtable 大小。RocksDB 为每个 column family 最多保留两个 memtable。不能超过 **localStorage.maxWalBytes**。 |
+| **localStorage.maxBackgroundJobs** | 进程可用 CPU 数的一半，至少为 2 | 同时运行的 RocksDB flush 和 compaction 的最大数量。 |
+| **localStorage.maxSubcompactions** | 1 | 一次 RocksDB compaction 可以拆分成的线程数。更大的值可以减少持续写入时的写入停顿。 |
+
+节点在启动时会记录解析后的 **applierLanes** 和 **maxBackgroundJobs** 值。
+
 ## Attribute Store 同步 {#attribute-store}
 
 server-zd v0.1.3 或更高版本可以把 Attribute 同步到 PostgreSQL。表契约见

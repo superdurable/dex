@@ -557,6 +557,25 @@ Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**, and
 **limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node
 restarts with it.
 
+## Performance tuning {#performance-tuning}
+
+The defaults suit most nodes. Change these keys only when a load test shows a
+bottleneck. None of them changes Flow behavior or results. Each applies when the
+node starts.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **commit.applierLanes** | CPUs available to the process, from 1 to **cluster.partitionCount** | Lanes that apply committed commands to the local store in parallel. One partition always uses the same lane, so its commands apply in order. An explicit value must be from 1 to **cluster.partitionCount**. If the CPU count cannot be read, the default is 8. |
+| **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
+| **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
+| **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Keep it larger than **api.grpcMaxMessageBytes**, or the largest commands always fail. |
+| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two per column family. Must not exceed **localStorage.maxWalBytes**. |
+| **localStorage.maxBackgroundJobs** | Half the CPUs available to the process, and at least 2 | Most RocksDB flushes and compactions that run at once. |
+| **localStorage.maxSubcompactions** | 1 | Threads that one RocksDB compaction may split into. A larger value can reduce write stalls under sustained writes. |
+
+The node logs the resolved **applierLanes** and **maxBackgroundJobs** values at
+startup.
+
 ## Attribute Store sync {#attribute-store}
 
 server-zd v0.1.3 or later can sync Attributes to PostgreSQL. See

@@ -37,6 +37,12 @@ pub struct RocksDbStoreOptions {
     /// Defaults to 256 MiB; total size of write-ahead log files that RocksDB keeps. Must be
     /// positive.
     pub max_total_wal_bytes: u64,
+    /// Defaults to 64 MiB, the RocksDB default; size of one memtable of each column family.
+    pub write_buffer_bytes: usize,
+    /// Defaults to 2, the RocksDB default; most flushes and compactions that run at once.
+    pub max_background_jobs: i32,
+    /// Defaults to 1, the RocksDB default; number of threads one compaction may split into.
+    pub max_subcompactions: u32,
 }
 
 impl Default for RocksDbStoreOptions {
@@ -44,6 +50,9 @@ impl Default for RocksDbStoreOptions {
         Self {
             block_cache_bytes: 128 * 1024 * 1024,
             max_total_wal_bytes: 256 * 1024 * 1024,
+            write_buffer_bytes: 64 * 1024 * 1024,
+            max_background_jobs: 2,
+            max_subcompactions: 1,
         }
     }
 }
@@ -80,6 +89,8 @@ impl RocksDbLocalStore {
         db_options.create_if_missing(true);
         db_options.create_missing_column_families(true);
         db_options.set_max_total_wal_size(options.max_total_wal_bytes);
+        db_options.set_max_background_jobs(options.max_background_jobs);
+        db_options.set_max_subcompactions(options.max_subcompactions);
         // Snapshot checkpoints log every file they link, so unbounded info logs outgrow the data.
         db_options.set_max_log_file_size(INFO_LOG_FILE_MAX_BYTES);
         db_options.set_keep_log_file_num(INFO_LOG_FILES_KEPT);
@@ -375,6 +386,7 @@ fn column_family_descriptors(options: RocksDbStoreOptions) -> Vec<ColumnFamilyDe
         .map(|cf| {
             let mut cf_options = Options::default();
             cf_options.set_compression_type(DBCompressionType::Lz4);
+            cf_options.set_write_buffer_size(options.write_buffer_bytes);
             let mut block_options = BlockBasedOptions::default();
             block_options.set_block_cache(&cache);
             cf_options.set_block_based_table_factory(&block_options);

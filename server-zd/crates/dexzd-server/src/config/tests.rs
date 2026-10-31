@@ -464,6 +464,18 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("localStorage.maxWalBytes", |config| {
             config.local_storage.max_wal_bytes = 64 * 1024 * 1024 - 1
         }),
+        ("localStorage.writeBufferBytes", |config| {
+            config.local_storage.write_buffer_bytes = 0
+        }),
+        ("localStorage.writeBufferBytes", |config| {
+            config.local_storage.write_buffer_bytes = config.local_storage.max_wal_bytes + 1
+        }),
+        ("localStorage.maxBackgroundJobs", |config| {
+            config.local_storage.max_background_jobs = Some(0)
+        }),
+        ("localStorage.maxSubcompactions", |config| {
+            config.local_storage.max_subcompactions = 0
+        }),
         ("commit.batchWindow", |config| {
             config.commit.batch_window = Duration::ZERO
         }),
@@ -475,6 +487,21 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("commit.multipartThresholdBytes", |config| {
             config.commit.multipart_threshold_bytes = 4 * 1024 * 1024
+        }),
+        ("commit.maxBatchRecords", |config| {
+            config.commit.max_batch_records = 0
+        }),
+        ("commit.maxUnappliedBytes", |config| {
+            config.commit.max_unapplied_bytes = 0
+        }),
+        ("commit.applierLanes", |config| {
+            config.commit.applier_lanes = Some(0)
+        }),
+        ("commit.applierLanes", |config| {
+            config.commit.applier_lanes = Some(config.cluster.partition_count + 1)
+        }),
+        ("commit.applierQueueFrames", |config| {
+            config.commit.applier_queue_frames = 0
         }),
         ("lease.duration", |config| {
             config.lease.duration = Duration::ZERO

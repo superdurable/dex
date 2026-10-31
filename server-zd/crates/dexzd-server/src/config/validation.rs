@@ -104,6 +104,26 @@ impl Config {
             "localStorage.maxWalBytes",
             "must be at least 64 MiB, the memtable size of one column family",
         )?;
+        ensure(
+            self.local_storage.write_buffer_bytes > 0,
+            "localStorage.writeBufferBytes",
+            "must be positive",
+        )?;
+        ensure(
+            self.local_storage.write_buffer_bytes <= self.local_storage.max_wal_bytes,
+            "localStorage.writeBufferBytes",
+            "must be no larger than localStorage.maxWalBytes",
+        )?;
+        ensure(
+            self.local_storage.max_background_jobs != Some(0),
+            "localStorage.maxBackgroundJobs",
+            "must be positive when set",
+        )?;
+        ensure(
+            self.local_storage.max_subcompactions > 0,
+            "localStorage.maxSubcompactions",
+            "must be positive",
+        )?;
         if !self.dev.data_directory.as_os_str().is_empty() {
             ensure(
                 !self.dev.s3_data_directory.as_os_str().is_empty(),
@@ -139,6 +159,28 @@ impl Config {
             self.commit.multipart_threshold_bytes >= self.commit.seal_at_bytes,
             "commit.multipartThresholdBytes",
             "must be no smaller than commit.sealAtBytes",
+        )?;
+        ensure(
+            self.commit.max_batch_records > 0,
+            "commit.maxBatchRecords",
+            "must be positive",
+        )?;
+        ensure(
+            self.commit.max_unapplied_bytes > 0,
+            "commit.maxUnappliedBytes",
+            "must be positive",
+        )?;
+        ensure(
+            self.commit
+                .applier_lanes
+                .is_none_or(|lanes| (1..=self.cluster.partition_count).contains(&lanes)),
+            "commit.applierLanes",
+            "must be between 1 and cluster.partitionCount when set",
+        )?;
+        ensure(
+            self.commit.applier_queue_frames > 0,
+            "commit.applierQueueFrames",
+            "must be positive",
         )?;
         ensure(
             self.lease.duration > Duration::ZERO,

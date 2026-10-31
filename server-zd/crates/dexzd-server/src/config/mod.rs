@@ -18,6 +18,8 @@ mod validation;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tunable_tests;
 
 pub use attribute_store_config::{
     AttributeStoreColumnNaming, AttributeStoreConfig, AttributeStoreEntryConfig,
@@ -84,4 +86,16 @@ pub struct Config {
     pub attribute_store: AttributeStoreConfig,
     /// Local development paths and embedded S3 durability. Defaults to unset paths and process-crash-safe durability.
     pub dev: DevConfig,
+}
+
+/// Returns the CPUs available to this process, including container CPU quotas, or None when
+/// they cannot be read; CPU-based defaults then use their fixed fallbacks.
+pub(crate) fn available_cpu_count() -> Option<u32> {
+    match std::thread::available_parallelism() {
+        Ok(cpus) => Some(u32::try_from(cpus.get()).unwrap_or(u32::MAX)),
+        Err(error) => {
+            tracing::warn!(%error, "cannot read the available CPU count; using fixed defaults");
+            None
+        }
+    }
 }
