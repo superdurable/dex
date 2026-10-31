@@ -216,6 +216,21 @@ SEARCH_SUB_STATUS_TAGGED_STATEMENTS = (
         "        _ => ErrorSubStatus::Uncategorized,", "ErrorSubStatus::Uncategorized => Self::Service { service },",
     )),
     ("rust", "sdk-rust/crates/dex-sdk/src/worker.rs", ("return Err(service_error(status));",)),
+    ("go", "sdk-go/dex/proto_mapper.go", (
+        "case dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL:\n\t\treturn FlowErrorWorkerMethod, nil",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/Client.java", (
+        "case FLOW_ERROR_TYPE_WORKER_API_FAIL:\n                return FlowErrorType.WORKER_API_FAILED;",
+    )),
+    ("python", "sdk-python/dex/flow_result.py", (
+        "pb.FLOW_ERROR_TYPE_WORKER_API_FAIL: FlowErrorType.WORKER_API_FAILED,",
+    )),
+    ("typescript", "sdk-typescript/src/flow-result.ts", (
+        "case ProtoFlowErrorType.FLOW_ERROR_TYPE_WORKER_API_FAIL:\n      return FlowErrorType.WORKER_API_FAILED;",
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/client.rs", (
+        "Some(ProtoFlowErrorType::WorkerApiFail) => Some(FlowErrorType::WorkerApiFailed),",
+    )),
 )
 # Per language: hand-written public error sources that must not name the search sub-statuses yet.
 SEARCH_SUB_STATUS_UNMAPPED = (
@@ -242,15 +257,15 @@ SEARCH_LIMIT_REFERENCES = (
     )),
     ("core/error-handling.md", (
         "## Indexed search limits",
-        "A Flow that fails this way reports error type FLOW_ERROR_TYPE_WORKER_API_FAIL, a recovery Step receives error type **ValueTooLarge**",
+        "A Flow that fails this way reports a Worker API failure as its Flow error type, a recovery Step receives error type **ValueTooLarge**",
         "A Client call reports either failure as the SDK's generic service error with the Uncategorized sub-status.",
     )),
     ("core/primitives.md", ("every application on the server shares at most **keyword1** through **keyword10**",)),
-    ("go/error-handling.md", ("## Indexed search limits", "`SubStatus` `dex.ErrorSubStatusUncategorized`")),
-    ("java/error-handling.md", ("## Indexed search limits", "`getSubStatus()` `ErrorSubStatus.UNCATEGORIZED`")),
-    ("python/error-handling.md", ("## Indexed search limits", "`sub_status` `ErrorSubStatus.UNCATEGORIZED`")),
-    ("typescript/error-handling.md", ("## Indexed search limits", "`subStatus` is `ErrorSubStatus.UNCATEGORIZED`")),
-    ("rust/error-handling.md", ("## Indexed search limits", "`sub_status()` is `ErrorSubStatus::Uncategorized`")),
+    ("go/error-handling.md", ("## Indexed search limits", "reports Flow error type `dex.FlowErrorWorkerMethod`", "`SubStatus` `dex.ErrorSubStatusUncategorized`")),
+    ("java/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`getSubStatus()` `ErrorSubStatus.UNCATEGORIZED`")),
+    ("python/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`sub_status` `ErrorSubStatus.UNCATEGORIZED`")),
+    ("typescript/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`subStatus` is `ErrorSubStatus.UNCATEGORIZED`")),
+    ("rust/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType::WorkerApiFailed`", "`sub_status()` is `ErrorSubStatus::Uncategorized`")),
 )
 
 

@@ -86,11 +86,11 @@ for detail fields and UI slots, and RPC Action metadata for buttons, typed input
 forms, current-state conditions, and permissions. Use editable scalar Display
 Attributes for simple updates. Work Queue discovers Runs from cumulative Action
 permission history, then the opened Run rechecks current Action eligibility.
-Timeline, Step graph, execution details, and recovery information cover process
-progress and failures. From web/v1.29.0 the Run page loads only the newest
-1,000 history events; Timeline pages back to older events, but the Step graph
-and v2 canvas show only that window. Expose long-running business progress
-through Display fields, not the Step graph.
+Timeline, Execution graph, execution details, and recovery information cover
+process progress and failures. From web/v1.29.0 the Run page loads only the
+newest 1,000 history events; Timeline pages back to older events, but
+Execution graph, Overview, and the v2 canvas show only that window. Expose
+long-running business progress through Display fields, not Execution graph.
 
 Design those contracts before proposing a custom management backend or UI. A
 custom surface requires a recorded interaction Dex Web v2 cannot provide; the
