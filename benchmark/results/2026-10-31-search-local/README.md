@@ -72,7 +72,7 @@ Each cell is **p50 / p99 in milliseconds**. The main query tables use the ten-At
 
 ## Projection throughput and WAL
 
-The backfill experiment is excluded from this table because its Keyword is not registered during seed. Queue overflow counts come from the preserved server logs.
+The backfill experiment is excluded from this table because its Keyword is not registered during seed. Queue overflow counts were taken from the server logs, which are not committed because of their size (about 79 MiB).
 
 | Backend | Runs | Attributes | Seed s | Catchup s | Runs/s | WAL bytes/run | Projection queue overflows |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -133,6 +133,8 @@ See the [PostgreSQL search guidance](../../../docs/content/production/server-zd-
 
 ## Follow-up finding: ParadeDB Flow type index collation
 
+Fixed after this run by [#1126](https://github.com/superdurable/dex/pull/1126): on ParadeDB, equality and IN on FlowType, WorkflowId, and RunId now use the default collation and their B-tree indexes. In CI with 20,000 rows, each query took about 0.04 ms. The numbers below were measured before the fix.
+
 At 1M, the actual SearchFlows FlowType predicate uses explicit C collation and its SQL plan took 177.666 ms. It used the default-order index, retained only the tenant as an index condition, and removed 88,039 rows by filtering to return 21. The default-collation control took 0.214 ms and used the composite Flow type index with both tenant and Flow type in its index condition. API rare-type p50/p99 were 205.622/347.556 ms.
 
 The controlled statements differ only in the explicit collation on the ASCII Flow type predicate. The query renderer applies C collation to Keyword comparisons. The shared Flow type index uses its column collation; the PostgreSQL dialect changes that column to C, while ParadeDB retains its original column collation. The saved plans demonstrate the resulting missed index key on this ParadeDB schema.
@@ -156,7 +158,7 @@ done
 benchmark/search-local.sh postgres 1000000 10 /tmp/search-postgres-backfill --backfill
 ```
 
-Each point directory holds `search.json` (all successful latencies and errors), `client.txt`, the exact server configuration, server version, and compressed server logs. SQL points also hold engine/image metadata and removal confirmation; available counts, table sizes, and container logs are retained beside them. Early points predate some optional diagnostics. The 1M ten-Attribute SQL points retain `explain.sql` and `explain.txt`. Full host details are in `host.txt`.
+Each point directory holds `search.json` (all successful latencies and errors), `client.txt`, the exact server configuration and server version. Compressed server logs were kept out of the repository because of their size. SQL points also hold engine/image metadata and removal confirmation; available counts, table sizes, and container logs are retained beside them. Early points predate some optional diagnostics. The 1M ten-Attribute SQL points retain `explain.sql` and `explain.txt`. Full host details are in `host.txt`.
 
 Run `python3 benchmark/results/2026-10-31-search-local/validate_results.py` from the repository root to check all nineteen primary points, successful sample counts, twenty-row responses, percentile ordering, and WAL arithmetic. Validation and cleanup records are included in this directory. Temporary benchmark containers and their owned database volumes were removed; the final filtered `docker ps -a` check is saved in `containers-after.txt`.
 

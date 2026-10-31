@@ -66,3 +66,6 @@ sdk-typescript/coverage/
 test.log
 script/licenseheaders/copyright/copyright
 web/dex-web
+
+# Benchmark server logs are too large to commit
+benchmark/results/**/*.log.gz
