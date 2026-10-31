@@ -26,17 +26,19 @@ use common::{
     assert_flow_smoke_start_step, query, query_with,
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
+use dex_examples_rust::primitives::attribute::flow::AttributeFlow;
 use dex_examples_rust::server::build_router;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, SdkResult, Worker, WorkerOptions,
+    BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult, Worker, WorkerOptions,
 };
+use serde_json::{Value, json};
 use tempfile::TempDir;
 use worker_harness::await_pull_registration;
 
 struct FlowSmokeEnvironment {
-    _client: Arc<Client>,
+    client: Arc<Client>,
     _worker: Arc<Worker>,
     _worker_thread: Option<JoinHandle<SdkResult<()>>>,
     _cache: Arc<BlobCache>,
@@ -106,7 +108,7 @@ impl FlowSmokeEnvironment {
         await_http(http_port);
 
         Self {
-            _client: client,
+            client,
             _worker: worker,
             _worker_thread: Some(worker_thread),
             _cache: cache,
@@ -501,6 +503,75 @@ fn flow_smoke_all_registered_flows_via_controller() {
         );
         assert_flow_smoke_no_unexpected_failures(&entry, &result.flow_id, &result.run_id);
     }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn attribute_read_returns_committed_values_of_closed_run() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let flow_id = http_client.new_flow_id("primitive-attribute-read");
+    environment
+        .client
+        .start_flow(&AttributeFlow::default(), &flow_id, "read".to_owned())
+        .expect("start Attribute Flow");
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .expect("wait for Attribute Flow");
+    assert_eq!(result.status(), FlowStatus::Completed);
+
+    let (status, body) = get_attribute_read(&http_client, &[("workflowId", &flow_id)]);
+    assert_eq!(status, 200, "{body}");
+    let values: Value = serde_json::from_str(&body).expect("parse Attribute read response");
+    assert_eq!(
+        values,
+        json!({
+            "status": "completed",
+            "paymentProgress": "authorized",
+            "email": null,
+        })
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn attribute_read_returns_not_found_for_missing_flow() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let flow_id = http_client.new_flow_id("primitive-attribute-read-missing");
+    let (status, body) = get_attribute_read(&http_client, &[("workflowId", &flow_id)]);
+    assert_eq!(status, 404, "{body}");
+    let error_body: serde_json::Map<String, Value> =
+        serde_json::from_str(&body).expect("parse Attribute read error");
+    assert_eq!(error_body.keys().collect::<Vec<_>>(), vec!["error"]);
+    let error = error_body["error"].as_str().expect("error is a string");
+    assert!(error.contains(&flow_id), "{body}");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn attribute_read_requires_workflow_id() {
+    let environment = shared_flow_smoke_environment();
+    let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let (status, body) = get_attribute_read(&http_client, &[]);
+    assert_eq!(status, 400, "{body}");
+    let error_body: Value = serde_json::from_str(&body).expect("parse Attribute read error");
+    assert_eq!(error_body, json!({"error": "workflowId is required"}));
+}
+
+fn get_attribute_read(http_client: &FlowSmokeHttpClient, query: &[(&str, &str)]) -> (u16, String) {
+    let response = reqwest::blocking::Client::new()
+        .get(format!(
+            "{}/primitives/attribute/read",
+            http_client.base_url
+        ))
+        .query(query)
+        .send()
+        .expect("GET /primitives/attribute/read");
+    let status = response.status().as_u16();
+    let body = response.text().expect("read Attribute read response");
+    (status, body)
 }
 
 fn run_flow_smoke_entry(http_client: &FlowSmokeHttpClient, entry: &FlowSmokeEntry) {

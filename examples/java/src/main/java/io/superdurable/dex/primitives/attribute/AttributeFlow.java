@@ -36,17 +36,17 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class AttributeFlow implements Flow<String> {
-    private final Attribute<String> status = Attribute.define(
+    final Attribute<String> status = Attribute.define(
             "primitive-attribute-status",
             String.class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
-    private final Attribute<String> email = Attribute.define(
+    final Attribute<String> email = Attribute.define(
             "primitive-attribute-email",
             String.class).syncToAttributeStore();
     private final Attribute<String> modelApiKey = Attribute.define(
             "primitive-attribute-model-api-key",
             String.class).hardDeleteOnNull();
-    private final AttributeMap<String> progress =
+    final AttributeMap<String> progress =
             AttributeMap.define(
                     "primitive-attribute-progress",
                     String.class,

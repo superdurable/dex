@@ -17,6 +17,7 @@
 package io.superdurable.dex.integ.smoke;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.superdurable.dex.Client;
 import io.superdurable.dex.SpringMainApplication;
 import io.superdurable.dex.Worker;
 import org.springframework.boot.SpringApplication;
@@ -77,6 +78,22 @@ final class FlowSmokeEnvironment implements AutoCloseable {
 
     String newFlowId(final String prefix) {
         return prefix + "-" + System.nanoTime() + "-" + FLOW_COUNTER.incrementAndGet();
+    }
+
+    Client client() {
+        return context.getBean(Client.class);
+    }
+
+    <T> T bean(final Class<T> beanType) {
+        return context.getBean(beanType);
+    }
+
+    HttpResponse<String> get(final String path, final Map<String, String> query) throws Exception {
+        final HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path + encodeQuery(query)))
+                .timeout(Duration.ofSeconds(30))
+                .GET()
+                .build();
+        return HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     FlowSmokeTriggerResult triggerHttp(

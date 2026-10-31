@@ -16,8 +16,13 @@
 
 package io.superdurable.dex.primitives.attribute;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import io.superdurable.dex.AttributeMapInstance;
+import io.superdurable.dex.AttributeValues;
 import io.superdurable.dex.Client;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.shared.ExampleFlows;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,5 +53,31 @@ public final class AttributeController {
         response.put("flowID", workflowId);
         response.put("runID", runId);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/read")
+    public ResponseEntity<?> readAttributes(
+            @RequestParam(required = false) final String workflowId) {
+        if (workflowId == null || workflowId.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "workflowId is required"));
+        }
+        final AttributeMapInstance<String> paymentProgress = flow.progress.instance("payment");
+        final AttributeValues values;
+        try {
+            values = client.getAttributes(workflowId, flow.status, paymentProgress, flow.email);
+        } catch (final FlowNotFoundException notFound) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", notFound.getMessage()));
+        }
+        return ResponseEntity.ok(new AttributeReadResponse(
+                values.get(flow.status).orElse("not started"),
+                values.get(paymentProgress).orElse("not started"),
+                // This Flow never sets email, so get returns Optional.empty().
+                values.get(flow.email).orElse(null)));
+    }
+
+    // Keep email as JSON null, overriding the application's NON_NULL default.
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    record AttributeReadResponse(String status, String paymentProgress, String email) {
     }
 }
