@@ -1,4 +1,4 @@
 The dexbench process completed successfully and wrote search.json after exact projection/status convergence and both WAL probes.
 The surrounding runner's post-run metadata section encountered a syntax error because its script was edited while Bash was executing it.
-Its EXIT trap stopped the server and removed the container; server.log.gz is preserved.
+Its EXIT trap stopped the server and removed the container; server.log.gz is not committed; its counts and source hash are preserved in server-log-summary.json.
 projected-counts.txt and table-size.txt are unavailable for this point; the validated throughput and WAL measurements in search.json are complete.

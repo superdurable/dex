@@ -549,7 +549,9 @@ container contains only this experiment's database.
 The separate `--backfill` run withholds Keyword registration while writing its
 indexed values. After catchup it registers that key, observes backfilling,
 and measures rare and common equality while the slot is still backfilling.
-A sample is retained only when state probes bracket it with backfilling.
+A sample is retained only when state probes bracket it with backfilling. Failed
+requests receive the same probes; errors spanning readiness are recorded as
+`transition_errors`, and errors never end sampling without an observed state change.
 An independent readiness monitor measures registration-to-ready time. It then
 measures the same equality predicates with the ready slot. This diagnostic
 point has nine registered Attributes during seeding; exclude its seed throughput

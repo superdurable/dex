@@ -20,7 +20,7 @@ The seed creates 100,000 or 1,000,000 runs in one tenant, with 128 concurrent cl
 
 Seed throughput is unique runs divided by elapsed seed-plus-projection-catchup time. It includes Flow execution and achieved projection work, rather than isolating maximum projection capacity. Each closing Flow is awaited. SQL convergence requires the exact total, Completed, and Running counts; builtin reads committed local state. SQL status counts are polled during catchup, so their read cost is included. WAL is the difference between pg_current_wal_lsn probes before seed and after convergence, divided by unique runs. It includes all updates, rebuilds, full-page images, and database maintenance in that interval.
 
-Query latency is end-to-end Go Client time, including gRPC and indexed-value hydration, at page size 20 with ten warmups and 100 sequential measured requests per query. p50 and p99 cover successes; errors and individual samples remain in raw JSON. Page 500 is reached by following 499 opaque next-page tokens, then only its final request is timed. At 100k, page 500 is among closed runs; at 1M, it is still among the 50k Running runs.
+Query latency is end-to-end Go Client time, including gRPC and indexed-value hydration, at page size 20 with ten warmups and 100 sequential measured requests per query. p50 and p99 cover successes; errors and individual samples remain in raw JSON. Warmup-error capture was absent from `postgres-100000-a0`, `postgres-100000-a3`, and `postgres-100000-a10` (harness `0f956d86b`), `postgres-1000000-a0` (`a134ab79d`), and the excluded `attempts/postgres-1000000-a3-cleanup-overlap` (`b9ce5d04f`). The query-bearing `postgres-100000-a10` point captured measured errors but has no warmup-error evidence. The other four listed points are projection-only and ran no query warmups. The other completed points used harnesses with warmup-error capture. Page 500 is reached by following 499 opaque next-page tokens, then only its final request is timed. At 100k, page 500 is among closed runs; at 1M, it is still among the 50k Running runs.
 
 All requested 1M datasets were practical; the 300k fallback was not used. Optional partition-count comparisons were not run. Two three-Attribute projection observations that overlapped earlier filesystem cleanup were retained under `attempts/` and replaced by runs that started after cleanup fully exited. The startup-readiness and macOS Bash argument-expansion failures under `attempts/` happened before seeding and are excluded.
 
@@ -72,34 +72,40 @@ Each cell is **p50 / p99 in milliseconds**. The main query tables use the ten-At
 
 ## Projection throughput and WAL
 
-The backfill experiment is excluded from this table because its Keyword is not registered during seed. Queue overflow counts were taken from the server logs, which are not committed because of their size (about 79 MiB).
+The backfill experiment is excluded from this table because its Keyword is not registered during seed. The linked overflow counts come from each point’s `server-log-summary.json`. These summaries were computed from the backed-up compressed server logs; the approximately 79 MiB of archives are not committed. Each summary records the source archive’s SHA-256 and byte size, line count, exact overflow-warning match, overflow count, and ERROR-level line count. All nineteen primary points had zero ERROR-level lines; summaries for the four excluded attempts are retained too. These are log-level counts, not a claim that excluded startup attempts succeeded.
 
 | Backend | Runs | Attributes | Seed s | Catchup s | Runs/s | WAL bytes/run | Projection queue overflows |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| builtin | 100,000 | 0 | 23.73 | 0.01 | 4,211.0 | — | 0 |
-| builtin | 100,000 | 3 | 24.48 | 0.01 | 4,082.3 | — | 0 |
-| builtin | 100,000 | 10 | 26.40 | 0.01 | 3,785.4 | — | 0 |
-| builtin | 1,000,000 | 0 | 253.28 | 0.14 | 3,946.0 | — | 0 |
-| builtin | 1,000,000 | 3 | 261.99 | 0.02 | 3,816.7 | — | 0 |
-| builtin | 1,000,000 | 10 | 310.46 | 0.15 | 3,219.5 | — | 0 |
-| paradedb | 100,000 | 0 | 25.01 | 12.85 | 2,640.7 | 2,471.07 | 2,125 |
-| paradedb | 100,000 | 3 | 25.91 | 10.05 | 2,781.0 | 3,312.53 | 2,280 |
-| paradedb | 100,000 | 10 | 27.61 | 13.47 | 2,434.5 | 4,078.74 | 1,966 |
-| paradedb | 1,000,000 | 0 | 293.03 | 87.69 | 2,626.6 | 3,660.34 | 5,032 |
-| paradedb | 1,000,000 | 3 | 267.39 | 105.92 | 2,678.7 | 5,900.89 | 5,338 |
-| paradedb | 1,000,000 | 10 | 302.21 | 167.50 | 2,129.0 | 7,934.30 | 4,421 |
-| postgres | 100,000 | 0 | 26.73 | 13.85 | 2,464.2 | 1,945.33 | 1,975 |
-| postgres | 100,000 | 3 | 26.42 | 13.85 | 2,483.2 | 3,414.68 | 2,311 |
-| postgres | 100,000 | 10 | 28.33 | 21.86 | 1,992.3 | 6,620.59 | 2,002 |
-| postgres | 1,000,000 | 0 | 257.36 | 130.69 | 2,576.9 | 2,887.21 | 4,543 |
-| postgres | 1,000,000 | 3 | 310.12 | 162.32 | 2,116.7 | 5,418.98 | 4,153 |
-| postgres | 1,000,000 | 10 | 353.73 | 338.36 | 1,444.9 | 10,670.61 | 3,027 |
+| builtin | 100,000 | 0 | 23.73 | 0.01 | 4,211.0 | — | [0](builtin-100000-a0/server-log-summary.json) |
+| builtin | 100,000 | 3 | 24.48 | 0.01 | 4,082.3 | — | [0](builtin-100000-a3/server-log-summary.json) |
+| builtin | 100,000 | 10 | 26.40 | 0.01 | 3,785.4 | — | [0](builtin-100000-a10/server-log-summary.json) |
+| builtin | 1,000,000 | 0 | 253.28 | 0.14 | 3,946.0 | — | [0](builtin-1000000-a0/server-log-summary.json) |
+| builtin | 1,000,000 | 3 | 261.99 | 0.02 | 3,816.7 | — | [0](builtin-1000000-a3/server-log-summary.json) |
+| builtin | 1,000,000 | 10 | 310.46 | 0.15 | 3,219.5 | — | [0](builtin-1000000-a10/server-log-summary.json) |
+| paradedb | 100,000 | 0 | 25.01 | 12.85 | 2,640.7 | 2,471.07 | [2,125](paradedb-100000-a0/server-log-summary.json) |
+| paradedb | 100,000 | 3 | 25.91 | 10.05 | 2,781.0 | 3,312.53 | [2,280](paradedb-100000-a3/server-log-summary.json) |
+| paradedb | 100,000 | 10 | 27.61 | 13.47 | 2,434.5 | 4,078.74 | [1,966](paradedb-100000-a10/server-log-summary.json) |
+| paradedb | 1,000,000 | 0 | 293.03 | 87.69 | 2,626.6 | 3,660.34 | [5,032](paradedb-1000000-a0/server-log-summary.json) |
+| paradedb | 1,000,000 | 3 | 267.39 | 105.92 | 2,678.7 | 5,900.89 | [5,338](paradedb-1000000-a3/server-log-summary.json) |
+| paradedb | 1,000,000 | 10 | 302.21 | 167.50 | 2,129.0 | 7,934.30 | [4,421](paradedb-1000000-a10/server-log-summary.json) |
+| postgres | 100,000 | 0 | 26.73 | 13.85 | 2,464.2 | 1,945.33 | [1,975](postgres-100000-a0/server-log-summary.json) |
+| postgres | 100,000 | 3 | 26.42 | 13.85 | 2,483.2 | 3,414.68 | [2,311](postgres-100000-a3/server-log-summary.json) |
+| postgres | 100,000 | 10 | 28.33 | 21.86 | 1,992.3 | 6,620.59 | [2,002](postgres-100000-a10/server-log-summary.json) |
+| postgres | 1,000,000 | 0 | 257.36 | 130.69 | 2,576.9 | 2,887.21 | [4,543](postgres-1000000-a0/server-log-summary.json) |
+| postgres | 1,000,000 | 3 | 310.12 | 162.32 | 2,116.7 | 5,418.98 | [4,153](postgres-1000000-a3/server-log-summary.json) |
+| postgres | 1,000,000 | 10 | 353.73 | 338.36 | 1,444.9 | 10,670.61 | [3,027](postgres-1000000-a10/server-log-summary.json) |
+
+A projection queue overflow means a committed frame could not enter the bounded asynchronous search-projection queue. The measured server allows 4,096 frames and 64 MiB of queued search documents. Rather than blocking the Flow commit, it requests a rebuild of the affected partition from committed state. Requests coalesce while a rebuild is pending; the warning is emitted when a new pending partition request is inserted. The counts above are warning events, not lost runs, rejected-frame totals, or completed-rebuild totals.
+
+The SQL points emitted 1,966–5,338 such warnings each, showing that their projection workers could not keep pace with this seed burst. A rebuild deletes that partition’s projected SQL rows, reinserts the current committed documents, and advances projection progress; already-covered queued frames are skipped. See the measured revision’s [queue handling](https://github.com/superdurable/dex/blob/131ebf1f0e0d899f94cbf246500adf9d0a37bb97/server-zd/crates/dexzd-server/src/server_node/search_projection/committed_search_frames.rs), [rebuild worker](https://github.com/superdurable/dex/blob/131ebf1f0e0d899f94cbf246500adf9d0a37bb97/server-zd/crates/dexzd-server/src/server_node/search_projection/projection_worker.rs), and [SQL rebuild transaction](https://github.com/superdurable/dex/blob/131ebf1f0e0d899f94cbf246500adf9d0a37bb97/server-zd/crates/dexzd-search/src/sql_visibility/projection/projector.rs).
+
+These overflows affect the throughput and WAL figures: seed-plus-catchup time includes recovery work, and WAL includes rebuild deletes and reinserts. The reported rates therefore measure achieved ingestion with recovery under this load. They do not isolate incremental projection capacity, and the warning counts alone cannot quantify the rebuild penalty. Exact projected status counts converged before search measurement.
 
 ## PostgreSQL Attribute backfill
 
-Registration start to observed ready: **433.62 seconds** on 1M existing runs. The readiness monitor polls independently at 100 ms, with Docker/psql probe overhead. This time includes the concurrent fallback-query workload.
+Registration start to observed ready: **433.62 seconds** on 1M existing runs. This point’s [log summary](postgres-1000000-backfill/server-log-summary.json) records 3,016 projection-overflow warnings and zero ERROR-level lines across seed and backfill. The readiness monitor polls independently at 100 ms, with Docker/psql probe overhead. This time includes the concurrent fallback-query workload.
 
-The Keyword value is written before registration. After projection catchup, the benchmark registers it, observes the backfilling state, and alternates rare/common equality queries. A fallback sample is retained only when state probes before and after it both say backfilling. The same predicates are measured again after ready.
+The Keyword value is written before registration. After projection catchup, the benchmark registers it, observes the backfilling state, and alternates rare/common equality queries. A fallback sample is retained only when state probes before and after it both say backfilling. The same predicates are measured again after ready. The revised harness also probes state after failed requests: errors bracketed by backfilling probes remain backfill errors, and errors spanning the ready transition are retained separately as `transition_errors`. Failed requests never stand in for an observed state change. This correction does not change the saved successful samples.
 
 | Predicate | State | Samples | p50 / p99 ms |
 | --- | --- | ---: | ---: |
@@ -158,15 +164,16 @@ done
 benchmark/search-local.sh postgres 1000000 10 /tmp/search-postgres-backfill --backfill
 ```
 
-Each point directory holds `search.json` (all successful latencies and errors), `client.txt`, the exact server configuration and server version. Compressed server logs were kept out of the repository because of their size. SQL points also hold engine/image metadata and removal confirmation; available counts, table sizes, and container logs are retained beside them. Early points predate some optional diagnostics. The 1M ten-Attribute SQL points retain `explain.sql` and `explain.txt`. Full host details are in `host.txt`.
+Each point directory holds `search.json` (all successful latencies and errors), `client.txt`, the exact server configuration and server version. Compressed server logs were kept out of the repository because of their size; `server-log-summary.json` retains their counts and archive hashes, and `server-audit.txt` indexes the primary summaries. SQL points also hold engine/image metadata and removal confirmation; available counts, table sizes, and container logs are retained beside them. Early points predate some optional diagnostics. The 1M ten-Attribute SQL points retain `explain.sql` and `explain.txt`. Full host details are in `host.txt`.
 
-Run `python3 benchmark/results/2026-10-31-search-local/validate_results.py` from the repository root to check all nineteen primary points, successful sample counts, twenty-row responses, percentile ordering, and WAL arithmetic. Validation and cleanup records are included in this directory. Temporary benchmark containers and their owned database volumes were removed; the final filtered `docker ps -a` check is saved in `containers-after.txt`.
+Run `python3 benchmark/results/2026-10-31-search-local/validate_results.py` from the repository root to check all nineteen primary points, successful sample counts, twenty-row responses, percentile ordering, WAL arithmetic, per-point log summaries, and the overflow counts linked in this README. Validation and cleanup records are included in this directory. Temporary benchmark containers and their owned database volumes were removed; the final filtered `docker ps -a` check is saved in `containers-after.txt`.
 
 ## Validation
 
 - Release server build: `cd server-zd && cargo build --release -p dexzd-server`.
 - Benchmark module: `GOWORK=off go test -count=1 ./...` and `GOWORK=off go vet ./...` from `benchmark/`.
 - Go formatting, runner Bash syntax, `make copyright`, and `make copyright-check` passed.
-- The data validator passed all 19 primary points, 66 query distributions, and 6,600 measured successful requests.
+- The data validator passed all 19 primary points, 66 query distributions, 6,600 measured successful requests, and 23 archived-log summaries.
+- Follow-up regression tests cover failed cleanup commands, database-readiness timeout, consecutive backfill query failures, and errors spanning readiness. All 23 log summaries were independently recomputed from the archived backups and matched.
 
 Raw validation output is saved beside this README. The optional partition-count sweep was not run.

@@ -1,1 +1,2 @@
 Validated 19 completed primary points, 66 query distributions, and 6600 measured successful requests; no measured errors or recorded warmup failures.
+Validated 23 archived-log summaries and README overflow counts; every primary point has zero ERROR-level lines.

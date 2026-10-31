@@ -1,1 +1,1 @@
-cd script/licenseheaders/copyright && GOWORK=off go run . -rootDir "/Users/qlong/orca/workspaces/dex/pgvis-bench"
+cd script/licenseheaders/copyright && GOWORK=off go run . -rootDir "../../.."

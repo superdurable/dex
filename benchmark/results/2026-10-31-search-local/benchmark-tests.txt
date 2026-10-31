@@ -1,2 +1,2 @@
-ok  	github.com/superdurable/dex/benchmark	0.292s
+ok  	github.com/superdurable/dex/benchmark	3.658s
 ?   	github.com/superdurable/dex/benchmark/cmd/dexbench	[no test files]

@@ -13,11 +13,12 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"github.com/superdurable/dex/benchmark"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/superdurable/dex/benchmark"
 )
 
 func runSearch(args []string) error {

@@ -12,9 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/superdurable/dex/blob-cache-go/blobcache"
-	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"os"
 	"os/exec"
 	"strconv"
@@ -22,6 +19,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 // SearchConfig selects the isolated S7 search dataset and measurement settings.
@@ -72,16 +73,18 @@ type SearchResult struct {
 
 // SearchQueryResult includes successful request percentiles and every failed attempt.
 type SearchQueryResult struct {
-	WarmupErrors    map[string]int `json:"warmup_errors,omitempty"`
-	Name            string         `json:"name"`
-	Query           string         `json:"query"`
-	Phase           string         `json:"phase"`
-	Samples         int            `json:"samples"`
-	Latency         Percentiles    `json:"latency"`
-	Errors          map[string]int `json:"errors,omitempty"`
-	FirstPageRows   int            `json:"first_page_rows"`
-	LastPageRows    int            `json:"last_page_rows"`
-	RawMilliseconds []float64      `json:"raw_ms"`
+	WarmupErrors map[string]int `json:"warmup_errors,omitempty"`
+	// TransitionErrors records failures whose state probes straddle backfill completion.
+	TransitionErrors map[string]int `json:"transition_errors,omitempty"`
+	Name             string         `json:"name"`
+	Query            string         `json:"query"`
+	Phase            string         `json:"phase"`
+	Samples          int            `json:"samples"`
+	Latency          Percentiles    `json:"latency"`
+	Errors           map[string]int `json:"errors,omitempty"`
+	FirstPageRows    int            `json:"first_page_rows"`
+	LastPageRows     int            `json:"last_page_rows"`
+	RawMilliseconds  []float64      `json:"raw_ms"`
 }
 
 type searchBenchmark struct {
@@ -95,12 +98,17 @@ type searchBenchmark struct {
 
 type searchQuery struct{ name, query string }
 
+type searchQuerySource interface {
+	searchPage(context.Context, string, string) (dex.SearchFlowsPage, error)
+	slotState(context.Context) (string, error)
+}
+
 type searchBackfillCompletion struct {
 	elapsed time.Duration
 	err     error
 }
 
-// RunSearch seeds a fresh server and measures search, projection, and backfill; partial results accompany errors.
+// RunSearch seeds an empty server, measures search, and returns partial results on failure. Database containers must be exclusive.
 func RunSearch(ctx context.Context, config SearchConfig) (SearchResult, error) {
 	benchmark := &searchBenchmark{config: config, prefix: fmt.Sprintf("search-%d", time.Now().UnixNano())}
 	benchmark.result = SearchResult{Config: config, StartedAt: time.Now().UTC(), Machine: machineInfo()}
@@ -353,16 +361,20 @@ func (benchmark *searchBenchmark) monitorBackfill(ctx context.Context, started t
 }
 
 func (benchmark *searchBenchmark) measureBackfillQueries(ctx context.Context) error {
+	return benchmark.doMeasureBackfillQueries(ctx, benchmark)
+}
+
+func (benchmark *searchBenchmark) doMeasureBackfillQueries(ctx context.Context, source searchQuerySource) error {
 	queries := []searchQuery{{"keyword-equality", "SearchField00 = 'rare'"}, {"keyword-common-equality", "SearchField00 = 'common'"}}
 	results := make([]SearchQueryResult, len(queries))
 	latencies := make([][]time.Duration, len(queries))
 	for index, query := range queries {
-		results[index] = SearchQueryResult{Name: query.name, Query: query.query, Phase: "backfilling", Errors: map[string]int{}}
+		results[index] = SearchQueryResult{Name: query.name, Query: query.query, Phase: "backfilling", Errors: map[string]int{}, TransitionErrors: map[string]int{}}
 	}
 	for sample := 0; sample < benchmark.config.Samples; sample++ {
-		hasSamples := false
+		hasBackfillEnded := false
 		for index, query := range queries {
-			measured, err := benchmark.measureQuerySamples(ctx, query.name, query.query, "", "backfilling", true, 1, 0)
+			measured, hasQueryBackfillEnded, err := measureSearchQuerySamples(ctx, source, query.name, query.query, "", "backfilling", true, 1, 0)
 			if err != nil {
 				return err
 			}
@@ -370,10 +382,16 @@ func (benchmark *searchBenchmark) measureBackfillQueries(ctx context.Context) er
 			for failure, count := range measured.Errors {
 				result.Errors[failure] += count
 			}
+			for failure, count := range measured.TransitionErrors {
+				result.TransitionErrors[failure] += count
+			}
+			if hasQueryBackfillEnded {
+				hasBackfillEnded = true
+				break
+			}
 			if measured.Samples == 0 {
 				continue
 			}
-			hasSamples = true
 			if result.Samples == 0 {
 				result.FirstPageRows = measured.FirstPageRows
 			}
@@ -382,7 +400,7 @@ func (benchmark *searchBenchmark) measureBackfillQueries(ctx context.Context) er
 			result.RawMilliseconds = append(result.RawMilliseconds, measured.RawMilliseconds...)
 			latencies[index] = append(latencies[index], time.Duration(measured.RawMilliseconds[0]*float64(time.Millisecond)))
 		}
-		if !hasSamples {
+		if hasBackfillEnded {
 			break
 		}
 	}
@@ -432,21 +450,41 @@ func (benchmark *searchBenchmark) measureQuery(ctx context.Context, name, query,
 }
 
 func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name, query, token, phase string, shouldCheckBackfill bool, samples, warmup int) (SearchQueryResult, error) {
-	result := SearchQueryResult{Name: name, Query: query, Phase: phase, Errors: map[string]int{}, WarmupErrors: map[string]int{}}
+	result, _, err := measureSearchQuerySamples(ctx, benchmark, name, query, token, phase, shouldCheckBackfill, samples, warmup)
+	return result, err
+}
+
+func measureSearchQuerySamples(ctx context.Context, source searchQuerySource, name, query, token, phase string, shouldCheckBackfill bool, samples, warmup int) (SearchQueryResult, bool, error) {
+	result := SearchQueryResult{Name: name, Query: query, Phase: phase, Errors: map[string]int{}, WarmupErrors: map[string]int{}, TransitionErrors: map[string]int{}}
+	hasBackfillEnded := false
 	latencies := make([]time.Duration, 0, samples)
 	for index := -warmup; index < samples; index++ {
 		if shouldCheckBackfill {
-			state, err := benchmark.slotState(ctx)
+			state, err := source.slotState(ctx)
 			if err != nil {
-				return result, err
+				return result, hasBackfillEnded, err
 			}
 			if state != "backfilling" {
+				hasBackfillEnded = true
 				break
 			}
 		}
 		started := time.Now()
-		page, err := benchmark.searchPage(ctx, query, token)
+		page, err := source.searchPage(ctx, query, token)
 		elapsed := time.Since(started)
+		if shouldCheckBackfill {
+			state, stateErr := source.slotState(ctx)
+			if stateErr != nil {
+				return result, hasBackfillEnded, errors.Join(err, stateErr)
+			}
+			if state != "backfilling" {
+				if err != nil {
+					result.TransitionErrors[err.Error()]++
+				}
+				hasBackfillEnded = true
+				break
+			}
+		}
 		if index < 0 {
 			if err != nil {
 				result.WarmupErrors[err.Error()]++
@@ -457,15 +495,7 @@ func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name,
 			result.Errors[err.Error()]++
 			continue
 		}
-		if shouldCheckBackfill {
-			state, err := benchmark.slotState(ctx)
-			if err != nil {
-				return result, err
-			}
-			if state != "backfilling" {
-				break
-			}
-		}
+
 		if result.Samples == 0 {
 			result.FirstPageRows = len(page.Flows)
 		}
@@ -477,10 +507,10 @@ func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name,
 	result.Latency = calculatePercentiles(latencies)
 	if samples > 1 {
 		if err := writeSearchProgress("%s %s: n=%d p50=%.3fms p99=%.3fms errors=%v\n", phase, name, result.Samples, result.Latency.P50, result.Latency.P99, result.Errors); err != nil {
-			return result, err
+			return result, hasBackfillEnded, err
 		}
 	}
-	return result, ctx.Err()
+	return result, hasBackfillEnded, ctx.Err()
 }
 
 func (benchmark *searchBenchmark) searchPage(ctx context.Context, query, token string) (dex.SearchFlowsPage, error) {

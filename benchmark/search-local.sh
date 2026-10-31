@@ -14,18 +14,53 @@ run_directory="$(mktemp -d /tmp/dex-pgvis-bench-XXXXXX)"
 container="dex-pgvis-bench-$backend-$$"
 server_pid=""
 has_container=false
+record_cleanup_failure() {
+  printf 'cleanup: %s failed with exit %s\n' "$1" "$2" >> "$output_directory/cleanup-errors.txt"
+  printf 'cleanup: %s failed with exit %s\n' "$1" "$2" >&2
+}
 cleanup() {
+  local run_status=$?
+  set +e
+  trap - EXIT
+  local cleanup_status=0
+  local server_status=0
   if [[ -n "$server_pid" ]]; then
-    kill "$server_pid" 2>/dev/null || true
-    wait "$server_pid" 2>/dev/null || true
+    if kill -0 "$server_pid" 2>/dev/null; then
+      if kill "$server_pid"; then :; else record_cleanup_failure 'stop server' "$?"; cleanup_status=1; fi
+    fi
+    wait "$server_pid"
+    server_status=$?
+    if [[ "$server_status" != 0 && "$server_status" != 143 ]]; then
+      record_cleanup_failure 'wait for server' "$server_status"
+      cleanup_status=1
+    fi
   fi
   if [[ "$has_container" == true ]]; then
-    docker logs "$container" > "$output_directory/database-container.txt" 2>&1
-    docker rm -fv "$container" > "$output_directory/container-removal.txt"
+    if docker logs "$container" > "$output_directory/database-container.txt" 2>&1; then :; else
+      record_cleanup_failure 'docker logs' "$?"
+      cleanup_status=1
+    fi
+    if docker rm -fv "$container" > "$output_directory/container-removal.txt" 2>&1; then :; else
+      record_cleanup_failure 'docker rm' "$?"
+      cleanup_status=1
+    fi
   fi
-  docker ps -a --filter "name=^${container}$" --format '{{.Names}}' >> "$output_directory/container-removal.txt"
-  if [[ -f "$output_directory/server.log" ]]; then gzip "$output_directory/server.log"; fi
-  rm -rf "$run_directory"
+  if docker ps -a --filter "name=^${container}$" --format '{{.Names}}' >> "$output_directory/container-removal.txt" 2>&1; then :; else
+    record_cleanup_failure 'docker ps' "$?"
+    cleanup_status=1
+  fi
+  if [[ -f "$output_directory/server.log" ]]; then
+    if gzip "$output_directory/server.log"; then :; else
+      record_cleanup_failure 'gzip' "$?"
+      cleanup_status=1
+    fi
+  fi
+  if rm -rf "$run_directory"; then :; else
+    record_cleanup_failure 'remove run directory' "$?"
+    cleanup_status=1
+  fi
+  if [[ "$run_status" != 0 ]]; then exit "$run_status"; fi
+  exit "$cleanup_status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -51,10 +86,15 @@ if [[ "$backend" != builtin ]]; then
   docker run -d --name "$container" -e POSTGRES_PASSWORD=bench -e POSTGRES_DB=dexzd -p 127.0.0.1::5432 "$image" -c shared_buffers=256MB -c max_wal_size=4GB > "$output_directory/container-id.txt"
   has_container=true
   database_port="$(docker port "$container" 5432/tcp | awk -F: '{print $NF}')"
+  is_database_ready=false
   for attempt in {1..60}; do
-    if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres -d dexzd > /dev/null 2>&1; then break; fi
+    if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres -d dexzd > /dev/null 2>&1; then is_database_ready=true; break; fi
     sleep 1
   done
+  if [[ "$is_database_ready" != true ]]; then
+    printf 'database %s did not become ready after 60 attempts\n' "$container" >&2
+    exit 1
+  fi
   printf '  %s: postgres://postgres:bench@127.0.0.1:%s/dexzd\n' "$connection_key" "$database_port" >> "$output_directory/zd-config.yaml"
   printf 'requested_image=%s\n' "$image" > "$output_directory/image.txt"
   docker image inspect "$image" --format 'architecture={{.Architecture}} id={{.Id}}' >> "$output_directory/image.txt"

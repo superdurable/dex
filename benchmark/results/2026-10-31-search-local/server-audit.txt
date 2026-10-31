@@ -1,20 +1,20 @@
-builtin-100000-a0: no ERROR-level server logs
-builtin-100000-a10: no ERROR-level server logs
-builtin-100000-a3: no ERROR-level server logs
-builtin-1000000-a0: no ERROR-level server logs
-builtin-1000000-a10: no ERROR-level server logs
-builtin-1000000-a3: no ERROR-level server logs
-paradedb-100000-a0: no ERROR-level server logs
-paradedb-100000-a10: no ERROR-level server logs
-paradedb-100000-a3: no ERROR-level server logs
-paradedb-1000000-a0: no ERROR-level server logs
-paradedb-1000000-a10: no ERROR-level server logs
-paradedb-1000000-a3: no ERROR-level server logs
-postgres-100000-a0: no ERROR-level server logs
-postgres-100000-a10: no ERROR-level server logs
-postgres-100000-a3: no ERROR-level server logs
-postgres-1000000-a0: no ERROR-level server logs
-postgres-1000000-a10: no ERROR-level server logs
-postgres-1000000-a3: no ERROR-level server logs
-postgres-1000000-backfill: no ERROR-level server logs
-No benchmark server or search load-generator process remains.
+builtin-100000-a0: ERROR-level lines=0; projection queue overflow warnings=0; source=builtin-100000-a0/server-log-summary.json
+builtin-100000-a10: ERROR-level lines=0; projection queue overflow warnings=0; source=builtin-100000-a10/server-log-summary.json
+builtin-100000-a3: ERROR-level lines=0; projection queue overflow warnings=0; source=builtin-100000-a3/server-log-summary.json
+builtin-1000000-a0: ERROR-level lines=0; projection queue overflow warnings=0; source=builtin-1000000-a0/server-log-summary.json
+builtin-1000000-a10: ERROR-level lines=0; projection queue overflow warnings=0; source=builtin-1000000-a10/server-log-summary.json
+builtin-1000000-a3: ERROR-level lines=0; projection queue overflow warnings=0; source=builtin-1000000-a3/server-log-summary.json
+paradedb-100000-a0: ERROR-level lines=0; projection queue overflow warnings=2125; source=paradedb-100000-a0/server-log-summary.json
+paradedb-100000-a10: ERROR-level lines=0; projection queue overflow warnings=1966; source=paradedb-100000-a10/server-log-summary.json
+paradedb-100000-a3: ERROR-level lines=0; projection queue overflow warnings=2280; source=paradedb-100000-a3/server-log-summary.json
+paradedb-1000000-a0: ERROR-level lines=0; projection queue overflow warnings=5032; source=paradedb-1000000-a0/server-log-summary.json
+paradedb-1000000-a10: ERROR-level lines=0; projection queue overflow warnings=4421; source=paradedb-1000000-a10/server-log-summary.json
+paradedb-1000000-a3: ERROR-level lines=0; projection queue overflow warnings=5338; source=paradedb-1000000-a3/server-log-summary.json
+postgres-100000-a0: ERROR-level lines=0; projection queue overflow warnings=1975; source=postgres-100000-a0/server-log-summary.json
+postgres-100000-a10: ERROR-level lines=0; projection queue overflow warnings=2002; source=postgres-100000-a10/server-log-summary.json
+postgres-100000-a3: ERROR-level lines=0; projection queue overflow warnings=2311; source=postgres-100000-a3/server-log-summary.json
+postgres-1000000-a0: ERROR-level lines=0; projection queue overflow warnings=4543; source=postgres-1000000-a0/server-log-summary.json
+postgres-1000000-a10: ERROR-level lines=0; projection queue overflow warnings=3027; source=postgres-1000000-a10/server-log-summary.json
+postgres-1000000-a3: ERROR-level lines=0; projection queue overflow warnings=4153; source=postgres-1000000-a3/server-log-summary.json
+postgres-1000000-backfill: ERROR-level lines=0; projection queue overflow warnings=3016; source=postgres-1000000-backfill/server-log-summary.json
+Original run cleanup audit: no benchmark server or search load-generator process remained.

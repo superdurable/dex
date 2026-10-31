@@ -211,7 +211,7 @@
    Compiling der_derive v0.7.3
    Compiling lru v0.18.5
    Compiling objc2-core-foundation v0.3.2
-   Compiling dexzd-protocol v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-protocol)
+   Compiling dexzd-protocol v0.1.0 (server-zd/crates/dexzd-protocol)
    Compiling flagset v0.4.7
    Compiling const-oid v0.9.6
    Compiling zerocopy v0.8.63
@@ -219,7 +219,7 @@
    Compiling getrandom v0.3.4
    Compiling byteorder v1.5.0
    Compiling fallible-iterator v0.2.0
-   Compiling dexzd-clock v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-clock)
+   Compiling dexzd-clock v0.1.0 (server-zd/crates/dexzd-clock)
    Compiling objc2-system-configuration v0.3.2
    Compiling phf_shared v0.13.1
    Compiling whoami v2.1.3
@@ -243,7 +243,7 @@
    Compiling tower v0.5.3
    Compiling aws-smithy-types v1.9.0
    Compiling tokio-stream v0.1.19
-   Compiling dexzd-metrics v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-metrics)
+   Compiling dexzd-metrics v0.1.0 (server-zd/crates/dexzd-metrics)
    Compiling axum v0.8.9
    Compiling tokio-postgres v0.7.18
    Compiling aws-smithy-runtime-api v1.19.1
@@ -311,22 +311,22 @@
    Compiling humantime v2.4.0
    Compiling humantime-serde v1.1.1
    Compiling clap v4.6.7
-   Compiling s3mock v0.1.1 (/Users/qlong/orca/workspaces/dex/pgvis-bench/s3mock/crates/s3mock)
-   Compiling dexzd-keyspace v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-keyspace)
+   Compiling s3mock v0.1.1 (s3mock/crates/s3mock)
+   Compiling dexzd-keyspace v0.1.0 (server-zd/crates/dexzd-keyspace)
    Compiling zstd v0.13.3
-   Compiling dexzd-request-validation v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-request-validation)
-   Compiling dexzd-stream-store v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-stream-store)
-   Compiling dexzd-visibility-query v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-visibility-query)
-   Compiling dexzd-apply v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-apply)
-   Compiling dexzd-worker-dispatch v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-worker-dispatch)
-   Compiling s3mock-server v0.1.1 (/Users/qlong/orca/workspaces/dex/pgvis-bench/s3mock/crates/s3mock-server)
+   Compiling dexzd-request-validation v0.1.0 (server-zd/crates/dexzd-request-validation)
+   Compiling dexzd-stream-store v0.1.0 (server-zd/crates/dexzd-stream-store)
+   Compiling dexzd-visibility-query v0.1.0 (server-zd/crates/dexzd-visibility-query)
+   Compiling dexzd-apply v0.1.0 (server-zd/crates/dexzd-apply)
+   Compiling dexzd-worker-dispatch v0.1.0 (server-zd/crates/dexzd-worker-dispatch)
+   Compiling s3mock-server v0.1.1 (s3mock/crates/s3mock-server)
    Compiling rustls-webpki v0.103.16
    Compiling tokio-rustls v0.26.6
    Compiling hyper-rustls v0.27.10
    Compiling aws-smithy-http-client v1.5.1
    Compiling tokio-postgres-rustls v0.14.0
-   Compiling dexzd-postgres-connection v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-postgres-connection)
-   Compiling dexzd-attribute-store v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-attribute-store)
+   Compiling dexzd-postgres-connection v0.1.0 (server-zd/crates/dexzd-postgres-connection)
+   Compiling dexzd-attribute-store v0.1.0 (server-zd/crates/dexzd-attribute-store)
    Compiling aws-smithy-runtime v1.16.1
    Compiling aws-runtime v1.10.2
    Compiling aws-sdk-sts v1.122.0
@@ -335,12 +335,12 @@
    Compiling aws-sdk-s3 v1.155.0
    Compiling aws-config v1.13.0
    Compiling rocksdb v0.25.0
-   Compiling dexzd-object-store v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-object-store)
-   Compiling dexzd-storage v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-storage)
-   Compiling dexzd-log v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-log)
-   Compiling dexzd-cluster-metadata v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-cluster-metadata)
-   Compiling dexzd-engine v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-engine)
-   Compiling dexzd-search v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-search)
-   Compiling dexzd-api v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-api)
-   Compiling dexzd-server v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-bench/server-zd/crates/dexzd-server)
+   Compiling dexzd-object-store v0.1.0 (server-zd/crates/dexzd-object-store)
+   Compiling dexzd-storage v0.1.0 (server-zd/crates/dexzd-storage)
+   Compiling dexzd-log v0.1.0 (server-zd/crates/dexzd-log)
+   Compiling dexzd-cluster-metadata v0.1.0 (server-zd/crates/dexzd-cluster-metadata)
+   Compiling dexzd-engine v0.1.0 (server-zd/crates/dexzd-engine)
+   Compiling dexzd-search v0.1.0 (server-zd/crates/dexzd-search)
+   Compiling dexzd-api v0.1.0 (server-zd/crates/dexzd-api)
+   Compiling dexzd-server v0.1.0 (server-zd/crates/dexzd-server)
     Finished `release` profile [optimized] target(s) in 1m 38s
