@@ -324,13 +324,14 @@ impl FailoverScenario {
 
     /// Adds load after the recovery, verifies the ledger, stops the group, and checks the takeover.
     async fn finish(self, test: &str, failed_at: Instant, details: String) {
+        // The directory stays in `self`, so a panic dumps process logs before it is deleted.
         let Self {
             mut group,
             workload,
             worker,
             load,
             takeover_bound,
-            _directory,
+            ..
         } = self;
         group
             .wait_for_progress(&workload, ACKNOWLEDGEMENTS_PER_PHASE)

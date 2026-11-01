@@ -218,7 +218,7 @@ async fn step_down_hands_over_to_a_standby_that_is_behind() {
     let group = &mut scenario.group;
     group
         .object_store(SECOND)
-        .inject(ObjectStoreFault::Latency(BEHIND_STANDBY_LATENCY))
+        .inject(ObjectStoreFault::LogLatency(BEHIND_STANDBY_LATENCY))
         .await;
     group
         .wait_for_hot_standby_state(SECOND, "behind", BEHIND_BUDGET)

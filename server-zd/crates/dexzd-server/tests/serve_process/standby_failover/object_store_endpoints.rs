@@ -15,6 +15,7 @@ use std::time::Duration;
 use s3mock::Store;
 use s3mock_server::{ServerConfig, ServerHandle, SignatureVerification};
 
+use crate::PRIMARY_PREFIX;
 use crate::harness::s3mock_admin_request;
 
 /// Longer than the server's 30 s object storage request timeout, so every held request times out.
@@ -29,6 +30,8 @@ const HELD_REQUEST_DURATION: Duration = Duration::from_secs(1);
 pub(crate) enum ObjectStoreFault {
     /// Delays every request by this long before s3mock handles it.
     Latency(Duration),
+    /// Delays only requests for node log objects, so lease reads and writes stay fast.
+    LogLatency(Duration),
     /// Fails each request with 503 SlowDown with this probability, before it reaches the store.
     ServiceUnavailable { probability: f64 },
     /// Holds every request past the client's timeout; s3mock then drops it unhandled.
@@ -42,6 +45,12 @@ impl ObjectStoreFault {
     fn rules(self) -> String {
         let action = match self {
             Self::Latency(delay) => delay_action(delay),
+            Self::LogLatency(delay) => {
+                return format!(
+                    r#"[{{"key_prefix":"{PRIMARY_PREFIX}/log/","action":{}}}]"#,
+                    delay_action(delay)
+                );
+            }
             Self::ServiceUnavailable { probability } => {
                 assert!(
                     (0.0..=1.0).contains(&probability),
