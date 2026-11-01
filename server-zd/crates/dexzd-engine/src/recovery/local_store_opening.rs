@@ -49,7 +49,9 @@ pub enum LocalStoreConfig {
 
 impl LocalStoreConfig {
     /// Returns whether `other` names the same store, such as the same RocksDB directory.
-    pub(crate) fn names_same_store(&self, other: &Self) -> bool {
+    ///
+    /// RocksDB tuning is not compared: a store handed over keeps the options it was opened with.
+    pub(crate) fn is_same_store(&self, other: &Self) -> bool {
         match (self, other) {
             (
                 Self::RocksDb { directory, .. },
@@ -65,6 +67,11 @@ impl LocalStoreConfig {
             }
             _ => false,
         }
+    }
+
+    /// Returns whether the store lives in a directory that only one open handle may use.
+    pub(crate) fn has_directory(&self) -> bool {
+        matches!(self, Self::RocksDb { .. })
     }
 }
 
@@ -155,6 +162,15 @@ pub(crate) fn reusable_open_store(
     store: &Arc<EngineLocalStore>,
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<Option<Arc<EngineLocalStore>>, EngineStartError> {
+    if let Some(other_node_id) =
+        applied_node_other_than(store.as_ref(), &requirements.streams.node_id)?
+    {
+        tracing::warn!(
+            other_node_id,
+            "the existing local store applied another node's log; restoring the newest snapshot"
+        );
+        return Ok(None);
+    }
     if requirements.snapshot.is_some()
         && lowest_applied_position(store.as_ref(), requirements.partition_count)?.is_none()
     {
@@ -351,6 +367,19 @@ pub(crate) fn find_unreplayable_gap(
         }
     }
     Ok(None)
+}
+
+/// Returns a node other than `node_id` whose log a partition of `store` applied, if any.
+fn applied_node_other_than(
+    store: &dyn LocalReadView,
+    node_id: &str,
+) -> Result<Option<String>, EngineStartError> {
+    Ok(store
+        .partition_metas()?
+        .into_iter()
+        .filter_map(|meta| meta.applied)
+        .map(|applied| applied.node_id)
+        .find(|applied_node_id| applied_node_id != node_id))
 }
 
 /// Returns the lowest applied position over every partition, or `None` when a partition

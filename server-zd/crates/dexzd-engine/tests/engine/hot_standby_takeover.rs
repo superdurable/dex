@@ -11,19 +11,24 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_engine::{
-    CommitUrgency, EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig,
+    CommitUrgency, EngineCommandAndEffectHooks, EngineLocalStore, EngineNode, EngineNodeConfig,
     EngineNodeDependencies, EngineServices, EngineStartError, HotStandby, HotStandbyState,
     HotStandbyTakeover, LocalStoreConfig, SystemEngineIdSource,
 };
 use dexzd_log::{StreamIdentity, decode_batch};
 use dexzd_object_store::{ObjectStore, ObjectStoreOperation};
-use dexzd_storage::{LocalReadView, RocksDbLocalStore, RocksDbStoreOptions};
+use dexzd_storage::{
+    InMemoryLocalStore, LocalReadView, LocalStore, RocksDbLocalStore, RocksDbStoreOptions,
+};
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
-use crate::harness::{CountingApplier, RecordingCommandAndEffectHooks, TestCluster, TestNode};
+use crate::harness::{
+    BLOCKING_FLOW, CountingApplier, RecordingCommandAndEffectHooks, TestCluster, TestNode,
+};
 use crate::hot_standby::{
-    FIRST_FLOW, LOG_PREFIX, ProcessObjectStore, applied_flows, commit_to_both_flows,
+    FIRST_FLOW, LOG_PREFIX, ProcessObjectStore, TestStandby, applied_flows, commit_to_both_flows,
     fast_standby_config, first_log_seq, last_log_position, rocksdb_store, set_aside_copies,
     start_standby, wait_until_caught_up,
 };
@@ -31,10 +36,9 @@ use crate::hot_standby::{
 /// Longest wait for a takeover to read the held lease twice.
 const LEASE_READ_DEADLINE: Duration = Duration::from_secs(30);
 
-/// A takeover's own object storage view, applier, and result.
+/// A takeover's applier, hooks, and result.
 struct Takeover {
     result: Result<HotStandbyTakeover, EngineStartError>,
-    object_store: Arc<ProcessObjectStore>,
     applier: Arc<CountingApplier>,
     recording_hooks: Arc<RecordingCommandAndEffectHooks>,
 }
@@ -54,13 +58,15 @@ fn take_over(
     let task_object_store = object_store.clone();
     let takeover = async move {
         let applier = Arc::new(CountingApplier::default());
+        // The serving node replays any gated command; only a test's standby holds one.
+        applier.gate.open();
         let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::default());
         let factory_recording_hooks = recording_hooks.clone();
         let result = EngineNode::take_over_from_hot_standby_until_cancelled(
             &config,
             EngineNodeDependencies {
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
-                object_store: task_object_store.clone(),
+                object_store: task_object_store,
                 clock,
                 applier: applier.clone(),
                 id_source: Arc::new(SystemEngineIdSource),
@@ -76,7 +82,6 @@ fn take_over(
         .await;
         Takeover {
             result,
-            object_store: task_object_store,
             applier,
             recording_hooks,
         }
@@ -91,26 +96,31 @@ async fn take_over_to_serving(
     standby: HotStandby,
 ) -> (TestNode, Arc<ProcessObjectStore>) {
     let (_cancel, cancellation) = watch::channel(false);
-    let (_, takeover) = take_over(cluster, config, standby, cancellation);
+    let (object_store, takeover) = take_over(cluster, config, standby, cancellation);
+    let test_node = serving_test_node(cluster, takeover.await);
+    (test_node, object_store)
+}
+
+/// Returns the node that `takeover` serves; panics unless it serves.
+fn serving_test_node(cluster: &TestCluster, takeover: Takeover) -> TestNode {
     let Takeover {
         result,
-        object_store,
         applier,
         recording_hooks,
-    } = takeover.await;
+        ..
+    } = takeover;
     let node = match result.expect("the takeover succeeds") {
         HotStandbyTakeover::Serving(node) => node,
         HotStandbyTakeover::Cancelled(_) => panic!("an uncancelled takeover serves"),
         _ => panic!("unexpected takeover outcome"),
     };
-    let test_node = TestNode {
+    TestNode {
         node,
         applier,
         recording_hooks,
         hasher: cluster.hasher.clone(),
         lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
-    };
-    (test_node, object_store)
+    }
 }
 
 async fn recorded_epoch(cluster: &TestCluster) -> u64 {
@@ -165,13 +175,8 @@ async fn a_takeover_after_idle_partitions_reads_little_and_outranks_every_follow
     serving.node.shutdown().await.expect("lease released");
 
     let (node, object_store) = take_over_to_serving(&cluster, standby_config, second.standby).await;
+    assert!(node.node.is_serving_hot_standby_store_for_test());
     let takeover_epoch = recorded_epoch(&cluster).await;
-    for (_, epoch) in &positions {
-        assert!(
-            0 < *epoch && *epoch < takeover_epoch,
-            "{epoch} vs {takeover_epoch}"
-        );
-    }
     assert!(
         object_store.log_reads() <= 3,
         "the takeover read {} log objects or listings",
@@ -185,6 +190,14 @@ async fn a_takeover_after_idle_partitions_reads_little_and_outranks_every_follow
     node.commit_prompt(FIRST_FLOW, 1).await;
     assert_eq!(node.committed_count(FIRST_FLOW).await, 21);
     node.node.shutdown().await.expect("lease released");
+    // Recovery accepted the standby's positions and moved every partition into its own epoch.
+    for (seq, epoch) in applied_positions(&standby_directory) {
+        assert!(
+            seq > last_seq,
+            "seq {seq} is not past the standby's {last_seq}"
+        );
+        assert_eq!(epoch, takeover_epoch);
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -203,6 +216,7 @@ async fn a_takeover_serves_the_in_memory_store_that_the_standby_hands_over() {
     // An in-memory store exists only in the standby, so a cold start would replay every batch.
     let (node, object_store) =
         take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(node.node.is_serving_hot_standby_store_for_test());
     assert!(
         object_store.log_reads() <= 3,
         "the takeover read {} log objects or listings",
@@ -261,6 +275,7 @@ async fn a_takeover_writes_its_epoch_start_at_the_hole_the_standby_waits_at() {
 
     let standby_applier = standby.applier.clone();
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(node.node.is_serving_hot_standby_store_for_test());
     let takeover_epoch = recorded_epoch(&cluster).await;
     let at_hole = read_batch(&cluster, &stream, hole_seq).await;
     assert!(
@@ -341,6 +356,7 @@ async fn a_takeover_from_a_store_behind_log_cleanup_restores_the_newest_snapshot
 
     let (node, object_store) =
         take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(!node.node.is_serving_hot_standby_store_for_test());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 7);
     assert_eq!(node.committed_count(&second_flow).await, 7);
     assert_eq!(
@@ -393,13 +409,18 @@ async fn a_takeover_from_a_standby_without_a_store_restores_the_newest_snapshot(
     let standby = start_standby(&cluster, standby_config.clone(), fast_standby_config());
     standby.object_store.fail_all_reads(true);
     tokio::time::sleep(Duration::from_secs(2)).await;
-    assert_eq!(
-        standby.standby.status().state,
-        HotStandbyState::Bootstrapping
+    let without_store = standby.standby.status();
+    assert!(
+        matches!(
+            without_store.state,
+            HotStandbyState::Bootstrapping | HotStandbyState::Restarting
+        ),
+        "{without_store:?}"
     );
     serving.node.shutdown().await.expect("lease released");
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(!node.node.is_serving_hot_standby_store_for_test());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 5);
     assert_eq!(
         applied_flows(&node.applier),
@@ -434,6 +455,7 @@ async fn a_takeover_opens_the_configured_store_when_the_standby_followed_into_an
         standby.standby,
     )
     .await;
+    assert!(!node.node.is_serving_hot_standby_store_for_test());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 3);
     assert_eq!(
         applied_flows(&node.applier),
@@ -532,4 +554,330 @@ async fn read_batch(
         .expect("read the batch")
         .expect("the batch exists");
     decode_batch(&content.bytes).expect("decode the batch")
+}
+
+/// How long a real-time test waits after the lease, so a takeover is inside the handover.
+const HANDOVER_START_DELAY: Duration = Duration::from_millis(300);
+
+/// Waits until the manifest records a node epoch above `epoch`, as a takeover's lease does.
+async fn wait_for_epoch_above(cluster: &TestCluster, epoch: u64) {
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while recorded_epoch(cluster).await <= epoch {
+        assert!(Instant::now() < deadline, "no process took the lease");
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
+/// Returns a future that opens the gate of `applier` after `delay`, for a task to run while the
+/// test awaits what the gate holds up.
+fn open_gate_after(
+    applier: &Arc<CountingApplier>,
+    delay: Duration,
+) -> impl Future<Output = ()> + Send + 'static {
+    let applier = Arc::clone(applier);
+    async move {
+        tokio::time::sleep(delay).await;
+        applier.gate.open();
+    }
+}
+
+/// Starts a node whose applier passes gated commands.
+async fn start_with_open_gate(
+    cluster: &mut TestCluster,
+    config: &EngineNodeConfig,
+) -> Result<TestNode, EngineStartError> {
+    let applier = Arc::new(CountingApplier::default());
+    applier.gate.open();
+    cluster
+        .start(
+            config,
+            applier,
+            Arc::new(RecordingCommandAndEffectHooks::default()),
+        )
+        .await
+}
+
+/// Opens a gate when dropped, so a failed assertion never leaves a lane blocked forever.
+struct GateOpenedOnDrop(Arc<CountingApplier>);
+
+impl Drop for GateOpenedOnDrop {
+    fn drop(&mut self) {
+        self.0.gate.open();
+    }
+}
+
+/// Starts a serving node and a standby whose lane holds a gated command, then stops the serving
+/// node so a takeover gets the lease at once. Gated tests run in real time: paused time does not
+/// advance while the gated apply blocks.
+///
+/// Returns the standby and a guard that opens its gate when the test ends.
+async fn standby_with_a_command_mid_apply(
+    cluster: &mut TestCluster,
+    standby_config: EngineNodeConfig,
+) -> (TestStandby, GateOpenedOnDrop) {
+    let serving = start_with_open_gate(cluster, &cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby = start_standby(cluster, standby_config, fast_standby_config());
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(cluster, &standby.standby).await;
+    serving.commit_prompt(BLOCKING_FLOW, 1).await;
+    let gate = GateOpenedOnDrop(standby.applier.clone());
+    standby.applier.gate.wait_until_entered().await;
+    serving.node.shutdown().await.expect("lease released");
+    (standby, gate)
+}
+
+/// Starts a takeover in a task and cancels it once it is inside the handover.
+///
+/// Returns the task that opens the standby's gate two seconds after the cancellation.
+async fn cancel_a_takeover_mid_handover(
+    cluster: &TestCluster,
+    standby_config: EngineNodeConfig,
+    standby: TestStandby,
+) -> JoinHandle<()> {
+    let epoch = recorded_epoch(cluster).await;
+    let (cancel, cancellation) = watch::channel(false);
+    let (_, takeover) = take_over(cluster, standby_config, standby.standby, cancellation);
+    let takeover = tokio::spawn(takeover);
+    // The handover waits for the gated lane, so cancellation arrives in the middle of it.
+    wait_for_epoch_above(cluster, epoch).await;
+    tokio::time::sleep(HANDOVER_START_DELAY).await;
+    let gate_opener = tokio::spawn(open_gate_after(&standby.applier, Duration::from_secs(2)));
+    cancel
+        .send(true)
+        .expect("the takeover listens for cancellation");
+    let cancelled = takeover.await.expect("the takeover task completes").result;
+    assert!(
+        matches!(cancelled, Err(EngineStartError::Stopped { .. })),
+        "a takeover cancelled after the lease stops"
+    );
+    gate_opener
+}
+
+#[tokio::test]
+async fn a_start_on_the_directory_succeeds_right_after_a_takeover_is_cancelled_mid_handover() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut cluster = TestCluster::new();
+    let standby_config = cluster.config(rocksdb_store(&directory.path().join("standby")));
+    let (standby, _gate) =
+        standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
+    let gate_opener =
+        cancel_a_takeover_mid_handover(&cluster, standby_config.clone(), standby).await;
+
+    let started = tokio::time::timeout(
+        Duration::from_secs(20),
+        start_with_open_gate(&mut cluster, &standby_config),
+    )
+    .await
+    .expect("the start finishes");
+    let node = started.expect("a start opens the standby's directory at once");
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
+    assert_eq!(node.committed_count(BLOCKING_FLOW).await, 1);
+    node.node.shutdown().await.expect("lease released");
+    gate_opener.await.expect("the gate opener completes");
+}
+
+#[tokio::test]
+async fn a_new_standby_on_the_directory_follows_right_after_a_takeover_is_cancelled_mid_handover() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut cluster = TestCluster::new();
+    let standby_config = cluster.config(rocksdb_store(&directory.path().join("standby")));
+    let (standby, _gate) =
+        standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
+    let gate_opener =
+        cancel_a_takeover_mid_handover(&cluster, standby_config.clone(), standby).await;
+
+    let next = start_standby(&cluster, standby_config, fast_standby_config());
+    next.applier.gate.open();
+    wait_until_caught_up(&cluster, &next.standby).await;
+    assert_eq!(
+        next.standby.status().last_error,
+        None,
+        "the new standby opened the directory without a restart"
+    );
+    next.standby.shutdown().await;
+    gate_opener.await.expect("the gate opener completes");
+}
+
+#[tokio::test]
+async fn a_dropped_standby_fences_a_lane_mid_apply_at_once() {
+    let store = Arc::new(EngineLocalStore::Memory(InMemoryLocalStore::new()));
+    let mut cluster = TestCluster::new();
+    let standby_config = cluster.config(LocalStoreConfig::ExistingForTest(Arc::clone(&store)));
+    let (standby, _gate) = standby_with_a_command_mid_apply(&mut cluster, standby_config).await;
+    let metas_before = store.partition_metas().expect("read the partition metas");
+    let standby_applier = standby.applier.clone();
+
+    drop(standby);
+    standby_applier.gate.open();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        store.partition_metas().expect("read the partition metas"),
+        metas_before,
+        "the lane wrote after its standby was dropped"
+    );
+}
+
+#[tokio::test]
+async fn a_standby_lane_mid_apply_at_handover_writes_nothing_after_the_node_serves() {
+    let store = Arc::new(EngineLocalStore::Memory(InMemoryLocalStore::new()));
+    let mut cluster = TestCluster::new();
+    let standby_config = cluster.config(LocalStoreConfig::ExistingForTest(Arc::clone(&store)));
+    let (standby, _gate) =
+        standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
+    let standby_applier = standby.applier.clone();
+
+    let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert_eq!(
+        applied_flows(&node.applier),
+        vec![BLOCKING_FLOW.to_owned()],
+        "the serving node replays the frame the standby never wrote"
+    );
+    node.commit_prompt(BLOCKING_FLOW, 1).await;
+    let takeover_epoch = recorded_epoch(&cluster).await;
+    let partition = node.context(BLOCKING_FLOW).partition;
+
+    // The standby's lane resumes behind its stopped write fence.
+    standby_applier.gate.open();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(node.committed_count(BLOCKING_FLOW).await, 2);
+    let meta = store
+        .partition_meta(partition)
+        .expect("read the partition meta")
+        .expect("the partition has a meta");
+    assert_eq!(
+        meta.applied_epoch, takeover_epoch,
+        "the standby wrote its frame's position"
+    );
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test]
+async fn a_takeover_opens_the_store_cold_after_a_standby_store_write_failed_in_the_handover() {
+    let mut cluster = TestCluster::new();
+    let standby_config = cluster.config(LocalStoreConfig::InMemory);
+    let (standby, _gate) =
+        standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
+    let standby_applier = standby.applier.clone();
+    let write_fence = standby.standby.write_fence_for_test();
+    let epoch = recorded_epoch(&cluster).await;
+    let (_cancel, cancellation) = watch::channel(false);
+    let (_, takeover) = take_over(&cluster, standby_config, standby.standby, cancellation);
+    let takeover = tokio::spawn(takeover);
+    wait_for_epoch_above(&cluster, epoch).await;
+    tokio::time::sleep(HANDOVER_START_DELAY).await;
+    // A write fails after the handover cancelled following, so only the fence records it.
+    write_fence.fail_for_test();
+    standby_applier.gate.open();
+
+    let takeover = takeover.await.expect("the takeover task completes");
+    let node = serving_test_node(&cluster, takeover);
+    assert!(
+        !node.node.is_serving_hot_standby_store_for_test(),
+        "a store behind a failed write fence is not handed over"
+    );
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
+    assert_eq!(node.committed_count(BLOCKING_FLOW).await, 1);
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test]
+async fn a_takeover_waits_for_a_lingering_standby_lane_before_it_reopens_the_store() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut cluster = TestCluster::new();
+    let standby_config = cluster.config(rocksdb_store(&directory.path().join("standby")));
+    let (standby, _gate) =
+        standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
+    let standby_applier = standby.applier.clone();
+    let write_fence = standby.standby.write_fence_for_test();
+    let epoch = recorded_epoch(&cluster).await;
+    let (_cancel, cancellation) = watch::channel(false);
+    let (_, takeover) = take_over(&cluster, standby_config, standby.standby, cancellation);
+    let takeover = tokio::spawn(takeover);
+    wait_for_epoch_above(&cluster, epoch).await;
+    tokio::time::sleep(HANDOVER_START_DELAY).await;
+    write_fence.fail_for_test();
+    // The handover gives up on the lane within six seconds; the lane then still holds the store.
+    let gate_opener = tokio::spawn(open_gate_after(&standby_applier, Duration::from_secs(8)));
+
+    let takeover = takeover.await.expect("the takeover task completes");
+    gate_opener.await.expect("the gate opener completes");
+    let node = serving_test_node(&cluster, takeover);
+    assert!(!node.node.is_serving_hot_standby_store_for_test());
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
+    assert_eq!(node.committed_count(BLOCKING_FLOW).await, 1);
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_takeover_for_another_node_fails_before_the_lease_and_returns_the_standby() {
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby_config = cluster.config(LocalStoreConfig::InMemory);
+    let standby = start_standby(&cluster, standby_config.clone(), fast_standby_config());
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    let epoch = recorded_epoch(&cluster).await;
+
+    let mut other_node_config = standby_config;
+    other_node_config.node.node_id = "node-b".to_owned();
+    let (_cancel, cancellation) = watch::channel(false);
+    let (_, takeover) = take_over(&cluster, other_node_config, standby.standby, cancellation);
+    let returned = match takeover
+        .await
+        .result
+        .expect("the takeover reports its outcome")
+    {
+        HotStandbyTakeover::FailedBeforeLease { error, standby } => {
+            assert!(
+                matches!(error, EngineStartError::InvalidConfig { .. }),
+                "{error}"
+            );
+            standby
+        }
+        HotStandbyTakeover::Serving(_) => panic!("another node's takeover must not serve"),
+        _ => panic!("unexpected takeover outcome"),
+    };
+    assert_eq!(recorded_epoch(&cluster).await, epoch, "no lease was taken");
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &returned).await;
+    assert_eq!(applied_flows(&standby.applier).len(), 4);
+    returned.shutdown().await;
+    serving.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_takeover_does_not_reuse_a_store_whose_positions_name_another_node() {
+    let store = Arc::new(EngineLocalStore::Memory(InMemoryLocalStore::new()));
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby_config = cluster.config(LocalStoreConfig::ExistingForTest(Arc::clone(&store)));
+    let standby = start_standby(&cluster, standby_config.clone(), fast_standby_config());
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    serving.node.shutdown().await.expect("lease released");
+    for mut meta in store.partition_metas().expect("read the partition metas") {
+        if let Some(applied) = meta.applied.as_mut() {
+            applied.node_id = "node-z".to_owned();
+        }
+        store
+            .put_partition_meta(&meta)
+            .expect("write the partition meta");
+    }
+
+    let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(
+        !node.node.is_serving_hot_standby_store_for_test(),
+        "a store with another node's positions is not reused"
+    );
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
+    node.node.shutdown().await.expect("lease released");
 }

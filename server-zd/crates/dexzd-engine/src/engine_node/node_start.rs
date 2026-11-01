@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use dexzd_cluster_metadata::{LeaseObjectStores, LeaseObservers, LeaseReleaseError, LeaseStatus};
 use dexzd_keyspace::PartitionId;
@@ -33,7 +33,7 @@ use crate::engine_node::{
 use crate::hot_standby::HotStandby;
 use crate::recovery::{
     ClusterMetadata, EngineCommandAndEffectHooks, EngineServices, EngineStartError,
-    LocalStoreConfig, LocalStoreRequirements, LogReplay, OpenedLocalStore, StartupReadRetryStore,
+    LocalStoreRequirements, LogReplay, OpenedLocalStore, StartupReadRetryStore,
     delete_older_set_aside_stores, open_local_store, rebuild_search_order_indexes,
     reusable_open_store,
 };
@@ -49,35 +49,22 @@ pub(crate) enum LocalStoreSource {
     HotStandby(HotStandby),
 }
 
-/// How a start ended without an error.
+/// Longest wait for a hot standby's store to close before the start reopens its directory.
+const STORE_CLOSE_BUDGET: Duration = Duration::from_secs(30);
+
+/// How a start ended, apart from errors after the lease.
 pub(crate) enum StartOutcome {
     Serving(EngineNode),
     /// Cancellation arrived before the lease; the local store source is returned unused.
     Cancelled(LocalStoreSource),
+    /// The start failed before the lease; the local store source is returned unused.
+    FailedBeforeLease {
+        error: EngineStartError,
+        source: LocalStoreSource,
+    },
 }
 
 impl LocalStoreSource {
-    /// Opens the store that the node serves from, once this process holds the lease.
-    ///
-    /// Returns the hot standby's store when it is the configured store and the retained log can
-    /// update it. Otherwise returns the store that [`open_local_store`] opens or restores.
-    async fn open(
-        self,
-        config: &LocalStoreConfig,
-        object_store: &dyn ObjectStore,
-        requirements: &LocalStoreRequirements<'_>,
-    ) -> Result<OpenedLocalStore, EngineStartError> {
-        if let Self::HotStandby(standby) = self
-            && let Some(store) = take_over_store(standby, config, requirements).await?
-        {
-            return Ok(OpenedLocalStore {
-                store,
-                set_aside_id: None,
-            });
-        }
-        open_local_store(config, object_store, requirements).await
-    }
-
     pub(crate) fn into_hot_standby(self) -> Option<HotStandby> {
         match self {
             Self::HotStandby(standby) => Some(standby),
@@ -86,38 +73,88 @@ impl LocalStoreSource {
     }
 }
 
+/// Opens the store that the node serves from, once this process holds the lease.
+///
+/// Returns the hot standby's store and `true` when the standby followed this node into the
+/// configured store and the retained log can update it. Otherwise returns the store that
+/// [`open_local_store`] opens or restores, and `false`.
+async fn open_serving_store(
+    standby: Option<&mut HotStandby>,
+    config: &EngineNodeConfig,
+    object_store: &dyn ObjectStore,
+    requirements: &LocalStoreRequirements<'_>,
+) -> Result<(OpenedLocalStore, bool), EngineStartError> {
+    if let Some(standby) = standby
+        && let Some(store) = take_over_store(standby, config, requirements).await?
+    {
+        let opened = OpenedLocalStore {
+            store,
+            set_aside_id: None,
+        };
+        return Ok((opened, true));
+    }
+    let opened = open_local_store(&config.local_store, object_store, requirements).await?;
+    Ok((opened, false))
+}
+
 /// Stops the standby, fences and joins its work, and checks its store under the lease.
 ///
-/// Returns its store when it is the configured store and the retained log can update it, and
-/// `None` otherwise, after closing it so the configured store can be reopened.
+/// Returns its store when it followed this node into the configured store and the retained log
+/// can update it. Returns `None` otherwise, once the store closed so its directory reopens.
 async fn take_over_store(
-    standby: HotStandby,
-    config: &LocalStoreConfig,
+    standby: &mut HotStandby,
+    config: &EngineNodeConfig,
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<Option<Arc<EngineLocalStore>>, EngineStartError> {
-    let is_configured_store = standby.uses_local_store(config);
-    let Some(store) = standby.hand_over_store().await else {
-        tracing::info!("the hot standby had no local store to hand over; opening the local store");
-        return Ok(None);
+    let is_configured_store = standby.has_local_store(&config.local_store);
+    let reusable = match standby.hand_over_store().await {
+        None => {
+            tracing::info!("the hot standby had no local store to hand over");
+            None
+        }
+        Some(_) if !is_configured_store => {
+            tracing::error!(
+                "the hot standby followed into another store than this node's; opening the \
+                 node's local store"
+            );
+            None
+        }
+        Some(store) => reusable_open_store(&store, requirements)?,
     };
-    if !is_configured_store {
-        tracing::error!(
-            "the hot standby followed into another local store than the node's; opening the \
-             node's local store"
-        );
-        return Ok(None);
-    }
-    let reusable = reusable_open_store(&store, requirements)?;
     if reusable.is_some() {
         tracing::info!("serving from the hot standby's local store");
+    } else if is_configured_store && config.local_store.has_directory() {
+        standby.wait_until_store_closed(STORE_CLOSE_BUDGET).await;
     }
     Ok(reusable)
 }
 
+/// Checks the node configuration and that a hot standby follows the node that starts.
+fn validate_start_config(
+    config: &EngineNodeConfig,
+    local_store_source: &LocalStoreSource,
+) -> Result<(), EngineStartError> {
+    validate_config(config)?;
+    match local_store_source {
+        LocalStoreSource::HotStandby(standby)
+            if !standby.is_following_node(&config.node.node_id) =>
+        {
+            Err(EngineStartError::InvalidConfig {
+                detail: format!(
+                    "the hot standby does not follow node {}",
+                    config.node.node_id
+                ),
+            })
+        }
+        LocalStoreSource::HotStandby(_) | LocalStoreSource::Configured => Ok(()),
+    }
+}
+
 /// Starts a node like [`EngineNode::start_until_cancelled`], with its local store from `local_store_source`.
 ///
-/// Returns the serving node, or the unused source when cancellation arrives before the lease.
-/// Returns the errors that [`EngineNode::start_until_cancelled`] documents.
+/// Returns the serving node, or the unused source with [`StartOutcome::Cancelled`] or
+/// [`StartOutcome::FailedBeforeLease`] when cancellation or an error arrives before the lease.
+/// After the lease, returns the errors that [`EngineNode::start_until_cancelled`] documents.
 pub(crate) async fn start_engine_node<F>(
     config: &EngineNodeConfig,
     dependencies: EngineNodeDependencies,
@@ -128,7 +165,12 @@ pub(crate) async fn start_engine_node<F>(
 where
     F: FnOnce(EngineServices) -> EngineCommandAndEffectHooks,
 {
-    validate_config(config)?;
+    if let Err(error) = validate_start_config(config, &local_store_source) {
+        return Ok(StartOutcome::FailedBeforeLease {
+            error,
+            source: local_store_source,
+        });
+    }
     let EngineNodeDependencies {
         metrics,
         object_store,
@@ -149,7 +191,15 @@ where
     let unleased_metadata = tokio::select! {
         metadata = ClusterMetadata::bootstrap_or_validate(
             startup_store.as_ref(), clock.as_ref(), config.cluster, &config.node,
-        ) => metadata?,
+        ) => match metadata {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                return Ok(StartOutcome::FailedBeforeLease {
+                    error,
+                    source: local_store_source,
+                });
+            }
+        },
         () = wait_for_cancellation(cancellation) => {
             return Ok(StartOutcome::Cancelled(local_store_source));
         }
@@ -159,7 +209,15 @@ where
         .behavior_version
         .set(i64::from(unleased_metadata.behavior_version));
     metrics.set_role(dexzd_metrics::NodeRole::Standby);
-    let cluster_id = unleased_metadata.cluster_id()?;
+    let cluster_id = match unleased_metadata.cluster_id() {
+        Ok(cluster_id) => cluster_id,
+        Err(error) => {
+            return Ok(StartOutcome::FailedBeforeLease {
+                error,
+                source: local_store_source,
+            });
+        }
+    };
     let acquired = config
         .lease
         .acquire_until_cancelled_with_observers_and_stores(
@@ -175,8 +233,15 @@ where
         )
         .await;
     acquisition_store.finish_startup();
-    let Some(lease) = acquired? else {
-        return Ok(StartOutcome::Cancelled(local_store_source));
+    let lease = match acquired {
+        Ok(Some(lease)) => lease,
+        Ok(None) => return Ok(StartOutcome::Cancelled(local_store_source)),
+        Err(error) => {
+            return Ok(StartOutcome::FailedBeforeLease {
+                error: error.into(),
+                source: local_store_source,
+            });
+        }
     };
     let retrying_store = Arc::new(StartupReadRetryStore::new(
         object_store.clone(),
@@ -207,6 +272,7 @@ where
             state: state.clone(),
             tasks,
             appliers: None,
+            standby: local_store_source.into_hot_standby(),
             lease,
         }),
     };
@@ -223,22 +289,27 @@ where
             node_id: config.node.node_id.clone(),
             incarnation: metadata.streams.serving_incarnation,
         };
-        let OpenedLocalStore {
-            store,
-            set_aside_id,
-        } = local_store_source
-            .open(
-                &config.local_store,
-                startup_store.as_ref(),
-                &LocalStoreRequirements {
-                    snapshot: metadata.node_snapshot(&config.node.node_id),
-                    streams: &metadata.streams,
-                    partition_count,
-                    new_store_lineage_id: id_source.store_lineage_id(),
-                    should_discard_existing_store: false,
-                },
-            )
-            .await?;
+        let (
+            OpenedLocalStore {
+                store,
+                set_aside_id,
+            },
+            is_serving_hot_standby_store,
+        ) = open_serving_store(
+            parts.standby.as_mut(),
+            config,
+            startup_store.as_ref(),
+            &LocalStoreRequirements {
+                snapshot: metadata.node_snapshot(&config.node.node_id),
+                streams: &metadata.streams,
+                partition_count,
+                new_store_lineage_id: id_source.store_lineage_id(),
+                should_discard_existing_store: false,
+            },
+        )
+        .await?;
+        // Its following stopped; only the lease release path still needs an unfinished one.
+        parts.standby = None;
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {
             tracing::info!(
@@ -418,7 +489,12 @@ where
             .set(i64::try_from(replayed.replayed_bytes).unwrap_or(i64::MAX));
         tracing::info!(epoch, next_seq = replayed.next_seq, "engine node serving");
         metrics.set_role(dexzd_metrics::NodeRole::Serving);
-        Ok((committer, applied_positions, snapshots))
+        Ok((
+            committer,
+            applied_positions,
+            snapshots,
+            is_serving_hot_standby_store,
+        ))
     });
     let serving_result = tokio::select! {
         biased;
@@ -431,12 +507,17 @@ where
     drop(serving_future);
     retrying_store.finish_startup();
     match serving_result {
-        Ok((committer, applied_positions, snapshots)) => {
+        Ok((committer, applied_positions, snapshots, is_serving_hot_standby_store)) => {
+            tracing::info!(
+                is_serving_hot_standby_store,
+                "engine node started its local store"
+            );
             let LeasedParts {
                 state,
                 tasks,
                 appliers,
                 lease,
+                ..
             } = starting.take_parts();
             Ok(StartOutcome::Serving(EngineNode {
                 metrics,
@@ -448,6 +529,8 @@ where
                 lease,
                 tasks,
                 cluster_id,
+                #[cfg(feature = "test-util")]
+                is_serving_hot_standby_store,
             }))
         }
         Err(error) => {

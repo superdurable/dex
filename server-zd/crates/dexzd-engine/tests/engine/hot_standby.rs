@@ -34,8 +34,8 @@ use crate::harness::{CountingApplier, TestCluster, TestNode};
 pub(crate) const LOG_PREFIX: &str = "log/node-a/";
 pub(crate) const FIRST_FLOW: &str = "followed-first";
 /// Longest wait for a standby to reach the end of the log.
-pub(crate) const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
-pub(crate) const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
+const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
+const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
 const MANIFEST_KEY: &str = "manifest";
 
 /// One process's view of the cluster's object storage: records its writes and reads, and can
@@ -370,7 +370,7 @@ fn assert_wrote_nothing(standby: &TestStandby) {
     assert_eq!(standby.standby.rejected_writes_for_test(), 0);
 }
 
-pub(crate) fn assert_not_failed(status: &HotStandbyStatus) {
+fn assert_not_failed(status: &HotStandbyStatus) {
     assert_ne!(
         status.state,
         HotStandbyState::Failed,
@@ -380,7 +380,7 @@ pub(crate) fn assert_not_failed(status: &HotStandbyStatus) {
 }
 
 /// Requires the closed stores to hold the same state apart from fields each process writes itself.
-pub(crate) fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
+fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
     let serving = RocksDbLocalStore::open(serving_directory, RocksDbStoreOptions::default())
         .expect("the serving store opens");
     let standby = RocksDbLocalStore::open(standby_directory, RocksDbStoreOptions::default())

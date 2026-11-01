@@ -55,6 +55,8 @@ pub use flow_coordination::{
     RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult, default_run_settings,
     grpc_code,
 };
+#[cfg(feature = "test-util")]
+pub use hot_standby::HotStandbyWriteFenceForTest;
 pub use hot_standby::{
     HotStandby, HotStandbyConfig, HotStandbyDependencies, HotStandbyLag, HotStandbyState,
     HotStandbyStatus,

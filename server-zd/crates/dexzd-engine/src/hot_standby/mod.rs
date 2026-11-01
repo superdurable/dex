@@ -15,7 +15,7 @@ mod standby_driver;
 use std::sync::atomic::AtomicU64;
 #[cfg(feature = "test-util")]
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use dexzd_clock::WallClock;
@@ -25,7 +25,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::command_applier::CommandApplier;
-use crate::commit::EngineLocalStore;
+use crate::commit::{CommitState, EngineLocalStore, NodeStopReason};
 use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::{EngineNodeConfig, validate_config};
 use crate::hot_standby::log_follower::FollowProgress;
@@ -35,6 +35,9 @@ use crate::recovery::{EngineStartError, LocalStoreConfig};
 
 /// Longest wait in [`HotStandby::shutdown`] for following to stop.
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(10);
+
+/// How often a wait for a closed store checks it again.
+const STORE_CLOSE_POLL: Duration = Duration::from_millis(10);
 
 /// Pacing of a hot standby's log following.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,12 +149,20 @@ pub struct HotStandby {
     rejected_writes: Arc<AtomicU64>,
     /// The store the standby follows into, checked against the node's at takeover.
     local_store: LocalStoreConfig,
-    /// Receives the open store when following stops by cancellation.
-    stopped_store: Arc<Mutex<Option<Arc<EngineLocalStore>>>>,
+    node_id: String,
+    following: Arc<FollowingHandles>,
     clock: Arc<dyn WallClock>,
     behind_lag_threshold: Duration,
     cancellation: CancellationToken,
-    driver: Option<JoinHandle<()>>,
+    /// Returns the open store when cancellation stopped following cleanly.
+    driver: Option<JoinHandle<Option<Arc<EngineLocalStore>>>>,
+}
+
+/// The write fence and store of the current following period, which outlive a cancelled call.
+#[derive(Default)]
+struct FollowingHandles {
+    write_fence: Mutex<Option<Arc<CommitState>>>,
+    store: Mutex<Option<Weak<EngineLocalStore>>>,
 }
 
 impl HotStandby {
@@ -179,7 +190,8 @@ impl HotStandby {
         #[cfg(feature = "test-util")]
         let observed_rejected_writes = Arc::clone(&rejected_writes);
         let local_store = config.local_store.clone();
-        let stopped_store = Arc::new(Mutex::new(None));
+        let node_id = config.node.node_id.clone();
+        let following = Arc::new(FollowingHandles::default());
         let cancellation = CancellationToken::new();
         let driver = tokio::spawn(
             StandbyDriver {
@@ -192,7 +204,7 @@ impl HotStandby {
                 id_source,
                 status: status.clone(),
                 restart_jitter_seed,
-                stopped_store: stopped_store.clone(),
+                following: following.clone(),
                 cancellation: cancellation.clone(),
             }
             .run(),
@@ -202,7 +214,8 @@ impl HotStandby {
             #[cfg(feature = "test-util")]
             rejected_writes: observed_rejected_writes,
             local_store,
-            stopped_store,
+            node_id,
+            following,
             clock,
             behind_lag_threshold: standby_config.behind_lag_threshold,
             cancellation,
@@ -216,6 +229,15 @@ impl HotStandby {
         self.rejected_writes.load(Ordering::SeqCst)
     }
 
+    /// Returns a handle that fails the standby's store writes, which works after a takeover owns
+    /// the standby.
+    #[cfg(feature = "test-util")]
+    pub fn write_fence_for_test(&self) -> HotStandbyWriteFenceForTest {
+        HotStandbyWriteFenceForTest {
+            following: Arc::clone(&self.following),
+        }
+    }
+
     /// Returns the standby's state and lag now.
     pub fn status(&self) -> HotStandbyStatus {
         self.status
@@ -224,41 +246,69 @@ impl HotStandby {
 
     /// Stops following and waits up to 10 seconds for the local store to close.
     pub async fn shutdown(mut self) {
-        self.stop_following().await;
+        drop(self.stop_following().await);
+        self.wait_until_store_closed(SHUTDOWN_BUDGET).await;
     }
 
     /// Returns whether the standby follows into the store that `config` names.
-    pub(crate) fn uses_local_store(&self, config: &LocalStoreConfig) -> bool {
-        self.local_store.names_same_store(config)
+    pub(crate) fn has_local_store(&self, config: &LocalStoreConfig) -> bool {
+        self.local_store.is_same_store(config)
+    }
+
+    /// Returns whether the standby follows the log of `node_id`.
+    pub(crate) fn is_following_node(&self, node_id: &str) -> bool {
+        self.node_id == node_id
     }
 
     /// Stops reading, applies the queued frames, advances applied positions, fences the
-    /// standby's store writes, and joins its tasks.
+    /// standby's store writes, and joins its tasks. Cancel safe: a later call or drop finishes it.
     ///
-    /// Returns the open store, or `None` when the standby had none, such as while it bootstrapped
-    /// or after it failed.
-    pub(crate) async fn hand_over_store(mut self) -> Option<Arc<EngineLocalStore>> {
-        self.stop_following().await;
-        self.stopped_store
-            .lock()
-            .expect("stopped store lock is not poisoned")
-            .take()
+    /// Returns the open store when its write fence stopped only for this handover, and `None`
+    /// otherwise, such as while the standby bootstrapped or after a store write failed.
+    pub(crate) async fn hand_over_store(&mut self) -> Option<Arc<EngineLocalStore>> {
+        self.stop_following().await
     }
 
-    /// Cancels the driver and waits up to 10 seconds for it, then aborts it.
-    async fn stop_following(&mut self) {
-        self.cancellation.cancel();
-        let Some(driver) = self.driver.take() else {
+    /// Waits up to `budget` until no handle keeps the last store open, so its directory reopens.
+    pub(crate) async fn wait_until_store_closed(&self, budget: Duration) {
+        let Some(store) = self
+            .following
+            .store
+            .lock()
+            .expect("store handle lock is not poisoned")
+            .clone()
+        else {
             return;
         };
-        let abort = driver.abort_handle();
-        match tokio::time::timeout(SHUTDOWN_BUDGET, driver).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) if error.is_cancelled() => {}
-            Ok(Err(error)) => tracing::error!(%error, "the hot standby task failed"),
+        let deadline = tokio::time::Instant::now() + budget;
+        while store.strong_count() > 0 && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(STORE_CLOSE_POLL).await;
+        }
+        if store.strong_count() > 0 {
+            tracing::error!("a task still holds the hot standby's local store open");
+        }
+    }
+
+    /// Cancels the driver and waits up to 10 seconds for it, then aborts it. Cancel safe.
+    ///
+    /// Returns the driver's output: the open store after a clean stop.
+    async fn stop_following(&mut self) -> Option<Arc<EngineLocalStore>> {
+        self.cancellation.cancel();
+        let driver = self.driver.as_mut()?;
+        let stopped = tokio::time::timeout(SHUTDOWN_BUDGET, driver).await;
+        let driver = self.driver.take()?;
+        match stopped {
+            Ok(Ok(store)) => store,
+            Ok(Err(error)) => {
+                if !error.is_cancelled() {
+                    tracing::error!(%error, "the hot standby task failed");
+                }
+                None
+            }
             Err(_) => {
-                abort.abort();
+                driver.abort();
                 tracing::error!("the hot standby did not stop in time and was aborted");
+                None
             }
         }
     }
@@ -266,10 +316,56 @@ impl HotStandby {
 
 impl Drop for HotStandby {
     fn drop(&mut self) {
+        // Fencing first keeps a lane that outlives the abort from writing the store.
+        if let Some(write_fence) = self.following.current_write_fence() {
+            write_fence.stop(NodeStopReason::Shutdown);
+        }
         self.cancellation.cancel();
         if let Some(driver) = self.driver.take() {
             driver.abort();
         }
+    }
+}
+
+/// Fails a hot standby's store writes from a test.
+#[cfg(feature = "test-util")]
+pub struct HotStandbyWriteFenceForTest {
+    following: Arc<FollowingHandles>,
+}
+
+#[cfg(feature = "test-util")]
+impl HotStandbyWriteFenceForTest {
+    /// Stops the current write fence as a failed store write would; does nothing between periods.
+    pub fn fail_for_test(&self) {
+        if let Some(write_fence) = self.following.current_write_fence() {
+            write_fence.stop(NodeStopReason::LocalStoreFailed {
+                detail: "a test failed the hot standby's store writes".to_owned(),
+            });
+        }
+    }
+}
+
+impl FollowingHandles {
+    fn current_write_fence(&self) -> Option<Arc<CommitState>> {
+        self.write_fence
+            .lock()
+            .expect("write fence lock is not poisoned")
+            .clone()
+    }
+
+    fn set_write_fence(&self, write_fence: Option<Arc<CommitState>>) {
+        *self
+            .write_fence
+            .lock()
+            .expect("write fence lock is not poisoned") = write_fence;
+    }
+
+    /// Records the newest store, which a later wait for a closed store watches.
+    fn set_store(&self, store: Weak<EngineLocalStore>) {
+        *self
+            .store
+            .lock()
+            .expect("store handle lock is not poisoned") = Some(store);
     }
 }
 

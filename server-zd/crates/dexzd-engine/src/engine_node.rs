@@ -93,13 +93,20 @@ pub struct EngineNodeDependencies {
     pub lease_validity_deadline: LeaseValidityDeadline,
 }
 
-/// How a takeover from a hot standby ended without an error.
+/// How a takeover from a hot standby ended, apart from errors after the lease.
 #[non_exhaustive]
 pub enum HotStandbyTakeover {
     /// This process holds the node lease and serves.
     Serving(EngineNode),
     /// Cancellation arrived before the lease; the standby still follows the log.
     Cancelled(HotStandby),
+    /// The start failed before the lease; the standby still follows the log.
+    FailedBeforeLease {
+        /// Why the start failed.
+        error: EngineStartError,
+        /// The standby, which keeps following.
+        standby: HotStandby,
+    },
 }
 
 /// A node serving its log stream. After a fatal failure it stops serving; then exit non-zero.
@@ -113,6 +120,9 @@ pub struct EngineNode {
     lease: LeaseHandle,
     tasks: RunningTasks,
     cluster_id: [u8; 16],
+    /// Whether the node serves from the store a hot standby handed over.
+    #[cfg(feature = "test-util")]
+    is_serving_hot_standby_store: bool,
 }
 
 impl EngineNode {
@@ -168,14 +178,16 @@ impl EngineNode {
         Ok(match started {
             StartOutcome::Serving(node) => Some(node),
             StartOutcome::Cancelled(_) => None,
+            StartOutcome::FailedBeforeLease { error, .. } => return Err(error),
         })
     }
 
     /// Takes the lease and serves from a hot standby's store when the log, rechecked under the
     /// lease, updates it.
     ///
-    /// Returns [`HotStandbyTakeover::Cancelled`] with the standby, still following, when
-    /// cancellation arrives before the lease. Otherwise returns like
+    /// Returns [`HotStandbyTakeover::Cancelled`] or [`HotStandbyTakeover::FailedBeforeLease`]
+    /// with the standby, still following, when cancellation or an error arrives before the
+    /// lease. Otherwise returns like
     /// [`EngineNode::start_until_cancelled`]; a stale or missing standby store makes the start
     /// open or restore the configured store instead.
     pub async fn take_over_from_hot_standby_until_cancelled<F>(
@@ -203,6 +215,14 @@ impl EngineNode {
                     .into_hot_standby()
                     .expect("a cancelled takeover returns the hot standby it was given"),
             ),
+            StartOutcome::FailedBeforeLease { error, source } => {
+                HotStandbyTakeover::FailedBeforeLease {
+                    error,
+                    standby: source
+                        .into_hot_standby()
+                        .expect("a takeover that failed before the lease returns its standby"),
+                }
+            }
         })
     }
 
@@ -214,6 +234,12 @@ impl EngineNode {
     /// Returns the ID of the cluster object, which never changes after the cluster is created.
     pub fn cluster_id(&self) -> [u8; 16] {
         self.cluster_id
+    }
+
+    /// Returns whether the node serves from the store that a hot standby handed over.
+    #[cfg(feature = "test-util")]
+    pub fn is_serving_hot_standby_store_for_test(&self) -> bool {
+        self.is_serving_hot_standby_store
     }
 
     /// Returns the node epoch this process raised when it took the lease.
@@ -278,6 +304,7 @@ impl EngineNode {
             state,
             tasks,
             appliers: Some(appliers),
+            standby: None,
             lease,
         }
         .stop_and_release_lease(Some(&applied_positions))
@@ -295,6 +322,8 @@ struct LeasedParts {
     state: Arc<CommitState>,
     tasks: RunningTasks,
     appliers: Option<Arc<PartitionApplierPool>>,
+    /// A takeover's standby until its store is handed over; it stops before the lease release.
+    standby: Option<HotStandby>,
     lease: LeaseHandle,
 }
 
@@ -313,6 +342,7 @@ impl LeasedParts {
             state,
             tasks,
             appliers,
+            standby,
             lease,
         } = self;
         let stop_deadline = tokio::time::Instant::now() + TASK_STOP_BUDGET;
@@ -353,6 +383,10 @@ impl LeasedParts {
                 budget_seconds = TASK_STOP_BUDGET.as_secs(),
                 "engine tasks did not stop in time; releasing the lease anyway"
             );
+        }
+        // A successor may reopen the store's directory once it holds the lease.
+        if let Some(standby) = standby {
+            standby.shutdown().await;
         }
         lease.shutdown().await
     }

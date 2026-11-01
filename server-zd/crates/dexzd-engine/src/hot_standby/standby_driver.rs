@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_clock::WallClock;
@@ -30,7 +30,7 @@ use crate::flow_coordination::CommittedFlowCommand;
 use crate::hot_standby::log_follower::{
     FollowEnd, FollowPacing, FollowProgress, FollowSource, LogFollower, LogFollowerParts,
 };
-use crate::hot_standby::{HotStandbyConfig, StandbyPhase, StandbyStatusCell};
+use crate::hot_standby::{FollowingHandles, HotStandbyConfig, StandbyPhase, StandbyStatusCell};
 use crate::recovery::{
     ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreRequirements,
     OpenedLocalStore, delete_older_set_aside_stores, find_position_past_closed_end,
@@ -63,8 +63,8 @@ pub(super) struct StandbyDriver {
     pub(super) status: Arc<StandbyStatusCell>,
     /// Spreads restart delays of different processes apart.
     pub(super) restart_jitter_seed: u64,
-    /// Receives the open store when cancellation stops following.
-    pub(super) stopped_store: Arc<Mutex<Option<Arc<EngineLocalStore>>>>,
+    /// The write fence and store of the current following period, for the handle to reach.
+    pub(super) following: Arc<FollowingHandles>,
     pub(super) cancellation: CancellationToken,
 }
 
@@ -81,12 +81,13 @@ struct FollowingStandby {
 /// How one period of following ended.
 enum FollowingOutcome {
     /// Bootstrap again: log cleanup outran the store, or an error that a restart may fix.
-    Restart {
-        error: Option<String>,
-    },
+    Restart { error: Option<String> },
     /// A configuration error that no restart fixes.
     Failed(EngineStartError),
-    Cancelled,
+    /// Carries the open store when its write fence stopped only for this cancellation.
+    Cancelled {
+        store: Option<Arc<EngineLocalStore>>,
+    },
 }
 
 /// A period of following and the furthest log position it read to.
@@ -108,7 +109,9 @@ struct RestartDelays {
 
 impl StandbyDriver {
     /// Runs until cancelled or until a configuration error.
-    pub(super) async fn run(self) {
+    ///
+    /// Returns the open store when cancellation stopped following with a clean write fence.
+    pub(super) async fn run(self) -> Option<Arc<EngineLocalStore>> {
         let mut delays = RestartDelays {
             jitter_seed: self.restart_jitter_seed,
             restarts: 0,
@@ -119,7 +122,7 @@ impl StandbyDriver {
             self.status.set(StandbyPhase::Bootstrapping);
             let bootstrapped = tokio::select! {
                 biased;
-                () = self.cancellation.cancelled() => return,
+                () = self.cancellation.cancelled() => return None,
                 bootstrapped = self.bootstrap() => bootstrapped,
             };
             let following = match bootstrapped {
@@ -127,19 +130,19 @@ impl StandbyDriver {
                 Ok(None) => {
                     tracing::info!("the hot standby waits for the cluster object and manifest");
                     if !self.sleep_unless_cancelled(delays.next_delay()).await {
-                        return;
+                        return None;
                     }
                     continue;
                 }
                 Err(error) if is_bootstrap_configuration_error(&error, has_followed) => {
                     self.fail(error);
-                    return;
+                    return None;
                 }
                 Err(error) => {
                     tracing::warn!(%error, "the hot standby could not bootstrap; retrying");
                     self.status.set_last_error(Some(error.to_string()));
                     if !self.wait_to_restart(&mut delays).await {
-                        return;
+                        return None;
                     }
                     continue;
                 }
@@ -162,14 +165,14 @@ impl StandbyDriver {
                     }
                     // A standby that log cleanup keeps outrunning backs off between snapshots too.
                     if !self.wait_to_restart(&mut delays).await {
-                        return;
+                        return None;
                     }
                 }
                 FollowingOutcome::Failed(error) => {
                     self.fail(error);
-                    return;
+                    return None;
                 }
-                FollowingOutcome::Cancelled => return,
+                FollowingOutcome::Cancelled { store } => return store,
             }
         }
     }
@@ -222,6 +225,7 @@ impl StandbyDriver {
             store,
             set_aside_id,
         } = opened;
+        self.following.set_store(Arc::downgrade(&store));
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {
             tracing::info!(
@@ -241,17 +245,20 @@ impl StandbyDriver {
             partition_count,
             LeaseValidityDeadline::disarmed(),
         ));
+        let frame_applier = FrameApplier::new(FrameApplierParts {
+            metrics: self.metrics.clone(),
+            store: store.clone(),
+            applier: self.applier.clone(),
+            hasher: metadata.cluster.partition_hasher.clone(),
+            state: write_fence.clone(),
+            committed_commands: Arc::new(IgnoredCommittedCommands),
+            is_checking_replay: config.commit.debug_replay_checks,
+            blocking_work: config.blocking_work,
+        })?;
+        // Recorded before any lane exists, so dropping the handle fences every lane.
+        self.following.set_write_fence(Some(write_fence.clone()));
         let appliers = Arc::new(PartitionApplierPool::start(
-            FrameApplier::new(FrameApplierParts {
-                metrics: self.metrics.clone(),
-                store: store.clone(),
-                applier: self.applier.clone(),
-                hasher: metadata.cluster.partition_hasher.clone(),
-                state: write_fence.clone(),
-                committed_commands: Arc::new(IgnoredCommittedCommands),
-                is_checking_replay: config.commit.debug_replay_checks,
-                blocking_work: config.blocking_work,
-            })?,
+            frame_applier,
             config.commit.applier_lanes,
             config.commit.applier_queue_frames,
         ));
@@ -278,6 +285,7 @@ impl StandbyDriver {
             Ok(follower) => follower,
             Err(error) => {
                 stop_appliers(&write_fence, &appliers).await;
+                self.following.set_write_fence(None);
                 return Err(error);
             }
         };
@@ -314,14 +322,18 @@ impl StandbyDriver {
         let outcome = loop {
             tokio::select! {
                 biased;
-                () = self.cancellation.cancelled() => break FollowingOutcome::Cancelled,
+                () = self.cancellation.cancelled() => {
+                    break FollowingOutcome::Cancelled { store: None };
+                }
                 end = following.follower.wait_for_end() => break outcome_of_follow_end(end),
                 () = tokio::time::sleep_until(next_refresh) => {
                     next_refresh = Instant::now() + refresh_interval;
                     // Headroom past the advance's own timeout leaves time for the reads around it.
                     let refreshed = tokio::select! {
                         biased;
-                        () = self.cancellation.cancelled() => break FollowingOutcome::Cancelled,
+                        () = self.cancellation.cancelled() => {
+                            break FollowingOutcome::Cancelled { store: None };
+                        }
                         refreshed = tokio::time::timeout(
                             refresh_interval.saturating_mul(2),
                             self.refresh(&mut following),
@@ -339,7 +351,7 @@ impl StandbyDriver {
                 }
             }
         };
-        if !matches!(outcome, FollowingOutcome::Cancelled) {
+        if !matches!(outcome, FollowingOutcome::Cancelled { .. }) {
             self.status
                 .set(StandbyPhase::Restarting { restart_at: None });
         }
@@ -352,19 +364,21 @@ impl StandbyDriver {
         } = following;
         let followed_store = follower.stop().await;
         stop_appliers(&write_fence, &appliers).await;
-        drop((appliers, followed_store));
-        match outcome {
-            FollowingOutcome::Cancelled => {
-                *self
-                    .stopped_store
-                    .lock()
-                    .expect("stopped store lock is not poisoned") = Some(store);
+        let is_cleanly_fenced = write_fence.stop_reason() == Some(NodeStopReason::Shutdown);
+        self.following.set_write_fence(None);
+        drop((appliers, followed_store, write_fence));
+        let outcome = match outcome {
+            FollowingOutcome::Cancelled { .. } if is_cleanly_fenced => {
+                FollowingOutcome::Cancelled { store: Some(store) }
             }
+            // A failed store write leaves the store untrusted, so a takeover opens it cold.
+            FollowingOutcome::Cancelled { .. } => FollowingOutcome::Cancelled { store: None },
             // The next bootstrap reopens the store's directory, which its last handle locks.
-            FollowingOutcome::Restart { .. } | FollowingOutcome::Failed(_) => {
+            outcome @ (FollowingOutcome::Restart { .. } | FollowingOutcome::Failed(_)) => {
                 release_store(store).await;
+                outcome
             }
-        }
+        };
         let reached = position_of(&progress.borrow());
         FollowedPeriod {
             outcome,
