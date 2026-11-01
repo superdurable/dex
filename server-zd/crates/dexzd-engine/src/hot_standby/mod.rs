@@ -23,7 +23,6 @@ use dexzd_object_store::ObjectStore;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use xxhash_rust::xxh3::xxh3_64;
 
 use crate::command_applier::CommandApplier;
 use crate::engine_id_source::EngineIdSource;
@@ -81,6 +80,11 @@ pub struct HotStandbyDependencies {
     pub applier: Arc<dyn CommandApplier>,
     /// Creates the lineage ID of a local store that the standby creates or restores.
     pub id_source: Arc<dyn EngineIdSource>,
+    /// Spreads the restart delays of standbys apart.
+    ///
+    /// Pass a random value, such as one from `rand::random`. A test may pass a fixed value for
+    /// reproducible delays.
+    pub restart_jitter_seed: u64,
 }
 
 /// What a hot standby is doing.
@@ -94,6 +98,9 @@ pub enum HotStandbyState {
     Following,
     /// Following the log with lag above the configured threshold.
     Behind,
+    /// Stopped following and waits to bootstrap again, after an error or after log cleanup outran
+    /// its store; [`HotStandbyStatus::restart_in`] says how long.
+    Restarting,
     /// Stopped after an error it cannot recover from; [`HotStandbyStatus::failure`] says why.
     Failed,
 }
@@ -118,12 +125,15 @@ pub struct HotStandbyLag {
 pub struct HotStandbyStatus {
     /// What the standby is doing.
     pub state: HotStandbyState,
-    /// Lag of the follow group furthest behind; `None` while bootstrapping or after a failure.
+    /// Lag of the follow group furthest behind; `None` unless following.
     pub lag: Option<HotStandbyLag>,
     /// Why the standby stopped, in [`HotStandbyState::Failed`].
     pub failure: Option<Arc<EngineStartError>>,
     /// Why the standby last restarted; it retries every error except a configuration error.
     pub last_error: Option<String>,
+    /// Time left before the next bootstrap, in [`HotStandbyState::Restarting`]; `None` while
+    /// following still stops.
+    pub restart_in: Option<Duration>,
 }
 
 /// Follows the node's log from object storage without the node lease, so a later takeover
@@ -157,12 +167,12 @@ impl HotStandby {
             clock,
             applier,
             id_source,
+            restart_jitter_seed,
         } = dependencies;
         let status = Arc::new(StandbyStatusCell::default());
         let rejected_writes = Arc::new(AtomicU64::new(0));
         #[cfg(feature = "test-util")]
         let observed_rejected_writes = Arc::clone(&rejected_writes);
-        let restart_jitter_seed = xxh3_64(id_source.lease_holder_process_id().as_bytes());
         let cancellation = CancellationToken::new();
         let driver = tokio::spawn(
             StandbyDriver {
@@ -256,7 +266,7 @@ fn validate_standby_config(config: &HotStandbyConfig) -> Result<(), EngineStartE
 #[derive(Default)]
 struct StandbyStatusCell {
     phase: Mutex<StandbyPhase>,
-    /// Why the standby last restarted; cleared after a stretch of healthy following.
+    /// Why the standby last restarted; cleared once following passes where it stopped.
     last_error: Mutex<Option<String>>,
 }
 
@@ -270,6 +280,10 @@ enum StandbyPhase {
         started_at_micros: i64,
         /// Next seq at the last listing, and the batches it showed from that seq on.
         listing: Option<(u64, u64)>,
+    },
+    /// Following stopped; `restart_at` is set once the delay before the next bootstrap starts.
+    Restarting {
+        restart_at: Option<tokio::time::Instant>,
     },
     Failed(Arc<EngineStartError>),
 }
@@ -315,12 +329,23 @@ impl StandbyStatusCell {
                 lag: None,
                 failure: None,
                 last_error,
+                restart_in: None,
+            },
+            StandbyPhase::Restarting { restart_at } => HotStandbyStatus {
+                state: HotStandbyState::Restarting,
+                lag: None,
+                failure: None,
+                last_error,
+                restart_in: restart_at.map(|restart_at| {
+                    restart_at.saturating_duration_since(tokio::time::Instant::now())
+                }),
             },
             StandbyPhase::Failed(error) => HotStandbyStatus {
                 state: HotStandbyState::Failed,
                 lag: None,
                 failure: Some(error.clone()),
                 last_error,
+                restart_in: None,
             },
             StandbyPhase::Following {
                 progress,
@@ -344,6 +369,7 @@ impl StandbyStatusCell {
                     }),
                     failure: None,
                     last_error,
+                    restart_in: None,
                 }
             }
         }

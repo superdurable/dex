@@ -67,6 +67,9 @@ pub(crate) struct FollowProgress {
 pub(crate) enum FollowEnd {
     /// Log cleanup deleted batches the follower still needs; restart from a newer snapshot.
     LogDeleted,
+    /// The store applied a batch past the recorded end of its stream, which the log does not
+    /// hold; restore the store from a snapshot.
+    StoreDiverged(EngineStartError),
     /// The follower cannot continue.
     Failed(EngineStartError),
     /// The follow task panicked or was aborted.
@@ -224,7 +227,7 @@ impl LogFollower {
         let stop_deadline = Instant::now() + FOLLOWER_STOP_BUDGET;
         if let Some(task) = self.follow_task.take() {
             match finish_stopped_task(task, stop_deadline).await {
-                Some(FollowEnd::Failed(error)) => {
+                Some(FollowEnd::Failed(error) | FollowEnd::StoreDiverged(error)) => {
                     tracing::warn!(%error, "the log follower failed as it stopped");
                 }
                 Some(FollowEnd::TaskFailed { detail }) => {
@@ -538,7 +541,7 @@ impl FollowTask {
             if tail.next_seq() > end_seq.saturating_add(1) {
                 // A fenced writer's late batch can land past the end that the manifest records.
                 if let Some(accepted_seq) = last_accepted_seq.filter(|seq| *seq > end_seq) {
-                    return SourceUpdate::Finished(FollowEnd::Failed(
+                    return SourceUpdate::Finished(FollowEnd::StoreDiverged(
                         LogError::Corrupt(format!(
                             "log stream of incarnation {incarnation} accepted seq \
                              {accepted_seq} past its recorded end {end_seq}"

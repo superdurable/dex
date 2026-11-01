@@ -28,21 +28,18 @@ use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::EngineNodeConfig;
 use crate::flow_coordination::CommittedFlowCommand;
 use crate::hot_standby::log_follower::{
-    FollowEnd, FollowPacing, FollowSource, LogFollower, LogFollowerParts,
+    FollowEnd, FollowPacing, FollowProgress, FollowSource, LogFollower, LogFollowerParts,
 };
 use crate::hot_standby::{HotStandbyConfig, StandbyPhase, StandbyStatusCell};
 use crate::recovery::{
     ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreRequirements,
-    OpenedLocalStore, delete_older_set_aside_stores, find_unreplayable_gap, open_local_store,
-    rebuild_search_order_indexes,
+    OpenedLocalStore, delete_older_set_aside_stores, find_position_past_closed_end,
+    find_unreplayable_gap, open_local_store, rebuild_search_order_indexes,
 };
 
 /// First wait before the standby restarts after an error; it doubles up to the maximum.
 const RESTART_DELAY_INITIAL: Duration = Duration::from_secs(1);
 const RESTART_DELAY_MAX: Duration = Duration::from_secs(60);
-
-/// Following this long without an error resets the restart delay and clears the last error.
-const HEALTHY_FOLLOWING: Duration = Duration::from_secs(60);
 
 /// Longest wait for the last handle of a stopped store, so its directory can be reopened.
 const STORE_RELEASE_BUDGET: Duration = Duration::from_secs(5);
@@ -90,6 +87,17 @@ enum FollowingOutcome {
     Cancelled,
 }
 
+/// A period of following and the furthest log position it read to.
+struct FollowedPeriod {
+    outcome: FollowingOutcome,
+    reached: FollowPosition,
+    /// Whether it read past every position that earlier periods reached.
+    is_progressing: bool,
+}
+
+/// An incarnation and the next seq to read in its stream, ordered by the log.
+type FollowPosition = (u32, u64);
+
 /// Exponential restart delays with jitter that the process's seed spreads apart.
 struct RestartDelays {
     jitter_seed: u64,
@@ -103,6 +111,8 @@ impl StandbyDriver {
             jitter_seed: self.restart_jitter_seed,
             restarts: 0,
         };
+        let mut furthest: Option<FollowPosition> = None;
+        let mut has_followed = false;
         loop {
             self.status.set(StandbyPhase::Bootstrapping);
             let bootstrapped = tokio::select! {
@@ -114,12 +124,12 @@ impl StandbyDriver {
                 Ok(Some(following)) => following,
                 Ok(None) => {
                     tracing::info!("the hot standby waits for the cluster object and manifest");
-                    if !self.wait_to_restart(&mut delays).await {
+                    if !self.sleep_unless_cancelled(delays.next_delay()).await {
                         return;
                     }
                     continue;
                 }
-                Err(error) if is_configuration_error(&error) => {
+                Err(error) if is_bootstrap_configuration_error(&error, has_followed) => {
                     self.fail(error);
                     return;
                 }
@@ -132,16 +142,23 @@ impl StandbyDriver {
                     continue;
                 }
             };
-            let followed_since = Instant::now();
-            let outcome = self.follow(following).await;
-            if followed_since.elapsed() >= HEALTHY_FOLLOWING {
+            has_followed = true;
+            let period = self.follow(following, furthest).await;
+            if period.is_progressing {
                 delays.restarts = 0;
             }
-            match outcome {
-                FollowingOutcome::Restart { error: None } => {}
-                FollowingOutcome::Restart { error: Some(error) } => {
-                    tracing::warn!(error, "the hot standby restarts after an error");
-                    self.status.set_last_error(Some(error));
+            furthest =
+                Some(furthest.map_or(period.reached, |furthest| furthest.max(period.reached)));
+            match period.outcome {
+                FollowingOutcome::Restart { error } => {
+                    match error {
+                        Some(error) => {
+                            tracing::warn!(error, "the hot standby restarts after an error");
+                            self.status.set_last_error(Some(error));
+                        }
+                        None => tracing::info!("the hot standby restarts from a newer snapshot"),
+                    }
+                    // A standby that log cleanup keeps outrunning backs off between snapshots too.
                     if !self.wait_to_restart(&mut delays).await {
                         return;
                     }
@@ -172,20 +189,37 @@ impl StandbyDriver {
         };
         let partition_count = metadata.partition_count();
         let cluster_id = metadata.cluster_id()?;
+        let mut requirements = LocalStoreRequirements {
+            snapshot: metadata.node_snapshot(&config.node.node_id),
+            streams: &metadata.streams,
+            partition_count,
+            new_store_lineage_id: self.id_source.store_lineage_id(),
+            should_discard_existing_store: false,
+        };
+        let mut opened = open_local_store(
+            &config.local_store,
+            self.object_store.as_ref(),
+            &requirements,
+        )
+        .await?;
+        if let Some(divergence) =
+            find_position_past_closed_end(opened.store.as_ref(), &metadata.streams)?
+        {
+            tracing::error!(%divergence, "the hot standby's store diverged from the log; restoring the newest snapshot");
+            drop(opened);
+            requirements.should_discard_existing_store = true;
+            requirements.new_store_lineage_id = self.id_source.store_lineage_id();
+            opened = open_local_store(
+                &config.local_store,
+                self.object_store.as_ref(),
+                &requirements,
+            )
+            .await?;
+        }
         let OpenedLocalStore {
             store,
             set_aside_id,
-        } = open_local_store(
-            &config.local_store,
-            self.object_store.as_ref(),
-            &LocalStoreRequirements {
-                snapshot: metadata.node_snapshot(&config.node.node_id),
-                streams: &metadata.streams,
-                partition_count,
-                new_store_lineage_id: self.id_source.store_lineage_id(),
-            },
-        )
-        .await?;
+        } = opened;
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {
             tracing::info!(
@@ -257,15 +291,24 @@ impl StandbyDriver {
     }
 
     /// Follows until log cleanup outruns the standby, following fails, or cancellation.
-    async fn follow(&self, mut following: FollowingStandby) -> FollowingOutcome {
+    ///
+    /// Clears the last error once following reads past `furthest`, where earlier periods stopped.
+    async fn follow(
+        &self,
+        mut following: FollowingStandby,
+        furthest: Option<FollowPosition>,
+    ) -> FollowedPeriod {
+        let progress = following.follower.progress();
+        let started_at = position_of(&progress.borrow());
+        let progress_threshold = furthest.map_or(started_at, |furthest| furthest.max(started_at));
         self.status.set(StandbyPhase::Following {
-            progress: following.follower.progress(),
+            progress: progress.clone(),
             started_at_micros: self.clock.now_unix_micros(),
             listing: None,
         });
-        let followed_since = Instant::now();
         let refresh_interval = self.standby_config.manifest_refresh_interval;
         let mut next_refresh = Instant::now() + refresh_interval;
+        let mut is_progressing = false;
         let outcome = loop {
             tokio::select! {
                 biased;
@@ -273,11 +316,12 @@ impl StandbyDriver {
                 end = following.follower.wait_for_end() => break outcome_of_follow_end(end),
                 () = tokio::time::sleep_until(next_refresh) => {
                     next_refresh = Instant::now() + refresh_interval;
+                    // Headroom past the advance's own timeout leaves time for the reads around it.
                     let refreshed = tokio::select! {
                         biased;
                         () = self.cancellation.cancelled() => break FollowingOutcome::Cancelled,
                         refreshed = tokio::time::timeout(
-                            refresh_interval,
+                            refresh_interval.saturating_mul(2),
                             self.refresh(&mut following),
                         ) => refreshed,
                     };
@@ -286,12 +330,17 @@ impl StandbyDriver {
                         Ok(None) => {}
                         Err(_) => tracing::warn!("rereading the manifest took too long; retrying"),
                     }
-                    if followed_since.elapsed() >= HEALTHY_FOLLOWING {
+                    if !is_progressing && position_of(&progress.borrow()) > progress_threshold {
+                        is_progressing = true;
                         self.status.set_last_error(None);
                     }
                 }
             }
         };
+        if !matches!(outcome, FollowingOutcome::Cancelled) {
+            self.status
+                .set(StandbyPhase::Restarting { restart_at: None });
+        }
         let FollowingStandby {
             store,
             write_fence,
@@ -306,7 +355,12 @@ impl StandbyDriver {
             // The next bootstrap reopens the store's directory, which its last handle locks.
             release_store(store).await;
         }
-        outcome
+        let reached = position_of(&progress.borrow());
+        FollowedPeriod {
+            outcome,
+            reached,
+            is_progressing: is_progressing || reached > progress_threshold,
+        }
     }
 
     /// Rereads the manifest, checks the store against it, and passes it to the follower.
@@ -394,11 +448,19 @@ impl StandbyDriver {
         self.status.set(StandbyPhase::Failed(Arc::new(error)));
     }
 
-    /// Waits for the next restart delay.
+    /// Reports [`StandbyPhase::Restarting`] and waits for the next restart delay.
     ///
     /// Returns `false` when cancellation arrives first.
     async fn wait_to_restart(&self, delays: &mut RestartDelays) -> bool {
         let delay = delays.next_delay();
+        self.status.set(StandbyPhase::Restarting {
+            restart_at: Some(Instant::now() + delay),
+        });
+        self.sleep_unless_cancelled(delay).await
+    }
+
+    /// Returns `false` when cancellation arrives before `delay` passes.
+    async fn sleep_unless_cancelled(&self, delay: Duration) -> bool {
         tokio::select! {
             biased;
             () = self.cancellation.cancelled() => false,
@@ -424,6 +486,11 @@ impl RestartDelays {
     }
 }
 
+/// Returns the follow position of `progress`.
+fn position_of(progress: &FollowProgress) -> FollowPosition {
+    (progress.incarnation, progress.next_seq)
+}
+
 /// Maps how the follower ended to how following ends.
 fn outcome_of_follow_end(end: FollowEnd) -> FollowingOutcome {
     match end {
@@ -432,6 +499,13 @@ fn outcome_of_follow_end(end: FollowEnd) -> FollowingOutcome {
                 "log cleanup deleted batches the hot standby needs; restoring the newest snapshot"
             );
             FollowingOutcome::Restart { error: None }
+        }
+        FollowEnd::StoreDiverged(error) => {
+            tracing::error!(%error, "the hot standby's store diverged from the log; restoring the newest snapshot");
+            // The next bootstrap finds the position past the recorded end and restores the store.
+            FollowingOutcome::Restart {
+                error: Some(error.to_string()),
+            }
         }
         FollowEnd::Failed(error) if is_configuration_error(&error) => {
             FollowingOutcome::Failed(error)
@@ -470,11 +544,21 @@ async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPoo
     }
 }
 
+/// Returns whether a bootstrap `error` is a configuration error that no restart fixes.
+///
+/// A store directory that cannot be opened is one before the first following: another process,
+/// such as the node's serving process, may hold it.
+fn is_bootstrap_configuration_error(error: &EngineStartError, has_followed: bool) -> bool {
+    is_configuration_error(error)
+        || (!has_followed && matches!(error, EngineStartError::LocalStoreUnavailable { .. }))
+}
+
 /// Returns whether `error` is a configuration error that no restart fixes.
 fn is_configuration_error(error: &EngineStartError) -> bool {
     match error {
         EngineStartError::NodeIdentityMismatch { .. }
         | EngineStartError::IncarnationRegressed { .. }
+        | EngineStartError::UnsupportedBehaviorVersion { .. }
         | EngineStartError::InvalidConfig { .. } => true,
         EngineStartError::Metadata(error) => matches!(
             error,

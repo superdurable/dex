@@ -14,10 +14,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use dexzd_engine::{
-    CommitUrgency, EngineNodeConfig, HotStandby, HotStandbyConfig, HotStandbyDependencies,
-    HotStandbyState, HotStandbyStatus, LocalStoreConfig, SystemEngineIdSource,
+    CommitUrgency, EngineNodeConfig, EngineStartError, HotStandby, HotStandbyConfig,
+    HotStandbyDependencies, HotStandbyState, HotStandbyStatus, LocalStoreConfig,
+    SystemEngineIdSource,
 };
-use dexzd_log::{BatchContent, BatchRecord, StreamIdentity, encode_batch};
+use dexzd_log::{BatchContent, BatchRecord, StreamIdentity, decode_batch, encode_batch};
 use dexzd_object_store::{
     ByteRange, InMemoryObjectStore, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore,
     ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
@@ -219,6 +220,7 @@ fn start_standby(
             clock: cluster.clock.clone(),
             applier: applier.clone(),
             id_source: Arc::new(SystemEngineIdSource),
+            restart_jitter_seed: 7,
         },
     )
     .expect("the hot standby starts");
@@ -665,9 +667,12 @@ async fn restore_after_log_cleanup(detection: DeletionDetection) {
 
     standby.object_store.fail_log_reads(false);
     if detection == DeletionDetection::StalledSeq {
-        // The restart rereads the manifest, which still fails, so the standby stays bootstrapping.
+        // The restart rereads the manifest, which still fails, so the standby stops following.
         let deadline = Instant::now() + CATCH_UP_DEADLINE;
-        while standby.standby.status().state != HotStandbyState::Bootstrapping {
+        while !matches!(
+            standby.standby.status().state,
+            HotStandbyState::Bootstrapping | HotStandbyState::Restarting
+        ) {
             assert!(
                 Instant::now() < deadline,
                 "the standby did not find the deletion: {:?}",
@@ -857,6 +862,104 @@ async fn a_hot_standby_reaches_the_next_incarnation_past_a_late_write_beyond_the
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_hot_standby_sets_its_store_aside_after_applying_a_batch_past_the_recorded_end() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let serving_directory = directory.path().join("serving");
+    let standby_directory = directory.path().join("standby");
+    let mut cluster = TestCluster::new();
+    let first_config = cluster.config(rocksdb_store(&serving_directory));
+    let first = cluster
+        .start_with(&first_config)
+        .await
+        .expect("incarnation 1 starts");
+    let mut standby_config = cluster.config(rocksdb_store(&standby_directory));
+    standby_config.node.incarnation = 2;
+    let standby = start_standby(
+        &cluster,
+        standby_config,
+        HotStandbyConfig {
+            manifest_refresh_interval: Duration::from_secs(10),
+            stalled_seq_deletion_check_after: Duration::from_secs(20),
+            ..fast_standby_config()
+        },
+    );
+    first.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    let manifest_reads = standby.object_store.manifest_reads();
+    while standby.object_store.manifest_reads() == manifest_reads {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    first.node.shutdown().await.expect("lease released");
+    let mut second_config = first_config;
+    second_config.node.incarnation = 2;
+    let second = cluster
+        .start_with(&second_config)
+        .await
+        .expect("incarnation 2 starts");
+    // A batch in the fencing epoch repeats the last command past the end the manifest records.
+    let end_seq = recorded_end_seq(&cluster, 1).await;
+    let stream = stream_of(&cluster, 1).await;
+    let mut last_command_seq = end_seq;
+    let mut fencing_epoch = None;
+    let last = loop {
+        let batch = cluster
+            .object_store
+            .get(&stream.batch_key(last_command_seq))
+            .await
+            .expect("read a batch")
+            .expect("the batch exists");
+        let batch = decode_batch(&batch.bytes).expect("decode the batch");
+        fencing_epoch.get_or_insert(batch.header.epoch);
+        if !batch.records.is_empty() {
+            break batch;
+        }
+        last_command_seq -= 1;
+    };
+    let late = encode_batch(&BatchContent {
+        stream: stream.clone(),
+        epoch: fencing_epoch.expect("the stream's end batch was read"),
+        seq: end_seq + 1,
+        sealed_at_unix_micros: last.header.sealed_at_unix_micros,
+        records: last.records,
+        epoch_start_writer: None,
+    })
+    .expect("encode the late batch");
+    let applied_before = standby.applier.applied_commands().len();
+    cluster
+        .object_store
+        .put(
+            &stream.batch_key(end_seq + 1),
+            late,
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the late batch lands");
+    let deadline = Instant::now() + CATCH_UP_DEADLINE;
+    while standby.applier.applied_commands().len() == applied_before {
+        assert!(
+            Instant::now() < deadline,
+            "the standby did not apply the late batch"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let deadline = Instant::now() + CATCH_UP_DEADLINE;
+    while set_aside_copies(&standby_directory).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the standby kept its diverged store"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    second.commit_prompt(FIRST_FLOW, 1).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    assert_wrote_nothing(&standby);
+    standby.standby.shutdown().await;
+    second.node.shutdown().await.expect("lease released");
+    assert_same_stores(&serving_directory, &standby_directory);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_node_starts_from_a_hot_standby_store_with_little_replay() {
     start_from_a_hot_standby_store(false).await;
 }
@@ -926,6 +1029,7 @@ async fn start_from_a_hot_standby_store(is_changing_incarnation: bool) {
 /// Starts a standby whose first stream, closed in the manifest, lacks seq 4.
 async fn follow_a_closed_stream_with_a_missing_batch(
     cluster: &mut TestCluster,
+    standby_config: HotStandbyConfig,
 ) -> (TestStandby, TestNode) {
     let first_config = cluster.config(LocalStoreConfig::InMemory);
     let first = cluster
@@ -946,18 +1050,19 @@ async fn follow_a_closed_stream_with_a_missing_batch(
         .delete(&stream.batch_key(4))
         .await
         .expect("delete seq 4 of the closed stream");
-    let mut standby_config = cluster.config(LocalStoreConfig::InMemory);
-    standby_config.node.incarnation = 2;
-    let standby = start_standby(
-        cluster,
-        standby_config,
-        HotStandbyConfig {
-            manifest_refresh_interval: Duration::from_secs(2),
-            stalled_seq_deletion_check_after: Duration::from_secs(3),
-            ..fast_standby_config()
-        },
-    );
+    let mut node_config = cluster.config(LocalStoreConfig::InMemory);
+    node_config.node.incarnation = 2;
+    let standby = start_standby(cluster, node_config, standby_config);
     (standby, second)
+}
+
+/// Pacing that rereads the manifest every 2 seconds and checks a stalled seq after 3.
+fn hole_checking_standby_config() -> HotStandbyConfig {
+    HotStandbyConfig {
+        manifest_refresh_interval: Duration::from_secs(2),
+        stalled_seq_deletion_check_after: Duration::from_secs(3),
+        ..fast_standby_config()
+    }
 }
 
 fn is_waiting_at_the_missing_batch(status: &HotStandbyStatus) -> bool {
@@ -969,7 +1074,9 @@ fn is_waiting_at_the_missing_batch(status: &HotStandbyStatus) -> bool {
 #[tokio::test(start_paused = true)]
 async fn a_hot_standby_keeps_waiting_at_a_closed_stream_hole_until_a_newer_manifest_records_it() {
     let mut cluster = TestCluster::new();
-    let (standby, serving) = follow_a_closed_stream_with_a_missing_batch(&mut cluster).await;
+    let (standby, serving) =
+        follow_a_closed_stream_with_a_missing_batch(&mut cluster, hole_checking_standby_config())
+            .await;
     standby.object_store.fail_log_reads(true);
     wait_for_status(&standby.standby, "the standby follows", |status| {
         status.lag.is_some()
@@ -1005,7 +1112,9 @@ async fn a_hot_standby_keeps_waiting_at_a_closed_stream_hole_until_a_newer_manif
 #[tokio::test(start_paused = true)]
 async fn a_hot_standby_restarts_when_a_newer_manifest_still_records_a_missing_closed_seq() {
     let mut cluster = TestCluster::new();
-    let (standby, serving) = follow_a_closed_stream_with_a_missing_batch(&mut cluster).await;
+    let (standby, serving) =
+        follow_a_closed_stream_with_a_missing_batch(&mut cluster, hole_checking_standby_config())
+            .await;
     let restarted = wait_for_status(
         &standby.standby,
         "the standby reports the missing batch",
@@ -1058,4 +1167,136 @@ async fn a_hot_standby_reports_behind_at_a_hole_that_stays_open() {
     standby.standby.shutdown().await;
     serving.node.shutdown().await.expect("lease released");
     cluster.faults.clear();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_backs_off_further_while_a_slow_error_recurs_without_progress() {
+    let mut cluster = TestCluster::new();
+    // Each period follows for about 90 seconds before the missing seq ends it.
+    let (standby, serving) = follow_a_closed_stream_with_a_missing_batch(
+        &mut cluster,
+        HotStandbyConfig {
+            manifest_refresh_interval: Duration::from_secs(2),
+            stalled_seq_deletion_check_after: Duration::from_secs(90),
+            ..fast_standby_config()
+        },
+    )
+    .await;
+    let mut restart_delays = Vec::new();
+    for _ in 0..3 {
+        let restarting = wait_for_slow_status(&standby.standby, "the standby restarts", |status| {
+            status.state == HotStandbyState::Restarting && status.restart_in.is_some()
+        })
+        .await;
+        assert_eq!(restarting.lag, None);
+        assert!(restarting.last_error.is_some(), "{restarting:?}");
+        restart_delays.push(restarting.restart_in.expect("the restart delay runs"));
+        wait_for_slow_status(&standby.standby, "the standby follows again", |status| {
+            status.lag.is_some()
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(70)).await;
+        let following = standby.standby.status();
+        assert!(
+            following.last_error.is_some(),
+            "following without progress kept the last error: {following:?}"
+        );
+    }
+    // Restart delays double from 1 second, each within 20 percent.
+    assert!(
+        restart_delays[2] > restart_delays[0] * 2,
+        "the restart delays grew: {restart_delays:?}"
+    );
+    standby.standby.shutdown().await;
+    serving.node.shutdown().await.expect("lease released");
+}
+
+/// Waits like [`wait_for_status`], within a deadline that spans a slow following period.
+async fn wait_for_slow_status(
+    standby: &HotStandby,
+    description: &str,
+    is_reached: impl Fn(&HotStandbyStatus) -> bool,
+) -> HotStandbyStatus {
+    let deadline = Instant::now() + Duration::from_secs(600);
+    loop {
+        let status = standby.status();
+        if is_reached(&status) {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "{description}: {status:?}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_fails_when_its_first_open_of_the_store_directory_fails() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let standby_directory = directory.path().join("standby");
+    // Another process, such as the node's serving process, holds the directory.
+    let holder = RocksDbLocalStore::open(&standby_directory, RocksDbStoreOptions::default())
+        .expect("the holder opens the directory");
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby = start_standby(
+        &cluster,
+        cluster.config(rocksdb_store(&standby_directory)),
+        fast_standby_config(),
+    );
+    let failed = wait_for_status(&standby.standby, "the standby fails", |status| {
+        status.state == HotStandbyState::Failed
+    })
+    .await;
+    assert!(
+        matches!(
+            failed.failure.as_deref(),
+            Some(EngineStartError::LocalStoreUnavailable { .. })
+        ),
+        "{failed:?}"
+    );
+    drop(holder);
+    standby.standby.shutdown().await;
+    serving.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_fails_when_the_cluster_needs_a_newer_behavior_version() {
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    serving.node.shutdown().await.expect("lease released");
+    dexzd_cluster_metadata::update_manifest(
+        cluster.object_store.as_ref(),
+        cluster.clock.as_ref(),
+        |manifest| {
+            manifest
+                .version_barrier
+                .get_or_insert_default()
+                .behavior_version = 99;
+            Ok(dexzd_cluster_metadata::ManifestChange::Changed)
+        },
+    )
+    .await
+    .expect("a newer binary raises the barrier");
+    let standby = start_standby(
+        &cluster,
+        cluster.config(LocalStoreConfig::InMemory),
+        fast_standby_config(),
+    );
+    let failed = wait_for_status(&standby.standby, "the standby fails", |status| {
+        status.state == HotStandbyState::Failed
+    })
+    .await;
+    assert!(
+        matches!(
+            failed.failure.as_deref(),
+            Some(EngineStartError::UnsupportedBehaviorVersion { barrier: 99, .. })
+        ),
+        "{failed:?}"
+    );
+    standby.standby.shutdown().await;
 }

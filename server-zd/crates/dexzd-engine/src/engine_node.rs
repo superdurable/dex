@@ -258,6 +258,7 @@ impl EngineNode {
                     streams: &metadata.streams,
                     partition_count,
                     new_store_lineage_id: id_source.store_lineage_id(),
+                    should_discard_existing_store: false,
                 },
             )
             .await?;
