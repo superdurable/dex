@@ -40,7 +40,9 @@ type options struct {
 	tlsServerName              string
 	output                     string
 	timeout                    time.Duration
-	noHydrate                  bool
+	// isTimeoutSet records an explicit root --timeout, which overrides a command's own default.
+	isTimeoutSet bool
+	noHydrate    bool
 }
 
 func defaultOptions(lookupEnv func(string) (string, bool)) options {
@@ -103,6 +105,11 @@ func parseRootOptions(args []string, options *options) ([]string, error) {
 	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
+	flags.Visit(func(setFlag *flag.Flag) {
+		if setFlag.Name == "timeout" {
+			options.isTimeoutSet = true
+		}
+	})
 	return flags.Args(), nil
 }
 

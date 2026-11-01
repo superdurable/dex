@@ -654,26 +654,53 @@ object to stderr with the operation, error kind, gRPC code/name, and status
 details when supplied. Usage and missing-confirmation failures exit with status
 2; connection and RPC failures exit with status 1.
 
-## Step down the active server process
+## Administer the active server process
 
-server-zd does not serve AdminService yet, so this command currently fails with
-Unimplemented. The rest of this section describes the command against a server
-that serves AdminService.
+server-zd does not serve AdminService yet, so these commands currently fail with
+Unimplemented. The rest of this section describes them against a server that
+serves AdminService.
+
+`dexcli admin describe` calls AdminService `DescribeActiveNode`. It prints the
+`nodeId`, `nodeEpoch`, and `holderProcessId` of the active server process behind
+`--server`, and changes nothing.
 
 `dexcli admin step-down --yes` calls AdminService `StepDownActiveNode`. The active
-server process of the node ID behind `--server` stops serving, releases its lease,
-and lets another process of the same node ID take over. The command prints
-`nodeId`, `releasedNodeEpoch`, `isTakeoverObserved`, `observedTakeover` when
-another process took over before the call returned, and
-`leaseReacquisitionHoldOff`. It uses the regular server, credential, TLS,
-timeout, and output flags, and requires `--yes`.
+server process stops serving, waits briefly for in-flight commits, and releases
+its lease. Another process of the same node ID can then take over. After the
+release, the call waits for a takeover for up to `leaseReacquisitionHoldOff`.
+Without a takeover, the stepped-down process takes the lease back. The command
+prints:
 
-When the server configures authentication, the credential must be a JWT whose
-audience is listed in the server's `auth.adminAudiences`, which is empty by
-default. Static tokens never qualify. A server without authentication, such as
-the local dev server, needs no credential. Each call steps down whichever process
-is active when it arrives, so check which process is active before retrying.
-A server without AdminService answers Unimplemented.
+- `nodeId`, `releasedNodeEpoch`, and `leaseReacquisitionHoldOff`;
+- `leaseHolderAfterStepDown`: `takenOverByAnotherProcess`,
+  `takenBackByThisProcess`, or `unknown` when neither was confirmed;
+- `activeNodeEpoch` and `activeHolderProcessId` of the process that holds the
+  lease, or `leaseHolderUnknownDetail` when it is unknown.
+
+Node epochs are decimal strings, as in protobuf JSON. The command requires
+`--yes`. `--expected-node-epoch epoch` steps down only if the active process
+holds that node epoch; otherwise the server answers FailedPrecondition and
+changes nothing. The default `--timeout` is 2 minutes, well above the drain
+bound, the hold-off, and one lease acquisition attempt. An explicit `--timeout`
+before or after the subcommand replaces it.
+
+Each call steps down whichever process is active when it arrives, so a blind
+retry can step down the process that just took over. DeadlineExceeded,
+Canceled, or Unavailable means the outcome is unknown; the error output then
+carries `stepDownOutcome: unknown` and a `hint`. Run `dexcli admin describe`
+first, then retry only with `--expected-node-epoch` set to the node epoch that
+it prints. On a single replica, a step down stops serving for about one
+hold-off, and then the same process takes the lease back.
+
+Both commands use the regular server, credential, TLS, timeout, and output
+flags. When the server configures authentication, the credential must be a JWT
+whose issuer's `jwt` authenticator lists one of the token's audiences in its
+`adminAudiences`, which is empty by default. Static tokens never qualify. The API
+key exchange sends only the server ID and the API key, so `dexcli` cannot ask
+for an admin audience. It works for admin commands only if the token endpoint
+itself issues tokens with an admin audience for that key. A server without
+authentication, such as the local dev server, needs no credential, so anyone who
+can reach it can step it down.
 
 ## Build and test
 

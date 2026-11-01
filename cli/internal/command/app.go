@@ -131,7 +131,7 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout, "  flow      Start, operate, inspect, or watch Flows")
 	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(a.stdout, "  version   Check dexcli and Server protocol compatibility")
-	fmt.Fprintln(a.stdout, "  admin     Step down the active server process (admin credential)")
+	fmt.Fprintln(a.stdout, "  admin     Describe or step down the active server process (admin credential)")
 	fmt.Fprintln(a.stdout)
 	fmt.Fprintln(a.stdout, "Global flags:")
 	fmt.Fprintln(a.stdout, "  --server host:port                 Dex FlowService target")
