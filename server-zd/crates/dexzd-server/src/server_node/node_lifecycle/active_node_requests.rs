@@ -37,6 +37,8 @@ pub(in crate::server_node) enum AdministrationRequest {
 pub(in crate::server_node) struct StepDownRequest {
     precondition: StepDownPrecondition,
     reply: oneshot::Sender<StepDownReply>,
+    /// The call came through a standby-phase gRPC instance, whose connections close within seconds.
+    is_on_standby_instance: bool,
 }
 
 /// The node lease that the serving process holds, for describe and step down answers.
@@ -84,6 +86,12 @@ impl AdministrationRequest {
 }
 
 impl StepDownRequest {
+    /// Returns whether the call came through a standby-phase instance, which closes its connection
+    /// before a step down could answer.
+    pub(in crate::server_node) fn is_on_standby_instance(&self) -> bool {
+        self.is_on_standby_instance
+    }
+
     pub(in crate::server_node) fn refuse_not_active(self, state: &str) {
         send(
             self.reply,
@@ -145,13 +153,29 @@ fn send<T>(reply: oneshot::Sender<T>, answer: T) {
 /// The AdminService administration, forwarded to the process lifecycle.
 pub(in crate::server_node) struct LifecycleActiveNodeAdministration {
     requests: mpsc::Sender<AdministrationRequest>,
+    /// Marks step downs from a standby-phase instance, so a serving lifecycle refuses them at once.
+    is_standby_instance: bool,
 }
 
 impl LifecycleActiveNodeAdministration {
-    /// Returns the administration and the receiver that the lifecycle answers.
+    /// Returns the administration of serving instances and the receiver that the lifecycle answers.
     pub(in crate::server_node) fn new() -> (Self, mpsc::Receiver<AdministrationRequest>) {
         let (requests, receiver) = mpsc::channel(REQUEST_CAPACITY);
-        (Self { requests }, receiver)
+        (
+            Self {
+                requests,
+                is_standby_instance: false,
+            },
+            receiver,
+        )
+    }
+
+    /// Returns the administration of standby-phase instances, answered by the same lifecycle.
+    pub(in crate::server_node) fn for_standby_instances(&self) -> Self {
+        Self {
+            requests: self.requests.clone(),
+            is_standby_instance: true,
+        }
     }
 }
 
@@ -182,6 +206,7 @@ impl ActiveNodeAdministration for LifecycleActiveNodeAdministration {
             .send(AdministrationRequest::StepDown(StepDownRequest {
                 precondition,
                 reply,
+                is_on_standby_instance: self.is_standby_instance,
             }))
             .await
             .map_err(|_| ActiveNodeStepDownError::NotActive {

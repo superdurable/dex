@@ -96,6 +96,9 @@ const SHUTDOWN_BUDGET: Duration = GRPC_DRAIN_BUDGET
     .saturating_add(EMBEDDED_S3_MINIMUM_STOP_BUDGET);
 /// Tenant that serves pull Workers until authentication assigns tenants.
 const DEFAULT_TENANT_ID: u64 = 0;
+/// The answer to a step down that reached a standby instance of a process that now serves.
+const STANDBY_INSTANCE_STEP_DOWN_REFUSAL: &str =
+    "the call reached a standby connection that closes soon; retry it";
 
 /// How the process reacts when the lease validity deadline passes without a renewal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -227,15 +230,17 @@ pub(crate) async fn start_server(
     let metrics_address = metrics_server.as_ref().map(MetricsServer::address);
     let lease_validity_deadline = LeaseValidityDeadline::disarmed();
     let (health, _first_health_server) = HealthStatus::new(lease_validity_deadline.clone()).await;
-    let (active_node_administration, administration_requests) =
+    let (serving_instance_administration, administration_requests) =
         LifecycleActiveNodeAdministration::new();
+    let standby_instance_administration = serving_instance_administration.for_standby_instances();
     let grpc_settings = GrpcSettings {
         listener: Arc::new(listener),
         max_message_bytes: components.grpc_max_message_bytes,
         api_requests: metrics.api_requests.clone(),
         api_latency: metrics.api_latency.clone(),
         authenticator,
-        active_node_administration: Arc::new(active_node_administration),
+        serving_instance_administration: Arc::new(serving_instance_administration),
+        standby_instance_administration: Arc::new(standby_instance_administration),
         health,
         lease_validity_deadline: lease_validity_deadline.clone(),
     };
@@ -749,6 +754,11 @@ impl ServerNode {
             if let Some(step_down) = request.answer_description(&self.held_lease)
                 && let Some(step_down) = step_down.check_precondition(&self.held_lease)
             {
+                // That instance retires within 250 ms of a takeover and would cut a longer answer.
+                if step_down.is_on_standby_instance() {
+                    step_down.refuse_not_active(STANDBY_INSTANCE_STEP_DOWN_REFUSAL);
+                    continue;
+                }
                 // The select picks a ready branch at random, so a stop may race the step down.
                 let stop_reason = self.engine.stop_reason().or_else(|| {
                     registry_halted

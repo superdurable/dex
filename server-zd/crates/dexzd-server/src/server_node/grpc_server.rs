@@ -63,7 +63,11 @@ pub(super) struct GrpcSettings {
     pub(super) api_requests: dexzd_metrics::ApiRequests,
     pub(super) api_latency: dexzd_metrics::ApiLatency,
     pub(super) authenticator: Option<Arc<PublicApiAuthenticator>>,
-    pub(super) active_node_administration: Arc<dyn ActiveNodeAdministration>,
+    /// Answers AdminService calls on serving instances.
+    pub(super) serving_instance_administration: Arc<dyn ActiveNodeAdministration>,
+    /// Answers AdminService calls on standby-phase instances; a serving process refuses their
+    /// step downs at once.
+    pub(super) standby_instance_administration: Arc<dyn ActiveNodeAdministration>,
     pub(super) health: HealthStatus,
     /// Public calls answer only while it is valid, so a resumed process never serves stale state.
     pub(super) lease_validity_deadline: LeaseValidityDeadline,
@@ -89,10 +93,12 @@ impl GrpcServer {
             StartupService::<WorkerTaskServiceServer<WorkerTaskService>>::new(
                 settings.lease_validity_deadline.clone(),
             );
-        let admin_service = DexAdminService::authenticated_server(
-            settings.active_node_administration.clone(),
-            settings.authenticator.clone(),
-        );
+        let administration = match phase {
+            GrpcInstancePhase::Standby => settings.standby_instance_administration.clone(),
+            GrpcInstancePhase::Serving => settings.serving_instance_administration.clone(),
+        };
+        let admin_service =
+            DexAdminService::authenticated_server(administration, settings.authenticator.clone());
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         let listener = settings.listener.clone();
@@ -265,7 +271,8 @@ where
             .expect("startup service lock is poisoned only if a holder panicked")
             .clone();
         let lease_validity_deadline = self.lease_validity_deadline.clone();
-        let calls = self.calls.clone();
+        // Taken with the service clone, so a drain that starts after it waits for this call.
+        let call = self.calls.token();
         Box::pin(async move {
             let Some(mut service) = serving else {
                 return Ok(Status::unavailable("the node is starting").into_http());
@@ -273,7 +280,6 @@ where
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
             }
-            let call = calls.token();
             let response = service.call(request).await?;
             // A freeze during the call can outlast the lease, so the answer may already be stale.
             if !lease_validity_deadline.is_valid_at(Instant::now()) {

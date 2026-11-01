@@ -16,9 +16,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use dexzd_protocol::dex::admin_service_client::AdminServiceClient;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::step_down_active_node_response::LeaseHolderAfterStepDown;
-use dexzd_protocol::dex::{GetFlowSummaryRequest, SearchFlowsRequest};
+use dexzd_protocol::dex::{
+    DescribeActiveNodeRequest, GetFlowSummaryRequest, SearchFlowsRequest, StepDownActiveNodeRequest,
+};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tokio::task::JoinSet;
@@ -33,7 +36,7 @@ use super::held_calls::{HELD_CALL_START_WINDOW, HeldCall, start_flow_with_hard_d
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
     ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HELD_READ_DELAY, HELD_READ_FLOW_ID,
-    HOT_SLOTS, SECOND, STANDBY_BUDGET, TAKEOVER_BUDGET,
+    HOT_SLOTS, HOT_TAKEOVER_AFTER_RELEASE_BOUND, SECOND, STANDBY_BUDGET, TAKEOVER_BUDGET,
 };
 
 /// A standby instance's connection age, 3 s, plus its 1 s grace and a margin for a loaded host.
@@ -54,6 +57,14 @@ const SEARCH_PAGE_SIZE: i32 = 100;
 const STANDBY_BOOTSTRAP_RETRY: &str = "the hot standby could not bootstrap; retrying";
 /// A loaded active's release after a step down call and a hot takeover; well under the held read.
 const STEP_DOWN_SERVED_BOUND: Duration = Duration::from_millis(2500);
+/// The default `standby.stepDownHoldOff`.
+const STEP_DOWN_HOLD_OFF: Duration = Duration::from_secs(5);
+/// What a serving process answers to a step down that reached one of its standby instances.
+const STANDBY_INSTANCE_REFUSAL: &str = "the call reached a standby connection that closes soon";
+/// A refusal needs no lease read or write.
+const STANDBY_INSTANCE_REFUSAL_BOUND: Duration = Duration::from_secs(1);
+/// Well inside the 250 ms before a retired standby instance sends GOAWAY.
+const TAKEOVER_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 /// A client whose first connection lands on a standby reaches the active, and later its successor.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -177,6 +188,117 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
             stepped_down_at,
             format!(
                 "served {served_after:?} after the step down; hot again {hot_after:?} after the takeover; {reads} reads answered"
+            ),
+        )
+        .await;
+}
+
+/// A step down sent right after a takeover on a connection to the new active's standby instance is
+/// answered.
+///
+/// That instance retires within 250 ms of the takeover, so the serving process refuses the call at
+/// once instead of stepping down. A call that misses the window reaches the serving instance and
+/// steps down; that answer travels on a connection that does not age.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn step_down_through_a_retiring_standby_instance_is_answered() {
+    let mut scenario = FailoverScenario::start("standby-instance-step-down", &HOT_SLOTS).await;
+    // A step down that misses the window waits for the first process's hold-off.
+    scenario.expect_takeovers_after_release_within(
+        Duration::ZERO,
+        STEP_DOWN_HOLD_OFF + HOT_TAKEOVER_AFTER_RELEASE_BOUND,
+    );
+    let group = &mut scenario.group;
+    group
+        .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
+        .await;
+    group.wait_for_hot_standby(SECOND, STANDBY_BUDGET).await;
+    let stepped_down_at = scenario.start_timers_spanning_the_failure().await;
+    let group = &mut scenario.group;
+    // Opened just before the step down, so the takeover comes well within its 3 s age.
+    let standby_channel = Channel::from_shared(format!("http://{}", group.api_address(SECOND)))
+        .expect("the slot address is a valid URI")
+        .connect()
+        .await
+        .expect("the standby accepts a connection");
+    let connected_at = Instant::now();
+    let mut standby_admin = AdminServiceClient::new(standby_channel);
+    let not_active = standby_admin
+        .describe_active_node(DescribeActiveNodeRequest {})
+        .await
+        .expect_err("a standby describes no active node");
+    assert_eq!(not_active.code(), Code::FailedPrecondition, "{not_active}");
+    group.note_possible_release();
+    // The first answer waits for a lease read; the retiring instance's window may close by then.
+    let mut router_admin = AdminServiceClient::new(group.router_channel());
+    let first_step_down = tokio::spawn(async move {
+        router_admin
+            .step_down_active_node(StepDownActiveNodeRequest::default())
+            .await
+    });
+    // The lifecycle describes itself as soon as it serves, right after it retires the standby instance.
+    let described_at = Instant::now();
+    loop {
+        match standby_admin
+            .describe_active_node(DescribeActiveNodeRequest {})
+            .await
+        {
+            Ok(_) => break,
+            Err(status) => assert!(
+                status.code() == Code::FailedPrecondition
+                    && described_at.elapsed() < TAKEOVER_BUDGET,
+                "the standby never took over: {status}"
+            ),
+        }
+        tokio::time::sleep(TAKEOVER_POLL_INTERVAL).await;
+    }
+    let sent_at = Instant::now();
+    let connected_for = sent_at - connected_at;
+    let answer = standby_admin
+        .step_down_active_node(StepDownActiveNodeRequest::default())
+        .await;
+    let answered_after = sent_at.elapsed();
+    first_step_down
+        .await
+        .expect("the first step down task does not panic")
+        .expect("the first active steps down");
+    let path = match answer {
+        Err(status)
+            if status.code() == Code::FailedPrecondition
+                && status.message().contains(STANDBY_INSTANCE_REFUSAL) =>
+        {
+            assert!(
+                answered_after <= STANDBY_INSTANCE_REFUSAL_BOUND,
+                "the refusal took {answered_after:?}"
+            );
+            assert_eq!(
+                group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
+                SECOND,
+                "the refused step down changed nothing"
+            );
+            "refused on the retiring standby instance"
+        }
+        Ok(outcome) => {
+            assert!(
+                matches!(
+                    outcome.get_ref().lease_holder_after_step_down,
+                    Some(LeaseHolderAfterStepDown::TakenOverByAnotherProcess(_))
+                ),
+                "{outcome:?}"
+            );
+            assert_eq!(
+                group.wait_for_takeover(SECOND, TAKEOVER_BUDGET).await,
+                FIRST
+            );
+            "stepped down through the serving instance"
+        }
+        Err(status) => panic!("the step down answer was lost after {answered_after:?}: {status}"),
+    };
+    scenario
+        .finish(
+            "step_down_through_a_retiring_standby_instance_is_answered",
+            stepped_down_at,
+            format!(
+                "the step down {path} after {answered_after:?}, sent {connected_for:?} after the connection opened"
             ),
         )
         .await;

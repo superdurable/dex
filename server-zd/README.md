@@ -663,7 +663,9 @@ standby:
   `stepDownHoldOff` must exceed `laggingTakeoverDelay` plus `heldLeasePollInterval`.
 - A standby's gRPC instance closes each connection after 3 s, with a 1 s grace, so a client that
   reached a standby reconnects. At a takeover the process starts a serving instance without that
-  limit and retires the standby instance.
+  limit and retires the standby instance. A step down that reaches the retiring standby instance
+  answers `NotActive` at once and asks the caller to retry, because that instance would close the
+  connection before a step down could answer.
 - FlowService and WorkerTaskService calls answer UNAVAILABLE "the node lease is not valid", and
   readiness names NOT_SERVING, whenever the lease validity deadline has passed, checked when a call
   arrives and again before its response. Worker dispatch checks it again before it sends each task.
