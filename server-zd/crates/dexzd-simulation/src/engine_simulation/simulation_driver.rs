@@ -14,14 +14,9 @@ use std::time::Duration;
 
 use dexzd_api::FlowOperations;
 use dexzd_clock::WallClock;
-use dexzd_cluster_metadata::MetadataError;
-use dexzd_engine::{
-    EngineLocalStore, EngineStartError, NodeStopReason, SeededEngineIdSourceForTest,
-};
+use dexzd_engine::{EngineLocalStore, NodeStopReason, SeededEngineIdSourceForTest};
 use dexzd_keyspace::{RunTable, TenantId};
-use dexzd_object_store::{
-    FaultAction, FaultInjector, InMemoryObjectStore, ObjectStore, ObjectStoreOperation,
-};
+use dexzd_object_store::{InMemoryObjectStore, ObjectStore};
 use dexzd_protocol::dex::FlowAlreadyStartedOptions;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -44,12 +39,14 @@ use crate::engine_simulation::simulated_clock::{
 };
 use crate::engine_simulation::simulated_node::{
     ClusterEnvironment, LEASE_TAKEOVER_GRACE, LocalStoreStart, NodeProcess, PARTITION_COUNT,
-    ProcessStart, copy_local_store,
+    ProcessStart, RestartKind, copy_local_store, self_stop_kind, start_error_kind,
+    wait_before_next_start,
 };
 use crate::engine_simulation::simulated_object_store::{
-    SharedObjectStorage, StorageObservations, replays_voided_closed_batch,
+    NoInjectedFaults, SharedObjectStorage, StorageObservations, replays_voided_closed_batch,
 };
 use crate::engine_simulation::simulated_workers::SimulatedWorkers;
+use crate::engine_simulation::standby_takeovers::{StandbyTakeover, StandbyTakeovers};
 use crate::engine_simulation::workload::{OPERATION_MARKER_PREFIX, start_flow_request};
 use crate::engine_simulation::{
     EngineSimulationConfig, EngineSimulationFailure, EngineSimulationFinalState,
@@ -79,33 +76,6 @@ const FAULT_PROBABILITIES: [f64; 5] = [0.0, 0.001, 0.005, 0.01, 0.02];
 /// Longest wait of a crash for pipelined log writes or cross-Flow work to crash during.
 const PIPELINED_WRITE_WAIT: Duration = Duration::from_secs(3);
 
-/// The shared store applies every call; faults come from each process's own layer.
-struct NoInjectedFaults;
-
-impl FaultInjector for NoInjectedFaults {
-    fn action(&self, _operation: ObjectStoreOperation, _key: &str) -> FaultAction {
-        FaultAction::Proceed
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-/// What a restarted process finds on its local disk.
-enum RestartKind {
-    Kept,
-    Lost,
-    RolledBack,
-}
-
-impl RestartKind {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Kept => "kept",
-            Self::Lost => "lost",
-            Self::RolledBack => "rolled-back",
-        }
-    }
-}
-
 struct Simulation {
     seed: u64,
     config: EngineSimulationConfig,
@@ -126,6 +96,7 @@ struct Simulation {
     outbox_owed_by_recovery: BTreeSet<Vec<u8>>,
     /// Hard-delete objects pending at a crash, by row key, which recovered processes must delete.
     hard_deletes_owed_by_recovery: BTreeMap<Vec<u8>, String>,
+    standby_takeovers: Option<StandbyTakeovers>,
 }
 
 /// Runs one seed; returns what it exercised and its final state, or the first broken invariant.
@@ -235,6 +206,7 @@ impl Simulation {
             summary: EngineSimulationSummary::default(),
             outbox_owed_by_recovery: BTreeSet::new(),
             hard_deletes_owed_by_recovery: BTreeMap::new(),
+            standby_takeovers: None,
         }
     }
 
@@ -254,6 +226,18 @@ impl Simulation {
             .await?;
         self.serve(first);
         let active_end = Instant::now() + Duration::from_secs(self.config.active_seconds);
+        if self.config.profile == EngineSimulationProfile::HotStandbyTakeovers {
+            let mut takeovers = StandbyTakeovers::new(self.rng.random(), active_end);
+            let events = &mut self.summary.hot_standby_events;
+            takeovers.start_standby(
+                &self.environment,
+                self.incarnation,
+                self.fault_probability,
+                None,
+                events,
+            );
+            self.standby_takeovers = Some(takeovers);
+        }
         let client_tasks = self.spawn_clients(active_end);
         self.run_active_phase(active_end).await?;
         for task in client_tasks {
@@ -263,7 +247,16 @@ impl Simulation {
                 std::panic::resume_unwind(error.into_panic());
             }
         }
-        self.run_calm_tail().await
+        self.run_calm_tail().await?;
+        match &mut self.standby_takeovers {
+            Some(takeovers) => {
+                let events = &mut self.summary.hot_standby_events;
+                takeovers
+                    .wait_until_following(&self.environment, events)
+                    .await
+            }
+            None => Ok(()),
+        }
     }
 
     fn spawn_clients(&mut self, active_end: Instant) -> Vec<JoinHandle<()>> {
@@ -332,7 +325,13 @@ impl Simulation {
                 next_jump = self.later(10_000..40_000);
             }
             if now >= next_crash {
-                if self.old_epoch_processes.is_empty() && self.rng.random_bool(0.25) {
+                if self
+                    .standby_takeovers
+                    .as_mut()
+                    .is_some_and(StandbyTakeovers::should_take_over)
+                {
+                    self.crash_and_take_over().await?;
+                } else if self.old_epoch_processes.is_empty() && self.rng.random_bool(0.25) {
                     self.take_over_with_overlap().await?;
                 } else {
                     let kind = self.draw_restart_kind();
@@ -503,6 +502,15 @@ impl Simulation {
         if let Some(violation) = self.environment.committed_log.first_violation() {
             return Err(violation);
         }
+        if let Some(takeovers) = &mut self.standby_takeovers {
+            let events = &mut self.summary.hot_standby_events;
+            takeovers.check_and_step(
+                &self.environment,
+                self.incarnation,
+                self.fault_probability,
+                events,
+            )?;
+        }
         {
             let records = self
                 .client_records
@@ -650,6 +658,52 @@ impl Simulation {
             .start_until_serving(start, clock_offset, kind.name())
             .await?;
         self.serve(process);
+        self.check_recovered_process()
+    }
+
+    /// Crashes the serving process and takes over from the hot standby, then starts a new one.
+    async fn crash_and_take_over(&mut self) -> Result<(), InvariantViolation> {
+        let (Some(serving), Some(mut takeovers)) =
+            (self.serving.take(), self.standby_takeovers.take())
+        else {
+            return Ok(());
+        };
+        self.serving_node.clear();
+        self.record_work_interrupted_by_crash()?;
+        let clock_offset = serving.clock.offset_micros();
+        self.trace(&format!(
+            "crash {} and take over from the hot standby",
+            serving.process_label
+        ));
+        self.crash(serving);
+        let events = &mut self.summary.hot_standby_events;
+        let process = match takeovers
+            .take_over(
+                &self.environment,
+                self.incarnation,
+                clock_offset,
+                self.fault_probability,
+                events,
+            )
+            .await?
+        {
+            StandbyTakeover::Serving(process) => process,
+            StandbyTakeover::Restart(store) => {
+                let start = LocalStoreStart::Existing(copy_local_store(&store));
+                self.start_until_serving(start, clock_offset, "takeover-restart")
+                    .await?
+            }
+        };
+        self.serve(process);
+        let events = &mut self.summary.hot_standby_events;
+        takeovers.start_standby(
+            &self.environment,
+            self.incarnation,
+            self.fault_probability,
+            None,
+            events,
+        );
+        self.standby_takeovers = Some(takeovers);
         self.check_recovered_process()
     }
 
@@ -880,19 +934,7 @@ impl Simulation {
                         .start_failures
                         .entry(kind.to_owned())
                         .or_default() += 1;
-                    let wait = match &error {
-                        EngineStartError::Metadata(MetadataError::LeaseHeld {
-                            expires_at_unix_micros,
-                            ..
-                        }) => {
-                            let available_at = expires_at_unix_micros
-                                + duration_micros(LEASE_TAKEOVER_GRACE)
-                                + 1_000;
-                            let micros = (available_at - clock.now_unix_micros()).max(1_000);
-                            Duration::from_micros(u64::try_from(micros).unwrap_or(1_000))
-                        }
-                        _ => Duration::from_millis(self.rng.random_range(200..3_000)),
-                    };
+                    let wait = wait_before_next_start(&error, &clock, &mut self.rng);
                     last_error = error.to_string();
                     tokio::time::sleep(wait).await;
                 }
@@ -958,35 +1000,5 @@ impl Simulation {
         self.serving
             .as_ref()
             .map_or_else(String::new, |serving| serving.process_label.clone())
-    }
-}
-
-/// Names why a process stopped; `None` means only its registry halted.
-fn self_stop_kind(reason: Option<&NodeStopReason>) -> &'static str {
-    match reason {
-        None => "registry-halted",
-        Some(NodeStopReason::Shutdown) => "shutdown",
-        Some(NodeStopReason::LeaseLost { .. }) => "lease-lost",
-        Some(NodeStopReason::Fenced) => "fenced",
-        // The engine reports ProposalFailure::Restart only through this detail text.
-        Some(NodeStopReason::CommitPipelineFailed { detail })
-            if detail.contains("earlier epoch") =>
-        {
-            "older-epoch-batch"
-        }
-        Some(NodeStopReason::CommitPipelineFailed { .. }) => "commit-pipeline-failed",
-        Some(NodeStopReason::LocalStoreFailed { .. }) => "local-store-failed",
-    }
-}
-
-fn start_error_kind(error: &EngineStartError) -> &'static str {
-    match error {
-        EngineStartError::Metadata(MetadataError::LeaseHeld { .. }) => "lease-held",
-        EngineStartError::Metadata(_) => "metadata",
-        EngineStartError::Storage(_) => "local-store",
-        EngineStartError::Log(_) => "log",
-        EngineStartError::Stopped { .. } => "stopped",
-        EngineStartError::PartitionEffectRebuild(_) => "runtime-rebuild",
-        _ => "other",
     }
 }

@@ -26,6 +26,9 @@ const FIRST_REDEPLOY_SEED: u64 = 0x4ede_0000;
 const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
+const DEFAULT_HOT_STANDBY_SEED_COUNT: u64 = 16;
+/// Hot standbys change every trajectory, so their seeds form their own group.
+const FIRST_HOT_STANDBY_SEED: u64 = 0x57a0_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
 /// Canonical command digests with full-rate startup faults; a moved regression seed
 /// stops reproducing.
@@ -199,6 +202,40 @@ fn redeploys_with_a_short_history_window_keep_every_invariant() {
     for (name, value) in checks {
         assert!(value > 0, "the redeploy profile had no {name}: {total:#?}");
     }
+}
+
+#[test]
+fn hot_standby_takeovers_keep_every_invariant() {
+    let (seeds, is_single_seed) =
+        configured(DEFAULT_HOT_STANDBY_SEED_COUNT, FIRST_HOT_STANDBY_SEED, &[]);
+    let mut total = run_seeds(&seeds, EngineSimulationProfile::HotStandbyTakeovers);
+    total.recent_events.clear();
+    println!("hot standby profile coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    for event in [
+        "warm-takeover",
+        "takeover-crash",
+        "standby-crash-kept",
+        "standby-crash-lost",
+        "standby-outage",
+        "check-following",
+        "check-restarting",
+        "standby-following-at-end",
+    ] {
+        assert!(
+            total
+                .hot_standby_events
+                .get(event)
+                .is_some_and(|count| *count > 0),
+            "the hot standby profile had no {event}: {total:#?}"
+        );
+    }
+    assert!(
+        total.recovered_state_comparisons > 0,
+        "no store was compared with the twin after a takeover: {total:#?}"
+    );
 }
 
 #[test]

@@ -15,15 +15,17 @@ use std::time::Duration;
 use bytes::Bytes;
 use dexzd_apply::{ApplyContext, ApplyError, ApplyOutcome, FlowStateReader};
 use dexzd_clock::WallClock;
-use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, METADATA_FORMAT_VERSION, NodeConfig};
+use dexzd_cluster_metadata::{
+    ClusterConfig, LeaseConfig, METADATA_FORMAT_VERSION, MetadataError, NodeConfig,
+};
 use dexzd_engine::{
     AttributeSyncWaker, BlockingWorkPlacement, CommandApplier, CommitConfig,
     DeterministicCommandApplier, EffectDependencies, EffectRunner, EffectTasksHandle,
     EffectsConfig, EngineCommandAndEffectHooks, EngineIdSource, EngineLocalStore, EngineNode,
     EngineNodeConfig, EngineNodeDependencies, EngineServices, EngineStartError,
     FlowCoordinationConfig, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
-    HardDeleteObjects, LocalStoreConfig, NodeMetaUploadLedger, NodeStopReason, RecoveryConfig,
-    SnapshotConfig, default_run_settings,
+    HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreConfig, NodeMetaUploadLedger,
+    NodeStopReason, RecoveryConfig, SnapshotConfig, default_run_settings,
 };
 use dexzd_keyspace::{ColumnFamily, KEY_LAYOUT_VERSION};
 use dexzd_object_store::{ObjectStore, WriteCondition};
@@ -32,6 +34,8 @@ use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::{InMemoryLocalStore, LocalStore, ScanDirection, WriteBatch};
 use dexzd_stream_store::{StreamStore, StreamStoreConfig};
 use prost::Message;
+use rand::RngExt;
+use rand_chacha::ChaCha8Rng;
 use tokio::task::JoinHandle;
 
 use crate::engine_simulation::EngineSimulationProfile;
@@ -170,6 +174,24 @@ pub(crate) enum LocalStoreStart {
     Existing(Arc<EngineLocalStore>),
 }
 
+#[derive(Debug, Clone, Copy)]
+/// What a restarted process finds on its local disk.
+pub(crate) enum RestartKind {
+    Kept,
+    Lost,
+    RolledBack,
+}
+
+impl RestartKind {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Kept => "kept",
+            Self::Lost => "lost",
+            Self::RolledBack => "rolled-back",
+        }
+    }
+}
+
 /// Settings of one process start.
 pub(crate) struct ProcessStart {
     pub(crate) process_label: String,
@@ -197,12 +219,38 @@ struct SimulatedNodeStartupParts {
     local_store: Arc<EngineLocalStore>,
 }
 
+/// Why a takeover from a hot standby did not serve, with the standby while it still follows.
+pub(crate) struct FailedTakeover {
+    pub(crate) error: EngineStartError,
+    pub(crate) standby: Option<HotStandby>,
+}
+
 impl NodeProcess {
     /// Starts a process: recovery, log replay, and runtime rebuild, as the server does.
     pub(crate) async fn start(
         environment: &ClusterEnvironment,
         start: ProcessStart,
     ) -> Result<Self, EngineStartError> {
+        Self::launch(environment, start, None)
+            .await
+            .map_err(|failed| failed.error)
+    }
+
+    /// Starts a process that takes over from `standby`, whose store `start` names.
+    pub(crate) async fn take_over(
+        environment: &ClusterEnvironment,
+        start: ProcessStart,
+        standby: HotStandby,
+    ) -> Result<Self, FailedTakeover> {
+        Self::launch(environment, start, Some(standby)).await
+    }
+
+    /// Starts a process, from `standby` when one is given.
+    async fn launch(
+        environment: &ClusterEnvironment,
+        start: ProcessStart,
+        standby: Option<HotStandby>,
+    ) -> Result<Self, FailedTakeover> {
         let ProcessStart {
             process_label,
             local_store,
@@ -239,72 +287,104 @@ impl NodeProcess {
             applied_command_ids: Mutex::new(BTreeSet::new()),
             dry_runs: Arc::clone(&environment.close_hold_dry_runs),
         });
-        let started = EngineNode::start(
-            &engine_node_config(local_store_config, incarnation, environment.profile),
-            EngineNodeDependencies {
-                metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
-                object_store: object_store_port,
-                clock: wall_clock,
-                applier,
-                id_source: Arc::clone(&environment.id_source),
-                lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
-            },
-            move |services: EngineServices| {
-                let partition_hasher = services.partition_hasher.clone();
-                let hard_delete_objects = HardDeleteObjects::new(
-                    factory_store,
-                    Arc::new(NodeMetaUploadLedger::new(
-                        services.local_store.clone(),
-                        services.node_meta_lock.clone(),
-                    )),
-                    factory_clock.clone(),
-                    partition_hasher.clone(),
-                    services.id_source.clone(),
-                );
-                let (effect_runner, effect_tasks) = EffectRunner::new(
-                    &effects_config(settings),
-                    EffectDependencies {
-                        metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
-                        dispatcher: worker_port.clone(),
-                        hard_delete_objects: hard_delete_objects.clone(),
-                        partition_hasher: partition_hasher.clone(),
-                        clock: factory_clock,
-                        validation_config: ValidationConfig::default(),
-                        stream_store,
-                        id_source: services.id_source.clone(),
-                        attribute_sync_waker: AttributeSyncWaker::new(),
-                    },
-                );
-                let registry = FlowCoordinatorRegistry::new(
-                    &flow_coordination_config(settings),
-                    FlowCoordinatorDependencies {
-                        hasher: partition_hasher,
-                        committer: Arc::new(services.committer),
-                        applier: factory_applier,
-                        effects: Arc::new(effect_runner.clone()),
-                        rpc_invoker: worker_port,
-                        hard_delete_reader: Arc::new(hard_delete_objects.clone()),
-                        hard_delete_uploader: Arc::new(hard_delete_objects),
-                        id_source: services.id_source,
-                    },
-                );
-                let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
-                let hooks = EngineCommandAndEffectHooks {
-                    committed_commands: committed_log.sink_for(&factory_label, registry.clone()),
-                    rebuilder: Arc::new(effect_runner),
-                };
-                *factory_parts
-                    .lock()
-                    .expect("runtime parts lock is not poisoned") =
-                    Some(SimulatedNodeStartupParts {
-                        registry,
-                        effect_tasks,
-                        local_store: services.local_store,
-                    });
-                hooks
-            },
-        )
-        .await;
+        let config = engine_node_config(local_store_config, incarnation, environment.profile);
+        let dependencies = EngineNodeDependencies {
+            metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+            object_store: object_store_port,
+            clock: wall_clock,
+            applier,
+            id_source: Arc::clone(&environment.id_source),
+            lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
+        };
+        let factory = move |services: EngineServices| {
+            let partition_hasher = services.partition_hasher.clone();
+            let hard_delete_objects = HardDeleteObjects::new(
+                factory_store,
+                Arc::new(NodeMetaUploadLedger::new(
+                    services.local_store.clone(),
+                    services.node_meta_lock.clone(),
+                )),
+                factory_clock.clone(),
+                partition_hasher.clone(),
+                services.id_source.clone(),
+            );
+            let (effect_runner, effect_tasks) = EffectRunner::new(
+                &effects_config(settings),
+                EffectDependencies {
+                    metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+                    dispatcher: worker_port.clone(),
+                    hard_delete_objects: hard_delete_objects.clone(),
+                    partition_hasher: partition_hasher.clone(),
+                    clock: factory_clock,
+                    validation_config: ValidationConfig::default(),
+                    stream_store,
+                    id_source: services.id_source.clone(),
+                    attribute_sync_waker: AttributeSyncWaker::new(),
+                },
+            );
+            let registry = FlowCoordinatorRegistry::new(
+                &flow_coordination_config(settings),
+                FlowCoordinatorDependencies {
+                    hasher: partition_hasher,
+                    committer: Arc::new(services.committer),
+                    applier: factory_applier,
+                    effects: Arc::new(effect_runner.clone()),
+                    rpc_invoker: worker_port,
+                    hard_delete_reader: Arc::new(hard_delete_objects.clone()),
+                    hard_delete_uploader: Arc::new(hard_delete_objects),
+                    id_source: services.id_source,
+                },
+            );
+            let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
+            let hooks = EngineCommandAndEffectHooks {
+                committed_commands: committed_log.sink_for(&factory_label, registry.clone()),
+                rebuilder: Arc::new(effect_runner),
+            };
+            *factory_parts
+                .lock()
+                .expect("runtime parts lock is not poisoned") = Some(SimulatedNodeStartupParts {
+                registry,
+                effect_tasks,
+                local_store: services.local_store,
+            });
+            hooks
+        };
+        let started = match standby {
+            None => EngineNode::start(&config, dependencies, factory)
+                .await
+                .map_err(|error| FailedTakeover {
+                    error,
+                    standby: None,
+                }),
+            Some(standby) => {
+                // The simulator never cancels a takeover; a crash drops it instead.
+                let (_never_cancelled, mut cancellation) = tokio::sync::watch::channel(false);
+                match EngineNode::take_over_from_hot_standby_until_cancelled(
+                    &config,
+                    dependencies,
+                    factory,
+                    standby,
+                    &mut cancellation,
+                )
+                .await
+                {
+                    Ok(HotStandbyTakeover::Serving(engine)) => Ok(engine),
+                    Ok(not_serving) => Err(FailedTakeover {
+                        error: EngineStartError::Stopped {
+                            reason: NodeStopReason::Shutdown,
+                        },
+                        standby: match not_serving {
+                            HotStandbyTakeover::Cancelled(standby) => Some(standby),
+                            _ => None,
+                        },
+                    }),
+                    Err(failed) => Err(FailedTakeover {
+                        error: failed.error,
+                        standby: failed.standby,
+                    }),
+                }
+            }
+        };
         let parts = startup_parts
             .lock()
             .expect("runtime parts lock is not poisoned")
@@ -336,6 +416,11 @@ impl NodeProcess {
             local_store: parts.local_store,
             clock,
         })
+    }
+
+    /// Returns whether the process serves from the store a hot standby handed over.
+    pub(crate) fn is_serving_hot_standby_store(&self) -> bool {
+        self.engine.is_serving_hot_standby_store_for_test()
     }
 
     /// Returns why the engine stopped, or `None` while it serves.
@@ -401,7 +486,7 @@ pub(crate) fn copy_local_store(store: &EngineLocalStore) -> Arc<EngineLocalStore
     Arc::new(EngineLocalStore::Memory(copy))
 }
 
-fn engine_node_config(
+pub(crate) fn engine_node_config(
     local_store: LocalStoreConfig,
     incarnation: u32,
     profile: EngineSimulationProfile,
@@ -481,4 +566,55 @@ fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfil
         settings.history_prune_chunk_semantic_events = 1;
     }
     settings
+}
+
+/// Names why a process stopped; `None` means only its registry halted.
+pub(crate) fn self_stop_kind(reason: Option<&NodeStopReason>) -> &'static str {
+    match reason {
+        None => "registry-halted",
+        Some(NodeStopReason::Shutdown) => "shutdown",
+        Some(NodeStopReason::LeaseLost { .. }) => "lease-lost",
+        Some(NodeStopReason::Fenced) => "fenced",
+        // The engine reports ProposalFailure::Restart only through this detail text.
+        Some(NodeStopReason::CommitPipelineFailed { detail })
+            if detail.contains("earlier epoch") =>
+        {
+            "older-epoch-batch"
+        }
+        Some(NodeStopReason::CommitPipelineFailed { .. }) => "commit-pipeline-failed",
+        Some(NodeStopReason::LocalStoreFailed { .. }) => "local-store-failed",
+    }
+}
+
+pub(crate) fn start_error_kind(error: &EngineStartError) -> &'static str {
+    match error {
+        EngineStartError::Metadata(MetadataError::LeaseHeld { .. }) => "lease-held",
+        EngineStartError::Metadata(_) => "metadata",
+        EngineStartError::Storage(_) => "local-store",
+        EngineStartError::Log(_) => "log",
+        EngineStartError::Stopped { .. } => "stopped",
+        EngineStartError::PartitionEffectRebuild(_) => "runtime-rebuild",
+        _ => "other",
+    }
+}
+
+/// Returns how long a start that failed with `error` waits before the next: until a held lease
+/// is free, or 0.2 to 3 seconds.
+pub(crate) fn wait_before_next_start(
+    error: &EngineStartError,
+    clock: &SimulatedWallClock,
+    rng: &mut ChaCha8Rng,
+) -> Duration {
+    match error {
+        EngineStartError::Metadata(MetadataError::LeaseHeld {
+            expires_at_unix_micros,
+            ..
+        }) => {
+            let available_at =
+                expires_at_unix_micros + duration_micros(LEASE_TAKEOVER_GRACE) + 1_000;
+            let micros = (available_at - clock.now_unix_micros()).max(1_000);
+            Duration::from_micros(u64::try_from(micros).unwrap_or(1_000))
+        }
+        _ => Duration::from_millis(rng.random_range(200..3_000)),
+    }
 }

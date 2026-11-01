@@ -22,8 +22,9 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use dexzd_engine::HARD_DELETE_OBJECT_KEY_PREFIX;
 use dexzd_object_store::{
-    ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
-    ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
+    ByteRange, FaultAction, FaultInjector, ObjectContent, ObjectListing, ObjectMetadata,
+    ObjectStore, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
+    WriteCondition, WriteOutcome,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -106,6 +107,8 @@ pub(crate) struct NodeObjectStore {
     start_kind: String,
     faults: Mutex<FaultState>,
     cut_off: watch::Sender<bool>,
+    /// Fails every call at once while set, as an unreachable object storage does.
+    is_in_outage: AtomicBool,
     is_serving: AtomicBool,
     unlanded_log_writes: Arc<Mutex<UnlandedLogWrites>>,
 }
@@ -126,6 +129,7 @@ impl NodeObjectStore {
                 fault_probability: 0.0,
             }),
             cut_off: watch::Sender::new(false),
+            is_in_outage: AtomicBool::new(false),
             is_serving: AtomicBool::new(false),
             unlanded_log_writes: Arc::new(Mutex::new(UnlandedLogWrites::default())),
         }
@@ -172,6 +176,27 @@ impl NodeObjectStore {
 
     fn is_cut_off(&self) -> bool {
         *self.cut_off.borrow()
+    }
+
+    /// Fails every later call at once while `is_in_outage`, without effect.
+    pub(crate) fn set_outage(&self, is_in_outage: bool) {
+        self.is_in_outage.store(is_in_outage, Ordering::SeqCst);
+    }
+
+    /// Returns the failure of a call during an outage.
+    fn outage_failure(
+        &self,
+        operation: ObjectStoreOperation,
+        key: &str,
+    ) -> Option<ObjectStoreError> {
+        self.is_in_outage.load(Ordering::SeqCst).then(|| {
+            injected_error(
+                operation,
+                key,
+                ObjectStoreErrorKind::Transient,
+                "injected object storage outage",
+            )
+        })
     }
 
     fn plan_call(&self, operation: ObjectStoreOperation, key: &str) -> CallPlan {
@@ -229,6 +254,9 @@ impl NodeObjectStore {
         if self.is_cut_off() {
             return std::future::pending().await;
         }
+        if let Some(failure) = self.outage_failure(operation, key) {
+            return Err(failure);
+        }
         let plan = self.plan_call(operation, key);
         tokio::time::sleep(plan.delay).await;
         if self.is_cut_off() {
@@ -276,6 +304,9 @@ impl NodeObjectStore {
     {
         if self.is_cut_off() {
             return std::future::pending().await;
+        }
+        if let Some(failure) = self.outage_failure(operation, key) {
+            return Err(failure);
         }
         let process_label = &self.process_label;
         self.observe(|observations| {
@@ -596,3 +627,12 @@ impl ObjectStore for NodeObjectStore {
 
 #[cfg(test)]
 mod tests;
+
+/// The shared store applies every call; faults come from each process's own layer.
+pub(crate) struct NoInjectedFaults;
+
+impl FaultInjector for NoInjectedFaults {
+    fn action(&self, _operation: ObjectStoreOperation, _key: &str) -> FaultAction {
+        FaultAction::Proceed
+    }
+}

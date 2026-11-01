@@ -272,6 +272,30 @@ The test requires each outcome that `step_failure_recoveries` counts: `wait-for-
 `execute-recovery`, `timeout-handler-recovery`, and `retry-deadline`. It reads the same
 environment variables as the fixed set, without the regression seeds.
 
+### Hot standby profile
+
+A fourth test, `hot_standby_takeovers_keep_every_invariant`, runs the `HotStandbyTakeovers`
+profile on its own seed group: 16 seeds from `1470103552` (`0x57a00000`). It uses the fixed
+set's environment and adds a `HotStandby` process that follows the node's log into its own
+in-memory disk. Its object storage view draws the seed's faults like any other process.
+
+- 70% of the crashes of the serving process end in a takeover from the standby instead of a
+  restart. A takeover that finds the lease held waits for it and tries again with the standby
+  it gets back. 30% of the takeover attempts crash within 300 ms; a process then restarts on the
+  standby's disk. After every takeover a new standby starts on an empty disk.
+- Every 10 to 40 seconds the standby may crash, keeping or losing its disk, or lose object
+  storage entirely for 20 to 150 seconds.
+- Every periodic check requires that the standby never attempted an object storage write and
+  never reached `Failed`. Transient faults and outages must only make it restart.
+- After the calm tail, the standby must follow the log again within 300 seconds.
+- Each takeover runs the recovery checks: the serving store equals the never-crashed twin, and
+  every acknowledged write survives.
+
+The test requires warm takeovers, takeover crashes, standby crashes that keep and lose the
+disk, outages, checks that saw the standby following and restarting, and standbys following at
+the end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
+other profiles keep their trajectories.
+
 ### Pinned trajectories
 
 `pinned_seeds_keep_their_canonical_command_trajectories` runs each line of

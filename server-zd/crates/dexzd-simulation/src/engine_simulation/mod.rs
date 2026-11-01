@@ -19,6 +19,7 @@ mod simulated_node;
 mod simulated_object_store;
 mod simulated_workers;
 mod simulation_driver;
+mod standby_takeovers;
 mod workload;
 
 use std::collections::BTreeMap;
@@ -70,6 +71,9 @@ pub enum EngineSimulationProfile {
     /// The fixed set's environment with Step failure policies, short Flow timeouts, and timeout
     /// handlers. Clients also skip Flow timeouts.
     StepFailurePolicies,
+    /// The fixed set's environment with a hot standby that follows the log. Most crashes of the
+    /// serving process end in a takeover from it; standbys crash and lose object storage.
+    HotStandbyTakeovers,
 }
 
 impl EngineSimulationProfile {
@@ -81,6 +85,7 @@ impl EngineSimulationProfile {
                 "redeploys_with_a_short_history_window_keep_every_invariant"
             }
             Self::StepFailurePolicies => "step_failure_policies_keep_every_invariant",
+            Self::HotStandbyTakeovers => "hot_standby_takeovers_keep_every_invariant",
         }
     }
 
@@ -191,6 +196,9 @@ pub struct EngineSimulationSummary {
     pub dispatch_comparisons: u64,
     /// Runs in the final state.
     pub final_runs: usize,
+    /// Hot standby events, such as `warm-takeover`, `takeover-crash`, `standby-crash`,
+    /// `standby-outage`, and the states its periodic checks saw.
+    pub hot_standby_events: BTreeMap<String, u64>,
     /// The last trace events of the seed, oldest first; [`Self::merge`] keeps the latest seed's.
     pub recent_events: Vec<String>,
 }
@@ -238,6 +246,7 @@ impl EngineSimulationSummary {
         );
         self.epoch_starts_below_landed_batches += other.epoch_starts_below_landed_batches;
         self.close_barrier.merge(&other.close_barrier);
+        merge_counts(&mut self.hot_standby_events, &other.hot_standby_events);
         merge_counts(&mut self.close_hold_dry_runs, &other.close_hold_dry_runs);
         merge_counts(&mut self.start_failures, &other.start_failures);
         self.clock_jumps += other.clock_jumps;
