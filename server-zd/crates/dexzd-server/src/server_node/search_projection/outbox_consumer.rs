@@ -52,10 +52,7 @@ pub(crate) struct SearchOutboxDependencies {
     pub(crate) watermarks: Arc<SearchOutboxWatermarks>,
 }
 
-/// Projects every partition's SearchOutbox into SQL visibility, then acks the projected entries.
-///
-/// Only the lease holder may run it. It keeps no state outside itself, so a node can stop and
-/// later restart it.
+/// Projects every partition's SearchOutbox into SQL visibility and acks it; only the lease holder runs it.
 pub(crate) struct SearchOutboxConsumer {
     config: SearchOutboxConfig,
     projector: SqlVisibilityProjector,
@@ -464,6 +461,9 @@ impl SearchOutboxConsumer {
                 .max(written.batch.outbox_through_seq);
             if written.batch.applied_position.is_some() {
                 state.is_loaded = true;
+                self.metrics
+                    .search_outbox_backlog
+                    .set_entries(usize::from(partition.0), 0);
             }
             self.watermarks
                 .publish_projected(usize::from(partition.0), state.projected_through);

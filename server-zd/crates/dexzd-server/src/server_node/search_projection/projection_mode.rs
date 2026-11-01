@@ -27,10 +27,7 @@ use tokio::sync::OnceCell;
 const MODE_SUBMIT_ATTEMPTS: u32 = 50;
 const MODE_SUBMIT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
-/// Records the configured search projection mode before the node rebuilds any partition's work.
-///
-/// Apply reads the mode for every search document change. A mode that changed while a command
-/// was speculative would change its committed writes, so the mode commits before any proposal.
+/// Commits the search projection mode before partitions rebuild work, so no speculative command sees it change.
 pub(crate) struct SearchProjectionModeRebuilder {
     effects: Arc<dyn PartitionEffectRebuilder>,
     committer: CommandCommitter,

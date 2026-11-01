@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Reads SearchOutbox entries and the documents they name from one committed view.
-//!
-//! Reads block, so call these functions on a blocking-pool thread.
+//! Blocking reads of SearchOutbox entries and their runs' documents from a committed view.
 
 use dexzd_apply::FlowStateReader;
 use dexzd_keyspace::row_keys::{
@@ -75,10 +73,8 @@ pub fn read_outbox_entries(
         .collect()
 }
 
-/// Returns the change that makes SQL visibility match the run's document in `view`.
-///
-/// A purged or purging run becomes a delete. Returns [`ProjectionError::InvalidState`] when a
-/// retained run has no document.
+/// Returns the run's current upsert, a delete for a purged or purging run, or
+/// [`ProjectionError::InvalidState`] when a retained run has no document.
 pub fn read_run_change(
     view: &dyn FlowStateReader,
     tenant_id: TenantId,

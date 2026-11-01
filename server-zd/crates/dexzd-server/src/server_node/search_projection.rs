@@ -144,9 +144,7 @@ impl SqlVisibilitySearch {
         self.backend.clone()
     }
 
-    /// Starts projecting the SearchOutbox in the background; only the lease holder may call it.
-    ///
-    /// It stops at `node_stopped`, at [`SearchProjection::shutdown`], or when its stop token is cancelled.
+    /// Starts the lease holder's SearchOutbox projection; it stops with the node or its stop token.
     pub(crate) fn start_projection(
         self,
         start: SearchProjectionStart,

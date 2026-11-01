@@ -18,10 +18,7 @@ use dexzd_search::sql_visibility::ProjectionVisibilityWait;
 use dexzd_search::{SearchError, SearchRequest};
 use tokio::sync::{Notify, watch};
 
-/// Per-partition SearchOutbox seqs that committed commands appended and that SQL visibility covers.
-///
-/// Read-your-writes compares them: a SearchFlows request waits until every partition covers
-/// what was appended before the request.
+/// Per-partition SearchOutbox seqs appended by commits and covered by SQL visibility, for read-your-writes.
 pub(crate) struct SearchOutboxWatermarks {
     appended: Vec<AtomicU64>,
     projected: Vec<AtomicU64>,

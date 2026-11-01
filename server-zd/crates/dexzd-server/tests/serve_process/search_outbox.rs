@@ -178,6 +178,11 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
         "batches coalesce hot runs: {projected_runs} rows for {projected_entries} entries"
     );
     assert_eq!(
+        metric_value(&caught_up_metrics, "dexzd_search_outbox_entries"),
+        0.0,
+        "{caught_up_metrics}"
+    );
+    assert_eq!(
         first.log().matches(LOAD_LOG_LINE).count(),
         usize::from(PARTITION_COUNT),
         "each partition loads once and nothing rebuilds: {}",
@@ -213,8 +218,7 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
     let status = second.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", second.log());
 
-    // A process on a new local store recovers from the snapshot and log, then keeps projecting.
-    // Its first ack of each partition is immediate; later acks wait an hour, so entries stay queued.
+    // A recovered local store keeps projecting; hour-long acks leave projected entries queued.
     let (mut third, channel, _) = node
         .start(
             "third",

@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The SearchOutbox queue that the lease holder projects into an external search backend.
-//!
-//! Keys use the command's proposed_at_micros, so speculative and committed apply write identical keys.
+//! SearchOutbox entries, keyed by proposed_at_micros so speculative and committed apply agree.
 
 use dexzd_keyspace::row_keys::{
     partition_index_range, search_outbox_key, search_outbox_range_through,

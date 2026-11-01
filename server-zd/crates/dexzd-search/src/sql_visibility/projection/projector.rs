@@ -244,10 +244,7 @@ impl SqlVisibilityProjector {
         Ok(self.read_all_progress().await?.remove(&partition_id))
     }
 
-    /// Writes `batches` and raises their progress in one transaction fenced by `epoch`.
-    ///
-    /// Partitions must be distinct. Every touched progress row records `epoch`. A row the database
-    /// rejects is retried with each row isolated, then recorded as a skipped document.
+    /// Writes `batches` of distinct partitions and their progress in one transaction fenced by `epoch`.
     ///
     /// Returns [`ProjectionError::Fenced`] when a partition's progress carries a newer epoch.
     pub async fn apply_outbox_batch(
