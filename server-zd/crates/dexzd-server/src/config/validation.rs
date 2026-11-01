@@ -456,6 +456,11 @@ impl Config {
             "must be positive",
         )?;
         ensure(
+            self.search.outbox_max_ack_entries >= self.search.outbox_batch_size,
+            "search.outboxMaxAckEntries",
+            "must be at least search.outboxBatchSize",
+        )?;
+        ensure(
             self.limits.max_flow_state_bytes >= self.values.max_value_bytes,
             "limits.maxFlowStateBytes",
             "must hold at least one maximum-sized value",

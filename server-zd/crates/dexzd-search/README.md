@@ -35,8 +35,11 @@ partition for a one-time load into a partition without progress.
 progress in one transaction: the outbox seq never decreases, and a batch that
 finishes a committed view also records the view's position. Every touched
 progress row records the writer's node epoch, and a lower epoch fails with
-`ProjectionError::Fenced`. An initial-load batch first deletes the partition's
-rows. Versioned upserts make a repeated batch harmless. Only the current
+`ProjectionError::Fenced`. `fence_all_progress` stamps every partition's row
+with a new owner's epoch in one transaction before it projects. An initial-load
+batch first deletes the partition's rows and forgets its progress, so only the
+load's last batch makes the partition look loaded. A NULL outbox seq means the
+progress predates the SearchOutbox. Versioned upserts make a repeated batch harmless. Only the current
 partition owner may project. Projection failures must not affect command
 commits.
 

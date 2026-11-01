@@ -575,6 +575,7 @@ impl ServerNode {
                 let mode_rebuilder = SearchProjectionModeRebuilder::new(
                     Arc::new(effect_runner.clone()),
                     services.committer.clone(),
+                    metrics.clone(),
                     partition_hasher.clone(),
                     is_search_projection_enabled,
                 );

@@ -223,6 +223,11 @@ impl CommandCommitter {
         self.inner.state.stop_reason()
     }
 
+    /// Returns whether `partition` stopped applying commands, so it rejects every submission.
+    pub fn is_partition_halted(&self, partition: PartitionId) -> bool {
+        self.inner.state.is_partition_halted(partition)
+    }
+
     fn lock_stamp_watermark(&self, partition: PartitionId) -> std::sync::MutexGuard<'_, i64> {
         self.inner.stamp_watermarks[usize::from(partition.0)]
             .lock()

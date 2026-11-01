@@ -27,7 +27,10 @@ use super::super::search_backend::{
 use super::super::upsert::upsert_statements_with_slots;
 use super::super::{AttributeSlot, VisibilityDialect};
 use super::changes::SearchDocumentChange;
-use super::progress::{lock_progress, read_progress_rows, update_progress, validate_position};
+use super::progress::{
+    fence_all_progress, lock_progress, read_progress_rows, reset_progress, update_progress,
+    validate_position,
+};
 use super::skipped_document::{SkippedSearchDocument, record_skipped_documents};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
@@ -41,8 +44,9 @@ pub struct ProjectionProgress {
     pub applied_position: Option<LogPosition>,
     /// Node epoch of the last writer; a lower epoch can no longer write the partition.
     pub applied_epoch: Option<u64>,
-    /// Every SearchOutbox entry at or below this sequence is projected; zero when none is.
-    pub outbox_through_seq: u64,
+    /// Every SearchOutbox entry at or below this seq is projected; `None` before a load finishes
+    /// or in a schema written before the SearchOutbox existed.
+    pub outbox_through_seq: Option<u64>,
 }
 
 /// One partition's share of an outbox batch, written in one SQL transaction with the others.
@@ -54,7 +58,7 @@ pub struct PartitionProjectionBatch {
     pub is_initial_load: bool,
     /// Changes in outbox order; later changes of a run win.
     pub changes: Vec<SearchDocumentChange>,
-    /// Raises the partition's outbox progress to this sequence; never lowers it.
+    /// Raises the partition's outbox progress to this seq; never lowers it, and zero changes nothing.
     pub outbox_through_seq: u64,
     /// Set by the batch that finishes a committed view; it records that view's applied position.
     pub applied_position: Option<LogPosition>,
@@ -236,6 +240,42 @@ impl SqlVisibilityProjector {
         }
     }
 
+    /// Fences every partition with `epoch` before this node projects, so older writers fail.
+    ///
+    /// Returns every partition's progress as it was before the fence, or
+    /// [`ProjectionError::Fenced`] when a newer epoch already wrote a partition.
+    pub async fn fence_all_progress(
+        &self,
+        epoch: u64,
+        partition_count: u32,
+    ) -> Result<BTreeMap<PartitionId, ProjectionProgress>, ProjectionError> {
+        let mut has_retried = false;
+        loop {
+            let mut slot = self.backend.lock_next_slot().await;
+            if slot.is_disconnected() {
+                slot.reconnect(self.backend.configuration()).await?;
+            }
+            let result = tokio::time::timeout(
+                DATABASE_OPERATION_TIMEOUT,
+                fence_transaction(&mut slot.client, epoch, partition_count),
+            )
+            .await;
+            let result = match result {
+                Ok(result) => result,
+                Err(_) => {
+                    slot.invalidate();
+                    Err(operation_timeout("fence progress in"))
+                }
+            };
+            if should_retry(&result, has_retried) {
+                has_retried = true;
+                slot.reconnect(self.backend.configuration()).await?;
+                continue;
+            }
+            return result.map_err(|error| error.redact_credentials(self.backend.configuration()));
+        }
+    }
+
     /// Returns one partition's recorded progress, or `None` when SQL visibility has no row for it.
     pub async fn read_progress(
         &self,
@@ -362,6 +402,7 @@ async fn outbox_transaction(
         .collect();
     if !initial_load_partitions.is_empty() {
         delete_partition_rows(&transaction, &initial_load_partitions).await?;
+        reset_progress(&transaction, &initial_load_partitions).await?;
     }
     let changes: Vec<(PartitionId, &SearchDocumentChange)> = batches
         .iter()
@@ -389,7 +430,24 @@ async fn outbox_transaction(
     Ok(skipped_documents)
 }
 
-/// Removes rows left by an unfinished initial load; a partition without progress owns none.
+async fn fence_transaction(
+    client: &mut tokio_postgres::Client,
+    epoch: u64,
+    partition_count: u32,
+) -> Result<BTreeMap<PartitionId, ProjectionProgress>, ProjectionError> {
+    let transaction = client
+        .transaction()
+        .await
+        .map_err(|source| database_error("begin fence of", source))?;
+    let progress = fence_all_progress(&transaction, epoch, partition_count).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|source| database_error("commit fence of", source))?;
+    Ok(progress)
+}
+
+/// Removes the partition's rows before an initial load; rows of an earlier projection may be stale.
 async fn delete_partition_rows(
     transaction: &Transaction<'_>,
     partitions: &[i32],

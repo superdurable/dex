@@ -33,7 +33,7 @@ use crate::config::{ConfigError, SearchBackend as SearchBackendKind, SearchConfi
 pub(crate) use outbox_watermarks::SearchOutboxWatermarks;
 pub(crate) use projection_mode::SearchProjectionModeRebuilder;
 
-use outbox_consumer::{SearchOutboxConfig, SearchOutboxConsumer, SearchOutboxDependencies};
+use outbox_consumer::{SearchOutboxConsumer, SearchOutboxDependencies};
 
 /// Startup waits for another node's schema migration, which holds its lock for at most 5 s.
 const CONNECT_ATTEMPTS: u32 = 3;
@@ -42,9 +42,9 @@ const DEFAULT_SCHEMA: &str = "public";
 
 /// The SQL visibility SearchFlows backend and the SearchOutbox watermarks of its read-your-writes waits.
 pub(crate) struct SqlVisibilitySearch {
+    cfg: Arc<SearchConfig>,
     backend: Arc<SqlVisibilitySearchBackend>,
     watermarks: Arc<SearchOutboxWatermarks>,
-    outbox_config: SearchOutboxConfig,
 }
 
 impl SqlVisibilitySearch {
@@ -89,15 +89,6 @@ impl SqlVisibilitySearch {
                 "search.paradeDbConnectionPoolSize"
             },
         })?;
-        let outbox_config = SearchOutboxConfig {
-            batch_size: usize::try_from(search.outbox_batch_size).map_err(|_| {
-                ServerError::ConfigValueOutOfRange {
-                    field: "search.outboxBatchSize",
-                }
-            })?,
-            poll_interval: search.outbox_poll_interval,
-            ack_interval: search.outbox_ack_interval,
-        };
         let watermarks = Arc::new(SearchOutboxWatermarks::new(
             partition_count,
             metrics.search_outbox_backlog.clone(),
@@ -129,9 +120,9 @@ impl SqlVisibilitySearch {
             "connected to SQL visibility database and ensured its search schema"
         );
         Ok(Self {
+            cfg: Arc::new(search.clone()),
             backend: Arc::new(backend),
             watermarks,
-            outbox_config,
         })
     }
 
@@ -156,7 +147,7 @@ impl SqlVisibilitySearch {
         );
         let backfill = refresh_attribute_slots(projector.clone());
         let consumer = SearchOutboxConsumer::new(
-            &self.outbox_config,
+            self.cfg,
             SearchOutboxDependencies {
                 projector,
                 committer: start.committer,

@@ -640,6 +640,9 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("search.outboxAckInterval", |config| {
             config.search.outbox_ack_interval = Duration::ZERO
         }),
+        ("search.outboxMaxAckEntries", |config| {
+            config.search.outbox_max_ack_entries = config.search.outbox_batch_size - 1
+        }),
         ("limits.maxFlowStateBytes", |config| {
             config.limits.max_flow_state_bytes = 1
         }),

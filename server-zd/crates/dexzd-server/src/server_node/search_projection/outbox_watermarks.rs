@@ -26,6 +26,8 @@ pub(crate) struct SearchOutboxWatermarks {
     backlog: SearchOutboxBacklog,
     /// Bumped whenever a projected seq rises, so waiters recheck.
     projected_version: watch::Sender<u64>,
+    /// Set once the lease holder raised `appended` to cover entries already in its local store.
+    is_seeded: watch::Sender<bool>,
     consumer_wake: Notify,
     failure: watch::Sender<Option<SearchProjectionFailure>>,
 }
@@ -47,6 +49,7 @@ impl SearchOutboxWatermarks {
             projected: (0..partition_count).map(|_| AtomicU64::new(0)).collect(),
             backlog,
             projected_version: watch::Sender::new(0),
+            is_seeded: watch::Sender::new(false),
             consumer_wake: Notify::new(),
             failure: watch::Sender::new(None),
         }
@@ -84,6 +87,34 @@ impl SearchOutboxWatermarks {
                 .set_oldest_unprojected(index, i64::try_from(appended_seq).ok());
         }
         self.consumer_wake.notify_one();
+    }
+
+    /// Raises a partition's appended seq to cover entries that predate this process or a load.
+    ///
+    /// `oldest_entry_seq` is the partition's oldest queued entry, for the lag metric.
+    pub(crate) fn seed_appended(
+        &self,
+        partition: usize,
+        appended_seq: u64,
+        oldest_entry_seq: Option<u64>,
+    ) {
+        let (Some(appended), Some(projected)) =
+            (self.appended.get(partition), self.projected.get(partition))
+        else {
+            return;
+        };
+        appended.fetch_max(appended_seq, Ordering::SeqCst);
+        if appended_seq > projected.load(Ordering::SeqCst) {
+            self.backlog.set_oldest_unprojected(
+                partition,
+                oldest_entry_seq.and_then(|seq| i64::try_from(seq).ok()),
+            );
+        }
+    }
+
+    /// Lets read-your-writes waits compare seqs once every partition was seeded.
+    pub(crate) fn finish_seeding(&self) {
+        self.is_seeded.send_replace(true);
     }
 
     /// Returns whether a partition has appended entries that SQL visibility does not cover yet.
@@ -153,6 +184,21 @@ impl ProjectionVisibilityWait for SearchOutboxWatermarks {
         }
         let mut projected_version = self.projected_version.subscribe();
         let mut failure = self.failure.subscribe();
+        let mut is_seeded = self.is_seeded.subscribe();
+        if !*is_seeded.borrow_and_update() {
+            self.consumer_wake.notify_one();
+            tokio::select! {
+                seeded = is_seeded.wait_for(|is_seeded| *is_seeded) => {
+                    seeded.map_err(|_| SearchError::Unavailable("the search projection stopped".to_owned()))?;
+                }
+                failed = failure.wait_for(Option::is_some) => {
+                    failed.map_err(|_| SearchError::Unavailable("the search projection stopped".to_owned()))?;
+                }
+            }
+            if let Some(error) = self.failure_error() {
+                return Err(error);
+            }
+        }
         let mut required = self.unprojected_partitions();
         if required.is_empty() {
             return Ok(());
@@ -240,6 +286,7 @@ mod tests {
             4,
             dexzd_metrics::NodeMetrics::unregistered().search_outbox_backlog,
         ));
+        watermarks.finish_seeding();
         assert!(wait(&watermarks).await.is_ok(), "nothing appended");
         watermarks.record_committed(&committed_append(PartitionId(1), &[10, 12]));
         watermarks.record_committed(&committed_append(PartitionId(3), &[7]));
@@ -266,6 +313,34 @@ mod tests {
             !watermarks.has_unprojected_entries(1),
             "progress never decreases"
         );
+    }
+
+    /// Entries recovered from the local store or covered by a load predate every commit this process saw.
+    #[tokio::test(start_paused = true)]
+    async fn a_search_waits_for_seeding_and_then_for_seeded_partitions() {
+        let watermarks = Arc::new(SearchOutboxWatermarks::new(
+            2,
+            dexzd_metrics::NodeMetrics::unregistered().search_outbox_backlog,
+        ));
+        let waiting = tokio::spawn({
+            let watermarks = watermarks.clone();
+            async move { wait(&watermarks).await }
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(!waiting.is_finished(), "nothing is visible before seeding");
+        watermarks.seed_appended(1, 500, Some(450));
+        watermarks.finish_seeding();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(
+            !waiting.is_finished(),
+            "the recovered entries are not projected"
+        );
+        assert!(watermarks.has_unprojected_entries(1));
+        watermarks.publish_projected(1, 499);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(!waiting.is_finished());
+        watermarks.publish_projected(1, 500);
+        assert!(waiting.await.expect("the waiter finishes").is_ok());
     }
 
     #[tokio::test]

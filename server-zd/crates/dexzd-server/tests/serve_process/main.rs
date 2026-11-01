@@ -634,7 +634,7 @@ async fn run_search_projects_commits_and_loads_a_cleared_schema_for_test(
     let first_log = first.log();
     assert_eq!(first_status.code(), Some(0), "{first_log}");
     assert!(
-        first_log.contains("loading the partition into an empty SQL visibility projection"),
+        first_log.contains("loading the partition into the SQL visibility projection"),
         "{first_log}"
     );
 

@@ -226,7 +226,7 @@ fn progress(
     Some(ProjectionProgress {
         applied_position,
         applied_epoch: Some(applied_epoch),
-        outbox_through_seq,
+        outbox_through_seq: Some(outbox_through_seq),
     })
 }
 
@@ -597,6 +597,34 @@ pub(crate) async fn run_projector_scenarios_for_test(
         );
         let epoch = EPOCH + 1;
 
+        // A new lease holder fences every partition at start, including partitions without rows.
+        let fenced_progress = projector
+            .fence_all_progress(epoch + 1, 6)
+            .await
+            .expect("fence every partition");
+        assert_eq!(fenced_progress.len(), 6);
+        assert_eq!(
+            fenced_progress.get(&partition_id),
+            progress(Some(position(10)), epoch, 101).as_ref()
+        );
+        assert_eq!(
+            fenced_progress
+                .get(&PartitionId(3))
+                .map(|recorded| recorded.applied_position.clone()),
+            Some(None)
+        );
+        assert!(matches!(
+            projector
+                .apply_outbox_batch(epoch, &[batch(PartitionId(3), Vec::new(), 1, None)])
+                .await,
+            Err(ProjectionError::Fenced { .. })
+        ));
+        assert!(matches!(
+            projector.fence_all_progress(epoch, 6).await,
+            Err(ProjectionError::Fenced { .. })
+        ));
+        let epoch = epoch + 1;
+
         projector
             .apply_outbox_batch(
                 epoch,
@@ -741,6 +769,28 @@ pub(crate) async fn run_projector_scenarios_for_test(
         }
         assert_eq!(load_changes.len(), 2, "the purging run is not loaded");
         assert_send(projector.apply_outbox_batch(epoch, &[]));
+        projector
+            .apply_outbox_batch(
+                epoch,
+                &[PartitionProjectionBatch {
+                    partition_id,
+                    is_initial_load: true,
+                    changes: Vec::new(),
+                    outbox_through_seq: 0,
+                    applied_position: None,
+                }],
+            )
+            .await
+            .expect("start a load");
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            Some(ProjectionProgress {
+                applied_position: None,
+                applied_epoch: Some(epoch),
+                outbox_through_seq: None,
+            }),
+            "a started load forgets the earlier progress until its last batch"
+        );
         projector
             .apply_outbox_batch(
                 epoch,
@@ -953,7 +1003,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
                     .read_progress(partition_id)
                     .await
                     .unwrap()
-                    .map(|progress| progress.outbox_through_seq),
+                    .and_then(|progress| progress.outbox_through_seq),
                 Some(244)
             );
         }
@@ -1043,7 +1093,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
             "{upgraded_progress:?}"
         );
         assert_eq!(upgraded_progress.applied_epoch, None);
-        assert_eq!(upgraded_progress.outbox_through_seq, 0);
+        assert_eq!(upgraded_progress.outbox_through_seq, None);
         assert_eq!(listed_runs(&version_two_backend, tenant_id).await.len(), 2);
         drop(version_two_projector);
         drop(version_two_backend);

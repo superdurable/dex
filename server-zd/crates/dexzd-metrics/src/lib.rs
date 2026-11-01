@@ -143,6 +143,10 @@ pub struct NodeMetrics {
     pub search_initial_load_pending_partitions: Gauge,
     /// Documents written by initial loads.
     pub search_initial_load_documents: Counter,
+    /// Initial loads started, including loads that replace progress a schema cannot continue from.
+    pub search_initial_loads: Counter,
+    /// Stopped partitions that kept their previous search projection mode at startup.
+    pub search_projection_mode_skipped_partitions: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -437,6 +441,16 @@ impl NodeMetrics {
             "Documents written by initial SQL visibility loads.",
             metrics.search_initial_load_documents.clone(),
         );
+        registry.register(
+            "dexzd_search_initial_loads",
+            "Initial SQL visibility loads started, including reloads of unusable progress.",
+            metrics.search_initial_loads.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_mode_skipped_partitions",
+            "Stopped partitions that kept their previous search projection mode at startup.",
+            metrics.search_projection_mode_skipped_partitions.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -495,6 +509,8 @@ impl NodeMetrics {
             search_outbox_ack_proposals: OutcomeCounters::default(),
             search_initial_load_pending_partitions: Gauge::default(),
             search_initial_load_documents: Counter::default(),
+            search_initial_loads: Counter::default(),
+            search_projection_mode_skipped_partitions: Counter::default(),
         }
     }
 

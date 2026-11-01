@@ -202,6 +202,9 @@ pub struct SearchConfig {
     /// ack per partition per interval. Must be positive.
     #[serde(with = "humantime_serde")]
     pub outbox_ack_interval: Duration,
+    /// Defaults to 10000; most SearchOutbox entries that one ack deletes. A larger projected range
+    /// is acked in several commands. Must be at least `outboxBatchSize`.
+    pub outbox_max_ack_entries: u32,
 }
 
 fn serialize_parade_db_connection_string<S>(
@@ -243,6 +246,7 @@ impl fmt::Debug for SearchConfig {
             .field("outbox_batch_size", &self.outbox_batch_size)
             .field("outbox_poll_interval", &self.outbox_poll_interval)
             .field("outbox_ack_interval", &self.outbox_ack_interval)
+            .field("outbox_max_ack_entries", &self.outbox_max_ack_entries)
             .finish()
     }
 }
@@ -262,6 +266,7 @@ impl Default for SearchConfig {
             outbox_batch_size: 1_000,
             outbox_poll_interval: Duration::from_millis(100),
             outbox_ack_interval: Duration::from_secs(1),
+            outbox_max_ack_entries: 10_000,
         }
     }
 }

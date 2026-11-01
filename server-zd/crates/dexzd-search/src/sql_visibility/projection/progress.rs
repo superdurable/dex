@@ -31,19 +31,21 @@ pub(super) async fn read_progress_rows(
         )
         .await
         .map_err(|source| database_error("read progress from", source))?;
-    rows.iter()
-        .map(|row| {
-            let partition_number: i32 = row
-                .try_get(0)
-                .map_err(|source| database_error("decode progress partition from", source))?;
-            let partition_id = u16::try_from(partition_number).map_err(|_| {
-                ProjectionError::InvalidState(format!(
-                    "SQL visibility progress has invalid partition {partition_number}"
-                ))
-            })?;
-            Ok((PartitionId(partition_id), progress_from_row(row)?))
-        })
-        .collect()
+    rows.iter().map(partition_progress_from_row).collect()
+}
+
+fn partition_progress_from_row(
+    row: &tokio_postgres::Row,
+) -> Result<(PartitionId, ProjectionProgress), ProjectionError> {
+    let partition_number: i32 = row
+        .try_get(0)
+        .map_err(|source| database_error("decode progress partition from", source))?;
+    let partition_id = u16::try_from(partition_number).map_err(|_| {
+        ProjectionError::InvalidState(format!(
+            "SQL visibility progress has invalid partition {partition_number}"
+        ))
+    })?;
+    Ok((PartitionId(partition_id), progress_from_row(row)?))
 }
 
 /// Creates missing progress rows, locks every row in partition order, and checks the epoch fence.
@@ -100,6 +102,73 @@ pub(super) async fn lock_progress(
     Ok(())
 }
 
+/// Creates a progress row for every partition, then fences every row with `epoch`.
+///
+/// Returns every partition's progress before the fence, or [`ProjectionError::Fenced`] when a
+/// row records a newer epoch.
+pub(super) async fn fence_all_progress(
+    transaction: &Transaction<'_>,
+    epoch: u64,
+    partition_count: u32,
+) -> Result<BTreeMap<PartitionId, ProjectionProgress>, ProjectionError> {
+    let partition_count = i32::try_from(partition_count).map_err(|_| {
+        ProjectionError::InvalidState(format!("partition count {partition_count} exceeds integer"))
+    })?;
+    let epoch = to_bigint(epoch, "node epoch")?;
+    transaction
+        .execute_typed(
+            "INSERT INTO dexzd_visibility_progress (partition_id, applied_position) SELECT partition_id, 0 FROM generate_series(0, $1::integer - 1) AS partition_id ON CONFLICT (partition_id) DO NOTHING",
+            &[(&partition_count as &(dyn ToSql + Sync), Type::INT4)],
+        )
+        .await
+        .map_err(|source| database_error("initialize progress for", source))?;
+    let rows = transaction
+        .query_typed(
+            &format!("SELECT {PROGRESS_COLUMNS} FROM dexzd_visibility_progress ORDER BY partition_id FOR UPDATE"),
+            &[],
+        )
+        .await
+        .map_err(|source| database_error("lock progress for", source))?;
+    let mut progress = BTreeMap::new();
+    for row in &rows {
+        let (partition_id, recorded) = partition_progress_from_row(row)?;
+        if let Some(stored_epoch) = recorded
+            .applied_epoch
+            .filter(|stored| *stored > epoch.unsigned_abs())
+        {
+            return Err(ProjectionError::Fenced {
+                partition_id,
+                stored_epoch,
+                epoch: epoch.unsigned_abs(),
+            });
+        }
+        progress.insert(partition_id, recorded);
+    }
+    transaction
+        .execute_typed(
+            "UPDATE dexzd_visibility_progress SET applied_epoch = $1::bigint",
+            &[(&epoch as &(dyn ToSql + Sync), Type::INT8)],
+        )
+        .await
+        .map_err(|source| database_error("fence progress for", source))?;
+    Ok(progress)
+}
+
+/// Forgets the progress of partitions whose initial load starts, so a partial load never looks complete.
+pub(super) async fn reset_progress(
+    transaction: &Transaction<'_>,
+    partitions: &[i32],
+) -> Result<(), ProjectionError> {
+    transaction
+        .execute_typed(
+            "UPDATE dexzd_visibility_progress SET applied_position = 0, applied_node_id = NULL, applied_incarnation = NULL, applied_seq = NULL, outbox_through_seq = NULL WHERE partition_id = ANY($1::integer[])",
+            &[(&partitions as &(dyn ToSql + Sync), Type::INT4_ARRAY)],
+        )
+        .await
+        .map_err(|source| database_error("reset progress for", source))?;
+    Ok(())
+}
+
 /// Records `epoch` on every batch's row, raises its outbox progress, and sets finished views' positions.
 pub(super) async fn update_progress(
     transaction: &Transaction<'_>,
@@ -126,7 +195,7 @@ pub(super) async fn update_progress(
     }
     transaction
         .execute_typed(
-            "UPDATE dexzd_visibility_progress AS progress SET applied_epoch = $2::bigint, outbox_through_seq = GREATEST(COALESCE(progress.outbox_through_seq, 0), batch.through_seq), applied_node_id = COALESCE(batch.node_id, progress.applied_node_id), applied_incarnation = COALESCE(batch.incarnation, progress.applied_incarnation), applied_seq = COALESCE(batch.seq, progress.applied_seq), applied_position = COALESCE(batch.seq, progress.applied_position) FROM unnest($1::integer[], $3::bigint[], $4::text[], $5::bigint[], $6::bigint[]) AS batch(partition_id, through_seq, node_id, incarnation, seq) WHERE progress.partition_id = batch.partition_id",
+            "UPDATE dexzd_visibility_progress AS progress SET applied_epoch = $2::bigint, outbox_through_seq = GREATEST(progress.outbox_through_seq, NULLIF(batch.through_seq, 0)), applied_node_id = COALESCE(batch.node_id, progress.applied_node_id), applied_incarnation = COALESCE(batch.incarnation, progress.applied_incarnation), applied_seq = COALESCE(batch.seq, progress.applied_seq), applied_position = COALESCE(batch.seq, progress.applied_position) FROM unnest($1::integer[], $3::bigint[], $4::text[], $5::bigint[], $6::bigint[]) AS batch(partition_id, through_seq, node_id, incarnation, seq) WHERE progress.partition_id = batch.partition_id",
             &[
                 (&partitions as &(dyn ToSql + Sync), Type::INT4_ARRAY),
                 (&epoch, Type::INT8),
@@ -199,8 +268,7 @@ fn progress_from_row(row: &tokio_postgres::Row) -> Result<ProjectionProgress, Pr
                     ProjectionError::InvalidState("invalid SQL visibility outbox progress".into())
                 })
             })
-            .transpose()?
-            .unwrap_or(0),
+            .transpose()?,
     })
 }
 

@@ -15,6 +15,7 @@ use dexzd_engine::{
 };
 use dexzd_keyspace::row_keys::search_projection_mode_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, PartitionId, TenantId};
+use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, SearchProjectionModeRecord, SetSearchProjectionModeCommand, command_reply,
     flow_command,
@@ -31,6 +32,7 @@ const MODE_SUBMIT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_m
 pub(crate) struct SearchProjectionModeRebuilder {
     effects: Arc<dyn PartitionEffectRebuilder>,
     committer: CommandCommitter,
+    metrics: Arc<NodeMetrics>,
     partition_hasher: PartitionHasher,
     is_enabled: bool,
     /// Holds the outcome of proposing every partition's mode; each engine start builds a new rebuilder.
@@ -41,12 +43,14 @@ impl SearchProjectionModeRebuilder {
     pub(crate) fn new(
         effects: Arc<dyn PartitionEffectRebuilder>,
         committer: CommandCommitter,
+        metrics: Arc<NodeMetrics>,
         partition_hasher: PartitionHasher,
         is_enabled: bool,
     ) -> Self {
         Self {
             effects,
             committer,
+            metrics,
             partition_hasher,
             is_enabled,
             proposed: OnceCell::new(),
@@ -120,6 +124,8 @@ impl SearchProjectionModeRebuilder {
 impl SearchProjectionModeRebuilder {
     /// Submits one mode command, retrying while the commit backlog is full.
     ///
+    /// A partition can halt after the check; its submissions then fail until the retries run out.
+    ///
     /// Returns `None` for a stopped partition, which applies no command and keeps its mode.
     async fn submit_mode(
         &self,
@@ -129,21 +135,20 @@ impl SearchProjectionModeRebuilder {
     ) -> Result<Option<CommitTicket>, String> {
         let mut attempt = 1;
         loop {
+            if self.committer.is_partition_halted(partition) {
+                tracing::error!(
+                    partition = partition.0,
+                    is_enabled = self.is_enabled,
+                    "a stopped partition keeps its previous search projection mode"
+                );
+                self.metrics.search_projection_mode_skipped_partitions.inc();
+                return Ok(None);
+            }
             match self
                 .committer
                 .submit(context, command.clone(), CommitUrgency::Prompt)
             {
                 Ok((_, ticket)) => return Ok(Some(ticket)),
-                Err(CommitError::Unavailable { detail })
-                    if detail.ends_with("stopped applying commands") =>
-                {
-                    tracing::warn!(
-                        partition = partition.0,
-                        %detail,
-                        "a stopped partition keeps its previous search projection mode"
-                    );
-                    return Ok(None);
-                }
                 Err(CommitError::Unavailable { detail }) if attempt < MODE_SUBMIT_ATTEMPTS => {
                     tracing::debug!(partition = partition.0, %detail, "retrying a search projection mode");
                     attempt += 1;
