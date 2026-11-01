@@ -674,11 +674,22 @@ Without a takeover, the stepped-down process takes the lease back.
 
 Every step down request carries a precondition: the node ID and node epoch of
 the process to step down. A process that does not match answers
-FailedPrecondition and changes nothing. Without `--expected-node-id` and
-`--expected-node-epoch`, the command first calls `DescribeActiveNode` and expects
-the node ID and node epoch it returns. If that describe fails, nothing is
-stepped down, and the error output carries `stepDownOutcome: notAttempted`. Set
-both flags or neither.
+FailedPrecondition and changes nothing. The flags combine as follows:
+
+- Neither flag: the command first calls `DescribeActiveNode` and expects the
+  node ID and node epoch it returns.
+- `--expected-node-id` alone: the command describes first, refuses without
+  stepping anything down if the server reports another node ID, and otherwise
+  expects that node ID and the described node epoch. This guards a first run
+  against a wrong `--server`.
+- Both flags: the command sends them as they are, without describing.
+- `--expected-node-epoch` alone is a usage error.
+
+If the first describe fails, nothing is stepped down, and the error output
+carries `stepDownOutcome: notAttempted`. A step down in progress may be one that
+you or someone else already started. Wait past the hold-off, run
+`dexcli admin describe`, and step down again only if the switchover you wanted
+has not happened.
 
 The command prints:
 
@@ -701,7 +712,9 @@ only with those same values, never with values that `dexcli admin describe`
 prints after the failure: they identify whichever process is active by then. If
 describe now shows another node epoch or holder process ID, the step down
 already happened, so do not retry. A retry with the original values would then
-fail with FailedPrecondition and change nothing. On a single replica, a step down
+fail with FailedPrecondition and change nothing. Do not run the command again
+without these flags; it would describe and step down whichever process is active
+now. On a single replica, a step down
 stops serving for about one hold-off, and then the same process takes the lease
 back with a new node epoch.
 

@@ -364,6 +364,37 @@ func TestAdminStepDownReportsRefusalsAsOperationErrors(t *testing.T) {
 	require.Equal(t, "Unimplemented", written["grpcCodeName"])
 }
 
+func TestAdminStepDownWithOnlyANodeIDFillsTheEpochFromDescribe(t *testing.T) {
+	service := &adminTestService{response: takeoverResponse()}
+	address := startAdminTestService(t, service)
+
+	output, err := executeAdminCommand("admin", "step-down", "--yes", "--expected-node-id", "node-a", "--server", address)
+
+	require.NoError(t, err)
+	require.Contains(t, output, `"expectedNodeEpoch":"7"`)
+	require.Equal(t, 1, service.recordedDescribeCount())
+	expectedNodeIDs, expectedNodeEpochs := service.recordedPreconditions()
+	require.Len(t, expectedNodeIDs, 1)
+	require.Equal(t, "node-a", *expectedNodeIDs[0])
+	require.Equal(t, uint64(7), *expectedNodeEpochs[0])
+}
+
+func TestAdminStepDownRefusesWhenServerReachesAnotherNodeID(t *testing.T) {
+	service := &adminTestService{response: takeoverResponse()}
+	address := startAdminTestService(t, service)
+
+	_, err := executeAdminCommand("admin", "step-down", "--yes", "--expected-node-id", "node-b", "--server", address)
+
+	require.Error(t, err)
+	require.Equal(t, 1, ExitCode(err))
+	written := writtenError(t, err)
+	require.Contains(t, written["message"], `serves node ID "node-a", not the expected node ID "node-b"`)
+	require.Equal(t, "notAttempted", written["stepDownOutcome"])
+	require.Contains(t, written["hint"], "This command stepped nothing down")
+	require.Equal(t, 1, service.recordedDescribeCount())
+	require.Zero(t, service.recordedCallCount())
+}
+
 func TestAdminStepDownSendsNothingWhenTheFirstDescribeFails(t *testing.T) {
 	service := &adminTestService{
 		describeFailure: status.Error(codes.FailedPrecondition, "this server process is not the active process of its node ID"),
@@ -378,7 +409,9 @@ func TestAdminStepDownSendsNothingWhenTheFirstDescribeFails(t *testing.T) {
 	written := writtenError(t, err)
 	require.Equal(t, "FailedPrecondition", written["grpcCodeName"])
 	require.Equal(t, "notAttempted", written["stepDownOutcome"])
-	require.Contains(t, written["hint"], "Nothing was stepped down")
+	require.Equal(t, "This command stepped nothing down. A step down in progress may be one that you "+
+		"or someone else already started. Wait past the hold-off and run dexcli admin describe, and step "+
+		"down again only if the switchover you wanted has not happened.", written["hint"])
 	require.Equal(t, 1, service.recordedDescribeCount())
 	require.Zero(t, service.recordedCallCount())
 }
@@ -399,6 +432,8 @@ func TestAdminStepDownReportsTheOriginalPreconditionWhenTheOutcomeIsUnknown(t *t
 	require.Contains(t, written["hint"], `--expected-node-id "node-a" --expected-node-epoch 7`)
 	require.Contains(t, written["hint"], "never with values read after this failure")
 	require.Contains(t, written["hint"], "do not retry")
+	require.Contains(t, written["hint"], "Do not run the command again without these flags; it would "+
+		"describe and step down whichever process is active now.")
 	require.Equal(t, 1, service.recordedCallCount())
 }
 
@@ -412,7 +447,6 @@ func TestAdminCommandRejectsInvalidUsage(t *testing.T) {
 		{"admin", "step-down", "--yes", "--expected-node-id", "node-a", "--expected-node-epoch", "latest"},
 		{"admin", "step-down", "--yes", "--expected-node-id", "", "--expected-node-epoch", "7"},
 		{"admin", "step-down", "--yes", "--expected-node-epoch", "7"},
-		{"admin", "step-down", "--yes", "--expected-node-id", "node-a"},
 		{"admin", "describe", "unexpected"},
 	} {
 		_, err := executeAdminCommand(arguments...)

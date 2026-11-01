@@ -27,15 +27,19 @@ const (
 	adminUsage         = "Usage: dexcli admin <describe|step-down> [flags]"
 	adminDescribeUsage = "Usage: dexcli admin describe [global flags]"
 	adminStepDownUsage = "Usage: dexcli admin step-down --yes " +
-		"[--expected-node-id id --expected-node-epoch epoch] [global flags]"
+		"[--expected-node-id id [--expected-node-epoch epoch]] [global flags]"
 	adminServiceName       = "AdminService"
 	unknownStepDownOutcome = "unknown"
 	// notAttemptedStepDownOutcome marks a failed describe before any step down request was sent.
 	notAttemptedStepDownOutcome = "notAttempted"
 	// adminStepDownDefaultTimeout exceeds the commit drain bound, hold-off, and lease attempt with a wide margin.
 	adminStepDownDefaultTimeout = 2 * time.Minute
-	notAttemptedStepDownHint    = "Nothing was stepped down. If a step down or its hold-off is in progress, " +
-		"or no server process is reachable, wait past the hold-off and run the command again."
+	notAttemptedStepDownHint    = "This command stepped nothing down. A step down in progress may be one " +
+		"that you or someone else already started. Wait past the hold-off and run dexcli admin describe, " +
+		"and step down again only if the switchover you wanted has not happened."
+	// blindRetryWarning keeps an operator from rerunning the flagless form, which targets the current active.
+	blindRetryWarning = "Do not run the command again without these flags; it would describe and step " +
+		"down whichever process is active now."
 )
 
 func (a *App) executeAdmin(ctx context.Context, args []string, options options) error {
@@ -82,8 +86,8 @@ func (a *App) executeAdminDescribe(ctx context.Context, args []string, options o
 
 // executeAdminStepDown makes the active server process behind --server give up its node lease.
 //
-// Every request carries a node ID and node epoch precondition. Without explicit flags, it comes
-// from DescribeActiveNode on the same connection.
+// Every request carries a node ID and node epoch precondition. Values missing from the flags come
+// from DescribeActiveNode on the same connection, which must report any expected node ID.
 func (a *App) executeAdminStepDown(ctx context.Context, args []string, options options) error {
 	if !options.isTimeoutSet {
 		options.timeout = adminStepDownDefaultTimeout
@@ -92,18 +96,18 @@ func (a *App) executeAdminStepDown(ctx context.Context, args []string, options o
 	isConfirmed := flags.Bool("yes", false, "confirm that the active server process stops serving")
 	expectedNodeID := &nodeIDFlag{}
 	flags.Var(expectedNodeID, "expected-node-id",
-		"step down only if the active process serves this node `ID`; set it with --expected-node-epoch")
+		"step down only if the active process serves this node `ID`; without --expected-node-epoch, "+
+			"the command describes the active process first and refuses if it serves another node ID")
 	expectedNodeEpoch := &nodeEpochFlag{}
 	flags.Var(expectedNodeEpoch, "expected-node-epoch",
-		"step down only if the active process holds this node `epoch`; without both expectations, "+
-			"the command describes the active process first and expects its node ID and epoch")
+		"step down only if the active process holds this node `epoch`; requires --expected-node-id. "+
+			"Without either flag, the command describes the active process first and expects its node ID and epoch")
 	addCommonFlags(flags, &options)
 	if isHelp, err := a.parseAdminFlags(flags, args, adminStepDownUsage, options); isHelp || err != nil {
 		return err
 	}
-	if expectedNodeID.isSet != expectedNodeEpoch.isSet {
-		return newUsageError("admin step-down",
-			errors.New("set --expected-node-id and --expected-node-epoch together, or neither"))
+	if expectedNodeEpoch.isSet && !expectedNodeID.isSet {
+		return newUsageError("admin step-down", errors.New("--expected-node-epoch requires --expected-node-id"))
 	}
 	if !*isConfirmed {
 		return newConfirmationError("admin step-down")
@@ -114,12 +118,15 @@ func (a *App) executeAdminStepDown(ctx context.Context, args []string, options o
 			ExpectedNodeId:    expectedNodeID.optionalValue(),
 			ExpectedNodeEpoch: expectedNodeEpoch.optionalValue(),
 		}
-		if !expectedNodeID.isSet {
+		if !expectedNodeEpoch.isSet {
 			description, err := client.DescribeActiveNode(callCtx, &dexpb.DescribeActiveNodeRequest{})
 			if err != nil {
 				return newNotAttemptedStepDownError(err)
 			}
 			nodeID, nodeEpoch := description.GetNodeId(), description.GetNodeEpoch()
+			if expectedNodeID.isSet && nodeID != expectedNodeID.value {
+				return newWrongNodeStepDownError(expectedNodeID.value, nodeID)
+			}
 			request.ExpectedNodeId, request.ExpectedNodeEpoch = &nodeID, &nodeEpoch
 		}
 		response, err := client.StepDownActiveNode(callCtx, request)
@@ -173,6 +180,20 @@ func newNotAttemptedStepDownError(cause error) error {
 	}
 }
 
+// newWrongNodeStepDownError refuses a step down because --server reaches another node ID.
+func newWrongNodeStepDownError(expectedNodeID string, describedNodeID string) error {
+	return &Error{
+		operation: "admin step-down",
+		kind:      "operation",
+		cause: fmt.Errorf("the server process behind --server serves node ID %q, not the expected node ID %q",
+			describedNodeID, expectedNodeID),
+		details: map[string]any{
+			"stepDownOutcome": notAttemptedStepDownOutcome,
+			"hint":            "This command stepped nothing down. Check that --server reaches the node you meant.",
+		},
+	}
+}
+
 // newAdminStepDownError marks client-side deadline, cancellation, and transport failures as an unknown outcome.
 func newAdminStepDownError(cause error, request *dexpb.StepDownActiveNodeRequest) error {
 	commandError := &Error{operation: "admin step-down", kind: "operation", cause: cause}
@@ -187,7 +208,7 @@ func newAdminStepDownError(cause error, request *dexpb.StepDownActiveNodeRequest
 				"--expected-node-id %q --expected-node-epoch %d, the values this call used, never with "+
 				"values read after this failure. If dexcli admin describe now shows another node epoch "+
 				"or holder process ID, the step down already happened, so do not retry; such a retry "+
-				"would fail with FailedPrecondition and change nothing.", nodeID, nodeEpoch),
+				"would fail with FailedPrecondition and change nothing. %s", nodeID, nodeEpoch, blindRetryWarning),
 		}
 	}
 	return commandError
