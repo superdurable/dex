@@ -423,6 +423,7 @@ async fn run_purge_for_test(database_url: &str, is_postgres: bool) {
     .write_with_closed_flow_retention(&config_path, "2s");
     let mut contents =
         fs::read_to_string(&config_path).expect("the serve configuration is readable");
+    contents = contents.replace("search:\n", "search:\n  outboxAckInterval: 100ms\n");
     contents.push_str(&format!("metrics:\n  listen: '{metrics_address}'\n"));
     fs::write(&config_path, contents).expect("the serve configuration is written");
     let mut server = ServeProcess::spawn(&config_path, address, directory.path().join("purge.log"));
@@ -454,22 +455,31 @@ async fn run_purge_for_test(database_url: &str, is_postgres: bool) {
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    let acks_after_purge = metric_value(
-        &scrape_metrics(metrics_address).await,
-        "dexzd_search_outbox_ack_proposals_total{outcome=\"ok\"}",
-    );
+    // RunPurge appends its entry after the run stops being listed; wait until projection and acks settle.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    while metric_value(
-        &scrape_metrics(metrics_address).await,
-        "dexzd_search_outbox_ack_proposals_total{outcome=\"ok\"}",
-    ) <= acks_after_purge
-    {
+    let mut settled_scrapes = 0;
+    let mut previous = (f64::NAN, f64::NAN);
+    while settled_scrapes < 3 {
+        let body = scrape_metrics(metrics_address).await;
+        let current = (
+            metric_value(
+                &body,
+                "dexzd_search_outbox_ack_proposals_total{outcome=\"ok\"}",
+            ),
+            metric_value(&body, "dexzd_search_outbox_projected_entries_total"),
+        );
+        settled_scrapes = if current == previous && current.0 > 0.0 {
+            settled_scrapes + 1
+        } else {
+            0
+        };
+        previous = current;
         assert!(
             tokio::time::Instant::now() < deadline,
-            "no ack followed the purge: {}",
+            "the outbox did not settle after the purge: {}",
             server.log()
         );
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
     let status = server.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", server.log());
