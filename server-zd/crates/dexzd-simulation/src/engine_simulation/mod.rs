@@ -196,6 +196,8 @@ pub struct EngineSimulationSummary {
     pub dispatch_comparisons: u64,
     /// Runs in the final state.
     pub final_runs: usize,
+    /// Starts that discarded the existing store they were given because log cleanup passed it.
+    pub discarded_existing_stores: u64,
     /// Hot standby events, such as `warm-takeover`, `takeover-crash`, `standby-crash`,
     /// `standby-outage`, and the states its periodic checks saw.
     pub hot_standby_events: BTreeMap<String, u64>,
@@ -247,6 +249,7 @@ impl EngineSimulationSummary {
         self.epoch_starts_below_landed_batches += other.epoch_starts_below_landed_batches;
         self.close_barrier.merge(&other.close_barrier);
         merge_counts(&mut self.hot_standby_events, &other.hot_standby_events);
+        self.discarded_existing_stores += other.discarded_existing_stores;
         merge_counts(&mut self.close_hold_dry_runs, &other.close_hold_dry_runs);
         merge_counts(&mut self.start_failures, &other.start_failures);
         self.clock_jumps += other.clock_jumps;

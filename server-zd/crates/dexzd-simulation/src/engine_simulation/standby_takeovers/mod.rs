@@ -42,7 +42,7 @@ const STANDBY_RECOVERY_DEADLINE: Duration = Duration::from_secs(300);
 /// How a takeover from the hot standby ended.
 pub(crate) enum StandbyTakeover {
     /// The process serves.
-    Serving(NodeProcess),
+    Serving(Box<NodeProcess>),
     /// The takeover crashed or failed after the lease; a process restarts on this disk.
     Restart(Arc<EngineLocalStore>),
 }
@@ -269,7 +269,7 @@ impl StandbyTakeovers {
                         .trace
                         .record(&format!("{process_label} serves after a {kind}"));
                     count(events, kind);
-                    return Ok(StandbyTakeover::Serving(process));
+                    return Ok(StandbyTakeover::Serving(Box::new(process)));
                 }
                 Some(Err(FailedTakeover {
                     error,

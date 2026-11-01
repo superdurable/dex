@@ -39,11 +39,12 @@ use crate::engine_simulation::simulated_clock::{
 };
 use crate::engine_simulation::simulated_node::{
     ClusterEnvironment, LEASE_TAKEOVER_GRACE, LocalStoreStart, NodeProcess, PARTITION_COUNT,
-    ProcessStart, RestartKind, copy_local_store, self_stop_kind, start_error_kind,
-    wait_before_next_start,
+    ProcessStart, RestartKind, START_CRASH_PROBABILITY, copy_local_store, self_stop_kind,
+    start_error_kind, wait_before_next_start,
 };
 use crate::engine_simulation::simulated_object_store::{
-    NoInjectedFaults, SharedObjectStorage, StorageObservations, replays_voided_closed_batch,
+    FAULT_PROBABILITIES, NoInjectedFaults, SharedObjectStorage, StorageObservations,
+    check_existing_store_reuse, replays_voided_closed_batch,
 };
 use crate::engine_simulation::simulated_workers::SimulatedWorkers;
 use crate::engine_simulation::standby_takeovers::{StandbyTakeover, StandbyTakeovers};
@@ -67,12 +68,8 @@ const TIMER_FIRING_SLACK: Duration = Duration::from_secs(10);
 /// Closed runs of half the seeds outlive the seed; the rest are purged within it.
 const LONG_RETENTION: Duration = Duration::from_secs(60 * 60);
 const SHORT_RETENTION: Duration = Duration::from_secs(30);
-/// Probability that a process crashes at a random point while it starts.
-const START_CRASH_PROBABILITY: f64 = 0.15;
 /// Longest wait after the calm tail for unfinished work to finish.
 const DRAIN_GRACE: Duration = Duration::from_secs(60);
-/// Object storage fault probabilities a seed draws from; some seeds run without faults.
-const FAULT_PROBABILITIES: [f64; 5] = [0.0, 0.001, 0.005, 0.01, 0.02];
 /// Longest wait of a crash for pipelined log writes or cross-Flow work to crash during.
 const PIPELINED_WRITE_WAIT: Duration = Duration::from_secs(3);
 
@@ -687,7 +684,7 @@ impl Simulation {
             )
             .await?
         {
-            StandbyTakeover::Serving(process) => process,
+            StandbyTakeover::Serving(process) => *process,
             StandbyTakeover::Restart(store) => {
                 let start = LocalStoreStart::Existing(copy_local_store(&store));
                 self.start_until_serving(start, clock_offset, "takeover-restart")
@@ -916,6 +913,11 @@ impl Simulation {
             };
             match started {
                 Ok(process) => {
+                    let storage = &self.environment.storage;
+                    let existing = existing.as_ref();
+                    if check_existing_store_reuse(storage, existing, &process.local_store).await? {
+                        self.summary.discarded_existing_stores += 1;
+                    }
                     if replays_voided_batch {
                         self.summary.closed_stream_replays_over_voided_batches += 1;
                     }

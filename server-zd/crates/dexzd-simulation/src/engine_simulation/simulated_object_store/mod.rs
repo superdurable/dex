@@ -31,7 +31,7 @@ use rand_chacha::ChaCha8Rng;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-pub(crate) use closed_stream_replays::replays_voided_closed_batch;
+pub(crate) use closed_stream_replays::{check_existing_store_reuse, replays_voided_closed_batch};
 pub(crate) use landing_writes::SharedObjectStorage;
 use landing_writes::{CrashLanding, UnlandedLogWrites, WriteLanding, lock_unlanded};
 pub(crate) use storage_observations::StorageObservations;
@@ -627,6 +627,9 @@ impl ObjectStore for NodeObjectStore {
 
 #[cfg(test)]
 mod tests;
+
+/// Object storage fault probabilities a seed draws from; some seeds run without faults.
+pub(crate) const FAULT_PROBABILITIES: [f64; 5] = [0.0, 0.001, 0.005, 0.01, 0.02];
 
 /// The shared store applies every call; faults come from each process's own layer.
 pub(crate) struct NoInjectedFaults;

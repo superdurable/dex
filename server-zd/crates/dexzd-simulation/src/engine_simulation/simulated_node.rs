@@ -56,6 +56,8 @@ pub(crate) const PARTITION_COUNT: u32 = 64;
 const CLUSTER_OBJECT_KEY: &str = "cluster";
 pub(crate) const LEASE_DURATION: Duration = Duration::from_secs(10);
 pub(crate) const LEASE_TAKEOVER_GRACE: Duration = Duration::from_secs(1);
+/// Probability that a process crashes at a random point while it starts.
+pub(crate) const START_CRASH_PROBABILITY: f64 = 0.15;
 
 /// What every node process of one seed shares.
 pub(crate) struct ClusterEnvironment {

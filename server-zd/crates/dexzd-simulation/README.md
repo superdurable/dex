@@ -183,6 +183,10 @@ directory invariants hold on the committed history. The engine simulation adds t
    runnable method call is unfinished, and no outbox row or hard-delete object is left waiting.
    Pending calls blocked by a lock holder whose retry is scheduled in the future may remain pending.
 
+A start given an existing store must serve from it unless log cleanup passed the store's
+applied positions or a partition applied nothing (`store-discarded-without-gap`). The summary
+field `discarded_existing_stores` counts the explained discards.
+
 The log itself is checked too. Copies of one log position must hold the same commands, and a
 partition never applies a new frame below one it already applied. No process applies a frame
 whose batch an EpochStart of a newer epoch at a lower seq of the same stream voided
