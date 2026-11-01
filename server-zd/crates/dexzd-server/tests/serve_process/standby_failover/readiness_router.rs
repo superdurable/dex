@@ -33,8 +33,8 @@ const PROBE_INTERVAL: Duration = Duration::from_millis(25);
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 /// Overlapping SERVING answers this fast count as simultaneous; every handover gap is longer than twice this.
 const SIMULTANEOUS_ANSWER_LIMIT: Duration = Duration::from_millis(5);
-/// Unanswered probes in a row after which relayed connections close, like a client keepalive.
-const UNREACHABLE_PROBES_BEFORE_CUT: u32 = 2;
+/// Unanswered probes in a row, about 2 s, after which relayed connections close like a client keepalive.
+const UNREACHABLE_PROBES_BEFORE_CUT: u32 = 8;
 /// The OpenMetrics sample of the epoch a process holds, zero without the lease.
 const LEASE_EPOCH_SAMPLE_PREFIX: &str = "dexzd_lease_epoch ";
 
@@ -126,7 +126,17 @@ impl RouterState {
     /// Records `observation` and updates the route; returns whether to cut the backend's connections.
     fn record(&self, observation: ReadinessObservation) -> bool {
         let backend = observation.backend;
+        // A probe of an earlier process may finish after a restart; it must not route to the new one.
+        let is_current_process = observation.generation == self.current_generation(backend);
         let mut route_state = self.route.lock().expect("the route lock is not poisoned");
+        if !is_current_process {
+            drop(route_state);
+            self.observations
+                .lock()
+                .expect("the observation lock is not poisoned")
+                .push(observation);
+            return false;
+        }
         let streak = &mut route_state.unreachable_streaks[backend];
         *streak = if observation.readiness == Readiness::Unreachable {
             *streak + 1
@@ -221,6 +231,17 @@ impl ReadinessRouter {
             .lock()
             .expect("the generation lock is not poisoned")[backend]
             .push(Instant::now());
+        // Like a restarted container, a new process takes no connections before it reports SERVING.
+        let mut route_state = self
+            .state
+            .route
+            .lock()
+            .expect("the route lock is not poisoned");
+        route_state.latest[backend] = None;
+        route_state.unreachable_streaks[backend] = 0;
+        if route_state.route == Some(backend) {
+            route_state.route = None;
+        }
     }
 
     /// Returns the backend that new connections go to, which last reported SERVING.

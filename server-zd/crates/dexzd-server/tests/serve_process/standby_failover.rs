@@ -26,18 +26,18 @@ use object_store_endpoints::ObjectStoreFault;
 
 const FIRST: usize = 0;
 const SECOND: usize = 1;
-/// `first` starts active with a short lease; `second` keeps a long lease through host stalls.
+/// `first` starts active with a lease that rides out host stalls; `second` keeps a longer one.
 const SLOTS: [SlotSettings<'static>; 2] = [
     SlotSettings {
         name: "first",
-        lease_duration: "3s",
+        lease_duration: "6s",
     },
     SlotSettings {
         name: "second",
         lease_duration: "15s",
     },
 ];
-const FIRST_LEASE_DURATION: Duration = Duration::from_secs(3);
+const FIRST_LEASE_DURATION: Duration = Duration::from_secs(6);
 const LOAD_SHAPE: LoadShape = LoadShape {
     chain_starters: 4,
     timer_starters: 2,
@@ -282,12 +282,13 @@ impl FailoverScenario {
 
     /// Adds load after the recovery, verifies the ledger, stops the group, and checks the takeover.
     async fn finish(self, test: &str, failed_at: Instant, details: String) {
+        // The directory stays in `self`, so a panic dumps process logs before it is deleted.
         let Self {
             mut group,
             workload,
             worker,
             load,
-            _directory,
+            ..
         } = self;
         group
             .wait_for_progress(&workload, ACKNOWLEDGEMENTS_PER_PHASE)

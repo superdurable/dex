@@ -99,13 +99,16 @@ async fn read_leases(
 ) -> (Vec<LeaseObservation>, ObjectStoreInspector) {
     let mut observations = Vec::new();
     loop {
-        if let Some(lease) = inspector.node_lease_if_present().await {
-            observations.push(LeaseObservation {
+        match inspector.try_node_lease().await {
+            Ok(Some(lease)) => observations.push(LeaseObservation {
                 observed_at_unix_micros: unix_micros_now(),
                 holder_process_id: lease.holder_process_id,
                 epoch: lease.epoch,
                 expires_at_unix_micros: lease.expires_at_unix_micros,
-            });
+            }),
+            Ok(None) => {}
+            // A loaded host can fail one read; the next poll reads the lease again.
+            Err(error) => eprintln!("lease history: a lease read failed: {error}"),
         }
         tokio::select! {
             () = stop.cancelled() => return (observations, inspector),
