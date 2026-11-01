@@ -8,7 +8,10 @@
 
 //! The engine node: startup and recovery, serving, and shutdown.
 
+mod local_store_close_waiter;
 mod node_start;
+
+pub use local_store_close_waiter::LocalStoreCloseWaiter;
 
 use std::future::Future;
 use std::sync::Arc;
@@ -137,6 +140,7 @@ pub struct EngineNode {
     /// Whether the node serves from the store a hot standby handed over.
     #[cfg(feature = "test-util")]
     is_serving_hot_standby_store: bool,
+    local_store_close_waiter: LocalStoreCloseWaiter,
 }
 
 impl EngineNode {
@@ -269,6 +273,12 @@ impl EngineNode {
     #[cfg(feature = "test-util")]
     pub fn is_serving_hot_standby_store_for_test(&self) -> bool {
         self.is_serving_hot_standby_store
+    }
+
+    /// Returns a waiter of the node's local store, which stays valid after a shutdown; see
+    /// [`LocalStoreCloseWaiter`].
+    pub fn local_store_close_waiter(&self) -> LocalStoreCloseWaiter {
+        self.local_store_close_waiter.clone()
     }
 
     /// Returns the node epoch this process raised when it took the lease.

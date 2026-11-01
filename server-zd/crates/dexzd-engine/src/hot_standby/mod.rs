@@ -27,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 use crate::command_applier::CommandApplier;
 use crate::commit::{CommitState, EngineLocalStore, NodeStopReason};
 use crate::engine_id_source::EngineIdSource;
-use crate::engine_node::{EngineNodeConfig, validate_config};
+use crate::engine_node::{EngineNodeConfig, LocalStoreCloseWaiter, validate_config};
 use crate::hot_standby::log_follower::FollowProgress;
 use crate::hot_standby::read_only_object_store::ReadOnlyObjectStore;
 use crate::hot_standby::standby_driver::{
@@ -40,9 +40,6 @@ const SHUTDOWN_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(5);
 
 /// Failed log reads in a row after which [`HotStandbyStatus::read_error`] reports the last one.
 const REPORTED_FAILED_READS: u32 = 3;
-
-/// How often a wait for a closed store checks it again.
-const STORE_CLOSE_POLL: Duration = Duration::from_millis(10);
 
 /// Pacing of a hot standby's log following.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,7 +186,7 @@ pub struct HotStandby {
 #[derive(Default)]
 struct FollowingHandles {
     write_fence: Mutex<Option<Arc<CommitState>>>,
-    store: Mutex<Option<Weak<EngineLocalStore>>>,
+    store: Arc<Mutex<Option<Weak<EngineLocalStore>>>>,
     /// The cluster the standby read at its last bootstrap.
     cluster_id: Mutex<Option<[u8; 16]>>,
     /// The newest write fence, kept after following stops so a test can read its refusals.
@@ -308,6 +305,12 @@ impl HotStandby {
             .and_then(Weak::upgrade)
     }
 
+    /// Returns a waiter of the standby's local store, which stays valid after a takeover or a
+    /// shutdown; see [`LocalStoreCloseWaiter`].
+    pub fn local_store_close_waiter(&self) -> LocalStoreCloseWaiter {
+        LocalStoreCloseWaiter::new(Arc::clone(&self.following.store))
+    }
+
     /// Returns a handle that observes and fails the standby, which works after a takeover owns
     /// it.
     #[cfg(feature = "test-util")]
@@ -384,27 +387,18 @@ impl HotStandby {
     ///
     /// Returns whether the store closed; `true` when the standby never opened one.
     pub(crate) async fn wait_until_store_closed(&self, deadline: tokio::time::Instant) -> bool {
-        let Some(store) = self
-            .following
-            .store
-            .lock()
-            .expect("store handle lock is not poisoned")
-            .clone()
-        else {
-            return true;
-        };
         #[cfg(feature = "test-util")]
         self.following
             .is_waiting_for_store_close
-            .store(store.strong_count() > 0, Ordering::SeqCst);
-        while store.strong_count() > 0 && tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(STORE_CLOSE_POLL).await;
-        }
+            .store(true, Ordering::SeqCst);
+        let is_closed = self
+            .local_store_close_waiter()
+            .wait_until_closed_by(deadline)
+            .await;
         #[cfg(feature = "test-util")]
         self.following
             .is_waiting_for_store_close
             .store(false, Ordering::SeqCst);
-        let is_closed = store.strong_count() == 0;
         if !is_closed {
             tracing::error!("a task still holds the hot standby's local store open");
         }

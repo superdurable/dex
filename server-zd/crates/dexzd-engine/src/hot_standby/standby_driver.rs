@@ -137,7 +137,6 @@ impl StandbyDriver {
             restarts: 0,
         };
         let mut furthest: Option<FollowPosition> = None;
-        let mut has_followed = false;
         loop {
             self.status.set(StandbyPhase::Bootstrapping);
             let bootstrapped = tokio::select! {
@@ -155,20 +154,20 @@ impl StandbyDriver {
                     }
                     continue;
                 }
-                Err(error) if is_bootstrap_configuration_error(&error, has_followed) => {
+                Err(error) if is_configuration_error(&error) => {
                     self.fail(error);
                     return None;
                 }
                 Err(error) => {
                     tracing::warn!(%error, "the hot standby could not bootstrap; retrying");
-                    self.status.set_last_error(Some(error.to_string()));
+                    self.status
+                        .set_last_error(Some(describe_bootstrap_error(&error)));
                     if !self.wait_to_restart(&mut delays).await {
                         return None;
                     }
                     continue;
                 }
             };
-            has_followed = true;
             let period = self.follow(following, furthest).await;
             if period.is_progressing {
                 delays.restarts = 0;
@@ -590,13 +589,16 @@ async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPoo
     }
 }
 
-/// Returns whether a bootstrap `error` is a configuration error that no restart fixes.
-///
-/// A store directory that cannot be opened is one before the first following: another process,
-/// such as the node's serving process, may hold it.
-fn is_bootstrap_configuration_error(error: &EngineStartError, has_followed: bool) -> bool {
-    is_configuration_error(error)
-        || (!has_followed && matches!(error, EngineStartError::LocalStoreUnavailable { .. }))
+/// Returns how the status reports a bootstrap `error`; a locked store directory says who may hold it.
+fn describe_bootstrap_error(error: &EngineStartError) -> String {
+    match error {
+        EngineStartError::LocalStoreUnavailable { directory, source } => format!(
+            "the local store directory {} is unavailable, as when another process or a lingering \
+             handle of this one holds its lock; retrying: {source}",
+            directory.display()
+        ),
+        error => error.to_string(),
+    }
 }
 
 /// Returns whether `error` is a configuration error that no restart fixes.

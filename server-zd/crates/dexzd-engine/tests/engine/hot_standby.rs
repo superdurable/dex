@@ -1521,10 +1521,10 @@ async fn wait_for_slow_status(
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_hot_standby_fails_when_its_first_open_of_the_store_directory_fails() {
+async fn a_hot_standby_retries_a_store_directory_another_handle_holds_and_follows_once_it_closes() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let standby_directory = directory.path().join("standby");
-    // Another process, such as the node's serving process, holds the directory.
+    // A lingering handle, such as one of a node that just stepped down, holds the directory.
     let holder = RocksDbLocalStore::open(&standby_directory, RocksDbStoreOptions::default())
         .expect("the holder opens the directory");
     let mut cluster = TestCluster::new();
@@ -1532,25 +1532,74 @@ async fn a_hot_standby_fails_when_its_first_open_of_the_store_directory_fails() 
         .start_with(&cluster.config(LocalStoreConfig::InMemory))
         .await
         .expect("the serving node starts");
+    serving.commit_prompt(FIRST_FLOW, 2).await;
     let standby = start_standby(
         &cluster,
         cluster.config(rocksdb_store(&standby_directory)),
         fast_standby_config(),
     );
-    let failed = wait_for_status(&standby.standby, "the standby fails", |status| {
-        status.state == HotStandbyState::Failed
+    let retrying = wait_for_status(&standby.standby, "the standby retries", |status| {
+        status.state == HotStandbyState::Restarting
     })
     .await;
     assert!(
-        matches!(
-            failed.failure.as_deref(),
-            Some(EngineStartError::LocalStoreUnavailable { .. })
-        ),
-        "{failed:?}"
+        retrying
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("holds its lock")),
+        "the status says a handle holds the lock: {retrying:?}"
     );
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    assert_not_failed(&standby.standby.status());
+
     drop(holder);
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    assert_eq!(applied_flows(&standby.applier).len(), 2);
     standby.standby.shutdown().await;
     serving.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_standby_reopens_the_directory_of_a_stepped_down_node_once_its_store_closes() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let node_directory = directory.path().join("node");
+    let mut cluster = TestCluster::new();
+    let node_config = cluster.config(rocksdb_store(&node_directory));
+    let serving = cluster
+        .start_with(&node_config)
+        .await
+        .expect("the serving node starts");
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    let waiter = serving.node.local_store_close_waiter();
+    serving.node.shutdown().await.expect("lease released");
+    assert!(
+        waiter.wait_until_closed(Duration::from_secs(5)).await,
+        "the stepped-down node's store closed"
+    );
+
+    let standby = start_standby(&cluster, node_config, fast_standby_config());
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    assert_eq!(
+        standby.standby.status().last_error,
+        None,
+        "the standby opened the directory at once"
+    );
+    let standby_waiter = standby.standby.local_store_close_waiter();
+    let lingering = standby
+        .standby
+        .local_store_for_test()
+        .expect("the following standby has a store");
+    assert!(
+        !standby.standby.shutdown().await,
+        "a lingering handle keeps the store open"
+    );
+    assert!(
+        !standby_waiter
+            .wait_until_closed(Duration::from_secs(1))
+            .await
+    );
+    drop(lingering);
+    assert!(standby_waiter.wait_until_closed(Duration::ZERO).await);
 }
 
 #[tokio::test(start_paused = true)]

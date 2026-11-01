@@ -27,8 +27,8 @@ use crate::commit::{
     run_log_proposer,
 };
 use crate::engine_node::{
-    EngineNode, EngineNodeConfig, EngineNodeDependencies, LeasedParts, RunningTasks,
-    validate_config,
+    EngineNode, EngineNodeConfig, EngineNodeDependencies, LeasedParts, LocalStoreCloseWaiter,
+    RunningTasks, validate_config,
 };
 use crate::hot_standby::HotStandby;
 use crate::recovery::{
@@ -338,6 +338,7 @@ where
         .await?;
         // Its following stopped; only the lease release path still needs an unfinished one.
         parts.standby = None;
+        let local_store_close_waiter = LocalStoreCloseWaiter::for_store(&store);
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {
             tracing::info!(
@@ -522,6 +523,7 @@ where
             applied_positions,
             snapshots,
             is_serving_hot_standby_store,
+            local_store_close_waiter,
         ))
     });
     let serving_result = tokio::select! {
@@ -535,7 +537,13 @@ where
     drop(serving_future);
     retrying_store.finish_startup();
     match serving_result {
-        Ok((committer, applied_positions, snapshots, is_serving_hot_standby_store)) => {
+        Ok((
+            committer,
+            applied_positions,
+            snapshots,
+            is_serving_hot_standby_store,
+            local_store_close_waiter,
+        )) => {
             tracing::info!(
                 is_serving_hot_standby_store,
                 "engine node started its local store"
@@ -559,6 +567,7 @@ where
                 cluster_id,
                 #[cfg(feature = "test-util")]
                 is_serving_hot_standby_store,
+                local_store_close_waiter,
             }))
         }
         Err(error) => {
