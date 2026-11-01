@@ -29,7 +29,7 @@ const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const DEFAULT_HOT_STANDBY_SEED_COUNT: u64 = 16;
 /// Hot standbys change every trajectory, so their seeds form their own group.
 const FIRST_HOT_STANDBY_SEED: u64 = 0x57a0_0000;
-/// Seeds whose standby applied a batch that the crashed serving process never applied.
+/// Seeds that broke the oracle: a standby applied batches the serving process had not applied.
 const HOT_STANDBY_REGRESSION_SEEDS: &[(u64, u64)] = &[
     (1_470_103_572, 120),
     (1_470_103_573, 120),
@@ -39,6 +39,8 @@ const HOT_STANDBY_REGRESSION_SEEDS: &[(u64, u64)] = &[
     (1_470_103_620, 120),
     (1_470_103_663, 120),
     (1_470_103_715, 120),
+    // A standby applied frames that the serving process had not, so the twin was ahead.
+    (1_470_103_794, 120),
 ];
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
 /// Canonical command digests with full-rate startup faults; a moved regression seed
@@ -236,6 +238,7 @@ fn hot_standby_takeovers_keep_every_invariant() {
     }
     for event in [
         "warm-takeover",
+        "warm-takeover-compared",
         "takeover-crash",
         "standby-crash-kept",
         "standby-crash-lost",

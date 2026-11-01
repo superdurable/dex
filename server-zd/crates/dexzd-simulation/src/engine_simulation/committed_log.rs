@@ -384,6 +384,33 @@ impl CommittedLog {
         Ok(())
     }
 
+    /// Returns whether the shadow holds a frame of some partition above that partition's
+    /// applied position in `store`, as after a standby applied frames this store has not yet.
+    pub(crate) fn is_shadow_ahead_of(
+        &self,
+        store: &EngineLocalStore,
+    ) -> Result<bool, InvariantViolation> {
+        let metas = store.partition_metas().map_err(|error| {
+            InvariantViolation::new("local-store-read", format!("partition metas: {error}"))
+        })?;
+        let applied: BTreeMap<u32, (u32, u64)> = metas
+            .into_iter()
+            .filter_map(|meta| {
+                meta.applied
+                    .map(|applied| (meta.partition, (applied.incarnation, applied.seq)))
+            })
+            .collect();
+        let state = self.lock();
+        Ok(state
+            .newest_frames
+            .values()
+            .any(|(partition, _, incarnation, seq)| {
+                applied
+                    .get(&u32::from(*partition))
+                    .is_none_or(|position| (*incarnation, *seq) > *position)
+            }))
+    }
+
     /// Returns the shadow checker for read-only decoding.
     pub(crate) fn with_shadow<T>(&self, read: impl FnOnce(&ApplyChecker) -> T) -> T {
         read(&self.lock().shadow)

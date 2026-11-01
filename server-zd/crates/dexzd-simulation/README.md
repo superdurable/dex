@@ -194,7 +194,11 @@ At every twin comparison, every batch in the log that carries records of a parti
 that partition's applied position, must have had its frame finished by some process
 (`log-frame-missing`). A batch is in the log unless an EpochStart voided it or it lies past its
 closed stream's recorded end. A hot standby's frames feed the shadow too, so a store that skipped
-a batch that no other process applied cannot match a twin that lacks it as well.
+a batch that no other process applied cannot match a twin that lacks it as well. Because a
+standby can apply a frame before the serving process does, a check skips the twin comparison
+while the shadow holds a frame above the serving store's position, and counts the skip in
+`comparisons_skipped_behind_shadow`. After the calm tail the serving store must have caught up
+(`store-behind-shadow`).
 
 The log itself is checked too. Copies of one log position must hold the same commands, and a
 partition never applies a new frame below one it already applied. No process applies a frame
@@ -310,8 +314,8 @@ in-memory disk. Its object storage view draws the seed's faults like any other p
 
 The test requires warm takeovers, takeover crashes, standby crashes that keep and lose the
 disk, outages, redeploys, incarnation changes, standbys that crossed a segment boundary while
-following, checks that saw the standby following and restarting, and standbys following at the
-end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
+following, twin comparisons right after a warm takeover, checks that saw the standby following
+and restarting, and standbys following at the end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
 other profiles keep their trajectories.
 
 ### Pinned trajectories

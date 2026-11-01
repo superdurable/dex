@@ -175,6 +175,8 @@ pub struct EngineSimulationSummary {
     /// Comparisons skipped because the node's hard-delete upload ledger held uploads, which the
     /// twin does not model.
     pub state_comparisons_skipped_for_upload_ledger: u64,
+    /// Comparisons skipped because a standby had applied frames the store had not yet.
+    pub comparisons_skipped_behind_shadow: u64,
     /// Of the store comparisons, those made right after a crash recovery.
     pub recovered_state_comparisons: u64,
     /// Recovered-store checks that used the window points of a position behind the shadow, as
@@ -267,6 +269,7 @@ impl EngineSimulationSummary {
         self.state_comparisons += other.state_comparisons;
         self.state_comparisons_skipped_for_upload_ledger +=
             other.state_comparisons_skipped_for_upload_ledger;
+        self.comparisons_skipped_behind_shadow += other.comparisons_skipped_behind_shadow;
         self.recovered_state_comparisons += other.recovered_state_comparisons;
         self.recovered_checks_with_older_window_points +=
             other.recovered_checks_with_older_window_points;

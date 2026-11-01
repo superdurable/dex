@@ -16,10 +16,13 @@ use std::time::Duration;
 use dexzd_api::{FlowOperationError, FlowOperations};
 use dexzd_engine::{EngineLocalStore, FlowCoordinatorRegistry};
 use dexzd_keyspace::TenantId;
-use dexzd_protocol::dex::{GetAttributesRequest, GetChannelMessagesRequest};
+use dexzd_protocol::dex::{
+    FlowAlreadyStartedOptions, GetAttributesRequest, GetChannelMessagesRequest,
+};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
+use crate::engine_simulation::EngineSimulationProfile;
 use crate::engine_simulation::committed_log::{CommittedLog, ReadWindow};
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::simulated_workers::SimulatedWorkers;
@@ -519,5 +522,35 @@ impl SimulatedClient {
                 0
             }
         }
+    }
+}
+
+/// Starts a run of every Flow without one, so running attempts exist at the quiet crash.
+pub(crate) async fn start_held_runs(
+    registry: &FlowCoordinatorRegistry,
+    rng: &mut ChaCha8Rng,
+    profile: EngineSimulationProfile,
+    trace: &EventTrace,
+) {
+    for flow_id in ENGINE_FLOW_IDS {
+        let marker = format!("{OPERATION_MARKER_PREFIX}tail-{flow_id}");
+        let mut request =
+            start_flow_request(rng, flow_id, &marker, profile.has_step_failure_policies());
+        if let Some(options) = request.flow_start_options.as_mut() {
+            options.flow_already_started_options = Some(FlowAlreadyStartedOptions {
+                ignore_already_started_error: true,
+            });
+        }
+        let started = tokio::time::timeout(
+            Duration::from_secs(5),
+            FlowOperations::start_flow(registry, TenantId::DEFAULT, request),
+        )
+        .await;
+        let outcome = match started {
+            Ok(Ok(_)) => "ok".to_owned(),
+            Ok(Err(error)) => error.to_string(),
+            Err(_) => "timeout".to_owned(),
+        };
+        trace.record(&format!("tail StartFlow {flow_id}: {outcome}"));
     }
 }

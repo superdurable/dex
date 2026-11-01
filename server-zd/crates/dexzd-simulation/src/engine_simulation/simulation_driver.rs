@@ -12,12 +12,10 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dexzd_api::FlowOperations;
 use dexzd_clock::WallClock;
 use dexzd_engine::{EngineLocalStore, NodeStopReason, SeededEngineIdSourceForTest};
-use dexzd_keyspace::{RunTable, TenantId};
+use dexzd_keyspace::RunTable;
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore};
-use dexzd_protocol::dex::FlowAlreadyStartedOptions;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use tokio::task::JoinHandle;
@@ -25,14 +23,15 @@ use tokio::time::Instant;
 
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::engine_invariants::{
-    check_acknowledged_writes, check_drained, check_recovered_flows,
-    check_running_attempts_redispatched, check_store_matches_log, has_empty_upload_ledger,
-    outstanding_work, running_attempts,
+    TwinComparison, check_acknowledged_writes, check_acknowledged_writes_and_caught_up,
+    check_drained, check_recovered_flows, check_running_attempts_redispatched,
+    check_store_matches_log, outstanding_work, running_attempts,
 };
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::seed_summary::{final_state, finish_summary};
 use crate::engine_simulation::simulated_clients::{
     CHILD_WAIT_PROBE_SEED_SALT, ClientRecords, ENGINE_FLOW_IDS, ServingNode, SimulatedClient,
+    start_held_runs,
 };
 use crate::engine_simulation::simulated_clock::{
     SimulatedWallClock, duration_micros, elapsed_micros,
@@ -48,7 +47,6 @@ use crate::engine_simulation::simulated_object_store::{
 };
 use crate::engine_simulation::simulated_workers::SimulatedWorkers;
 use crate::engine_simulation::standby_takeovers::{StandbyTakeover, StandbyTakeovers};
-use crate::engine_simulation::workload::{OPERATION_MARKER_PREFIX, start_flow_request};
 use crate::engine_simulation::{
     EngineSimulationConfig, EngineSimulationFailure, EngineSimulationFinalState,
     EngineSimulationProfile, EngineSimulationSummary,
@@ -405,7 +403,10 @@ impl Simulation {
         self.check_now()?;
         // A crash at a quiet point: the successor must dispatch every running attempt again.
         self.environment.workers.set_holding(true);
-        self.start_held_runs().await;
+        if let Some(serving) = &self.serving {
+            let (registry, profile) = (serving.registry.clone(), self.config.profile);
+            start_held_runs(&registry, &mut self.rng, profile, &self.environment.trace).await;
+        }
         tokio::time::sleep(Duration::from_secs(2)).await;
         let kind = self.draw_restart_kind();
         self.crash_and_restart(kind).await?;
@@ -436,40 +437,15 @@ impl Simulation {
             .client_records
             .lock()
             .expect("client records lock is not poisoned");
-        check_acknowledged_writes(&records, &self.environment.committed_log)
-    }
-
-    /// Starts a run of every Flow without one, so running attempts exist at the quiet crash.
-    async fn start_held_runs(&mut self) {
-        let Some(serving) = &self.serving else {
-            return;
-        };
-        let registry = serving.registry.clone();
-        for flow_id in ENGINE_FLOW_IDS {
-            let marker = format!("{OPERATION_MARKER_PREFIX}tail-{flow_id}");
-            let mut request = start_flow_request(
-                &mut self.rng,
-                flow_id,
-                &marker,
-                self.config.profile.has_step_failure_policies(),
-            );
-            if let Some(options) = request.flow_start_options.as_mut() {
-                options.flow_already_started_options = Some(FlowAlreadyStartedOptions {
-                    ignore_already_started_error: true,
-                });
-            }
-            let started = tokio::time::timeout(
-                Duration::from_secs(5),
-                FlowOperations::start_flow(&registry, TenantId::DEFAULT, request),
-            )
-            .await;
-            let outcome = match started {
-                Ok(Ok(_)) => "ok".to_owned(),
-                Ok(Err(error)) => error.to_string(),
-                Err(_) => "timeout".to_owned(),
-            };
-            self.trace(&format!("tail StartFlow {flow_id}: {outcome}"));
-        }
+        let serving_store = self
+            .serving
+            .as_ref()
+            .map(|serving| serving.local_store.as_ref());
+        check_acknowledged_writes_and_caught_up(
+            &records,
+            &self.environment.committed_log,
+            serving_store,
+        )
     }
 
     /// Polls until no method call is unfinished and no due timer is unfired, within
@@ -541,11 +517,15 @@ impl Simulation {
         }
         // Old-epoch processes may still apply frames, so only one live process is compared.
         if self.old_epoch_processes.is_empty() {
-            if has_empty_upload_ledger(&serving.local_store)? {
-                check_store_matches_log(&serving.local_store, &self.environment.committed_log)?;
-                self.summary.state_comparisons += 1;
-            } else {
-                self.summary.state_comparisons_skipped_for_upload_ledger += 1;
+            let summary = &mut self.summary;
+            match check_store_matches_log(&serving.local_store, &self.environment.committed_log)? {
+                TwinComparison::Compared => summary.state_comparisons += 1,
+                TwinComparison::SkippedForUploadLedger => {
+                    summary.state_comparisons_skipped_for_upload_ledger += 1;
+                }
+                TwinComparison::SkippedBehindShadow => {
+                    summary.comparisons_skipped_behind_shadow += 1
+                }
             }
         }
         Ok(())
@@ -691,9 +671,18 @@ impl Simulation {
                     .await?
             }
         };
+        let is_warm = process.is_serving_hot_standby_store();
         self.serve(process);
         self.standby_takeovers = Some(takeovers);
-        self.check_recovered_process()
+        let comparisons = self.summary.state_comparisons;
+        self.check_recovered_process()?;
+        if is_warm && self.summary.state_comparisons > comparisons {
+            let events = &mut self.summary.hot_standby_events;
+            *events
+                .entry("warm-takeover-compared".to_owned())
+                .or_default() += 1;
+        }
+        Ok(())
     }
 
     /// Starts a new node incarnation at half the redeploy profile's restarts.
