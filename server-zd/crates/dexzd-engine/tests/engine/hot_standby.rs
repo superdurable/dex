@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1546,8 +1547,9 @@ async fn a_hot_standby_retries_a_store_directory_another_handle_holds_and_follow
         retrying
             .last_error
             .as_deref()
-            .is_some_and(|error| error.contains("holds its lock")),
-        "the status says a handle holds the lock: {retrying:?}"
+            .is_some_and(|error| error
+                .contains("a store this process opened still holds the directory's lock")),
+        "the lock probe, not a failed open, found this process's handle: {retrying:?}"
     );
     tokio::time::sleep(Duration::from_secs(10)).await;
     assert_not_failed(&standby.standby.status());
@@ -1557,6 +1559,108 @@ async fn a_hot_standby_retries_a_store_directory_another_handle_holds_and_follow
     assert_eq!(applied_flows(&standby.applier).len(), 2);
     standby.standby.shutdown().await;
     serving.node.shutdown().await.expect("lease released");
+}
+
+/// Environment variable that makes [`hold_a_store_directory_for_another_test`] hold a store.
+const HELD_DIRECTORY_VARIABLE: &str = "DEXZD_TEST_HELD_STORE_DIRECTORY";
+
+/// Holds the store in the directory that [`HELD_DIRECTORY_VARIABLE`] names until standard input
+/// closes; another test runs it as a second process. Without the variable it does nothing.
+#[test]
+fn hold_a_store_directory_for_another_test() {
+    let Some(directory) = std::env::var_os(HELD_DIRECTORY_VARIABLE) else {
+        return;
+    };
+    let _store = RocksDbLocalStore::open(PathBuf::from(directory), RocksDbStoreOptions::default())
+        .expect("the holding process opens the store");
+    println!("held");
+    std::io::stdout().flush().expect("flush the held line");
+    let mut rest = String::new();
+    std::io::stdin()
+        .read_to_string(&mut rest)
+        .expect("wait for standard input to close");
+}
+
+#[tokio::test]
+async fn a_hot_standby_fails_on_a_directory_another_process_holds_and_leaves_its_log_alone() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let standby_directory = directory.path().join("standby");
+    let mut holder = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args([
+            "--exact",
+            "hot_standby::hold_a_store_directory_for_another_test",
+            "--nocapture",
+        ])
+        .env(HELD_DIRECTORY_VARIABLE, &standby_directory)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("start the holding process");
+    let mut held = String::new();
+    let mut holder_output =
+        std::io::BufReader::new(holder.stdout.take().expect("the holder's output"));
+    while !held.contains("held") {
+        held.clear();
+        let read = std::io::BufRead::read_line(&mut holder_output, &mut held)
+            .expect("read the holder's output");
+        assert!(
+            read > 0,
+            "the holding process exited before it held the store"
+        );
+    }
+    let files_before = directory_files(&standby_directory);
+    let log_before = std::fs::read(standby_directory.join("LOG")).expect("read the holder's LOG");
+
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby = start_standby(
+        &cluster,
+        cluster.config(rocksdb_store(&standby_directory)),
+        fast_standby_config(),
+    );
+    let failed = wait_for_status(&standby.standby, "the standby fails", |status| {
+        status.state == HotStandbyState::Failed
+    })
+    .await;
+    assert!(
+        failed.failure.as_deref().is_some_and(|error| matches!(
+            error,
+            EngineStartError::InvalidConfig { detail } if detail.contains("another process")
+        )),
+        "{failed:?}"
+    );
+    assert_eq!(
+        directory_files(&standby_directory),
+        files_before,
+        "the standby renamed none of the holder's files"
+    );
+    assert_eq!(
+        std::fs::read(standby_directory.join("LOG")).expect("read the holder's LOG"),
+        log_before
+    );
+    standby.standby.shutdown().await;
+    serving.node.shutdown().await.expect("lease released");
+    drop(holder.stdin.take());
+    holder.wait().expect("the holding process exits");
+}
+
+/// Returns the names of the files in `directory`.
+fn directory_files(directory: &Path) -> Vec<String> {
+    let mut files: Vec<String> = std::fs::read_dir(directory)
+        .expect("list the directory")
+        .map(|entry| {
+            entry
+                .expect("read a directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 #[tokio::test(start_paused = true)]

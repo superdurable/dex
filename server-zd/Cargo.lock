@@ -1440,6 +1440,7 @@ dependencies = [
  "dexzd-protocol",
  "prost",
  "rocksdb",
+ "rustix",
  "tempfile",
  "thiserror",
  "tokio",

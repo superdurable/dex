@@ -15,6 +15,7 @@ use dexzd_keyspace::PartitionId;
 use dexzd_log::StreamIdentity;
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::LogPosition;
+use dexzd_storage::{DirectoryLockHolder, StorageError, probe_directory_lock};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
@@ -33,9 +34,9 @@ use crate::hot_standby::log_follower::{
 };
 use crate::hot_standby::{FollowingHandles, HotStandbyConfig, StandbyPhase, StandbyStatusCell};
 use crate::recovery::{
-    ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreRequirements,
-    OpenedLocalStore, delete_older_set_aside_stores, find_unreplayable_gap, open_local_store,
-    rebuild_search_order_indexes,
+    ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreConfig,
+    LocalStoreRequirements, OpenedLocalStore, delete_older_set_aside_stores, find_unreplayable_gap,
+    open_local_store, rebuild_search_order_indexes,
 };
 
 /// First wait before the standby restarts after an error; it doubles up to the maximum.
@@ -215,6 +216,7 @@ impl StandbyDriver {
         let partition_count = metadata.partition_count();
         let cluster_id = metadata.cluster_id()?;
         self.following.set_cluster_id(cluster_id);
+        check_store_directory_lock(&config.local_store)?;
         // The gap check sets aside a store that applied a batch past a closed stream's end.
         let OpenedLocalStore {
             store,
@@ -324,6 +326,7 @@ impl StandbyDriver {
         let refresh_interval = self.standby_config.manifest_refresh_interval;
         let mut next_refresh = Instant::now() + refresh_interval;
         let mut is_progressing = false;
+        let mut has_crossed_stream = false;
         let outcome = loop {
             tokio::select! {
                 biased;
@@ -352,6 +355,10 @@ impl StandbyDriver {
                     if !is_progressing && self.has_progressed(&progress.borrow(), progress_threshold) {
                         is_progressing = true;
                         self.status.set_last_error(None);
+                    }
+                    if !has_crossed_stream && progress.borrow().incarnation > started_at.0 {
+                        has_crossed_stream = true;
+                        self.following.record_stream_crossing();
                     }
                 }
             }
@@ -593,11 +600,43 @@ async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPoo
 fn describe_bootstrap_error(error: &EngineStartError) -> String {
     match error {
         EngineStartError::LocalStoreUnavailable { directory, source } => format!(
-            "the local store directory {} is unavailable, as when another process or a lingering \
-             handle of this one holds its lock; retrying: {source}",
+            "the local store directory {} is unavailable, as when a lingering handle of this \
+             process holds its lock; retrying: {source}",
             directory.display()
         ),
         error => error.to_string(),
+    }
+}
+
+/// Probes the lock of a RocksDB store directory before the standby opens it.
+///
+/// Opening a store that another process holds renames that process's info log, so a held lock
+/// fails here instead. Returns [`EngineStartError::InvalidConfig`] when another process, such as
+/// the serving node, holds it, and [`EngineStartError::LocalStoreUnavailable`], which the standby
+/// retries, when a lingering handle of this process does.
+fn check_store_directory_lock(local_store: &LocalStoreConfig) -> Result<(), EngineStartError> {
+    let LocalStoreConfig::RocksDb { directory, .. } = local_store else {
+        return Ok(());
+    };
+    let unavailable = |source| EngineStartError::LocalStoreUnavailable {
+        directory: directory.clone(),
+        source,
+    };
+    match probe_directory_lock(directory).map_err(unavailable)? {
+        DirectoryLockHolder::AnotherProcess => Err(EngineStartError::InvalidConfig {
+            detail: format!(
+                "another process, such as the serving node, holds the lock of the local store \
+                 directory {}; a hot standby needs a directory of its own",
+                directory.display()
+            ),
+        }),
+        DirectoryLockHolder::ThisProcess => {
+            Err(unavailable(StorageError::Io(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "a store this process opened still holds the directory's lock",
+            ))))
+        }
+        _ => Ok(()),
     }
 }
 

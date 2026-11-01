@@ -8,12 +8,14 @@
 
 //! Local RocksDB state store for server-zd, including atomic batch writes, state views, and snapshot upload and restore.
 
+mod directory_lock;
 mod local_store;
 mod memory_store;
 mod rocksdb_store;
 mod snapshot;
 mod state_comparison;
 
+pub use directory_lock::{DirectoryLockHolder, probe_directory_lock};
 pub use local_store::{
     LocalReadView, LocalStore, ScanDirection, StorageError, StorageResult, WriteBatch,
     WriteOperation,

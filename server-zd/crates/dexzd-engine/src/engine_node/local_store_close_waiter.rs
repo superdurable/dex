@@ -18,23 +18,9 @@ use crate::commit::EngineLocalStore;
 /// How often a wait for a closed store checks it again.
 const STORE_CLOSE_POLL: Duration = Duration::from_millis(10);
 
-/// Waits until a node's or a hot standby's local store has closed.
+/// Waits until a node's or a hot standby's local store has closed, so its directory reopens.
 ///
-/// A RocksDB directory stays locked while any handle of its store lives, such as a call still in
-/// flight or an applier lane that outlived a stop. A process that reopens the directory after a
-/// step down or a standby shutdown should first wait here.
-///
-/// Take it from [`crate::EngineNode::local_store_close_waiter`] or
-/// [`crate::HotStandby::local_store_close_waiter`] before the shutdown, then await
-/// [`Self::wait_until_closed`] after it:
-///
-/// ```ignore
-/// let waiter = node.local_store_close_waiter();
-/// node.shutdown().await?;
-/// if !waiter.wait_until_closed(Duration::from_secs(5)).await {
-///     tracing::warn!("the local store is still open");
-/// }
-/// ```
+/// Take it before a shutdown, then await [`Self::wait_until_closed`] after it.
 #[derive(Clone)]
 pub struct LocalStoreCloseWaiter {
     /// The newest store; a hot standby's restore replaces it.

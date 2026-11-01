@@ -194,6 +194,9 @@ struct FollowingHandles {
     last_write_fence: Mutex<Option<Arc<CommitState>>>,
     #[cfg(feature = "test-util")]
     is_waiting_for_store_close: std::sync::atomic::AtomicBool,
+    /// Following periods that read into the next incarnation's stream without a restart.
+    #[cfg(feature = "test-util")]
+    stream_crossings: AtomicU64,
 }
 
 impl HotStandby {
@@ -484,6 +487,11 @@ impl HotStandbyProbeForTest {
             .map_or(0, |write_fence| write_fence.refused_store_writes_for_test())
     }
 
+    /// Returns how many following periods read into the next incarnation's stream.
+    pub fn stream_crossings_for_test(&self) -> u64 {
+        self.following.stream_crossings.load(Ordering::SeqCst)
+    }
+
     /// Returns whether a caller waits for a task to close the standby's store.
     pub fn is_waiting_for_store_close_for_test(&self) -> bool {
         self.following
@@ -526,6 +534,12 @@ impl FollowingHandles {
             .cluster_id
             .lock()
             .expect("cluster ID lock is not poisoned") = Some(cluster_id);
+    }
+
+    /// Counts a following period that read into the next incarnation's stream.
+    fn record_stream_crossing(&self) {
+        #[cfg(feature = "test-util")]
+        self.stream_crossings.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Records the newest store, which a later wait for a closed store watches.

@@ -216,9 +216,8 @@ impl EngineNode {
     /// [`EngineNode::start_until_cancelled`] documents. It carries the standby, still following,
     /// when the start failed before the lease, such as for a standby of another node. A failure
     /// after the lease stops the standby and releases the lease within
-    /// [`EngineNode::TAKEOVER_RELEASE_BUDGET`]. A lane that still applies a frame can keep the
-    /// standby's RocksDB directory locked past the release, so a start on that directory may
-    /// fail with [`EngineStartError::LocalStoreUnavailable`] and should retry.
+    /// [`EngineNode::TAKEOVER_RELEASE_BUDGET`]. Take the standby's [`LocalStoreCloseWaiter`]
+    /// beforehand to reopen its directory afterwards.
     pub async fn take_over_from_hot_standby_until_cancelled<F>(
         config: &EngineNodeConfig,
         dependencies: EngineNodeDependencies,
