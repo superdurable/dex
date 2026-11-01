@@ -427,22 +427,27 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   lease holder proposes `SetSearchProjectionModeCommand` to every partition whose stored mode
   differs from `search.backend`.
 - At start, the lease holder's consumer stamps every partition's SQL progress row with its lease
-  epoch in one transaction, so a lower epoch can no longer write any partition.
+  epoch in one transaction, so a lower epoch can no longer write any partition. A restored object
+  storage prefix has an older epoch, so it needs a new SQL schema or database; otherwise the
+  projection stops as fenced.
 - The consumer reads each partition's queue in seq order from one committed view. It writes each
   changed run's current document, the view position, and the projected seq in one SQL transaction.
   Then it proposes `SearchOutboxAckCommand`, which deletes the entries, at most once per
   `search.outboxAckInterval` (default 1 s) per partition and for at most
-  `search.outboxMaxAckEntries` (default 10000) entries. An ack must be below its own seq. Commits
+  `search.outboxMaxAckEntries` (default 10000) entries. An ack never exceeds the seq that SQL
+  progress records, and must be below its own seq. Commits
   never wait for the consumer. When ParadeDB is unavailable, the queue grows on local disk and the
   consumer retries; nothing is rebuilt.
 - At start, the consumer loads a partition from a committed view when its SQL progress cannot
   continue: no finished load, no outbox seq (written by an older release), a seq below the mode's
-  `enabled_at_seq` or the acked seq, or a seq above the view's last command. A load first deletes the
-  partition's rows and progress; only its last transaction records new progress.
+  `enabled_at_seq` or the acked seq, or, as a defensive check, a seq above the view's last command.
+  A load first deletes the partition's rows and progress; only its last transaction records new
+  progress.
 - Before the consumer serves, every enabled partition's appended seq is raised to its last command.
   SearchFlows waits up to `search.readYourWritesWait` until every partition's projected seq covers
   the entries committed before the request, then returns Unavailable. A loading partition publishes
-  no projected seq until its load finishes.
+  no projected seq until its load finishes. If the consumer task panics or is aborted, SearchFlows
+  returns Internal at once.
 - `search.outboxBatchSize` (default 1000) bounds the entries or documents of one SQL transaction.
   `search.outboxPollInterval` (default 100 ms) is the idle poll; new commits wake the consumer.
 - One ParadeDB schema belongs to one Dex cluster.

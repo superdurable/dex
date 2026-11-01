@@ -44,8 +44,7 @@ pub struct ProjectionProgress {
     pub applied_position: Option<LogPosition>,
     /// Node epoch of the last writer; a lower epoch can no longer write the partition.
     pub applied_epoch: Option<u64>,
-    /// Every SearchOutbox entry at or below this seq is projected; `None` before a load finishes
-    /// or in a schema written before the SearchOutbox existed.
+    /// Highest seq SQL visibility fully holds; `None` until a load finishes, or from a pre-SearchOutbox server.
     pub outbox_through_seq: Option<u64>,
 }
 
@@ -82,9 +81,10 @@ pub enum ProjectionError {
     /// A committed row or index violates its expected format.
     #[error("invalid committed search state: {0}")]
     InvalidState(String),
-    /// A newer lease holder wrote the partition; this node must stop projecting.
+    /// A newer lease holder wrote the partition, or a restored prefix rolled the epoch back.
     #[error(
-        "SQL visibility partition {} was written at node epoch {stored_epoch}, newer than this node's epoch {epoch}",
+        "SQL visibility partition {} was written at node epoch {stored_epoch}, newer than this node's epoch {epoch}; \
+         either a newer lease holder writes it, or the object storage prefix was restored and needs a new SQL schema or database",
         partition_id.0
     )]
     Fenced {

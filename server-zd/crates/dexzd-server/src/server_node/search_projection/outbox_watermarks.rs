@@ -89,9 +89,7 @@ impl SearchOutboxWatermarks {
         self.consumer_wake.notify_one();
     }
 
-    /// Raises a partition's appended seq to cover entries that predate this process or a load.
-    ///
-    /// `oldest_entry_seq` is the partition's oldest queued entry, for the lag metric.
+    /// Raises a partition's appended seq over entries that predate this process; `oldest_entry_seq` feeds the lag metric.
     pub(crate) fn seed_appended(
         &self,
         partition: usize,
