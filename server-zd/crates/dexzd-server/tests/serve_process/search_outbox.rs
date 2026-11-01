@@ -26,7 +26,7 @@ use super::*;
 /// The serve configuration's partition count.
 const PARTITION_COUNT: u16 = 16;
 const OUTBOX_FLOW_COUNT: usize = 24;
-const LOAD_LOG_LINE: &str = "loading the partition into an empty SQL visibility projection";
+const LOAD_LOG_LINE: &str = "loading the partition into the SQL visibility projection";
 const COUNTER_ATTRIBUTE: &str = "outboxCounter";
 
 /// A server process of one test step and the files it uses.
@@ -198,10 +198,18 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
         set_counter(&mut flow_client, flow_id, 22).await;
     }
     assert_counters_now(&mut flow_client, &flow_ids, 22).await;
+    // These writes stay unprojected in the local store across the SIGKILL.
+    proxy.cut().await;
+    for round in 23..=25 {
+        for flow_id in &flow_ids {
+            set_counter(&mut flow_client, flow_id, round).await;
+        }
+    }
     let killed = first.kill().await;
     assert!(!killed.success(), "SIGKILL stops the first process");
+    proxy.restore();
 
-    // The restarted process projects the queued entries again and acks them.
+    // The restarted process projects the queued entries one per batch, so its first search must wait.
     let (mut second, channel, second_metrics) = node
         .start(
             "second",
@@ -209,12 +217,12 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
             OutboxSearch {
                 sql: Some(sql(&proxied_url)),
                 ack_interval: "100ms",
-                batch_size: 1000,
+                batch_size: 1,
             },
         )
         .await;
     let mut flow_client = FlowServiceClient::new(channel);
-    assert_counters_now(&mut flow_client, &flow_ids, 22).await;
+    assert_never_stale(&mut flow_client, &flow_ids, 25, &second).await;
     wait_for_metric(
         second_metrics,
         "dexzd_search_outbox_ack_proposals_total{outcome=\"ok\"}",
@@ -239,13 +247,13 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
         .await;
     let mut flow_client = FlowServiceClient::new(channel);
     for flow_id in &flow_ids {
-        set_counter(&mut flow_client, flow_id, 23).await;
+        set_counter(&mut flow_client, flow_id, 26).await;
     }
-    assert_counters_now(&mut flow_client, &flow_ids, 23).await;
+    assert_counters_now(&mut flow_client, &flow_ids, 26).await;
     for flow_id in &flow_ids {
-        set_counter(&mut flow_client, flow_id, 24).await;
+        set_counter(&mut flow_client, flow_id, 27).await;
     }
-    let sql_entries = assert_counters_now(&mut flow_client, &flow_ids, 24).await;
+    let sql_entries = assert_counters_now(&mut flow_client, &flow_ids, 27).await;
     assert!(!third.log().contains(LOAD_LOG_LINE), "{}", third.log());
     let status = third.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", third.log());
@@ -352,22 +360,19 @@ async fn run_builtin_to_sql_switch_for_test(database_url: &str, is_postgres: boo
             .all(|is_enabled| !is_enabled)
     );
 
-    let (mut switched, channel, _) = node
-        .start(
-            "switched",
-            "store",
-            OutboxSearch {
-                sql: Some(SqlVisibilitySettings {
-                    is_postgres,
-                    connection_string: database_url,
-                    schema: schema.name(),
-                }),
-                ack_interval: "100ms",
-                batch_size: 1,
-            },
-        )
-        .await;
+    let sql_search = || OutboxSearch {
+        sql: Some(SqlVisibilitySettings {
+            is_postgres,
+            connection_string: database_url,
+            schema: schema.name(),
+        }),
+        ack_interval: "100ms",
+        batch_size: 1,
+    };
+    // The load writes one document per transaction, so the first search arrives during it.
+    let (mut switched, channel, _) = node.start("switched", "store", sql_search()).await;
     let mut flow_client = FlowServiceClient::new(channel);
+    assert_never_stale(&mut flow_client, &early_flows, 1, &switched).await;
     for flow_id in &late_flows {
         start_idle_flow(&mut flow_client, flow_id).await;
         set_counter(&mut flow_client, flow_id, 2).await;
@@ -390,6 +395,159 @@ async fn run_builtin_to_sql_switch_for_test(database_url: &str, is_postgres: boo
             .iter()
             .all(|is_enabled| *is_enabled)
     );
+
+    // Changes made under builtin search reach the reused schema through a reload.
+    let (mut builtin_again, channel, _) = node
+        .start(
+            "builtin-again",
+            "store",
+            OutboxSearch {
+                sql: None,
+                ack_interval: "100ms",
+                batch_size: 1000,
+            },
+        )
+        .await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    for flow_id in &early_flows {
+        set_counter(&mut flow_client, flow_id, 4).await;
+    }
+    let status = builtin_again.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", builtin_again.log());
+    let (mut reused, channel, _) = node.start("reused", "store", sql_search()).await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    assert_never_stale(&mut flow_client, &early_flows, 4, &reused).await;
+    assert_counters_now(&mut flow_client, &late_flows, 2).await;
+    assert!(
+        reused.log().contains("enabled_after_progress"),
+        "{}",
+        reused.log()
+    );
+    let status = reused.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", reused.log());
+
+    // Progress that an older release wrote without an outbox seq is reloaded, not trusted.
+    schema
+        .execute(
+            "UPDATE {schema}.dexzd_visibility_progress SET outbox_through_seq = NULL; DELETE FROM {schema}.dexzd_visibility_runs",
+        )
+        .await;
+    let (mut upgraded, channel, _) = node.start("upgraded", "store", sql_search()).await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    assert_never_stale(&mut flow_client, &early_flows, 4, &upgraded).await;
+    assert_counters_now(&mut flow_client, &late_flows, 2).await;
+    assert_eq!(
+        upgraded.log().matches("no_outbox_progress").count(),
+        usize::from(PARTITION_COUNT),
+        "{}",
+        upgraded.log()
+    );
+    let status = upgraded.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", upgraded.log());
+    primary.shutdown().await;
+    schema.drop_schema().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn paradedb_search_outbox_reloads_a_partition_whose_load_was_interrupted() {
+    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
+        return;
+    };
+    run_interrupted_load_for_test(&database_url, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_search_outbox_reloads_a_partition_whose_load_was_interrupted() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    run_interrupted_load_for_test(&database_url, true).await;
+}
+
+async fn run_interrupted_load_for_test(database_url: &str, is_postgres: bool) {
+    const LOADED_FLOW_COUNT: usize = 300;
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    let primary_endpoint = primary.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let node = OutboxNode {
+        directory: &directory,
+        primary_endpoint: &primary_endpoint,
+    };
+    let flow_ids: Vec<String> = (0..LOADED_FLOW_COUNT)
+        .map(|number| format!("interrupted-flow-{number:03}"))
+        .collect();
+    let (mut builtin, channel, _) = node
+        .start(
+            "builtin",
+            "store",
+            OutboxSearch {
+                sql: None,
+                ack_interval: "100ms",
+                batch_size: 1000,
+            },
+        )
+        .await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    for flow_id in &flow_ids {
+        start_idle_flow(&mut flow_client, flow_id).await;
+        set_counter(&mut flow_client, flow_id, 1).await;
+    }
+    let status = builtin.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", builtin.log());
+
+    let sql_search = |batch_size| OutboxSearch {
+        sql: Some(SqlVisibilitySettings {
+            is_postgres,
+            connection_string: database_url,
+            schema: schema.name(),
+        }),
+        ack_interval: "100ms",
+        batch_size,
+    };
+    let (mut loading, _, _) = node.start("loading", "store", sql_search(1)).await;
+    // Kill once some partition holds loaded rows while another has no finished load.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let loaded_rows = schema
+            .query_count("SELECT count(*) FROM {schema}.dexzd_visibility_runs")
+            .await;
+        let unfinished_partitions = schema
+            .query_count(
+                "SELECT count(*) FROM {schema}.dexzd_visibility_progress WHERE applied_seq IS NULL",
+            )
+            .await;
+        if loaded_rows > 0 && unfinished_partitions > 0 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the load never ran: {loaded_rows} rows, {unfinished_partitions} unfinished partitions; {}",
+            loading.log()
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let killed = loading.kill().await;
+    assert!(!killed.success(), "SIGKILL stops the loading process");
+    let unfinished_partitions = schema
+        .query_count(
+            "SELECT count(*) FROM {schema}.dexzd_visibility_progress WHERE applied_seq IS NULL",
+        )
+        .await;
+    assert!(unfinished_partitions > 0, "the kill interrupted the load");
+
+    let (mut reloaded, channel, _) = node.start("reloaded", "store", sql_search(1000)).await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    assert_never_stale(&mut flow_client, &flow_ids, 1, &reloaded).await;
+    assert_eq!(
+        schema
+            .query_count("SELECT count(*) FROM {schema}.dexzd_visibility_runs")
+            .await,
+        i64::try_from(LOADED_FLOW_COUNT).expect("few Flows"),
+        "SQL visibility holds exactly the committed runs"
+    );
+    let status = reloaded.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", reloaded.log());
     primary.shutdown().await;
     schema.drop_schema().await;
 }
@@ -633,6 +791,28 @@ async fn assert_counters_now(
         );
     }
     entries
+}
+
+/// Asserts that the first SearchFlows is Unavailable or current, then polls until every Flow shows `counter`.
+async fn assert_never_stale(
+    flow_client: &mut FlowServiceClient<Channel>,
+    flow_ids: &[String],
+    counter: i64,
+    server: &ServeProcess,
+) {
+    match search_counters(flow_client).await {
+        Ok(counters) => {
+            for flow_id in flow_ids {
+                assert_eq!(
+                    counters.get(flow_id),
+                    Some(&counter),
+                    "{flow_id} is stale: {counters:?}"
+                );
+            }
+        }
+        Err(status) => assert_eq!(status.code(), tonic::Code::Unavailable, "{status}"),
+    }
+    search_until_counters(flow_client, flow_ids, counter, server).await;
 }
 
 /// Polls through Unavailable answers until every Flow shows `counter`.

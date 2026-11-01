@@ -656,6 +656,23 @@ impl SqlVisibilitySchema {
             .expect("the projection tables are cleared");
     }
 
+    /// Runs `statements` with `{schema}` replaced by this schema's name.
+    pub(crate) async fn execute(&self, statements: &str) {
+        self.client
+            .batch_execute(&statements.replace("{schema}", &self.name))
+            .await
+            .expect("the test statements run");
+    }
+
+    /// Returns the integer that `query` selects, with `{schema}` replaced by this schema's name.
+    pub(crate) async fn query_count(&self, query: &str) -> i64 {
+        self.client
+            .query_one(&query.replace("{schema}", &self.name), &[])
+            .await
+            .expect("the test query runs")
+            .get(0)
+    }
+
     pub(crate) async fn drop_schema(self) {
         self.client
             .batch_execute(&format!("DROP SCHEMA {} CASCADE", self.name))
