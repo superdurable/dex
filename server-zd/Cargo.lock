@@ -1381,6 +1381,7 @@ dependencies = [
  "prometheus-client",
  "prost",
  "prost-types",
+ "rand 0.10.3",
  "rustix",
  "s3mock",
  "s3mock-server",
@@ -1398,6 +1399,7 @@ dependencies = [
  "tower-layer",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

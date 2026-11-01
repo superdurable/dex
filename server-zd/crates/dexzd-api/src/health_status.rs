@@ -8,7 +8,7 @@
 
 use tonic_health::ServingStatus;
 use tonic_health::pb::health_server::{Health, HealthServer};
-use tonic_health::server::HealthReporter;
+use tonic_health::server::{HealthReporter, HealthService};
 
 /// Service names that `grpc.health.v1` reports; `dexcli dev` waits until all are SERVING.
 pub const HEALTH_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTaskService"];
@@ -31,6 +31,11 @@ impl HealthStatus {
         status.set(ServingStatus::NotServing).await;
         status.set_hot_standby(false).await;
         (status, server)
+    }
+
+    /// Returns another health service over the same statuses, for a new gRPC server instance.
+    pub fn server(&self) -> HealthServer<impl Health> {
+        HealthServer::new(HealthService::from_health_reporter(self.reporter.clone()))
     }
 
     /// Reports whether this process is a hot standby within its lag threshold.

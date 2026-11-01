@@ -26,18 +26,21 @@ pub enum HotStandbyMetricState {
     Following,
     /// Following the log beyond the lag threshold.
     Behind,
+    /// Waiting to bootstrap again after an error it retries.
+    Restarting,
     /// Stopped after an error it does not retry.
     Failed,
 }
 
-label_value!(HotStandbyMetricState { Inactive => "inactive", Bootstrapping => "bootstrapping", Following => "following", Behind => "behind", Failed => "failed" });
+label_value!(HotStandbyMetricState { Inactive => "inactive", Bootstrapping => "bootstrapping", Following => "following", Behind => "behind", Restarting => "restarting", Failed => "failed" });
 
 impl HotStandbyMetricState {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Inactive,
         Self::Bootstrapping,
         Self::Following,
         Self::Behind,
+        Self::Restarting,
         Self::Failed,
     ];
 }
@@ -50,7 +53,7 @@ struct HotStandbyStateLabel {
 /// Fixed hot standby state gauges; exactly one state has value one.
 #[derive(Clone, Debug)]
 pub struct HotStandbyStateGauges {
-    values: Arc<[Gauge; 5]>,
+    values: Arc<[Gauge; 6]>,
 }
 
 impl Default for HotStandbyStateGauges {
