@@ -17,10 +17,7 @@ use crate::engine_simulation::simulated_node::NODE_ID;
 use crate::engine_simulation::simulated_object_store::closed_stream_replays::lowest_applied_position;
 use crate::invariants::InvariantViolation;
 
-/// Checks that a start discarded its given store `existing` only for a reason the engine has.
-///
-/// The reasons are log cleanup past the store's positions, or a partition that applied nothing
-/// while the node has a snapshot. `manifest` is the last one the start read.
+/// Checks that a start discarded its store `existing` only behind cleanup or with a snapshot.
 ///
 /// Returns whether the start discarded `existing` instead of serving from it.
 pub(crate) fn has_discarded_existing_store(

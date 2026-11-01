@@ -344,6 +344,46 @@ impl CommittedLog {
         twin
     }
 
+    /// Checks that every frame below the applied positions of `store` was finished by some
+    /// process: each batch in the log that carries records of a partition, up to that
+    /// partition's applied position.
+    pub(crate) fn check_log_completeness(
+        &self,
+        store: &EngineLocalStore,
+    ) -> Result<(), InvariantViolation> {
+        let metas = store.partition_metas().map_err(|error| {
+            InvariantViolation::new("local-store-read", format!("partition metas: {error}"))
+        })?;
+        let state = self.lock();
+        let observations = self
+            .storage_observations
+            .lock()
+            .expect("storage observation lock is not poisoned");
+        for meta in metas {
+            let Some(applied) = meta.applied else {
+                continue;
+            };
+            let partition = u16::try_from(meta.partition).expect("a partition fits u16");
+            let through = (applied.incarnation, applied.seq);
+            for (incarnation, seq) in observations
+                .log_batches
+                .log_batches_of(meta.partition, through)
+            {
+                let key = (partition, applied.node_id.clone(), incarnation, seq);
+                if !state.frames.contains_key(&key) {
+                    return Err(InvariantViolation::new(
+                        "log-frame-missing",
+                        format!(
+                            "partition {partition} applied through {through:?}, but no process \
+                             finished its frame of batch {incarnation}:{seq}"
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Returns the shadow checker for read-only decoding.
     pub(crate) fn with_shadow<T>(&self, read: impl FnOnce(&ApplyChecker) -> T) -> T {
         read(&self.lock().shadow)

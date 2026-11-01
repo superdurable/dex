@@ -26,6 +26,7 @@ use prost::Message;
 use crate::apply_checker::ApplyChecker;
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::simulated_clients::ClientRecords;
+use crate::engine_simulation::simulated_node::PARTITION_COUNT;
 use crate::engine_simulation::simulated_workers::AttemptIdentity;
 use crate::invariants::{CheckerMemory, InvariantViolation, check_flow};
 use crate::memory_state::MemoryFlowState;
@@ -106,8 +107,18 @@ pub(crate) fn has_empty_upload_ledger(
     Ok(node_meta.is_none_or(|meta| meta.pending_hard_delete_uploads.is_empty()))
 }
 
+/// Invariants 1 and 5: no frame of the log below the store's positions went unapplied, and the
+/// store equals a never-crashed twin.
+pub(crate) fn check_store_matches_log(
+    store: &EngineLocalStore,
+    committed_log: &CommittedLog,
+) -> Result<(), InvariantViolation> {
+    committed_log.check_log_completeness(store)?;
+    check_store_matches_twin(store, &committed_log.twin_store(PARTITION_COUNT))
+}
+
 /// Invariant 5: the node's store equals a never-crashed twin, except the canonicalized fields.
-pub(crate) fn check_store_matches_twin(
+fn check_store_matches_twin(
     store: &EngineLocalStore,
     twin: &InMemoryLocalStore,
 ) -> Result<(), InvariantViolation> {

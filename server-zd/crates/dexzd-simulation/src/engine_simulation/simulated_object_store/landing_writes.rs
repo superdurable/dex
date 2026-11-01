@@ -266,6 +266,7 @@ impl WriteLanding {
         match class {
             "lease" => self.record_lease_written(),
             "log" => self.record_log_batch_landed().await,
+            "manifest" => self.record_manifest_landed().await,
             _ => {}
         }
     }
@@ -288,6 +289,25 @@ impl WriteLanding {
             .send_replace(Some(self.process_label.clone()));
     }
 
+    /// Records the end seqs of the closed streams in the newest manifest.
+    async fn record_manifest_landed(&self) {
+        let Ok(Some(manifest)) =
+            dexzd_cluster_metadata::read_manifest(self.storage.store.as_ref()).await
+        else {
+            return;
+        };
+        let Some(partition) = manifest.partitions.first() else {
+            return;
+        };
+        self.storage.observe(|observations| {
+            for segment in partition.segments.iter().filter(|segment| !segment.is_open) {
+                observations
+                    .log_batches
+                    .record_closed_stream_end(segment.incarnation, segment.end_seq);
+            }
+        });
+    }
+
     /// Records the epoch of a landed batch, and counts an EpochStart that landed below a batch
     /// already in its stream.
     async fn record_log_batch_landed(&self) {
@@ -299,6 +319,11 @@ impl WriteLanding {
             return;
         };
         let header = &batch.header;
+        let partitions = batch
+            .records
+            .iter()
+            .map(|record| record.partition)
+            .collect();
         self.storage.observe(|observations| {
             observations.log_batches.record(
                 header.incarnation,
@@ -306,6 +331,13 @@ impl WriteLanding {
                 header.epoch,
                 header.epoch_start.is_some(),
             );
+            if header.epoch_start.is_none() {
+                observations.log_batches.record_partitions(
+                    header.incarnation,
+                    header.seq,
+                    partitions,
+                );
+            }
         });
         if batch.header.epoch_start.is_none() {
             return;

@@ -70,7 +70,9 @@ impl StandbyTakeovers {
         }
     }
 
-    /// Starts a standby of the next incarnation on a kept `disk`, or on an empty one with `None`.
+    /// Starts a standby of the serving incarnation on a kept `disk`, or on an empty one with `None`.
+    ///
+    /// A standby and its takeover share one configuration, as one real process does.
     pub(crate) fn start_standby(
         &mut self,
         environment: &ClusterEnvironment,
@@ -83,7 +85,7 @@ impl StandbyTakeovers {
         let start = StandbyStart {
             process_label: format!("s{}", self.started_standbys),
             disk,
-            incarnation: serving_incarnation + 1,
+            incarnation: serving_incarnation,
             fault_seed: self.rng.random(),
             fault_probability,
             restart_jitter_seed: self.rng.random(),
@@ -92,7 +94,8 @@ impl StandbyTakeovers {
         count_event(events, "standby-start");
     }
 
-    /// Redeploys the standby on its disk once the serving incarnation passed its own.
+    /// Redeploys the standby on its disk with a new serving incarnation, before a start opens its
+    /// stream, so the standby then follows across the segment boundary.
     pub(crate) fn follow_incarnation(
         &mut self,
         environment: &ClusterEnvironment,
@@ -248,6 +251,7 @@ impl StandbyTakeovers {
                 configured_store,
                 object_store: standby_object_store,
                 incarnation: standby_incarnation,
+                counted_stream_crossings,
                 ..
             } = standby;
             let taking_over = NodeProcess::take_over(environment, start, hot_standby);
@@ -319,6 +323,7 @@ impl StandbyTakeovers {
                         object_store: standby_object_store,
                         incarnation: standby_incarnation,
                         outage_ends_at: None,
+                        counted_stream_crossings,
                     };
                     error
                 }

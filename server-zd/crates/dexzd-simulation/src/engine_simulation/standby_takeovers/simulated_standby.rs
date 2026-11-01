@@ -31,9 +31,11 @@ pub(super) struct SimulatedStandby {
     /// The store its configuration names; a restore follows into a new one, see [`Self::disk`].
     pub(super) configured_store: Arc<EngineLocalStore>,
     pub(super) object_store: Arc<NodeObjectStore>,
-    /// The node incarnation its configuration names, one above the serving one at its start.
+    /// The node incarnation its configuration names; a takeover by it serves this incarnation.
     pub(super) incarnation: u32,
     pub(super) outage_ends_at: Option<Instant>,
+    /// Stream crossings while following that the checks already counted.
+    pub(super) counted_stream_crossings: u64,
 }
 
 /// What a standby process starts with.
@@ -90,6 +92,7 @@ impl SimulatedStandby {
             object_store,
             incarnation,
             outage_ends_at: None,
+            counted_stream_crossings: 0,
         }
     }
 
@@ -102,7 +105,7 @@ impl SimulatedStandby {
 
     /// Checks that the standby never wrote object storage and never failed for good.
     pub(super) fn check(
-        &self,
+        &mut self,
         events: &mut BTreeMap<String, u64>,
     ) -> Result<(), InvariantViolation> {
         check_wrote_nothing(&self.process_label, &self.object_store)?;
@@ -124,6 +127,11 @@ impl SimulatedStandby {
             ));
         }
         count_event(events, &format!("check-{:?}", status.state).to_lowercase());
+        let crossings = self.standby.probe_for_test().stream_crossings_for_test();
+        for _ in self.counted_stream_crossings..crossings {
+            count_event(events, "standby-crossed-stream-while-following");
+        }
+        self.counted_stream_crossings = crossings;
         Ok(())
     }
 

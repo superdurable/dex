@@ -96,7 +96,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::HotStandbyTakeovers,
         FIRST_HOT_STANDBY_SEED,
         120,
-        0xeb9485c4ba73c45d09df04546d7c6572,
+        0xc0cb0b10a638a971f53dddda5c6b3b16,
     ),
 ];
 
@@ -241,6 +241,7 @@ fn hot_standby_takeovers_keep_every_invariant() {
         "standby-crash-lost",
         "standby-outage",
         "standby-redeploy",
+        "standby-crossed-stream-while-following",
         "check-following",
         "check-restarting",
         "standby-following-at-end",

@@ -26,7 +26,7 @@ use tokio::time::Instant;
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::engine_invariants::{
     check_acknowledged_writes, check_drained, check_recovered_flows,
-    check_running_attempts_redispatched, check_store_matches_twin, has_empty_upload_ledger,
+    check_running_attempts_redispatched, check_store_matches_log, has_empty_upload_ledger,
     outstanding_work, running_attempts,
 };
 use crate::engine_simulation::event_trace::EventTrace;
@@ -38,9 +38,9 @@ use crate::engine_simulation::simulated_clock::{
     SimulatedWallClock, duration_micros, elapsed_micros,
 };
 use crate::engine_simulation::simulated_node::{
-    ClusterEnvironment, LEASE_TAKEOVER_GRACE, LocalStoreStart, NodeProcess, PARTITION_COUNT,
-    ProcessStart, RestartKind, START_CRASH_PROBABILITY, copy_local_store, self_stop_kind,
-    start_error_kind, wait_before_next_start,
+    ClusterEnvironment, LEASE_TAKEOVER_GRACE, LocalStoreStart, NodeProcess, ProcessStart,
+    RestartKind, START_CRASH_PROBABILITY, copy_local_store, self_stop_kind, start_error_kind,
+    wait_before_next_start,
 };
 use crate::engine_simulation::simulated_object_store::{
     FAULT_PROBABILITIES, NoInjectedFaults, SharedObjectStorage, StorageObservations,
@@ -542,8 +542,7 @@ impl Simulation {
         // Old-epoch processes may still apply frames, so only one live process is compared.
         if self.old_epoch_processes.is_empty() {
             if has_empty_upload_ledger(&serving.local_store)? {
-                let twin = self.environment.committed_log.twin_store(PARTITION_COUNT);
-                check_store_matches_twin(&serving.local_store, &twin)?;
+                check_store_matches_log(&serving.local_store, &self.environment.committed_log)?;
                 self.summary.state_comparisons += 1;
             } else {
                 self.summary.state_comparisons_skipped_for_upload_ledger += 1;

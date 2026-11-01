@@ -184,8 +184,17 @@ directory invariants hold on the committed history. The engine simulation adds t
    Pending calls blocked by a lock holder whose retry is scheduled in the future may remain pending.
 
 A start given an existing store must serve from it unless log cleanup passed the store's
-applied positions or a partition applied nothing (`store-discarded-without-gap`). The summary
-field `discarded_existing_stores` counts the explained discards.
+applied positions, or a partition applied nothing while the node has a snapshot
+(`store-discarded-without-gap`). The check reads the manifest that the start itself read last,
+and also covers a takeover given a standby's store. The summary field
+`discarded_existing_stores` counts the explained discards of starts, and the hot standby event
+`takeover-discarded-store` those of takeovers.
+
+At every twin comparison, every batch in the log that carries records of a partition, up to
+that partition's applied position, must have had its frame finished by some process
+(`log-frame-missing`). A batch is in the log unless an EpochStart voided it or it lies past its
+closed stream's recorded end. A hot standby's frames feed the shadow too, so a store that skipped
+a batch that no other process applied cannot match a twin that lacks it as well.
 
 The log itself is checked too. Copies of one log position must hold the same commands, and a
 partition never applies a new frame below one it already applied. No process applies a frame
@@ -287,17 +296,22 @@ in-memory disk. Its object storage view draws the seed's faults like any other p
   restart. A takeover that finds the lease held waits for it and tries again with the standby
   it gets back. 30% of the takeover attempts crash within 300 ms; a process then restarts on the
   standby's disk. After every takeover a new standby starts on an empty disk.
+- Half of the restarts and takeovers start a new node incarnation. The standby and its takeover
+  share one configuration, so a new incarnation redeploys the standby on its disk first; it then
+  follows the old stream across the segment boundary into the new one.
 - Every 10 to 40 seconds the standby may crash, keeping or losing its disk, or lose object
   storage entirely for 20 to 150 seconds.
-- Every periodic check requires that the standby never attempted an object storage write and
-  never reached `Failed`. Transient faults and outages must only make it restart.
+- Every periodic check requires that the standby never reached `Failed`, and that its own
+  object storage view never received a put or delete. Transient faults and outages must only
+  make it restart.
 - After the calm tail, the standby must follow the log again within 300 seconds.
 - Each takeover runs the recovery checks: the serving store equals the never-crashed twin, and
   every acknowledged write survives.
 
 The test requires warm takeovers, takeover crashes, standby crashes that keep and lose the
-disk, outages, checks that saw the standby following and restarting, and standbys following at
-the end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
+disk, outages, redeploys, incarnation changes, standbys that crossed a segment boundary while
+following, checks that saw the standby following and restarting, and standbys following at the
+end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
 other profiles keep their trajectories.
 
 ### Pinned trajectories
