@@ -593,6 +593,8 @@ impl ServeProcess {
     }
 }
 
+static NEXT_SCHEMA_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// An isolated schema in the ParadeDB database that `DEX_ZD_PARADEDB_URL` names.
 pub(crate) struct SqlVisibilitySchema {
     client: tokio_postgres::Client,
@@ -625,7 +627,9 @@ impl SqlVisibilitySchema {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the wall clock is after the Unix epoch")
             .as_nanos();
-        let name = format!("dexzd_serve_{}_{nonce}", std::process::id());
+        // Concurrent tests may read the same clock value.
+        let sequence = NEXT_SCHEMA_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let name = format!("dexzd_serve_{}_{nonce}_{sequence}", std::process::id());
         client
             .batch_execute(&format!("CREATE SCHEMA {name}"))
             .await

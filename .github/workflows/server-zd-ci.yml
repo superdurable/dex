@@ -216,9 +216,11 @@ jobs:
           cargo test -p dexzd-search sql_visibility::integration::paradedb_projection_and_search_use_direct_tls -- --exact 2>&1 | tee "$RUNNER_TEMP/paradedb-direct-tls-test.log"
           grep -Eq 'test result: ok\. 1 passed; 0 failed;' "$RUNNER_TEMP/paradedb-direct-tls-test.log"
       - name: Serve with ParadeDB search
-        run: cargo test -p dexzd-server --test serve_process paradedb_search_projects_commits_and_rebuilds_on_startup -- --exact
-      - name: Recover ParadeDB search after an outage
-        run: cargo test -p dexzd-server --test serve_process paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write -- --exact
+        run: cargo test -p dexzd-server --test serve_process paradedb_search_projects_commits_and_loads_a_cleared_schema -- --exact
+      - name: Project the ParadeDB search outbox through an outage, a crash, a takeover, a backend switch, and a purge
+        run: cargo test -p dexzd-server --test serve_process search_outbox::paradedb_ -- --nocapture
+      - name: Hide purging runs from ParadeDB search
+        run: cargo test -p dexzd-server --test serve_process purging_reads::frozen_purge_reads_are_not_found_except_load_blobs_with_paradedb_search -- --exact
       - name: Search Flows with work queue permissions in ParadeDB
         run: cargo test -p dexzd-server --test serve_process paradedb_search_finds_flows_with_work_queue_permissions -- --exact
       - name: Sync Attributes to PostgreSQL through the dev server

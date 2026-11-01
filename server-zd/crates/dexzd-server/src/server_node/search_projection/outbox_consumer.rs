@@ -289,7 +289,23 @@ impl SearchOutboxConsumer {
         batch: &mut OutboxBatch,
     ) -> Result<(), OutboxConsumerError> {
         let projected_through = self.partitions[usize::from(partition.0)].projected_through;
-        let (mut start, end) = search_outbox_range_after(partition, projected_through);
+        let (head_start, end) = search_outbox_range_after(partition, 0);
+        let queue_head = blocking_read(view, {
+            let (head_start, end) = (head_start.clone(), end.clone());
+            move |view| {
+                read_outbox_entries(view, partition, &head_start, &end, 1)
+                    .map_err(OutboxConsumerError::from)
+            }
+        })
+        .await?;
+        // Entries projected before a restart may still wait for their ack.
+        if queue_head
+            .first()
+            .is_some_and(|entry| entry.seq <= projected_through)
+        {
+            self.acks.cover(partition, projected_through);
+        }
+        let (mut start, _) = search_outbox_range_after(partition, projected_through);
         let page_size = self.config.batch_size;
         let mut entry_count: u64 = 0;
         loop {
