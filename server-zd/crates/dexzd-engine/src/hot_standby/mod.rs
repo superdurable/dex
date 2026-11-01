@@ -180,6 +180,8 @@ pub struct HotStandby {
 struct FollowingHandles {
     write_fence: Mutex<Option<Arc<CommitState>>>,
     store: Mutex<Option<Weak<EngineLocalStore>>>,
+    #[cfg(feature = "test-util")]
+    is_waiting_for_store_close: std::sync::atomic::AtomicBool,
 }
 
 impl HotStandby {
@@ -248,12 +250,13 @@ impl HotStandby {
         self.rejected_writes.load(Ordering::SeqCst)
     }
 
-    /// Returns a handle that fails the standby's store writes, which works after a takeover owns
-    /// the standby.
+    /// Returns a handle that observes and fails the standby, which works after a takeover owns
+    /// it.
     #[cfg(feature = "test-util")]
-    pub fn write_fence_for_test(&self) -> HotStandbyWriteFenceForTest {
-        HotStandbyWriteFenceForTest {
+    pub fn probe_for_test(&self) -> HotStandbyProbeForTest {
+        HotStandbyProbeForTest {
             following: Arc::clone(&self.following),
+            cancellation: self.cancellation.clone(),
         }
     }
 
@@ -309,9 +312,17 @@ impl HotStandby {
             return true;
         };
         let deadline = tokio::time::Instant::now() + budget;
+        #[cfg(feature = "test-util")]
+        self.following
+            .is_waiting_for_store_close
+            .store(store.strong_count() > 0, Ordering::SeqCst);
         while store.strong_count() > 0 && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(STORE_CLOSE_POLL).await;
         }
+        #[cfg(feature = "test-util")]
+        self.following
+            .is_waiting_for_store_close
+            .store(false, Ordering::SeqCst);
         let is_closed = store.strong_count() == 0;
         if !is_closed {
             tracing::error!("a task still holds the hot standby's local store open");
@@ -357,21 +368,34 @@ impl Drop for HotStandby {
     }
 }
 
-/// Fails a hot standby's store writes from a test.
+/// Observes a hot standby's stop and fails its store writes from a test.
 #[cfg(feature = "test-util")]
-pub struct HotStandbyWriteFenceForTest {
+pub struct HotStandbyProbeForTest {
     following: Arc<FollowingHandles>,
+    cancellation: CancellationToken,
 }
 
 #[cfg(feature = "test-util")]
-impl HotStandbyWriteFenceForTest {
+impl HotStandbyProbeForTest {
     /// Stops the current write fence as a failed store write would; does nothing between periods.
-    pub fn fail_for_test(&self) {
+    pub fn fail_store_writes_for_test(&self) {
         if let Some(write_fence) = self.following.current_write_fence() {
             write_fence.stop(NodeStopReason::LocalStoreFailed {
                 detail: "a test failed the hot standby's store writes".to_owned(),
             });
         }
+    }
+
+    /// Returns whether a handover, shutdown, or drop began to stop the standby.
+    pub fn is_stopping_for_test(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
+    /// Returns whether a caller waits for a task to close the standby's store.
+    pub fn is_waiting_for_store_close_for_test(&self) -> bool {
+        self.following
+            .is_waiting_for_store_close
+            .load(Ordering::SeqCst)
     }
 }
 

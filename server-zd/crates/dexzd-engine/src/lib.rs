@@ -56,7 +56,7 @@ pub use flow_coordination::{
     grpc_code,
 };
 #[cfg(feature = "test-util")]
-pub use hot_standby::HotStandbyWriteFenceForTest;
+pub use hot_standby::HotStandbyProbeForTest;
 pub use hot_standby::{
     HotStandby, HotStandbyConfig, HotStandbyDependencies, HotStandbyLag, HotStandbyState,
     HotStandbyStatus, HotStandbyStatusReader,

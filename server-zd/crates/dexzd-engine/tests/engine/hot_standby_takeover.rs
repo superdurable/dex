@@ -21,7 +21,6 @@ use dexzd_storage::{
     InMemoryLocalStore, LocalReadView, LocalStore, RocksDbLocalStore, RocksDbStoreOptions,
 };
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use crate::harness::{
@@ -580,28 +579,15 @@ async fn read_batch(
     decode_batch(&content.bytes).expect("decode the batch")
 }
 
-/// How long a real-time test waits after the lease, so a takeover is inside the handover.
-const HANDOVER_START_DELAY: Duration = Duration::from_millis(300);
+/// Longest a real-time test waits for a standby to reach the point under test.
+const PROBE_DEADLINE: Duration = Duration::from_secs(30);
 
-/// Waits until the manifest records a node epoch above `epoch`, as a takeover's lease does.
-async fn wait_for_epoch_above(cluster: &TestCluster, epoch: u64) {
-    let deadline = Instant::now() + LEASE_READ_DEADLINE;
-    while recorded_epoch(cluster).await <= epoch {
-        assert!(Instant::now() < deadline, "no process took the lease");
+/// Polls `is_reached` in real time until it holds.
+async fn wait_for_probe(description: &str, is_reached: impl Fn() -> bool) {
+    let deadline = Instant::now() + PROBE_DEADLINE;
+    while !is_reached() {
+        assert!(Instant::now() < deadline, "{description}");
         tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-}
-
-/// Returns a future that opens the gate of `applier` after `delay`, for a task to run while the
-/// test awaits what the gate holds up.
-fn open_gate_after(
-    applier: &Arc<CountingApplier>,
-    delay: Duration,
-) -> impl Future<Output = ()> + Send + 'static {
-    let applier = Arc::clone(applier);
-    async move {
-        tokio::time::sleep(delay).await;
-        applier.gate.open();
     }
 }
 
@@ -652,31 +638,46 @@ async fn standby_with_a_command_mid_apply(
     (standby, gate)
 }
 
-/// Starts a takeover in a task and cancels it once it is inside the handover.
-///
-/// Returns the task that opens the standby's gate two seconds after the cancellation.
+/// Starts a takeover in a task and cancels it while the handover waits for the gated lane.
+/// Opens the gate once the cancelled takeover waits for the standby's store to close.
 async fn cancel_a_takeover_mid_handover(
     cluster: &TestCluster,
     standby_config: EngineNodeConfig,
     standby: TestStandby,
-) -> JoinHandle<()> {
-    let epoch = recorded_epoch(cluster).await;
+) {
+    let probe = standby.standby.probe_for_test();
     let (cancel, cancellation) = watch::channel(false);
     let (_, takeover) = take_over(cluster, standby_config, standby.standby, cancellation);
     let takeover = tokio::spawn(takeover);
-    // The handover waits for the gated lane, so cancellation arrives in the middle of it.
-    wait_for_epoch_above(cluster, epoch).await;
-    tokio::time::sleep(HANDOVER_START_DELAY).await;
-    let gate_opener = tokio::spawn(open_gate_after(&standby.applier, Duration::from_secs(2)));
+    wait_for_probe("the handover did not stop the standby", || {
+        probe.is_stopping_for_test()
+    })
+    .await;
     cancel
         .send(true)
         .expect("the takeover listens for cancellation");
+    let deadline = Instant::now() + PROBE_DEADLINE;
+    let mut has_waited_for_store_close = false;
+    while !takeover.is_finished() {
+        if !has_waited_for_store_close && probe.is_waiting_for_store_close_for_test() {
+            has_waited_for_store_close = true;
+            standby.applier.gate.open();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the cancelled takeover did not finish"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert!(
+        has_waited_for_store_close,
+        "the cancelled takeover released the lease before the standby's store closed"
+    );
     let cancelled = takeover.await.expect("the takeover task completes").result;
     assert!(
         matches!(cancelled, Err(EngineStartError::Stopped { .. })),
         "a takeover cancelled after the lease stops"
     );
-    gate_opener
 }
 
 #[tokio::test]
@@ -686,8 +687,7 @@ async fn a_start_on_the_directory_succeeds_right_after_a_takeover_is_cancelled_m
     let standby_config = cluster.config(rocksdb_store(&directory.path().join("standby")));
     let (standby, _gate) =
         standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
-    let gate_opener =
-        cancel_a_takeover_mid_handover(&cluster, standby_config.clone(), standby).await;
+    cancel_a_takeover_mid_handover(&cluster, standby_config.clone(), standby).await;
 
     let started = tokio::time::timeout(
         Duration::from_secs(20),
@@ -699,7 +699,6 @@ async fn a_start_on_the_directory_succeeds_right_after_a_takeover_is_cancelled_m
     assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
     assert_eq!(node.committed_count(BLOCKING_FLOW).await, 1);
     node.node.shutdown().await.expect("lease released");
-    gate_opener.await.expect("the gate opener completes");
 }
 
 #[tokio::test]
@@ -709,8 +708,7 @@ async fn a_new_standby_on_the_directory_follows_right_after_a_takeover_is_cancel
     let standby_config = cluster.config(rocksdb_store(&directory.path().join("standby")));
     let (standby, _gate) =
         standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
-    let gate_opener =
-        cancel_a_takeover_mid_handover(&cluster, standby_config.clone(), standby).await;
+    cancel_a_takeover_mid_handover(&cluster, standby_config.clone(), standby).await;
 
     let next = start_standby(&cluster, standby_config, fast_standby_config());
     next.applier.gate.open();
@@ -721,7 +719,6 @@ async fn a_new_standby_on_the_directory_follows_right_after_a_takeover_is_cancel
         "the new standby opened the directory without a restart"
     );
     assert!(next.standby.shutdown().await, "the standby's store closed");
-    gate_opener.await.expect("the gate opener completes");
 }
 
 #[tokio::test]
@@ -785,15 +782,16 @@ async fn a_takeover_opens_the_store_cold_after_a_standby_store_write_failed_in_t
     let (standby, _gate) =
         standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
     let standby_applier = standby.applier.clone();
-    let write_fence = standby.standby.write_fence_for_test();
-    let epoch = recorded_epoch(&cluster).await;
+    let probe = standby.standby.probe_for_test();
     let (_cancel, cancellation) = watch::channel(false);
     let (_, takeover) = take_over(&cluster, standby_config, standby.standby, cancellation);
     let takeover = tokio::spawn(takeover);
-    wait_for_epoch_above(&cluster, epoch).await;
-    tokio::time::sleep(HANDOVER_START_DELAY).await;
+    wait_for_probe("the handover did not stop the standby", || {
+        probe.is_stopping_for_test()
+    })
+    .await;
     // A write fails after the handover cancelled following, so only the fence records it.
-    write_fence.fail_for_test();
+    probe.fail_store_writes_for_test();
     standby_applier.gate.open();
 
     let takeover = takeover.await.expect("the takeover task completes");
@@ -815,19 +813,23 @@ async fn a_takeover_waits_for_a_lingering_standby_lane_before_it_reopens_the_sto
     let (standby, _gate) =
         standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
     let standby_applier = standby.applier.clone();
-    let write_fence = standby.standby.write_fence_for_test();
-    let epoch = recorded_epoch(&cluster).await;
+    let probe = standby.standby.probe_for_test();
     let (_cancel, cancellation) = watch::channel(false);
     let (_, takeover) = take_over(&cluster, standby_config, standby.standby, cancellation);
     let takeover = tokio::spawn(takeover);
-    wait_for_epoch_above(&cluster, epoch).await;
-    tokio::time::sleep(HANDOVER_START_DELAY).await;
-    write_fence.fail_for_test();
-    // The handover gives up on the lane within six seconds; the lane then still holds the store.
-    let gate_opener = tokio::spawn(open_gate_after(&standby_applier, Duration::from_secs(8)));
+    wait_for_probe("the handover did not stop the standby", || {
+        probe.is_stopping_for_test()
+    })
+    .await;
+    probe.fail_store_writes_for_test();
+    // The handover gives up on the lane, which still holds the store as the cold path opens it.
+    wait_for_probe("the takeover did not wait for the store to close", || {
+        probe.is_waiting_for_store_close_for_test()
+    })
+    .await;
+    standby_applier.gate.open();
 
     let takeover = takeover.await.expect("the takeover task completes");
-    gate_opener.await.expect("the gate opener completes");
     let node = serving_test_node(&cluster, takeover);
     assert!(!node.node.is_serving_hot_standby_store_for_test());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
