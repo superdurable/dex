@@ -135,7 +135,7 @@ fn applied_positions(directory: &std::path::Path) -> Vec<(u64, u64)> {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_takeover_from_a_warm_store_reads_almost_none_of_the_log() {
+async fn a_takeover_after_idle_partitions_reads_little_and_outranks_every_followed_epoch() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let standby_directory = directory.path().join("standby");
     let mut cluster = TestCluster::new();
@@ -405,6 +405,46 @@ async fn a_takeover_from_a_standby_without_a_store_restores_the_newest_snapshot(
         applied_flows(&node.applier),
         vec![FIRST_FLOW.to_owned(); 2],
         "the start replays the commands after the snapshot"
+    );
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_takeover_opens_the_configured_store_when_the_standby_followed_into_another() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let standby_directory = directory.path().join("standby");
+    let node_directory = directory.path().join("node");
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby = start_standby(
+        &cluster,
+        cluster.config(rocksdb_store(&standby_directory)),
+        fast_standby_config(),
+    );
+    serving.commit_prompt(FIRST_FLOW, 3).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    serving.node.shutdown().await.expect("lease released");
+
+    let (node, _) = take_over_to_serving(
+        &cluster,
+        cluster.config(rocksdb_store(&node_directory)),
+        standby.standby,
+    )
+    .await;
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 3);
+    assert_eq!(
+        applied_flows(&node.applier),
+        vec![FIRST_FLOW.to_owned(); 3],
+        "the configured store replays the log instead of serving the standby's store"
+    );
+    assert!(
+        std::fs::read_dir(&node_directory)
+            .expect("the configured store directory exists")
+            .next()
+            .is_some()
     );
     node.node.shutdown().await.expect("lease released");
 }
