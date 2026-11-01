@@ -654,6 +654,80 @@ object to stderr with the operation, error kind, gRPC code/name, and status
 details when supplied. Usage and missing-confirmation failures exit with status
 2; connection and RPC failures exit with status 1.
 
+## Administer the active server process
+
+server-zd does not serve AdminService yet, so these commands currently fail with
+Unimplemented. The rest of this section describes them against a server that
+serves AdminService.
+
+`dexcli admin describe` calls AdminService `DescribeActiveNode`. It prints the
+`nodeId`, `nodeEpoch`, and `holderProcessId` of the active server process behind
+`--server`, and changes nothing. It fails with FailedPrecondition while a step
+down or its hold-off is in progress, and with Unavailable when no server process
+is reachable. Then wait past the hold-off and describe again.
+
+`dexcli admin step-down --yes` calls AdminService `StepDownActiveNode`. The active
+server process stops serving, waits briefly for in-flight commits, and releases
+its lease. Another process of the same node ID can then take over. After the
+release, the call waits for a takeover for up to `leaseReacquisitionHoldOff`.
+Without a takeover, the stepped-down process takes the lease back.
+
+Every step down request carries a precondition: the node ID and node epoch of
+the process to step down. A process that does not match answers
+FailedPrecondition and changes nothing. The flags combine as follows:
+
+- Neither flag: the command first calls `DescribeActiveNode` and expects the
+  node ID and node epoch it returns.
+- `--expected-node-id` alone: the command describes first, refuses without
+  stepping anything down if the server reports another node ID, and otherwise
+  expects that node ID and the described node epoch. This guards a first run
+  against a wrong `--server`.
+- Both flags: the command sends them as they are, without describing.
+- `--expected-node-epoch` alone is a usage error.
+
+If the first describe fails, nothing is stepped down, and the error output
+carries `stepDownOutcome: notAttempted`. A step down in progress may be one that
+you or someone else already started. Wait past the hold-off, run
+`dexcli admin describe`, and step down again only if the switchover you wanted
+has not happened.
+
+The command prints:
+
+- `expectedNodeId` and `expectedNodeEpoch`: the precondition it sent;
+- `nodeId`, `releasedNodeEpoch`, and `leaseReacquisitionHoldOff`;
+- `leaseHolderAfterStepDown`: `takenOverByAnotherProcess`,
+  `takenBackByThisProcess`, or `unknown` when neither was confirmed;
+- `activeNodeEpoch` and `activeHolderProcessId` of the process that holds the
+  lease, or `leaseHolderUnknownDetail` when it is unknown.
+
+Node epochs are decimal strings, as in protobuf JSON. The command requires
+`--yes`. The default `--timeout` is 2 minutes, well above the drain bound, the
+hold-off, and one lease acquisition attempt. An explicit `--timeout` before or
+after the subcommand replaces it.
+
+DeadlineExceeded, Canceled, or Unavailable means the outcome of the step down is
+unknown. The error output then carries `stepDownOutcome: unknown`, the
+`expectedNodeId` and `expectedNodeEpoch` that the call used, and a `hint`. Retry
+only with those same values, never with values that `dexcli admin describe`
+prints after the failure: they identify whichever process is active by then. If
+describe now shows another node epoch or holder process ID, the step down
+already happened, so do not retry. A retry with the original values would then
+fail with FailedPrecondition and change nothing. Do not run the command again
+without these flags; it would describe and step down whichever process is active
+now. On a single replica, a step down
+stops serving for about one hold-off, and then the same process takes the lease
+back with a new node epoch.
+
+Both commands use the regular server, credential, TLS, timeout, and output
+flags. When the server configures authentication, the credential must be a JWT
+whose issuer's `jwt` authenticator lists one of the token's audiences in its
+`adminAudiences`, which is empty by default. Static tokens never qualify. The API
+key exchange sends only the server ID and the API key, so `dexcli` cannot ask
+for an admin audience. It works for admin commands only if the token endpoint
+itself issues tokens with an admin audience for that key. A server without
+authentication, such as the local dev server, needs no credential, so anyone who
+can reach it can step it down.
+
 ## Build and test
 
 Requirements are Go 1.26+, Node.js 22+, and a `dex-server-zd` binary for dev

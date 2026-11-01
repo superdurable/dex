@@ -144,6 +144,7 @@ async fn a_key_rotated_under_the_same_kid_applies_at_the_refresh_boundary() {
         JwtAuthenticatorConfig {
             issuer: TEST_ISSUER.to_owned(),
             audiences: vec![TEST_AUDIENCE.to_owned()],
+            admin_audiences: Vec::new(),
             jwks_url: None,
             allow_insecure_jwks_url: false,
             ca_file: None,

@@ -72,7 +72,43 @@ func withStreamingFlowService(
 	return nil
 }
 
+// withServerConnection runs call with the request timeout over a new connection to --server.
+func withServerConnection(
+	ctx context.Context,
+	options options,
+	serviceName string,
+	call func(context.Context, *grpc.ClientConn) error,
+) error {
+	connection, err := newServerConnection(options, serviceName)
+	if err != nil {
+		return newOperationError("connect", err)
+	}
+	callCtx, cancel := requestContext(ctx, options)
+	callErr := call(callCtx, connection)
+	cancel()
+	closeErr := connection.Close()
+	if callErr != nil {
+		return callErr
+	}
+	if closeErr != nil {
+		return newOperationError("close", closeErr)
+	}
+	return nil
+}
+
 func newFlowService(options options) (*flowService, error) {
+	connection, err := newServerConnection(options, "FlowService")
+	if err != nil {
+		return nil, err
+	}
+	return &flowService{
+		connection: connection,
+		service:    dexpb.NewFlowServiceClient(connection),
+	}, nil
+}
+
+// newServerConnection dials --server with the configured transport and per-call credentials.
+func newServerConnection(options options, serviceName string) (*grpc.ClientConn, error) {
 	transportCredential, err := newTransportCredential(options)
 	if err != nil {
 		return nil, err
@@ -96,12 +132,9 @@ func newFlowService(options options) (*flowService, error) {
 		dialOptions...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("create FlowService client: %w", err)
+		return nil, fmt.Errorf("create %s client: %w", serviceName, err)
 	}
-	return &flowService{
-		connection: connection,
-		service:    dexpb.NewFlowServiceClient(connection),
-	}, nil
+	return connection, nil
 }
 
 // newTransportCredential returns plaintext unless TLS is enabled; gRPC adds the h2 ALPN protocol and,

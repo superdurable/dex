@@ -253,11 +253,14 @@ server-zd v0.1.2 及更早的版本从不删除被移到一旁的目录。升级
   这一部分用于应对上一个 owner 没有释放 lease 的情况。恢复时间随当前状态和日志尾部增长。
   空存储的冷恢复用时约 4 s，有真实数据时要预留更多。示例允许 5 分钟。
 - **readinessProbe** 在节点不提供服务时挡住流量。
-- **livenessProbe** 重启不再响应的节点。不要用 TCP probe 做 liveness：卡住的进程仍可能通过
-  内核的连接队列接受 TCP 连接，却不提供任何服务。
+- **livenessProbe** 重启不再响应的节点。对于从不让位的节点，liveness 优先用 gRPC health
+  而不是 TCP probe：卡住的进程仍可能通过内核的连接队列接受 TCP 连接，却不提供任何服务。
 
-正在服务的节点不会在不退出的情况下回到 **NOT_SERVING**，因为丢失 lease 会结束进程。所以在
-gRPC health 上做 liveness 不会造成反复重启。
+目前，正在服务的节点只有在退出时才会回到 **NOT_SERVING**，因为丢失 lease 会结束进程。所以在
+gRPC health 上做 liveness 不会造成反复重启。server-zd 提供 **AdminService** 之后，这一点
+不再成立。[让位](#step-down)会让 active 进程报告 **NOT_SERVING**，同时继续作为 standby
+运行，这时基于 gRPC health 的 liveness probe 会重启它。可能让位的进程需要使用 standby 的
+TCP 或 exec liveness probe。
 
 这组 probe 适用于单副本，这是目前支持的拓扑。standby 副本在接管之前一直是
 **NOT_SERVING**，永远过不了这个 startup probe。standby 需要改用 TCP 或 exec 的 startup
@@ -320,6 +323,98 @@ Kubernetes 随后按退避策略重启容器。
 
 默认情况下，如果另一个进程持有 lease，启动中的节点会等待。把 **lease.failIfHeld**
 设为 true 可以改为直接启动失败。
+
+## 让 active 进程让位 {#step-down}
+
+server-zd 目前还不提供 **AdminService**，所以 **dexcli admin describe** 和
+**dexcli admin step-down** 现在会以 **UNIMPLEMENTED** 失败。本节其余内容描述的是这两个
+command 在提供 **AdminService** 的 server 上的行为。
+
+**dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
+服务，并短暂等待在途的提交完成，然后释放 lease，并继续作为 standby 运行。同一个 node ID
+的另一个进程随即可以拿到 lease，和优雅关闭之后一样。让位的进程要等待一段 hold-off，才会
+再次竞争 lease。如果这段时间内没有其他进程接管，它会把 lease 拿回来。
+
+**dexcli admin describe** 输出 active 进程的 **nodeId**、**nodeEpoch** 和
+**holderProcessId**，不做任何修改。每次拿到 lease 都会提高 node epoch。两个 command 都需要
+[admin 凭证](#admin-credentials)。让位还需要 **--yes** flag。
+
+~~~bash
+dexcli --server dex.example.internal:8801 admin describe \
+  --credential-file /run/secrets/dex/admin-token
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --credential-file /run/secrets/dex/admin-token
+~~~
+
+每个让位请求都带有前置条件：要让位的进程的 node ID 和 node epoch。不匹配的进程返回
+**FAILED_PRECONDITION**，不做任何修改。**dexcli admin step-down** 的 flag 这样组合：
+
+- 没有 **--expected-node-id** 和 **--expected-node-epoch** 时，先查询 active 进程，并以
+  查询返回的 node ID 和 node epoch 作为前置条件。
+- 只有 **--expected-node-id** 时，先查询。如果 server 报告的是另一个 node ID，就拒绝执行，
+  不让任何进程让位。否则以这个 node ID 和查询到的 node epoch 作为前置条件。第一次运行时
+  用它防止 **--server** 写错。
+- 两个 flag 都有时，原样发送，不查询。
+- 只有 **--expected-node-epoch** 是用法错误。
+
+如果先做的查询失败，这个 command 不会让任何进程让位。正在进行的让位可能是你或其他人已经
+发起的。等过 hold-off，运行 **dexcli admin describe**，只有在你想要的切换还没有发生时才再次
+让位。
+
+释放 lease 之后，让位调用会观察 lease。一旦有其他进程接管，调用立即返回。否则，它在
+hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长持续：提交排空的上限、释放
+lease、hold-off，再加一次获取 lease 的尝试。除非设置了 **--timeout**，
+**dexcli admin step-down** 最多等待 2 分钟。输出包含这些字段：
+
+- **expectedNodeId** 和 **expectedNodeEpoch** 给出 command 发送的前置条件。
+- **nodeId**、**releasedNodeEpoch** 和 **leaseReacquisitionHoldOff** 给出 node ID、
+  被释放的 lease 的 epoch 和 hold-off。
+- **leaseHolderAfterStepDown** 表示调用返回时哪个进程持有 lease：
+  - **takenOverByAnotherProcess**：另一个进程接管了。
+  - **takenBackByThisProcess**：hold-off 内没有其他进程接管，让位的进程把 lease 拿了
+    回来。
+  - **unknown**：两种情况都没有确认，**leaseHolderUnknownDetail** 说明原因。
+- **activeNodeEpoch** 和 **activeHolderProcessId** 在已知时给出持有 lease 的进程。
+
+node epoch 以十进制字符串输出。
+
+### 安全地重试让位 {#retry-step-down}
+
+让位以 **DEADLINE_EXCEEDED**、**CANCELLED** 或 **UNAVAILABLE** 失败时，结果未知。错误
+输出会说明这一点，并带上这次调用使用的 **expectedNodeId** 和 **expectedNodeEpoch**。
+
+重试时只能使用这两个值，也就是你最初想让位的那个进程的值：
+
+~~~bash
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --expected-node-id node-a --expected-node-epoch 7 \
+  --credential-file /run/secrets/dex/admin-token
+~~~
+
+绝不要用失败之后 **dexcli admin describe** 输出的 node epoch 重试。describe 总是显示
+那时的 active 进程。假设失败的调用其实已经让 epoch 7 让位，并且一个 standby 以 epoch 8
+接管了。用 epoch 8 重试会让这个 standby 让位。在单副本上，同一个进程可能已经以 epoch 9
+拿回 lease，用 epoch 9 重试会造成第二次中断。用原来的 epoch 7 重试，在这两种情况下都会
+返回 **FAILED_PRECONDITION**，不做任何修改。
+
+不要在不带这两个 flag 的情况下再次运行这个 command；它会查询并让当前的 active 进程让位。
+
+可以运行 **dexcli admin describe** 查看发生了什么。如果 node epoch 或 holder process ID
+变了，说明让位或其他接管已经发生，不要重试。让位或其 hold-off 进行期间，describe 返回
+**FAILED_PRECONDITION**；没有可访问的 server 进程时，返回 **UNAVAILABLE**。这时等过
+hold-off 后再查询。
+
+### 单副本、probe 和访问控制 {#step-down-single-replica}
+
+单副本时没有其他进程可以接管。让位会停止服务大约一个 hold-off，然后同一个进程用新的
+node epoch 拿回 lease。
+
+让位的进程继续运行，但报告 **NOT_SERVING**。让一个进程让位之前，先确认它的 liveness
+probe 没有使用 gRPC health，见[健康检查](#健康检查)。否则 Kubernetes 会重启让位的进程。
+
+没有身份验证时，任何能访问 **api.listen** 的人都可以让节点让位，而且可以反复这样做。请配置
+[admin 凭证](#admin-credentials)，或者限制对 **api.listen** 的访问。没有
+**AdminService** 的 server 返回 **UNIMPLEMENTED**。
 
 ## 对象存储
 
@@ -777,6 +872,7 @@ auth:
     - kind: jwt
       issuer: https://issuer.example.com
       audiences: ["dex"]
+      adminAudiences: []
       jwksURL: ""
       allowInsecureJWKSURL: false
       caFile: ""
@@ -786,7 +882,8 @@ auth:
 
 **allowInsecureJWKSURL** 允许在可信网络上使用明文 HTTP 的
 **jwksURL**。**jwksURL** 为空时，通过 issuer 的 OpenID 配置发现 key set。**caFile**
-把一个 PEM bundle 加到系统根证书中。
+把一个 PEM bundle 加到系统根证书中。**adminAudiences** 列出可以授权
+[admin 调用](#admin-credentials)的 audience。
 
 静态 token 文件只列出 SHA-256 哈希，绝不保存明文 token：
 
@@ -803,6 +900,49 @@ server 只在调用开始时检查一次凭证。已经打开的 pull Worker str
 
 **api.listen** 提供明文 gRPC，bearer 凭证会以明文在网络上传输。在 server 前面终止
 TLS，或者只允许可信的调用方访问网络。
+
+### Admin 凭证 {#admin-credentials}
+
+admin 调用（例如[查询和让位](#step-down)）需要单独的凭证。每个 **jwt** authenticator 都
+可以配置 **adminAudiences**：这些 JWT audience 会让该 issuer 的 token 成为 admin 凭证。
+这个列表默认为空，所以在你配置之前，没有 issuer 能授权 admin 调用。
+
+~~~yaml
+auth:
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+      adminAudiences: ["dex-operators"]
+~~~
+
+**auth.authenticators** 不为空时，admin 调用需要一个由其 issuer 的 **jwt** authenticator
+接受的 JWT，并且 token 的某个 audience 必须在这个 authenticator 的 **adminAudiences**
+中。静态 token 永远不能授权 admin 调用。凭证缺失或无效时返回 **UNAUTHENTICATED**。有效的
+公共 API 凭证如果没有 admin audience，返回 **PERMISSION_DENIED**。
+
+只给自己决定 token audience 的 issuer 配置 **adminAudiences**。绝不要给允许调用方自选
+**aud** 的 issuer 配置，例如 Kubernetes projected service account token，或者和其他项目
+共用的 CI OIDC provider。任何能从这类 issuer 拿到 token 的人，都可以申请 admin audience，
+让节点让位。
+
+**adminAudiences** 只适用于 **jwt** authenticator。其中的值不能为空，也不能与同一个
+authenticator 的 **audiences** 重复，这样公共 API 凭证永远不能授权 admin 调用。
+
+只签发 admin 凭证的 issuer，在设置了 **adminAudiences** 时可以让 **audiences** 为空。
+这样它的 token 永远不能授权 **FlowService** 或 **WorkerTaskService** 调用。如果它是唯一的
+authenticator，公共 API 身份验证仍然开启，所以所有 **FlowService** 和 Worker 调用都会被拒绝。
+
+**dexcli** 的 API key 交换只发送 server ID 和 API key，无法申请 admin audience。只有当
+token endpoint 自己为这个 key 签发带 admin audience 的 token 时，API key 才能用于 admin
+command。
+
+身份验证关闭时（例如本地开发 server），admin 调用不需要凭证。这时任何能访问
+**api.listen** 的人都可以让节点让位，而且可以反复这样做。
+
+server-zd 在启动时校验 **adminAudiences**。提供 **AdminService** 之后，server-zd 会记录
+每个被授权的 admin 调用，以及调用方的 **iss** 和 **sub** claim。被拒绝的 admin 调用以
+warning 记录，最多每 10 秒一次。在此之前，这个设置没有其他作用。
 
 ## Server 与 SDK 的协议兼容性
 

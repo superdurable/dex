@@ -1417,3 +1417,201 @@ var WorkerTaskService_ServiceDesc = grpc.ServiceDesc{
 	},
 	Metadata: "dex.proto",
 }
+
+const (
+	AdminService_DescribeActiveNode_FullMethodName = "/dex.AdminService/DescribeActiveNode"
+	AdminService_StepDownActiveNode_FullMethodName = "/dex.AdminService/StepDownActiveNode"
+)
+
+// AdminServiceClient is the client API for AdminService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Hosted by server-zd; operators call these RPCs through dexcli.
+type AdminServiceClient interface {
+	// Returns the node ID, node epoch, and lease holder of the active Server process.
+	//
+	// The process that receives the call answers from the node lease it holds.
+	// It fails with FailedPrecondition when it is not the active process, for
+	// example while it starts, stands by, or steps down, or while no process
+	// holds the lease during a hold-off. Wait past the hold-off and call again.
+	// The call changes nothing, so it is safe to retry.
+	DescribeActiveNode(ctx context.Context, in *DescribeActiveNodeRequest, opts ...grpc.CallOption) (*DescribeActiveNodeResponse, error)
+	// Makes the active Server process of a node ID give up its node lease.
+	//
+	// The active process stops serving and waits, within a bound, for in-flight
+	// commits. It then releases the node lease and stays running as a standby
+	// process. It waits for lease_reacquisition_hold_off before it competes for
+	// the lease again, so another standby process of the same node ID can take
+	// over first. If none does, it takes the lease back with a new node epoch.
+	//
+	// After the release, the call watches the node lease. It returns as soon as
+	// another process takes over. Otherwise it returns after the hold-off and
+	// one attempt by this process to take the lease back. The call therefore
+	// lasts at most the commit drain bound, the release, the hold-off, and one
+	// lease acquisition attempt. The response names the process that holds the
+	// lease, or says that neither case was confirmed within that bound.
+	//
+	// Without a precondition, a call steps down whichever process is active when
+	// it arrives, so a blind retry can step down the process that just took over.
+	// Call DescribeActiveNode first and set expected_node_id and
+	// expected_node_epoch to the values it returned. Keep those values for any
+	// retry.
+	StepDownActiveNode(ctx context.Context, in *StepDownActiveNodeRequest, opts ...grpc.CallOption) (*StepDownActiveNodeResponse, error)
+}
+
+type adminServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAdminServiceClient(cc grpc.ClientConnInterface) AdminServiceClient {
+	return &adminServiceClient{cc}
+}
+
+func (c *adminServiceClient) DescribeActiveNode(ctx context.Context, in *DescribeActiveNodeRequest, opts ...grpc.CallOption) (*DescribeActiveNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DescribeActiveNodeResponse)
+	err := c.cc.Invoke(ctx, AdminService_DescribeActiveNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) StepDownActiveNode(ctx context.Context, in *StepDownActiveNodeRequest, opts ...grpc.CallOption) (*StepDownActiveNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StepDownActiveNodeResponse)
+	err := c.cc.Invoke(ctx, AdminService_StepDownActiveNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AdminServiceServer is the server API for AdminService service.
+// All implementations must embed UnimplementedAdminServiceServer
+// for forward compatibility.
+//
+// Hosted by server-zd; operators call these RPCs through dexcli.
+type AdminServiceServer interface {
+	// Returns the node ID, node epoch, and lease holder of the active Server process.
+	//
+	// The process that receives the call answers from the node lease it holds.
+	// It fails with FailedPrecondition when it is not the active process, for
+	// example while it starts, stands by, or steps down, or while no process
+	// holds the lease during a hold-off. Wait past the hold-off and call again.
+	// The call changes nothing, so it is safe to retry.
+	DescribeActiveNode(context.Context, *DescribeActiveNodeRequest) (*DescribeActiveNodeResponse, error)
+	// Makes the active Server process of a node ID give up its node lease.
+	//
+	// The active process stops serving and waits, within a bound, for in-flight
+	// commits. It then releases the node lease and stays running as a standby
+	// process. It waits for lease_reacquisition_hold_off before it competes for
+	// the lease again, so another standby process of the same node ID can take
+	// over first. If none does, it takes the lease back with a new node epoch.
+	//
+	// After the release, the call watches the node lease. It returns as soon as
+	// another process takes over. Otherwise it returns after the hold-off and
+	// one attempt by this process to take the lease back. The call therefore
+	// lasts at most the commit drain bound, the release, the hold-off, and one
+	// lease acquisition attempt. The response names the process that holds the
+	// lease, or says that neither case was confirmed within that bound.
+	//
+	// Without a precondition, a call steps down whichever process is active when
+	// it arrives, so a blind retry can step down the process that just took over.
+	// Call DescribeActiveNode first and set expected_node_id and
+	// expected_node_epoch to the values it returned. Keep those values for any
+	// retry.
+	StepDownActiveNode(context.Context, *StepDownActiveNodeRequest) (*StepDownActiveNodeResponse, error)
+	mustEmbedUnimplementedAdminServiceServer()
+}
+
+// UnimplementedAdminServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAdminServiceServer struct{}
+
+func (UnimplementedAdminServiceServer) DescribeActiveNode(context.Context, *DescribeActiveNodeRequest) (*DescribeActiveNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DescribeActiveNode not implemented")
+}
+func (UnimplementedAdminServiceServer) StepDownActiveNode(context.Context, *StepDownActiveNodeRequest) (*StepDownActiveNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StepDownActiveNode not implemented")
+}
+func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
+func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
+
+// UnsafeAdminServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AdminServiceServer will
+// result in compilation errors.
+type UnsafeAdminServiceServer interface {
+	mustEmbedUnimplementedAdminServiceServer()
+}
+
+func RegisterAdminServiceServer(s grpc.ServiceRegistrar, srv AdminServiceServer) {
+	// If the following call panics, it indicates UnimplementedAdminServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AdminService_ServiceDesc, srv)
+}
+
+func _AdminService_DescribeActiveNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DescribeActiveNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DescribeActiveNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DescribeActiveNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DescribeActiveNode(ctx, req.(*DescribeActiveNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_StepDownActiveNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StepDownActiveNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).StepDownActiveNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_StepDownActiveNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).StepDownActiveNode(ctx, req.(*StepDownActiveNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AdminService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "dex.AdminService",
+	HandlerType: (*AdminServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "DescribeActiveNode",
+			Handler:    _AdminService_DescribeActiveNode_Handler,
+		},
+		{
+			MethodName: "StepDownActiveNode",
+			Handler:    _AdminService_StepDownActiveNode_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "dex.proto",
+}

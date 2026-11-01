@@ -119,6 +119,9 @@ struct JoseHeader {
 struct RegisteredClaims {
     #[serde(default)]
     iss: Option<String>,
+    // A Value, so a non-string sub stays accepted as before; only audit logs read it.
+    #[serde(default)]
+    sub: Option<serde_json::Value>,
     #[serde(default)]
     aud: Option<Audience>,
     #[serde(default)]
@@ -183,6 +186,11 @@ impl<'credential> UnverifiedJsonWebToken<'credential> {
         self.claims.iss.as_deref()
     }
 
+    /// Returns the `sub` claim when it is a string; trust it only after verification.
+    pub(crate) fn subject(&self) -> Option<&str> {
+        self.claims.sub.as_ref().and_then(serde_json::Value::as_str)
+    }
+
     /// Checks issuer, expiry presence, audience, and the validity period with the leeway, in the Go Server's order.
     fn validate_claims(
         &self,
@@ -227,7 +235,7 @@ impl<'credential> UnverifiedJsonWebToken<'credential> {
 /// Verifies JWTs of one issuer against its cached key set.
 pub(crate) struct JwtVerifier {
     config: JwtAuthenticatorConfig,
-    key_set: JsonWebKeySetCache,
+    key_set: Arc<JsonWebKeySetCache>,
     clock: Arc<dyn WallClock>,
 }
 
@@ -239,9 +247,34 @@ impl JwtVerifier {
     ) -> Self {
         Self {
             config,
-            key_set,
+            key_set: Arc::new(key_set),
             clock,
         }
+    }
+
+    /// Returns a verifier of the same issuer and key set cache that accepts only its admin audiences.
+    ///
+    /// Returns `None` when the issuer configures no non-empty admin audience.
+    pub(super) fn for_admin_audiences(&self) -> Option<Self> {
+        let admin_audiences: Vec<String> = self
+            .config
+            .admin_audiences
+            .iter()
+            .filter(|audience| !audience.is_empty())
+            .cloned()
+            .collect();
+        if admin_audiences.is_empty() {
+            return None;
+        }
+        Some(Self {
+            config: JwtAuthenticatorConfig {
+                audiences: admin_audiences,
+                admin_audiences: Vec::new(),
+                ..self.config.clone()
+            },
+            key_set: Arc::clone(&self.key_set),
+            clock: Arc::clone(&self.clock),
+        })
     }
 
     /// Returns the exact issuer this verifier accepts.

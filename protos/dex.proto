@@ -1590,3 +1590,135 @@ message TimerInfo {
   int64 firing_unix_timestamp_seconds = 2;
   InternalTimerStatus status = 3;
 }
+
+// ---------------------------------------------------------------------------
+// AdminService error handling
+//
+// AdminService serves operators, not applications. When the Server configures
+// public API authentication, every call needs a JWT from a jwt authenticator
+// whose adminAudiences list names one of the token's audiences. Static tokens
+// never authorize AdminService. A Server without authentication allows every
+// call, so anyone who can reach its API listener can step it down.
+//
+// A status that AdminService returns carries ServiceErrorResponse with
+// sub_status UNCATEGORIZED:
+//
+//   InvalidArgument    — expected_node_id is set but empty
+//   Unauthenticated    — no credential, or no authenticator accepts it
+//   PermissionDenied   — a valid public API credential without an admin audience
+//   FailedPrecondition — this Server process is not the active process of its
+//                        node ID, its step down is already in progress, or
+//                        expected_node_id or expected_node_epoch differs from
+//                        the node lease it holds
+//   Internal           — the step down failed; the detail says whether the
+//                        node lease may stay held until it expires, or that
+//                        the state of the process is unknown
+//
+// A Server that does not provide AdminService answers Unimplemented without
+// ServiceErrorResponse. No AdminService failure is Unavailable, because a
+// retry reaches whichever process is active by then.
+//
+// On StepDownActiveNode, a client-side DeadlineExceeded, Cancelled, or
+// Unavailable means the outcome is unknown. Retry only with the same
+// expected_node_id and expected_node_epoch that the failed call carried: the
+// values that identified the process you meant to step down. Never use values
+// that DescribeActiveNode returns after the failure, because they identify
+// whichever process is active by then. If the step down already happened, the
+// retry fails with FailedPrecondition and changes nothing.
+// ---------------------------------------------------------------------------
+
+// Hosted by server-zd; operators call these RPCs through dexcli.
+service AdminService {
+  // Returns the node ID, node epoch, and lease holder of the active Server process.
+  //
+  // The process that receives the call answers from the node lease it holds.
+  // It fails with FailedPrecondition when it is not the active process, for
+  // example while it starts, stands by, or steps down, or while no process
+  // holds the lease during a hold-off. Wait past the hold-off and call again.
+  // The call changes nothing, so it is safe to retry.
+  rpc DescribeActiveNode(DescribeActiveNodeRequest) returns (DescribeActiveNodeResponse);
+
+  // Makes the active Server process of a node ID give up its node lease.
+  //
+  // The active process stops serving and waits, within a bound, for in-flight
+  // commits. It then releases the node lease and stays running as a standby
+  // process. It waits for lease_reacquisition_hold_off before it competes for
+  // the lease again, so another standby process of the same node ID can take
+  // over first. If none does, it takes the lease back with a new node epoch.
+  //
+  // After the release, the call watches the node lease. It returns as soon as
+  // another process takes over. Otherwise it returns after the hold-off and
+  // one attempt by this process to take the lease back. The call therefore
+  // lasts at most the commit drain bound, the release, the hold-off, and one
+  // lease acquisition attempt. The response names the process that holds the
+  // lease, or says that neither case was confirmed within that bound.
+  //
+  // Without a precondition, a call steps down whichever process is active when
+  // it arrives, so a blind retry can step down the process that just took over.
+  // Call DescribeActiveNode first and set expected_node_id and
+  // expected_node_epoch to the values it returned. Keep those values for any
+  // retry.
+  rpc StepDownActiveNode(StepDownActiveNodeRequest) returns (StepDownActiveNodeResponse);
+}
+
+// Requests the identity of the active Server process that receives the call.
+message DescribeActiveNodeRequest {}
+
+// Identifies the active Server process of a node ID.
+message DescribeActiveNodeResponse {
+  // Node ID that the process serves.
+  string node_id = 1;
+  // Node epoch that the process raised when it acquired the node lease. Every
+  // acquisition raises it, so a different value means a later acquisition.
+  uint64 node_epoch = 2;
+  // Random ID that the process recorded as the node lease holder.
+  string holder_process_id = 3;
+}
+
+// Requests a step down of the active Server process that receives the call.
+message StepDownActiveNodeRequest {
+  // When set, the process steps down only if it holds the node lease at this
+  // node epoch. Otherwise the call fails with FailedPrecondition and changes
+  // nothing. When unset, the node epoch is not checked.
+  optional uint64 expected_node_epoch = 1;
+  // When set, the process steps down only if it serves this node ID.
+  // Otherwise the call fails with FailedPrecondition and changes nothing. It
+  // keeps a call sent to the wrong server from matching another node's epoch.
+  // When unset, the node ID is not checked. Set but empty is InvalidArgument.
+  optional string expected_node_id = 2;
+}
+
+// Reports a completed step down and which process held the node lease when the call returned.
+message StepDownActiveNodeResponse {
+  // Node ID whose active process stepped down.
+  string node_id = 1;
+  // Node epoch of the node lease that the process released.
+  uint64 released_node_epoch = 2;
+  // How long the stepped-down process waits before it competes for the node
+  // lease again.
+  google.protobuf.Duration lease_reacquisition_hold_off = 3;
+  // Which process held the node lease when the call returned. Exactly one is set.
+  oneof lease_holder_after_step_down {
+    // Another process of the same node ID acquired the node lease.
+    NodeLeaseHolder taken_over_by_another_process = 4;
+    // No other process acquired the node lease within the hold-off, so the
+    // stepped-down process took it back with a new node epoch.
+    NodeLeaseHolder taken_back_by_this_process = 5;
+    // Neither a takeover nor a take-back was confirmed before the call returned.
+    NodeLeaseHolderUnknown lease_holder_unknown = 6;
+  }
+}
+
+// Identifies the process that holds a node lease.
+message NodeLeaseHolder {
+  // Node epoch that the process raised when it acquired the node lease.
+  uint64 node_epoch = 1;
+  // Random ID that the process recorded as the node lease holder.
+  string holder_process_id = 2;
+}
+
+// Says why the stepped-down process could not confirm which process holds the node lease.
+message NodeLeaseHolderUnknown {
+  // What could not be confirmed, for example because a lease read failed.
+  string detail = 1;
+}

@@ -1,6 +1,6 @@
 [package]
 name = "dexzd-api"
-description = "FlowService gRPC handlers for server-zd: request validation, routing to the engine, long polling, error mapping, and public API authentication"
+description = "FlowService and AdminService gRPC handlers for server-zd: request validation, routing to the engine, long polling, error mapping, and public API authentication"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

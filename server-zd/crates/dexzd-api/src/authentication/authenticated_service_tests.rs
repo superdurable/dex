@@ -114,6 +114,7 @@ impl TestServer {
                     JwtAuthenticatorConfig {
                         issuer: TEST_ISSUER.to_owned(),
                         audiences: vec![TEST_AUDIENCE.to_owned()],
+                        admin_audiences: Vec::new(),
                         jwks_url: None,
                         allow_insecure_jwks_url: false,
                         ca_file: None,

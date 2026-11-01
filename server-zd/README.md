@@ -44,7 +44,7 @@ Worker timeouts, and retry limits.
 | `dexzd-postgres-connection` | PostgreSQL connection string parsing and TLS connections for Attribute Store and search |
 | `dexzd-search` | SearchFlows backends |
 | `dexzd-engine` | Commit pipeline, Flow coordination, effects, recovery |
-| `dexzd-api` | FlowService gRPC handlers and public API authentication |
+| `dexzd-api` | FlowService and AdminService gRPC handlers and public API authentication |
 | `dexzd-server` | The `dex-server-zd` executable |
 | `dexzd-simulation` | Deterministic simulation tests |
 | `dexzd-e2e-tests` | End-to-end tests over the real gRPC protocol |
@@ -470,6 +470,7 @@ auth:
     - kind: jwt
       issuer: https://issuer.example.com     # exact iss claim
       audiences: ["dex"]                     # aud must name at least one
+      adminAudiences: []                     # server-zd only; see Admin credentials
       jwksURL: ""                            # empty uses OIDC discovery from the issuer
       allowInsecureJWKSURL: false            # server-zd only
       caFile: ""                             # PEM bundle added to the system roots
@@ -478,7 +479,8 @@ auth:
 ```
 
 As in the Go Server, a Go Server key that belongs to the other kind is ignored, such as `file` on a
-`jwt` entry. `allowInsecureJWKSURL` applies only to `jwt`. An unknown key fails startup.
+`jwt` entry. `allowInsecureJWKSURL` and `adminAudiences` apply only to `jwt`. An unknown key fails
+startup.
 
 Every FlowService and WorkerTaskService call needs an `authorization: Bearer <credential>`
 header. gRPC health needs no credential. A call to a service that server-zd does not serve answers
@@ -543,6 +545,55 @@ server asks it to.
 `api.listen` serves plaintext gRPC, so bearer credentials cross the network in clear text.
 Terminate TLS in front of the server, or restrict the network to trusted callers.
 
+#### Admin credentials
+
+`AdminService` holds operator RPCs: `DescribeActiveNode` and `StepDownActiveNode`. Each `jwt`
+authenticator's `adminAudiences` lists the JWT audiences that make a token of that issuer an admin
+credential:
+
+```yaml
+auth:
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+      adminAudiences: ["dex-operators"]   # empty by default
+```
+
+- With authenticators configured, an admin RPC needs a JWT that its issuer's `jwt` authenticator
+  accepts and whose `aud` names an entry of that authenticator's `adminAudiences`. Issuers without
+  admin audiences and static tokens never authorize admin RPCs, so the default denies every admin
+  RPC.
+- A missing or invalid credential ends with UNAUTHENTICATED. A valid public API credential without
+  an admin audience ends with PERMISSION_DENIED and the detail "admin RPCs require a JWT whose
+  audience is listed in its jwt authenticator's adminAudiences".
+- Never give `adminAudiences` to an issuer that lets callers choose `aud`, such as Kubernetes
+  projected service account tokens or a CI OIDC provider shared with other projects. Anyone who can
+  get a token from it could administer the server.
+- `adminAudiences` applies only to `jwt`. Its entries must not be empty and must not appear in the
+  same authenticator's `audiences`, so a public API credential never authorizes administration.
+  Issuers are unique, and a token is checked only by its issuer's authenticator, so admin audiences
+  need no check against other authenticators.
+- An issuer that only signs admin credentials may leave `audiences` empty when `adminAudiences` is
+  set. Its tokens then never authorize FlowService or WorkerTaskService calls. If it is the only
+  authenticator, public API authentication is still on, so every FlowService and Worker call is
+  denied.
+- Without authenticators, as on a development server, admin RPCs need no credential. Anyone who can
+  reach `api.listen` can then step the node down, again and again.
+- Authorized admin calls are logged at info level with the caller's `iss` and `sub`. Denied admin
+  calls are logged at warn level, at most once every 10 seconds, with the count of skipped denials.
+
+`dexcli admin describe` and `dexcli admin step-down --yes` call these RPCs. Every step down from
+`dexcli` carries an expected node ID and node epoch, from `--expected-node-id` and
+`--expected-node-epoch` or from a describe call made first. After DEADLINE_EXCEEDED, CANCELLED, or
+UNAVAILABLE, retry only with the values that the failed call used, never with values read after it.
+Do not run the command again without these flags; it would describe and step down whichever process
+is active now. A server that does not serve `AdminService` answers UNIMPLEMENTED. server-zd does not
+register `AdminService` yet, so
+today `adminAudiences` is validated at startup and has no other effect. Once it does, a step down
+makes the active process report NOT_SERVING while it keeps running as a standby. Liveness probes of
+a process that may step down must then not use gRPC health.
+
 ### Container image
 
 The `dex-server-zd` image is published for `linux/amd64` and `linux/arm64`. Its entrypoint is
@@ -559,6 +610,9 @@ that service directly. Health is NOT_SERVING during startup and SERVING after re
 Health turns NOT_SERVING when the lease validity deadline passes without a renewal. The process
 then exits 1, or is aborted with SIGABRT within 2 more seconds, so a probe never sees a stalled node
 as SERVING for long.
+Today a serving node turns NOT_SERVING only on its way out. Once server-zd serves `AdminService`, a
+step down turns it NOT_SERVING while it keeps running, so use a TCP or exec liveness probe, not gRPC
+health, for a process that may step down.
 If the object store startup check fails, the container exits with an error. Docker and Kubernetes
 send SIGTERM directly to the process; it stops accepting work, releases its lease, and normally
 exits 0 within 14.5 seconds.

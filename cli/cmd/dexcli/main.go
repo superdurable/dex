@@ -82,6 +82,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")
 	fmt.Fprintln(output, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(output, "  version   Print version information or check Server compatibility")
+	fmt.Fprintln(output, "  admin     Describe or step down the active server process (admin credential)")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "FlowService credentials:")
 	fmt.Fprintln(output, "  --credential-file path  token file; overrides DEX_CREDENTIAL_FILE and DEX_CREDENTIAL")
