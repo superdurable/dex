@@ -380,8 +380,9 @@ async fn run_builtin_to_sql_switch_for_test(database_url: &str, is_postgres: boo
     for flow_id in &early_flows {
         set_counter(&mut flow_client, flow_id, 3).await;
     }
-    assert_counters_now(&mut flow_client, &late_flows, 2).await;
-    assert_counters_now(&mut flow_client, &early_flows, 3).await;
+    // One entry per transaction can outlast the read-your-writes wait, but never returns stale rows.
+    assert_never_stale(&mut flow_client, &late_flows, 2, &switched).await;
+    assert_never_stale(&mut flow_client, &early_flows, 3, &switched).await;
     assert_eq!(
         switched.log().matches(LOAD_LOG_LINE).count(),
         usize::from(PARTITION_COUNT),
@@ -417,7 +418,7 @@ async fn run_builtin_to_sql_switch_for_test(database_url: &str, is_postgres: boo
     let (mut reused, channel, _) = node.start("reused", "store", sql_search()).await;
     let mut flow_client = FlowServiceClient::new(channel);
     assert_never_stale(&mut flow_client, &early_flows, 4, &reused).await;
-    assert_counters_now(&mut flow_client, &late_flows, 2).await;
+    assert_never_stale(&mut flow_client, &late_flows, 2, &reused).await;
     assert!(
         reused.log().contains("enabled_after_progress"),
         "{}",
@@ -435,7 +436,7 @@ async fn run_builtin_to_sql_switch_for_test(database_url: &str, is_postgres: boo
     let (mut upgraded, channel, _) = node.start("upgraded", "store", sql_search()).await;
     let mut flow_client = FlowServiceClient::new(channel);
     assert_never_stale(&mut flow_client, &early_flows, 4, &upgraded).await;
-    assert_counters_now(&mut flow_client, &late_flows, 2).await;
+    assert_never_stale(&mut flow_client, &late_flows, 2, &upgraded).await;
     assert_eq!(
         upgraded.log().matches("no_outbox_progress").count(),
         usize::from(PARTITION_COUNT),
