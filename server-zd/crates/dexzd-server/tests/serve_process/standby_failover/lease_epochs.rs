@@ -45,8 +45,26 @@ pub(crate) struct LeaseReport {
     pub(crate) acquisitions: usize,
     /// Whether log cleanup was off, so the log still holds every EpochStart.
     pub(crate) is_log_complete: bool,
-    /// The longest time a new holder took to appear after the previous lease became available.
-    pub(crate) longest_takeover_after_availability: Option<Duration>,
+    /// How long each new holder took to appear after a lease expired, plus the takeover grace.
+    pub(crate) takeovers_after_expiry: Vec<Duration>,
+    /// How long each new holder took to appear after the first sample showed a release.
+    pub(crate) takeovers_after_release: Vec<Duration>,
+}
+
+/// How the previous holder gave the lease up before a handover.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HandoverCause {
+    /// The lease expired; it became available after its expiry plus the takeover grace.
+    Expiry,
+    /// The holder released the lease, whether or not a sample showed the release.
+    Release,
+}
+
+/// One change of lease holder and its delay after the lease became available.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Handover {
+    cause: HandoverCause,
+    delay: Duration,
 }
 
 /// Reads the node lease object in the background through an endpoint without faults.
@@ -90,8 +108,15 @@ impl LeaseHistory {
             .lock()
             .expect("the release lock is not poisoned")
             .clone();
-        let (observed_holders, takeovers) =
+        let (observed_holders, handovers) =
             check_lease_observations(&observations, &possible_releases);
+        let delays_after = |cause: HandoverCause| {
+            handovers
+                .iter()
+                .filter(|handover| handover.cause == cause)
+                .map(|handover| handover.delay)
+                .collect()
+        };
         // The log is the complete record: every recovery writes an EpochStart with its new epoch.
         let epoch_starts: Vec<u64> = inspector
             .log_batch_headers()
@@ -104,7 +129,8 @@ impl LeaseHistory {
             observed_holders,
             acquisitions: epoch_starts.len(),
             is_log_complete,
-            longest_takeover_after_availability: takeovers.into_iter().max(),
+            takeovers_after_expiry: delays_after(HandoverCause::Expiry),
+            takeovers_after_release: delays_after(HandoverCause::Release),
         }
     }
 }
@@ -142,17 +168,21 @@ async fn read_leases(
     }
 }
 
-/// Panics on a falling epoch, a returning holder, or an early takeover; returns holders and handover delays.
+/// Panics on a falling epoch, a returning holder, or an early takeover; returns holders and handovers.
 fn check_lease_observations(
     observations: &[LeaseObservation],
     possible_releases: &[i64],
-) -> (usize, Vec<Duration>) {
+) -> (usize, Vec<Handover>) {
     let mut holders = BTreeSet::new();
     let mut replaced_holders = BTreeSet::new();
-    let mut takeovers = Vec::new();
+    let mut handovers = Vec::new();
+    // When the first of the current holder's samples showed its lease released.
+    let mut released_since = None;
     // A new holder first writes the previous epoch, so one epoch can name two holders.
     for pair in observations.windows(2) {
         let (previous, next) = (&pair[0], &pair[1]);
+        released_since = (previous.expires_at_unix_micros == RELEASED_LEASE_EXPIRY_UNIX_MICROS)
+            .then(|| released_since.unwrap_or(previous.observed_at_unix_micros));
         assert!(
             next.epoch >= previous.epoch,
             "the lease epoch fell from {previous:?} to {next:?}"
@@ -164,7 +194,8 @@ fn check_lease_observations(
                 "a replaced holder held the lease again: {previous:?} then {next:?}"
             );
             replaced_holders.insert(previous.holder_process_id.as_str());
-            takeovers.push(takeover_delay(previous, next, possible_releases));
+            handovers.push(handover(previous, released_since, next, possible_releases));
+            released_since = None;
         }
     }
     holders.extend(
@@ -172,23 +203,29 @@ fn check_lease_observations(
             .iter()
             .map(|observation| observation.holder_process_id.as_str()),
     );
-    (holders.len(), takeovers)
+    (holders.len(), handovers)
 }
 
 /// Returns how long after availability `next` held the lease; panics if earlier without a possible release.
-fn takeover_delay(
+fn handover(
     previous: &LeaseObservation,
+    released_since: Option<i64>,
     next: &LeaseObservation,
     possible_releases: &[i64],
-) -> Duration {
-    let available_at = if previous.expires_at_unix_micros == RELEASED_LEASE_EXPIRY_UNIX_MICROS {
-        previous.observed_at_unix_micros
-    } else {
-        previous.expires_at_unix_micros + micros(TAKEOVER_GRACE)
+) -> Handover {
+    let (cause, available_at) = match released_since {
+        Some(first_released_sample) => (HandoverCause::Release, first_released_sample),
+        None => (
+            HandoverCause::Expiry,
+            previous.expires_at_unix_micros + micros(TAKEOVER_GRACE),
+        ),
     };
     let delay = next.observed_at_unix_micros - available_at;
     if delay >= -micros(EARLY_TAKEOVER_TOLERANCE) {
-        return Duration::from_micros(u64::try_from(delay).unwrap_or(0));
+        return Handover {
+            cause,
+            delay: Duration::from_micros(u64::try_from(delay).unwrap_or(0)),
+        };
     }
     let may_have_been_released = possible_releases.iter().any(|&noted_at| {
         noted_at <= next.observed_at_unix_micros
@@ -200,10 +237,13 @@ fn takeover_delay(
         -delay / 1000
     );
     // The release came after the earlier sample, so this bounds the delay from above.
-    Duration::from_micros(
-        u64::try_from(next.observed_at_unix_micros - previous.observed_at_unix_micros)
-            .expect("lease samples are read in order"),
-    )
+    Handover {
+        cause: HandoverCause::Release,
+        delay: Duration::from_micros(
+            u64::try_from(next.observed_at_unix_micros - previous.observed_at_unix_micros)
+                .expect("lease samples are read in order"),
+        ),
+    }
 }
 
 /// Panics unless the EpochStart epochs, in log order, strictly increase.
@@ -247,34 +287,52 @@ fn observation(
 /// An expiry handover and a release handover report their delays after availability.
 #[test]
 fn handovers_report_their_delay_after_the_lease_became_available() {
-    let (holders, takeovers) = check_lease_observations(
+    let (holders, handovers) = check_lease_observations(
         &[
             observation(0, "first", 1, 3_000),
             observation(4_500, "second", 1, 19_500),
             observation(4_600, "second", 2, 19_600),
             observation(5_000, "second", 2, i64::MIN),
-            observation(5_200, "third", 2, 20_200),
+            observation(5_100, "second", 2, i64::MIN),
+            observation(5_200, "second", 2, i64::MIN),
+            observation(5_300, "third", 2, 20_300),
         ],
         &[],
     );
     assert_eq!(holders, 3);
     assert_eq!(
-        takeovers,
-        vec![Duration::from_millis(500), Duration::from_millis(200)]
+        handovers,
+        vec![
+            Handover {
+                cause: HandoverCause::Expiry,
+                delay: Duration::from_millis(500),
+            },
+            // Measured from the first sample that showed the release, not the last.
+            Handover {
+                cause: HandoverCause::Release,
+                delay: Duration::from_millis(300),
+            },
+        ]
     );
 }
 
 /// A release between two samples lets the next holder appear before the sampled expiry.
 #[test]
 fn a_takeover_after_an_unsampled_release_passes_the_check() {
-    let (_, takeovers) = check_lease_observations(
+    let (_, handovers) = check_lease_observations(
         &[
             observation(10_000, "first", 1, 13_000),
             observation(10_100, "second", 1, 25_100),
         ],
         &[9_000_000],
     );
-    assert_eq!(takeovers, vec![Duration::from_millis(100)]);
+    assert_eq!(
+        handovers,
+        vec![Handover {
+            cause: HandoverCause::Release,
+            delay: Duration::from_millis(100),
+        }]
+    );
 }
 
 /// A holder that took the lease before it expired, with no release possible, fails the check.

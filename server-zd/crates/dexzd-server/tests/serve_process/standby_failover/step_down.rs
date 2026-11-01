@@ -25,7 +25,7 @@ use super::node_group::{DirectoryFate, NodeGroup, ProcessSignal};
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
     ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HOT_SLOTS, SECOND, STANDBY_BUDGET,
-    STARTUP_BUDGET, TAKEOVER_BUDGET,
+    STARTUP_BUDGET, TAKEOVER_BUDGET, assert_hot_takeover,
 };
 use crate::harness::{S3Emulator, ServeConfig, ServeProcess, free_loopback_address};
 use crate::robustness::workload::Workload;
@@ -36,6 +36,12 @@ const STEP_DOWN_HOLD_OFF: Duration = Duration::from_secs(5);
 const SWITCHOVER_COUNT: usize = 10;
 /// A standby whose every object storage request takes this long falls behind under load.
 const BEHIND_STANDBY_LATENCY: Duration = Duration::from_millis(1500);
+/// The 1.5 s lagging delay with 20% jitter, a lease read and write, and a loaded host.
+const BEHIND_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_secs(3);
+/// A hot standby polls a held lease every 250 ms; a 1 s poll fails this in most runs.
+const STEP_DOWN_HANDOVER_BOUND: Duration = Duration::from_millis(600);
+/// A take-back after the hold-off: one lease read and write, and a loaded host.
+const TAKE_BACK_AFTER_HOLD_OFF_BOUND: Duration = Duration::from_millis(1500);
 /// The default `standby.behindLagThreshold` and the time to fall that far behind.
 const BEHIND_BUDGET: Duration = Duration::from_secs(60);
 /// Lets the step down call reach the active before the crash.
@@ -87,6 +93,7 @@ async fn step_down_hands_over_to_the_hot_standby_and_the_old_active_stays_hot() 
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
+    assert_hot_takeover(group, SECOND);
     let answered_after = stepped_down_at.elapsed();
     assert!(
         answered_after < STEP_DOWN_HOLD_OFF,
@@ -172,6 +179,15 @@ async fn step_down_without_a_standby_takes_the_lease_back_after_the_hold_off() {
     let worker_registrations = worker.stop().await;
     let report = group.finish().await;
     assert!(report.serving_periods() >= 2, "{report}");
+    let take_back_window = STEP_DOWN_HOLD_OFF..=STEP_DOWN_HOLD_OFF + TAKE_BACK_AFTER_HOLD_OFF_BOUND;
+    assert!(
+        !report.takeovers_after_release().is_empty()
+            && report
+                .takeovers_after_release()
+                .iter()
+                .all(|delay| take_back_window.contains(delay)),
+        "the take-back must follow the release by the hold-off: {report}"
+    );
     eprintln!(
         "step_down_without_a_standby_takes_the_lease_back_after_the_hold_off: answered {answered_after:?} after the call: {}; {worker_registrations}; {verification}; {report}",
         describe_outcome(&outcome)
@@ -215,6 +231,8 @@ async fn step_down_racing_an_active_crash_hands_over_to_the_hot_standby() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn step_down_hands_over_to_a_standby_that_is_behind() {
     let mut scenario = FailoverScenario::start("step-down-behind", &HOT_SLOTS).await;
+    scenario
+        .expect_takeovers_after_release_within(Duration::ZERO, BEHIND_TAKEOVER_AFTER_RELEASE_BOUND);
     let group = &mut scenario.group;
     group
         .object_store(SECOND)
@@ -260,6 +278,11 @@ async fn step_down_hands_over_to_a_standby_that_is_behind() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
     let mut scenario = FailoverScenario::start("switchovers", &HOT_SLOTS).await;
+    // After a SIGTERM the successor may still wait out its own step down hold-off.
+    scenario.expect_takeovers_after_release_within(
+        Duration::ZERO,
+        STEP_DOWN_HOLD_OFF + super::HOT_TAKEOVER_AFTER_RELEASE_BOUND,
+    );
     let mut switchovers = Vec::new();
     let mut first_failure = None;
     for round in 0..SWITCHOVER_COUNT {
@@ -287,6 +310,7 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
             group.wait_for_takeover(active, TAKEOVER_BUDGET).await,
             standby
         );
+        assert_hot_takeover(group, standby);
         switchovers.push(failed_at.elapsed());
         if round % 2 == 1 {
             group.restart(active, DirectoryFate::Keep);
@@ -296,13 +320,22 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
             .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
             .await;
     }
-    scenario
+    let report = scenario
         .finish(
             "ten_switchovers_under_load_lose_no_acknowledged_write",
             first_failure.expect("at least one switchover ran"),
             format!("switchovers served after {switchovers:?}"),
         )
         .await;
+    let quick_handovers = report
+        .takeovers_after_release()
+        .iter()
+        .filter(|delay| **delay <= STEP_DOWN_HANDOVER_BOUND)
+        .count();
+    assert!(
+        quick_handovers >= SWITCHOVER_COUNT / 2,
+        "every step down must hand over within {STEP_DOWN_HANDOVER_BOUND:?} of its release: {report}"
+    );
 }
 
 /// AdminService needs an admin credential; a public static token is not one.

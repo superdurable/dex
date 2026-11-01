@@ -24,7 +24,7 @@ use tonic_health::pb::health_client::HealthClient;
 use super::node_group::{DirectoryFate, ProcessSignal, SlotSettings, SlotStandbyMode};
 use super::{
     ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HOT_SLOTS, SECOND, SLOTS, STANDBY_BUDGET,
-    TAKEOVER_BUDGET, assert_exited_after_losing_the_lease,
+    TAKEOVER_BUDGET, assert_exited_after_losing_the_lease, assert_hot_takeover,
 };
 
 /// A process that lost its lease exits within the lease and the watchdog's abort budget.
@@ -89,6 +89,9 @@ async fn freeze_the_active_through_a_takeover(test: &str, phase: &str, slots: &[
         SECOND
     );
     let served_after = frozen_at.elapsed();
+    if slots[SECOND].standby_mode == SlotStandbyMode::Hot {
+        assert_hot_takeover(group, SECOND);
+    }
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
         .await;

@@ -45,6 +45,11 @@ pub(crate) const SNAPSHOT_INTERVAL: &str = "1h";
 pub(crate) const LOG_DELETION_DELAY: &str = "24h";
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_millis(500);
 const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// Log lines of a recovery, which name the store it served and how much log it replayed.
+const RECOVERING_MARKER: &str = "engine node recovering";
+const HOT_STANDBY_STORE_MARKER: &str = "serving from the hot standby's local store";
+const REPLAY_MARKER: &str = "replayed the log stream";
+const REPLAYED_BATCHES_FIELD: &str = "batches=";
 /// Log line of a failed lease renewal attempt that the process retries after a logged backoff.
 const RENEWAL_RETRY_MARKER: &str = "node lease renewal attempt failed; retrying";
 const RENEWAL_RETRY_BACKOFF_FIELD: &str = "retry_in_milliseconds=";
@@ -105,6 +110,8 @@ struct NodeSlot {
     process: Option<RobustnessProcess>,
     /// The test made the current process end by itself, such as by cutting its object storage.
     may_exit: bool,
+    /// The endpoint's write requests when the current process was confirmed a standby.
+    standby_writes_baseline: Option<u64>,
 }
 
 impl NodeSlot {
@@ -127,12 +134,13 @@ impl fmt::Display for GroupReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed, longest takeover after availability {:?}; {} readiness probes, {} SERVING in {} serving periods, {} SERVING without a lease for at most {:?}, {} SERVING with an unread epoch",
+            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed, takeovers after expiry {:?} and after release {:?}; {} readiness probes, {} SERVING in {} serving periods, {} SERVING without a lease for at most {:?}, {} SERVING with an unread epoch",
             self.process_starts,
             self.stale_batch_restarts,
             self.lease.acquisitions,
             self.lease.observed_holders,
-            self.lease.longest_takeover_after_availability,
+            self.lease.takeovers_after_expiry,
+            self.lease.takeovers_after_release,
             self.serving.observations,
             self.serving.serving_observations,
             self.serving.serving_periods,
@@ -154,11 +162,14 @@ impl GroupReport {
         self.lease.observed_holders
     }
 
-    /// Returns the longest time a new holder took to appear after the lease became available.
-    pub(crate) fn longest_takeover_after_availability(&self) -> Duration {
-        self.lease
-            .longest_takeover_after_availability
-            .expect("a takeover test observed a handover")
+    /// Returns how long each new holder took to appear after a lease expired, plus the takeover grace.
+    pub(crate) fn takeovers_after_expiry(&self) -> &[Duration] {
+        &self.lease.takeovers_after_expiry
+    }
+
+    /// Returns how long each new holder took to appear after the first sample showed a release.
+    pub(crate) fn takeovers_after_release(&self) -> &[Duration] {
+        &self.lease.takeovers_after_release
     }
 }
 
@@ -228,6 +239,7 @@ impl NodeGroup {
                 process_count: 0,
                 process: None,
                 may_exit: false,
+                standby_writes_baseline: None,
             });
         }
         let router = ReadinessRouter::start(
@@ -274,6 +286,56 @@ impl NodeGroup {
         self.slots[slot].running().log()
     }
 
+    /// Panics unless `slot`'s latest takeover served its hot standby's store; returns the replayed batches.
+    pub(crate) fn hot_takeover_replayed_batches(&mut self, slot: usize) -> u64 {
+        let log = self.process_log(slot);
+        let recovering = log
+            .rfind(RECOVERING_MARKER)
+            .unwrap_or_else(|| panic!("slot {} never recovered:\n{log}", self.slots[slot].name));
+        let takeover = &log[recovering..];
+        assert!(
+            takeover.contains(HOT_STANDBY_STORE_MARKER),
+            "slot {} did not serve its hot standby's store:\n{takeover}",
+            self.slots[slot].name
+        );
+        takeover
+            .lines()
+            .filter(|line| line.contains(REPLAY_MARKER))
+            .find_map(|line| {
+                line.split_whitespace()
+                    .find_map(|field| field.strip_prefix(REPLAYED_BATCHES_FIELD))
+                    .and_then(|value| value.parse().ok())
+            })
+            .unwrap_or_else(|| panic!("the takeover logged no replay:\n{takeover}"))
+    }
+
+    /// Records `slot`'s write requests once its process is a confirmed standby.
+    async fn note_standby(&mut self, slot: usize) {
+        if self.slots[slot].standby_writes_baseline.is_none() {
+            let writes = self.slots[slot].object_store.write_requests().await;
+            self.slots[slot].standby_writes_baseline = Some(writes);
+        }
+    }
+
+    /// Panics if a standby wrote to object storage since it was confirmed a standby.
+    pub(crate) async fn check_standbys_wrote_nothing(&mut self) {
+        for slot in 0..self.slots.len() {
+            let Some(baseline) = self.slots[slot].standby_writes_baseline else {
+                continue;
+            };
+            if self.slots[slot].process.is_none() || self.router.is_serving(slot) {
+                self.slots[slot].standby_writes_baseline = None;
+                continue;
+            }
+            let writes = self.slots[slot].object_store.write_requests().await;
+            assert_eq!(
+                writes, baseline,
+                "slot {} wrote to object storage as a standby",
+                self.slots[slot].name
+            );
+        }
+    }
+
     pub(crate) fn process_starts(&self, slot: usize) -> usize {
         self.slots[slot].process_count
     }
@@ -318,6 +380,7 @@ impl NodeGroup {
         );
         entry.process_count += 1;
         entry.may_exit = false;
+        entry.standby_writes_baseline = None;
         self.router.note_process_start(slot);
         let process = self.fleet.spawn(
             &entry.config_path,
@@ -485,6 +548,8 @@ impl NodeGroup {
                     && self.slots[*slot].process.is_some()
                     && self.router.is_serving(*slot)
             }) {
+                // An active writes; only standby periods are checked for writes.
+                self.slots[slot].standby_writes_baseline = None;
                 return slot;
             }
             assert!(
@@ -523,6 +588,7 @@ impl NodeGroup {
                 && metrics.starts_with("HTTP/1.1 200")
                 && sample_with_label(&metrics, "dexzd_node_role", "role", "standby") == 1.0
             {
+                self.note_standby(slot).await;
                 return;
             }
             assert!(
@@ -550,6 +616,7 @@ impl NodeGroup {
                 && let Ok(Ok(response)) = tokio::time::timeout(HEALTH_CHECK_TIMEOUT, check).await
                 && response.get_ref().status == ServingStatus::Serving as i32
             {
+                self.note_standby(slot).await;
                 return started.elapsed();
             }
             assert!(
@@ -678,6 +745,7 @@ impl NodeGroup {
 
     /// Stops every process, standbys first, then checks the serving and lease invariants.
     pub(crate) async fn finish(mut self) -> GroupReport {
+        self.check_standbys_wrote_nothing().await;
         let serving = self.router.serving_backend();
         let mut order: Vec<usize> = (0..self.slots.len())
             .filter(|slot| Some(*slot) != serving)

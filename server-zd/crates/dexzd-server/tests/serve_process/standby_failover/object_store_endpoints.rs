@@ -22,6 +22,17 @@ use crate::harness::s3mock_admin_request;
 const TIMEOUT_HOLD: Duration = Duration::from_secs(35);
 /// The longest delay s3mock accepts; the held requests run only when the fault is cleared.
 const BLACKHOLE_HOLD: Duration = Duration::from_secs(600);
+/// Operations that change object storage; a standby sends none of them.
+const WRITE_OPERATIONS: [&str; 8] = [
+    "PutObject",
+    "CopyObject",
+    "DeleteObject",
+    "DeleteObjects",
+    "CreateMultipartUpload",
+    "UploadPart",
+    "CompleteMultipartUpload",
+    "AbortMultipartUpload",
+];
 /// A completed request that took at least this long was held by a fault.
 const HELD_REQUEST_DURATION: Duration = Duration::from_secs(1);
 
@@ -32,6 +43,7 @@ pub(crate) enum ObjectStoreFault {
     Latency(Duration),
     /// Delays only requests for node log objects, so lease reads and writes stay fast.
     LogLatency(Duration),
+
     /// Fails each request with 503 SlowDown with this probability, before it reaches the store.
     ServiceUnavailable { probability: f64 },
     /// Holds every request past the client's timeout; s3mock then drops it unhandled.
@@ -51,6 +63,7 @@ impl ObjectStoreFault {
                     delay_action(delay)
                 );
             }
+
             Self::ServiceUnavailable { probability } => {
                 assert!(
                     (0.0..=1.0).contains(&probability),
@@ -116,6 +129,23 @@ impl ObjectStoreEndpoint {
             s3mock_admin_request(self.server.local_address(), "DELETE", "/_s3mock/faults", "")
                 .await;
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    }
+
+    /// Returns how many write requests this endpoint finished so far, failed ones included.
+    pub(crate) async fn write_requests(&self) -> u64 {
+        let response =
+            s3mock_admin_request(self.server.local_address(), "GET", "/_s3mock/counters", "").await;
+        let (_, body) = response
+            .split_once("\r\n\r\n")
+            .unwrap_or_else(|| panic!("the counters have a body: {response}"));
+        let counters: serde_json::Value =
+            serde_json::from_str(body).unwrap_or_else(|error| panic!("{error}: {body}"));
+        WRITE_OPERATIONS
+            .iter()
+            .filter_map(|operation| {
+                counters["counters"]["by_operation"][operation]["requests"].as_u64()
+            })
+            .sum()
     }
 
     /// Returns the key and status of every PUT that a fault held and that then reached the store.

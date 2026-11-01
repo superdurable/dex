@@ -20,7 +20,7 @@ use super::node_group::{
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
     ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HOT_SLOTS, SECOND, STANDBY_BUDGET,
-    STARTUP_BUDGET, TAKEOVER_BUDGET,
+    STARTUP_BUDGET, TAKEOVER_BUDGET, assert_hot_takeover,
 };
 use crate::robustness::workload::Workload;
 
@@ -29,6 +29,19 @@ const THIRD: usize = 2;
 const SLOW_STANDBY_LATENCY: Duration = Duration::from_millis(400);
 /// How long a fault burst lasts at a standby's endpoint.
 const FAULT_BURST: Duration = Duration::from_secs(3);
+/// Holds a process's log reads until the fault is cleared; s3mock accepts no longer delay.
+const HELD_LOG_READS: Duration = Duration::from_secs(600);
+/// The default 10 s `behindLagThreshold` and time for a loaded host to report it.
+const BEHIND_BUDGET: Duration = Duration::from_secs(60);
+/// What a lease waiter logs before it defers to a readier process, with the deferral.
+const LEASE_DEFERRAL_MARKER: &str =
+    "delaying the node lease acquisition so a readier process can take it first";
+const LEASE_DEFERRAL_FIELD: &str = "delay_milliseconds=";
+/// The default 1.5 s lagging takeover delay less its 20% jitter, rounded down.
+const LAGGING_DEFERRAL_FLOOR: Duration = Duration::from_millis(1000);
+const DEFERRAL_LOG_BUDGET: Duration = Duration::from_secs(5);
+/// A graceful stop of a loaded active and a hot takeover after its release.
+const SERVED_AFTER_SIGTERM_BOUND: Duration = Duration::from_secs(5);
 /// Snapshots and log cleanup run every second, so cleanup soon passes a stopped standby.
 const FAST_SNAPSHOT_INTERVAL: &str = "1s";
 const FAST_LOG_DELETION_DELAY: &str = "1s";
@@ -49,6 +62,7 @@ async fn hot_standby_takes_over_when_the_active_is_killed_under_load() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
+    assert_hot_takeover(group, SECOND);
     let served_after = killed_at.elapsed();
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -79,7 +93,12 @@ async fn hot_standby_takes_over_when_the_active_is_terminated() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
+    assert_hot_takeover(group, SECOND);
     let served_after = terminated_at.elapsed();
+    assert!(
+        served_after <= SERVED_AFTER_SIGTERM_BOUND,
+        "the hot standby served {served_after:?} after SIGTERM"
+    );
     group.restart(FIRST, DirectoryFate::Keep);
     group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
     scenario
@@ -222,6 +241,7 @@ async fn hot_standby_recovers_from_object_storage_faults_and_still_takes_over() 
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
+    assert_hot_takeover(group, SECOND);
     scenario
         .finish(
             "hot_standby_recovers_from_object_storage_faults_and_still_takes_over",
@@ -231,9 +251,9 @@ async fn hot_standby_recovers_from_object_storage_faults_and_still_takes_over() 
         .await;
 }
 
-/// P10, hot: with one hot standby and one still bootstrapping, the hot one takes over.
+/// P10, hot: with one hot standby and one that lags behind, the hot one takes over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn hot_standby_wins_the_takeover_over_a_bootstrapping_one() {
+async fn hot_standby_wins_the_takeover_over_a_lagging_one() {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let workload = Workload::new();
     let slots = three_hot_slots(SNAPSHOT_INTERVAL, LOG_DELETION_DELAY);
@@ -251,18 +271,25 @@ async fn hot_standby_wins_the_takeover_over_a_bootstrapping_one() {
     group
         .wait_for_progress(&workload, ACKNOWLEDGEMENTS_PER_PHASE)
         .await;
+    // Held log reads make it fall behind, while its lease reads and writes run at full speed.
     group
         .object_store(THIRD)
-        .inject(ObjectStoreFault::Latency(SLOW_STANDBY_LATENCY))
+        .inject(ObjectStoreFault::LogLatency(HELD_LOG_READS))
         .await;
     group.spawn(THIRD);
     group
-        .wait_for_hot_standby_state(THIRD, "bootstrapping", STANDBY_BUDGET)
+        .wait_for_hot_standby_state(THIRD, "behind", BEHIND_BUDGET)
         .await;
     group.signal(FIRST, ProcessSignal::Kill).await;
     assert_eq!(
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
+    );
+    assert_hot_takeover(&mut group, SECOND);
+    let deferral = wait_for_lease_deferral(&mut group, THIRD).await;
+    assert!(
+        deferral >= LAGGING_DEFERRAL_FLOOR,
+        "a standby that is not hot must defer by the lagging takeover delay, deferred {deferral:?}"
     );
     group.heal_object_store(THIRD).await;
     group.wait_for_hot_standby(THIRD, STANDBY_BUDGET).await;
@@ -275,8 +302,34 @@ async fn hot_standby_wins_the_takeover_over_a_bootstrapping_one() {
     let report = group.finish().await;
     assert!(report.observed_lease_holders() >= 2, "{report}");
     eprintln!(
-        "hot_standby_wins_the_takeover_over_a_bootstrapping_one: {worker_registrations}; {verification}; {report}"
+        "hot_standby_wins_the_takeover_over_a_lagging_one: the lagging standby deferred {deferral:?}; {worker_registrations}; {verification}; {report}"
     );
+}
+
+/// Waits until `slot`'s process logs a lease deferral; returns the longest it logged.
+async fn wait_for_lease_deferral(group: &mut NodeGroup, slot: usize) -> Duration {
+    let started = Instant::now();
+    loop {
+        let longest = group
+            .process_log(slot)
+            .lines()
+            .filter(|line| line.contains(LEASE_DEFERRAL_MARKER))
+            .filter_map(|line| {
+                line.split_whitespace()
+                    .find_map(|field| field.strip_prefix(LEASE_DEFERRAL_FIELD))
+                    .and_then(|value| value.parse().ok())
+            })
+            .max()
+            .map(Duration::from_millis);
+        if let Some(longest) = longest {
+            return longest;
+        }
+        assert!(
+            started.elapsed() < DEFERRAL_LOG_BUDGET,
+            "slot {slot} logged no lease deferral within {DEFERRAL_LOG_BUDGET:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// P11, hot: log cleanup passes a stopped standby; on restart it bootstraps again and takes over.
@@ -336,6 +389,7 @@ async fn late_writes_of_a_stalled_active_are_fenced_after_a_hot_takeover() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
+    assert_hot_takeover(group, SECOND);
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
         .await;

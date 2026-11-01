@@ -27,8 +27,8 @@ use tokio::time::Instant;
 use crate::PRIMARY_PREFIX;
 use crate::robustness::workload::{LoadShape, ReconnectingWorker, RunningLoad, Workload};
 use node_group::{
-    DirectoryFate, LOG_DELETION_DELAY, NodeGroup, ProcessSignal, SNAPSHOT_INTERVAL, SlotSettings,
-    SlotStandbyMode,
+    DirectoryFate, GroupReport, LOG_DELETION_DELAY, NodeGroup, ProcessSignal, SNAPSHOT_INTERVAL,
+    SlotSettings, SlotStandbyMode,
 };
 use object_store_endpoints::ObjectStoreFault;
 
@@ -73,6 +73,12 @@ const TAKEOVER_BUDGET: Duration = Duration::from_secs(30);
 const COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_secs(3);
 /// A hot standby reads the lease every 250 ms; a loaded host may add its 1.8 s lagging delay.
 const HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_millis(2500);
+/// A hot standby reads a held lease every 250 ms and writes a released one within 50 ms.
+const HOT_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_millis(800);
+/// A hot standby's store trails the log by a few batches; more means it restored instead.
+const HOT_TAKEOVER_REPLAY_BOUND: u64 = 64;
+/// A cold standby reads a held lease at most once a second.
+const COLD_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_secs(2);
 const STANDBY_BUDGET: Duration = Duration::from_secs(30);
 /// A slow object store that the active still serves through.
 const SLOW_OBJECT_STORE_LATENCY: Duration = Duration::from_millis(50);
@@ -274,8 +280,10 @@ struct FailoverScenario {
     workload: Workload,
     worker: ReconnectingWorker,
     load: RunningLoad,
-    /// The longest time a standby may take to write a lease after it became available.
+    /// The longest time a standby may take to write a lease after it expired, plus the grace.
     takeover_bound: Duration,
+    /// The shortest and longest time a new holder may take to appear after a release.
+    takeover_after_release_window: (Duration, Duration),
     _directory: TempDir,
 }
 
@@ -298,9 +306,15 @@ impl FailoverScenario {
         } else {
             group.wait_for_standby(SECOND, STANDBY_BUDGET).await;
         }
-        let takeover_bound = match slots[SECOND].standby_mode {
-            SlotStandbyMode::Cold => COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND,
-            SlotStandbyMode::Hot => HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+        let (takeover_bound, takeover_after_release_bound) = match slots[SECOND].standby_mode {
+            SlotStandbyMode::Cold => (
+                COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+                COLD_TAKEOVER_AFTER_RELEASE_BOUND,
+            ),
+            SlotStandbyMode::Hot => (
+                HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+                HOT_TAKEOVER_AFTER_RELEASE_BOUND,
+            ),
         };
         Self {
             group,
@@ -308,12 +322,21 @@ impl FailoverScenario {
             worker,
             load,
             takeover_bound,
+            takeover_after_release_window: (Duration::ZERO, takeover_after_release_bound),
             _directory: directory,
         }
     }
 
-    /// Starts timer Flows that must fire after the failure that follows; returns the failure instant.
-    async fn start_timers_spanning_the_failure(&self) -> Instant {
+    /// Expects every takeover after a release within `shortest..=longest`, such as after a hold-off.
+    fn expect_takeovers_after_release_within(&mut self, shortest: Duration, longest: Duration) {
+        self.takeover_after_release_window = (shortest, longest);
+    }
+
+    /// Checks that no standby wrote, then starts timer Flows that must fire after the coming failure.
+    ///
+    /// Returns the failure instant.
+    async fn start_timers_spanning_the_failure(&mut self) -> Instant {
+        self.group.check_standbys_wrote_nothing().await;
         self.workload
             .start_timers_spanning_a_failure(
                 self.group.router_channel(),
@@ -325,7 +348,7 @@ impl FailoverScenario {
     }
 
     /// Adds load after the recovery, verifies the ledger, stops the group, and checks the takeover.
-    async fn finish(self, test: &str, failed_at: Instant, details: String) {
+    async fn finish(self, test: &str, failed_at: Instant, details: String) -> GroupReport {
         // The directory stays in `self`, so a panic dumps process logs before it is deleted.
         let Self {
             mut group,
@@ -333,6 +356,7 @@ impl FailoverScenario {
             worker,
             load,
             takeover_bound,
+            takeover_after_release_window: (shortest_after_release, longest_after_release),
             ..
         } = self;
         group
@@ -350,13 +374,34 @@ impl FailoverScenario {
         assert!(report.serving_periods() >= 2, "{report}");
         assert!(report.observed_lease_holders() >= 2, "{report}");
         assert!(
-            report.longest_takeover_after_availability() <= takeover_bound,
-            "{report}"
+            report
+                .takeovers_after_expiry()
+                .iter()
+                .all(|delay| *delay <= takeover_bound),
+            "a takeover after expiry exceeded {takeover_bound:?}: {report}"
+        );
+        assert!(
+            report
+                .takeovers_after_release()
+                .iter()
+                .all(|delay| (shortest_after_release..=longest_after_release).contains(delay)),
+            "a takeover after release fell outside {shortest_after_release:?}..={longest_after_release:?}: {report}"
         );
         eprintln!(
             "{test}: {details}; {timers_across_the_failure} timer Flows across the failure; {worker_registrations}; {verification}; {report}"
         );
+        report
     }
+}
+
+/// Panics unless `slot` took over from its hot standby's store and replayed little log.
+fn assert_hot_takeover(group: &mut NodeGroup, slot: usize) -> u64 {
+    let replayed = group.hot_takeover_replayed_batches(slot);
+    assert!(
+        replayed <= HOT_TAKEOVER_REPLAY_BOUND,
+        "slot {slot} replayed {replayed} log batches after a hot takeover"
+    );
+    replayed
 }
 
 /// Panics unless an active that lost its lease exited 1 or the watchdog aborted it.
