@@ -11,10 +11,11 @@
 mod closed_stream_replays;
 mod landing_writes;
 mod storage_observations;
+mod store_discards;
 
 use std::future::Future;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -26,18 +27,23 @@ use dexzd_object_store::{
     ObjectStore, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
     WriteCondition, WriteOutcome,
 };
+use dexzd_protocol::dexzd::v1::Manifest;
+use prost::Message;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-pub(crate) use closed_stream_replays::{check_existing_store_reuse, replays_voided_closed_batch};
+pub(crate) use closed_stream_replays::replays_voided_closed_batch;
 pub(crate) use landing_writes::SharedObjectStorage;
 use landing_writes::{CrashLanding, UnlandedLogWrites, WriteLanding, lock_unlanded};
 pub(crate) use storage_observations::StorageObservations;
+pub(crate) use store_discards::has_discarded_existing_store;
 
 /// Outlasts the process of a stalled write, whose crash then discards the write.
 const STALLED_WRITE_DELAY: Duration = Duration::from_secs(60 * 60);
+/// Object key of the cluster manifest, a persistent format.
+const MANIFEST_KEY: &str = "manifest";
 
 /// A fault the layer injects into one call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -109,6 +115,10 @@ pub(crate) struct NodeObjectStore {
     cut_off: watch::Sender<bool>,
     /// Fails every call at once while set, as an unreachable object storage does.
     is_in_outage: AtomicBool,
+    /// Puts and deletes this process sent, whatever their outcome.
+    write_calls: AtomicU64,
+    /// The last manifest this process read.
+    last_read_manifest: Mutex<Option<Bytes>>,
     is_serving: AtomicBool,
     unlanded_log_writes: Arc<Mutex<UnlandedLogWrites>>,
 }
@@ -130,6 +140,8 @@ impl NodeObjectStore {
             }),
             cut_off: watch::Sender::new(false),
             is_in_outage: AtomicBool::new(false),
+            write_calls: AtomicU64::new(0),
+            last_read_manifest: Mutex::new(None),
             is_serving: AtomicBool::new(false),
             unlanded_log_writes: Arc::new(Mutex::new(UnlandedLogWrites::default())),
         }
@@ -176,6 +188,21 @@ impl NodeObjectStore {
 
     fn is_cut_off(&self) -> bool {
         *self.cut_off.borrow()
+    }
+
+    /// Returns the last manifest this process read, such as the one its start recovered from.
+    pub(crate) fn last_read_manifest(&self) -> Option<Manifest> {
+        let bytes = self
+            .last_read_manifest
+            .lock()
+            .expect("manifest lock is not poisoned")
+            .clone()?;
+        Some(Manifest::decode(bytes).expect("a manifest object decodes"))
+    }
+
+    /// Returns how many puts and deletes this process sent, whatever their outcome.
+    pub(crate) fn write_calls(&self) -> u64 {
+        self.write_calls.load(Ordering::SeqCst)
     }
 
     /// Fails every later call at once while `is_in_outage`, without effect.
@@ -302,6 +329,7 @@ impl NodeObjectStore {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = ObjectStoreResult<T>> + Send + 'static,
     {
+        self.write_calls.fetch_add(1, Ordering::SeqCst);
         if self.is_cut_off() {
             return std::future::pending().await;
         }
@@ -527,10 +555,20 @@ impl ObjectStore for NodeObjectStore {
                     .or_default() += 1;
             });
         }
-        self.run_read(ObjectStoreOperation::Get, key, || {
-            self.storage.store.get(key)
-        })
-        .await
+        let content = self
+            .run_read(ObjectStoreOperation::Get, key, || {
+                self.storage.store.get(key)
+            })
+            .await;
+        if key == MANIFEST_KEY
+            && let Ok(Some(manifest)) = &content
+        {
+            *self
+                .last_read_manifest
+                .lock()
+                .expect("manifest lock is not poisoned") = Some(manifest.bytes.clone());
+        }
+        content
     }
 
     async fn get_range(

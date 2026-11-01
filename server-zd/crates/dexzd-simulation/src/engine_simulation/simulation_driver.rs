@@ -44,7 +44,7 @@ use crate::engine_simulation::simulated_node::{
 };
 use crate::engine_simulation::simulated_object_store::{
     FAULT_PROBABILITIES, NoInjectedFaults, SharedObjectStorage, StorageObservations,
-    check_existing_store_reuse, replays_voided_closed_batch,
+    has_discarded_existing_store, replays_voided_closed_batch,
 };
 use crate::engine_simulation::simulated_workers::SimulatedWorkers;
 use crate::engine_simulation::standby_takeovers::{StandbyTakeover, StandbyTakeovers};
@@ -658,8 +658,9 @@ impl Simulation {
         self.check_recovered_process()
     }
 
-    /// Crashes the serving process and takes over from the hot standby, then starts a new one.
+    /// Crashes the serving process and takes over from the hot standby.
     async fn crash_and_take_over(&mut self) -> Result<(), InvariantViolation> {
+        self.draw_restart_incarnation();
         let (Some(serving), Some(mut takeovers)) =
             (self.serving.take(), self.standby_takeovers.take())
         else {
@@ -692,21 +693,14 @@ impl Simulation {
             }
         };
         self.serve(process);
-        let events = &mut self.summary.hot_standby_events;
-        takeovers.start_standby(
-            &self.environment,
-            self.incarnation,
-            self.fault_probability,
-            None,
-            events,
-        );
         self.standby_takeovers = Some(takeovers);
         self.check_recovered_process()
     }
 
     /// Starts a new node incarnation at half the redeploy profile's restarts.
     fn draw_restart_incarnation(&mut self) {
-        if !self.is_redeploy_profile() || !self.rng.random_bool(0.5) {
+        let is_redeploying = self.is_redeploy_profile() || self.standby_takeovers.is_some();
+        if !is_redeploying || !self.rng.random_bool(0.5) {
             return;
         }
         self.incarnation = self
@@ -718,6 +712,11 @@ impl Simulation {
             "the next start uses incarnation {}",
             self.incarnation
         ));
+        if let Some(takeovers) = &mut self.standby_takeovers {
+            let events = &mut self.summary.hot_standby_events;
+            let (incarnation, faults) = (self.incarnation, self.fault_probability);
+            takeovers.follow_incarnation(&self.environment, incarnation, faults, events);
+        }
     }
 
     /// Counts the committed work a crash interrupts and remembers what recovery must finish.
@@ -913,9 +912,11 @@ impl Simulation {
             };
             match started {
                 Ok(process) => {
-                    let storage = &self.environment.storage;
-                    let existing = existing.as_ref();
-                    if check_existing_store_reuse(storage, existing, &process.local_store).await? {
+                    if has_discarded_existing_store(
+                        process.object_store.last_read_manifest().as_ref(),
+                        existing.as_ref(),
+                        &process.local_store,
+                    )? {
                         self.summary.discarded_existing_stores += 1;
                     }
                     if replays_voided_batch {

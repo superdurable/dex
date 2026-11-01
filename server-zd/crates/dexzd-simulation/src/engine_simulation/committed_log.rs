@@ -378,7 +378,19 @@ impl CommittedLog {
         Arc::new(ObservingCommandSink {
             log: Arc::clone(self),
             process_label: process_label.to_owned(),
-            registry,
+            registry: Some(registry),
+        })
+    }
+
+    /// Returns a sink that records the frames a hot standby `process_label` applies.
+    pub(crate) fn standby_sink_for(
+        self: &Arc<Self>,
+        process_label: &str,
+    ) -> Arc<ObservingCommandSink> {
+        Arc::new(ObservingCommandSink {
+            log: Arc::clone(self),
+            process_label: process_label.to_owned(),
+            registry: None,
         })
     }
 
@@ -853,13 +865,16 @@ fn describe_write(write: &StateWrite) -> String {
 pub(crate) struct ObservingCommandSink {
     log: Arc<CommittedLog>,
     process_label: String,
-    registry: FlowCoordinatorRegistry,
+    /// `None` for a hot standby, which runs no Flow runtime.
+    registry: Option<FlowCoordinatorRegistry>,
 }
 
 impl CommittedCommandSink for ObservingCommandSink {
     fn apply_committed(&self, committed: CommittedFlowCommand) {
         self.log.observe(&self.process_label, &committed);
-        self.registry.apply_committed(committed);
+        if let Some(registry) = &self.registry {
+            registry.apply_committed(committed);
+        }
     }
 
     fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {

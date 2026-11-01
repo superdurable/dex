@@ -486,6 +486,9 @@ seconds per seed, with at most 20,000 simulated seconds in total. The job has th
 Another nightly job runs the Step failure profile the same way, with its own random base seed,
 48 seeds of 300 simulated seconds, and the redeploy job's limits.
 
+A fourth profile job runs the hot standby profile the same way: 48 seeds of 300 simulated
+seconds with the redeploy job's limits. A release that predates the profile skips it.
+
 Every nightly simulation job, including the apply simulation and seeded-bug acceptance, runs on
 two refs. One is the workflow's commit, which is main for scheduled runs. The other is the
 latest stable server-zd release: the newest `server-zd/vX.Y.Z` tag in version order.

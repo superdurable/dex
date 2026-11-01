@@ -45,6 +45,16 @@ on:
         required: true
         default: 300
         type: number
+      hot_standby_seed_count:
+        description: Number of consecutive engine simulation seeds in the hot standby profile
+        required: true
+        default: 48
+        type: number
+      hot_standby_active_seconds:
+        description: Simulated seconds of activity per hot standby profile seed
+        required: true
+        default: 300
+        type: number
 
 permissions:
   contents: read
@@ -575,5 +585,112 @@ jobs:
           path: |
             ${{ runner.temp }}/dexzd-step-failure-simulation-failures/
             ${{ runner.temp }}/dexzd-step-failure-simulation*.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  engine-simulation-hot-standby-profile:
+    name: Engine simulation hot standby profile (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: server-zd
+    env:
+      DEXZD_SIMULATION_SEEDS: ${{ inputs.hot_standby_seed_count || 48 }}
+      DEXZD_SIMULATION_SECONDS: ${{ inputs.hot_standby_active_seconds || 300 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
+      - name: Check out the nightly harness
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .nightly-harness
+          sparse-checkout: script/server-zd-simulation-run.py
+          sparse-checkout-cone-mode: false
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for the RocksDB bindings
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - name: Validate hot standby profile budget
+        shell: bash
+        run: |
+          if ! [[ "$DEXZD_SIMULATION_SEEDS" =~ ^[1-9][0-9]*$ ]] ||
+             ! [[ "$DEXZD_SIMULATION_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+             (( ${#DEXZD_SIMULATION_SEEDS} > 4 || ${#DEXZD_SIMULATION_SECONDS} > 4 )) ||
+             (( DEXZD_SIMULATION_SEEDS < 16 || DEXZD_SIMULATION_SEEDS > 1000 )) ||
+             (( DEXZD_SIMULATION_SECONDS < 60 || DEXZD_SIMULATION_SECONDS > 600 )) ||
+             (( DEXZD_SIMULATION_SEEDS * DEXZD_SIMULATION_SECONDS > 20000 )); then
+            echo 'Use 16–1000 seeds, 60–600 simulated seconds per seed, and at most 20000 simulated seconds.' >&2
+            exit 1
+          fi
+      - name: Choose random base seed
+        run: |
+          base_seed=$(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]')
+          echo "DEXZD_SIMULATION_BASE_SEED=$base_seed" >> "$GITHUB_ENV"
+          echo "Base seed: $base_seed"
+      - name: Check for the hot standby profile
+        id: profile
+        shell: bash
+        run: |
+          if grep -q 'fn hot_standby_takeovers_keep_every_invariant' crates/dexzd-simulation/tests/engine_simulation.rs; then
+            echo "is_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "${{ matrix.target.ref }} predates the hot standby profile; skipping it."
+            echo "is_present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run hot standby profile
+        id: hot_standby
+        if: steps.profile.outputs.is_present == 'true'
+        shell: bash
+        env:
+          DEXZD_SIMULATION_FAILURE_DIR: ${{ runner.temp }}/dexzd-hot-standby-simulation-failures
+        run: |
+          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --prepare-progress
+          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --build --timeout 1500 --log "$RUNNER_TEMP/dexzd-hot-standby-simulation-build.log" -- \
+            cargo test --locked -p dexzd-simulation --test engine_simulation --no-run
+          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 3300 --log "$RUNNER_TEMP/dexzd-hot-standby-simulation.log" -- \
+            cargo test --locked -p dexzd-simulation --test engine_simulation hot_standby_takeovers_keep_every_invariant -- --exact --nocapture
+      - name: Summarize hot standby profile
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Engine simulation hot standby profile (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
+            echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
+            echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
+            echo "Build result: ${{ steps.hot_standby.outputs.build_result || 'not completed' }}; elapsed seconds: ${{ steps.hot_standby.outputs.build_elapsed_seconds }}"
+            echo "Result: ${{ steps.hot_standby.outputs.result || steps.hot_standby.outcome }}"
+            echo "Elapsed seconds: ${{ steps.hot_standby.outputs.elapsed_seconds }}; last completed seed: ${{ steps.hot_standby.outputs.last_completed_seed || 'none' }}"
+            echo
+            if compgen -G "$RUNNER_TEMP/dexzd-hot-standby-simulation-failures/*.txt" > /dev/null; then
+              echo "### Failing seeds"
+              echo "Run reproduction commands from \`server-zd/\`."
+              for report in "$RUNNER_TEMP"/dexzd-hot-standby-simulation-failures/*.txt; do
+                seed=${report##*/}
+                seed=${seed%.txt}
+                reproduction=$(grep -m1 '^reproduce with:' "$report")
+                echo "- Seed $seed: \`${reproduction#reproduce with: }\`"
+              done
+              echo
+              echo "Download the failure artifact for each violation and its last trace events."
+            else
+              echo "No invariant failures were recorded."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload hot standby profile failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexzd-hot-standby-simulation-failures-${{ matrix.target.label }}
+          path: |
+            ${{ runner.temp }}/dexzd-hot-standby-simulation-failures/
+            ${{ runner.temp }}/dexzd-hot-standby-simulation*.log
           if-no-files-found: warn
           retention-days: 30

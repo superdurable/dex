@@ -71,8 +71,7 @@ pub enum EngineSimulationProfile {
     /// The fixed set's environment with Step failure policies, short Flow timeouts, and timeout
     /// handlers. Clients also skip Flow timeouts.
     StepFailurePolicies,
-    /// The fixed set's environment with a hot standby that follows the log. Most crashes of the
-    /// serving process end in a takeover from it; standbys crash and lose object storage.
+    /// The fixed set's environment plus a hot standby; most serving crashes end in a takeover.
     HotStandbyTakeovers,
 }
 

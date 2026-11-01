@@ -29,6 +29,17 @@ const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const DEFAULT_HOT_STANDBY_SEED_COUNT: u64 = 16;
 /// Hot standbys change every trajectory, so their seeds form their own group.
 const FIRST_HOT_STANDBY_SEED: u64 = 0x57a0_0000;
+/// Seeds whose standby applied a batch that the crashed serving process never applied.
+const HOT_STANDBY_REGRESSION_SEEDS: &[(u64, u64)] = &[
+    (1_470_103_572, 120),
+    (1_470_103_573, 120),
+    (1_470_103_586, 120),
+    (1_470_103_602, 120),
+    (1_470_103_611, 120),
+    (1_470_103_620, 120),
+    (1_470_103_663, 120),
+    (1_470_103_715, 120),
+];
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
 /// Canonical command digests with full-rate startup faults; a moved regression seed
 /// stops reproducing.
@@ -80,6 +91,12 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         FIRST_REDEPLOY_SEED,
         120,
         0xa330eed649fe9012242114b785ee5ac3,
+    ),
+    (
+        EngineSimulationProfile::HotStandbyTakeovers,
+        FIRST_HOT_STANDBY_SEED,
+        120,
+        0xeb9485c4ba73c45d09df04546d7c6572,
     ),
 ];
 
@@ -206,8 +223,11 @@ fn redeploys_with_a_short_history_window_keep_every_invariant() {
 
 #[test]
 fn hot_standby_takeovers_keep_every_invariant() {
-    let (seeds, is_single_seed) =
-        configured(DEFAULT_HOT_STANDBY_SEED_COUNT, FIRST_HOT_STANDBY_SEED, &[]);
+    let (seeds, is_single_seed) = configured(
+        DEFAULT_HOT_STANDBY_SEED_COUNT,
+        FIRST_HOT_STANDBY_SEED,
+        HOT_STANDBY_REGRESSION_SEEDS,
+    );
     let mut total = run_seeds(&seeds, EngineSimulationProfile::HotStandbyTakeovers);
     total.recent_events.clear();
     println!("hot standby profile coverage: {total:#?}");
@@ -220,6 +240,7 @@ fn hot_standby_takeovers_keep_every_invariant() {
         "standby-crash-kept",
         "standby-crash-lost",
         "standby-outage",
+        "standby-redeploy",
         "check-following",
         "check-restarting",
         "standby-following-at-end",
@@ -235,6 +256,10 @@ fn hot_standby_takeovers_keep_every_invariant() {
     assert!(
         total.recovered_state_comparisons > 0,
         "no store was compared with the twin after a takeover: {total:#?}"
+    );
+    assert!(
+        total.incarnation_changes > 0,
+        "no standby followed across an incarnation change: {total:#?}"
     );
 }
 
@@ -513,6 +538,10 @@ fn one_seed_produces_the_same_trace_and_final_state_twice() {
         (
             FIRST_STEP_FAILURE_SEED,
             EngineSimulationProfile::StepFailurePolicies,
+        ),
+        (
+            FIRST_HOT_STANDBY_SEED,
+            EngineSimulationProfile::HotStandbyTakeovers,
         ),
     ] {
         let config = EngineSimulationConfig {
