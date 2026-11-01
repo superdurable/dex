@@ -1,0 +1,61 @@
+---
+id: agent-frameworks
+title: Agent Frameworks
+sidebar_label: Agent Frameworks
+---
+
+# Agent Frameworks
+
+An agent already written with an agent framework can run on Dex without a rewrite. A framework adapter wraps the agent in a session Flow, one Flow per session, and keeps the framework's own agent definition, tools and prompts.
+
+## How a session runs
+
+The framework makes one model call per Step. Each tool call the model asks for then runs as its own Step, and the tool calls of one turn run in parallel. When they finish, the session goes back to the model with their results.
+
+A crash repeats only the call that was running. Nothing replays the loop, so the framework code needs no determinism rules, and a code change takes effect at the next Step.
+
+The Claude Agent SDK is the exception: it runs its own loop in a CLI subprocess, so its adapter runs each whole turn as one Step.
+
+## Tool policies and approvals
+
+Each tool gets a **ToolPolicy** that marks it as a read, an idempotent write, or a write that must run once. Reads and idempotent writes retry. Other writes get a single attempt, so a retry never repeats them silently. A tool call that needs approval waits in its own Step until someone answers, for as long as it takes.
+
+## Install
+
+Python adapters are on PyPI:
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+pip install dex-agents-langgraph
+pip install dex-agents-openai-agents
+pip install dex-agents-google-adk
+pip install dex-agents-claude-agent-sdk
+```
+
+TypeScript adapters are on npm, with the core and the Dex SDK as peer packages:
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+```
+
+## Adapters
+
+Each adapter's README has a runnable example and its options.
+
+| Framework | Language | Adapter |
+| --- | --- | --- |
+| Pydantic AI | Python | [pydantic-ai](https://github.com/superdurable/dex/tree/main/agents/python/pydantic-ai) |
+| LangChain and LangGraph | Python | [langgraph](https://github.com/superdurable/dex/tree/main/agents/python/langgraph) |
+| OpenAI Agents SDK | Python, TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/openai-agents), [TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/openai-agents) |
+| Google ADK | Python | [google-adk](https://github.com/superdurable/dex/tree/main/agents/python/google-adk) |
+| Vercel AI SDK | TypeScript | [vercel-ai](https://github.com/superdurable/dex/tree/main/agents/typescript/vercel-ai) |
+| Mastra | TypeScript | [mastra](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra) |
+| Claude Agent SDK | Python, TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk), [TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/claude-agent-sdk) |
+
+## Related
+
+- [AI Agent](/use-cases/ai-agent): an agent written directly with the Dex SDK
+- [Step](/primitives/step)

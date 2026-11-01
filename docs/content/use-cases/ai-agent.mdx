@@ -12,21 +12,7 @@ Dex owns the conversation state. The Agent rebuilds the model input from durable
 
 ## Agent frameworks
 
-An agent already written with an agent framework can run on Dex without a rewrite. A framework adapter wraps the agent in a session Flow, one Flow per session. The framework makes one model call per Step, and each tool call then runs as its own Step, in parallel. A crash repeats only the call that was running, and nothing replays the loop, so a code change takes effect at the next Step.
-
-Each tool gets a **ToolPolicy** that marks it as a read, an idempotent write, or a write that must run once. Reads and idempotent writes retry. Other writes get a single attempt. A tool call that needs approval waits in its own Step until someone answers.
-
-| Framework | Language | Adapter |
-| --- | --- | --- |
-| Pydantic AI | Python | [pydantic-ai](https://github.com/superdurable/dex/tree/main/agents/python/pydantic-ai) |
-| LangChain and LangGraph | Python | [langgraph](https://github.com/superdurable/dex/tree/main/agents/python/langgraph) |
-| OpenAI Agents SDK | Python, TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/openai-agents), [TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/openai-agents) |
-| Google ADK | Python | [google-adk](https://github.com/superdurable/dex/tree/main/agents/python/google-adk) |
-| Vercel AI SDK | TypeScript | [vercel-ai](https://github.com/superdurable/dex/tree/main/agents/typescript/vercel-ai) |
-| Mastra | TypeScript | [mastra](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra) |
-| Claude Agent SDK | Python, TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk), [TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/claude-agent-sdk) |
-
-The Claude Agent SDK runs its loop in a CLI subprocess, so its adapter runs each whole turn as one Step instead. The adapters are on PyPI and npm; each adapter's README gives its install command, a runnable example, and its options.
+An agent already written with an agent framework such as Pydantic AI, LangGraph, the OpenAI Agents SDK, Google ADK, the Vercel AI SDK, Mastra or the Claude Agent SDK can run on Dex without a rewrite. See [Agent Frameworks](/agent-frameworks).
 
 ## Flow design
 
