@@ -8,6 +8,7 @@ const sidebars: SidebarsConfig = {
       label: 'Intro and Quick Start',
       items: ['intro/what-is-durable-execution', 'intro/what-is-dex', 'quick-start/index'],
     },
+    'agent-frameworks',
     {
       type: 'category',
       label: 'Primitives',
