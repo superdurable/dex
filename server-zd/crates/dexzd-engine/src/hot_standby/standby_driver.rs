@@ -573,8 +573,7 @@ async fn release_store(store: Arc<EngineLocalStore>) {
 
 /// Stops writes through `write_fence`, then waits for the applier lanes.
 ///
-/// A fence that its owner stopped already ends following quickly: a lane that outlives it can
-/// no longer write, and the store's last handle closes it.
+/// Skips the wait when the owner fenced first: an outliving lane cannot write.
 async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPool) {
     if write_fence.stop_reason().is_some() {
         return;

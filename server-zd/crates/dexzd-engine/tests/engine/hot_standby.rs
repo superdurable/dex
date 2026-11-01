@@ -25,7 +25,8 @@ use dexzd_object_store::{
     WriteCondition, WriteOutcome,
 };
 use dexzd_storage::{
-    CanonicalizedStoreField, RocksDbLocalStore, RocksDbStoreOptions, compare_store_views,
+    CanonicalizedStoreField, LocalReadView, RocksDbLocalStore, RocksDbStoreOptions,
+    compare_store_views,
 };
 use tokio::time::Instant;
 
@@ -1035,6 +1036,92 @@ async fn a_node_start_sets_aside_a_store_that_applied_a_batch_past_the_recorded_
         4,
         "every acknowledged write survives, and the repeated command does not"
     );
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_dropped_hot_standby_reports_stopped() {
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby = start_standby(
+        &cluster,
+        cluster.config(LocalStoreConfig::InMemory),
+        fast_standby_config(),
+    );
+    serving.commit_prompt(FIRST_FLOW, 1).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    let reader = standby.standby.status_reader();
+    drop(standby);
+    assert_eq!(reader.status().state, HotStandbyState::Stopped);
+    serving.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_node_start_reuses_a_store_whose_positions_end_exactly_at_the_recorded_end() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let node_directory = directory.path().join("node");
+    let mut cluster = TestCluster::new();
+    let first_config = cluster.config(rocksdb_store(&node_directory));
+    let first = cluster
+        .start_with(&first_config)
+        .await
+        .expect("incarnation 1 starts");
+    first.commit_prompt(FIRST_FLOW, 3).await;
+    first.node.shutdown().await.expect("lease released");
+    // Incarnation 2 closes the first stream, replays it, and fails at its own first batch.
+    let mut second_config = first_config;
+    second_config.node.incarnation = 2;
+    let second_stream = StreamIdentity {
+        cluster_id: cluster_id(&cluster).await,
+        node_id: "node-a".to_owned(),
+        incarnation: 2,
+    };
+    cluster
+        .faults
+        .fail_puts_of_after(&second_stream.batch_key(1), 0);
+    let failed = tokio::time::timeout(Duration::from_secs(300), cluster.start_with(&second_config))
+        .await
+        .expect("the failing start ends");
+    assert!(failed.is_err(), "the start fails at its first batch");
+    cluster.faults.clear();
+    let end_seq = recorded_end_seq(&cluster, 1).await;
+    {
+        let store = RocksDbLocalStore::open(&node_directory, RocksDbStoreOptions::default())
+            .expect("the closed store opens");
+        for meta in store.partition_metas().expect("read the partition metas") {
+            let applied = meta.applied.expect("every partition applied a batch");
+            assert_eq!(
+                (applied.incarnation, applied.seq),
+                (1, end_seq),
+                "partition {} ends at the recorded end",
+                meta.partition
+            );
+        }
+    }
+
+    let log_reads = |cluster: &TestCluster| {
+        cluster
+            .faults
+            .count_operations(ObjectStoreOperation::Get, |key| key.starts_with(LOG_PREFIX))
+    };
+    let reads_before = log_reads(&cluster);
+    let node = cluster
+        .start_with(&second_config)
+        .await
+        .expect("incarnation 2 starts from the store");
+    assert!(
+        set_aside_copies(&node_directory).is_empty(),
+        "a store at the recorded end is reused"
+    );
+    let replayed_reads = log_reads(&cluster) - reads_before;
+    assert!(
+        replayed_reads <= 2,
+        "the start read {replayed_reads} log batches"
+    );
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 3);
     node.node.shutdown().await.expect("lease released");
 }
 

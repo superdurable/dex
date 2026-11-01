@@ -144,8 +144,7 @@ pub struct HotStandbyStatus {
 
 /// Reads a hot standby's status, also while a takeover owns the standby.
 ///
-/// Clone it from [`HotStandby::status_reader`] before a takeover, to keep reporting the standby's
-/// state and lag while the takeover waits for the node lease.
+/// Take it from [`HotStandby::status_reader`] before the takeover.
 #[derive(Clone)]
 pub struct HotStandbyStatusReader {
     status: Arc<StandbyStatusCell>,
@@ -383,6 +382,8 @@ impl HotStandby {
             Err(_) => {
                 self.following.stop_current_write_fence();
                 driver.abort();
+                // The aborted driver can no longer report its own stop.
+                self.status_reader.status.set(StandbyPhase::Stopped);
                 tracing::error!("the hot standby did not stop in time and was aborted");
                 None
             }
@@ -394,6 +395,9 @@ impl Drop for HotStandby {
     fn drop(&mut self) {
         // Fencing first keeps a lane that outlives the abort from writing the store.
         self.following.stop_current_write_fence();
+        if self.driver.is_some() {
+            self.status_reader.status.set(StandbyPhase::Stopped);
+        }
         self.cancellation.cancel();
         if let Some(driver) = self.driver.take() {
             driver.abort();
@@ -671,4 +675,62 @@ fn lag_duration(
     progress.caught_up_at.map_or(data_age, |caught_up_at| {
         data_age.min(caught_up_at.elapsed())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::pending;
+
+    use dexzd_cluster_metadata::LeaseValidityDeadline;
+
+    use super::*;
+
+    /// Returns a standby whose driver ignores cancellation, like one stuck in a long apply.
+    fn standby_with_stuck_driver() -> HotStandby {
+        let driver = tokio::spawn(pending::<Option<Arc<EngineLocalStore>>>());
+        HotStandby {
+            status_reader: HotStandbyStatusReader {
+                status: Arc::new(StandbyStatusCell::default()),
+                clock: Arc::new(dexzd_clock::SystemWallClock),
+                behind_lag_threshold: Duration::from_secs(10),
+            },
+            #[cfg(feature = "test-util")]
+            rejected_writes: Arc::new(AtomicU64::new(0)),
+            local_store: LocalStoreConfig::InMemory,
+            node_id: "node-a".to_owned(),
+            following: Arc::new(FollowingHandles::default()),
+            cancellation: CancellationToken::new(),
+            driver: Some(driver),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_handover_keeps_the_driver_for_a_later_stop() {
+        let mut standby = standby_with_stuck_driver();
+        let handover =
+            tokio::time::timeout(Duration::from_millis(1), standby.hand_over_store()).await;
+        assert!(
+            handover.is_err(),
+            "the stuck driver keeps the handover waiting"
+        );
+        assert!(
+            standby.driver.is_some(),
+            "the cancelled handover detached the driver"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_that_times_out_fences_before_it_aborts_and_reports_stopped() {
+        let mut standby = standby_with_stuck_driver();
+        let write_fence = Arc::new(CommitState::new(4, LeaseValidityDeadline::disarmed()));
+        standby
+            .following
+            .set_write_fence(Some(Arc::clone(&write_fence)));
+        let reader = standby.status_reader();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(1);
+        assert!(standby.stop_following(deadline).await.is_none());
+        assert_eq!(write_fence.stop_reason(), Some(NodeStopReason::Shutdown));
+        assert!(standby.driver.is_none(), "the stuck driver was aborted");
+        assert_eq!(reader.status().state, HotStandbyState::Stopped);
+    }
 }

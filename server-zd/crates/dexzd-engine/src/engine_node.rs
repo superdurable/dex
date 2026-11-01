@@ -108,9 +108,12 @@ pub enum HotStandbyTakeover {
 #[non_exhaustive]
 pub struct HotStandbyTakeoverError {
     /// Why the start failed.
-    #[source]
     pub error: EngineStartError,
-    /// The standby, still following, when the start failed before the lease; `None` after it.
+    /// The standby, still following, when the start failed before the lease.
+    ///
+    /// `None` after the lease: the start stopped the standby. A lane that still applies a frame
+    /// can keep its RocksDB directory locked past the release, so a start on that directory may
+    /// fail with [`EngineStartError::LocalStoreUnavailable`] and should retry.
     pub standby: Option<HotStandby>,
 }
 
@@ -145,8 +148,7 @@ impl EngineNode {
     pub const SHUTDOWN_BUDGET: Duration =
         TASK_STOP_BUDGET.saturating_add(LeaseHandle::RELEASE_BUDGET);
 
-    /// Longest a takeover that failed or was cancelled after it took the lease holds it: the
-    /// task stop and the standby stop, run side by side, plus the lease release.
+    /// Longest a takeover that fails after taking the lease holds it before releasing it.
     pub const TAKEOVER_RELEASE_BUDGET: Duration =
         TASK_STOP_BUDGET.saturating_add(LeaseHandle::RELEASE_BUDGET);
 
