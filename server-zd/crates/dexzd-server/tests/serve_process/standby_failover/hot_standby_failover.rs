@@ -62,7 +62,7 @@ async fn hot_standby_takes_over_when_the_active_is_killed_under_load() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    assert_hot_takeover(group, SECOND);
+    assert_hot_takeover(group, SECOND).await;
     let served_after = killed_at.elapsed();
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -93,7 +93,7 @@ async fn hot_standby_takes_over_when_the_active_is_terminated() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    assert_hot_takeover(group, SECOND);
+    assert_hot_takeover(group, SECOND).await;
     let served_after = terminated_at.elapsed();
     assert!(
         served_after <= SERVED_AFTER_SIGTERM_BOUND,
@@ -241,7 +241,7 @@ async fn hot_standby_recovers_from_object_storage_faults_and_still_takes_over() 
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    assert_hot_takeover(group, SECOND);
+    assert_hot_takeover(group, SECOND).await;
     scenario
         .finish(
             "hot_standby_recovers_from_object_storage_faults_and_still_takes_over",
@@ -285,7 +285,7 @@ async fn hot_standby_wins_the_takeover_over_a_lagging_one() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    assert_hot_takeover(&mut group, SECOND);
+    assert_hot_takeover(&mut group, SECOND).await;
     let deferral = wait_for_lease_deferral(&mut group, THIRD).await;
     assert!(
         deferral >= LAGGING_DEFERRAL_FLOOR,
@@ -386,7 +386,7 @@ async fn late_writes_of_a_stalled_active_are_fenced_after_a_hot_takeover() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    assert_hot_takeover(group, SECOND);
+    assert_hot_takeover(group, SECOND).await;
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
         .await;

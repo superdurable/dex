@@ -346,7 +346,10 @@ async fn acquire_as_cold_standby(
     let started = run_until_started(start, process, requests, &mut entry.pending).await;
     match resolve_start(started, &mut entry.pending)? {
         ServerNodeStart::Serving(node) => {
-            process.metrics.takeovers.record(TakeoverStandbyMode::Cold);
+            process
+                .metrics
+                .takeovers
+                .record(TakeoverStandbyMode::Cold, node.store_source());
             Ok(Some(*node))
         }
         ServerNodeStart::Cancelled(_) => Ok(None),
@@ -414,12 +417,17 @@ async fn acquire_as_hot_standby(
             ServerNodeStart::Serving(node) => {
                 // The reader keeps reporting a stale standby after the handover, so drop it now.
                 publisher.stop().await;
-                process.metrics.takeovers.record(TakeoverStandbyMode::Hot);
+                // A stale or missing standby store makes the engine open or restore its own instead.
+                let store_source = node.store_source();
+                process
+                    .metrics
+                    .takeovers
+                    .record(TakeoverStandbyMode::Hot, store_source);
                 if let Some(available_at) = delay.first_asked_at() {
                     process
                         .metrics
                         .takeover_duration
-                        .observe(available_at.elapsed().as_secs_f64());
+                        .observe(store_source, available_at.elapsed().as_secs_f64());
                 }
                 return Ok(Some(*node));
             }

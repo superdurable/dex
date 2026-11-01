@@ -142,8 +142,8 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_hot_standby_lag_seconds` | gauge | — | How long the hot standby has trailed the end of the log, 0 when caught up |
 | `dexzd_hot_standby_lag_batches` | gauge | — | Log batches the hot standby has yet to apply, as of its last listing |
 | `dexzd_hot_standby_error` | gauge | — | 1 while the hot standby reports the error of a recent restart |
-| `dexzd_takeovers_total` | counter | `standby_mode`: hot, cold | Completed lease takeovers of this process |
-| `dexzd_takeover_duration_seconds` | histogram | — | Hot takeovers only: time from the available lease to serving |
+| `dexzd_takeovers_total` | counter | `standby_mode`: hot, cold; `store_source`: hot_standby, restored | Completed lease takeovers of this process, by whether the node serves the hot standby's store or opened or restored its own |
+| `dexzd_takeover_duration_seconds` | histogram | `store_source`: hot_standby, restored | Hot takeovers only: time from the available lease to serving |
 | `dexzd_lease_renewals_total` | counter | `outcome`: ok, error | Lease renewal attempts |
 | `dexzd_api_requests_total` | counter | `rpc_class`: flow_write, flow_read, search, worker_poll, worker_respond; `code`: gRPC status code in snake_case | Public API calls by final status; unary calls at completion, Worker streams once at close, unauthenticated calls included, health checks excluded |
 | `dexzd_commit_batches_total` | counter | — | Durably committed batches |

@@ -693,6 +693,15 @@ impl ServerNode {
         &self.held_lease
     }
 
+    /// Returns which local store this period serves from.
+    fn store_source(&self) -> dexzd_metrics::TakeoverStoreSource {
+        if self.engine.is_serving_hot_standby_store() {
+            dexzd_metrics::TakeoverStoreSource::HotStandby
+        } else {
+            dexzd_metrics::TakeoverStoreSource::Restored
+        }
+    }
+
     /// Serves until shutdown, a node stop, or a step down; answers describe and epoch-mismatched step downs meanwhile.
     async fn serve_until_stopped(
         &mut self,

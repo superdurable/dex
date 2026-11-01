@@ -37,10 +37,10 @@ pub use commit_latency::CommitLatency;
 pub use fixed_labels::{
     AttributeSyncFailureKind, AttributeSyncWriteFailures, HotStandbyMetricState,
     HotStandbyStateGauges, ObjectErrorCounters, OutcomeCounters, RoleGauges, TakeoverCounters,
-    TakeoverStandbyMode,
+    TakeoverDurations, TakeoverStandbyMode, TakeoverStoreSource,
 };
 pub use histogram::AtomicHistogram;
-use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS, TAKEOVER_LATENCY_BOUNDS};
+use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
 pub use lag_gauges::{
     SearchOutboxBacklog, SearchOutboxEntries, SearchOutboxMaxPartitionEntries,
     SearchOutboxOldestEntryAge, TimerLag,
@@ -156,10 +156,10 @@ pub struct NodeMetrics {
     pub hot_standby_lag_seconds: Gauge<f64, std::sync::atomic::AtomicU64>,
     /// One while the hot standby reports the error of a recent restart, zero otherwise.
     pub hot_standby_error: Gauge,
-    /// Completed takeovers by the standby mode of the process.
+    /// Completed takeovers by the standby mode of the process and the store it served from.
     pub takeovers: TakeoverCounters,
-    /// Time from attempting an available lease to serving.
-    pub takeover_duration: AtomicHistogram<7>,
+    /// Time from attempting an available lease to serving, by the store served from.
+    pub takeover_duration: TakeoverDurations,
 }
 
 /// A lifecycle role for one node.
@@ -559,7 +559,7 @@ impl NodeMetrics {
             hot_standby_lag_seconds: Gauge::default(),
             hot_standby_error: Gauge::default(),
             takeovers: TakeoverCounters::default(),
-            takeover_duration: AtomicHistogram::new(&TAKEOVER_LATENCY_BOUNDS),
+            takeover_duration: TakeoverDurations::default(),
         }
     }
 

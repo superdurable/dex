@@ -691,6 +691,26 @@ impl NodeGroup {
             .then(|| sample_with_label(&metrics, name, label, value))
     }
 
+    /// Returns the takeovers that `slot`'s current process reports for one standby mode and store source.
+    pub(crate) async fn takeovers(
+        &self,
+        slot: usize,
+        standby_mode: &str,
+        store_source: &str,
+    ) -> f64 {
+        let metrics = try_scrape(self.slots[slot].metrics_address, "/metrics")
+            .await
+            .expect("the slot serves its metrics");
+        let sample = format!(
+            "dexzd_takeovers_total{{standby_mode=\"{standby_mode}\",store_source=\"{store_source}\"}} "
+        );
+        metrics
+            .lines()
+            .find_map(|line| line.strip_prefix(&sample))
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no {sample} sample in:\n{metrics}"))
+    }
+
     /// Asks the active process, through the router, to step down.
     pub(crate) async fn step_down_active(
         &self,

@@ -90,7 +90,7 @@ async fn freeze_the_active_through_a_takeover(test: &str, phase: &str, slots: &[
     );
     let served_after = frozen_at.elapsed();
     if slots[SECOND].standby_mode == SlotStandbyMode::Hot {
-        assert_hot_takeover(group, SECOND);
+        assert_hot_takeover(group, SECOND).await;
     }
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)

@@ -394,12 +394,17 @@ impl FailoverScenario {
     }
 }
 
-/// Panics unless `slot` took over from its hot standby's store and replayed little log.
-fn assert_hot_takeover(group: &mut NodeGroup, slot: usize) -> u64 {
+/// Panics unless `slot` took over from its hot standby's store, reported it, and replayed little log.
+async fn assert_hot_takeover(group: &mut NodeGroup, slot: usize) -> u64 {
     let replayed = group.hot_takeover_replayed_batches(slot);
     assert!(
         replayed <= HOT_TAKEOVER_REPLAY_BOUND,
         "slot {slot} replayed {replayed} log batches after a hot takeover"
+    );
+    // A first active in hot mode had no standby store yet, so it may also report a restore.
+    assert!(
+        group.takeovers(slot, "hot", "hot_standby").await >= 1.0,
+        "slot {slot} must report its takeover as served from the hot standby's store"
     );
     replayed
 }

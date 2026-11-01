@@ -95,7 +95,7 @@ async fn step_down_hands_over_to_the_hot_standby_and_the_old_active_stays_hot() 
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    assert_hot_takeover(group, SECOND);
+    assert_hot_takeover(group, SECOND).await;
     let answered_after = stepped_down_at.elapsed();
     assert!(
         answered_after < STEP_DOWN_HOLD_OFF,
@@ -315,7 +315,7 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
             group.wait_for_takeover(active, TAKEOVER_BUDGET).await,
             standby
         );
-        assert_hot_takeover(group, standby);
+        assert_hot_takeover(group, standby).await;
         switchovers.push(failed_at.elapsed());
         if round % 2 == 1 {
             group.restart(active, DirectoryFate::Keep);

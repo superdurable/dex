@@ -894,7 +894,7 @@ key label。
 | 提交延迟 | **dexzd_commit_latency_seconds** |
 | 对象存储 | **dexzd_object_store_requests_total**，带 **operation** 和 **object_kind**；**dexzd_object_store_request_errors_total**，带 **operation** |
 | Lease 和节点状态 | **dexzd_node_role**，带 **role**；**dexzd_lease_epoch**；**dexzd_lease_renewals_total**，带 **outcome** |
-| Standby | **dexzd_hot_standby_state**，带 **state**；**dexzd_hot_standby_lag_seconds**；**dexzd_hot_standby_lag_batches**；**dexzd_hot_standby_error**；**dexzd_takeovers_total**，带 **standby_mode**；**dexzd_takeover_duration_seconds** |
+| Standby | **dexzd_hot_standby_state**，带 **state**；**dexzd_hot_standby_lag_seconds**；**dexzd_hot_standby_lag_batches**；**dexzd_hot_standby_error**；**dexzd_takeovers_total**，带 **standby_mode** 和 **store_source**；**dexzd_takeover_duration_seconds** |
 | 恢复 | **dexzd_recovery_last_duration_seconds**；**dexzd_recovery_last_replayed_bytes** |
 | Timer | **dexzd_timer_lag_seconds** |
 | 快照 | **dexzd_snapshots_total**，带 **outcome**；**dexzd_snapshot_last_duration_seconds** |
@@ -908,7 +908,9 @@ key label。
 或 **draining**。**state** 取 **inactive**、**bootstrapping**、**following**、**behind**、
 **restarting** 或 **failed**，只有 **following** 算热。active 进程和 cold standby 报告
 **inactive**。**standby_mode** 取 **hot** 或 **cold**。
-**dexzd_takeover_duration_seconds** 只统计热接管。
+节点使用热 standby 保持最新的 store 时，**store_source** 为 **hot_standby**；节点打开自己的
+store 或恢复快照时为 **restored**，例如 standby 的 store 缺失或过旧时。
+**dexzd_takeover_duration_seconds** 只统计热接管，按 **store_source** 区分。
 
 Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
 **dexzd_worker_stream_events_total** 统计每次任务投递和每次 stream 关闭。long poll 的

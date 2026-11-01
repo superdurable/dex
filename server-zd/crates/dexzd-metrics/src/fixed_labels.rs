@@ -13,7 +13,11 @@ use prometheus_client::metrics::MetricType;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::gauge::Gauge;
 
-use crate::{NodeRole, ObjectOperation, ObjectOperationLabel, Outcome, OutcomeLabel, RoleLabel};
+use crate::histogram::TAKEOVER_LATENCY_BOUNDS;
+use crate::{
+    AtomicHistogram, NodeRole, ObjectOperation, ObjectOperationLabel, Outcome, OutcomeLabel,
+    RoleLabel,
+};
 
 /// Fixed lifecycle gauges; exactly one role has value one.
 #[derive(Clone, Debug)]
@@ -289,49 +293,127 @@ label_value!(TakeoverStandbyMode { Hot => "hot", Cold => "cold" });
 
 impl TakeoverStandbyMode {
     const ALL: [Self; 2] = [Self::Hot, Self::Cold];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Hot => 0,
+            Self::Cold => 1,
+        }
+    }
+}
+
+/// Which local store a takeover serves from.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum TakeoverStoreSource {
+    /// The store that the hot standby kept current, so the takeover replayed only the log tail.
+    HotStandby,
+    /// The process opened its own store or restored a snapshot, then replayed the log after it.
+    Restored,
+}
+
+label_value!(TakeoverStoreSource { HotStandby => "hot_standby", Restored => "restored" });
+
+impl TakeoverStoreSource {
+    const ALL: [Self; 2] = [Self::HotStandby, Self::Restored];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::HotStandby => 0,
+            Self::Restored => 1,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-struct TakeoverStandbyModeLabel {
+struct TakeoverLabels {
     standby_mode: TakeoverStandbyMode,
+    store_source: TakeoverStoreSource,
 }
 
-/// Fixed takeover counters by standby mode.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct TakeoverStoreSourceLabel {
+    store_source: TakeoverStoreSource,
+}
+
+/// Fixed takeover counters by standby mode and store source.
 #[derive(Clone, Debug)]
 pub struct TakeoverCounters {
-    values: Arc<[Counter; 2]>,
+    values: Arc<[[Counter; 2]; 2]>,
 }
 
 impl Default for TakeoverCounters {
     fn default() -> Self {
         Self {
-            values: Arc::new(std::array::from_fn(|_| Counter::default())),
+            values: Arc::new(std::array::from_fn(|_| {
+                std::array::from_fn(|_| Counter::default())
+            })),
         }
     }
 }
 
 impl TakeoverCounters {
     /// Records one completed takeover.
-    pub fn record(&self, standby_mode: TakeoverStandbyMode) {
-        self.values[match standby_mode {
-            TakeoverStandbyMode::Hot => 0,
-            TakeoverStandbyMode::Cold => 1,
-        }]
-        .inc();
+    pub fn record(&self, standby_mode: TakeoverStandbyMode, store_source: TakeoverStoreSource) {
+        self.values[standby_mode.index()][store_source.index()].inc();
     }
 }
 
 impl EncodeMetric for TakeoverCounters {
     fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
-        for (index, standby_mode) in TakeoverStandbyMode::ALL.into_iter().enumerate() {
-            encoder
-                .encode_family(&TakeoverStandbyModeLabel { standby_mode })?
-                .encode_counter::<NoLabelSet, _, u64>(&self.values[index].get(), None)?;
+        for standby_mode in TakeoverStandbyMode::ALL {
+            for store_source in TakeoverStoreSource::ALL {
+                encoder
+                    .encode_family(&TakeoverLabels {
+                        standby_mode,
+                        store_source,
+                    })?
+                    .encode_counter::<NoLabelSet, _, u64>(
+                        &self.values[standby_mode.index()][store_source.index()].get(),
+                        None,
+                    )?;
+            }
         }
         Ok(())
     }
 
     fn metric_type(&self) -> MetricType {
         MetricType::Counter
+    }
+}
+
+/// Fixed takeover duration histograms by store source.
+#[derive(Clone, Debug)]
+pub struct TakeoverDurations {
+    histograms: Arc<[AtomicHistogram<7>; 2]>,
+}
+
+impl Default for TakeoverDurations {
+    fn default() -> Self {
+        Self {
+            histograms: Arc::new(std::array::from_fn(|_| {
+                AtomicHistogram::new(&TAKEOVER_LATENCY_BOUNDS)
+            })),
+        }
+    }
+}
+
+impl TakeoverDurations {
+    /// Records how long one takeover took, in seconds.
+    pub fn observe(&self, store_source: TakeoverStoreSource, seconds: f64) {
+        self.histograms[store_source.index()].observe(seconds);
+    }
+}
+
+impl EncodeMetric for TakeoverDurations {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for store_source in TakeoverStoreSource::ALL {
+            self.histograms[store_source.index()]
+                .encode(encoder.encode_family(&TakeoverStoreSourceLabel { store_source })?)?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Histogram
     }
 }

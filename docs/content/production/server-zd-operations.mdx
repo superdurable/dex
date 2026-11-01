@@ -1065,7 +1065,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Commit latency | **dexzd_commit_latency_seconds** |
 | Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
 | Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
-| Standby | **dexzd_hot_standby_state** with **state**; **dexzd_hot_standby_lag_seconds**; **dexzd_hot_standby_lag_batches**; **dexzd_hot_standby_error**; **dexzd_takeovers_total** with **standby_mode**; **dexzd_takeover_duration_seconds** |
+| Standby | **dexzd_hot_standby_state** with **state**; **dexzd_hot_standby_lag_seconds**; **dexzd_hot_standby_lag_batches**; **dexzd_hot_standby_error**; **dexzd_takeovers_total** with **standby_mode** and **store_source**; **dexzd_takeover_duration_seconds** |
 | Recovery | **dexzd_recovery_last_duration_seconds**; **dexzd_recovery_last_replayed_bytes** |
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
@@ -1080,7 +1080,11 @@ snake case, such as **ok** or **unavailable**. **role** is one of **starting**,
 **inactive**, **bootstrapping**, **following**, **behind**, **restarting**, and
 **failed**. Only **following** is hot. The active process and a cold standby
 report **inactive**. **standby_mode** is **hot** or **cold**.
-**dexzd_takeover_duration_seconds** covers hot takeovers only.
+**store_source** is **hot_standby** when the node serves the store that its hot
+standby kept current, and **restored** when it opened its own store or restored
+a snapshot, such as when the standby store was missing or stale.
+**dexzd_takeover_duration_seconds** covers hot takeovers only, by
+**store_source**.
 
 Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each task delivery and each stream
