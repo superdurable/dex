@@ -827,11 +827,31 @@ async fn relay_parade_db_connection(
     }
 }
 
-/// Returns a loopback address whose port was free a moment ago.
+/// Below the ephemeral port ranges of Linux and macOS, so no outgoing connection takes these ports.
+const TEST_PORTS: std::ops::Range<u16> = 20_000..32_000;
+/// How many test ports this binary has handed out.
+static HANDED_OUT_TEST_PORTS: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+/// A random start, so test binaries running side by side rarely probe the same ports.
+static FIRST_TEST_PORT_OFFSET: std::sync::LazyLock<u16> =
+    std::sync::LazyLock::new(|| rand::random_range(0..TEST_PORTS.end - TEST_PORTS.start));
+
+/// Returns a loopback address whose port is free and outside the kernel's ephemeral range.
+///
+/// Kernel-chosen ports can go to an outgoing connection before the server binds them; these cannot.
 pub(crate) fn free_loopback_address() -> SocketAddr {
-    std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
-        .and_then(|listener| listener.local_addr())
-        .expect("a free loopback port exists")
+    let port_count = TEST_PORTS.end - TEST_PORTS.start;
+    for _ in 0..port_count {
+        let handed_out = HANDED_OUT_TEST_PORTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let offset =
+            (u32::from(*FIRST_TEST_PORT_OFFSET) + u32::from(handed_out)) % u32::from(port_count);
+        let port = TEST_PORTS.start
+            + u16::try_from(offset).expect("an offset below the port count fits in u16");
+        let address = SocketAddr::from(([127, 0, 0, 1], port));
+        if std::net::TcpListener::bind(address).is_ok() {
+            return address;
+        }
+    }
+    panic!("no loopback test port in {TEST_PORTS:?} is free");
 }
 
 /// Decides the result of one Execute call.
