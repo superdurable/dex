@@ -232,6 +232,7 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
     assert!(!second.log().contains(LOAD_LOG_LINE), "{}", second.log());
     let status = second.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", second.log());
+    assert_acks_within_sql_progress(&schema, &node.store_path("store")).await;
 
     // A recovered local store keeps projecting; hour-long acks leave projected entries queued.
     let (mut third, channel, _) = node
@@ -258,6 +259,7 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
     let status = third.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", third.log());
     let store_path = node.store_path("recovered-store");
+    assert_acks_within_sql_progress(&schema, &store_path).await;
     assert!(
         count_outbox_entries(&store_path) > 0,
         "projected entries wait for their ack"
@@ -913,8 +915,33 @@ fn count_outbox_entries(store_path: &Path) -> usize {
         .sum()
 }
 
+/// Asserts that no partition acked entries beyond the seq that SQL progress records.
+async fn assert_acks_within_sql_progress(schema: &SqlVisibilitySchema, store_path: &Path) {
+    let sql_through_seqs = schema
+        .query_partition_seqs(
+            "SELECT partition_id, outbox_through_seq FROM {schema}.dexzd_visibility_progress WHERE outbox_through_seq IS NOT NULL",
+        )
+        .await;
+    for (partition, mode) in stored_mode_records(store_path).into_iter().enumerate() {
+        let partition = u16::try_from(partition).expect("few partitions");
+        let sql_through_seq = sql_through_seqs.get(&partition).copied().unwrap_or(0);
+        assert!(
+            i64::try_from(mode.acked_through_seq).expect("seqs fit in i64") <= sql_through_seq,
+            "partition {partition} acked {} beyond SQL progress {sql_through_seq}",
+            mode.acked_through_seq
+        );
+    }
+}
+
 /// Returns every partition's stored projection mode; an absent record means disabled.
 fn stored_modes(store_path: &Path) -> Vec<bool> {
+    stored_mode_records(store_path)
+        .iter()
+        .map(|mode| mode.enabled)
+        .collect()
+}
+
+fn stored_mode_records(store_path: &Path) -> Vec<SearchProjectionModeRecord> {
     let store = RocksDbLocalStore::open(store_path, RocksDbStoreOptions::default())
         .expect("the stopped process's store opens");
     (0..PARTITION_COUNT)
@@ -929,7 +956,7 @@ fn stored_modes(store_path: &Path) -> Vec<bool> {
                     SearchProjectionModeRecord::decode(bytes.as_slice())
                         .expect("the mode record decodes")
                 })
-                .is_some_and(|mode| mode.enabled)
+                .unwrap_or_default()
         })
         .collect()
 }

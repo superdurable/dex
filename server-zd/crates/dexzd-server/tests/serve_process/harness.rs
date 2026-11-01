@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -671,6 +672,23 @@ impl SqlVisibilitySchema {
             .await
             .expect("the test query runs")
             .get(0)
+    }
+
+    /// Returns the `(partition, seq)` rows that `query` selects, with `{schema}` replaced.
+    pub(crate) async fn query_partition_seqs(&self, query: &str) -> BTreeMap<u16, i64> {
+        self.client
+            .query(&query.replace("{schema}", &self.name), &[])
+            .await
+            .expect("the test query runs")
+            .iter()
+            .map(|row| {
+                let partition: i32 = row.get(0);
+                (
+                    u16::try_from(partition).expect("partitions fit in u16"),
+                    row.get(1),
+                )
+            })
+            .collect()
     }
 
     pub(crate) async fn drop_schema(self) {

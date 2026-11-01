@@ -55,8 +55,9 @@ pub(crate) struct SearchOutboxConsumer {
     watermarks: Arc<SearchOutboxWatermarks>,
     acks: OutboxAcks,
     partitions: Vec<PartitionProjection>,
+    unexpected_stop: UnexpectedStopRecorder,
     /// Set until a pass reads every partition; later passes read only partitions with new entries.
-    needs_full_pass: bool,
+    should_run_full_pass: bool,
 }
 
 #[derive(Debug, Default)]
@@ -68,10 +69,80 @@ struct PartitionProjection {
     is_loaded: bool,
     /// Why the partition is loaded; set until the load finishes.
     load_reason: Option<InitialLoadReason>,
-    /// SQL visibility holds every entry at or below this seq.
+    /// SQL visibility holds every entry at or below this seq, possibly before SQL progress records it.
     projected_through: u64,
+    /// SQL progress records this seq; acks never go above it.
+    durable_through: u64,
+    /// Entries projected before this node started still need their ack.
+    needs_recovery_cover: bool,
     /// The partition's mode was disabled in the last view, for example because it stopped.
     is_disabled: bool,
+}
+
+impl PartitionProjection {
+    /// Decides once, from the progress recorded at fencing, whether the partition loads or continues.
+    fn check_recorded_progress(&mut self, head: &PartitionHead) {
+        self.has_checked_progress = true;
+        let recorded = self.recorded.take();
+        self.load_reason = initial_load_reason(recorded.as_ref(), head);
+        self.is_loaded = self.load_reason.is_none();
+        let through_seq = recorded
+            .and_then(|recorded| recorded.outbox_through_seq)
+            .filter(|_| self.is_loaded)
+            .unwrap_or(0);
+        self.projected_through = through_seq;
+        self.durable_through = through_seq;
+        self.needs_recovery_cover = self.is_loaded;
+    }
+
+    /// Returns `(acked seq, durable seq)` once, on the first drain after the recorded progress was checked.
+    fn take_recovery_cover_range(&mut self, acked_through_seq: u64) -> Option<(u64, u64)> {
+        // A missed cover is harmless: the next ack deletes from the acked seq.
+        std::mem::take(&mut self.needs_recovery_cover)
+            .then_some((acked_through_seq, self.durable_through))
+            .filter(|(acked_through_seq, durable_through)| durable_through > acked_through_seq)
+    }
+
+    /// Records a committed SQL transaction's progress for this partition.
+    fn record_committed(&mut self, batch: &PartitionProjectionBatch) {
+        // The first load batch resets SQL progress, so it may lower the durable seq.
+        self.durable_through = if batch.is_initial_load {
+            batch.outbox_through_seq
+        } else {
+            self.durable_through.max(batch.outbox_through_seq)
+        };
+        self.projected_through = self.projected_through.max(batch.outbox_through_seq);
+    }
+
+    /// Returns the segments that SQL progress already records, so no ack outruns it.
+    fn durable_ack_segments(&self, segments: Vec<AckSegment>) -> Vec<AckSegment> {
+        segments
+            .into_iter()
+            .filter(|segment| segment.through_seq <= self.durable_through)
+            .collect()
+    }
+}
+
+/// Records a permanent failure when the consumer panics or is dropped unfinished, so searches stop waiting.
+struct UnexpectedStopRecorder {
+    watermarks: Option<Arc<SearchOutboxWatermarks>>,
+}
+
+impl UnexpectedStopRecorder {
+    fn disarm(&mut self) {
+        self.watermarks = None;
+    }
+}
+
+impl Drop for UnexpectedStopRecorder {
+    fn drop(&mut self) {
+        if let Some(watermarks) = self.watermarks.take() {
+            tracing::error!("the search projection stopped unexpectedly");
+            watermarks.record_failure(SearchProjectionFailure::Permanent(
+                "the SQL visibility projection stopped unexpectedly".to_owned(),
+            ));
+        }
+    }
 }
 
 /// One partition's head in a committed view.
@@ -169,11 +240,14 @@ impl SearchOutboxConsumer {
             partition_count,
             node_epoch: dependencies.node_epoch,
             metrics: dependencies.metrics,
+            unexpected_stop: UnexpectedStopRecorder {
+                watermarks: Some(dependencies.watermarks.clone()),
+            },
             watermarks: dependencies.watermarks,
             partitions: (0..partition_count)
                 .map(|_| PartitionProjection::default())
                 .collect(),
-            needs_full_pass: true,
+            should_run_full_pass: true,
         }
     }
 
@@ -185,18 +259,25 @@ impl SearchOutboxConsumer {
             () = self.run_until_failure() => {}
         }
         self.metrics.search_outbox_backlog.clear();
+        self.unexpected_stop.disarm();
     }
 
     async fn run_until_failure(&mut self) {
         let watermarks = self.watermarks.clone();
         let mut retry_delay = RetryDelay::default();
         while let Err(error) = self.seed_read_your_writes().await {
-            if !self.handle_failure(error, &mut retry_delay).await {
+            if !self
+                .should_retry_after_failure(error, &mut retry_delay)
+                .await
+            {
                 return;
             }
         }
         while let Err(error) = self.fence_progress().await {
-            if !self.handle_failure(error, &mut retry_delay).await {
+            if !self
+                .should_retry_after_failure(error, &mut retry_delay)
+                .await
+            {
                 return;
             }
         }
@@ -205,8 +286,11 @@ impl SearchOutboxConsumer {
             match self.project_pass().await {
                 Ok(()) => retry_delay = RetryDelay::default(),
                 Err(error) => {
-                    self.needs_full_pass = true;
-                    if !self.handle_failure(error, &mut retry_delay).await {
+                    self.should_run_full_pass = true;
+                    if !self
+                        .should_retry_after_failure(error, &mut retry_delay)
+                        .await
+                    {
                         return;
                     }
                     continue;
@@ -227,13 +311,16 @@ impl SearchOutboxConsumer {
     }
 
     /// Returns whether to retry after waiting; a permanent failure is recorded for SearchFlows.
-    async fn handle_failure(
+    async fn should_retry_after_failure(
         &mut self,
         error: OutboxConsumerError,
         retry_delay: &mut RetryDelay,
     ) -> bool {
         if let OutboxConsumerError::Projection(ProjectionError::Fenced { .. }) = &error {
-            tracing::error!(%error, "a newer lease holder writes SQL visibility; the search projection stopped");
+            tracing::error!(
+                %error,
+                "SQL visibility has a newer node epoch; the search projection stopped. After an object storage restore, use a new SQL schema or database"
+            );
             self.watermarks
                 .record_failure(SearchProjectionFailure::Fenced(error.to_string()));
             return false;
@@ -252,8 +339,7 @@ impl SearchOutboxConsumer {
         true
     }
 
-    /// Raises every enabled partition's appended seq to its last command, so searches wait for
-    /// entries recovered from the local store and for loads.
+    /// Raises enabled partitions' appended seqs to their last commands, covering recovered entries and loads.
     async fn seed_read_your_writes(&mut self) -> Result<(), OutboxConsumerError> {
         let partitions: Vec<PartitionId> = (0..self.partitions.len()).map(partition_id).collect();
         let view = open_view(self.committer.clone()).await?;
@@ -304,7 +390,7 @@ impl SearchOutboxConsumer {
         let partitions: Vec<PartitionId> = (0..self.partitions.len())
             .filter(|index| {
                 let state = &self.partitions[*index];
-                self.needs_full_pass
+                self.should_run_full_pass
                     || (!state.is_disabled
                         && (!state.is_loaded || self.watermarks.has_unprojected_entries(*index)))
             })
@@ -327,14 +413,7 @@ impl SearchOutboxConsumer {
                 continue;
             }
             if !state.has_checked_progress {
-                state.has_checked_progress = true;
-                let recorded = state.recorded.take();
-                state.load_reason = initial_load_reason(recorded.as_ref(), &head);
-                state.is_loaded = state.load_reason.is_none();
-                state.projected_through = recorded
-                    .and_then(|recorded| recorded.outbox_through_seq)
-                    .filter(|_| state.is_loaded)
-                    .unwrap_or(0);
+                state.check_recorded_progress(&head);
             }
             let is_loaded = state.is_loaded;
             self.acks.record_acked(partition, head.acked_through_seq);
@@ -348,7 +427,7 @@ impl SearchOutboxConsumer {
             self.acks.propose_due();
         }
         self.flush(&mut batch).await?;
-        self.needs_full_pass = false;
+        self.should_run_full_pass = false;
         let pending_loads = self
             .partitions
             .iter()
@@ -368,23 +447,26 @@ impl SearchOutboxConsumer {
         head: &PartitionHead,
         batch: &mut OutboxBatch,
     ) -> Result<(), OutboxConsumerError> {
-        let projected_through = self.partitions[usize::from(partition.0)].projected_through;
         let page_size = self.batch_size();
-        // Entries projected before a restart may still wait for their ack.
-        if self.needs_full_pass && projected_through > head.acked_through_seq {
-            let acked_through_seq = head.acked_through_seq;
+        if let Some((acked_through_seq, durable_through)) = self.partitions
+            [usize::from(partition.0)]
+        .take_recovery_cover_range(head.acked_through_seq)
+        {
             let segments = blocking_read(view, move |view| {
                 read_ack_segments(
                     view,
                     partition,
                     acked_through_seq,
-                    projected_through,
+                    durable_through,
                     page_size,
                 )
             })
             .await?;
-            self.acks.cover(partition, &segments);
+            let state = &self.partitions[usize::from(partition.0)];
+            self.acks
+                .cover(partition, &state.durable_ack_segments(segments));
         }
+        let projected_through = self.partitions[usize::from(partition.0)].projected_through;
         let (_, end) = search_outbox_range_after(partition, 0);
         let (mut start, _) = search_outbox_range_after(partition, projected_through);
         let mut entry_count: u64 = 0;
@@ -545,9 +627,7 @@ impl SearchOutboxConsumer {
             .inc_by(pending.load_documents);
         for (partition, written) in pending.partitions {
             let state = &mut self.partitions[usize::from(partition.0)];
-            state.projected_through = state
-                .projected_through
-                .max(written.batch.outbox_through_seq);
+            state.record_committed(&written.batch);
             if written.batch.applied_position.is_some() {
                 state.is_loaded = true;
                 state.load_reason = None;
@@ -560,7 +640,8 @@ impl SearchOutboxConsumer {
                 self.watermarks
                     .publish_projected(usize::from(partition.0), state.projected_through);
             }
-            self.acks.cover(partition, &written.ack_segments);
+            self.acks
+                .cover(partition, &state.durable_ack_segments(written.ack_segments));
         }
         Ok(())
     }
