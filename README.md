@@ -1,80 +1,42 @@
-# Dex - Durable Execution(D-EX)
+# Dex - Durable Execution(D-EX) Engine
 
-> ⚠️ **Beta:** Dex's core features are complete and its core APIs are stable. Minor API refinements may still be introduced before general availability.
+**Dex** provides a structural programming model as [durable primitives](https://docs.superdurable.io/primitives). 
 
-## Why Durable Execution & Dex
-**Durable Execution** provides programming model that makes a process survive any disruptions. 
+You use Dex to write a Flow filled with native programming code: Steps, Attributes, RPCs, Conditions, Stream. Worker hosts the Flow code and pull tasks from Dex server.
 
-There are three types of disruptions:
-* **Business disruption**
-* **External disruption**
-* **Internal disruption**
-  
-Take a simple refund. A customer asks for a refund. A manager approves it. Then the system calls an API to move the money.
-But the manager may forget(business discruption). The payment API may be down(external discuprtion). Our own server may restart or has a bug(internal disruption). Then the refund gets stuck, and the business gets hurt. And real refund processes are a hundred times more complex so they have 100 times more disruptions like those.
+Client calls Server to start and interact with Flow runs. Dex Server dispatches Step and RPC tasks to your Workers.
 
-Dex make every process is a durable execution. Every step is saved, retried, and can wait. If the manager forgets, we send a reminder, or escalate. If the API is down, we keep retrying. If our server restarts, the run picks up right where it stopped.
-
-**Dex** provides a structural programming model with only a few concepts as [durable primitives](https://docs.superdurable.io/primitives). You use Dex to write a Flow filled with ordinary code: durable Steps, Attributes, RPCs, and durable conditions using Channels and Timers. Then you run Workers hosting your Flow. The Client calls Dex Server to start and interact with Flow instances. Dex Server dispatches Step and RPC invocation tasks to your Workers.
-
-
-Underneath, Dex provide local state and control flow such as branches and loops, as well as parallel execution and coordination, waiting for timers or external events, error handling, and remote procedure invocations. The application logic is expressed directly in ordinary code, while the platform reliably restores and resumes the execution after failures and restarts. 
-
-Dex is optimized for AI agents, human+AI processes, highly performant & scalable. 
-
-It includes in-memory/best-effort streaming, attribute storage sync, and automatic offloading and cleanup of large payloads in blob storage. [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) provides reusable integrations that help you move workflows quickly from prototype to production. 
+<img width="715" height="318" alt="dex-arch3" src="https://github.com/user-attachments/assets/57eb5344-8707-4fe1-9ed0-7896718a1a33" />
 
 
 
-### Dex: No Replay
+## Reasons to try Dex
+
+### Why Dex #1: No Replay
 
 Unlike most durable execution frameworks, **Dex takes a fundamentally different approach with its non-replay-based programming model**. It eliminates entire classes of footguns—such as replay-induced non-determinism errors and the need for Continue-As-New—by design, rather than forcing developers to work around them.
 
-### Dex: Built by a Pioneer in Durable Execution
+Dex is created by **a core contributor to Uber Cadence&Temporal, and the original creator of iWF**—bringing deep, firsthand experience from multiple generations of durable execution technology.
 
-Dex is created by **a founding engineer of Uber Cadence, a core contributor to Temporal, and the original creator of iWF**—bringing deep, firsthand experience from multiple generations of durable execution technology.
+Dex is an evolution of a battle-tested architecture, shaped by years of building and operating durable execution systems at scale.
 
-Forked from iWF by its original creator, Dex builds on a proven foundation with:
+Learn more [about Dex & SuperDurable](https://superdurable.io/about/).
 
-- **5+ years of production use**, with no known framework-attributable incidents
-- **Tens of engineering teams** relying on the technology
-- **Millions of workflows** running in production
+### Why Dex#2: Zero Dependencies
 
-Dex isn't a new programming model being tested for the first time. It's the evolution of a battle-tested architecture, shaped by years of building and operating durable execution systems at scale.
+Dex requires no database, message queue or coordination service to depend on.
 
-Learn more: [What is Durable Execution?](https://docs.superdurable.io/intro/what-is-durable-execution) · [Why Dex?](https://docs.superdurable.io/intro/what-is-dex)
+The only thing you need is S3 Object Storage(or compatible service).
 
-**Dex isn't just designed to make workflows durable. It's designed to make complex, long-lived applications easier to build—and we're open-sourcing real applications to prove it.**
+Underlying, Dex built all the fundamental engine in Rust(with RocksDB) in a highly performant and optimized way.
 
-## How Dex works: Zero Dependencies
+Key idea:
+* Every write is committed to S3 first(within a batch window to save S3 Puts cost) as "Command Logs", then apply to RocksDB as local cache
+* RocksDB also generates snapshots(SST) that are flushed to S3 asynchronously
+* When instance crashes, a standby(if any) or restarted instance can resume from the latest snapshots and re-apply the command logs to rebuild the durable state in seconds.
+* Dex SDKs cache the attribute values in local disk to reduce network transport for large values.
 
-<img width="982" height="750" alt="dex-arch2" src="https://github.com/user-attachments/assets/e2104422-d2ca-4a9e-8ac7-f93c0d46041c" />
-
-Dex is a single binary. There is no database to set up, no message queue
-to run, and no coordination service to keep alive.
-
-Your application talks to one Dex Server. The server keeps all flow state on
-its local disk and commits every write to blob storage, so there is no
-database or queue to run. 
-
-If you want your data in your own database for
-queries and reports, turn on attribute sync and Dex writes it there for you.
-
-## Repository modules
-
-| Path | Contents |
-| --- | --- |
-| [server-zd/](server-zd/) | Rust Dex Server |
-| [server-zd/integ/](server-zd/integ/) | Go integration suite for the server-zd binary |
-| [web/](web/) | Standalone Dex Web console and `dex-web` binary |
-| [cli/](cli/) | `dexcli` local development environment |
-| [protos/](protos/) | Protobuf IDL and codec server |
-| [s3mock/](s3mock/) | Local S3-compatible object store |
-| [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
-| [benchmark/](benchmark/) | Performance benchmarks |
-| [packages/](packages/) | Shared Web packages |
-| [sdk-go/](sdk-go/), [sdk-java/](sdk-java/), [sdk-python/](sdk-python/), [sdk-typescript/](sdk-typescript/), [sdk-rust/](sdk-rust/) | Application SDKs |
-| [examples/](examples/), [docs/](docs/), [skills/](skills/) | Runnable examples, product docs, and AI skills |
+See our performance [benchmark](./benchmark) that a very regular AWS EC2 instance can serve 10K to 50K reads/writes per second. 
 
 ## How to start
 See [Quick start](https://docs.superdurable.io/quick-start) on docs.superdurable.io.
@@ -85,12 +47,61 @@ The [skills/](skills/) module contains the Dex Skills source.
 
 You can see [examples/](./examples) of the repo.
 
-We're also open-sourcing lots of [apps](https://github.com/superdurable-apps) built on Dex.
+### Durable Agents 
+A common usage of dex is to make your agents "durable" -- survive from any disruptions like instance killed, service downtime with durable timer & retry. At the same time, Dex provide a webUI with history to show even step's input/output and operation like time-travel.
 
+See [how to use Dex with the popular Agent SDKs](https://docs.superdurable.io/agent-frameworks/)
 
-## 💬 Community
+### SDKs
+Use official SDKs and agent skills to make any of your processes reliable:
 
-🎉 Join the [SuperDurable Dex community on Slack](https://join.slack.com/t/superdurableworkspace/shared_invite/zt-4aby5e0b6-6rNT9zN6BzbroHZpGyia0A) to ask questions, share feedback, and connect with other Dex users and contributors.
+* Python
+```bash
+pip install dex-python-sdk
+```
+
+* Go
+```bash
+go get github.com/superdurable/dex/sdk-go@latest
+```
+
+* Java
+```gradle
+implementation "io.superdurable:dex-sdk:1.31.0"
+```
+
+* TypeScript
+```bash
+npm install @superdurable/dex
+```
+
+* Rust
+```bash
+cargo add dex-sdk
+```
+
+## 🎉Communityto connect with use and other users!💬
+
+* [Slack](https://dexai.pro)
+* [Discord](https://discord.gg/TetzsMpYb) 
+* WeChat ID: **prclqz**   (龙全正)
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| [server-zd/](server-zd/) | Rust Dex Server |
+| [server-zd/integ/](server-zd/integ/) | Go integration suite for the server-zd binary |
+| [web/](web/) | Standalone Dex Web console and `dex-web` binary |
+| [cli/](cli/) | `dexcli` local development environment |
+| [protos/](protos/) | Protobuf IDL and codec server |
+| [s3mock/](s3mock/) | Local S3-compatible object store for testing purpose|
+| [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
+| [benchmark/](benchmark/) | Performance benchmarks |
+| [packages/](packages/) | Shared Web packages |
+| [agents/](agents/) | Adapters for Agent SDKs |
+| [sdk-go/](sdk-go/), [sdk-java/](sdk-java/), [sdk-python/](sdk-python/), [sdk-typescript/](sdk-typescript/), [sdk-rust/](sdk-rust/) | Application SDKs |
+| [examples/](examples/), [docs/](docs/), [skills/](skills/) | Runnable examples, product docs, and AI skills |
 
 
 
