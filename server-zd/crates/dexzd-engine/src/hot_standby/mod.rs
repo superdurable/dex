@@ -489,6 +489,20 @@ impl StandbyStatusCell {
         }
     }
 
+    /// Returns the next seq at the last listing and the batches it showed from that seq on.
+    fn listing(&self) -> Option<(u64, u64)> {
+        match &*self
+            .phase
+            .lock()
+            .expect("standby status lock is not poisoned")
+        {
+            StandbyPhase::Following { listing, .. } => *listing,
+            StandbyPhase::Bootstrapping
+            | StandbyPhase::Restarting { .. }
+            | StandbyPhase::Failed(_) => None,
+        }
+    }
+
     fn set_last_error(&self, error: Option<String>) {
         *self
             .last_error

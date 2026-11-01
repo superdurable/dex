@@ -101,7 +101,8 @@ enum FollowingOutcome {
 struct FollowedPeriod {
     outcome: FollowingOutcome,
     reached: FollowPosition,
-    /// Whether it read past every position that earlier periods reached.
+    /// Whether it read past every position that earlier periods reached, or reached the log end
+    /// there.
     is_progressing: bool,
 }
 
@@ -136,7 +137,8 @@ impl StandbyDriver {
                 Ok(Some(following)) => following,
                 Ok(None) => {
                     tracing::info!("the hot standby waits for the cluster object and manifest");
-                    if !self.sleep_unless_cancelled(delays.next_delay()).await {
+                    // Polls without backoff, so a standby of a new cluster follows it promptly.
+                    if !self.sleep_unless_cancelled(RESTART_DELAY_INITIAL).await {
                         return None;
                     }
                     continue;
@@ -335,7 +337,7 @@ impl StandbyDriver {
                         Ok(None) => {}
                         Err(_) => tracing::warn!("rereading the manifest took too long; retrying"),
                     }
-                    if !is_progressing && position_of(&progress.borrow()) > progress_threshold {
+                    if !is_progressing && self.has_progressed(&progress.borrow(), progress_threshold) {
                         is_progressing = true;
                         self.status.set_last_error(None);
                     }
@@ -376,6 +378,16 @@ impl StandbyDriver {
             reached,
             is_progressing: is_progressing || reached > progress_threshold,
         }
+    }
+
+    /// Returns whether following read past `threshold`, or waits at the log end there with no
+    /// later batch listed, so not at a hole.
+    fn has_progressed(&self, progress: &FollowProgress, threshold: FollowPosition) -> bool {
+        let position = position_of(progress);
+        position > threshold
+            || (position == threshold
+                && progress.is_caught_up
+                && self.status.listing() == Some((progress.next_seq, 0)))
     }
 
     /// Rereads the manifest, checks the store against it, and passes it to the follower.

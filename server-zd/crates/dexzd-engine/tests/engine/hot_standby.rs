@@ -1437,3 +1437,43 @@ pub(crate) async fn write_a_repeated_command_past_the_recorded_end(
         .expect("the late batch lands");
     end_seq
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_clears_its_last_error_once_it_reaches_the_end_of_an_idle_log() {
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby = start_standby(
+        &cluster,
+        cluster.config(LocalStoreConfig::InMemory),
+        fast_standby_config(),
+    );
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    let probe = standby.standby.probe_for_test();
+    for _ in 0..3 {
+        probe.fail_store_writes_for_test();
+        let restarting = wait_for_status(&standby.standby, "the standby restarts", |status| {
+            status.state == HotStandbyState::Restarting && status.restart_in.is_some()
+        })
+        .await;
+        assert!(restarting.last_error.is_some(), "{restarting:?}");
+        // Reaching the end of the idle log resets the delay to about 1 second.
+        let restart_in = restarting.restart_in.expect("the restart delay runs");
+        assert!(
+            restart_in <= Duration::from_millis(1_200),
+            "the restart delay grew to {restart_in:?}"
+        );
+        wait_for_status(
+            &standby.standby,
+            "the standby clears its last error at the log end",
+            |status| status.lag.is_some() && status.last_error.is_none(),
+        )
+        .await;
+    }
+    assert_wrote_nothing(&standby);
+    standby.standby.shutdown().await;
+    serving.node.shutdown().await.expect("lease released");
+}

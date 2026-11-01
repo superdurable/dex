@@ -405,7 +405,8 @@ impl FollowTask {
         };
         let mut backoff = self.pacing.initial_poll_backoff;
         let mut stalled: Option<StalledSeq> = None;
-        let mut last_accepted_seq: Option<u64> = None;
+        // The store applied every seq before the cursor, from this or an earlier period.
+        let mut last_accepted_seq = cursor.next_seq.checked_sub(1).filter(|seq| *seq > 0);
         loop {
             if self.sources.has_changed().unwrap_or(false) {
                 match self.apply_source_update(
