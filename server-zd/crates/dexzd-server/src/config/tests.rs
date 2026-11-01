@@ -732,7 +732,12 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
             config.standby.behind_lag_threshold = Duration::ZERO
         }),
         ("standby.stepDownHoldOff", |config| {
-            config.standby.step_down_hold_off = Duration::from_millis(1750)
+            config.standby.step_down_hold_off = Duration::ZERO
+        }),
+        ("standby.stepDownHoldOff", |config| {
+            config.standby.mode = StandbyMode::Hot;
+            config.lease.fail_if_held = false;
+            config.standby.step_down_hold_off = Duration::from_millis(1750);
         }),
         ("standby.mode", |config| {
             config.standby.mode = StandbyMode::Hot;
@@ -749,6 +754,11 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }
     }
     valid_config().validate().expect("valid configuration");
+    let mut short_cold_hold_off = valid_config();
+    short_cold_hold_off.standby.step_down_hold_off = Duration::from_millis(1750);
+    short_cold_hold_off
+        .validate()
+        .expect("a cold standby has no lagging delay for the hold-off to exceed");
     let mut separate_hard_delete = valid_config();
     separate_hard_delete.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
         bucket: "hard-delete".to_owned(),

@@ -45,6 +45,8 @@ pub(crate) struct LeaseReport {
     pub(crate) acquisitions: usize,
     /// Whether log cleanup was off, so the log still holds every EpochStart.
     pub(crate) is_log_complete: bool,
+    /// The highest epoch that the lease object or an EpochStart named.
+    pub(crate) highest_epoch: u64,
     /// How long each new holder took to appear after a lease expired, plus the takeover grace.
     pub(crate) takeovers_after_expiry: Vec<Duration>,
     /// How long each new holder took to appear after the first sample showed a release.
@@ -125,10 +127,17 @@ impl LeaseHistory {
             .filter_map(|header| header.epoch_start.as_ref().map(|start| start.epoch))
             .collect();
         check_epoch_starts(&epoch_starts);
+        let highest_epoch = observations
+            .iter()
+            .map(|observation| observation.epoch)
+            .chain(epoch_starts.iter().copied())
+            .max()
+            .unwrap_or(0);
         LeaseReport {
             observed_holders,
             acquisitions: epoch_starts.len(),
             is_log_complete,
+            highest_epoch,
             takeovers_after_expiry: delays_after(HandoverCause::Expiry),
             takeovers_after_release: delays_after(HandoverCause::Release),
         }

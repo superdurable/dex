@@ -73,6 +73,7 @@ async fn publish_until_stopped(
     stop: CancellationToken,
 ) {
     let mut logged_error: Option<String> = None;
+    let mut has_logged_failure = false;
     loop {
         let status = reader.status();
         publish(&status, &metrics, &health).await;
@@ -82,8 +83,12 @@ async fn publish_until_stopped(
             }
             logged_error.clone_from(&status.last_error);
         }
-        if let Some(failure) = &status.failure {
+        // A failed standby stays failed, so its failure is logged once.
+        if let Some(failure) = &status.failure
+            && !has_logged_failure
+        {
             tracing::error!(error = %failure, "the hot standby stopped after an error it does not retry");
+            has_logged_failure = true;
         }
         tokio::select! {
             () = stop.cancelled() => return,

@@ -36,9 +36,10 @@ pub struct StandbyConfig {
     /// `cold` mode keeps reading at most once a second.
     #[serde(with = "humantime_serde")]
     pub held_lease_poll_interval: Duration,
-    /// Defaults to 5 s; must exceed `laggingTakeoverDelay` plus `heldLeasePollInterval`. How long
-    /// a process that stepped down waits before it competes for the lease again, so a standby
-    /// takes over first. Without a standby, the process takes the lease back after this wait.
+    /// Defaults to 5 s; must be positive, and in `hot` mode exceed `laggingTakeoverDelay` plus
+    /// `heldLeasePollInterval`. How long a process that stepped down waits before it competes for
+    /// the lease again, so a standby takes over first. Without a standby, the process takes the
+    /// lease back after this wait.
     #[serde(with = "humantime_serde")]
     pub step_down_hold_off: Duration,
     /// Defaults to 1500 ms. In `hot` mode, how long a standby that is not hot waits before it
@@ -78,10 +79,17 @@ impl StandbyConfig {
         if self.behind_lag_threshold.is_zero() {
             return Err(invalid("standby.behindLagThreshold", "must be positive"));
         }
-        if self.step_down_hold_off <= self.lagging_takeover_delay + self.held_lease_poll_interval {
+        if self.step_down_hold_off.is_zero() {
+            return Err(invalid("standby.stepDownHoldOff", "must be positive"));
+        }
+        // Only a hot standby defers by laggingTakeoverDelay and polls at heldLeasePollInterval.
+        if self.mode == StandbyMode::Hot
+            && self.step_down_hold_off
+                <= self.lagging_takeover_delay + self.held_lease_poll_interval
+        {
             return Err(invalid(
                 "standby.stepDownHoldOff",
-                "must exceed standby.laggingTakeoverDelay plus standby.heldLeasePollInterval",
+                "must exceed standby.laggingTakeoverDelay plus standby.heldLeasePollInterval in hot mode",
             ));
         }
         if self.mode == StandbyMode::Hot && lease.fail_if_held {

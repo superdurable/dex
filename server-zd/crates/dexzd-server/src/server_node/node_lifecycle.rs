@@ -49,6 +49,8 @@ use crate::object_stores::ObjectStores;
 
 /// How often a process that stepped down reads the lease to name its successor.
 const SUCCESSOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// Bounds one such read, so a slow object store never holds up a shutdown.
+const SUCCESSOR_READ_TIMEOUT: Duration = Duration::from_secs(1);
 /// First wait before a takeover retries after an error before the lease; later waits double.
 const TAKEOVER_RETRY_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const TAKEOVER_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(30);
@@ -490,7 +492,12 @@ async fn wait_out_hold_off(
         return true;
     };
     loop {
-        answer_on_successor(process, &mut entry.pending).await;
+        if !answer_on_successor(process, &mut entry.pending, Some(&mut *cancellation)).await {
+            if let Some(waiting) = entry.pending.take() {
+                waiting.answer_unknown("the process stopped during the hold-off".to_owned());
+            }
+            return false;
+        }
         let now = Instant::now();
         if now >= hold_off_until {
             return true;
@@ -531,32 +538,59 @@ where
                 refuse_while_standing_by(request, pending.is_some(), "waiting for the node lease");
             }
             () = tokio::time::sleep(SUCCESSOR_POLL_INTERVAL), if pending.is_some() => {
-                answer_on_successor(process, pending).await;
+                // The start watches cancellation itself; the read timeout bounds this wait.
+                answer_on_successor(process, pending, None).await;
             }
         }
     }
 }
 
 /// Answers `pending` when the lease names a holder other than this process with a new epoch.
-async fn answer_on_successor(process: &ProcessParts, pending: &mut Option<PendingStepDownAnswer>) {
+///
+/// Returns `false` when `cancellation` arrives first; `pending` then still waits for an answer.
+async fn answer_on_successor(
+    process: &ProcessParts,
+    pending: &mut Option<PendingStepDownAnswer>,
+    cancellation: Option<&mut watch::Receiver<bool>>,
+) -> bool {
     let Some(waiting) = pending.take() else {
-        return;
+        return true;
     };
-    match read_node_lease(
-        process.object_stores.primary.as_ref(),
-        &process.config.cluster.node_id,
-    )
-    .await
-    {
-        Ok(lease) => {
-            *pending = waiting.answer_on_takeover(
-                lease.as_ref(),
-                &process.id_source.last_lease_holder_process_id(),
-            );
+    let read = tokio::time::timeout(
+        SUCCESSOR_READ_TIMEOUT,
+        read_node_lease(
+            process.object_stores.primary.as_ref(),
+            &process.config.cluster.node_id,
+        ),
+    );
+    tokio::select! {
+        read = read => {
+            match read {
+                Ok(Ok(lease)) => {
+                    *pending = waiting.answer_on_takeover(
+                        lease.as_ref(),
+                        &process.id_source.last_lease_holder_process_id(),
+                    );
+                }
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "could not read the node lease to name a successor");
+                    *pending = Some(waiting);
+                }
+                Err(_) => {
+                    tracing::warn!("reading the node lease to name a successor timed out");
+                    *pending = Some(waiting);
+                }
+            }
+            true
         }
-        Err(error) => {
-            tracing::warn!(%error, "could not read the node lease to name a successor");
+        () = async {
+            match cancellation {
+                Some(cancellation) => wait_for_cancellation(cancellation).await,
+                None => std::future::pending().await,
+            }
+        } => {
             *pending = Some(waiting);
+            false
         }
     }
 }

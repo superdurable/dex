@@ -769,8 +769,15 @@ impl NodeGroup {
         let serving = router.shutdown_and_check().await;
         let lease = lease_history.stop_and_check(is_log_complete).await;
         // Each serving period recovered under its own epoch; a late-batch stop may serve too briefly to see.
+        let are_periods_within_epochs = if lease.is_log_complete {
+            serving.serving_periods <= lease.acquisitions
+        } else {
+            // Cleanup may delete early EpochStarts; distinct serving epochs still never exceed the highest.
+            u64::try_from(serving.serving_periods).expect("a period count fits in u64")
+                <= lease.highest_epoch
+        };
         assert!(
-            (serving.serving_periods <= lease.acquisitions || !lease.is_log_complete)
+            are_periods_within_epochs
                 && lease.acquisitions <= serving.serving_periods + stale_batch_restarts,
             "{} EpochStarts in the log for {} observed serving periods and {stale_batch_restarts} late-batch restarts",
             lease.acquisitions,
