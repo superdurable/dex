@@ -618,7 +618,7 @@ async fn is_macos_process_stopped(process_id: u32) -> bool {
 }
 
 /// Requires the recovery of `process` to have voided at least one earlier epoch's batch.
-pub(crate) fn assert_replay_voided_a_batch(process: &RobustnessProcess) {
+fn assert_replay_voided_a_batch(process: &RobustnessProcess) {
     let log = process.log();
     let voided_batches = replay_field(&log, "voided_batches");
     assert!(
