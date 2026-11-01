@@ -1030,7 +1030,7 @@ SearchFlows 会等待，直到投影包含请求之前提交的所有 outbox ent
 | **search.readYourWritesWait** | **2s** | SearchFlows 等待投影的最长时间 |
 | **search.outboxBatchSize** | **1000** | 一个 SQL 事务最多处理的 outbox entry 或装载文档数 |
 | **search.outboxPollInterval** | **100ms** | 空闲的投影多久检查一次新 entry。新的提交会立即唤醒它。 |
-| **search.outboxAckInterval** | **100ms** | 同一分区两次确认之间的最短间隔。每次确认都是一条记入日志的命令。 |
+| **search.outboxAckInterval** | **1s** | 同一分区两次确认之间的最短间隔。每次确认都是一条记入日志的命令，因此有 1,024 个繁忙分区的节点每秒最多记录 1,024 条。 |
 
 ### 监控 {#search-projection-monitoring}
 

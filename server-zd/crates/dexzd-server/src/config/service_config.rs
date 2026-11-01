@@ -197,8 +197,9 @@ pub struct SearchConfig {
     /// entries. SearchFlows read-your-writes waits wake it at once. Must be positive.
     #[serde(with = "humantime_serde")]
     pub outbox_poll_interval: Duration,
-    /// Defaults to 100 ms; least time between two acks of one partition's projected SearchOutbox
-    /// entries. Each ack is a logged command. Must be positive.
+    /// Defaults to 1 s; least time between two acks of one partition's projected SearchOutbox
+    /// entries. Each ack is a logged command, so a node with many busy partitions logs up to one
+    /// ack per partition per interval. Must be positive.
     #[serde(with = "humantime_serde")]
     pub outbox_ack_interval: Duration,
 }
@@ -260,7 +261,7 @@ impl Default for SearchConfig {
             read_your_writes_wait: Duration::from_secs(2),
             outbox_batch_size: 1_000,
             outbox_poll_interval: Duration::from_millis(100),
-            outbox_ack_interval: Duration::from_millis(100),
+            outbox_ack_interval: Duration::from_secs(1),
         }
     }
 }

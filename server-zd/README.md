@@ -428,7 +428,7 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   It writes each changed run's current document, the view position, the projected seq, and the
   lease epoch in one SQL transaction. A lower epoch can no longer write the partition. Then it
   proposes `SearchOutboxAckCommand`, which range-deletes the entries, at most once per
-  `search.outboxAckInterval` per partition. Commits never wait for the consumer. When ParadeDB is
+  `search.outboxAckInterval` (default 1 s) per partition. Commits never wait for the consumer. When ParadeDB is
   unavailable, the queue grows on local disk and the consumer retries; nothing is rebuilt.
 - A partition without SQL progress is loaded once from a committed view: a new schema, or a switch
   from builtin search. A schema that already holds progress is never reloaded.

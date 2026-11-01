@@ -124,7 +124,7 @@ search:
   readYourWritesWait: 2s
   outboxBatchSize: 1000
   outboxPollInterval: 100ms
-  outboxAckInterval: 100ms
+  outboxAckInterval: 1s
 limits:
   maxFlowStateBytes: 67108864
   maxChannelMessages: 10000

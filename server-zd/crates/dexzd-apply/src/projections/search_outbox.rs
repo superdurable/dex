@@ -9,8 +9,8 @@
 //! SearchOutbox entries, keyed by proposed_at_micros so speculative and committed apply agree.
 
 use dexzd_keyspace::row_keys::{
-    partition_index_range, search_outbox_key, search_outbox_range_through,
-    search_projection_mode_key,
+    partition_index_range, search_outbox_key, search_outbox_range_after,
+    search_outbox_range_through, search_projection_mode_key,
 };
 use dexzd_keyspace::{ColumnFamily, FlowHash, IndexKind, RunId, TenantId};
 use dexzd_protocol::dex::ErrorSubStatus;
@@ -83,7 +83,7 @@ pub(crate) fn apply_search_projection_mode(
     Ok(applied_partition_command())
 }
 
-/// Deletes the partition's entries through the acknowledged sequence.
+/// Deletes the partition's entries through the acknowledged seq.
 pub(crate) fn apply_search_outbox_ack(
     transaction: &mut FlowTransaction<'_>,
     command: &SearchOutboxAckCommand,
@@ -103,8 +103,12 @@ pub(crate) fn apply_search_outbox_ack(
     if !mode.enabled || command.through_seq <= mode.acked_through_seq {
         return Ok(HandlerResult::Rejected(ok_reply()));
     }
-    let (start, end) = search_outbox_range_through(partition, command.through_seq);
-    transaction.delete_range(ColumnFamily::PartitionIndex, start, end);
+    // Point deletes, because every read must skip each range tombstone left in the memtable.
+    let (_, end) = search_outbox_range_through(partition, command.through_seq);
+    let (start, _) = search_outbox_range_after(partition, mode.acked_through_seq);
+    for (key, _) in transaction.scan(ColumnFamily::PartitionIndex, &start, &end, usize::MAX)? {
+        transaction.delete(ColumnFamily::PartitionIndex, key);
+    }
     mode.acked_through_seq = command.through_seq;
     transaction.put_message(
         ColumnFamily::PartitionIndex,

@@ -1227,7 +1227,7 @@ committed state, SearchFlows returns **INTERNAL** until the server restarts.
 | **search.readYourWritesWait** | **2s** | Longest SearchFlows wait for the projection |
 | **search.outboxBatchSize** | **1000** | Most outbox entries or loaded documents in one SQL transaction |
 | **search.outboxPollInterval** | **100ms** | How often an idle projection looks for entries. New commits wake it at once. |
-| **search.outboxAckInterval** | **100ms** | Least time between two acknowledgements of one partition. Each acknowledgement is a logged command. |
+| **search.outboxAckInterval** | **1s** | Least time between two acknowledgements of one partition. Each acknowledgement is a logged command, so a node with 1,024 busy partitions logs up to 1,024 per second. |
 
 ### Monitoring {#search-projection-monitoring}
 
