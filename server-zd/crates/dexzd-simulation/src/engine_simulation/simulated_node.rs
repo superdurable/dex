@@ -520,6 +520,8 @@ pub(crate) fn engine_node_config(
             // The wait loop draws jitter from the thread RNG; the simulator schedules retries.
             fail_fast: true,
             should_take_over_held_lease: false,
+            held_lease_poll_limit: LeaseConfig::default().held_lease_poll_limit,
+            acquisition_delay: None,
         },
         local_store,
         commit: CommitConfig {

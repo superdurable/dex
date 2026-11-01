@@ -6,15 +6,109 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use dexzd_clock::WallClock;
 use dexzd_object_store::ObjectStore;
+use dexzd_protocol::dexzd::v1::NodeLease;
+use prost::Message;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-use crate::lease::{LeaseConfig, LeaseHandle, LeaseObservers, acquire_lease_inner};
+use crate::lease::{LeaseHandle, LeaseObservers, acquire_lease_inner};
 use crate::{MetadataError, NodeConfig};
+
+/// Timing and contention policy for a node lease.
+#[derive(Debug, Clone)]
+pub struct LeaseConfig {
+    /// Lease duration; defaults to ten seconds.
+    pub duration: Duration,
+    /// Additional wait after an old lease expires before takeover.
+    /// Defaults to one second.
+    pub takeover_grace: Duration,
+    /// Return immediately when another live process holds the lease.
+    /// Defaults to false.
+    pub fail_fast: bool,
+    /// Defaults to false; when true, takes over a held lease at once. Set only when its holder provably stopped.
+    pub should_take_over_held_lease: bool,
+    /// Defaults to one second; must be positive. The longest wait between reads of a lease that
+    /// another process holds. The wait is also at most a third of `duration`, minus jitter.
+    pub held_lease_poll_limit: Duration,
+    /// Defaults to `None`, which writes an available lease at once. Otherwise asked once for each
+    /// released or expired lease version how long to wait first, so a readier process can take
+    /// the lease; the lease is read again after the wait. It only reduces contention: the
+    /// conditional lease write alone decides which process acquires.
+    pub acquisition_delay: Option<Arc<dyn LeaseAcquisitionDelay>>,
+}
+
+impl Default for LeaseConfig {
+    fn default() -> Self {
+        Self {
+            duration: Duration::from_secs(10),
+            takeover_grace: Duration::from_secs(1),
+            fail_fast: false,
+            should_take_over_held_lease: false,
+            held_lease_poll_limit: Duration::from_secs(1),
+            acquisition_delay: None,
+        }
+    }
+}
+
+impl LeaseConfig {
+    /// Returns whether `lease` is released or expired past the takeover grace at `now_unix_micros`.
+    pub fn is_available_at(&self, lease: &NodeLease, now_unix_micros: i64) -> bool {
+        let grace_micros = i64::try_from(self.takeover_grace.as_micros()).unwrap_or(i64::MAX);
+        lease.expires_at_unix_micros.saturating_add(grace_micros) <= now_unix_micros
+    }
+}
+
+/// Decides how long a process waits before it writes an available node lease.
+pub trait LeaseAcquisitionDelay: Send + Sync + fmt::Debug {
+    /// Returns the wait before writing an available lease; zero writes it at once.
+    fn delay_before_acquiring(&self) -> Duration;
+}
+
+/// Reads the node lease of `node_id` without competing for it.
+///
+/// Returns `None` before any process has taken the lease.
+pub async fn read_node_lease(
+    store: &dyn ObjectStore,
+    node_id: &str,
+) -> Result<Option<NodeLease>, MetadataError> {
+    let Some(content) = store.get(&format!("lease/{node_id}")).await? else {
+        return Ok(None);
+    };
+    let lease = NodeLease::decode(content.bytes).map_err(|source| MetadataError::Decode {
+        key: "lease",
+        source,
+    })?;
+    Ok(Some(lease))
+}
+
+/// Sleeps for `delay`; returns `true` as soon as `cancellation` is set.
+pub(crate) async fn sleep_unless_cancelled(
+    delay: Duration,
+    cancellation: Option<&mut watch::Receiver<bool>>,
+) -> bool {
+    let Some(cancellation) = cancellation else {
+        tokio::time::sleep(delay).await;
+        return false;
+    };
+    tokio::select! {
+        () = tokio::time::sleep(delay) => false,
+        changed = cancellation.changed() => {
+            if changed.is_ok() && *cancellation.borrow() {
+                return true;
+            }
+            if changed.is_err() {
+                tokio::time::sleep(delay).await;
+            }
+            false
+        }
+    }
+}
 
 /// Stores used while acquiring a lease and after acquisition.
 pub struct LeaseObjectStores {
