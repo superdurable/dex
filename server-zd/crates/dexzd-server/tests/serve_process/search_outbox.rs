@@ -363,6 +363,9 @@ async fn postgres_search_outbox_projects_after_a_step_down_to_a_hot_standby() {
 }
 
 /// After a step down to a hot standby, the new active's consumer projects new and old Flows' writes.
+///
+/// A second step down returns the lease to the first process, whose second SQL serving period
+/// projects them too.
 async fn run_step_down_for_test(database_url: &str, is_postgres: bool) {
     let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
@@ -380,7 +383,7 @@ async fn run_step_down_for_test(database_url: &str, is_postgres: bool) {
         ack_interval: "100ms",
         batch_size: 100,
     };
-    let (mut first, _) = node.spawn_hot("first", "first-store", search());
+    let (mut first, first_address) = node.spawn_hot("first", "first-store", search());
     let first_channel = first.wait_until_serving().await;
     let mut first_client = FlowServiceClient::new(first_channel.clone());
     let before: Vec<String> = (0..STEP_DOWN_FLOW_COUNT)
@@ -405,7 +408,8 @@ async fn run_step_down_for_test(database_url: &str, is_postgres: bool) {
         ),
         "the hot standby takes over: {outcome:?}"
     );
-    let mut second_client = FlowServiceClient::new(second.wait_until_serving().await);
+    let second_channel = second.wait_until_serving().await;
+    let mut second_client = FlowServiceClient::new(second_channel.clone());
     let after: Vec<String> = (0..STEP_DOWN_FLOW_COUNT)
         .map(|index| format!("after-step-down-{index}"))
         .collect();
@@ -417,6 +421,31 @@ async fn run_step_down_for_test(database_url: &str, is_postgres: bool) {
         set_counter(&mut second_client, flow_id, 2).await;
     }
     search_until_counters(&mut second_client, &every_flow, 2, &second).await;
+    wait_for_hot_standby(first_address, &first).await;
+    let outcome = AdminServiceClient::new(second_channel)
+        .step_down_active_node(StepDownActiveNodeRequest::default())
+        .await
+        .expect("the second active steps down")
+        .into_inner();
+    assert!(
+        matches!(
+            outcome.lease_holder_after_step_down,
+            Some(LeaseHolderAfterStepDown::TakenOverByAnotherProcess(_))
+        ),
+        "the first process takes the lease back: {outcome:?}"
+    );
+    let mut first_client = FlowServiceClient::new(first.wait_until_serving().await);
+    let back: Vec<String> = (0..STEP_DOWN_FLOW_COUNT)
+        .map(|index| format!("after-second-step-down-{index}"))
+        .collect();
+    for flow_id in &back {
+        start_idle_flow(&mut first_client, flow_id).await;
+    }
+    let every_flow: Vec<String> = every_flow.into_iter().chain(back).collect();
+    for flow_id in &every_flow {
+        set_counter(&mut first_client, flow_id, 3).await;
+    }
+    search_until_counters(&mut first_client, &every_flow, 3, &first).await;
     for process in [&mut second, &mut first] {
         let status = process.terminate(SHUTDOWN_BUDGET).await;
         assert!(status.success(), "{status}: {}", process.log());
