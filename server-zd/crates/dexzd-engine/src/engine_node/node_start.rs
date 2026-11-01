@@ -49,8 +49,8 @@ pub(crate) enum LocalStoreSource {
     HotStandby(HotStandby),
 }
 
-/// Longest wait for a hot standby's store to close before the start reopens its directory.
-const STORE_CLOSE_BUDGET: Duration = Duration::from_secs(30);
+/// Longest wait for a hot standby's store to close before a takeover reopens its directory.
+const TAKEOVER_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(30);
 
 /// How a start ended, apart from errors after the lease.
 pub(crate) enum StartOutcome {
@@ -126,7 +126,9 @@ async fn take_over_store(
         tracing::info!("serving from the hot standby's local store");
     } else if is_configured_store
         && config.local_store.has_directory()
-        && !standby.wait_until_store_closed(STORE_CLOSE_BUDGET).await
+        && !standby
+            .wait_until_store_closed(tokio::time::Instant::now() + TAKEOVER_STORE_CLOSE_BUDGET)
+            .await
     {
         tracing::error!("the hot standby's local store is still open; opening it may fail");
     }
@@ -222,6 +224,16 @@ where
             });
         }
     };
+    if let LocalStoreSource::HotStandby(standby) = &local_store_source
+        && !standby.is_following_cluster(cluster_id)
+    {
+        return Ok(StartOutcome::FailedBeforeLease {
+            error: EngineStartError::InvalidConfig {
+                detail: "the hot standby follows another cluster's log".to_owned(),
+            },
+            source: local_store_source,
+        });
+    }
     let acquired = config
         .lease
         .acquire_until_cancelled_with_observers_and_stores(

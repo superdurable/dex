@@ -78,13 +78,13 @@ deduplication.
 - The gap check of every start and bootstrap also rejects a store in which a partition applied a batch past the recorded end of a closed stream. Such a store followed a batch that the log does not hold, so it is set aside and the newest snapshot is restored.
 - A `LogFollower` takes its write fence and applier pool from its owner. It advances every partition of the pool, so the pool must serve only the followed partitions.
 - Drop the standby or call `HotStandby::shutdown` to stop following. Dropping it stops its store writes at once; `shutdown` also waits for its store to close and returns whether it closed.
-- `HotStandby::status_reader` returns a reader of the status that stays valid while a takeover owns the standby, such as while the takeover waits for the lease.
+- `HotStandby::status_reader` returns a reader of the status that stays valid while a takeover owns the standby, such as while the takeover waits for the lease. Once a handover, a shutdown, or a drop stops the standby, the status shows `Stopped`.
 
 `EngineNode::take_over_from_hot_standby_until_cancelled` is the start of a node that has a hot standby. The two starts differ only where the local store opens:
 
-1. The standby keeps following while another process holds the lease. Cancellation or an error before the lease, such as a standby that follows another node, returns the standby, still following.
+1. The standby keeps following while another process holds the lease. Cancellation before the lease returns the standby, still following. An error before the lease, such as a standby that follows another node or cluster, returns `HotStandbyTakeoverError` with the standby.
 2. Once this process holds the lease and has reread the manifest under it, the standby stops reading, applies its queued frames, and advances its applied positions.
-3. It stops its write fence, so no standby lane writes the store again, and its tasks are joined. The start owns this handover: when it fails or is cancelled, it finishes stopping the standby before it releases the lease.
+3. It stops its write fence, so no standby lane writes the store again, and its tasks are joined. The start owns this handover: when it fails or is cancelled, it stops the write fence at once and stops the standby beside its own tasks, then releases the lease, all within `EngineNode::TAKEOVER_RELEASE_BUDGET`.
 4. The start checks that the standby used the configured store and that its write fence stopped only for the handover, not after a failed store write. It then checks that every applied position names this node, and reruns the gap check against the manifest read under the lease.
 5. When a check fails, or the standby had no store, the start opens or restores the configured store, as a start without a standby does. It first waits up to 30 seconds for a lane that outlived the handover to close a RocksDB store.
 6. The rest of the start is unchanged: a new applier pool with the real hooks, log replay from the applied positions, the EpochStart, and serving.

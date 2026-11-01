@@ -93,20 +93,35 @@ pub struct EngineNodeDependencies {
     pub lease_validity_deadline: LeaseValidityDeadline,
 }
 
-/// How a takeover from a hot standby ended, apart from errors after the lease.
+/// How a takeover from a hot standby ended without an error.
 #[non_exhaustive]
 pub enum HotStandbyTakeover {
     /// This process holds the node lease and serves.
     Serving(EngineNode),
     /// Cancellation arrived before the lease; the standby still follows the log.
     Cancelled(HotStandby),
-    /// The start failed before the lease; the standby still follows the log.
-    FailedBeforeLease {
-        /// Why the start failed.
-        error: EngineStartError,
-        /// The standby, which keeps following.
-        standby: HotStandby,
-    },
+}
+
+/// Why a takeover from a hot standby failed, with the standby when it still follows the log.
+#[derive(thiserror::Error)]
+#[error("{error}")]
+#[non_exhaustive]
+pub struct HotStandbyTakeoverError {
+    /// Why the start failed.
+    #[source]
+    pub error: EngineStartError,
+    /// The standby, still following, when the start failed before the lease; `None` after it.
+    pub standby: Option<HotStandby>,
+}
+
+impl std::fmt::Debug for HotStandbyTakeoverError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HotStandbyTakeoverError")
+            .field("error", &self.error)
+            .field("has_standby", &self.standby.is_some())
+            .finish()
+    }
 }
 
 /// A node serving its log stream. After a fatal failure it stops serving; then exit non-zero.
@@ -128,6 +143,11 @@ pub struct EngineNode {
 impl EngineNode {
     /// Longest [`EngineNode::shutdown`] runs: the task stop budget plus the lease release budget.
     pub const SHUTDOWN_BUDGET: Duration =
+        TASK_STOP_BUDGET.saturating_add(LeaseHandle::RELEASE_BUDGET);
+
+    /// Longest a takeover that failed or was cancelled after it took the lease holds it: the
+    /// task stop and the standby stop, run side by side, plus the lease release.
+    pub const TAKEOVER_RELEASE_BUDGET: Duration =
         TASK_STOP_BUDGET.saturating_add(LeaseHandle::RELEASE_BUDGET);
 
     /// Restores state, replays the log, starts serving, and rebuilds every running partition's runtime.
@@ -185,18 +205,22 @@ impl EngineNode {
     /// Takes the lease and serves from a hot standby's store when the log, rechecked under the
     /// lease, updates it.
     ///
-    /// Returns [`HotStandbyTakeover::Cancelled`] or [`HotStandbyTakeover::FailedBeforeLease`]
-    /// with the standby, still following, when cancellation or an error arrives before the
-    /// lease. Otherwise returns like
-    /// [`EngineNode::start_until_cancelled`]; a stale or missing standby store makes the start
-    /// open or restore the configured store instead.
+    /// Returns [`HotStandbyTakeover::Cancelled`] with the standby, still following, when
+    /// cancellation arrives before the lease, and the serving node otherwise. A stale or missing
+    /// standby store makes the start open or restore the configured store instead.
+    ///
+    /// Returns [`HotStandbyTakeoverError`] with the errors that
+    /// [`EngineNode::start_until_cancelled`] documents. It carries the standby, still following,
+    /// when the start failed before the lease, such as for a standby of another node. A failure
+    /// after the lease stops the standby and releases the lease within
+    /// [`EngineNode::TAKEOVER_RELEASE_BUDGET`].
     pub async fn take_over_from_hot_standby_until_cancelled<F>(
         config: &EngineNodeConfig,
         dependencies: EngineNodeDependencies,
         command_and_effect_hooks_factory: F,
         standby: HotStandby,
         cancellation: &mut watch::Receiver<bool>,
-    ) -> Result<HotStandbyTakeover, EngineStartError>
+    ) -> Result<HotStandbyTakeover, HotStandbyTakeoverError>
     where
         F: FnOnce(EngineServices) -> EngineCommandAndEffectHooks,
     {
@@ -207,23 +231,27 @@ impl EngineNode {
             cancellation,
             LocalStoreSource::HotStandby(standby),
         )
-        .await?;
-        Ok(match started {
-            StartOutcome::Serving(node) => HotStandbyTakeover::Serving(node),
-            StartOutcome::Cancelled(source) => HotStandbyTakeover::Cancelled(
+        .await
+        .map_err(|error| HotStandbyTakeoverError {
+            error,
+            standby: None,
+        })?;
+        match started {
+            StartOutcome::Serving(node) => Ok(HotStandbyTakeover::Serving(node)),
+            StartOutcome::Cancelled(source) => Ok(HotStandbyTakeover::Cancelled(
                 source
                     .into_hot_standby()
                     .expect("a cancelled takeover returns the hot standby it was given"),
-            ),
-            StartOutcome::FailedBeforeLease { error, source } => {
-                HotStandbyTakeover::FailedBeforeLease {
-                    error,
-                    standby: source
+            )),
+            StartOutcome::FailedBeforeLease { error, source } => Err(HotStandbyTakeoverError {
+                error,
+                standby: Some(
+                    source
                         .into_hot_standby()
                         .expect("a takeover that failed before the lease returns its standby"),
-                }
-            }
-        })
+                ),
+            }),
+        }
     }
 
     /// Returns the committer that Flow runtimes submit commands through.
@@ -374,20 +402,25 @@ impl LeasedParts {
                 appliers.shutdown().await;
             }
         };
-        if tokio::time::timeout_at(stop_deadline, stopping)
-            .await
-            .is_err()
-        {
+        // A successor may reopen the store's directory once the standby's store closes.
+        let stopping_standby = async {
+            match standby {
+                Some(standby) => standby.stop_until(stop_deadline).await,
+                None => true,
+            }
+        };
+        let (stopped, is_standby_store_closed) = tokio::join!(
+            tokio::time::timeout_at(stop_deadline, stopping),
+            stopping_standby
+        );
+        if stopped.is_err() {
             // Dropping the tasks aborts them; a lane blocked in apply ends with the process.
             tracing::error!(
                 budget_seconds = TASK_STOP_BUDGET.as_secs(),
                 "engine tasks did not stop in time; releasing the lease anyway"
             );
         }
-        // A successor may reopen the store's directory once it holds the lease.
-        if let Some(standby) = standby
-            && !standby.shutdown().await
-        {
+        if !is_standby_store_closed {
             tracing::error!(
                 "the hot standby's local store is still open; releasing the lease anyway"
             );

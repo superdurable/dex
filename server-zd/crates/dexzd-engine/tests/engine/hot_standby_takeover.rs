@@ -13,7 +13,8 @@ use std::time::Duration;
 use dexzd_engine::{
     CommitUrgency, EngineCommandAndEffectHooks, EngineLocalStore, EngineNode, EngineNodeConfig,
     EngineNodeDependencies, EngineServices, EngineStartError, HotStandby, HotStandbyConfig,
-    HotStandbyState, HotStandbyTakeover, LocalStoreConfig, SystemEngineIdSource,
+    HotStandbyState, HotStandbyTakeover, HotStandbyTakeoverError, LocalStoreConfig,
+    SystemEngineIdSource,
 };
 use dexzd_log::{StreamIdentity, decode_batch};
 use dexzd_object_store::{ObjectStore, ObjectStoreOperation};
@@ -38,7 +39,7 @@ const LEASE_READ_DEADLINE: Duration = Duration::from_secs(30);
 
 /// A takeover's applier, hooks, and result.
 struct Takeover {
-    result: Result<HotStandbyTakeover, EngineStartError>,
+    result: Result<HotStandbyTakeover, HotStandbyTakeoverError>,
     applier: Arc<CountingApplier>,
     recording_hooks: Arc<RecordingCommandAndEffectHooks>,
 }
@@ -546,6 +547,7 @@ async fn cancelling_a_takeover_before_the_lease_returns_the_following_standby() 
         "the returned standby keeps following"
     );
     returned.shutdown().await;
+    assert_eq!(status_reader.status().state, HotStandbyState::Stopped);
     serving.node.shutdown().await.expect("lease released");
 }
 
@@ -675,7 +677,14 @@ async fn cancel_a_takeover_mid_handover(
     );
     let cancelled = takeover.await.expect("the takeover task completes").result;
     assert!(
-        matches!(cancelled, Err(EngineStartError::Stopped { .. })),
+        matches!(
+            cancelled,
+            Err(HotStandbyTakeoverError {
+                error: EngineStartError::Stopped { .. },
+                standby: None,
+                ..
+            })
+        ),
         "a takeover cancelled after the lease stops"
     );
 }
@@ -729,10 +738,14 @@ async fn a_dropped_standby_fences_a_lane_mid_apply_at_once() {
     let (standby, _gate) = standby_with_a_command_mid_apply(&mut cluster, standby_config).await;
     let metas_before = store.partition_metas().expect("read the partition metas");
     let standby_applier = standby.applier.clone();
+    let probe = standby.standby.probe_for_test();
 
     drop(standby);
     standby_applier.gate.open();
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    wait_for_probe("the lane did not reach the stopped write fence", || {
+        probe.refused_store_writes_for_test() > 0
+    })
+    .await;
     assert_eq!(
         store.partition_metas().expect("read the partition metas"),
         metas_before,
@@ -748,9 +761,12 @@ async fn a_standby_lane_mid_apply_at_handover_writes_nothing_after_the_node_serv
     let (standby, _gate) =
         standby_with_a_command_mid_apply(&mut cluster, standby_config.clone()).await;
     let standby_applier = standby.applier.clone();
+    let probe = standby.standby.probe_for_test();
+    let status_reader = standby.standby.status_reader();
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
     assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert_eq!(status_reader.status().state, HotStandbyState::Stopped);
     assert_eq!(
         applied_flows(&node.applier),
         vec![BLOCKING_FLOW.to_owned()],
@@ -761,8 +777,12 @@ async fn a_standby_lane_mid_apply_at_handover_writes_nothing_after_the_node_serv
     let partition = node.context(BLOCKING_FLOW).partition;
 
     // The standby's lane resumes behind its stopped write fence.
+    let refused_before = probe.refused_store_writes_for_test();
     standby_applier.gate.open();
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    wait_for_probe("the lane did not reach the stopped write fence", || {
+        probe.refused_store_writes_for_test() > refused_before
+    })
+    .await;
     assert_eq!(node.committed_count(BLOCKING_FLOW).await, 2);
     let meta = store
         .partition_meta(partition)
@@ -854,25 +874,63 @@ async fn a_takeover_for_another_node_fails_before_the_lease_and_returns_the_stan
     other_node_config.node.node_id = "node-b".to_owned();
     let (_cancel, cancellation) = watch::channel(false);
     let (_, takeover) = take_over(&cluster, other_node_config, standby.standby, cancellation);
-    let returned = match takeover
-        .await
-        .result
-        .expect("the takeover reports its outcome")
-    {
-        HotStandbyTakeover::FailedBeforeLease { error, standby } => {
-            assert!(
-                matches!(error, EngineStartError::InvalidConfig { .. }),
-                "{error}"
-            );
-            standby
-        }
-        HotStandbyTakeover::Serving(_) => panic!("another node's takeover must not serve"),
-        _ => panic!("unexpected takeover outcome"),
-    };
+    let returned = returned_standby(takeover.await.result);
     assert_eq!(recorded_epoch(&cluster).await, epoch, "no lease was taken");
     serving.commit_prompt(FIRST_FLOW, 2).await;
     wait_until_caught_up(&cluster, &returned).await;
     assert_eq!(applied_flows(&standby.applier).len(), 4);
+    returned.shutdown().await;
+    serving.node.shutdown().await.expect("lease released");
+}
+
+/// Returns the standby of a takeover that failed before the lease with an invalid configuration.
+fn returned_standby(result: Result<HotStandbyTakeover, HotStandbyTakeoverError>) -> HotStandby {
+    match result {
+        Err(HotStandbyTakeoverError {
+            error: EngineStartError::InvalidConfig { .. },
+            standby: Some(standby),
+            ..
+        }) => standby,
+        Err(error) => panic!("unexpected takeover error: {error}"),
+        Ok(_) => panic!("the takeover must fail before the lease"),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_takeover_in_another_cluster_fails_before_the_lease_and_returns_the_standby() {
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby_config = cluster.config(LocalStoreConfig::InMemory);
+    let standby = start_standby(&cluster, standby_config.clone(), fast_standby_config());
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    let mut other_cluster = TestCluster::new();
+    let other = other_cluster
+        .start_with(&other_cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the other cluster's node starts");
+    other.node.shutdown().await.expect("lease released");
+    let other_epoch = recorded_epoch(&other_cluster).await;
+
+    let (_cancel, cancellation) = watch::channel(false);
+    let (_, takeover) = take_over(
+        &other_cluster,
+        standby_config,
+        standby.standby,
+        cancellation,
+    );
+    let returned = returned_standby(takeover.await.result);
+    assert_eq!(
+        recorded_epoch(&other_cluster).await,
+        other_epoch,
+        "no lease was taken"
+    );
+    serving.commit_prompt(FIRST_FLOW, 1).await;
+    wait_until_caught_up(&cluster, &returned).await;
+    assert_eq!(applied_flows(&standby.applier).len(), 3);
     returned.shutdown().await;
     serving.node.shutdown().await.expect("lease released");
 }

@@ -116,10 +116,20 @@ struct RestartDelays {
 }
 
 impl StandbyDriver {
-    /// Runs until cancelled or until a configuration error.
+    /// Runs until cancelled or until a configuration error, and reports `Stopped` after a
+    /// cancellation.
     ///
     /// Returns the open store when cancellation stopped following with a clean write fence.
     pub(super) async fn run(self) -> Option<Arc<EngineLocalStore>> {
+        let store = self.run_until_stopped().await;
+        if self.cancellation.is_cancelled() {
+            self.status.set(StandbyPhase::Stopped);
+        }
+        store
+    }
+
+    /// Returns the open store when cancellation stopped following with a clean write fence.
+    async fn run_until_stopped(&self) -> Option<Arc<EngineLocalStore>> {
         let mut delays = RestartDelays {
             jitter_seed: self.restart_jitter_seed,
             restarts: 0,
@@ -203,6 +213,7 @@ impl StandbyDriver {
         };
         let partition_count = metadata.partition_count();
         let cluster_id = metadata.cluster_id()?;
+        self.following.set_cluster_id(cluster_id);
         // The gap check sets aside a store that applied a batch past a closed stream's end.
         let OpenedLocalStore {
             store,
@@ -561,7 +572,13 @@ async fn release_store(store: Arc<EngineLocalStore>) {
 }
 
 /// Stops writes through `write_fence`, then waits for the applier lanes.
+///
+/// A fence that its owner stopped already ends following quickly: a lane that outlives it can
+/// no longer write, and the store's last handle closes it.
 async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPool) {
+    if write_fence.stop_reason().is_some() {
+        return;
+    }
     write_fence.stop(NodeStopReason::Shutdown);
     if tokio::time::timeout(APPLIER_STOP_BUDGET, appliers.shutdown())
         .await
