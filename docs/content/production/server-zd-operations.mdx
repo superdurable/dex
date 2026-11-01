@@ -382,6 +382,34 @@ saves few requests, but the unavailable time after a crash keeps growing.
 By default, a starting node waits while another process holds the lease. Set
 **lease.failIfHeld** to true to fail startup instead.
 
+## Step down the active process {#step-down}
+
+**dexcli admin step-down** asks the active process of a node ID to give up its
+lease. The process stops serving and waits briefly for in-flight commits. Then it releases the lease. Another process of the same node ID can then
+take the lease at once, as after a graceful shutdown. The command needs an
+[admin credential](#admin-credentials) and the **--yes** flag.
+
+~~~bash
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --credential-file /run/secrets/dex/admin-token
+~~~
+
+The call returns after the release. Its output has these fields:
+
+- **nodeId** and **releasedNodeEpoch** name the node ID and the epoch of the
+  released lease.
+- **isTakeoverObserved** says whether another process took the lease before the
+  call returned. **observedTakeover** then gives that process's epoch and holder
+  process ID.
+- **leaseReacquisitionHoldOff** is how long the stepped-down process waits before
+  it competes for the lease again.
+
+Each call steps down whichever process is active when the call arrives. Check
+which process is active before you retry a failed call, because a retry can step
+down the process that just took over. A process that is not active answers
+**FAILED_PRECONDITION**. A server without **AdminService** answers
+**UNIMPLEMENTED**.
+
 ## Object storage
 
 ### Credentials
@@ -942,6 +970,35 @@ credential when it reconnects.
 **api.listen** serves plaintext gRPC, so bearer credentials cross the network in
 clear text. Terminate TLS in front of the server, or restrict the network to
 trusted callers.
+
+### Admin credentials {#admin-credentials}
+
+Admin calls, such as [step down](#step-down), need their own credential.
+**auth.adminAudiences** lists the JWT audiences that authorize them. It is empty
+by default.
+
+~~~yaml
+auth:
+  adminAudiences: ["dex-operators"]
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+~~~
+
+When **auth.authenticators** is not empty, an admin call needs a JWT that a
+**jwt** authenticator accepts and whose audience is in **auth.adminAudiences**.
+Static tokens never authorize admin calls, so the default empty list denies every
+admin call. A missing or invalid credential fails with **UNAUTHENTICATED**. A
+valid public API credential without an admin audience fails with
+**PERMISSION_DENIED**.
+
+When authentication is off, as on a local development server, admin calls need no
+credential.
+
+A non-empty **auth.adminAudiences** needs a **jwt** authenticator. Its entries
+must differ from the **audiences** of every **jwt** authenticator, so a public API
+credential never authorizes an admin call.
 
 ## Server and SDK protocol compatibility
 

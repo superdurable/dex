@@ -321,6 +321,29 @@ Kubernetes 随后按退避策略重启容器。
 默认情况下，如果另一个进程持有 lease，启动中的节点会等待。把 **lease.failIfHeld**
 设为 true 可以改为直接启动失败。
 
+## 让 active 进程让位 {#step-down}
+
+**dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
+服务，并短暂等待在途的提交完成，然后释放 lease。同一个 node ID 的另一个进程随即可以
+拿到 lease，和优雅关闭之后一样。这个 command 需要 [admin 凭证](#admin-credentials)
+和 **--yes** flag。
+
+~~~bash
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --credential-file /run/secrets/dex/admin-token
+~~~
+
+调用在释放 lease 之后返回。输出包含这些字段：
+
+- **nodeId** 和 **releasedNodeEpoch** 给出 node ID 和被释放的 lease 的 epoch。
+- **isTakeoverObserved** 表示调用返回前是否有另一个进程拿到了 lease。这时
+  **observedTakeover** 给出那个进程的 epoch 和 holder process ID。
+- **leaseReacquisitionHoldOff** 是让位的进程再次竞争 lease 之前等待的时间。
+
+每次调用都会让调用到达时的 active 进程让位。重试失败的调用之前，先确认哪个进程是
+active，因为重试可能让刚接管的进程再次让位。不是 active 的进程返回
+**FAILED_PRECONDITION**。没有 **AdminService** 的 server 返回 **UNIMPLEMENTED**。
+
 ## 对象存储
 
 ### 凭证
@@ -803,6 +826,32 @@ server 只在调用开始时检查一次凭证。已经打开的 pull Worker str
 
 **api.listen** 提供明文 gRPC，bearer 凭证会以明文在网络上传输。在 server 前面终止
 TLS，或者只允许可信的调用方访问网络。
+
+### Admin 凭证 {#admin-credentials}
+
+admin 调用（例如[让位](#step-down)）需要单独的凭证。**auth.adminAudiences** 列出
+可以授权 admin 调用的 JWT audience，默认为空。
+
+~~~yaml
+auth:
+  adminAudiences: ["dex-operators"]
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+~~~
+
+**auth.authenticators** 不为空时，admin 调用需要一个 **jwt** authenticator 接受、
+并且 audience 在 **auth.adminAudiences** 中的 JWT。静态 token 永远不能授权 admin
+调用，所以默认的空列表会拒绝所有 admin 调用。凭证缺失或无效时返回
+**UNAUTHENTICATED**。有效的公共 API 凭证如果没有 admin audience，返回
+**PERMISSION_DENIED**。
+
+身份验证关闭时（例如本地开发 server），admin 调用不需要凭证。
+
+非空的 **auth.adminAudiences** 需要一个 **jwt** authenticator。其中的值不能与任何
+**jwt** authenticator 的 **audiences** 重复，这样公共 API 凭证永远不能授权 admin
+调用。
 
 ## Server 与 SDK 的协议兼容性
 
