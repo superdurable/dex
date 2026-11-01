@@ -40,6 +40,8 @@ const BEHIND_STANDBY_LATENCY: Duration = Duration::from_millis(1500);
 const BEHIND_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_secs(3);
 /// A hot standby polls a held lease every 250 ms; a 1 s poll fails this in most runs.
 const STEP_DOWN_HANDOVER_BOUND: Duration = Duration::from_millis(600);
+/// The lease history samples every 100 ms, so its first released sample may trail the release.
+const RELEASE_SAMPLE_LAG: Duration = Duration::from_millis(250);
 /// A take-back after the hold-off: one lease read and write, and a loaded host.
 const TAKE_BACK_AFTER_HOLD_OFF_BOUND: Duration = Duration::from_millis(1500);
 /// The default `standby.behindLagThreshold` and the time to fall that far behind.
@@ -179,7 +181,8 @@ async fn step_down_without_a_standby_takes_the_lease_back_after_the_hold_off() {
     let worker_registrations = worker.stop().await;
     let report = group.finish().await;
     assert!(report.serving_periods() >= 2, "{report}");
-    let take_back_window = STEP_DOWN_HOLD_OFF..=STEP_DOWN_HOLD_OFF + TAKE_BACK_AFTER_HOLD_OFF_BOUND;
+    let take_back_window = STEP_DOWN_HOLD_OFF - RELEASE_SAMPLE_LAG
+        ..=STEP_DOWN_HOLD_OFF + TAKE_BACK_AFTER_HOLD_OFF_BOUND;
     assert!(
         !report.takeovers_after_release().is_empty()
             && report
