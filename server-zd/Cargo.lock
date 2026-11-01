@@ -1375,6 +1375,7 @@ dependencies = [
  "dexzd-worker-dispatch",
  "futures",
  "humantime-serde",
+ "libc",
  "prometheus-client",
  "prost",
  "prost-types",

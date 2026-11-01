@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Several `serve` processes of one node ID behind one readiness router.
-//!
-//! Each process has its own local directory and object store endpoint.
+//! `serve` processes of one node ID, each with its own directory and object store endpoint.
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -21,7 +19,7 @@ use tonic::transport::Channel;
 
 use super::lease_epochs::{LeaseHistory, LeaseReport};
 use super::object_store_endpoints::ObjectStoreEndpoint;
-use super::readiness_router::{ReadinessRouter, ServingReport};
+use super::readiness_router::{ReadinessRouter, RouterBackend, ServingReport};
 use crate::harness::free_loopback_address;
 use crate::metrics::{sample_with_label, try_scrape};
 use crate::robustness::inspection::ObjectStoreInspector;
@@ -102,21 +100,40 @@ impl fmt::Display for GroupReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed; {} readiness probes, {} SERVING in {} serving periods",
+            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed, longest takeover after availability {:?}; {} readiness probes, {} SERVING in {} serving periods, {} SERVING without a lease",
             self.process_starts,
             self.stale_batch_restarts,
             self.lease.acquisitions,
             self.lease.observed_holders,
+            self.lease.longest_takeover_after_availability,
             self.serving.observations,
             self.serving.serving_observations,
-            self.serving.serving_periods
+            self.serving.serving_periods,
+            self.serving.serving_without_lease
         )
     }
 }
 
-/// Serve processes of one node ID against one emulator, restarted and signalled per slot.
-///
-/// Clients and Workers reach the group through [`Self::router_address`].
+impl GroupReport {
+    /// Returns how many processes and lease epochs reported SERVING.
+    pub(crate) fn serving_periods(&self) -> usize {
+        self.serving.serving_periods
+    }
+
+    /// Returns how many distinct holders the lease object named.
+    pub(crate) fn observed_lease_holders(&self) -> usize {
+        self.lease.observed_holders
+    }
+
+    /// Returns the longest time a new holder took to appear after the lease became available.
+    pub(crate) fn longest_takeover_after_availability(&self) -> Duration {
+        self.lease
+            .longest_takeover_after_availability
+            .expect("a takeover test observed a handover")
+    }
+}
+
+/// Serve processes of one node ID, signalled and restarted per slot, behind [`Self::router_address`].
 pub(crate) struct NodeGroup {
     emulator: DurableEmulator,
     fleet: ServeFleet,
@@ -168,7 +185,11 @@ impl NodeGroup {
         let router = ReadinessRouter::start(
             slots
                 .iter()
-                .map(|slot| (slot.name.clone(), slot.address))
+                .map(|slot| RouterBackend {
+                    name: slot.name.clone(),
+                    api_address: slot.address,
+                    metrics_address: slot.metrics_address,
+                })
                 .collect(),
         )
         .await;
@@ -254,6 +275,37 @@ impl NodeGroup {
         }
     }
 
+    /// Clears `slot`'s object store faults; held writes then land, and may stop the active once.
+    pub(crate) async fn heal_object_store(&mut self, slot: usize) {
+        self.permitted_stale_batch_stops += 1;
+        self.slots[slot].object_store.clear_faults().await;
+    }
+
+    /// Waits up to `budget` until a PUT that `slot`'s faults held reached the store; returns them.
+    pub(crate) async fn wait_for_held_puts(
+        &mut self,
+        slot: usize,
+        budget: Duration,
+    ) -> Vec<(String, u64)> {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.supervise();
+            let held_puts = self.slots[slot]
+                .object_store
+                .held_puts_that_completed()
+                .await;
+            if !held_puts.is_empty() {
+                return held_puts;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no PUT held at slot {} reached the store within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
     /// Lets `slot`'s process exit by itself, as a test-made failure requires.
     pub(crate) fn permit_exit(&mut self, slot: usize) {
         self.slots[slot].may_exit = true;
@@ -304,6 +356,21 @@ impl NodeGroup {
             );
             tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
         }
+    }
+
+    /// Waits up to `budget` until `slot`'s process stops reporting SERVING; returns the wait.
+    pub(crate) async fn wait_for_not_serving(&mut self, slot: usize, budget: Duration) -> Duration {
+        let started = Instant::now();
+        while self.router.is_serving(slot) {
+            self.supervise();
+            assert!(
+                started.elapsed() < budget,
+                "slot {} still served after {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+        started.elapsed()
     }
 
     /// Waits up to `budget` until `slot`'s process is a standby: it runs and waits for the lease.
@@ -365,7 +432,7 @@ impl NodeGroup {
         }
         let Self {
             emulator,
-            fleet,
+            fleet: _fleet,
             slots,
             router,
             lease_history,
@@ -373,7 +440,15 @@ impl NodeGroup {
             ..
         } = self;
         let serving = router.shutdown_and_check().await;
-        let lease = lease_history.stop_and_check(fleet.log_paths()).await;
+        let lease = lease_history.stop_and_check().await;
+        // Each serving period recovered under its own epoch; a late-batch stop may serve too briefly to see.
+        assert!(
+            serving.serving_periods <= lease.acquisitions
+                && lease.acquisitions <= serving.serving_periods + stale_batch_restarts,
+            "{} EpochStarts in the log for {} observed serving periods and {stale_batch_restarts} late-batch restarts",
+            lease.acquisitions,
+            serving.serving_periods
+        );
         let process_starts = slots.iter().map(|slot| slot.process_count).sum();
         for slot in slots {
             slot.object_store.shutdown().await;

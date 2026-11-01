@@ -333,11 +333,6 @@ impl ServeFleet {
         self.log_paths.push(log_path.clone());
         RobustnessProcess::spawn(config_path, address, log_path)
     }
-
-    /// Returns the log file of every process spawned so far, in spawn order.
-    pub(crate) fn log_paths(&self) -> &[PathBuf] {
-        &self.log_paths
-    }
 }
 
 impl Drop for ServeFleet {

@@ -21,6 +21,8 @@ use crate::harness::s3mock_admin_request;
 const TIMEOUT_HOLD: Duration = Duration::from_secs(35);
 /// The longest delay s3mock accepts; the held requests run only when the fault is cleared.
 const BLACKHOLE_HOLD: Duration = Duration::from_secs(600);
+/// A completed request that took at least this long was held by a fault.
+const HELD_REQUEST_DURATION: Duration = Duration::from_secs(1);
 
 /// A fault that one endpoint applies to every S3 operation until it is cleared.
 #[derive(Clone, Copy, Debug)]
@@ -30,12 +32,10 @@ pub(crate) enum ObjectStoreFault {
     /// Fails each request with 503 SlowDown with this probability, before it reaches the store.
     #[expect(dead_code, reason = "the hot standby fault tests inject 5xx bursts")]
     ServiceUnavailable { probability: f64 },
-    /// Holds every request past the client's timeout, then handles it.
+    /// Holds every request past the client's timeout; s3mock then drops it unhandled.
     #[expect(dead_code, reason = "the hot standby fault tests inject timeouts")]
     Timeouts,
-    /// Holds every request until the fault is cleared, as if object storage became unreachable.
-    ///
-    /// Clearing the fault runs the held requests, like a healed partition that delivers late writes.
+    /// Holds requests until cleared; clearing runs only those whose connection stayed open.
     Blackhole,
 }
 
@@ -109,6 +109,37 @@ impl ObjectStoreEndpoint {
             s3mock_admin_request(self.server.local_address(), "DELETE", "/_s3mock/faults", "")
                 .await;
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    }
+
+    /// Returns the key and status of every PUT that a fault held and that then reached the store.
+    pub(crate) async fn held_puts_that_completed(&self) -> Vec<(String, u64)> {
+        let response =
+            s3mock_admin_request(self.server.local_address(), "GET", "/_s3mock/requests", "").await;
+        let (_, body) = response
+            .split_once("\r\n\r\n")
+            .unwrap_or_else(|| panic!("the request log has a body: {response}"));
+        let log: serde_json::Value =
+            serde_json::from_str(body).unwrap_or_else(|error| panic!("{error}: {body}"));
+        let held_milliseconds =
+            u64::try_from(HELD_REQUEST_DURATION.as_millis()).expect("the hold fits in u64");
+        log["requests"]
+            .as_array()
+            .expect("the request log lists requests")
+            .iter()
+            .filter(|request| {
+                request["operation"] == "PutObject"
+                    && request["injected_fault"] == "delay"
+                    && request["duration_ms"]
+                        .as_u64()
+                        .is_some_and(|duration| duration >= held_milliseconds)
+            })
+            .map(|request| {
+                (
+                    request["key"].as_str().unwrap_or_default().to_owned(),
+                    request["status"].as_u64().unwrap_or_default(),
+                )
+            })
+            .collect()
     }
 
     /// Clears the faults, so held requests finish, then stops serving.

@@ -100,6 +100,8 @@ struct TimerStepExecution {
     flow_id: String,
     run_id: String,
     has_timer_fired: bool,
+    timer_duration: Duration,
+    executed_at: Instant,
 }
 
 /// What every Worker incarnation observed, in handling order.
@@ -123,6 +125,8 @@ struct AcknowledgedStart {
     flow_id: String,
     run_id: String,
     kind: WorkloadFlowKind,
+    /// When the first attempt of the acknowledged start was sent.
+    first_sent_at: Instant,
 }
 
 /// An acknowledged chain Flow that a test saw complete.
@@ -148,14 +152,22 @@ struct ClientLedger {
     counters: Mutex<BTreeMap<String, CounterLedger>>,
     acknowledged_count: AtomicU64,
     failed_start_attempts: AtomicU64,
-    /// Increment attempts that failed with UNAVAILABLE and were sent again with their request ID.
-    unavailable_retries: AtomicU64,
+    /// Increment attempts resent with their request ID after UNAVAILABLE or a client timeout.
+    resent_increments: AtomicU64,
+    /// Set by a load that resends increments, so every increment must end acknowledged.
+    requires_exact_counters: AtomicBool,
     next_request_number: AtomicU64,
     recent_failures: Mutex<VecDeque<String>>,
 }
 
 impl ClientLedger {
-    fn record_start(&self, flow_id: &str, run_id: &str, kind: WorkloadFlowKind) {
+    fn record_start(
+        &self,
+        flow_id: &str,
+        run_id: &str,
+        kind: WorkloadFlowKind,
+        first_sent_at: Instant,
+    ) {
         self.starts
             .lock()
             .expect("the ledger lock is not poisoned")
@@ -163,6 +175,7 @@ impl ClientLedger {
                 flow_id: flow_id.to_owned(),
                 run_id: run_id.to_owned(),
                 kind,
+                first_sent_at,
             });
         if kind == WorkloadFlowKind::Counter {
             self.counters
@@ -247,7 +260,7 @@ pub(crate) struct VerificationReport {
     counter_flows: usize,
     acknowledged_increments: usize,
     unknown_increments: u64,
-    unavailable_retries: u64,
+    resent_increments: u64,
     chain_step_executions: usize,
     re_executed_step_executions: usize,
 }
@@ -256,13 +269,13 @@ impl fmt::Display for VerificationReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} chain Flows completed; {} timer Flows completed after their timers fired; {} counters completed with {} acknowledged and {} unknown increments after {} UNAVAILABLE retries; {} chain Step executions, {} re-executed",
+            "{} chain Flows completed; {} timer Flows completed after their timers fired; {} counters completed with {} acknowledged and {} unknown increments after {} resends; {} chain Step executions, {} re-executed",
             self.chain_flows,
             self.timer_flows,
             self.counter_flows,
             self.acknowledged_increments,
             self.unknown_increments,
-            self.unavailable_retries,
+            self.resent_increments,
             self.chain_step_executions,
             self.re_executed_step_executions
         )
@@ -278,10 +291,8 @@ pub(crate) struct LoadShape {
     pub(crate) timer_starters: usize,
     /// Client deadline of every call.
     pub(crate) call_timeout: Duration,
-    /// How long an UNAVAILABLE increment is resent with its request ID, as an SDK would.
-    ///
-    /// `None` records the failure as an unknown outcome at once.
-    pub(crate) unavailable_retry_budget: Option<Duration>,
+    /// How long an increment is resent with its request ID after UNAVAILABLE or a timeout.
+    pub(crate) increment_resend_budget: Option<Duration>,
 }
 
 /// Chain and timer Flows and locked counters driven against one fixed server address.
@@ -349,6 +360,7 @@ impl Workload {
                 skipped_wait_for(),
                 &self.ledger,
             );
+            let first_sent_at = Instant::now();
             let run_id = tokio::time::timeout(
                 SETUP_BUDGET,
                 start_until_acknowledged(
@@ -368,7 +380,7 @@ impl Workload {
             })
             .expect("setup never stops");
             self.ledger
-                .record_start(&flow_id, &run_id, WorkloadFlowKind::Counter);
+                .record_start(&flow_id, &run_id, WorkloadFlowKind::Counter, first_sent_at);
         }
     }
 
@@ -389,20 +401,23 @@ impl Workload {
                 chain_starters,
                 timer_starters: 0,
                 call_timeout,
-                unavailable_retry_budget: None,
+                increment_resend_budget: None,
             },
         )
     }
 
-    /// Starts the starters of `shape` and one writer per counter.
-    ///
-    /// Flow IDs include `phase`, so each phase starts new chain and timer Flows.
+    /// Starts the starters of `shape` and one writer per counter; Flow IDs include `phase`.
     pub(crate) fn start_shaped_load(
         &self,
         address: SocketAddr,
         phase: &str,
         shape: &LoadShape,
     ) -> RunningLoad {
+        if shape.increment_resend_budget.is_some() {
+            self.ledger
+                .requires_exact_counters
+                .store(true, Ordering::SeqCst);
+        }
         let is_stopping = Arc::new(AtomicBool::new(false));
         let mut tasks = Vec::new();
         let starters = std::iter::repeat_n(WorkloadFlowKind::Chain, shape.chain_starters)
@@ -438,7 +453,7 @@ impl Workload {
                 is_stopping,
                 flow_id,
                 shape.call_timeout,
-                shape.unavailable_retry_budget,
+                shape.increment_resend_budget,
             ));
             tasks.push(writer_task);
         }
@@ -569,7 +584,7 @@ impl Workload {
             counter_flows: final_counter_values.len(),
             acknowledged_increments,
             unknown_increments,
-            unavailable_retries: self.ledger.unavailable_retries.load(Ordering::SeqCst),
+            resent_increments: self.ledger.resent_increments.load(Ordering::SeqCst),
             chain_step_executions,
             re_executed_step_executions,
         }
@@ -812,10 +827,10 @@ impl Workload {
 
     /// Panics unless every acknowledged timer run executed its Step, and only after the timer fired.
     fn verify_timer_journal(&self, starts: &[AcknowledgedStart]) {
-        let acknowledged_runs: BTreeMap<&str, &str> = starts
+        let acknowledged_runs: BTreeMap<&str, &AcknowledgedStart> = starts
             .iter()
             .filter(|start| start.kind == WorkloadFlowKind::Timer)
-            .map(|start| (start.flow_id.as_str(), start.run_id.as_str()))
+            .map(|start| (start.flow_id.as_str(), start))
             .collect();
         let executions = self
             .journal
@@ -825,17 +840,24 @@ impl Workload {
             .clone();
         let mut executed_flows = BTreeSet::new();
         for execution in &executions {
-            let Some(run_id) = acknowledged_runs.get(execution.flow_id.as_str()) else {
+            let Some(start) = acknowledged_runs.get(execution.flow_id.as_str()) else {
                 continue;
             };
             assert_eq!(
-                execution.run_id, *run_id,
+                execution.run_id, start.run_id,
                 "a handler saw a run other than the acknowledged one: {execution:?}"
             );
             assert!(
                 execution.has_timer_fired,
                 "{} executed TimerStep before its timer fired: {execution:?}",
                 execution.flow_id
+            );
+            let waited = execution.executed_at.duration_since(start.first_sent_at);
+            assert!(
+                waited >= execution.timer_duration,
+                "{} executed TimerStep {waited:?} after its start was sent, before its {:?} timer",
+                execution.flow_id,
+                execution.timer_duration
             );
             executed_flows.insert(execution.flow_id.as_str());
         }
@@ -845,6 +867,71 @@ impl Workload {
                 "{flow_id} completed, but no Worker executed its TimerStep"
             );
         }
+    }
+
+    /// Starts `count` acknowledged timer Flows of `duration`, so they fire after an imminent failure.
+    pub(crate) async fn start_timers_spanning_a_failure(
+        &self,
+        channel: Channel,
+        count: usize,
+        duration: Duration,
+    ) {
+        let mut client = FlowServiceClient::new(channel);
+        let is_stopping = AtomicBool::new(false);
+        let seconds = i64::try_from(duration.as_secs()).expect("a test timer fits in i64 seconds");
+        for _ in 0..count {
+            let flow_id = self.ledger.new_request_id("spanning-timer");
+            let request = start_request(
+                &flow_id,
+                TIMER_FLOW_TYPE,
+                TIMER_STEP_TYPE,
+                int_value(seconds),
+                StepOptions::default(),
+                &self.ledger,
+            );
+            let first_sent_at = Instant::now();
+            let run_id = tokio::time::timeout(
+                SETUP_BUDGET,
+                start_until_acknowledged(
+                    &mut client,
+                    &request,
+                    &self.ledger,
+                    &is_stopping,
+                    SETUP_BUDGET,
+                ),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("{flow_id} was not acknowledged within {SETUP_BUDGET:?}"))
+            .expect("setup never stops");
+            self.ledger
+                .record_start(&flow_id, &run_id, WorkloadFlowKind::Timer, first_sent_at);
+        }
+    }
+
+    /// Returns how many acknowledged timer Flows were started before `instant` and ran after it.
+    pub(crate) fn timer_flows_spanning(&self, instant: Instant) -> usize {
+        let first_executions: BTreeMap<String, Instant> = self
+            .journal
+            .timer_steps
+            .lock()
+            .expect("the journal lock is not poisoned")
+            .iter()
+            .fold(BTreeMap::new(), |mut first, execution| {
+                first
+                    .entry(execution.flow_id.clone())
+                    .or_insert(execution.executed_at);
+                first
+            });
+        self.ledger
+            .starts()
+            .iter()
+            .filter(|start| start.kind == WorkloadFlowKind::Timer && start.first_sent_at < instant)
+            .filter(|start| {
+                first_executions
+                    .get(&start.flow_id)
+                    .is_some_and(|executed_at| *executed_at > instant)
+            })
+            .count()
     }
 
     /// Returns the number of acknowledged and unknown-outcome increments.
@@ -894,6 +981,12 @@ impl Workload {
             assert!(
                 final_value >= largest,
                 "{flow_id} ended at {final_value}, below the acknowledged {largest}"
+            );
+            assert!(
+                !self.ledger.requires_exact_counters.load(Ordering::SeqCst)
+                    || counter.unknown_outcomes == 0,
+                "{flow_id} has {} unknown increments, but resent increments must all end acknowledged",
+                counter.unknown_outcomes
             );
             let excess = u64::try_from(final_value - counter.acknowledged_values.len() as i64)
                 .expect("unique positive values cannot outnumber the final value");
@@ -957,19 +1050,20 @@ async fn run_flow_starter(
                 &flow_id,
                 TIMER_FLOW_TYPE,
                 TIMER_STEP_TYPE,
-                int_value(0),
+                int_value(TIMER_DURATION_SECONDS),
                 StepOptions::default(),
                 &ledger,
             ),
             WorkloadFlowKind::Counter => panic!("counter Flows start in setup, not in the load"),
         };
+        let first_sent_at = Instant::now();
         let Some(run_id) =
             start_until_acknowledged(&mut client, &request, &ledger, &is_stopping, call_timeout)
                 .await
         else {
             return;
         };
-        ledger.record_start(&flow_id, &run_id, kind);
+        ledger.record_start(&flow_id, &run_id, kind, first_sent_at);
         while !is_stopping.load(Ordering::SeqCst) {
             let wait = client.wait_for_flow(WaitForFlowRequest {
                 flow_id: flow_id.clone(),
@@ -990,15 +1084,14 @@ async fn run_flow_starter(
 
 /// Increments one counter sequentially.
 ///
-/// A failed call is an unknown outcome, except that UNAVAILABLE is resent with its request ID
-/// within the budget.
+/// A failed call is an unknown outcome, except when `resend_budget` resends it.
 async fn run_counter_writer(
     mut client: FlowServiceClient<Channel>,
     ledger: Arc<ClientLedger>,
     is_stopping: Arc<AtomicBool>,
     flow_id: String,
     call_timeout: Duration,
-    unavailable_retry_budget: Option<Duration>,
+    resend_budget: Option<Duration>,
 ) {
     while !is_stopping.load(Ordering::SeqCst) {
         let request = InvokeRpcRequest {
@@ -1009,45 +1102,43 @@ async fn run_counter_writer(
             request_id: ledger.new_request_id(&flow_id),
             ..InvokeRpcRequest::default()
         };
-        let retry_deadline = unavailable_retry_budget.map(|budget| Instant::now() + budget);
+        let resend_deadline = resend_budget.map(|budget| Instant::now() + budget);
         loop {
-            match tokio::time::timeout(call_timeout, client.invoke_rpc(request.clone())).await {
+            let (failure, has_timed_out, is_resendable) = match tokio::time::timeout(
+                call_timeout,
+                client.invoke_rpc(request.clone()),
+            )
+            .await
+            {
                 Ok(Ok(response)) => {
                     let value = integer_of(response.into_inner().output.as_ref());
                     ledger.record_increment(&flow_id, value);
                     break;
                 }
-                Ok(Err(status))
-                    if is_unavailable(&status)
-                        && retry_deadline.is_some_and(|deadline| Instant::now() < deadline)
-                        && !is_stopping.load(Ordering::SeqCst) =>
-                {
-                    ledger.unavailable_retries.fetch_add(1, Ordering::SeqCst);
-                    tokio::time::sleep(RETRY_PAUSE).await;
-                }
-                Ok(Err(status)) => {
-                    ledger.record_unknown_increment(
-                        &flow_id,
-                        format!("{flow_id} increment: {status}"),
-                    );
-                    tokio::time::sleep(RETRY_PAUSE).await;
-                    break;
-                }
-                Err(_) => {
-                    ledger.record_unknown_increment(
-                        &flow_id,
-                        format!("{flow_id} increment timed out"),
-                    );
-                    break;
-                }
+                Ok(Err(status)) => (
+                    format!("{flow_id} increment: {status}"),
+                    false,
+                    is_unavailable(&status),
+                ),
+                Err(_) => (format!("{flow_id} increment timed out"), true, true),
+            };
+            // A started resend ignores the stop, so its outcome becomes known.
+            if is_resendable && resend_deadline.is_some_and(|deadline| Instant::now() < deadline) {
+                ledger.resent_increments.fetch_add(1, Ordering::SeqCst);
+                ledger.record_failure(failure);
+                tokio::time::sleep(RETRY_PAUSE).await;
+                continue;
             }
+            ledger.record_unknown_increment(&flow_id, failure);
+            if !has_timed_out {
+                tokio::time::sleep(RETRY_PAUSE).await;
+            }
+            break;
         }
     }
 }
 
-/// Returns whether a gRPC SDK would report `status` as UNAVAILABLE.
-///
-/// tonic reports a broken connection as UNKNOWN or CANCELLED with a transport error source.
+/// Returns whether a gRPC SDK would report `status` as UNAVAILABLE, like tonic's broken connections.
 fn is_unavailable(status: &tonic::Status) -> bool {
     status.code() == Code::Unavailable
         || std::error::Error::source(status)
@@ -1251,7 +1342,10 @@ fn task_reply(task: PollWorkerTask, journal: &WorkerJournal) -> PollWorkerTaskRe
             poll_worker_task_frame::Output::WaitFor(InvokeWaitForMethodOutput {
                 output: Some(invoke_wait_for_method_output::Output::Result(
                     InvokeWaitForMethodResponse {
-                        waiting_condition: Some(waiting_condition(&request.step_type)),
+                        waiting_condition: Some(waiting_condition(
+                            &request.step_type,
+                            request.step_input.as_ref(),
+                        )),
                         ..InvokeWaitForMethodResponse::default()
                     },
                 )),
@@ -1282,8 +1376,8 @@ fn task_reply(task: PollWorkerTask, journal: &WorkerJournal) -> PollWorkerTaskRe
     }
 }
 
-/// TimerStep waits for one short timer; every other Step proceeds at once.
-fn waiting_condition(step_type: &str) -> WaitingCondition {
+/// TimerStep waits for one timer of its input's seconds; every other Step proceeds at once.
+fn waiting_condition(step_type: &str, step_input: Option<&Value>) -> WaitingCondition {
     if step_type != TIMER_STEP_TYPE {
         return WaitingCondition::default();
     }
@@ -1291,7 +1385,7 @@ fn waiting_condition(step_type: &str) -> WaitingCondition {
         waiting_condition_type: WaitingConditionType::AllCompleted.into(),
         timer_conditions: vec![TimerCondition {
             condition_id: TIMER_CONDITION_ID.to_owned(),
-            duration_seconds: TIMER_DURATION_SECONDS,
+            duration_seconds: integer_of(step_input),
             ..TimerCondition::default()
         }],
         ..WaitingCondition::default()
@@ -1299,8 +1393,6 @@ fn waiting_condition(step_type: &str) -> WaitingCondition {
 }
 
 /// ChainStep moves to the next index or completes with the last; CounterStartStep ends its thread.
-///
-/// TimerStep completes once its timer fired.
 fn execute(
     request: &InvokeExecuteMethodRequest,
     journal: &WorkerJournal,
@@ -1337,6 +1429,7 @@ fn execute(
                 }
             }
         }
+        // TimerStep completes once its timer fired.
         TIMER_STEP_TYPE => {
             let has_timer_fired = request.condition_results.as_ref().is_some_and(|results| {
                 results.timer_results.iter().any(|timer| {
@@ -1352,6 +1445,11 @@ fn execute(
                     flow_id: context.flow_id.clone(),
                     run_id: context.run_id.clone(),
                     has_timer_fired,
+                    timer_duration: Duration::from_secs(
+                        u64::try_from(integer_of(request.step_input.as_ref()))
+                            .expect("a timer lasts a non-negative number of seconds"),
+                    ),
+                    executed_at: Instant::now(),
                 });
             close_decision(
                 CloseDecisionType::GracefulComplete,
@@ -1467,12 +1565,12 @@ fn integer_of(value: Option<&Value>) -> i64 {
 /// A Worker that registers again through one address whenever its streams end.
 pub(crate) struct ReconnectingWorker {
     stop: CancellationToken,
-    task: JoinHandle<u64>,
+    task: JoinHandle<WorkerRegistrationReport>,
 }
 
 impl ReconnectingWorker {
-    /// Closes the current streams and returns how many times the Worker registered.
-    pub(crate) async fn stop(self) -> u64 {
+    /// Closes the current streams and returns the registration attempts.
+    pub(crate) async fn stop(self) -> WorkerRegistrationReport {
         self.stop.cancel();
         self.task
             .await
@@ -1480,29 +1578,55 @@ impl ReconnectingWorker {
     }
 }
 
-/// Registers through `address` until `stop`, again whenever a stream ends; returns the registrations.
+/// The registration attempts of a [`ReconnectingWorker`].
+#[derive(Debug, Default)]
+pub(crate) struct WorkerRegistrationReport {
+    pub(crate) registrations: u64,
+    pub(crate) failed_registrations: u64,
+    last_failure: Option<String>,
+}
+
+impl fmt::Display for WorkerRegistrationReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} Worker registrations, {} failed (last: {})",
+            self.registrations,
+            self.failed_registrations,
+            self.last_failure.as_deref().unwrap_or("none")
+        )
+    }
+}
+
+/// Registers through `address` until `stop`, again whenever a stream ends.
 async fn run_reconnecting_worker(
     address: SocketAddr,
     journal: Arc<WorkerJournal>,
     stop: CancellationToken,
-) -> u64 {
-    let mut registrations = 0;
+) -> WorkerRegistrationReport {
+    let mut report = WorkerRegistrationReport::default();
     while !stop.is_cancelled() {
-        // Registration fails while no process serves; the next attempt follows the pause.
-        if let Ok(worker) = WorkloadWorker::start(lazy_channel(address), journal.clone()).await {
-            registrations += 1;
-            tokio::select! {
-                () = worker.wait_until_a_stream_ends() => {}
-                () = stop.cancelled() => {}
+        match WorkloadWorker::start(lazy_channel(address), journal.clone()).await {
+            Ok(worker) => {
+                report.registrations += 1;
+                tokio::select! {
+                    () = worker.wait_until_a_stream_ends() => {}
+                    () = stop.cancelled() => {}
+                }
+                worker.stop().await;
             }
-            worker.stop().await;
+            // Registration fails while no process serves; the next attempt follows the pause.
+            Err(failure) => {
+                report.failed_registrations += 1;
+                report.last_failure = Some(failure);
+            }
         }
         tokio::select! {
             () = tokio::time::sleep(WORKER_RECONNECT_PAUSE) => {}
             () = stop.cancelled() => {}
         }
     }
-    registrations
+    report
 }
 
 /// Panics with the server log if `server` has exited.
@@ -1526,10 +1650,10 @@ fn summarize(ledger: &ClientLedger, journal: &WorkerJournal) -> String {
         .filter(|start| start.kind == WorkloadFlowKind::Timer)
         .count();
     let mut summary = format!(
-        "acknowledged calls: {}; acknowledged chain starts: {chain_starts}; acknowledged timer starts: {timer_starts}; failed start attempts: {}; UNAVAILABLE increment retries: {}\n",
+        "acknowledged calls: {}; acknowledged chain starts: {chain_starts}; acknowledged timer starts: {timer_starts}; failed start attempts: {}; resent increments: {}\n",
         ledger.acknowledged_count.load(Ordering::SeqCst),
         ledger.failed_start_attempts.load(Ordering::SeqCst),
-        ledger.unavailable_retries.load(Ordering::SeqCst)
+        ledger.resent_increments.load(Ordering::SeqCst)
     );
     for (flow_id, counter) in ledger.counters() {
         summary.push_str(&format!(
