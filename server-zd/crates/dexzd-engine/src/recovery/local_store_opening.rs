@@ -47,6 +47,27 @@ pub enum LocalStoreConfig {
     ExistingForTest(Arc<EngineLocalStore>),
 }
 
+impl LocalStoreConfig {
+    /// Returns whether `other` names the same store, such as the same RocksDB directory.
+    pub(crate) fn names_same_store(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::RocksDb { directory, .. },
+                Self::RocksDb {
+                    directory: other_directory,
+                    ..
+                },
+            ) => directory == other_directory,
+            (Self::InMemory, Self::InMemory) => true,
+            #[cfg(feature = "test-util")]
+            (Self::ExistingForTest(store), Self::ExistingForTest(other_store)) => {
+                Arc::ptr_eq(store, other_store)
+            }
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Debug for LocalStoreConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -104,7 +125,7 @@ pub(crate) async fn open_local_store(
             let reusable = if requirements.should_discard_existing_store {
                 None
             } else {
-                reusable_existing_store(store, requirements)?
+                reusable_open_store(store, requirements)?
             };
             match reusable {
                 Some(store) => {
@@ -130,8 +151,7 @@ pub(crate) async fn open_local_store(
 }
 
 /// Returns `store` when the retained log can update it, like a reopened RocksDB directory.
-#[cfg(feature = "test-util")]
-fn reusable_existing_store(
+pub(crate) fn reusable_open_store(
     store: &Arc<EngineLocalStore>,
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<Option<Arc<EngineLocalStore>>, EngineStartError> {

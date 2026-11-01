@@ -78,3 +78,12 @@ deduplication.
 - Each bootstrap checks that no partition of the store applied a batch past the recorded end of a closed stream. Such a store followed a batch that the log does not hold, so the standby sets it aside and restores the newest snapshot.
 - A `LogFollower` takes its write fence and applier pool from its owner. It advances every partition of the pool, so the pool must serve only the followed partitions.
 - Drop the standby or call `HotStandby::shutdown` to stop following.
+
+`EngineNode::take_over_from_hot_standby_until_cancelled` is the start of a node that has a hot standby. The two starts differ only where the local store opens:
+
+1. The standby keeps following while another process holds the lease. Cancellation before the lease returns the standby, still following.
+2. Once this process holds the lease and has reread the manifest under it, the standby stops reading, applies its queued frames, and advances its applied positions.
+3. It stops its write fence, so no standby lane writes the store again, and its tasks are joined.
+4. The start checks that the standby used the configured store, then reruns the gap check against the manifest read under the lease.
+5. When either check fails, or the standby had no store, the start closes the standby's store and opens or restores the configured store, as a start without a standby does.
+6. The rest of the start is unchanged: a new applier pool with the real hooks, log replay from the applied positions, the EpochStart, and serving.

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_clock::WallClock;
@@ -63,6 +63,8 @@ pub(super) struct StandbyDriver {
     pub(super) status: Arc<StandbyStatusCell>,
     /// Spreads restart delays of different processes apart.
     pub(super) restart_jitter_seed: u64,
+    /// Receives the open store when cancellation stops following.
+    pub(super) stopped_store: Arc<Mutex<Option<Arc<EngineLocalStore>>>>,
     pub(super) cancellation: CancellationToken,
 }
 
@@ -351,9 +353,17 @@ impl StandbyDriver {
         let followed_store = follower.stop().await;
         stop_appliers(&write_fence, &appliers).await;
         drop((appliers, followed_store));
-        if !matches!(outcome, FollowingOutcome::Cancelled) {
+        match outcome {
+            FollowingOutcome::Cancelled => {
+                *self
+                    .stopped_store
+                    .lock()
+                    .expect("stopped store lock is not poisoned") = Some(store);
+            }
             // The next bootstrap reopens the store's directory, which its last handle locks.
-            release_store(store).await;
+            FollowingOutcome::Restart { .. } | FollowingOutcome::Failed(_) => {
+                release_store(store).await;
+            }
         }
         let reached = position_of(&progress.borrow());
         FollowedPeriod {

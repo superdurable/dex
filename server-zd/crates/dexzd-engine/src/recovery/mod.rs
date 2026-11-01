@@ -27,7 +27,7 @@ pub(crate) use cluster_metadata::ClusterMetadata;
 pub(crate) use local_store_opening::{
     LocalStoreRequirements, OpenedLocalStore, delete_older_set_aside_stores,
     find_position_past_closed_end, find_unreplayable_gap, lowest_applied_position,
-    open_local_store,
+    open_local_store, reusable_open_store,
 };
 pub(crate) use log_replay::LogReplay;
 pub(crate) use node_streams::{NodeStreams, describe_lost_ownership};

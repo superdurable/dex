@@ -43,7 +43,7 @@ pub use effects::{
 #[cfg(feature = "test-util")]
 pub use engine_id_source::SeededEngineIdSourceForTest;
 pub use engine_id_source::{EngineIdSource, SystemEngineIdSource};
-pub use engine_node::{EngineNode, EngineNodeConfig, EngineNodeDependencies};
+pub use engine_node::{EngineNode, EngineNodeConfig, EngineNodeDependencies, HotStandbyTakeover};
 pub use flow_coordination::HardDeleteUploads as FlowCoordinationHardDeleteUploads;
 pub use flow_coordination::ReplayMismatch as SpeculativeOutcomeMismatch;
 pub use flow_coordination::{

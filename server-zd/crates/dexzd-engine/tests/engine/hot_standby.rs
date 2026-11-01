@@ -31,41 +31,52 @@ use tokio::time::Instant;
 
 use crate::harness::{CountingApplier, TestCluster, TestNode};
 
-const LOG_PREFIX: &str = "log/node-a/";
-const FIRST_FLOW: &str = "followed-first";
+pub(crate) const LOG_PREFIX: &str = "log/node-a/";
+pub(crate) const FIRST_FLOW: &str = "followed-first";
 /// Longest wait for a standby to reach the end of the log.
-const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
-const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
+pub(crate) const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
+pub(crate) const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
 const MANIFEST_KEY: &str = "manifest";
 
-/// The standby's view of the cluster's object storage: counts writes and manifest reads, and can
-/// fail log or manifest reads.
-struct StandbyObjectStore {
+/// One process's view of the cluster's object storage: records its writes and reads, and can
+/// fail or delay them.
+pub(crate) struct ProcessObjectStore {
     inner: Arc<InMemoryObjectStore>,
-    writes: AtomicU64,
+    written_keys: Mutex<Vec<String>>,
+    log_reads: AtomicU64,
+    lease_reads: AtomicU64,
     manifest_reads: AtomicU64,
     /// Delays the next manifest read, which then makes later manifest reads fail.
     next_manifest_read_delay: Mutex<Option<Duration>>,
     delayed_manifest_reads: AtomicU64,
     is_failing_log_reads: AtomicBool,
     is_failing_manifest_reads: AtomicBool,
+    is_failing_all_reads: AtomicBool,
 }
 
-impl StandbyObjectStore {
-    fn new(inner: Arc<InMemoryObjectStore>) -> Self {
+impl ProcessObjectStore {
+    pub(crate) fn new(inner: Arc<InMemoryObjectStore>) -> Self {
         Self {
             inner,
-            writes: AtomicU64::new(0),
+            written_keys: Mutex::new(Vec::new()),
+            log_reads: AtomicU64::new(0),
+            lease_reads: AtomicU64::new(0),
             manifest_reads: AtomicU64::new(0),
             next_manifest_read_delay: Mutex::new(None),
             delayed_manifest_reads: AtomicU64::new(0),
             is_failing_log_reads: AtomicBool::new(false),
             is_failing_manifest_reads: AtomicBool::new(false),
+            is_failing_all_reads: AtomicBool::new(false),
         }
     }
 
-    fn fail_log_reads(&self, is_failing: bool) {
+    pub(crate) fn fail_log_reads(&self, is_failing: bool) {
         self.is_failing_log_reads
+            .store(is_failing, Ordering::SeqCst);
+    }
+
+    pub(crate) fn fail_all_reads(&self, is_failing: bool) {
+        self.is_failing_all_reads
             .store(is_failing, Ordering::SeqCst);
     }
 
@@ -86,16 +97,40 @@ impl StandbyObjectStore {
         self.delayed_manifest_reads.load(Ordering::SeqCst)
     }
 
-    fn writes(&self) -> u64 {
-        self.writes.load(Ordering::SeqCst)
+    /// Returns how many writes and deletes this process sent.
+    pub(crate) fn writes(&self) -> u64 {
+        self.written_keys
+            .lock()
+            .expect("written key lock is not poisoned")
+            .len() as u64
+    }
+
+    /// Returns the keys this process wrote or deleted, in call order.
+    pub(crate) fn written_keys(&self) -> Vec<String> {
+        self.written_keys
+            .lock()
+            .expect("written key lock is not poisoned")
+            .clone()
+    }
+
+    /// Returns how many GETs and listings of log batches this process sent.
+    pub(crate) fn log_reads(&self) -> u64 {
+        self.log_reads.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn lease_reads(&self) -> u64 {
+        self.lease_reads.load(Ordering::SeqCst)
     }
 
     fn manifest_reads(&self) -> u64 {
         self.manifest_reads.load(Ordering::SeqCst)
     }
 
-    fn count_write(&self) {
-        self.writes.fetch_add(1, Ordering::SeqCst);
+    fn count_write(&self, key: &str) {
+        self.written_keys
+            .lock()
+            .expect("written key lock is not poisoned")
+            .push(key.to_owned());
     }
 
     fn check_read(&self, operation: ObjectStoreOperation, key: &str) -> ObjectStoreResult<()> {
@@ -103,14 +138,21 @@ impl StandbyObjectStore {
         if is_manifest {
             self.manifest_reads.fetch_add(1, Ordering::SeqCst);
         }
-        let is_failing = (is_manifest && self.is_failing_manifest_reads.load(Ordering::SeqCst))
+        if key.starts_with("log/") && operation != ObjectStoreOperation::Head {
+            self.log_reads.fetch_add(1, Ordering::SeqCst);
+        }
+        if key.starts_with("lease/") {
+            self.lease_reads.fetch_add(1, Ordering::SeqCst);
+        }
+        let is_failing = self.is_failing_all_reads.load(Ordering::SeqCst)
+            || (is_manifest && self.is_failing_manifest_reads.load(Ordering::SeqCst))
             || (key.starts_with("log/") && self.is_failing_log_reads.load(Ordering::SeqCst));
         if is_failing {
             return Err(ObjectStoreError::new(
                 operation,
                 key,
                 ObjectStoreErrorKind::Transient,
-                "the test fails the standby's reads",
+                "the test fails this process's reads",
             ));
         }
         Ok(())
@@ -118,14 +160,14 @@ impl StandbyObjectStore {
 }
 
 #[async_trait]
-impl ObjectStore for StandbyObjectStore {
+impl ObjectStore for ProcessObjectStore {
     async fn put(
         &self,
         key: &str,
         body: Bytes,
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
-        self.count_write();
+        self.count_write(key);
         self.inner.put(key, body, condition).await
     }
 
@@ -135,7 +177,7 @@ impl ObjectStore for StandbyObjectStore {
         path: &Path,
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
-        self.count_write();
+        self.count_write(key);
         self.inner.put_file(key, path, condition).await
     }
 
@@ -177,12 +219,14 @@ impl ObjectStore for StandbyObjectStore {
     }
 
     async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
-        self.count_write();
+        self.count_write(key);
         self.inner.delete(key).await
     }
 
     async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
-        self.count_write();
+        for key in keys {
+            self.count_write(key);
+        }
         self.inner.delete_many(keys).await
     }
 
@@ -198,18 +242,18 @@ impl ObjectStore for StandbyObjectStore {
 }
 
 /// A hot standby with its own object storage view and applier.
-struct TestStandby {
-    standby: HotStandby,
-    object_store: Arc<StandbyObjectStore>,
-    applier: Arc<CountingApplier>,
+pub(crate) struct TestStandby {
+    pub(crate) standby: HotStandby,
+    pub(crate) object_store: Arc<ProcessObjectStore>,
+    pub(crate) applier: Arc<CountingApplier>,
 }
 
-fn start_standby(
+pub(crate) fn start_standby(
     cluster: &TestCluster,
     config: EngineNodeConfig,
     standby_config: HotStandbyConfig,
 ) -> TestStandby {
-    let object_store = Arc::new(StandbyObjectStore::new(cluster.object_store.clone()));
+    let object_store = Arc::new(ProcessObjectStore::new(cluster.object_store.clone()));
     let applier = Arc::new(CountingApplier::default());
     let standby = HotStandby::start(
         config,
@@ -234,7 +278,7 @@ fn start_standby(
 /// Returns the Flow IDs of the commands the standby applied, once each, in apply order.
 ///
 /// Replay checks in debug builds apply every command twice.
-fn applied_flows(applier: &CountingApplier) -> Vec<String> {
+pub(crate) fn applied_flows(applier: &CountingApplier) -> Vec<String> {
     let mut seen = std::collections::BTreeSet::new();
     applier
         .applied_commands()
@@ -244,7 +288,7 @@ fn applied_flows(applier: &CountingApplier) -> Vec<String> {
         .collect()
 }
 
-fn fast_standby_config() -> HotStandbyConfig {
+pub(crate) fn fast_standby_config() -> HotStandbyConfig {
     HotStandbyConfig {
         initial_poll_backoff: Duration::from_millis(10),
         max_poll_backoff: Duration::from_millis(100),
@@ -254,7 +298,7 @@ fn fast_standby_config() -> HotStandbyConfig {
     }
 }
 
-fn rocksdb_store(directory: &Path) -> LocalStoreConfig {
+pub(crate) fn rocksdb_store(directory: &Path) -> LocalStoreConfig {
     LocalStoreConfig::RocksDb {
         directory: directory.to_owned(),
         options: RocksDbStoreOptions::default(),
@@ -262,7 +306,7 @@ fn rocksdb_store(directory: &Path) -> LocalStoreConfig {
 }
 
 /// Returns the incarnation and seq of the newest log batch.
-async fn last_log_position(cluster: &TestCluster) -> (u32, u64) {
+pub(crate) async fn last_log_position(cluster: &TestCluster) -> (u32, u64) {
     let listing = cluster
         .object_store
         .list(LOG_PREFIX, None, 1000)
@@ -282,7 +326,7 @@ async fn last_log_position(cluster: &TestCluster) -> (u32, u64) {
     (incarnation, seq)
 }
 
-async fn first_log_seq(cluster: &TestCluster) -> u64 {
+pub(crate) async fn first_log_seq(cluster: &TestCluster) -> u64 {
     let listing = cluster
         .object_store
         .list(LOG_PREFIX, None, 1)
@@ -298,7 +342,7 @@ async fn first_log_seq(cluster: &TestCluster) -> u64 {
 }
 
 /// Waits until the standby has read every batch of the log and found no next one.
-async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotStandby) {
+pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotStandby) {
     let deadline = Instant::now() + CATCH_UP_DEADLINE;
     loop {
         let (incarnation, last_seq) = last_log_position(cluster).await;
@@ -326,7 +370,7 @@ fn assert_wrote_nothing(standby: &TestStandby) {
     assert_eq!(standby.standby.rejected_writes_for_test(), 0);
 }
 
-fn assert_not_failed(status: &HotStandbyStatus) {
+pub(crate) fn assert_not_failed(status: &HotStandbyStatus) {
     assert_ne!(
         status.state,
         HotStandbyState::Failed,
@@ -336,7 +380,7 @@ fn assert_not_failed(status: &HotStandbyStatus) {
 }
 
 /// Requires the closed stores to hold the same state apart from fields each process writes itself.
-fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
+pub(crate) fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
     let serving = RocksDbLocalStore::open(serving_directory, RocksDbStoreOptions::default())
         .expect("the serving store opens");
     let standby = RocksDbLocalStore::open(standby_directory, RocksDbStoreOptions::default())
@@ -354,13 +398,13 @@ fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
     .expect("the standby store matches the serving store");
 }
 
-async fn commit_to_both_flows(serving: &TestNode, second_flow: &str, count: usize) {
+pub(crate) async fn commit_to_both_flows(serving: &TestNode, second_flow: &str, count: usize) {
     serving.commit_prompt(FIRST_FLOW, count).await;
     serving.commit_prompt(second_flow, count).await;
 }
 
 /// Returns the set-aside copies of `directory`, which a restore from a snapshot leaves.
-fn set_aside_copies(directory: &Path) -> Vec<PathBuf> {
+pub(crate) fn set_aside_copies(directory: &Path) -> Vec<PathBuf> {
     let name = directory
         .file_name()
         .and_then(|name| name.to_str())

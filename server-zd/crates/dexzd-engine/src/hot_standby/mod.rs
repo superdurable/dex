@@ -25,12 +25,13 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::command_applier::CommandApplier;
+use crate::commit::EngineLocalStore;
 use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::{EngineNodeConfig, validate_config};
 use crate::hot_standby::log_follower::FollowProgress;
 use crate::hot_standby::read_only_object_store::ReadOnlyObjectStore;
 use crate::hot_standby::standby_driver::StandbyDriver;
-use crate::recovery::EngineStartError;
+use crate::recovery::{EngineStartError, LocalStoreConfig};
 
 /// Longest wait in [`HotStandby::shutdown`] for following to stop.
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(10);
@@ -143,6 +144,10 @@ pub struct HotStandby {
     /// Writes the read-only object store rejected; always zero unless the standby has a bug.
     #[cfg(feature = "test-util")]
     rejected_writes: Arc<AtomicU64>,
+    /// The store the standby follows into, checked against the node's at takeover.
+    local_store: LocalStoreConfig,
+    /// Receives the open store when following stops by cancellation.
+    stopped_store: Arc<Mutex<Option<Arc<EngineLocalStore>>>>,
     clock: Arc<dyn WallClock>,
     behind_lag_threshold: Duration,
     cancellation: CancellationToken,
@@ -173,6 +178,8 @@ impl HotStandby {
         let rejected_writes = Arc::new(AtomicU64::new(0));
         #[cfg(feature = "test-util")]
         let observed_rejected_writes = Arc::clone(&rejected_writes);
+        let local_store = config.local_store.clone();
+        let stopped_store = Arc::new(Mutex::new(None));
         let cancellation = CancellationToken::new();
         let driver = tokio::spawn(
             StandbyDriver {
@@ -185,6 +192,7 @@ impl HotStandby {
                 id_source,
                 status: status.clone(),
                 restart_jitter_seed,
+                stopped_store: stopped_store.clone(),
                 cancellation: cancellation.clone(),
             }
             .run(),
@@ -193,6 +201,8 @@ impl HotStandby {
             status,
             #[cfg(feature = "test-util")]
             rejected_writes: observed_rejected_writes,
+            local_store,
+            stopped_store,
             clock,
             behind_lag_threshold: standby_config.behind_lag_threshold,
             cancellation,
@@ -214,6 +224,29 @@ impl HotStandby {
 
     /// Stops following and waits up to 10 seconds for the local store to close.
     pub async fn shutdown(mut self) {
+        self.stop_following().await;
+    }
+
+    /// Returns whether the standby follows into the store that `config` names.
+    pub(crate) fn uses_local_store(&self, config: &LocalStoreConfig) -> bool {
+        self.local_store.names_same_store(config)
+    }
+
+    /// Stops reading, applies the queued frames, advances applied positions, fences the
+    /// standby's store writes, and joins its tasks.
+    ///
+    /// Returns the open store, or `None` when the standby had none, such as while it bootstrapped
+    /// or after it failed.
+    pub(crate) async fn hand_over_store(mut self) -> Option<Arc<EngineLocalStore>> {
+        self.stop_following().await;
+        self.stopped_store
+            .lock()
+            .expect("stopped store lock is not poisoned")
+            .take()
+    }
+
+    /// Cancels the driver and waits up to 10 seconds for it, then aborts it.
+    async fn stop_following(&mut self) {
         self.cancellation.cancel();
         let Some(driver) = self.driver.take() else {
             return;
