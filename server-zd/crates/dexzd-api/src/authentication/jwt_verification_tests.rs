@@ -29,6 +29,7 @@ fn verifier(source: Arc<ScriptedKeySetSource>, clock: Arc<ManualWallClock>) -> J
         JwtAuthenticatorConfig {
             issuer: TEST_ISSUER.to_owned(),
             audiences: vec!["another-audience".to_owned(), TEST_AUDIENCE.to_owned()],
+            admin_audiences: Vec::new(),
             jwks_url: None,
             allow_insecure_jwks_url: false,
             ca_file: None,

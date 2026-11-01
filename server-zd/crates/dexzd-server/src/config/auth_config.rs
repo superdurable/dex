@@ -28,16 +28,6 @@ pub struct AuthConfig {
     /// Defaults to empty, which disables public API authentication; otherwise the authenticators
     /// are tried in order. Immutable after startup.
     pub authenticators: Vec<AuthenticatorConfig>,
-    /// Defaults to empty, which denies every admin RPC, such as AdminService StepDownActiveNode,
-    /// whenever `authenticators` is not empty. Otherwise an admin RPC needs a JWT that a configured
-    /// `jwt` authenticator accepts in every other respect and whose `aud` names one of these
-    /// audiences, for example `dex-operators`. Static tokens never authorize admin RPCs. A valid public
-    /// API credential without an admin audience ends with PERMISSION_DENIED. Without authenticators,
-    /// admin RPCs need no credential, like every other call, and this list must stay empty. A non-empty
-    /// list needs a `jwt` authenticator. Entries must not be empty and must not appear in any `jwt`
-    /// authenticator's `audiences`, so public API credentials never authorize administration.
-    /// Immutable after startup.
-    pub admin_audiences: Vec<String>,
 }
 
 /// Selects the credential format of one authenticator.
@@ -72,6 +62,23 @@ pub struct AuthenticatorConfig {
     /// Immutable after startup.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audiences: Vec<String>,
+    /// Defaults to empty, which means tokens of this issuer never authorize admin RPCs, such as
+    /// AdminService StepDownActiveNode. Otherwise a token of this issuer authorizes admin RPCs when
+    /// it passes every other check and its `aud` names one of these audiences, for example
+    /// `dex-operators`. A valid public API credential without an admin audience ends with
+    /// PERMISSION_DENIED, and static tokens never authorize admin RPCs. Valid only for jwt. Entries
+    /// must not be empty and must not appear in `audiences`, so a public API credential never
+    /// authorizes administration. Never set it for an issuer that lets callers choose `aud`, such as
+    /// Kubernetes projected service account tokens or a CI OIDC provider shared with other projects:
+    /// anyone who can obtain such a token could administer the server. Without authenticators,
+    /// admin RPCs need no credential. server-zd only; the Go Server has no such key. Immutable after
+    /// startup.
+    #[serde(
+        default,
+        rename = "adminAudiences",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub admin_audiences: Vec<String>,
     /// Defaults to empty, which discovers the key set through the issuer's OpenID configuration.
     /// HTTPS is required except on loopback unless `allowInsecureJWKSURL` is set. Keys refresh at
     /// most once a minute, and every request waits for a due refresh; a token naming an unknown
@@ -122,38 +129,6 @@ impl AuthConfig {
                     message: format!("[{index}]: {message}"),
                 })?;
         }
-        self.validate_admin_audiences()
-            .map_err(|message| ConfigError::Invalid {
-                field: "auth.adminAudiences",
-                message,
-            })
-    }
-
-    fn validate_admin_audiences(&self) -> Result<(), String> {
-        if self.admin_audiences.is_empty() {
-            return Ok(());
-        }
-        let jwt_authenticators: Vec<_> = self
-            .authenticators
-            .iter()
-            .filter(|authenticator| authenticator.kind == AuthenticatorKind::Jwt)
-            .collect();
-        if jwt_authenticators.is_empty() {
-            return Err("requires a jwt authenticator".to_owned());
-        }
-        for (index, audience) in self.admin_audiences.iter().enumerate() {
-            if audience.is_empty() {
-                return Err(format!("[{index}]: must not be empty"));
-            }
-            if jwt_authenticators
-                .iter()
-                .any(|authenticator| authenticator.audiences.contains(audience))
-            {
-                return Err(format!(
-                    "[{index}]: {audience:?} is also a public API audience of a jwt authenticator"
-                ));
-            }
-        }
         Ok(())
     }
 
@@ -189,14 +164,33 @@ impl AuthenticatorConfig {
                 if !issuers.insert(&self.issuer) {
                     return Err("issuer is configured twice".to_owned());
                 }
+                self.validate_admin_audiences()?;
             }
             AuthenticatorKind::StaticTokens => {
                 if self.allow_insecure_jwks_url {
                     return Err("allowInsecureJWKSURL applies only to jwt".to_owned());
                 }
+                if !self.admin_audiences.is_empty() {
+                    return Err("adminAudiences applies only to jwt".to_owned());
+                }
                 if is_empty_path(&self.file) {
                     return Err("file is required".to_owned());
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Keeps admin audiences apart from public ones, so a public API credential never administers.
+    fn validate_admin_audiences(&self) -> Result<(), String> {
+        for (index, audience) in self.admin_audiences.iter().enumerate() {
+            if audience.is_empty() {
+                return Err(format!("adminAudiences[{index}]: must not be empty"));
+            }
+            if self.audiences.contains(audience) {
+                return Err(format!(
+                    "adminAudiences[{index}]: {audience:?} is also in audiences"
+                ));
             }
         }
         Ok(())
@@ -207,6 +201,7 @@ impl AuthenticatorConfig {
             AuthenticatorKind::Jwt => CredentialAuthenticatorConfig::Jwt(JwtAuthenticatorConfig {
                 issuer: self.issuer.clone(),
                 audiences: self.audiences.clone(),
+                admin_audiences: self.admin_audiences.clone(),
                 jwks_url: Some(self.jwks_url.clone()).filter(|jwks_url| !jwks_url.is_empty()),
                 allow_insecure_jwks_url: self.allow_insecure_jwks_url,
                 ca_file: Some(self.ca_file.clone()).filter(|ca_file| !is_empty_path(ca_file)),
@@ -266,6 +261,7 @@ auth:
                 CredentialAuthenticatorConfig::Jwt(JwtAuthenticatorConfig {
                     issuer: "https://issuer.example.com".to_owned(),
                     audiences: vec!["dex".to_owned()],
+                    admin_audiences: Vec::new(),
                     jwks_url: Some("https://issuer.example.com/.well-known/jwks.json".to_owned()),
                     allow_insecure_jwks_url: false,
                     ca_file: None,
@@ -321,6 +317,7 @@ auth:
                 CredentialAuthenticatorConfig::Jwt(JwtAuthenticatorConfig {
                     issuer: "https://issuer.example.com".to_owned(),
                     audiences: vec!["dex".to_owned()],
+                    admin_audiences: Vec::new(),
                     jwks_url: Some("https://issuer.example.com/.well-known/jwks.json".to_owned()),
                     allow_insecure_jwks_url: false,
                     ca_file: Some(PathBuf::from("/etc/ca.pem")),
@@ -423,64 +420,80 @@ auth:
         }
     }
 
-    fn admin_audiences_message(yaml: &str) -> String {
-        match auth_section(yaml).validate() {
-            Err(ConfigError::Invalid { field, message }) => {
-                assert_eq!(field, "auth.adminAudiences");
-                message
-            }
-            other => panic!("{yaml} must fail validation, got {other:?}"),
-        }
-    }
-
     #[test]
-    fn admin_audiences_default_to_empty_and_accept_dedicated_jwt_audiences() {
-        assert!(auth_section("auth: {}\n").admin_audiences.is_empty());
+    fn admin_audiences_belong_to_each_jwt_authenticator() {
+        let auth = auth_section(
+            r#"
+auth:
+  authenticators:
+    - kind: jwt
+      issuer: https://operators.example.com
+      audiences: ["dex"]
+      adminAudiences: ["dex-operators", "dex-break-glass"]
+    - kind: jwt
+      issuer: https://workloads.example.com
+      audiences: ["dex"]
+    - kind: staticTokens
+      file: /etc/dex-server-zd/tokens.yaml
+"#,
+        );
+        auth.validate()
+            .expect("dedicated admin audiences on one issuer are valid");
+        let admin_audiences: Vec<Vec<String>> = auth
+            .credential_authenticators()
+            .into_iter()
+            .filter_map(|authenticator| match authenticator {
+                CredentialAuthenticatorConfig::Jwt(jwt) => Some(jwt.admin_audiences),
+                CredentialAuthenticatorConfig::StaticTokens { .. } => None,
+            })
+            .collect();
+        assert_eq!(
+            admin_audiences,
+            vec![
+                vec!["dex-operators".to_owned(), "dex-break-glass".to_owned()],
+                Vec::new(),
+            ]
+        );
         assert!(
-            auth_section(OPERATOR_AUTH_SECTION)
+            auth_section(OPERATOR_AUTH_SECTION).authenticators[0]
                 .admin_audiences
                 .is_empty()
         );
-        let auth = auth_section(&format!(
-            "{OPERATOR_AUTH_SECTION}  adminAudiences: [dex-operators, dex-break-glass]\n"
-        ));
-        auth.validate()
-            .expect("dedicated admin audiences with a jwt authenticator are valid");
-        assert_eq!(
-            auth.admin_audiences,
-            vec!["dex-operators".to_owned(), "dex-break-glass".to_owned()]
-        );
     }
 
     #[test]
-    fn admin_audiences_need_a_jwt_authenticator_and_dedicated_values() {
-        let jwt = "{kind: jwt, issuer: \"https://issuer.example.com\", audiences: [dex]}";
+    fn invalid_admin_audiences_name_their_authenticator_and_rule() {
         let cases = [
             (
-                "auth:\n  adminAudiences: [dex-operators]\n".to_owned(),
-                "requires a jwt authenticator",
-            ),
-            (
-                format!(
-                    "{}  adminAudiences: [dex-operators]\n",
-                    single_authenticator("{kind: staticTokens, file: /tokens.yaml}")
+                single_authenticator(
+                    "{kind: jwt, issuer: \"https://issuer.example.com\", audiences: [dex], adminAudiences: [dex-operators, \"\"]}",
                 ),
-                "requires a jwt authenticator",
+                "[0]: adminAudiences[1]: must not be empty",
             ),
             (
-                format!(
-                    "{}  adminAudiences: [dex-operators, \"\"]\n",
-                    single_authenticator(jwt)
+                single_authenticator(
+                    "{kind: jwt, issuer: \"https://issuer.example.com\", audiences: [dex], adminAudiences: [dex]}",
                 ),
-                "[1]: must not be empty",
+                "[0]: adminAudiences[0]: \"dex\" is also in audiences",
             ),
             (
-                format!("{}  adminAudiences: [dex]\n", single_authenticator(jwt)),
-                "[0]: \"dex\" is also a public API audience of a jwt authenticator",
+                single_authenticator(
+                    "{kind: staticTokens, file: /tokens.yaml, adminAudiences: [dex-operators]}",
+                ),
+                "[0]: adminAudiences applies only to jwt",
             ),
         ];
         for (yaml, expected) in cases {
-            assert_eq!(admin_audiences_message(&yaml), expected, "{yaml}");
+            assert_eq!(validation_message(&yaml), expected, "{yaml}");
         }
+    }
+
+    #[test]
+    fn the_section_level_admin_audiences_key_is_rejected() {
+        let yaml = format!("{OPERATOR_AUTH_SECTION}  adminAudiences: [dex-operators]\n");
+        assert!(
+            matches!(Config::parse_yaml(&yaml), Err(ConfigError::Yaml { .. })),
+            "{yaml}"
+        );
     }
 }

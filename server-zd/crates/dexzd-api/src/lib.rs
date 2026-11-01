@@ -21,8 +21,9 @@ mod health_status;
 mod stream_operations;
 
 pub use admin_service::{
-    ActiveNodeStepDown, ActiveNodeStepDownError, ActiveNodeStepDownOutcome, ActiveNodeTakeover,
-    DexAdminService,
+    ActiveNodeAdministration, ActiveNodeDescription, ActiveNodeDescriptionError,
+    ActiveNodeStepDownError, ActiveNodeStepDownOutcome, DexAdminService, LeaseHolderAfterStepDown,
+    NodeLeaseHolder,
 };
 pub use attribute_indexes::{AttributeIndexRegistryRefresh, AttributeIndexes};
 pub use authentication::{

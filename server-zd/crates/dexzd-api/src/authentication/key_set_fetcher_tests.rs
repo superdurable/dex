@@ -70,11 +70,11 @@ struct TestKeyServer {
 
 /// Collects formatted log lines in memory.
 #[derive(Clone, Default)]
-struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
+pub(super) struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
 
 impl CapturedLogs {
     /// Captures every test's logs; a thread-scoped subscriber misses callsites first hit elsewhere.
-    fn installed_globally() -> Self {
+    pub(super) fn installed_globally() -> Self {
         static GLOBAL_LOGS: OnceLock<CapturedLogs> = OnceLock::new();
         GLOBAL_LOGS
             .get_or_init(|| {
@@ -92,7 +92,7 @@ impl CapturedLogs {
             .clone()
     }
 
-    fn contents(&self) -> String {
+    pub(super) fn contents(&self) -> String {
         String::from_utf8_lossy(&self.0.lock().expect("the captured log lock")).into_owned()
     }
 }
@@ -221,6 +221,7 @@ fn jwt_config(issuer: &str, jwks_url: Option<String>) -> CredentialAuthenticator
     CredentialAuthenticatorConfig::Jwt(JwtAuthenticatorConfig {
         issuer: issuer.to_owned(),
         audiences: vec![TEST_AUDIENCE.to_owned()],
+        admin_audiences: Vec::new(),
         jwks_url,
         allow_insecure_jwks_url: false,
         ca_file: None,
@@ -359,6 +360,7 @@ fn jwt_with(change: impl FnOnce(&mut JwtAuthenticatorConfig)) -> CredentialAuthe
     let mut config = JwtAuthenticatorConfig {
         issuer: "https://issuer.example.com".to_owned(),
         audiences: vec![TEST_AUDIENCE.to_owned()],
+        admin_audiences: Vec::new(),
         jwks_url: None,
         allow_insecure_jwks_url: false,
         ca_file: None,
@@ -483,6 +485,7 @@ async fn fetch_errors_and_their_logs_redact_url_credentials() {
         let config = JwtAuthenticatorConfig {
             issuer: issuer.clone(),
             audiences: vec![TEST_AUDIENCE.to_owned()],
+            admin_audiences: Vec::new(),
             jwks_url,
             allow_insecure_jwks_url: false,
             ca_file: None,

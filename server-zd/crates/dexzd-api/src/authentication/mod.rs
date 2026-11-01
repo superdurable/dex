@@ -8,6 +8,7 @@
 
 //! Public API authentication with JWTs and static bearer tokens, compatible with the Go Server.
 
+mod admin_authorization;
 mod authenticated_service;
 mod json_web_key_set;
 mod json_web_token;
@@ -30,6 +31,7 @@ mod static_token_reload_tests;
 #[cfg(test)]
 mod token_signing_tests;
 
+pub(crate) use admin_authorization::AdminCallerLogFields;
 pub use authenticated_service::AuthenticatedService;
 pub use key_set_fetcher::{EndpointUrlError, check_endpoint_url};
 
@@ -66,6 +68,10 @@ pub struct JwtAuthenticatorConfig {
     /// Accepted `aud` values; a token must name at least one.
     /// No default; the caller supplies accepted audiences.
     pub audiences: Vec<String>,
+    /// `aud` values that make a token of this issuer an AdminService credential.
+    /// No default; empty means this issuer never authorizes AdminService calls. Empty entries are
+    /// ignored. Never give admin audiences to an issuer that lets callers choose `aud`.
+    pub admin_audiences: Vec<String>,
     /// Key set URL; `None` reads `jwks_uri` from the issuer's OpenID configuration.
     /// No default; the caller supplies a URL or `None` for discovery.
     pub jwks_url: Option<String>,
@@ -123,6 +129,20 @@ pub(crate) enum CredentialRejection {
     NotRecognized,
     #[error("JWT rejected: {0}")]
     Jwt(JwtRejection),
+}
+
+/// Who presented an accepted credential, for audit logs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CredentialIdentity {
+    /// A static token, which names nobody.
+    StaticToken,
+    /// A verified JWT.
+    Jwt {
+        /// Verified `iss` claim.
+        issuer: String,
+        /// `sub` claim when it is a string.
+        subject: Option<String>,
+    },
 }
 
 enum CredentialAuthenticator {
@@ -184,33 +204,37 @@ impl PublicApiAuthenticator {
         Ok(Self { authenticators })
     }
 
-    /// Returns an authenticator of the same JWT issuers and key caches that accepts only `audiences`.
+    /// Returns an authenticator of the JWT issuers that configure admin audiences, accepting only those.
     ///
-    /// Static tokens are dropped, so they never authorize admin RPCs. Empty `audiences` reject every JWT.
-    pub(crate) fn for_admin_audiences(&self, audiences: &[String]) -> Self {
+    /// It shares their key set caches. Static tokens and issuers without admin audiences are dropped,
+    /// so they never authorize admin RPCs.
+    pub(crate) fn admin_authenticator(&self) -> Self {
         Self {
             authenticators: self
                 .authenticators
                 .iter()
                 .filter_map(|authenticator| match authenticator {
-                    CredentialAuthenticator::Jwt(verifier) => Some(CredentialAuthenticator::Jwt(
-                        verifier.for_audiences(audiences),
-                    )),
+                    CredentialAuthenticator::Jwt(verifier) => verifier
+                        .for_admin_audiences()
+                        .map(CredentialAuthenticator::Jwt),
                     CredentialAuthenticator::StaticTokens(_) => None,
                 })
                 .collect(),
         }
     }
 
-    /// Accepts `credential` when an authenticator recognizes it.
-    pub(crate) async fn authenticate(&self, credential: &str) -> Result<(), CredentialRejection> {
+    /// Accepts `credential` when an authenticator recognizes it, and returns who presented it.
+    pub(crate) async fn authenticate(
+        &self,
+        credential: &str,
+    ) -> Result<CredentialIdentity, CredentialRejection> {
         let credential_hash = sha256(credential);
         let token = UnverifiedJsonWebToken::parse(credential);
         for authenticator in &self.authenticators {
             match authenticator {
                 CredentialAuthenticator::StaticTokens(file) => {
                     if file.content().contains(&credential_hash) {
-                        return Ok(());
+                        return Ok(CredentialIdentity::StaticToken);
                     }
                 }
                 CredentialAuthenticator::Jwt(verifier) => {
@@ -220,10 +244,14 @@ impl PublicApiAuthenticator {
                     if token.issuer() != Some(verifier.issuer()) {
                         continue;
                     }
-                    return verifier
+                    verifier
                         .verify(token)
                         .await
-                        .map_err(CredentialRejection::Jwt);
+                        .map_err(CredentialRejection::Jwt)?;
+                    return Ok(CredentialIdentity::Jwt {
+                        issuer: verifier.issuer().to_owned(),
+                        subject: token.subject().map(str::to_owned),
+                    });
                 }
             }
         }
