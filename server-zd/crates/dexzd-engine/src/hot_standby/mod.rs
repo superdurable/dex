@@ -311,7 +311,7 @@ impl HotStandby {
     /// Returns a waiter of the standby's local store, which stays valid after a takeover or a
     /// shutdown; see [`LocalStoreCloseWaiter`].
     pub fn local_store_close_waiter(&self) -> LocalStoreCloseWaiter {
-        LocalStoreCloseWaiter::new(Arc::clone(&self.following.store))
+        LocalStoreCloseWaiter::new(Arc::clone(&self.following.store), &self.local_store)
     }
 
     /// Returns a handle that observes and fails the standby, which works after a takeover owns

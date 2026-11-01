@@ -338,7 +338,8 @@ where
         .await?;
         // Its following stopped; only the lease release path still needs an unfinished one.
         parts.standby = None;
-        let local_store_close_waiter = LocalStoreCloseWaiter::for_store(&store);
+        let local_store_close_waiter =
+            LocalStoreCloseWaiter::for_store(&store, &config.local_store);
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {
             tracing::info!(

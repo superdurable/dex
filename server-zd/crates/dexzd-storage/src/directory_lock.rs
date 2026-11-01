@@ -73,6 +73,14 @@ pub fn probe_directory_lock(directory: &Path) -> StorageResult<DirectoryLockHold
     Ok(holder)
 }
 
+/// Returns whether a store this process opened in `directory` is still open, or is closing.
+///
+/// A store leaves this set only after its database closed and released the directory's lock.
+pub fn is_directory_open_in_this_process(directory: &Path) -> bool {
+    std::path::absolute(directory)
+        .is_ok_and(|directory| lock_open_directories().contains_key(&directory))
+}
+
 /// Registers a store this process opens in `directory` until the returned value drops.
 ///
 /// Returns an I/O error when the directory has no absolute form.

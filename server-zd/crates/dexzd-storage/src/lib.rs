@@ -15,7 +15,9 @@ mod rocksdb_store;
 mod snapshot;
 mod state_comparison;
 
-pub use directory_lock::{DirectoryLockHolder, probe_directory_lock};
+pub use directory_lock::{
+    DirectoryLockHolder, is_directory_open_in_this_process, probe_directory_lock,
+};
 pub use local_store::{
     LocalReadView, LocalStore, ScanDirection, StorageError, StorageResult, WriteBatch,
     WriteOperation,
