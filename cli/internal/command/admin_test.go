@@ -33,6 +33,7 @@ type stepDownTestService struct {
 	failure  error
 
 	mu             sync.Mutex
+	callCount      int
 	authorizations []string
 }
 
@@ -42,12 +43,19 @@ func (s *stepDownTestService) StepDownActiveNode(
 ) (*dexpb.StepDownActiveNodeResponse, error) {
 	requestMetadata, _ := metadata.FromIncomingContext(ctx)
 	s.mu.Lock()
+	s.callCount++
 	s.authorizations = append(s.authorizations, requestMetadata.Get("authorization")...)
 	s.mu.Unlock()
 	if s.failure != nil {
 		return nil, s.failure
 	}
 	return s.response, nil
+}
+
+func (s *stepDownTestService) recordedCallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.callCount
 }
 
 func (s *stepDownTestService) recordedAuthorizations() []string {
@@ -125,6 +133,7 @@ func TestAdminStepDownPrintsTheObservedTakeoverAndSendsTheCredential(t *testing.
 		"observedTakeover": {"nodeEpoch": 8, "holderProcessId": "standby-process"},
 		"leaseReacquisitionHoldOff": "5.5s"
 	}`, output)
+	require.Equal(t, 1, service.recordedCallCount())
 	require.Equal(t, []string{"Bearer admin-jwt"}, service.recordedAuthorizations())
 }
 
@@ -145,6 +154,7 @@ func TestAdminStepDownWithoutTakeoverOmitsTheTakeover(t *testing.T) {
 		"isTakeoverObserved": false,
 		"leaseReacquisitionHoldOff": "5s"
 	}`, output)
+	require.Equal(t, 1, service.recordedCallCount())
 	require.Empty(t, service.recordedAuthorizations())
 }
 
@@ -157,7 +167,11 @@ func TestAdminStepDownRequiresConfirmationBeforeCalling(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 2, ExitCode(err))
 	require.Equal(t, "confirmation_required", writtenError(t, err)["kind"])
-	require.Empty(t, service.recordedAuthorizations())
+	require.Zero(t, service.recordedCallCount())
+
+	_, err = executeAdminCommand("admin", "step-down", "--yes", "--server", address)
+	require.NoError(t, err)
+	require.Equal(t, 1, service.recordedCallCount())
 }
 
 func TestAdminStepDownReportsRefusalsAsOperationErrors(t *testing.T) {

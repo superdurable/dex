@@ -323,6 +323,10 @@ Kubernetes 随后按退避策略重启容器。
 
 ## 让 active 进程让位 {#step-down}
 
+server-zd 目前还不提供 **AdminService**，所以 **dexcli admin step-down** 现在会以
+**UNIMPLEMENTED** 失败。本节其余内容描述的是这个 command 在提供 **AdminService** 的
+server 上的行为。
+
 **dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
 服务，并短暂等待在途的提交完成，然后释放 lease。同一个 node ID 的另一个进程随即可以
 拿到 lease，和优雅关闭之后一样。这个 command 需要 [admin 凭证](#admin-credentials)
@@ -341,8 +345,8 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 - **leaseReacquisitionHoldOff** 是让位的进程再次竞争 lease 之前等待的时间。
 
 每次调用都会让调用到达时的 active 进程让位。重试失败的调用之前，先确认哪个进程是
-active，因为重试可能让刚接管的进程再次让位。不是 active 的进程返回
-**FAILED_PRECONDITION**。没有 **AdminService** 的 server 返回 **UNIMPLEMENTED**。
+active，因为重试可能让刚接管的进程再次让位。没有 **AdminService** 的 server 返回
+**UNIMPLEMENTED**。
 
 ## 对象存储
 
@@ -852,6 +856,9 @@ auth:
 非空的 **auth.adminAudiences** 需要一个 **jwt** authenticator。其中的值不能与任何
 **jwt** authenticator 的 **audiences** 重复，这样公共 API 凭证永远不能授权 admin
 调用。
+
+server-zd 在启动时校验 **auth.adminAudiences**。在 server 提供 **AdminService**
+之前，这个设置没有其他作用。
 
 ## Server 与 SDK 的协议兼容性
 

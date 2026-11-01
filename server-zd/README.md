@@ -569,7 +569,8 @@ auth:
   administration.
 
 `dexcli admin step-down --yes` calls `StepDownActiveNode`. A server that does not serve
-`AdminService` answers UNIMPLEMENTED.
+`AdminService` answers UNIMPLEMENTED. server-zd does not register `AdminService` yet, so today
+`auth.adminAudiences` is validated at startup and has no other effect.
 
 ### Container image
 

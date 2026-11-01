@@ -384,6 +384,10 @@ By default, a starting node waits while another process holds the lease. Set
 
 ## Step down the active process {#step-down}
 
+server-zd does not serve **AdminService** yet, so **dexcli admin step-down**
+currently fails with **UNIMPLEMENTED**. The rest of this section describes the
+command against a server that serves **AdminService**.
+
 **dexcli admin step-down** asks the active process of a node ID to give up its
 lease. The process stops serving and waits briefly for in-flight commits. Then it releases the lease. Another process of the same node ID can then
 take the lease at once, as after a graceful shutdown. The command needs an
@@ -406,8 +410,7 @@ The call returns after the release. Its output has these fields:
 
 Each call steps down whichever process is active when the call arrives. Check
 which process is active before you retry a failed call, because a retry can step
-down the process that just took over. A process that is not active answers
-**FAILED_PRECONDITION**. A server without **AdminService** answers
+down the process that just took over. A server without **AdminService** answers
 **UNIMPLEMENTED**.
 
 ## Object storage
@@ -999,6 +1002,9 @@ credential.
 A non-empty **auth.adminAudiences** needs a **jwt** authenticator. Its entries
 must differ from the **audiences** of every **jwt** authenticator, so a public API
 credential never authorizes an admin call.
+
+server-zd validates **auth.adminAudiences** at startup. Until the server serves
+**AdminService**, the setting has no other effect.
 
 ## Server and SDK protocol compatibility
 

@@ -656,6 +656,10 @@ details when supplied. Usage and missing-confirmation failures exit with status
 
 ## Step down the active server process
 
+server-zd does not serve AdminService yet, so this command currently fails with
+Unimplemented. The rest of this section describes the command against a server
+that serves AdminService.
+
 `dexcli admin step-down --yes` calls AdminService `StepDownActiveNode`. The active
 server process of the node ID behind `--server` stops serving, releases its lease,
 and lets another process of the same node ID take over. The command prints

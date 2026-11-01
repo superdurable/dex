@@ -157,6 +157,9 @@ dexcli version check --output table
 
 ## 让 active server 进程让位 {#admin-step-down}
 
+server-zd 目前还不提供 **AdminService**，所以这个 command 现在会以 **UNIMPLEMENTED**
+失败。本节其余内容描述的是这个 command 在提供 **AdminService** 的 server 上的行为。
+
 **dexcli admin step-down --yes** 请求一个 node ID 的 active server 进程交出 lease，
 让同一个 node ID 的另一个进程接管。这个 command 调用 **AdminService**，而不是
 **FlowService**。它需要 **--yes**，因为在有进程接管之前，server 会停止服务。

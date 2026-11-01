@@ -171,6 +171,10 @@ error and exits with status 1. The command supports the normal **--server**,
 
 ## Step down the active server process {#admin-step-down}
 
+server-zd does not serve **AdminService** yet, so this command currently fails
+with **UNIMPLEMENTED**. The rest of this section describes the command against a
+server that serves **AdminService**.
+
 **dexcli admin step-down --yes** asks the active server process of a node ID to
 give up its lease, so that another process of the same node ID can take over. The
 command calls **AdminService**, not **FlowService**. It needs **--yes**, because
