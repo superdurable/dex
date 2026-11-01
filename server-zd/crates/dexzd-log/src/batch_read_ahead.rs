@@ -334,7 +334,7 @@ async fn read_object(
     ReadEvent::Object(seq, read.await)
 }
 
-fn decode_stream_batch(
+pub(crate) fn decode_stream_batch(
     body: &[u8],
     stream: &StreamIdentity,
     seq: u64,

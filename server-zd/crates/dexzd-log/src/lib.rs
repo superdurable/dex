@@ -12,6 +12,7 @@ mod batch_codec;
 mod batch_read_ahead;
 mod commit_pipeline;
 mod stream_recovery;
+mod stream_tail_reader;
 
 pub use batch_codec::{
     BatchContent, BatchRecord, DecodedBatch, LogError, StreamIdentity, decode_batch, encode_batch,
@@ -25,3 +26,4 @@ pub use stream_recovery::{
     RecoveredStream, StreamRecovery, StreamRecoveryInputs, StreamRecoveryResult,
     StreamRecoveryStep, recover_stream, recover_stream_from,
 };
+pub use stream_tail_reader::{StreamTailReader, StreamTailStep};

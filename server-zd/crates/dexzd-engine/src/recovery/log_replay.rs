@@ -14,8 +14,8 @@ use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::MetadataError;
 use dexzd_keyspace::PartitionId;
 use dexzd_log::{
-    DecodedBatch, LogError, LogReadAheadConfig, OrderedBatchReader, StreamIdentity, StreamRecovery,
-    StreamRecoveryInputs, StreamRecoveryStep,
+    DecodedBatch, LogError, LogReadAheadConfig, StreamIdentity, StreamRecovery,
+    StreamRecoveryInputs, StreamRecoveryStep, StreamTailReader, StreamTailStep,
 };
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::LogPosition;
@@ -138,34 +138,35 @@ impl LogReplay<'_> {
         (applied_seq, applied_epoch): (u64, u64),
         end_seq: u64,
     ) -> Result<u64, EngineStartError> {
-        let mut effective_epoch = applied_epoch;
         let mut batches = 0_usize;
         let mut replayed_bytes = 0_u64;
-        let mut reader = OrderedBatchReader::new(
+        // Same rule as stream recovery: an older epoch after an EpochStart is void.
+        let mut reader = StreamTailReader::new(
             self.object_store,
             stream,
             applied_seq.saturating_add(1),
+            applied_epoch,
             Some(end_seq),
             self.config.log_read_ahead,
-        );
-        while let Some((seq, batch)) = reader.next_batch().await? {
-            let batch = batch.ok_or_else(|| {
-                LogError::Corrupt(format!(
-                    "closed log stream of incarnation {} has no batch at seq {seq}",
-                    stream.incarnation
-                ))
-            })?;
-            // Same rule as stream recovery: an older epoch after an EpochStart is void.
-            if batch.header.epoch < effective_epoch {
-                continue;
+        )?;
+        loop {
+            match reader.next_step().await? {
+                StreamTailStep::Accepted(batch) => {
+                    replayed_bytes += reader
+                        .read_ahead_while(self.enqueue_batch(stream, batch))
+                        .await?;
+                    batches += 1;
+                }
+                StreamTailStep::Voided(_) => {}
+                StreamTailStep::WaitingAt(seq) => {
+                    return Err(LogError::Corrupt(format!(
+                        "closed log stream of incarnation {} has no batch at seq {seq}",
+                        stream.incarnation
+                    ))
+                    .into());
+                }
+                StreamTailStep::Ended => break,
             }
-            if let Some(epoch_start) = &batch.header.epoch_start {
-                effective_epoch = epoch_start.epoch;
-            }
-            replayed_bytes += reader
-                .read_ahead_while(self.enqueue_batch(stream, batch))
-                .await?;
-            batches += 1;
         }
         tracing::info!(
             incarnation = stream.incarnation,
