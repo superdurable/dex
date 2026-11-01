@@ -8,7 +8,7 @@
 
 //! Who holds the lock of a RocksDB store directory, probed without opening the store.
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -19,8 +19,8 @@ use rustix::io::Errno;
 
 use crate::local_store::StorageResult;
 
-/// RocksDB stores this process opened for writing, by canonical directory, with their counts.
-static OPEN_DIRECTORIES: Mutex<BTreeMap<PathBuf, usize>> = Mutex::new(BTreeMap::new());
+/// Canonical directories of the RocksDB stores this process opened for writing.
+static OPEN_DIRECTORIES: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
 
 /// Who holds the lock of a RocksDB store directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +52,7 @@ pub fn probe_directory_lock(directory: &Path) -> StorageResult<DirectoryLockHold
     // Held until the probe's file closes: closing any descriptor of `LOCK` releases every
     // `fcntl` lock this process holds on it, so no store of this process may open meanwhile.
     let open_directories = lock_open_directories();
-    if open_directories.contains_key(&directory) {
+    if open_directories.contains(&directory) {
         return Ok(DirectoryLockHolder::ThisProcess);
     }
     let lock_file = match OpenOptions::new()
@@ -86,19 +86,32 @@ pub fn probe_directory_lock(directory: &Path) -> StorageResult<DirectoryLockHold
 /// A store leaves this set only after its database closed and released the directory's lock.
 pub fn is_directory_open_in_this_process(directory: &Path) -> bool {
     std::fs::canonicalize(directory)
-        .is_ok_and(|directory| lock_open_directories().contains_key(&directory))
+        .is_ok_and(|directory| lock_open_directories().contains(&directory))
 }
 
 /// Registers a store this process opens in `directory` until the returned value drops. Creates
-/// the directory first, so every alias of it, such as a symbolic link, names one entry.
+/// the last level of the directory first, so every alias of it, such as a symbolic link, names
+/// one entry.
 ///
-/// Returns an I/O error when the directory cannot be created or canonicalized.
+/// Returns an I/O error when the directory cannot be created or canonicalized, and a
+/// [`io::ErrorKind::WouldBlock`] error when this process already has a store open there, even
+/// through another path: RocksDB's own lock table compares only the path text.
 pub(crate) fn register_open_directory(directory: &Path) -> StorageResult<OpenDirectory> {
-    std::fs::create_dir_all(directory)?;
+    match std::fs::create_dir(directory) {
+        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error.into()),
+        _ => {}
+    }
     let canonical = std::fs::canonicalize(directory)?;
-    *lock_open_directories()
-        .entry(canonical.clone())
-        .or_default() += 1;
+    if !lock_open_directories().insert(canonical.clone()) {
+        return Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            format!(
+                "this process already has the store in {} open",
+                canonical.display()
+            ),
+        )
+        .into());
+    }
     Ok(OpenDirectory {
         directory: canonical,
         #[cfg(test)]
@@ -119,17 +132,11 @@ impl Drop for OpenDirectory {
     fn drop(&mut self) {
         #[cfg(test)]
         unregister_checks::check_store_closed(&self.directory, &self.opened_as);
-        let mut open_directories = lock_open_directories();
-        if let Some(count) = open_directories.get_mut(&self.directory) {
-            *count -= 1;
-            if *count == 0 {
-                open_directories.remove(&self.directory);
-            }
-        }
+        lock_open_directories().remove(&self.directory);
     }
 }
 
-fn lock_open_directories() -> MutexGuard<'static, BTreeMap<PathBuf, usize>> {
+fn lock_open_directories() -> MutexGuard<'static, BTreeSet<PathBuf>> {
     OPEN_DIRECTORIES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

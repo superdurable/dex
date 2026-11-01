@@ -115,3 +115,33 @@ fn a_store_closes_its_database_before_it_unregisters_its_directory() {
         "the directory was unregistered while its database still held the lock"
     );
 }
+
+#[test]
+fn a_second_open_of_a_store_through_an_alias_fails_and_keeps_the_lock() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let store_directory = directory.path().join("store");
+    let store = RocksDbLocalStore::open(&store_directory, RocksDbStoreOptions::default())
+        .expect("open the store");
+    let symlink = directory.path().join("alias");
+    std::os::unix::fs::symlink(&store_directory, &symlink).expect("link an alias");
+    let reopened = RocksDbLocalStore::open(&symlink, RocksDbStoreOptions::default());
+    assert!(
+        reopened.is_err(),
+        "this process opened one store directory twice"
+    );
+    drop(reopened);
+    assert!(
+        !can_another_process_lock(&store_directory),
+        "the failed second open released the first store's lock"
+    );
+    drop(store);
+    assert!(can_another_process_lock(&store_directory));
+}
+
+#[test]
+fn opening_a_store_does_not_create_missing_parent_directories() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let nested = directory.path().join("missing").join("store");
+    assert!(RocksDbLocalStore::open(&nested, RocksDbStoreOptions::default()).is_err());
+    assert!(!directory.path().join("missing").exists());
+}
