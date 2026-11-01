@@ -2120,26 +2120,52 @@ class TimerInfo(_message.Message):
     status: InternalTimerStatus
     def __init__(self, condition_id: _Optional[str] = ..., firing_unix_timestamp_seconds: _Optional[int] = ..., status: _Optional[_Union[InternalTimerStatus, str]] = ...) -> None: ...
 
-class StepDownActiveNodeRequest(_message.Message):
+class DescribeActiveNodeRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class DescribeActiveNodeResponse(_message.Message):
+    __slots__ = ("node_id", "node_epoch", "holder_process_id")
+    NODE_ID_FIELD_NUMBER: _ClassVar[int]
+    NODE_EPOCH_FIELD_NUMBER: _ClassVar[int]
+    HOLDER_PROCESS_ID_FIELD_NUMBER: _ClassVar[int]
+    node_id: str
+    node_epoch: int
+    holder_process_id: str
+    def __init__(self, node_id: _Optional[str] = ..., node_epoch: _Optional[int] = ..., holder_process_id: _Optional[str] = ...) -> None: ...
+
+class StepDownActiveNodeRequest(_message.Message):
+    __slots__ = ("expected_node_epoch",)
+    EXPECTED_NODE_EPOCH_FIELD_NUMBER: _ClassVar[int]
+    expected_node_epoch: int
+    def __init__(self, expected_node_epoch: _Optional[int] = ...) -> None: ...
+
 class StepDownActiveNodeResponse(_message.Message):
-    __slots__ = ("node_id", "released_node_epoch", "observed_takeover", "lease_reacquisition_hold_off")
+    __slots__ = ("node_id", "released_node_epoch", "lease_reacquisition_hold_off", "taken_over_by_another_process", "taken_back_by_this_process", "lease_holder_unknown")
     NODE_ID_FIELD_NUMBER: _ClassVar[int]
     RELEASED_NODE_EPOCH_FIELD_NUMBER: _ClassVar[int]
-    OBSERVED_TAKEOVER_FIELD_NUMBER: _ClassVar[int]
     LEASE_REACQUISITION_HOLD_OFF_FIELD_NUMBER: _ClassVar[int]
+    TAKEN_OVER_BY_ANOTHER_PROCESS_FIELD_NUMBER: _ClassVar[int]
+    TAKEN_BACK_BY_THIS_PROCESS_FIELD_NUMBER: _ClassVar[int]
+    LEASE_HOLDER_UNKNOWN_FIELD_NUMBER: _ClassVar[int]
     node_id: str
     released_node_epoch: int
-    observed_takeover: ActiveNodeTakeover
     lease_reacquisition_hold_off: _duration_pb2.Duration
-    def __init__(self, node_id: _Optional[str] = ..., released_node_epoch: _Optional[int] = ..., observed_takeover: _Optional[_Union[ActiveNodeTakeover, _Mapping]] = ..., lease_reacquisition_hold_off: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+    taken_over_by_another_process: NodeLeaseHolder
+    taken_back_by_this_process: NodeLeaseHolder
+    lease_holder_unknown: NodeLeaseHolderUnknown
+    def __init__(self, node_id: _Optional[str] = ..., released_node_epoch: _Optional[int] = ..., lease_reacquisition_hold_off: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., taken_over_by_another_process: _Optional[_Union[NodeLeaseHolder, _Mapping]] = ..., taken_back_by_this_process: _Optional[_Union[NodeLeaseHolder, _Mapping]] = ..., lease_holder_unknown: _Optional[_Union[NodeLeaseHolderUnknown, _Mapping]] = ...) -> None: ...
 
-class ActiveNodeTakeover(_message.Message):
+class NodeLeaseHolder(_message.Message):
     __slots__ = ("node_epoch", "holder_process_id")
     NODE_EPOCH_FIELD_NUMBER: _ClassVar[int]
     HOLDER_PROCESS_ID_FIELD_NUMBER: _ClassVar[int]
     node_epoch: int
     holder_process_id: str
     def __init__(self, node_epoch: _Optional[int] = ..., holder_process_id: _Optional[str] = ...) -> None: ...
+
+class NodeLeaseHolderUnknown(_message.Message):
+    __slots__ = ("detail",)
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    detail: str
+    def __init__(self, detail: _Optional[str] = ...) -> None: ...

@@ -18,6 +18,37 @@ public final class AdminServiceGrpc {
   public static final java.lang.String SERVICE_NAME = "dex.AdminService";
 
   // Static method descriptors that strictly reflect the proto.
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.DescribeActiveNodeRequest,
+      io.superdurable.gen.DescribeActiveNodeResponse> getDescribeActiveNodeMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "DescribeActiveNode",
+      requestType = io.superdurable.gen.DescribeActiveNodeRequest.class,
+      responseType = io.superdurable.gen.DescribeActiveNodeResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.DescribeActiveNodeRequest,
+      io.superdurable.gen.DescribeActiveNodeResponse> getDescribeActiveNodeMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.DescribeActiveNodeRequest, io.superdurable.gen.DescribeActiveNodeResponse> getDescribeActiveNodeMethod;
+    if ((getDescribeActiveNodeMethod = AdminServiceGrpc.getDescribeActiveNodeMethod) == null) {
+      synchronized (AdminServiceGrpc.class) {
+        if ((getDescribeActiveNodeMethod = AdminServiceGrpc.getDescribeActiveNodeMethod) == null) {
+          AdminServiceGrpc.getDescribeActiveNodeMethod = getDescribeActiveNodeMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.DescribeActiveNodeRequest, io.superdurable.gen.DescribeActiveNodeResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "DescribeActiveNode"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.DescribeActiveNodeRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.DescribeActiveNodeResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new AdminServiceMethodDescriptorSupplier("DescribeActiveNode"))
+              .build();
+        }
+      }
+    }
+    return getDescribeActiveNodeMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.StepDownActiveNodeRequest,
       io.superdurable.gen.StepDownActiveNodeResponse> getStepDownActiveNodeMethod;
 
@@ -102,14 +133,35 @@ public final class AdminServiceGrpc {
 
     /**
      * <pre>
+     * Returns the node ID, node epoch, and lease holder of the active Server process.
+     * The process that receives the call answers from the node lease it holds.
+     * It fails with FailedPrecondition when it is not the active process, for
+     * example while it starts, stands by, or steps down. The call changes
+     * nothing, so it is safe to retry.
+     * </pre>
+     */
+    default void describeActiveNode(io.superdurable.gen.DescribeActiveNodeRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.DescribeActiveNodeResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getDescribeActiveNodeMethod(), responseObserver);
+    }
+
+    /**
+     * <pre>
      * Makes the active Server process of a node ID give up its node lease.
      * The active process stops serving and waits, within a bound, for in-flight
      * commits. It then releases the node lease and stays running as a standby
-     * process. It waits for a hold-off before it competes for the lease again, so
-     * another standby process of the same node ID can take over first. If none
-     * does, it takes the lease back. The call returns after the release.
+     * process. It waits for lease_reacquisition_hold_off before it competes for
+     * the lease again, so another standby process of the same node ID can take
+     * over first. If none does, it takes the lease back with a new node epoch.
+     * After the release, the call watches the node lease. It returns as soon as
+     * another process takes over. Otherwise it returns after the hold-off and
+     * one attempt by this process to take the lease back. The call therefore
+     * lasts at most the commit drain bound, the release, the hold-off, and one
+     * lease acquisition attempt. The response names the process that holds the
+     * lease, or says that neither case was confirmed within that bound.
      * Each call steps down whichever process is active when the call arrives.
      * A blind retry can therefore step down the process that just took over.
+     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
      * </pre>
      */
     default void stepDownActiveNode(io.superdurable.gen.StepDownActiveNodeRequest request,
@@ -153,14 +205,36 @@ public final class AdminServiceGrpc {
 
     /**
      * <pre>
+     * Returns the node ID, node epoch, and lease holder of the active Server process.
+     * The process that receives the call answers from the node lease it holds.
+     * It fails with FailedPrecondition when it is not the active process, for
+     * example while it starts, stands by, or steps down. The call changes
+     * nothing, so it is safe to retry.
+     * </pre>
+     */
+    public void describeActiveNode(io.superdurable.gen.DescribeActiveNodeRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.DescribeActiveNodeResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getDescribeActiveNodeMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     * <pre>
      * Makes the active Server process of a node ID give up its node lease.
      * The active process stops serving and waits, within a bound, for in-flight
      * commits. It then releases the node lease and stays running as a standby
-     * process. It waits for a hold-off before it competes for the lease again, so
-     * another standby process of the same node ID can take over first. If none
-     * does, it takes the lease back. The call returns after the release.
+     * process. It waits for lease_reacquisition_hold_off before it competes for
+     * the lease again, so another standby process of the same node ID can take
+     * over first. If none does, it takes the lease back with a new node epoch.
+     * After the release, the call watches the node lease. It returns as soon as
+     * another process takes over. Otherwise it returns after the hold-off and
+     * one attempt by this process to take the lease back. The call therefore
+     * lasts at most the commit drain bound, the release, the hold-off, and one
+     * lease acquisition attempt. The response names the process that holds the
+     * lease, or says that neither case was confirmed within that bound.
      * Each call steps down whichever process is active when the call arrives.
      * A blind retry can therefore step down the process that just took over.
+     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
      * </pre>
      */
     public void stepDownActiveNode(io.superdurable.gen.StepDownActiveNodeRequest request,
@@ -191,14 +265,35 @@ public final class AdminServiceGrpc {
 
     /**
      * <pre>
+     * Returns the node ID, node epoch, and lease holder of the active Server process.
+     * The process that receives the call answers from the node lease it holds.
+     * It fails with FailedPrecondition when it is not the active process, for
+     * example while it starts, stands by, or steps down. The call changes
+     * nothing, so it is safe to retry.
+     * </pre>
+     */
+    public io.superdurable.gen.DescribeActiveNodeResponse describeActiveNode(io.superdurable.gen.DescribeActiveNodeRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getDescribeActiveNodeMethod(), getCallOptions(), request);
+    }
+
+    /**
+     * <pre>
      * Makes the active Server process of a node ID give up its node lease.
      * The active process stops serving and waits, within a bound, for in-flight
      * commits. It then releases the node lease and stays running as a standby
-     * process. It waits for a hold-off before it competes for the lease again, so
-     * another standby process of the same node ID can take over first. If none
-     * does, it takes the lease back. The call returns after the release.
+     * process. It waits for lease_reacquisition_hold_off before it competes for
+     * the lease again, so another standby process of the same node ID can take
+     * over first. If none does, it takes the lease back with a new node epoch.
+     * After the release, the call watches the node lease. It returns as soon as
+     * another process takes over. Otherwise it returns after the hold-off and
+     * one attempt by this process to take the lease back. The call therefore
+     * lasts at most the commit drain bound, the release, the hold-off, and one
+     * lease acquisition attempt. The response names the process that holds the
+     * lease, or says that neither case was confirmed within that bound.
      * Each call steps down whichever process is active when the call arrives.
      * A blind retry can therefore step down the process that just took over.
+     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
      * </pre>
      */
     public io.superdurable.gen.StepDownActiveNodeResponse stepDownActiveNode(io.superdurable.gen.StepDownActiveNodeRequest request) {
@@ -228,14 +323,36 @@ public final class AdminServiceGrpc {
 
     /**
      * <pre>
+     * Returns the node ID, node epoch, and lease holder of the active Server process.
+     * The process that receives the call answers from the node lease it holds.
+     * It fails with FailedPrecondition when it is not the active process, for
+     * example while it starts, stands by, or steps down. The call changes
+     * nothing, so it is safe to retry.
+     * </pre>
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.DescribeActiveNodeResponse> describeActiveNode(
+        io.superdurable.gen.DescribeActiveNodeRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getDescribeActiveNodeMethod(), getCallOptions()), request);
+    }
+
+    /**
+     * <pre>
      * Makes the active Server process of a node ID give up its node lease.
      * The active process stops serving and waits, within a bound, for in-flight
      * commits. It then releases the node lease and stays running as a standby
-     * process. It waits for a hold-off before it competes for the lease again, so
-     * another standby process of the same node ID can take over first. If none
-     * does, it takes the lease back. The call returns after the release.
+     * process. It waits for lease_reacquisition_hold_off before it competes for
+     * the lease again, so another standby process of the same node ID can take
+     * over first. If none does, it takes the lease back with a new node epoch.
+     * After the release, the call watches the node lease. It returns as soon as
+     * another process takes over. Otherwise it returns after the hold-off and
+     * one attempt by this process to take the lease back. The call therefore
+     * lasts at most the commit drain bound, the release, the hold-off, and one
+     * lease acquisition attempt. The response names the process that holds the
+     * lease, or says that neither case was confirmed within that bound.
      * Each call steps down whichever process is active when the call arrives.
      * A blind retry can therefore step down the process that just took over.
+     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
      * </pre>
      */
     public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.StepDownActiveNodeResponse> stepDownActiveNode(
@@ -245,7 +362,8 @@ public final class AdminServiceGrpc {
     }
   }
 
-  private static final int METHODID_STEP_DOWN_ACTIVE_NODE = 0;
+  private static final int METHODID_DESCRIBE_ACTIVE_NODE = 0;
+  private static final int METHODID_STEP_DOWN_ACTIVE_NODE = 1;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -264,6 +382,10 @@ public final class AdminServiceGrpc {
     @java.lang.SuppressWarnings("unchecked")
     public void invoke(Req request, io.grpc.stub.StreamObserver<Resp> responseObserver) {
       switch (methodId) {
+        case METHODID_DESCRIBE_ACTIVE_NODE:
+          serviceImpl.describeActiveNode((io.superdurable.gen.DescribeActiveNodeRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.DescribeActiveNodeResponse>) responseObserver);
+          break;
         case METHODID_STEP_DOWN_ACTIVE_NODE:
           serviceImpl.stepDownActiveNode((io.superdurable.gen.StepDownActiveNodeRequest) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.StepDownActiveNodeResponse>) responseObserver);
@@ -286,6 +408,13 @@ public final class AdminServiceGrpc {
 
   public static final io.grpc.ServerServiceDefinition bindService(AsyncService service) {
     return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
+        .addMethod(
+          getDescribeActiveNodeMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.DescribeActiveNodeRequest,
+              io.superdurable.gen.DescribeActiveNodeResponse>(
+                service, METHODID_DESCRIBE_ACTIVE_NODE)))
         .addMethod(
           getStepDownActiveNodeMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -341,6 +470,7 @@ public final class AdminServiceGrpc {
         if (result == null) {
           serviceDescriptor = result = io.grpc.ServiceDescriptor.newBuilder(SERVICE_NAME)
               .setSchemaDescriptor(new AdminServiceFileDescriptorSupplier())
+              .addMethod(getDescribeActiveNodeMethod())
               .addMethod(getStepDownActiveNodeMethod())
               .build();
         }

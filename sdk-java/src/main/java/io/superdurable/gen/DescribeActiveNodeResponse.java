@@ -7,16 +7,16 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Identifies another process of the same node ID that acquired a released node lease.
+ * Identifies the active Server process of a node ID.
  * </pre>
  *
- * Protobuf type {@code dex.ActiveNodeTakeover}
+ * Protobuf type {@code dex.DescribeActiveNodeResponse}
  */
 @com.google.protobuf.Generated
-public final class ActiveNodeTakeover extends
+public final class DescribeActiveNodeResponse extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.ActiveNodeTakeover)
-    ActiveNodeTakeoverOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.DescribeActiveNodeResponse)
+    DescribeActiveNodeResponseOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -25,42 +25,91 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "ActiveNodeTakeover");
+      "DescribeActiveNodeResponse");
   }
-  // Use ActiveNodeTakeover.newBuilder() to construct.
-  private ActiveNodeTakeover(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use DescribeActiveNodeResponse.newBuilder() to construct.
+  private DescribeActiveNodeResponse(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private ActiveNodeTakeover() {
+  private DescribeActiveNodeResponse() {
+    nodeId_ = "";
     holderProcessId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ActiveNodeTakeover_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_DescribeActiveNodeResponse_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ActiveNodeTakeover_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_DescribeActiveNodeResponse_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ActiveNodeTakeover_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_DescribeActiveNodeResponse_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.ActiveNodeTakeover.class, io.superdurable.gen.ActiveNodeTakeover.Builder.class);
+            io.superdurable.gen.DescribeActiveNodeResponse.class, io.superdurable.gen.DescribeActiveNodeResponse.Builder.class);
   }
 
-  public static final int NODE_EPOCH_FIELD_NUMBER = 1;
+  public static final int NODE_ID_FIELD_NUMBER = 1;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object nodeId_ = "";
+  /**
+   * <pre>
+   * Node ID that the process serves.
+   * </pre>
+   *
+   * <code>string node_id = 1;</code>
+   * @return The nodeId.
+   */
+  @java.lang.Override
+  public java.lang.String getNodeId() {
+    java.lang.Object ref = nodeId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      nodeId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Node ID that the process serves.
+   * </pre>
+   *
+   * <code>string node_id = 1;</code>
+   * @return The bytes for nodeId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getNodeIdBytes() {
+    java.lang.Object ref = nodeId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      nodeId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int NODE_EPOCH_FIELD_NUMBER = 2;
   private long nodeEpoch_ = 0L;
   /**
    * <pre>
-   * Node epoch that the new active process raised when it acquired the lease.
+   * Node epoch that the process raised when it acquired the node lease. Every
+   * acquisition raises it, so a different value means a later acquisition.
    * </pre>
    *
-   * <code>uint64 node_epoch = 1;</code>
+   * <code>uint64 node_epoch = 2;</code>
    * @return The nodeEpoch.
    */
   @java.lang.Override
@@ -68,15 +117,15 @@ private static final long serialVersionUID = 0L;
     return nodeEpoch_;
   }
 
-  public static final int HOLDER_PROCESS_ID_FIELD_NUMBER = 2;
+  public static final int HOLDER_PROCESS_ID_FIELD_NUMBER = 3;
   @SuppressWarnings("serial")
   private volatile java.lang.Object holderProcessId_ = "";
   /**
    * <pre>
-   * Random ID that the new active process recorded as the lease holder.
+   * Random ID that the process recorded as the node lease holder.
    * </pre>
    *
-   * <code>string holder_process_id = 2;</code>
+   * <code>string holder_process_id = 3;</code>
    * @return The holderProcessId.
    */
   @java.lang.Override
@@ -94,10 +143,10 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Random ID that the new active process recorded as the lease holder.
+   * Random ID that the process recorded as the node lease holder.
    * </pre>
    *
-   * <code>string holder_process_id = 2;</code>
+   * <code>string holder_process_id = 3;</code>
    * @return The bytes for holderProcessId.
    */
   @java.lang.Override
@@ -129,22 +178,28 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(nodeId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 1, nodeId_);
+    }
     if (nodeEpoch_ != 0L) {
-      output.writeUInt64(1, nodeEpoch_);
+      output.writeUInt64(2, nodeEpoch_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(holderProcessId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, holderProcessId_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 3, holderProcessId_);
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(nodeId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, nodeId_);
+    }
     if (nodeEpoch_ != 0L) {
       size += com.google.protobuf.CodedOutputStream
-        .computeUInt64Size(1, nodeEpoch_);
+        .computeUInt64Size(2, nodeEpoch_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(holderProcessId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, holderProcessId_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, holderProcessId_);
     }
     return size;
   }
@@ -165,11 +220,13 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.ActiveNodeTakeover)) {
+    if (!(obj instanceof io.superdurable.gen.DescribeActiveNodeResponse)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.ActiveNodeTakeover other = (io.superdurable.gen.ActiveNodeTakeover) obj;
+    io.superdurable.gen.DescribeActiveNodeResponse other = (io.superdurable.gen.DescribeActiveNodeResponse) obj;
 
+    if (!getNodeId()
+        .equals(other.getNodeId())) return false;
     if (getNodeEpoch()
         != other.getNodeEpoch()) return false;
     if (!getHolderProcessId()
@@ -185,6 +242,8 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
+    hash = (37 * hash) + NODE_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getNodeId().hashCode();
     hash = (37 * hash) + NODE_EPOCH_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
         getNodeEpoch());
@@ -195,44 +254,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(byte[] data)
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -240,26 +299,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.ActiveNodeTakeover parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.ActiveNodeTakeover parseDelimitedFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.ActiveNodeTakeover parseFrom(
+  public static io.superdurable.gen.DescribeActiveNodeResponse parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -272,7 +331,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.ActiveNodeTakeover prototype) {
+  public static Builder newBuilder(io.superdurable.gen.DescribeActiveNodeResponse prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -289,29 +348,29 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Identifies another process of the same node ID that acquired a released node lease.
+   * Identifies the active Server process of a node ID.
    * </pre>
    *
-   * Protobuf type {@code dex.ActiveNodeTakeover}
+   * Protobuf type {@code dex.DescribeActiveNodeResponse}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.ActiveNodeTakeover)
-      io.superdurable.gen.ActiveNodeTakeoverOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.DescribeActiveNodeResponse)
+      io.superdurable.gen.DescribeActiveNodeResponseOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ActiveNodeTakeover_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_DescribeActiveNodeResponse_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ActiveNodeTakeover_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_DescribeActiveNodeResponse_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.ActiveNodeTakeover.class, io.superdurable.gen.ActiveNodeTakeover.Builder.class);
+              io.superdurable.gen.DescribeActiveNodeResponse.class, io.superdurable.gen.DescribeActiveNodeResponse.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.ActiveNodeTakeover.newBuilder()
+    // Construct using io.superdurable.gen.DescribeActiveNodeResponse.newBuilder()
     private Builder() {
 
     }
@@ -325,6 +384,7 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
+      nodeId_ = "";
       nodeEpoch_ = 0L;
       holderProcessId_ = "";
       return this;
@@ -333,17 +393,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ActiveNodeTakeover_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_DescribeActiveNodeResponse_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ActiveNodeTakeover getDefaultInstanceForType() {
-      return io.superdurable.gen.ActiveNodeTakeover.getDefaultInstance();
+    public io.superdurable.gen.DescribeActiveNodeResponse getDefaultInstanceForType() {
+      return io.superdurable.gen.DescribeActiveNodeResponse.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ActiveNodeTakeover build() {
-      io.superdurable.gen.ActiveNodeTakeover result = buildPartial();
+    public io.superdurable.gen.DescribeActiveNodeResponse build() {
+      io.superdurable.gen.DescribeActiveNodeResponse result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -351,41 +411,49 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ActiveNodeTakeover buildPartial() {
-      io.superdurable.gen.ActiveNodeTakeover result = new io.superdurable.gen.ActiveNodeTakeover(this);
+    public io.superdurable.gen.DescribeActiveNodeResponse buildPartial() {
+      io.superdurable.gen.DescribeActiveNodeResponse result = new io.superdurable.gen.DescribeActiveNodeResponse(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.ActiveNodeTakeover result) {
+    private void buildPartial0(io.superdurable.gen.DescribeActiveNodeResponse result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.nodeEpoch_ = nodeEpoch_;
+        result.nodeId_ = nodeId_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.nodeEpoch_ = nodeEpoch_;
+      }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.holderProcessId_ = holderProcessId_;
       }
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.ActiveNodeTakeover) {
-        return mergeFrom((io.superdurable.gen.ActiveNodeTakeover)other);
+      if (other instanceof io.superdurable.gen.DescribeActiveNodeResponse) {
+        return mergeFrom((io.superdurable.gen.DescribeActiveNodeResponse)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.ActiveNodeTakeover other) {
-      if (other == io.superdurable.gen.ActiveNodeTakeover.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.DescribeActiveNodeResponse other) {
+      if (other == io.superdurable.gen.DescribeActiveNodeResponse.getDefaultInstance()) return this;
+      if (!other.getNodeId().isEmpty()) {
+        nodeId_ = other.nodeId_;
+        bitField0_ |= 0x00000001;
+        onChanged();
+      }
       if (other.getNodeEpoch() != 0L) {
         setNodeEpoch(other.getNodeEpoch());
       }
       if (!other.getHolderProcessId().isEmpty()) {
         holderProcessId_ = other.holderProcessId_;
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -414,16 +482,21 @@ private static final long serialVersionUID = 0L;
             case 0:
               done = true;
               break;
-            case 8: {
-              nodeEpoch_ = input.readUInt64();
+            case 10: {
+              nodeId_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000001;
               break;
-            } // case 8
-            case 18: {
-              holderProcessId_ = input.readStringRequireUtf8();
+            } // case 10
+            case 16: {
+              nodeEpoch_ = input.readUInt64();
               bitField0_ |= 0x00000002;
               break;
-            } // case 18
+            } // case 16
+            case 26: {
+              holderProcessId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -441,13 +514,106 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
+    private java.lang.Object nodeId_ = "";
+    /**
+     * <pre>
+     * Node ID that the process serves.
+     * </pre>
+     *
+     * <code>string node_id = 1;</code>
+     * @return The nodeId.
+     */
+    public java.lang.String getNodeId() {
+      java.lang.Object ref = nodeId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        nodeId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Node ID that the process serves.
+     * </pre>
+     *
+     * <code>string node_id = 1;</code>
+     * @return The bytes for nodeId.
+     */
+    public com.google.protobuf.ByteString
+        getNodeIdBytes() {
+      java.lang.Object ref = nodeId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        nodeId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Node ID that the process serves.
+     * </pre>
+     *
+     * <code>string node_id = 1;</code>
+     * @param value The nodeId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNodeId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      nodeId_ = value;
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Node ID that the process serves.
+     * </pre>
+     *
+     * <code>string node_id = 1;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearNodeId() {
+      nodeId_ = getDefaultInstance().getNodeId();
+      bitField0_ = (bitField0_ & ~0x00000001);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Node ID that the process serves.
+     * </pre>
+     *
+     * <code>string node_id = 1;</code>
+     * @param value The bytes for nodeId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNodeIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      nodeId_ = value;
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+
     private long nodeEpoch_ ;
     /**
      * <pre>
-     * Node epoch that the new active process raised when it acquired the lease.
+     * Node epoch that the process raised when it acquired the node lease. Every
+     * acquisition raises it, so a different value means a later acquisition.
      * </pre>
      *
-     * <code>uint64 node_epoch = 1;</code>
+     * <code>uint64 node_epoch = 2;</code>
      * @return The nodeEpoch.
      */
     @java.lang.Override
@@ -456,30 +622,32 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Node epoch that the new active process raised when it acquired the lease.
+     * Node epoch that the process raised when it acquired the node lease. Every
+     * acquisition raises it, so a different value means a later acquisition.
      * </pre>
      *
-     * <code>uint64 node_epoch = 1;</code>
+     * <code>uint64 node_epoch = 2;</code>
      * @param value The nodeEpoch to set.
      * @return This builder for chaining.
      */
     public Builder setNodeEpoch(long value) {
 
       nodeEpoch_ = value;
-      bitField0_ |= 0x00000001;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Node epoch that the new active process raised when it acquired the lease.
+     * Node epoch that the process raised when it acquired the node lease. Every
+     * acquisition raises it, so a different value means a later acquisition.
      * </pre>
      *
-     * <code>uint64 node_epoch = 1;</code>
+     * <code>uint64 node_epoch = 2;</code>
      * @return This builder for chaining.
      */
     public Builder clearNodeEpoch() {
-      bitField0_ = (bitField0_ & ~0x00000001);
+      bitField0_ = (bitField0_ & ~0x00000002);
       nodeEpoch_ = 0L;
       onChanged();
       return this;
@@ -488,10 +656,10 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object holderProcessId_ = "";
     /**
      * <pre>
-     * Random ID that the new active process recorded as the lease holder.
+     * Random ID that the process recorded as the node lease holder.
      * </pre>
      *
-     * <code>string holder_process_id = 2;</code>
+     * <code>string holder_process_id = 3;</code>
      * @return The holderProcessId.
      */
     public java.lang.String getHolderProcessId() {
@@ -508,10 +676,10 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Random ID that the new active process recorded as the lease holder.
+     * Random ID that the process recorded as the node lease holder.
      * </pre>
      *
-     * <code>string holder_process_id = 2;</code>
+     * <code>string holder_process_id = 3;</code>
      * @return The bytes for holderProcessId.
      */
     public com.google.protobuf.ByteString
@@ -529,10 +697,10 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Random ID that the new active process recorded as the lease holder.
+     * Random ID that the process recorded as the node lease holder.
      * </pre>
      *
-     * <code>string holder_process_id = 2;</code>
+     * <code>string holder_process_id = 3;</code>
      * @param value The holderProcessId to set.
      * @return This builder for chaining.
      */
@@ -540,30 +708,30 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       holderProcessId_ = value;
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Random ID that the new active process recorded as the lease holder.
+     * Random ID that the process recorded as the node lease holder.
      * </pre>
      *
-     * <code>string holder_process_id = 2;</code>
+     * <code>string holder_process_id = 3;</code>
      * @return This builder for chaining.
      */
     public Builder clearHolderProcessId() {
       holderProcessId_ = getDefaultInstance().getHolderProcessId();
-      bitField0_ = (bitField0_ & ~0x00000002);
+      bitField0_ = (bitField0_ & ~0x00000004);
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Random ID that the new active process recorded as the lease holder.
+     * Random ID that the process recorded as the node lease holder.
      * </pre>
      *
-     * <code>string holder_process_id = 2;</code>
+     * <code>string holder_process_id = 3;</code>
      * @param value The bytes for holderProcessId to set.
      * @return This builder for chaining.
      */
@@ -572,28 +740,28 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       holderProcessId_ = value;
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.ActiveNodeTakeover)
+    // @@protoc_insertion_point(builder_scope:dex.DescribeActiveNodeResponse)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.ActiveNodeTakeover)
-  private static final io.superdurable.gen.ActiveNodeTakeover DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.DescribeActiveNodeResponse)
+  private static final io.superdurable.gen.DescribeActiveNodeResponse DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.ActiveNodeTakeover();
+    DEFAULT_INSTANCE = new io.superdurable.gen.DescribeActiveNodeResponse();
   }
 
-  public static io.superdurable.gen.ActiveNodeTakeover getDefaultInstance() {
+  public static io.superdurable.gen.DescribeActiveNodeResponse getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<ActiveNodeTakeover>
-      PARSER = new com.google.protobuf.AbstractParser<ActiveNodeTakeover>() {
+  private static final com.google.protobuf.Parser<DescribeActiveNodeResponse>
+      PARSER = new com.google.protobuf.AbstractParser<DescribeActiveNodeResponse>() {
     @java.lang.Override
-    public ActiveNodeTakeover parsePartialFrom(
+    public DescribeActiveNodeResponse parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -612,17 +780,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<ActiveNodeTakeover> parser() {
+  public static com.google.protobuf.Parser<DescribeActiveNodeResponse> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<ActiveNodeTakeover> getParserForType() {
+  public com.google.protobuf.Parser<DescribeActiveNodeResponse> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.ActiveNodeTakeover getDefaultInstanceForType() {
+  public io.superdurable.gen.DescribeActiveNodeResponse getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

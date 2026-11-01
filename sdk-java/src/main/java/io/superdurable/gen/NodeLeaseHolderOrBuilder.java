@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface ActiveNodeTakeoverOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.ActiveNodeTakeover)
+public interface NodeLeaseHolderOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.NodeLeaseHolder)
     com.google.protobuf.MessageOrBuilder {
 
   /**
    * <pre>
-   * Node epoch that the new active process raised when it acquired the lease.
+   * Node epoch that the process raised when it acquired the node lease.
    * </pre>
    *
    * <code>uint64 node_epoch = 1;</code>
@@ -22,7 +22,7 @@ public interface ActiveNodeTakeoverOrBuilder extends
 
   /**
    * <pre>
-   * Random ID that the new active process recorded as the lease holder.
+   * Random ID that the process recorded as the node lease holder.
    * </pre>
    *
    * <code>string holder_process_id = 2;</code>
@@ -31,7 +31,7 @@ public interface ActiveNodeTakeoverOrBuilder extends
   java.lang.String getHolderProcessId();
   /**
    * <pre>
-   * Random ID that the new active process recorded as the lease holder.
+   * Random ID that the process recorded as the node lease holder.
    * </pre>
    *
    * <code>string holder_process_id = 2;</code>

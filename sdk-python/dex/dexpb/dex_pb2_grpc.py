@@ -1613,17 +1613,29 @@ class AdminServiceStub:
     AdminService error handling
 
     AdminService serves operators, not applications. When the Server configures
-    public API authentication, every call needs a JWT whose audience is listed
-    in auth.adminAudiences. A Server without authentication allows every call.
-    Failures carry ServiceErrorResponse with sub_status UNCATEGORIZED.
+    public API authentication, every call needs a JWT from a jwt authenticator
+    whose adminAudiences list names one of the token's audiences. Static tokens
+    never authorize AdminService. A Server without authentication allows every
+    call, so anyone who can reach its API listener can step it down.
+
+    A status that AdminService returns carries ServiceErrorResponse with
+    sub_status UNCATEGORIZED:
 
     Unauthenticated    — no credential, or no authenticator accepts it
     PermissionDenied   — a valid public API credential without an admin audience
     FailedPrecondition — this Server process is not the active process of its
-    node ID, or its step down is already in progress
+    node ID, its step down is already in progress, or
+    expected_node_epoch differs from its node epoch
     Internal           — the step down failed; the detail says whether the
-    node lease stays held until it expires
-    Unimplemented      — the Server does not provide AdminService
+    node lease may stay held until it expires
+
+    A Server that does not provide AdminService answers Unimplemented without
+    ServiceErrorResponse. No AdminService failure is Unavailable, because a
+    retry reaches whichever process is active by then.
+
+    On StepDownActiveNode, a client-side DeadlineExceeded, Cancelled, or
+    Unavailable means the outcome is unknown. Call DescribeActiveNode first, and
+    retry only with expected_node_epoch set to the node epoch it returns.
     ---------------------------------------------------------------------------
 
     Hosted by server-zd; operators call these RPCs through dexcli.
@@ -1635,6 +1647,11 @@ class AdminServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.DescribeActiveNode = channel.unary_unary(
+                '/dex.AdminService/DescribeActiveNode',
+                request_serializer=dex__pb2.DescribeActiveNodeRequest.SerializeToString,
+                response_deserializer=dex__pb2.DescribeActiveNodeResponse.FromString,
+                _registered_method=True)
         self.StepDownActiveNode = channel.unary_unary(
                 '/dex.AdminService/StepDownActiveNode',
                 request_serializer=dex__pb2.StepDownActiveNodeRequest.SerializeToString,
@@ -1647,33 +1664,65 @@ class AdminServiceServicer:
     AdminService error handling
 
     AdminService serves operators, not applications. When the Server configures
-    public API authentication, every call needs a JWT whose audience is listed
-    in auth.adminAudiences. A Server without authentication allows every call.
-    Failures carry ServiceErrorResponse with sub_status UNCATEGORIZED.
+    public API authentication, every call needs a JWT from a jwt authenticator
+    whose adminAudiences list names one of the token's audiences. Static tokens
+    never authorize AdminService. A Server without authentication allows every
+    call, so anyone who can reach its API listener can step it down.
+
+    A status that AdminService returns carries ServiceErrorResponse with
+    sub_status UNCATEGORIZED:
 
     Unauthenticated    — no credential, or no authenticator accepts it
     PermissionDenied   — a valid public API credential without an admin audience
     FailedPrecondition — this Server process is not the active process of its
-    node ID, or its step down is already in progress
+    node ID, its step down is already in progress, or
+    expected_node_epoch differs from its node epoch
     Internal           — the step down failed; the detail says whether the
-    node lease stays held until it expires
-    Unimplemented      — the Server does not provide AdminService
+    node lease may stay held until it expires
+
+    A Server that does not provide AdminService answers Unimplemented without
+    ServiceErrorResponse. No AdminService failure is Unavailable, because a
+    retry reaches whichever process is active by then.
+
+    On StepDownActiveNode, a client-side DeadlineExceeded, Cancelled, or
+    Unavailable means the outcome is unknown. Call DescribeActiveNode first, and
+    retry only with expected_node_epoch set to the node epoch it returns.
     ---------------------------------------------------------------------------
 
     Hosted by server-zd; operators call these RPCs through dexcli.
     """
+
+    def DescribeActiveNode(self, request, context):
+        """Returns the node ID, node epoch, and lease holder of the active Server process.
+
+        The process that receives the call answers from the node lease it holds.
+        It fails with FailedPrecondition when it is not the active process, for
+        example while it starts, stands by, or steps down. The call changes
+        nothing, so it is safe to retry.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def StepDownActiveNode(self, request, context):
         """Makes the active Server process of a node ID give up its node lease.
 
         The active process stops serving and waits, within a bound, for in-flight
         commits. It then releases the node lease and stays running as a standby
-        process. It waits for a hold-off before it competes for the lease again, so
-        another standby process of the same node ID can take over first. If none
-        does, it takes the lease back. The call returns after the release.
+        process. It waits for lease_reacquisition_hold_off before it competes for
+        the lease again, so another standby process of the same node ID can take
+        over first. If none does, it takes the lease back with a new node epoch.
+
+        After the release, the call watches the node lease. It returns as soon as
+        another process takes over. Otherwise it returns after the hold-off and
+        one attempt by this process to take the lease back. The call therefore
+        lasts at most the commit drain bound, the release, the hold-off, and one
+        lease acquisition attempt. The response names the process that holds the
+        lease, or says that neither case was confirmed within that bound.
 
         Each call steps down whichever process is active when the call arrives.
         A blind retry can therefore step down the process that just took over.
+        Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1682,6 +1731,11 @@ class AdminServiceServicer:
 
 def add_AdminServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'DescribeActiveNode': grpc.unary_unary_rpc_method_handler(
+                    servicer.DescribeActiveNode,
+                    request_deserializer=dex__pb2.DescribeActiveNodeRequest.FromString,
+                    response_serializer=dex__pb2.DescribeActiveNodeResponse.SerializeToString,
+            ),
             'StepDownActiveNode': grpc.unary_unary_rpc_method_handler(
                     servicer.StepDownActiveNode,
                     request_deserializer=dex__pb2.StepDownActiveNodeRequest.FromString,
@@ -1700,21 +1754,60 @@ class AdminService:
     AdminService error handling
 
     AdminService serves operators, not applications. When the Server configures
-    public API authentication, every call needs a JWT whose audience is listed
-    in auth.adminAudiences. A Server without authentication allows every call.
-    Failures carry ServiceErrorResponse with sub_status UNCATEGORIZED.
+    public API authentication, every call needs a JWT from a jwt authenticator
+    whose adminAudiences list names one of the token's audiences. Static tokens
+    never authorize AdminService. A Server without authentication allows every
+    call, so anyone who can reach its API listener can step it down.
+
+    A status that AdminService returns carries ServiceErrorResponse with
+    sub_status UNCATEGORIZED:
 
     Unauthenticated    — no credential, or no authenticator accepts it
     PermissionDenied   — a valid public API credential without an admin audience
     FailedPrecondition — this Server process is not the active process of its
-    node ID, or its step down is already in progress
+    node ID, its step down is already in progress, or
+    expected_node_epoch differs from its node epoch
     Internal           — the step down failed; the detail says whether the
-    node lease stays held until it expires
-    Unimplemented      — the Server does not provide AdminService
+    node lease may stay held until it expires
+
+    A Server that does not provide AdminService answers Unimplemented without
+    ServiceErrorResponse. No AdminService failure is Unavailable, because a
+    retry reaches whichever process is active by then.
+
+    On StepDownActiveNode, a client-side DeadlineExceeded, Cancelled, or
+    Unavailable means the outcome is unknown. Call DescribeActiveNode first, and
+    retry only with expected_node_epoch set to the node epoch it returns.
     ---------------------------------------------------------------------------
 
     Hosted by server-zd; operators call these RPCs through dexcli.
     """
+
+    @staticmethod
+    def DescribeActiveNode(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.AdminService/DescribeActiveNode',
+            dex__pb2.DescribeActiveNodeRequest.SerializeToString,
+            dex__pb2.DescribeActiveNodeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def StepDownActiveNode(request,

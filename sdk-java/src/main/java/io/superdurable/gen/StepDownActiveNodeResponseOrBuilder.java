@@ -42,41 +42,11 @@ public interface StepDownActiveNodeResponseOrBuilder extends
 
   /**
    * <pre>
-   * The process that acquired the node lease before the call returned. Unset
-   * when no other process took over within the call.
-   * </pre>
-   *
-   * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-   * @return Whether the observedTakeover field is set.
-   */
-  boolean hasObservedTakeover();
-  /**
-   * <pre>
-   * The process that acquired the node lease before the call returned. Unset
-   * when no other process took over within the call.
-   * </pre>
-   *
-   * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-   * @return The observedTakeover.
-   */
-  io.superdurable.gen.ActiveNodeTakeover getObservedTakeover();
-  /**
-   * <pre>
-   * The process that acquired the node lease before the call returned. Unset
-   * when no other process took over within the call.
-   * </pre>
-   *
-   * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-   */
-  io.superdurable.gen.ActiveNodeTakeoverOrBuilder getObservedTakeoverOrBuilder();
-
-  /**
-   * <pre>
    * How long the stepped-down process waits before it competes for the node
    * lease again.
    * </pre>
    *
-   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
    * @return Whether the leaseReacquisitionHoldOff field is set.
    */
   boolean hasLeaseReacquisitionHoldOff();
@@ -86,7 +56,7 @@ public interface StepDownActiveNodeResponseOrBuilder extends
    * lease again.
    * </pre>
    *
-   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
    * @return The leaseReacquisitionHoldOff.
    */
   com.google.protobuf.Duration getLeaseReacquisitionHoldOff();
@@ -96,7 +66,93 @@ public interface StepDownActiveNodeResponseOrBuilder extends
    * lease again.
    * </pre>
    *
-   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
    */
   com.google.protobuf.DurationOrBuilder getLeaseReacquisitionHoldOffOrBuilder();
+
+  /**
+   * <pre>
+   * Another process of the same node ID acquired the node lease.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+   * @return Whether the takenOverByAnotherProcess field is set.
+   */
+  boolean hasTakenOverByAnotherProcess();
+  /**
+   * <pre>
+   * Another process of the same node ID acquired the node lease.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+   * @return The takenOverByAnotherProcess.
+   */
+  io.superdurable.gen.NodeLeaseHolder getTakenOverByAnotherProcess();
+  /**
+   * <pre>
+   * Another process of the same node ID acquired the node lease.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+   */
+  io.superdurable.gen.NodeLeaseHolderOrBuilder getTakenOverByAnotherProcessOrBuilder();
+
+  /**
+   * <pre>
+   * No other process acquired the node lease within the hold-off, so the
+   * stepped-down process took it back with a new node epoch.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+   * @return Whether the takenBackByThisProcess field is set.
+   */
+  boolean hasTakenBackByThisProcess();
+  /**
+   * <pre>
+   * No other process acquired the node lease within the hold-off, so the
+   * stepped-down process took it back with a new node epoch.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+   * @return The takenBackByThisProcess.
+   */
+  io.superdurable.gen.NodeLeaseHolder getTakenBackByThisProcess();
+  /**
+   * <pre>
+   * No other process acquired the node lease within the hold-off, so the
+   * stepped-down process took it back with a new node epoch.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+   */
+  io.superdurable.gen.NodeLeaseHolderOrBuilder getTakenBackByThisProcessOrBuilder();
+
+  /**
+   * <pre>
+   * Neither a takeover nor a take-back was confirmed before the call returned.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+   * @return Whether the leaseHolderUnknown field is set.
+   */
+  boolean hasLeaseHolderUnknown();
+  /**
+   * <pre>
+   * Neither a takeover nor a take-back was confirmed before the call returned.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+   * @return The leaseHolderUnknown.
+   */
+  io.superdurable.gen.NodeLeaseHolderUnknown getLeaseHolderUnknown();
+  /**
+   * <pre>
+   * Neither a takeover nor a take-back was confirmed before the call returned.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+   */
+  io.superdurable.gen.NodeLeaseHolderUnknownOrBuilder getLeaseHolderUnknownOrBuilder();
+
+  io.superdurable.gen.StepDownActiveNodeResponse.LeaseHolderAfterStepDownCase getLeaseHolderAfterStepDownCase();
 }

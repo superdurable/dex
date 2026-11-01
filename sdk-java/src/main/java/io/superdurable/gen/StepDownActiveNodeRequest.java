@@ -52,6 +52,38 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.StepDownActiveNodeRequest.class, io.superdurable.gen.StepDownActiveNodeRequest.Builder.class);
   }
 
+  private int bitField0_;
+  public static final int EXPECTED_NODE_EPOCH_FIELD_NUMBER = 1;
+  private long expectedNodeEpoch_ = 0L;
+  /**
+   * <pre>
+   * When set, the process steps down only if it holds the node lease at this
+   * node epoch. Otherwise the call fails with FailedPrecondition and changes
+   * nothing. When unset, whichever active process receives the call steps down.
+   * </pre>
+   *
+   * <code>optional uint64 expected_node_epoch = 1;</code>
+   * @return Whether the expectedNodeEpoch field is set.
+   */
+  @java.lang.Override
+  public boolean hasExpectedNodeEpoch() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * When set, the process steps down only if it holds the node lease at this
+   * node epoch. Otherwise the call fails with FailedPrecondition and changes
+   * nothing. When unset, whichever active process receives the call steps down.
+   * </pre>
+   *
+   * <code>optional uint64 expected_node_epoch = 1;</code>
+   * @return The expectedNodeEpoch.
+   */
+  @java.lang.Override
+  public long getExpectedNodeEpoch() {
+    return expectedNodeEpoch_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -66,7 +98,18 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeUInt64(1, expectedNodeEpoch_);
+    }
     getUnknownFields().writeTo(output);
+  }
+  private int computeSerializedSize_0() {
+    int size = 0;
+    if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeUInt64Size(1, expectedNodeEpoch_);
+    }
+    return size;
   }
   @java.lang.Override
   public int getSerializedSize() {
@@ -74,6 +117,7 @@ private static final long serialVersionUID = 0L;
     if (size != -1) return size;
 
     size = 0;
+    size += computeSerializedSize_0();
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
     return size;
@@ -89,6 +133,11 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.StepDownActiveNodeRequest other = (io.superdurable.gen.StepDownActiveNodeRequest) obj;
 
+    if (hasExpectedNodeEpoch() != other.hasExpectedNodeEpoch()) return false;
+    if (hasExpectedNodeEpoch()) {
+      if (getExpectedNodeEpoch()
+          != other.getExpectedNodeEpoch()) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -100,6 +149,11 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
+    if (hasExpectedNodeEpoch()) {
+      hash = (37 * hash) + EXPECTED_NODE_EPOCH_FIELD_NUMBER;
+      hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+          getExpectedNodeEpoch());
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -234,6 +288,8 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public Builder clear() {
       super.clear();
+      bitField0_ = 0;
+      expectedNodeEpoch_ = 0L;
       return this;
     }
 
@@ -260,8 +316,19 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public io.superdurable.gen.StepDownActiveNodeRequest buildPartial() {
       io.superdurable.gen.StepDownActiveNodeRequest result = new io.superdurable.gen.StepDownActiveNodeRequest(this);
+      if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
+    }
+
+    private void buildPartial0(io.superdurable.gen.StepDownActiveNodeRequest result) {
+      int from_bitField0_ = bitField0_;
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.expectedNodeEpoch_ = expectedNodeEpoch_;
+        to_bitField0_ |= 0x00000001;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
@@ -276,6 +343,9 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.StepDownActiveNodeRequest other) {
       if (other == io.superdurable.gen.StepDownActiveNodeRequest.getDefaultInstance()) return this;
+      if (other.hasExpectedNodeEpoch()) {
+        setExpectedNodeEpoch(other.getExpectedNodeEpoch());
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -302,6 +372,11 @@ private static final long serialVersionUID = 0L;
             case 0:
               done = true;
               break;
+            case 8: {
+              expectedNodeEpoch_ = input.readUInt64();
+              bitField0_ |= 0x00000001;
+              break;
+            } // case 8
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -315,6 +390,71 @@ private static final long serialVersionUID = 0L;
       } finally {
         onChanged();
       } // finally
+      return this;
+    }
+    private int bitField0_;
+
+    private long expectedNodeEpoch_ ;
+    /**
+     * <pre>
+     * When set, the process steps down only if it holds the node lease at this
+     * node epoch. Otherwise the call fails with FailedPrecondition and changes
+     * nothing. When unset, whichever active process receives the call steps down.
+     * </pre>
+     *
+     * <code>optional uint64 expected_node_epoch = 1;</code>
+     * @return Whether the expectedNodeEpoch field is set.
+     */
+    @java.lang.Override
+    public boolean hasExpectedNodeEpoch() {
+      return ((bitField0_ & 0x00000001) != 0);
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it holds the node lease at this
+     * node epoch. Otherwise the call fails with FailedPrecondition and changes
+     * nothing. When unset, whichever active process receives the call steps down.
+     * </pre>
+     *
+     * <code>optional uint64 expected_node_epoch = 1;</code>
+     * @return The expectedNodeEpoch.
+     */
+    @java.lang.Override
+    public long getExpectedNodeEpoch() {
+      return expectedNodeEpoch_;
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it holds the node lease at this
+     * node epoch. Otherwise the call fails with FailedPrecondition and changes
+     * nothing. When unset, whichever active process receives the call steps down.
+     * </pre>
+     *
+     * <code>optional uint64 expected_node_epoch = 1;</code>
+     * @param value The expectedNodeEpoch to set.
+     * @return This builder for chaining.
+     */
+    public Builder setExpectedNodeEpoch(long value) {
+
+      expectedNodeEpoch_ = value;
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it holds the node lease at this
+     * node epoch. Otherwise the call fails with FailedPrecondition and changes
+     * nothing. When unset, whichever active process receives the call steps down.
+     * </pre>
+     *
+     * <code>optional uint64 expected_node_epoch = 1;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearExpectedNodeEpoch() {
+      bitField0_ = (bitField0_ & ~0x00000001);
+      expectedNodeEpoch_ = 0L;
+      onChanged();
       return this;
     }
 

@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Reports a completed step down and what the process observed before returning.
+ * Reports a completed step down and which process held the node lease when the call returned.
  * </pre>
  *
  * Protobuf type {@code dex.StepDownActiveNodeResponse}
@@ -54,6 +54,50 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
+  private int leaseHolderAfterStepDownCase_ = 0;
+  @SuppressWarnings("serial")
+  private java.lang.Object leaseHolderAfterStepDown_;
+  public enum LeaseHolderAfterStepDownCase
+      implements com.google.protobuf.Internal.EnumLite,
+          com.google.protobuf.AbstractMessage.InternalOneOfEnum {
+    TAKEN_OVER_BY_ANOTHER_PROCESS(4),
+    TAKEN_BACK_BY_THIS_PROCESS(5),
+    LEASE_HOLDER_UNKNOWN(6),
+    LEASEHOLDERAFTERSTEPDOWN_NOT_SET(0);
+    private final int value;
+    private LeaseHolderAfterStepDownCase(int value) {
+      this.value = value;
+    }
+    /**
+     * @param value The number of the enum to look for.
+     * @return The enum associated with the given number.
+     * @deprecated Use {@link #forNumber(int)} instead.
+     */
+    @java.lang.Deprecated
+    public static LeaseHolderAfterStepDownCase valueOf(int value) {
+      return forNumber(value);
+    }
+
+    public static LeaseHolderAfterStepDownCase forNumber(int value) {
+      switch (value) {
+        case 4: return TAKEN_OVER_BY_ANOTHER_PROCESS;
+        case 5: return TAKEN_BACK_BY_THIS_PROCESS;
+        case 6: return LEASE_HOLDER_UNKNOWN;
+        case 0: return LEASEHOLDERAFTERSTEPDOWN_NOT_SET;
+        default: return null;
+      }
+    }
+    public int getNumber() {
+      return this.value;
+    }
+  };
+
+  public LeaseHolderAfterStepDownCase
+  getLeaseHolderAfterStepDownCase() {
+    return LeaseHolderAfterStepDownCase.forNumber(
+        leaseHolderAfterStepDownCase_);
+  }
+
   public static final int NODE_ID_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private volatile java.lang.Object nodeId_ = "";
@@ -116,48 +160,7 @@ private static final long serialVersionUID = 0L;
     return releasedNodeEpoch_;
   }
 
-  public static final int OBSERVED_TAKEOVER_FIELD_NUMBER = 3;
-  private io.superdurable.gen.ActiveNodeTakeover observedTakeover_;
-  /**
-   * <pre>
-   * The process that acquired the node lease before the call returned. Unset
-   * when no other process took over within the call.
-   * </pre>
-   *
-   * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-   * @return Whether the observedTakeover field is set.
-   */
-  @java.lang.Override
-  public boolean hasObservedTakeover() {
-    return ((bitField0_ & 0x00000001) != 0);
-  }
-  /**
-   * <pre>
-   * The process that acquired the node lease before the call returned. Unset
-   * when no other process took over within the call.
-   * </pre>
-   *
-   * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-   * @return The observedTakeover.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.ActiveNodeTakeover getObservedTakeover() {
-    return observedTakeover_ == null ? io.superdurable.gen.ActiveNodeTakeover.getDefaultInstance() : observedTakeover_;
-  }
-  /**
-   * <pre>
-   * The process that acquired the node lease before the call returned. Unset
-   * when no other process took over within the call.
-   * </pre>
-   *
-   * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.ActiveNodeTakeoverOrBuilder getObservedTakeoverOrBuilder() {
-    return observedTakeover_ == null ? io.superdurable.gen.ActiveNodeTakeover.getDefaultInstance() : observedTakeover_;
-  }
-
-  public static final int LEASE_REACQUISITION_HOLD_OFF_FIELD_NUMBER = 4;
+  public static final int LEASE_REACQUISITION_HOLD_OFF_FIELD_NUMBER = 3;
   private com.google.protobuf.Duration leaseReacquisitionHoldOff_;
   /**
    * <pre>
@@ -165,12 +168,12 @@ private static final long serialVersionUID = 0L;
    * lease again.
    * </pre>
    *
-   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
    * @return Whether the leaseReacquisitionHoldOff field is set.
    */
   @java.lang.Override
   public boolean hasLeaseReacquisitionHoldOff() {
-    return ((bitField0_ & 0x00000002) != 0);
+    return ((bitField0_ & 0x00000001) != 0);
   }
   /**
    * <pre>
@@ -178,7 +181,7 @@ private static final long serialVersionUID = 0L;
    * lease again.
    * </pre>
    *
-   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
    * @return The leaseReacquisitionHoldOff.
    */
   @java.lang.Override
@@ -191,11 +194,143 @@ private static final long serialVersionUID = 0L;
    * lease again.
    * </pre>
    *
-   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+   * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
    */
   @java.lang.Override
   public com.google.protobuf.DurationOrBuilder getLeaseReacquisitionHoldOffOrBuilder() {
     return leaseReacquisitionHoldOff_ == null ? com.google.protobuf.Duration.getDefaultInstance() : leaseReacquisitionHoldOff_;
+  }
+
+  public static final int TAKEN_OVER_BY_ANOTHER_PROCESS_FIELD_NUMBER = 4;
+  /**
+   * <pre>
+   * Another process of the same node ID acquired the node lease.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+   * @return Whether the takenOverByAnotherProcess field is set.
+   */
+  @java.lang.Override
+  public boolean hasTakenOverByAnotherProcess() {
+    return leaseHolderAfterStepDownCase_ == 4;
+  }
+  /**
+   * <pre>
+   * Another process of the same node ID acquired the node lease.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+   * @return The takenOverByAnotherProcess.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.NodeLeaseHolder getTakenOverByAnotherProcess() {
+    if (leaseHolderAfterStepDownCase_ == 4) {
+       return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+    }
+    return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * Another process of the same node ID acquired the node lease.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.NodeLeaseHolderOrBuilder getTakenOverByAnotherProcessOrBuilder() {
+    if (leaseHolderAfterStepDownCase_ == 4) {
+       return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+    }
+    return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+  }
+
+  public static final int TAKEN_BACK_BY_THIS_PROCESS_FIELD_NUMBER = 5;
+  /**
+   * <pre>
+   * No other process acquired the node lease within the hold-off, so the
+   * stepped-down process took it back with a new node epoch.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+   * @return Whether the takenBackByThisProcess field is set.
+   */
+  @java.lang.Override
+  public boolean hasTakenBackByThisProcess() {
+    return leaseHolderAfterStepDownCase_ == 5;
+  }
+  /**
+   * <pre>
+   * No other process acquired the node lease within the hold-off, so the
+   * stepped-down process took it back with a new node epoch.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+   * @return The takenBackByThisProcess.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.NodeLeaseHolder getTakenBackByThisProcess() {
+    if (leaseHolderAfterStepDownCase_ == 5) {
+       return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+    }
+    return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * No other process acquired the node lease within the hold-off, so the
+   * stepped-down process took it back with a new node epoch.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.NodeLeaseHolderOrBuilder getTakenBackByThisProcessOrBuilder() {
+    if (leaseHolderAfterStepDownCase_ == 5) {
+       return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+    }
+    return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+  }
+
+  public static final int LEASE_HOLDER_UNKNOWN_FIELD_NUMBER = 6;
+  /**
+   * <pre>
+   * Neither a takeover nor a take-back was confirmed before the call returned.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+   * @return Whether the leaseHolderUnknown field is set.
+   */
+  @java.lang.Override
+  public boolean hasLeaseHolderUnknown() {
+    return leaseHolderAfterStepDownCase_ == 6;
+  }
+  /**
+   * <pre>
+   * Neither a takeover nor a take-back was confirmed before the call returned.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+   * @return The leaseHolderUnknown.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.NodeLeaseHolderUnknown getLeaseHolderUnknown() {
+    if (leaseHolderAfterStepDownCase_ == 6) {
+       return (io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_;
+    }
+    return io.superdurable.gen.NodeLeaseHolderUnknown.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * Neither a takeover nor a take-back was confirmed before the call returned.
+   * </pre>
+   *
+   * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.NodeLeaseHolderUnknownOrBuilder getLeaseHolderUnknownOrBuilder() {
+    if (leaseHolderAfterStepDownCase_ == 6) {
+       return (io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_;
+    }
+    return io.superdurable.gen.NodeLeaseHolderUnknown.getDefaultInstance();
   }
 
   private byte memoizedIsInitialized = -1;
@@ -219,10 +354,16 @@ private static final long serialVersionUID = 0L;
       output.writeUInt64(2, releasedNodeEpoch_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(3, getObservedTakeover());
+      output.writeMessage(3, getLeaseReacquisitionHoldOff());
     }
-    if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(4, getLeaseReacquisitionHoldOff());
+    if (leaseHolderAfterStepDownCase_ == 4) {
+      output.writeMessage(4, (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_);
+    }
+    if (leaseHolderAfterStepDownCase_ == 5) {
+      output.writeMessage(5, (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_);
+    }
+    if (leaseHolderAfterStepDownCase_ == 6) {
+      output.writeMessage(6, (io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -237,11 +378,19 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(3, getObservedTakeover());
+        .computeMessageSize(3, getLeaseReacquisitionHoldOff());
     }
-    if (((bitField0_ & 0x00000002) != 0)) {
+    if (leaseHolderAfterStepDownCase_ == 4) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(4, getLeaseReacquisitionHoldOff());
+        .computeMessageSize(4, (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_);
+    }
+    if (leaseHolderAfterStepDownCase_ == 5) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_);
+    }
+    if (leaseHolderAfterStepDownCase_ == 6) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(6, (io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_);
     }
     return size;
   }
@@ -271,15 +420,27 @@ private static final long serialVersionUID = 0L;
         .equals(other.getNodeId())) return false;
     if (getReleasedNodeEpoch()
         != other.getReleasedNodeEpoch()) return false;
-    if (hasObservedTakeover() != other.hasObservedTakeover()) return false;
-    if (hasObservedTakeover()) {
-      if (!getObservedTakeover()
-          .equals(other.getObservedTakeover())) return false;
-    }
     if (hasLeaseReacquisitionHoldOff() != other.hasLeaseReacquisitionHoldOff()) return false;
     if (hasLeaseReacquisitionHoldOff()) {
       if (!getLeaseReacquisitionHoldOff()
           .equals(other.getLeaseReacquisitionHoldOff())) return false;
+    }
+    if (!getLeaseHolderAfterStepDownCase().equals(other.getLeaseHolderAfterStepDownCase())) return false;
+    switch (leaseHolderAfterStepDownCase_) {
+      case 4:
+        if (!getTakenOverByAnotherProcess()
+            .equals(other.getTakenOverByAnotherProcess())) return false;
+        break;
+      case 5:
+        if (!getTakenBackByThisProcess()
+            .equals(other.getTakenBackByThisProcess())) return false;
+        break;
+      case 6:
+        if (!getLeaseHolderUnknown()
+            .equals(other.getLeaseHolderUnknown())) return false;
+        break;
+      case 0:
+      default:
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -297,13 +458,25 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + RELEASED_NODE_EPOCH_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
         getReleasedNodeEpoch());
-    if (hasObservedTakeover()) {
-      hash = (37 * hash) + OBSERVED_TAKEOVER_FIELD_NUMBER;
-      hash = (53 * hash) + getObservedTakeover().hashCode();
-    }
     if (hasLeaseReacquisitionHoldOff()) {
       hash = (37 * hash) + LEASE_REACQUISITION_HOLD_OFF_FIELD_NUMBER;
       hash = (53 * hash) + getLeaseReacquisitionHoldOff().hashCode();
+    }
+    switch (leaseHolderAfterStepDownCase_) {
+      case 4:
+        hash = (37 * hash) + TAKEN_OVER_BY_ANOTHER_PROCESS_FIELD_NUMBER;
+        hash = (53 * hash) + getTakenOverByAnotherProcess().hashCode();
+        break;
+      case 5:
+        hash = (37 * hash) + TAKEN_BACK_BY_THIS_PROCESS_FIELD_NUMBER;
+        hash = (53 * hash) + getTakenBackByThisProcess().hashCode();
+        break;
+      case 6:
+        hash = (37 * hash) + LEASE_HOLDER_UNKNOWN_FIELD_NUMBER;
+        hash = (53 * hash) + getLeaseHolderUnknown().hashCode();
+        break;
+      case 0:
+      default:
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -404,7 +577,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Reports a completed step down and what the process observed before returning.
+   * Reports a completed step down and which process held the node lease when the call returned.
    * </pre>
    *
    * Protobuf type {@code dex.StepDownActiveNodeResponse}
@@ -439,7 +612,6 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetObservedTakeoverFieldBuilder();
         internalGetLeaseReacquisitionHoldOffFieldBuilder();
       }
     }
@@ -449,16 +621,22 @@ private static final long serialVersionUID = 0L;
       bitField0_ = 0;
       nodeId_ = "";
       releasedNodeEpoch_ = 0L;
-      observedTakeover_ = null;
-      if (observedTakeoverBuilder_ != null) {
-        observedTakeoverBuilder_.dispose();
-        observedTakeoverBuilder_ = null;
-      }
       leaseReacquisitionHoldOff_ = null;
       if (leaseReacquisitionHoldOffBuilder_ != null) {
         leaseReacquisitionHoldOffBuilder_.dispose();
         leaseReacquisitionHoldOffBuilder_ = null;
       }
+      if (takenOverByAnotherProcessBuilder_ != null) {
+        takenOverByAnotherProcessBuilder_.clear();
+      }
+      if (takenBackByThisProcessBuilder_ != null) {
+        takenBackByThisProcessBuilder_.clear();
+      }
+      if (leaseHolderUnknownBuilder_ != null) {
+        leaseHolderUnknownBuilder_.clear();
+      }
+      leaseHolderAfterStepDownCase_ = 0;
+      leaseHolderAfterStepDown_ = null;
       return this;
     }
 
@@ -486,6 +664,7 @@ private static final long serialVersionUID = 0L;
     public io.superdurable.gen.StepDownActiveNodeResponse buildPartial() {
       io.superdurable.gen.StepDownActiveNodeResponse result = new io.superdurable.gen.StepDownActiveNodeResponse(this);
       if (bitField0_ != 0) { buildPartial0(result); }
+      buildPartialOneofs(result);
       onBuilt();
       return result;
     }
@@ -500,18 +679,29 @@ private static final long serialVersionUID = 0L;
       }
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.observedTakeover_ = observedTakeoverBuilder_ == null
-            ? observedTakeover_
-            : observedTakeoverBuilder_.build();
-        to_bitField0_ |= 0x00000001;
-      }
-      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.leaseReacquisitionHoldOff_ = leaseReacquisitionHoldOffBuilder_ == null
             ? leaseReacquisitionHoldOff_
             : leaseReacquisitionHoldOffBuilder_.build();
-        to_bitField0_ |= 0x00000002;
+        to_bitField0_ |= 0x00000001;
       }
       result.bitField0_ |= to_bitField0_;
+    }
+
+    private void buildPartialOneofs(io.superdurable.gen.StepDownActiveNodeResponse result) {
+      result.leaseHolderAfterStepDownCase_ = leaseHolderAfterStepDownCase_;
+      result.leaseHolderAfterStepDown_ = this.leaseHolderAfterStepDown_;
+      if (leaseHolderAfterStepDownCase_ == 4 &&
+          takenOverByAnotherProcessBuilder_ != null) {
+        result.leaseHolderAfterStepDown_ = takenOverByAnotherProcessBuilder_.build();
+      }
+      if (leaseHolderAfterStepDownCase_ == 5 &&
+          takenBackByThisProcessBuilder_ != null) {
+        result.leaseHolderAfterStepDown_ = takenBackByThisProcessBuilder_.build();
+      }
+      if (leaseHolderAfterStepDownCase_ == 6 &&
+          leaseHolderUnknownBuilder_ != null) {
+        result.leaseHolderAfterStepDown_ = leaseHolderUnknownBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -534,11 +724,25 @@ private static final long serialVersionUID = 0L;
       if (other.getReleasedNodeEpoch() != 0L) {
         setReleasedNodeEpoch(other.getReleasedNodeEpoch());
       }
-      if (other.hasObservedTakeover()) {
-        mergeObservedTakeover(other.getObservedTakeover());
-      }
       if (other.hasLeaseReacquisitionHoldOff()) {
         mergeLeaseReacquisitionHoldOff(other.getLeaseReacquisitionHoldOff());
+      }
+      switch (other.getLeaseHolderAfterStepDownCase()) {
+        case TAKEN_OVER_BY_ANOTHER_PROCESS: {
+          mergeTakenOverByAnotherProcess(other.getTakenOverByAnotherProcess());
+          break;
+        }
+        case TAKEN_BACK_BY_THIS_PROCESS: {
+          mergeTakenBackByThisProcess(other.getTakenBackByThisProcess());
+          break;
+        }
+        case LEASE_HOLDER_UNKNOWN: {
+          mergeLeaseHolderUnknown(other.getLeaseHolderUnknown());
+          break;
+        }
+        case LEASEHOLDERAFTERSTEPDOWN_NOT_SET: {
+          break;
+        }
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -578,18 +782,32 @@ private static final long serialVersionUID = 0L;
             } // case 16
             case 26: {
               input.readMessage(
-                  internalGetObservedTakeoverFieldBuilder().getBuilder(),
+                  internalGetLeaseReacquisitionHoldOffFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000004;
               break;
             } // case 26
             case 34: {
               input.readMessage(
-                  internalGetLeaseReacquisitionHoldOffFieldBuilder().getBuilder(),
+                  internalGetTakenOverByAnotherProcessFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000008;
+              leaseHolderAfterStepDownCase_ = 4;
               break;
             } // case 34
+            case 42: {
+              input.readMessage(
+                  internalGetTakenBackByThisProcessFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              leaseHolderAfterStepDownCase_ = 5;
+              break;
+            } // case 42
+            case 50: {
+              input.readMessage(
+                  internalGetLeaseHolderUnknownFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              leaseHolderAfterStepDownCase_ = 6;
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -605,6 +823,21 @@ private static final long serialVersionUID = 0L;
       } // finally
       return this;
     }
+    private int leaseHolderAfterStepDownCase_ = 0;
+    private java.lang.Object leaseHolderAfterStepDown_;
+    public LeaseHolderAfterStepDownCase
+        getLeaseHolderAfterStepDownCase() {
+      return LeaseHolderAfterStepDownCase.forNumber(
+          leaseHolderAfterStepDownCase_);
+    }
+
+    public Builder clearLeaseHolderAfterStepDown() {
+      leaseHolderAfterStepDownCase_ = 0;
+      leaseHolderAfterStepDown_ = null;
+      onChanged();
+      return this;
+    }
+
     private int bitField0_;
 
     private java.lang.Object nodeId_ = "";
@@ -743,172 +976,6 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private io.superdurable.gen.ActiveNodeTakeover observedTakeover_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ActiveNodeTakeover, io.superdurable.gen.ActiveNodeTakeover.Builder, io.superdurable.gen.ActiveNodeTakeoverOrBuilder> observedTakeoverBuilder_;
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     * @return Whether the observedTakeover field is set.
-     */
-    public boolean hasObservedTakeover() {
-      return ((bitField0_ & 0x00000004) != 0);
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     * @return The observedTakeover.
-     */
-    public io.superdurable.gen.ActiveNodeTakeover getObservedTakeover() {
-      if (observedTakeoverBuilder_ == null) {
-        return observedTakeover_ == null ? io.superdurable.gen.ActiveNodeTakeover.getDefaultInstance() : observedTakeover_;
-      } else {
-        return observedTakeoverBuilder_.getMessage();
-      }
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     */
-    public Builder setObservedTakeover(io.superdurable.gen.ActiveNodeTakeover value) {
-      if (observedTakeoverBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        observedTakeover_ = value;
-      } else {
-        observedTakeoverBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     */
-    public Builder setObservedTakeover(
-        io.superdurable.gen.ActiveNodeTakeover.Builder builderForValue) {
-      if (observedTakeoverBuilder_ == null) {
-        observedTakeover_ = builderForValue.build();
-      } else {
-        observedTakeoverBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     */
-    public Builder mergeObservedTakeover(io.superdurable.gen.ActiveNodeTakeover value) {
-      if (observedTakeoverBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0) &&
-          observedTakeover_ != null &&
-          observedTakeover_ != io.superdurable.gen.ActiveNodeTakeover.getDefaultInstance()) {
-          getObservedTakeoverBuilder().mergeFrom(value);
-        } else {
-          observedTakeover_ = value;
-        }
-      } else {
-        observedTakeoverBuilder_.mergeFrom(value);
-      }
-      if (observedTakeover_ != null) {
-        bitField0_ |= 0x00000004;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     */
-    public Builder clearObservedTakeover() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      observedTakeover_ = null;
-      if (observedTakeoverBuilder_ != null) {
-        observedTakeoverBuilder_.dispose();
-        observedTakeoverBuilder_ = null;
-      }
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     */
-    public io.superdurable.gen.ActiveNodeTakeover.Builder getObservedTakeoverBuilder() {
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return internalGetObservedTakeoverFieldBuilder().getBuilder();
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     */
-    public io.superdurable.gen.ActiveNodeTakeoverOrBuilder getObservedTakeoverOrBuilder() {
-      if (observedTakeoverBuilder_ != null) {
-        return observedTakeoverBuilder_.getMessageOrBuilder();
-      } else {
-        return observedTakeover_ == null ?
-            io.superdurable.gen.ActiveNodeTakeover.getDefaultInstance() : observedTakeover_;
-      }
-    }
-    /**
-     * <pre>
-     * The process that acquired the node lease before the call returned. Unset
-     * when no other process took over within the call.
-     * </pre>
-     *
-     * <code>.dex.ActiveNodeTakeover observed_takeover = 3;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ActiveNodeTakeover, io.superdurable.gen.ActiveNodeTakeover.Builder, io.superdurable.gen.ActiveNodeTakeoverOrBuilder> 
-        internalGetObservedTakeoverFieldBuilder() {
-      if (observedTakeoverBuilder_ == null) {
-        observedTakeoverBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.ActiveNodeTakeover, io.superdurable.gen.ActiveNodeTakeover.Builder, io.superdurable.gen.ActiveNodeTakeoverOrBuilder>(
-                getObservedTakeover(),
-                getParentForChildren(),
-                isClean());
-        observedTakeover_ = null;
-      }
-      return observedTakeoverBuilder_;
-    }
-
     private com.google.protobuf.Duration leaseReacquisitionHoldOff_;
     private com.google.protobuf.SingleFieldBuilder<
         com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder> leaseReacquisitionHoldOffBuilder_;
@@ -918,11 +985,11 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      * @return Whether the leaseReacquisitionHoldOff field is set.
      */
     public boolean hasLeaseReacquisitionHoldOff() {
-      return ((bitField0_ & 0x00000008) != 0);
+      return ((bitField0_ & 0x00000004) != 0);
     }
     /**
      * <pre>
@@ -930,7 +997,7 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      * @return The leaseReacquisitionHoldOff.
      */
     public com.google.protobuf.Duration getLeaseReacquisitionHoldOff() {
@@ -946,7 +1013,7 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      */
     public Builder setLeaseReacquisitionHoldOff(com.google.protobuf.Duration value) {
       if (leaseReacquisitionHoldOffBuilder_ == null) {
@@ -957,7 +1024,7 @@ private static final long serialVersionUID = 0L;
       } else {
         leaseReacquisitionHoldOffBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -967,7 +1034,7 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      */
     public Builder setLeaseReacquisitionHoldOff(
         com.google.protobuf.Duration.Builder builderForValue) {
@@ -976,7 +1043,7 @@ private static final long serialVersionUID = 0L;
       } else {
         leaseReacquisitionHoldOffBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -986,11 +1053,11 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      */
     public Builder mergeLeaseReacquisitionHoldOff(com.google.protobuf.Duration value) {
       if (leaseReacquisitionHoldOffBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0) &&
+        if (((bitField0_ & 0x00000004) != 0) &&
           leaseReacquisitionHoldOff_ != null &&
           leaseReacquisitionHoldOff_ != com.google.protobuf.Duration.getDefaultInstance()) {
           getLeaseReacquisitionHoldOffBuilder().mergeFrom(value);
@@ -1001,7 +1068,7 @@ private static final long serialVersionUID = 0L;
         leaseReacquisitionHoldOffBuilder_.mergeFrom(value);
       }
       if (leaseReacquisitionHoldOff_ != null) {
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       return this;
@@ -1012,10 +1079,10 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      */
     public Builder clearLeaseReacquisitionHoldOff() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000004);
       leaseReacquisitionHoldOff_ = null;
       if (leaseReacquisitionHoldOffBuilder_ != null) {
         leaseReacquisitionHoldOffBuilder_.dispose();
@@ -1030,10 +1097,10 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      */
     public com.google.protobuf.Duration.Builder getLeaseReacquisitionHoldOffBuilder() {
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return internalGetLeaseReacquisitionHoldOffFieldBuilder().getBuilder();
     }
@@ -1043,7 +1110,7 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      */
     public com.google.protobuf.DurationOrBuilder getLeaseReacquisitionHoldOffOrBuilder() {
       if (leaseReacquisitionHoldOffBuilder_ != null) {
@@ -1059,7 +1126,7 @@ private static final long serialVersionUID = 0L;
      * lease again.
      * </pre>
      *
-     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 4;</code>
+     * <code>.google.protobuf.Duration lease_reacquisition_hold_off = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder> 
@@ -1073,6 +1140,549 @@ private static final long serialVersionUID = 0L;
         leaseReacquisitionHoldOff_ = null;
       }
       return leaseReacquisitionHoldOffBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.NodeLeaseHolder, io.superdurable.gen.NodeLeaseHolder.Builder, io.superdurable.gen.NodeLeaseHolderOrBuilder> takenOverByAnotherProcessBuilder_;
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     * @return Whether the takenOverByAnotherProcess field is set.
+     */
+    @java.lang.Override
+    public boolean hasTakenOverByAnotherProcess() {
+      return leaseHolderAfterStepDownCase_ == 4;
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     * @return The takenOverByAnotherProcess.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.NodeLeaseHolder getTakenOverByAnotherProcess() {
+      if (takenOverByAnotherProcessBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 4) {
+          return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+        }
+        return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 4) {
+          return takenOverByAnotherProcessBuilder_.getMessage();
+        }
+        return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     */
+    public Builder setTakenOverByAnotherProcess(io.superdurable.gen.NodeLeaseHolder value) {
+      if (takenOverByAnotherProcessBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        leaseHolderAfterStepDown_ = value;
+        onChanged();
+      } else {
+        takenOverByAnotherProcessBuilder_.setMessage(value);
+      }
+      leaseHolderAfterStepDownCase_ = 4;
+      return this;
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     */
+    public Builder setTakenOverByAnotherProcess(
+        io.superdurable.gen.NodeLeaseHolder.Builder builderForValue) {
+      if (takenOverByAnotherProcessBuilder_ == null) {
+        leaseHolderAfterStepDown_ = builderForValue.build();
+        onChanged();
+      } else {
+        takenOverByAnotherProcessBuilder_.setMessage(builderForValue.build());
+      }
+      leaseHolderAfterStepDownCase_ = 4;
+      return this;
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     */
+    public Builder mergeTakenOverByAnotherProcess(io.superdurable.gen.NodeLeaseHolder value) {
+      if (takenOverByAnotherProcessBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 4 &&
+            leaseHolderAfterStepDown_ != io.superdurable.gen.NodeLeaseHolder.getDefaultInstance()) {
+          leaseHolderAfterStepDown_ = io.superdurable.gen.NodeLeaseHolder.newBuilder((io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          leaseHolderAfterStepDown_ = value;
+        }
+        onChanged();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 4) {
+          takenOverByAnotherProcessBuilder_.mergeFrom(value);
+        } else {
+          takenOverByAnotherProcessBuilder_.setMessage(value);
+        }
+      }
+      leaseHolderAfterStepDownCase_ = 4;
+      return this;
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     */
+    public Builder clearTakenOverByAnotherProcess() {
+      if (takenOverByAnotherProcessBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 4) {
+          leaseHolderAfterStepDownCase_ = 0;
+          leaseHolderAfterStepDown_ = null;
+          onChanged();
+        }
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 4) {
+          leaseHolderAfterStepDownCase_ = 0;
+          leaseHolderAfterStepDown_ = null;
+        }
+        takenOverByAnotherProcessBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     */
+    public io.superdurable.gen.NodeLeaseHolder.Builder getTakenOverByAnotherProcessBuilder() {
+      return internalGetTakenOverByAnotherProcessFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.NodeLeaseHolderOrBuilder getTakenOverByAnotherProcessOrBuilder() {
+      if ((leaseHolderAfterStepDownCase_ == 4) && (takenOverByAnotherProcessBuilder_ != null)) {
+        return takenOverByAnotherProcessBuilder_.getMessageOrBuilder();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 4) {
+          return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+        }
+        return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * Another process of the same node ID acquired the node lease.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_over_by_another_process = 4;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.NodeLeaseHolder, io.superdurable.gen.NodeLeaseHolder.Builder, io.superdurable.gen.NodeLeaseHolderOrBuilder> 
+        internalGetTakenOverByAnotherProcessFieldBuilder() {
+      if (takenOverByAnotherProcessBuilder_ == null) {
+        if (!(leaseHolderAfterStepDownCase_ == 4)) {
+          leaseHolderAfterStepDown_ = io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+        }
+        takenOverByAnotherProcessBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.NodeLeaseHolder, io.superdurable.gen.NodeLeaseHolder.Builder, io.superdurable.gen.NodeLeaseHolderOrBuilder>(
+                (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_,
+                getParentForChildren(),
+                isClean());
+        leaseHolderAfterStepDown_ = null;
+      }
+      leaseHolderAfterStepDownCase_ = 4;
+      onChanged();
+      return takenOverByAnotherProcessBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.NodeLeaseHolder, io.superdurable.gen.NodeLeaseHolder.Builder, io.superdurable.gen.NodeLeaseHolderOrBuilder> takenBackByThisProcessBuilder_;
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     * @return Whether the takenBackByThisProcess field is set.
+     */
+    @java.lang.Override
+    public boolean hasTakenBackByThisProcess() {
+      return leaseHolderAfterStepDownCase_ == 5;
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     * @return The takenBackByThisProcess.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.NodeLeaseHolder getTakenBackByThisProcess() {
+      if (takenBackByThisProcessBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 5) {
+          return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+        }
+        return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 5) {
+          return takenBackByThisProcessBuilder_.getMessage();
+        }
+        return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     */
+    public Builder setTakenBackByThisProcess(io.superdurable.gen.NodeLeaseHolder value) {
+      if (takenBackByThisProcessBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        leaseHolderAfterStepDown_ = value;
+        onChanged();
+      } else {
+        takenBackByThisProcessBuilder_.setMessage(value);
+      }
+      leaseHolderAfterStepDownCase_ = 5;
+      return this;
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     */
+    public Builder setTakenBackByThisProcess(
+        io.superdurable.gen.NodeLeaseHolder.Builder builderForValue) {
+      if (takenBackByThisProcessBuilder_ == null) {
+        leaseHolderAfterStepDown_ = builderForValue.build();
+        onChanged();
+      } else {
+        takenBackByThisProcessBuilder_.setMessage(builderForValue.build());
+      }
+      leaseHolderAfterStepDownCase_ = 5;
+      return this;
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     */
+    public Builder mergeTakenBackByThisProcess(io.superdurable.gen.NodeLeaseHolder value) {
+      if (takenBackByThisProcessBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 5 &&
+            leaseHolderAfterStepDown_ != io.superdurable.gen.NodeLeaseHolder.getDefaultInstance()) {
+          leaseHolderAfterStepDown_ = io.superdurable.gen.NodeLeaseHolder.newBuilder((io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          leaseHolderAfterStepDown_ = value;
+        }
+        onChanged();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 5) {
+          takenBackByThisProcessBuilder_.mergeFrom(value);
+        } else {
+          takenBackByThisProcessBuilder_.setMessage(value);
+        }
+      }
+      leaseHolderAfterStepDownCase_ = 5;
+      return this;
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     */
+    public Builder clearTakenBackByThisProcess() {
+      if (takenBackByThisProcessBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 5) {
+          leaseHolderAfterStepDownCase_ = 0;
+          leaseHolderAfterStepDown_ = null;
+          onChanged();
+        }
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 5) {
+          leaseHolderAfterStepDownCase_ = 0;
+          leaseHolderAfterStepDown_ = null;
+        }
+        takenBackByThisProcessBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     */
+    public io.superdurable.gen.NodeLeaseHolder.Builder getTakenBackByThisProcessBuilder() {
+      return internalGetTakenBackByThisProcessFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.NodeLeaseHolderOrBuilder getTakenBackByThisProcessOrBuilder() {
+      if ((leaseHolderAfterStepDownCase_ == 5) && (takenBackByThisProcessBuilder_ != null)) {
+        return takenBackByThisProcessBuilder_.getMessageOrBuilder();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 5) {
+          return (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_;
+        }
+        return io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * No other process acquired the node lease within the hold-off, so the
+     * stepped-down process took it back with a new node epoch.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolder taken_back_by_this_process = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.NodeLeaseHolder, io.superdurable.gen.NodeLeaseHolder.Builder, io.superdurable.gen.NodeLeaseHolderOrBuilder> 
+        internalGetTakenBackByThisProcessFieldBuilder() {
+      if (takenBackByThisProcessBuilder_ == null) {
+        if (!(leaseHolderAfterStepDownCase_ == 5)) {
+          leaseHolderAfterStepDown_ = io.superdurable.gen.NodeLeaseHolder.getDefaultInstance();
+        }
+        takenBackByThisProcessBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.NodeLeaseHolder, io.superdurable.gen.NodeLeaseHolder.Builder, io.superdurable.gen.NodeLeaseHolderOrBuilder>(
+                (io.superdurable.gen.NodeLeaseHolder) leaseHolderAfterStepDown_,
+                getParentForChildren(),
+                isClean());
+        leaseHolderAfterStepDown_ = null;
+      }
+      leaseHolderAfterStepDownCase_ = 5;
+      onChanged();
+      return takenBackByThisProcessBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.NodeLeaseHolderUnknown, io.superdurable.gen.NodeLeaseHolderUnknown.Builder, io.superdurable.gen.NodeLeaseHolderUnknownOrBuilder> leaseHolderUnknownBuilder_;
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     * @return Whether the leaseHolderUnknown field is set.
+     */
+    @java.lang.Override
+    public boolean hasLeaseHolderUnknown() {
+      return leaseHolderAfterStepDownCase_ == 6;
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     * @return The leaseHolderUnknown.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.NodeLeaseHolderUnknown getLeaseHolderUnknown() {
+      if (leaseHolderUnknownBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 6) {
+          return (io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_;
+        }
+        return io.superdurable.gen.NodeLeaseHolderUnknown.getDefaultInstance();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 6) {
+          return leaseHolderUnknownBuilder_.getMessage();
+        }
+        return io.superdurable.gen.NodeLeaseHolderUnknown.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     */
+    public Builder setLeaseHolderUnknown(io.superdurable.gen.NodeLeaseHolderUnknown value) {
+      if (leaseHolderUnknownBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        leaseHolderAfterStepDown_ = value;
+        onChanged();
+      } else {
+        leaseHolderUnknownBuilder_.setMessage(value);
+      }
+      leaseHolderAfterStepDownCase_ = 6;
+      return this;
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     */
+    public Builder setLeaseHolderUnknown(
+        io.superdurable.gen.NodeLeaseHolderUnknown.Builder builderForValue) {
+      if (leaseHolderUnknownBuilder_ == null) {
+        leaseHolderAfterStepDown_ = builderForValue.build();
+        onChanged();
+      } else {
+        leaseHolderUnknownBuilder_.setMessage(builderForValue.build());
+      }
+      leaseHolderAfterStepDownCase_ = 6;
+      return this;
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     */
+    public Builder mergeLeaseHolderUnknown(io.superdurable.gen.NodeLeaseHolderUnknown value) {
+      if (leaseHolderUnknownBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 6 &&
+            leaseHolderAfterStepDown_ != io.superdurable.gen.NodeLeaseHolderUnknown.getDefaultInstance()) {
+          leaseHolderAfterStepDown_ = io.superdurable.gen.NodeLeaseHolderUnknown.newBuilder((io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          leaseHolderAfterStepDown_ = value;
+        }
+        onChanged();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 6) {
+          leaseHolderUnknownBuilder_.mergeFrom(value);
+        } else {
+          leaseHolderUnknownBuilder_.setMessage(value);
+        }
+      }
+      leaseHolderAfterStepDownCase_ = 6;
+      return this;
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     */
+    public Builder clearLeaseHolderUnknown() {
+      if (leaseHolderUnknownBuilder_ == null) {
+        if (leaseHolderAfterStepDownCase_ == 6) {
+          leaseHolderAfterStepDownCase_ = 0;
+          leaseHolderAfterStepDown_ = null;
+          onChanged();
+        }
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 6) {
+          leaseHolderAfterStepDownCase_ = 0;
+          leaseHolderAfterStepDown_ = null;
+        }
+        leaseHolderUnknownBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     */
+    public io.superdurable.gen.NodeLeaseHolderUnknown.Builder getLeaseHolderUnknownBuilder() {
+      return internalGetLeaseHolderUnknownFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.NodeLeaseHolderUnknownOrBuilder getLeaseHolderUnknownOrBuilder() {
+      if ((leaseHolderAfterStepDownCase_ == 6) && (leaseHolderUnknownBuilder_ != null)) {
+        return leaseHolderUnknownBuilder_.getMessageOrBuilder();
+      } else {
+        if (leaseHolderAfterStepDownCase_ == 6) {
+          return (io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_;
+        }
+        return io.superdurable.gen.NodeLeaseHolderUnknown.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * Neither a takeover nor a take-back was confirmed before the call returned.
+     * </pre>
+     *
+     * <code>.dex.NodeLeaseHolderUnknown lease_holder_unknown = 6;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.NodeLeaseHolderUnknown, io.superdurable.gen.NodeLeaseHolderUnknown.Builder, io.superdurable.gen.NodeLeaseHolderUnknownOrBuilder> 
+        internalGetLeaseHolderUnknownFieldBuilder() {
+      if (leaseHolderUnknownBuilder_ == null) {
+        if (!(leaseHolderAfterStepDownCase_ == 6)) {
+          leaseHolderAfterStepDown_ = io.superdurable.gen.NodeLeaseHolderUnknown.getDefaultInstance();
+        }
+        leaseHolderUnknownBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.NodeLeaseHolderUnknown, io.superdurable.gen.NodeLeaseHolderUnknown.Builder, io.superdurable.gen.NodeLeaseHolderUnknownOrBuilder>(
+                (io.superdurable.gen.NodeLeaseHolderUnknown) leaseHolderAfterStepDown_,
+                getParentForChildren(),
+                isClean());
+        leaseHolderAfterStepDown_ = null;
+      }
+      leaseHolderAfterStepDownCase_ = 6;
+      onChanged();
+      return leaseHolderUnknownBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepDownActiveNodeResponse)

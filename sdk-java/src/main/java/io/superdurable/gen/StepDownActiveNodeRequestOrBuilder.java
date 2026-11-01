@@ -9,4 +9,27 @@ package io.superdurable.gen;
 public interface StepDownActiveNodeRequestOrBuilder extends
     // @@protoc_insertion_point(interface_extends:dex.StepDownActiveNodeRequest)
     com.google.protobuf.MessageOrBuilder {
+
+  /**
+   * <pre>
+   * When set, the process steps down only if it holds the node lease at this
+   * node epoch. Otherwise the call fails with FailedPrecondition and changes
+   * nothing. When unset, whichever active process receives the call steps down.
+   * </pre>
+   *
+   * <code>optional uint64 expected_node_epoch = 1;</code>
+   * @return Whether the expectedNodeEpoch field is set.
+   */
+  boolean hasExpectedNodeEpoch();
+  /**
+   * <pre>
+   * When set, the process steps down only if it holds the node lease at this
+   * node epoch. Otherwise the call fails with FailedPrecondition and changes
+   * nothing. When unset, whichever active process receives the call steps down.
+   * </pre>
+   *
+   * <code>optional uint64 expected_node_epoch = 1;</code>
+   * @return The expectedNodeEpoch.
+   */
+  long getExpectedNodeEpoch();
 }
