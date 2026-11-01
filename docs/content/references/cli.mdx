@@ -176,7 +176,10 @@ with **UNIMPLEMENTED**. The rest of this section describes the commands against
 a server that serves **AdminService**.
 
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
-**holderProcessId** of the active server process, and changes nothing.
+**holderProcessId** of the active server process, and changes nothing. It fails
+with **FAILED_PRECONDITION** while a step down or its hold-off is in progress,
+and with **UNAVAILABLE** when no server process is reachable. Then wait past the
+hold-off and describe again.
 
 **dexcli admin step-down --yes** asks the active server process of a node ID to
 give up its lease, so that another process of the same node ID can take over.
@@ -187,8 +190,14 @@ Both commands call **AdminService**, not **FlowService**. Step down needs
 dexcli --server dex.example.internal:8801 admin describe \
   --credential-file /run/secrets/dex/admin-token
 dexcli --server dex.example.internal:8801 admin step-down --yes \
-  --expected-node-epoch 7 --credential-file /run/secrets/dex/admin-token
+  --credential-file /run/secrets/dex/admin-token
 ```
+
+Every step down request expects a node ID and node epoch, and a process that
+does not match answers **FAILED_PRECONDITION** and changes nothing. Set
+**--expected-node-id** and **--expected-node-epoch** together. Without them, the
+command first describes the active process and expects the node ID and node
+epoch that describe returns. If that describe fails, nothing is stepped down.
 
 The commands support the normal connection, TLS, credential, **--timeout**, and
 **--output** flags. **dexcli admin step-down** waits up to 2 minutes by default,
@@ -197,21 +206,24 @@ again. When the server requires authentication, the credential must be an admin
 JWT. The API key exchange cannot ask for an admin audience. See
 [admin credentials](../production/server-zd-operations.mdx#admin-credentials).
 
-The step down output reports **nodeId**, **releasedNodeEpoch**,
-**leaseReacquisitionHoldOff**, and **leaseHolderAfterStepDown**. That field is
-**takenOverByAnotherProcess**, **takenBackByThisProcess**, or **unknown**.
-**activeNodeEpoch** and **activeHolderProcessId** identify the process that
-holds the lease when it is known. Node epochs are decimal strings.
+The step down output reports **expectedNodeId**, **expectedNodeEpoch**,
+**nodeId**, **releasedNodeEpoch**, **leaseReacquisitionHoldOff**, and
+**leaseHolderAfterStepDown**. That last field is **takenOverByAnotherProcess**,
+**takenBackByThisProcess**, or **unknown**. **activeNodeEpoch** and
+**activeHolderProcessId** identify the process that holds the lease when it is
+known. Node epochs are decimal strings.
 
-Each call steps down whichever process is active when it arrives. Pass
-**--expected-node-epoch** with the epoch that **dexcli admin describe** printed.
-The server then answers **FAILED_PRECONDITION** and changes nothing when another
-process is active. A step down that fails with **DEADLINE_EXCEEDED**,
-**CANCELLED**, or **UNAVAILABLE** has an unknown outcome. Its error output
-carries **stepDownOutcome** set to **unknown** and a **hint**: run **dexcli admin
-describe** first, then retry only with **--expected-node-epoch**. A server
-without **AdminService** answers **UNIMPLEMENTED**. See
-[step down](../production/server-zd-operations.mdx#step-down) for details.
+A step down that fails with **DEADLINE_EXCEEDED**, **CANCELLED**, or
+**UNAVAILABLE** has an unknown outcome. Its error output carries
+**stepDownOutcome** set to **unknown**, the **expectedNodeId** and
+**expectedNodeEpoch** that the call used, and a **hint**. Retry only with those
+values: the node ID and epoch of the process you originally meant to step down.
+Never use an epoch that describe printed after the failed call, because it
+identifies whichever process is active by then. If describe now shows another
+node epoch or holder process ID, the step down already happened, so do not
+retry. A server without **AdminService** answers **UNIMPLEMENTED**. See
+[retry a step down safely](../production/server-zd-operations.mdx#retry-step-down)
+for details.
 
 ## Output and errors
 

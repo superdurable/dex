@@ -574,13 +574,18 @@ auth:
   same authenticator's `audiences`, so a public API credential never authorizes administration.
   Issuers are unique, and a token is checked only by its issuer's authenticator, so admin audiences
   need no check against other authenticators.
+- An issuer that only signs admin credentials may leave `audiences` empty when `adminAudiences` is
+  set. Its tokens then never authorize FlowService or WorkerTaskService calls.
 - Without authenticators, as on a development server, admin RPCs need no credential. Anyone who can
   reach `api.listen` can then step the node down, again and again.
 - Authorized admin calls are logged at info level with the caller's `iss` and `sub`. Denied admin
   calls are logged at warn level, at most once every 10 seconds, with the count of skipped denials.
 
-`dexcli admin describe` and `dexcli admin step-down --yes` call these RPCs. A server that does not
-serve `AdminService` answers UNIMPLEMENTED. server-zd does not register `AdminService` yet, so
+`dexcli admin describe` and `dexcli admin step-down --yes` call these RPCs. Every step down from
+`dexcli` carries an expected node ID and node epoch, from `--expected-node-id` and
+`--expected-node-epoch` or from a describe call made first. After DEADLINE_EXCEEDED, CANCELLED, or
+UNAVAILABLE, retry only with the values that the failed call used, never with values read after it.
+A server that does not serve `AdminService` answers UNIMPLEMENTED. server-zd does not register `AdminService` yet, so
 today `adminAudiences` is validated at startup and has no other effect. Once it does, a step down
 makes the active process report NOT_SERVING while it keeps running as a standby. Liveness probes of
 a process that may step down must then not use gRPC health.

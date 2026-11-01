@@ -409,8 +409,15 @@ acquisition raises the node epoch. Both commands need an
 dexcli --server dex.example.internal:8801 admin describe \
   --credential-file /run/secrets/dex/admin-token
 dexcli --server dex.example.internal:8801 admin step-down --yes \
-  --expected-node-epoch 7 --credential-file /run/secrets/dex/admin-token
+  --credential-file /run/secrets/dex/admin-token
 ~~~
+
+Every step down request carries a precondition: the node ID and node epoch of
+the process to step down. A process that does not match answers
+**FAILED_PRECONDITION** and changes nothing. Without **--expected-node-id** and
+**--expected-node-epoch**, **dexcli admin step-down** first describes the active
+process and expects the node ID and node epoch that describe returns. If that
+describe fails, nothing is stepped down.
 
 After the release, the step down call watches the lease. It returns as soon as
 another process takes over. Otherwise it returns after the hold-off and one
@@ -419,6 +426,8 @@ drain bound, the release, the hold-off, and one lease acquisition attempt.
 **dexcli admin step-down** waits up to 2 minutes unless you set **--timeout**.
 Its output has these fields:
 
+- **expectedNodeId** and **expectedNodeEpoch** give the precondition that the
+  command sent.
 - **nodeId**, **releasedNodeEpoch**, and **leaseReacquisitionHoldOff** give the
   node ID, the epoch of the released lease, and the hold-off.
 - **leaseHolderAfterStepDown** says which process held the lease when the call
@@ -435,17 +444,32 @@ Node epochs are printed as decimal strings.
 
 ### Retry a step down safely {#retry-step-down}
 
-Each call steps down whichever process is active when the call arrives. A blind
-retry can therefore step down the process that just took over. Pass
-**--expected-node-epoch** with the node epoch that **dexcli admin describe**
-printed. The server then steps down only a process that holds that epoch. It
-answers **FAILED_PRECONDITION** otherwise and changes nothing.
-
 A step down that fails with **DEADLINE_EXCEEDED**, **CANCELLED**, or
-**UNAVAILABLE** has an unknown outcome, and the error output says so. Run
-**dexcli admin describe** first. A different node epoch or holder process ID
-means that a step down or another takeover already happened, so do not retry.
-Otherwise retry with **--expected-node-epoch** set to the printed epoch.
+**UNAVAILABLE** has an unknown outcome. The error output says so and carries the
+**expectedNodeId** and **expectedNodeEpoch** that the call used.
+
+Retry only with those values, the ones that identify the process you originally
+meant to step down:
+
+~~~bash
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --expected-node-id node-a --expected-node-epoch 7 \
+  --credential-file /run/secrets/dex/admin-token
+~~~
+
+Never retry with a node epoch that **dexcli admin describe** printed after the
+failed call. Describe always shows whichever process is active by then. Suppose
+the failed call did step down epoch 7, and a standby took over at epoch 8. A
+retry with epoch 8 would step down that standby. On a single replica, the same
+process may have taken the lease back at epoch 9, and a retry with epoch 9 would
+cause a second outage. A retry with the original epoch 7 fails with
+**FAILED_PRECONDITION** in both cases and changes nothing.
+
+You can run **dexcli admin describe** to see what happened. A different node
+epoch or holder process ID means that the step down, or another takeover,
+already happened, so do not retry. Describe fails with **FAILED_PRECONDITION**
+while a step down or its hold-off is in progress, and with **UNAVAILABLE** when
+no server process is reachable. Then wait past the hold-off and describe again.
 
 ### Single replicas, probes, and access {#step-down-single-replica}
 
@@ -1058,6 +1082,10 @@ for an admin audience and step the node down.
 **adminAudiences** applies only to **jwt** authenticators. Its entries must not
 be empty and must differ from the same authenticator's **audiences**, so a
 public API credential never authorizes an admin call.
+
+An issuer that only signs admin credentials can leave **audiences** empty when
+**adminAudiences** is set. Its tokens then never authorize **FlowService** or
+**WorkerTaskService** calls.
 
 The API key exchange of **dexcli** sends only the server ID and the API key, so
 it cannot ask for an admin audience. An API key works for admin commands only if
