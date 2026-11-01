@@ -14,12 +14,19 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
 
+use dexzd_api::HOT_STANDBY_HEALTH_SERVICE_NAME;
 use dexzd_keyspace::row_keys::{partition_index_range, search_projection_mode_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId};
+use dexzd_protocol::dex::StepDownActiveNodeRequest;
+use dexzd_protocol::dex::admin_service_client::AdminServiceClient;
+use dexzd_protocol::dex::step_down_active_node_response::LeaseHolderAfterStepDown;
 use dexzd_protocol::dexzd::v1::SearchProjectionModeRecord;
 use dexzd_storage::{LocalReadView, RocksDbLocalStore, RocksDbStoreOptions, ScanDirection};
 use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tonic_health::pb::HealthCheckRequest;
+use tonic_health::pb::health_check_response::ServingStatus;
+use tonic_health::pb::health_client::HealthClient;
 
 use super::*;
 
@@ -28,6 +35,8 @@ const PARTITION_COUNT: u16 = 16;
 const OUTBOX_FLOW_COUNT: usize = 24;
 const LOAD_LOG_LINE: &str = "loading the partition into the SQL visibility projection";
 const COUNTER_ATTRIBUTE: &str = "outboxCounter";
+const STEP_DOWN_FLOW_COUNT: usize = 4;
+const HOT_STANDBY_BUDGET: Duration = Duration::from_secs(60);
 
 /// A server process of one test step and the files it uses.
 struct OutboxNode<'a> {
@@ -81,6 +90,43 @@ impl OutboxNode<'_> {
         );
         let channel = process.wait_until_serving().await;
         (process, channel, metrics_address)
+    }
+
+    /// Starts a process with `standby.mode: hot`, without waiting for it to serve.
+    fn spawn_hot(
+        &self,
+        name: &str,
+        store: &str,
+        search: OutboxSearch<'_>,
+    ) -> (ServeProcess, SocketAddr) {
+        let address = free_loopback_address();
+        let path = self.directory.path().join(format!("{name}.yaml"));
+        let is_sql = search.sql.is_some();
+        ServeConfig {
+            primary_endpoint: self.primary_endpoint,
+            hard_delete_endpoint: None,
+            listen: address,
+            local_directory: &self.directory.path().join(store),
+            lease_duration: "2s",
+            fail_if_held: false,
+            parade_db: search.sql,
+        }
+        .write(&path);
+        let mut contents = fs::read_to_string(&path).expect("the serve configuration is readable");
+        if is_sql {
+            contents.push_str(&format!(
+                "  outboxAckInterval: {}\n  outboxBatchSize: {}\n",
+                search.ack_interval, search.batch_size
+            ));
+        }
+        contents.push_str("standby:\n  mode: hot\n");
+        fs::write(&path, contents).expect("the serve configuration is written");
+        let process = ServeProcess::spawn(
+            &path,
+            address,
+            self.directory.path().join(format!("{name}.log")),
+        );
+        (process, address)
     }
 
     fn store_path(&self, store: &str) -> std::path::PathBuf {
@@ -298,6 +344,108 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
     proxy.shutdown().await;
     primary.shutdown().await;
     schema.drop_schema().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn paradedb_search_outbox_projects_after_a_step_down_to_a_hot_standby() {
+    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
+        return;
+    };
+    run_step_down_for_test(&database_url, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_search_outbox_projects_after_a_step_down_to_a_hot_standby() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    run_step_down_for_test(&database_url, true).await;
+}
+
+/// After a step down to a hot standby, the new active's consumer projects new and old Flows' writes.
+async fn run_step_down_for_test(database_url: &str, is_postgres: bool) {
+    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let node = OutboxNode {
+        directory: &directory,
+        primary_endpoint: &primary.endpoint(),
+    };
+    let search = || OutboxSearch {
+        sql: Some(SqlVisibilitySettings {
+            is_postgres,
+            connection_string: database_url,
+            schema: schema.name(),
+        }),
+        ack_interval: "100ms",
+        batch_size: 100,
+    };
+    let (mut first, _) = node.spawn_hot("first", "first-store", search());
+    let first_channel = first.wait_until_serving().await;
+    let mut first_client = FlowServiceClient::new(first_channel.clone());
+    let before: Vec<String> = (0..STEP_DOWN_FLOW_COUNT)
+        .map(|index| format!("before-step-down-{index}"))
+        .collect();
+    for flow_id in &before {
+        start_idle_flow(&mut first_client, flow_id).await;
+        set_counter(&mut first_client, flow_id, 1).await;
+    }
+    search_until_counters(&mut first_client, &before, 1, &first).await;
+    let (mut second, second_address) = node.spawn_hot("second", "second-store", search());
+    wait_for_hot_standby(second_address, &second).await;
+    let outcome = AdminServiceClient::new(first_channel)
+        .step_down_active_node(StepDownActiveNodeRequest::default())
+        .await
+        .expect("the active steps down")
+        .into_inner();
+    assert!(
+        matches!(
+            outcome.lease_holder_after_step_down,
+            Some(LeaseHolderAfterStepDown::TakenOverByAnotherProcess(_))
+        ),
+        "the hot standby takes over: {outcome:?}"
+    );
+    let mut second_client = FlowServiceClient::new(second.wait_until_serving().await);
+    let after: Vec<String> = (0..STEP_DOWN_FLOW_COUNT)
+        .map(|index| format!("after-step-down-{index}"))
+        .collect();
+    for flow_id in &after {
+        start_idle_flow(&mut second_client, flow_id).await;
+    }
+    let every_flow: Vec<String> = before.iter().chain(&after).cloned().collect();
+    for flow_id in &every_flow {
+        set_counter(&mut second_client, flow_id, 2).await;
+    }
+    search_until_counters(&mut second_client, &every_flow, 2, &second).await;
+    for process in [&mut second, &mut first] {
+        let status = process.terminate(SHUTDOWN_BUDGET).await;
+        assert!(status.success(), "{status}: {}", process.log());
+    }
+}
+
+/// Waits until the process at `address` reports itself a hot standby.
+async fn wait_for_hot_standby(address: SocketAddr, server: &ServeProcess) {
+    let channel = Channel::from_shared(format!("http://{address}"))
+        .expect("the server address is a valid URI")
+        .connect_lazy();
+    let mut health = HealthClient::new(channel);
+    let deadline = tokio::time::Instant::now() + HOT_STANDBY_BUDGET;
+    loop {
+        let check = health
+            .check(HealthCheckRequest {
+                service: HOT_STANDBY_HEALTH_SERVICE_NAME.to_owned(),
+            })
+            .await;
+        if check.is_ok_and(|response| response.get_ref().status == ServingStatus::Serving as i32) {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the process did not become a hot standby: {}",
+            server.log()
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
