@@ -39,6 +39,6 @@ pub use flow_service::{
 };
 pub use flow_service_config::FlowServiceConfig;
 mod request_metrics;
-pub use health_status::{HEALTH_SERVICE_NAMES, HealthStatus};
+pub use health_status::{HEALTH_SERVICE_NAMES, HOT_STANDBY_HEALTH_SERVICE_NAME, HealthStatus};
 pub use request_metrics::RequestMetricsLayer;
 pub use stream_operations::StreamOperations;

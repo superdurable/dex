@@ -24,6 +24,7 @@ mod commit_latency;
 mod fixed_labels;
 mod histogram;
 mod lag_gauges;
+mod hot_standby;
 mod object_requests;
 #[cfg(target_os = "linux")]
 mod process;
@@ -39,7 +40,10 @@ pub use fixed_labels::{
     RoleGauges,
 };
 pub use histogram::AtomicHistogram;
-use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
+use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS, TAKEOVER_LATENCY_BOUNDS};
+pub use hot_standby::{
+    HotStandbyMetricState, HotStandbyStateGauges, TakeoverCounters, TakeoverStandbyMode,
+};
 pub use lag_gauges::{
     SearchOutboxBacklog, SearchOutboxEntries, SearchOutboxMaxPartitionEntries,
     SearchOutboxOldestEntryAge, TimerLag,
@@ -147,6 +151,18 @@ pub struct NodeMetrics {
     pub search_initial_loads: Counter,
     /// Stopped partitions that kept their previous search projection mode at startup.
     pub search_projection_mode_skipped_partitions: Counter,
+    /// Hot standby state, with one series for each closed state.
+    pub hot_standby_states: HotStandbyStateGauges,
+    /// Log batches the hot standby has yet to apply, as of its last listing.
+    pub hot_standby_lag_batches: Gauge,
+    /// How long the hot standby has trailed the end of the log, zero when caught up.
+    pub hot_standby_lag_seconds: Gauge<f64, std::sync::atomic::AtomicU64>,
+    /// One while the hot standby reports the error of a recent restart, zero otherwise.
+    pub hot_standby_error: Gauge,
+    /// Completed takeovers by the standby mode of the process.
+    pub takeovers: TakeoverCounters,
+    /// Time from attempting an available lease to serving.
+    pub takeover_duration: AtomicHistogram<7>,
 }
 
 /// A lifecycle role for one node.
@@ -451,6 +467,36 @@ impl NodeMetrics {
             "Stopped partitions that kept their previous search projection mode at startup.",
             metrics.search_projection_mode_skipped_partitions.clone(),
         );
+        registry.register(
+            "dexzd_hot_standby_state",
+            "Hot standby state of this process.",
+            metrics.hot_standby_states.clone(),
+        );
+        registry.register(
+            "dexzd_hot_standby_lag_batches",
+            "Log batches the hot standby has yet to apply.",
+            metrics.hot_standby_lag_batches.clone(),
+        );
+        registry.register(
+            "dexzd_hot_standby_lag_seconds",
+            "How long the hot standby has trailed the end of the log.",
+            metrics.hot_standby_lag_seconds.clone(),
+        );
+        registry.register(
+            "dexzd_hot_standby_error",
+            "One while the hot standby reports a recent restart error.",
+            metrics.hot_standby_error.clone(),
+        );
+        registry.register(
+            "dexzd_takeovers",
+            "Completed takeovers of the node lease.",
+            metrics.takeovers.clone(),
+        );
+        registry.register(
+            "dexzd_takeover_duration_seconds",
+            "Time from attempting an available lease to serving.",
+            metrics.takeover_duration.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -511,6 +557,12 @@ impl NodeMetrics {
             search_initial_load_documents: Counter::default(),
             search_initial_loads: Counter::default(),
             search_projection_mode_skipped_partitions: Counter::default(),
+            hot_standby_states: HotStandbyStateGauges::default(),
+            hot_standby_lag_batches: Gauge::default(),
+            hot_standby_lag_seconds: Gauge::default(),
+            hot_standby_error: Gauge::default(),
+            takeovers: TakeoverCounters::default(),
+            takeover_duration: AtomicHistogram::new(&TAKEOVER_LATENCY_BOUNDS),
         }
     }
 

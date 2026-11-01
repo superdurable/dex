@@ -12,8 +12,12 @@ use tonic_health::server::HealthReporter;
 
 /// Service names that `grpc.health.v1` reports; `dexcli dev` waits until all are SERVING.
 pub const HEALTH_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTaskService"];
+/// Service name that reports SERVING only while this process is a hot standby within its lag threshold.
+///
+/// Readiness probes must not check it; rollouts check it to wait for a hot standby.
+pub const HOT_STANDBY_HEALTH_SERVICE_NAME: &str = "dex.HotStandby";
 
-/// Controls the `grpc.health.v1` status of every Dex service name together.
+/// Controls the `grpc.health.v1` status of every Dex readiness name together, and of the hot standby name.
 #[derive(Clone)]
 pub struct HealthStatus {
     reporter: HealthReporter,
@@ -25,15 +29,28 @@ impl HealthStatus {
         let (reporter, server) = tonic_health::server::health_reporter();
         let status = Self { reporter };
         status.set(ServingStatus::NotServing).await;
+        status.set_hot_standby(false).await;
         (status, server)
     }
 
-    /// Reports SERVING for every name.
+    /// Reports whether this process is a hot standby within its lag threshold.
+    pub async fn set_hot_standby(&self, is_hot_standby: bool) {
+        let status = if is_hot_standby {
+            ServingStatus::Serving
+        } else {
+            ServingStatus::NotServing
+        };
+        self.reporter
+            .set_service_status(HOT_STANDBY_HEALTH_SERVICE_NAME, status)
+            .await;
+    }
+
+    /// Reports SERVING for every readiness name.
     pub async fn set_serving(&self) {
         self.set(ServingStatus::Serving).await;
     }
 
-    /// Reports NOT_SERVING for every name, for example during shutdown.
+    /// Reports NOT_SERVING for every readiness name, for example during shutdown.
     pub async fn set_not_serving(&self) {
         self.set(ServingStatus::NotServing).await;
     }
