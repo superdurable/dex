@@ -8,10 +8,15 @@
 
 //! Failover tests of `serve` processes of one node ID, checking writes, serving, leases, and deadlines.
 
+mod frozen_active;
+mod held_calls;
+mod hot_standby_failover;
 mod lease_epochs;
 mod node_group;
 mod object_store_endpoints;
 mod readiness_router;
+mod standby_connections;
+mod step_down;
 
 use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
@@ -22,22 +27,36 @@ use tokio::time::Instant;
 
 use crate::PRIMARY_PREFIX;
 use crate::robustness::workload::{LoadShape, ReconnectingWorker, RunningLoad, Workload};
-use node_group::{DirectoryFate, NodeGroup, ProcessSignal, SlotSettings};
+use node_group::{
+    DirectoryFate, GroupReport, LOG_DELETION_DELAY, NodeGroup, ProcessSignal, SNAPSHOT_INTERVAL,
+    SlotSettings, SlotStandbyMode,
+};
 use object_store_endpoints::ObjectStoreFault;
 
 const FIRST: usize = 0;
 const SECOND: usize = 1;
 /// `first` starts active with a lease that rides out host stalls; `second` keeps a longer one.
-const SLOTS: [SlotSettings<'static>; 2] = [
-    SlotSettings {
-        name: "first",
-        lease_duration: "6s",
-    },
-    SlotSettings {
-        name: "second",
-        lease_duration: "15s",
-    },
-];
+const SLOTS: [SlotSettings<'static>; 2] = slots(SlotStandbyMode::Cold);
+const HOT_SLOTS: [SlotSettings<'static>; 2] = slots(SlotStandbyMode::Hot);
+
+const fn slots(standby_mode: SlotStandbyMode) -> [SlotSettings<'static>; 2] {
+    [
+        SlotSettings {
+            name: "first",
+            lease_duration: "6s",
+            standby_mode,
+            snapshot_interval: SNAPSHOT_INTERVAL,
+            log_deletion_delay: LOG_DELETION_DELAY,
+        },
+        SlotSettings {
+            name: "second",
+            lease_duration: "15s",
+            standby_mode,
+            snapshot_interval: SNAPSHOT_INTERVAL,
+            log_deletion_delay: LOG_DELETION_DELAY,
+        },
+    ]
+}
 const FIRST_LEASE_DURATION: Duration = Duration::from_secs(6);
 const LOAD_SHAPE: LoadShape = LoadShape {
     chain_starters: 4,
@@ -53,6 +72,14 @@ const STARTUP_BUDGET: Duration = Duration::from_secs(30);
 const TAKEOVER_BUDGET: Duration = Duration::from_secs(30);
 /// A cold standby reads a held lease at most once a second; the rest is margin for loaded hosts.
 const COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_secs(3);
+/// A hot standby reads the lease every 250 ms; a loaded host may add its 1.8 s lagging delay.
+const HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_millis(2500);
+/// A hot standby reads a held lease every 250 ms and writes a released one within 50 ms.
+const HOT_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_millis(800);
+/// A hot standby's store trails the log by a few batches; more means it restored instead.
+const HOT_TAKEOVER_REPLAY_BOUND: u64 = 64;
+/// A cold standby reads a held lease at most once a second.
+const COLD_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_secs(2);
 const STANDBY_BUDGET: Duration = Duration::from_secs(30);
 /// A slow object store that the active still serves through.
 const SLOW_OBJECT_STORE_LATENCY: Duration = Duration::from_millis(50);
@@ -68,11 +95,15 @@ const LATE_WRITES_BUDGET: Duration = Duration::from_secs(10);
 const SPANNING_TIMER_COUNT: usize = 2;
 /// Longer than the start of a failure, so these timers fire after it began.
 const SPANNING_TIMER_DURATION: Duration = Duration::from_secs(3);
+/// Holds a hard-delete Attribute read at the stopping active past its release and the takeover.
+const HELD_READ_DELAY: Duration = Duration::from_millis(3500);
+/// A Flow whose hard-delete Attribute a held read reads.
+const HELD_READ_FLOW_ID: &str = "held-read-flow";
 
 /// P1, crash failover: SIGKILL of the active under load hands the node to the waiting cold standby.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn killed_active_under_load_hands_over_to_the_cold_standby() {
-    let mut scenario = FailoverScenario::start("killed-active").await;
+    let mut scenario = FailoverScenario::start("killed-active", &SLOTS).await;
     let group = &mut scenario.group;
     // A standby paused under load resumes waiting and never serves beside the live active.
     group.signal(SECOND, ProcessSignal::Stop).await;
@@ -111,7 +142,7 @@ async fn killed_active_under_load_hands_over_to_the_cold_standby() {
 /// P6, double failure: the active and the standby die together; after both restart, one recovers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn killing_active_and_standby_together_recovers_after_both_restart() {
-    let mut scenario = FailoverScenario::start("both-killed").await;
+    let mut scenario = FailoverScenario::start("both-killed", &SLOTS).await;
     let group = &mut scenario.group;
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -140,7 +171,7 @@ async fn killing_active_and_standby_together_recovers_after_both_restart() {
 /// P12, lost object storage: the active stops serving at its validity end; the cold standby takes over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn active_that_loses_object_storage_hands_over_to_the_cold_standby() {
-    let mut scenario = FailoverScenario::start("lost-storage").await;
+    let mut scenario = FailoverScenario::start("lost-storage", &SLOTS).await;
     let group = &mut scenario.group;
     group
         .object_store(FIRST)
@@ -189,7 +220,7 @@ async fn active_that_loses_object_storage_hands_over_to_the_cold_standby() {
 /// P12, late writes: a stalled active's held writes land after the takeover and are fenced.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_writes_of_a_stalled_active_are_fenced_after_the_takeover() {
-    let mut scenario = FailoverScenario::start("late-writes").await;
+    let mut scenario = FailoverScenario::start("late-writes", &SLOTS).await;
     let group = &mut scenario.group;
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -254,14 +285,19 @@ struct FailoverScenario {
     workload: Workload,
     worker: ReconnectingWorker,
     load: RunningLoad,
+    /// The longest time a standby may take to write a lease after it expired, plus the grace.
+    takeover_bound: Duration,
+    /// The shortest and longest time a new holder may take to appear after a release.
+    takeover_after_release_window: (Duration, Duration),
     _directory: TempDir,
 }
 
 impl FailoverScenario {
-    async fn start(phase: &str) -> Self {
+    /// Starts `first` serving under load and `second` as a standby of the slots' mode.
+    async fn start(phase: &str, slots: &[SlotSettings<'_>]) -> Self {
         let directory = TempDir::new().expect("a temporary test directory can be created");
         let workload = Workload::new();
-        let mut group = NodeGroup::start(directory.path(), &workload, &SLOTS).await;
+        let mut group = NodeGroup::start(directory.path(), &workload, slots).await;
         group.spawn(FIRST);
         assert_eq!(group.wait_for_serving(STARTUP_BUDGET).await, FIRST);
         let worker = workload.start_reconnecting_worker(group.router_address());
@@ -270,18 +306,42 @@ impl FailoverScenario {
             .await;
         let load = workload.start_shaped_load(group.router_address(), phase, &LOAD_SHAPE);
         group.spawn(SECOND);
-        group.wait_for_standby(SECOND, STANDBY_BUDGET).await;
+        if slots[SECOND].standby_mode == SlotStandbyMode::Hot {
+            group.wait_for_hot_standby(SECOND, STANDBY_BUDGET).await;
+        } else {
+            group.wait_for_standby(SECOND, STANDBY_BUDGET).await;
+        }
+        let (takeover_bound, takeover_after_release_bound) = match slots[SECOND].standby_mode {
+            SlotStandbyMode::Cold => (
+                COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+                COLD_TAKEOVER_AFTER_RELEASE_BOUND,
+            ),
+            SlotStandbyMode::Hot => (
+                HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+                HOT_TAKEOVER_AFTER_RELEASE_BOUND,
+            ),
+        };
         Self {
             group,
             workload,
             worker,
             load,
+            takeover_bound,
+            takeover_after_release_window: (Duration::ZERO, takeover_after_release_bound),
             _directory: directory,
         }
     }
 
-    /// Starts timer Flows that must fire after the failure that follows; returns the failure instant.
-    async fn start_timers_spanning_the_failure(&self) -> Instant {
+    /// Expects every takeover after a release within `shortest..=longest`, such as after a hold-off.
+    fn expect_takeovers_after_release_within(&mut self, shortest: Duration, longest: Duration) {
+        self.takeover_after_release_window = (shortest, longest);
+    }
+
+    /// Checks that no standby wrote, then starts timer Flows that must fire after the coming failure.
+    ///
+    /// Returns the failure instant.
+    async fn start_timers_spanning_the_failure(&mut self) -> Instant {
+        self.group.check_standbys_wrote_nothing().await;
         self.workload
             .start_timers_spanning_a_failure(
                 self.group.router_channel(),
@@ -293,13 +353,15 @@ impl FailoverScenario {
     }
 
     /// Adds load after the recovery, verifies the ledger, stops the group, and checks the takeover.
-    async fn finish(self, test: &str, failed_at: Instant, details: String) {
+    async fn finish(self, test: &str, failed_at: Instant, details: String) -> GroupReport {
         // The directory stays in `self`, so a panic dumps process logs before it is deleted.
         let Self {
             mut group,
             workload,
             worker,
             load,
+            takeover_bound,
+            takeover_after_release_window: (shortest_after_release, longest_after_release),
             ..
         } = self;
         group
@@ -317,13 +379,39 @@ impl FailoverScenario {
         assert!(report.serving_periods() >= 2, "{report}");
         assert!(report.observed_lease_holders() >= 2, "{report}");
         assert!(
-            report.longest_takeover_after_availability() <= COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND,
-            "{report}"
+            report
+                .takeovers_after_expiry()
+                .iter()
+                .all(|delay| *delay <= takeover_bound),
+            "a takeover after expiry exceeded {takeover_bound:?}: {report}"
+        );
+        assert!(
+            report
+                .takeovers_after_release()
+                .iter()
+                .all(|delay| (shortest_after_release..=longest_after_release).contains(delay)),
+            "a takeover after release fell outside {shortest_after_release:?}..={longest_after_release:?}: {report}"
         );
         eprintln!(
             "{test}: {details}; {timers_across_the_failure} timer Flows across the failure; {worker_registrations}; {verification}; {report}"
         );
+        report
     }
+}
+
+/// Panics unless `slot` took over from its hot standby's store, reported it, and replayed little log.
+async fn assert_hot_takeover(group: &mut NodeGroup, slot: usize) -> u64 {
+    let replayed = group.hot_takeover_replayed_batches(slot);
+    assert!(
+        replayed <= HOT_TAKEOVER_REPLAY_BOUND,
+        "slot {slot} replayed {replayed} log batches after a hot takeover"
+    );
+    // A first active in hot mode had no standby store yet, so it may also report a restore.
+    assert!(
+        group.takeovers(slot, "hot", "hot_standby").await >= 1.0,
+        "slot {slot} must report its takeover as served from the hot standby's store"
+    );
+    replayed
 }
 
 /// Panics unless an active that lost its lease exited 1 or the watchdog aborted it.

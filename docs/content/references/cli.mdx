@@ -171,10 +171,6 @@ error and exits with status 1. The command supports the normal **--server**,
 
 ## Describe or step down the active server process {#admin-step-down}
 
-server-zd does not serve **AdminService** yet, so these commands currently fail
-with **UNIMPLEMENTED**. The rest of this section describes the commands against
-a server that serves **AdminService**.
-
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active server process, and changes nothing. It fails
 with **FAILED_PRECONDITION** while a step down or its hold-off is in progress,

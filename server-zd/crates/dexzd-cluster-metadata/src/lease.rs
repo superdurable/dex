@@ -21,13 +21,11 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use crate::lease_acquisition::LeaseObjectStores;
+use crate::lease_acquisition::{LeaseConfig, LeaseObjectStores, sleep_unless_cancelled};
 use crate::{LeaseValidityDeadline, MetadataError, NodeConfig, bump_node_epoch};
 
 const RELEASED_LEASE_EXPIRY_UNIX_MICROS: i64 = i64::MIN;
 const RELEASE_RETRY_DELAY: Duration = Duration::from_millis(10);
-/// Longest wait between reads of a lease another process holds.
-const HELD_LEASE_POLL_LIMIT: Duration = Duration::from_secs(1);
 /// First wait before retrying a failed renewal attempt; later waits double.
 const RENEWAL_RETRY_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
 /// Longest wait between renewal attempts.
@@ -39,32 +37,6 @@ const RENEWAL_ATTEMPT_TIMEOUT_FLOOR: Duration = Duration::from_secs(1);
 const RENEWAL_ATTEMPT_TIMEOUT_LIMIT: Duration = Duration::from_secs(5);
 /// A renewal must complete this long before the deadline, so the watchdog never races its arming.
 const RENEWAL_COMPLETION_MARGIN: Duration = Duration::from_millis(100);
-
-/// Timing and contention policy for a node lease.
-#[derive(Debug, Clone)]
-pub struct LeaseConfig {
-    /// Lease duration; defaults to ten seconds.
-    pub duration: Duration,
-    /// Additional wait after an old lease expires before takeover.
-    /// Defaults to one second.
-    pub takeover_grace: Duration,
-    /// Return immediately when another live process holds the lease.
-    /// Defaults to false.
-    pub fail_fast: bool,
-    /// Defaults to false; when true, takes over a held lease at once. Set only when its holder provably stopped.
-    pub should_take_over_held_lease: bool,
-}
-
-impl Default for LeaseConfig {
-    fn default() -> Self {
-        Self {
-            duration: Duration::from_secs(10),
-            takeover_grace: Duration::from_secs(1),
-            fail_fast: false,
-            should_take_over_held_lease: false,
-        }
-    }
-}
 
 /// Process-local observers of one lease.
 #[derive(Clone, Debug, Default)]
@@ -287,9 +259,16 @@ pub(super) async fn acquire_lease_inner(
             detail: "takeover grace exceeds i64 microseconds".to_owned(),
         }
     })?;
+    if config.held_lease_poll_limit.is_zero() {
+        return Err(MetadataError::InvalidConfig {
+            field: "held lease poll limit",
+            detail: "the held lease poll limit must be positive".to_owned(),
+        });
+    }
     let key = format!("lease/{}", node.node_id);
-    let held_lease_poll_interval = HELD_LEASE_POLL_LIMIT.min(config.duration / 3);
+    let held_lease_poll_interval = config.held_lease_poll_limit.min(config.duration / 3);
     let mut has_reported_wait = false;
+    let mut delayed_lease_version = None;
     loop {
         if cancellation
             .as_ref()
@@ -351,23 +330,33 @@ pub(super) async fn acquire_lease_inner(
                 }
                 let until_available = Duration::from_micros((available_at - now) as u64);
                 let poll_delay = jittered_poll_delay(held_lease_poll_interval);
-                let delay = until_available.min(poll_delay);
-                if let Some(cancellation_receiver) = cancellation.as_mut() {
-                    tokio::select! {
-                        () = tokio::time::sleep(delay) => {}
-                        changed = cancellation_receiver.changed() => {
-                            if changed.is_ok() && *cancellation_receiver.borrow() {
-                                return Ok(None);
-                            }
-                            if changed.is_err() {
-                                tokio::time::sleep(delay).await;
-                            }
-                        }
-                    }
-                } else {
-                    tokio::time::sleep(delay).await;
+                if sleep_unless_cancelled(
+                    until_available.min(poll_delay),
+                    cancellation.as_deref_mut(),
+                )
+                .await
+                {
+                    return Ok(None);
                 }
                 continue;
+            }
+            // Waits once per released or expired lease version, then rereads it.
+            if let Some(acquisition_delay) = &config.acquisition_delay
+                && delayed_lease_version != Some(previous.version)
+            {
+                delayed_lease_version = Some(previous.version);
+                let delay = acquisition_delay.delay_before_acquiring();
+                if !delay.is_zero() {
+                    tracing::info!(
+                        node_id = %node.node_id,
+                        delay_milliseconds = delay.as_millis(),
+                        "delaying the node lease acquisition so a readier process can take it first"
+                    );
+                    if sleep_unless_cancelled(delay, cancellation.as_deref_mut()).await {
+                        return Ok(None);
+                    }
+                    continue;
+                }
             }
         }
         if cancellation

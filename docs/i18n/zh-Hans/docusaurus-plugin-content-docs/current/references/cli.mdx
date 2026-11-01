@@ -157,9 +157,6 @@ dexcli version check --output table
 
 ## 查询 active server 进程或让它让位 {#admin-step-down}
 
-server-zd 目前还不提供 **AdminService**，所以这些 command 现在会以 **UNIMPLEMENTED**
-失败。本节其余内容描述的是这些 command 在提供 **AdminService** 的 server 上的行为。
-
 **dexcli admin describe** 输出 active server 进程的 **nodeId**、**nodeEpoch** 和
 **holderProcessId**，不做任何修改。让位或其 hold-off 进行期间，它返回
 **FAILED_PRECONDITION**；没有可访问的 server 进程时，返回 **UNAVAILABLE**。这时等过

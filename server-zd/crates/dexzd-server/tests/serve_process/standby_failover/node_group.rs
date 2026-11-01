@@ -15,9 +15,18 @@ use std::process::ExitStatus;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+use dexzd_api::HOT_STANDBY_HEALTH_SERVICE_NAME;
+use dexzd_protocol::dex::admin_service_client::AdminServiceClient;
+use dexzd_protocol::dex::{
+    DescribeActiveNodeRequest, DescribeActiveNodeResponse, StepDownActiveNodeRequest,
+    StepDownActiveNodeResponse,
+};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 use tonic::transport::Channel;
+use tonic_health::pb::HealthCheckRequest;
+use tonic_health::pb::health_check_response::ServingStatus;
+use tonic_health::pb::health_client::HealthClient;
 
 use super::lease_epochs::{LeaseHistory, LeaseReport};
 use super::object_store_endpoints::{ObjectStoreEndpoint, ObjectStoreFault};
@@ -31,11 +40,16 @@ use crate::robustness::processes::{
 };
 use crate::robustness::workload::{VerificationReport, Workload};
 
-/// No snapshot or log cleanup during a test, so recovery always replays the log.
-const SNAPSHOT_INTERVAL: &str = "1h";
-/// A short log deletion delay would let a waiting standby lose writes, a separate known defect.
-const LOG_DELETION_DELAY: &str = "24h";
+/// No snapshot or log cleanup by default, so recovery replays the log.
+pub(crate) const SNAPSHOT_INTERVAL: &str = "1h";
+pub(crate) const LOG_DELETION_DELAY: &str = "24h";
+const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_millis(500);
 const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// Log lines of a recovery, which name the store it served and how much log it replayed.
+const RECOVERING_MARKER: &str = "engine node recovering";
+const HOT_STANDBY_STORE_MARKER: &str = "serving from the hot standby's local store";
+const REPLAY_MARKER: &str = "replayed the log stream";
+const REPLAYED_BATCHES_FIELD: &str = "batches=";
 /// Log line of a failed lease renewal attempt that the process retries after a logged backoff.
 const RENEWAL_RETRY_MARKER: &str = "node lease renewal attempt failed; retrying";
 const RENEWAL_RETRY_BACKOFF_FIELD: &str = "retry_in_milliseconds=";
@@ -50,6 +64,16 @@ pub(crate) struct SlotSettings<'a> {
     pub(crate) name: &'a str,
     /// The lease this slot's processes write when they hold it, such as `3s`.
     pub(crate) lease_duration: &'a str,
+    pub(crate) standby_mode: SlotStandbyMode,
+    pub(crate) snapshot_interval: &'a str,
+    pub(crate) log_deletion_delay: &'a str,
+}
+
+/// Whether a slot's processes follow the log while they wait for the lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SlotStandbyMode {
+    Cold,
+    Hot,
 }
 
 /// What happens to a slot's local directory before its next process starts.
@@ -86,6 +110,8 @@ struct NodeSlot {
     process: Option<RobustnessProcess>,
     /// The test made the current process end by itself, such as by cutting its object storage.
     may_exit: bool,
+    /// The endpoint's write requests when the current process was confirmed a standby.
+    standby_writes_baseline: Option<u64>,
 }
 
 impl NodeSlot {
@@ -108,12 +134,13 @@ impl fmt::Display for GroupReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed, longest takeover after availability {:?}; {} readiness probes, {} SERVING in {} serving periods, {} SERVING without a lease for at most {:?}, {} SERVING with an unread epoch",
+            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed, takeovers after expiry {:?} and after release {:?}; {} readiness probes, {} SERVING in {} serving periods, {} SERVING without a lease for at most {:?}, {} SERVING with an unread epoch",
             self.process_starts,
             self.stale_batch_restarts,
             self.lease.acquisitions,
             self.lease.observed_holders,
-            self.lease.longest_takeover_after_availability,
+            self.lease.takeovers_after_expiry,
+            self.lease.takeovers_after_release,
             self.serving.observations,
             self.serving.serving_observations,
             self.serving.serving_periods,
@@ -135,11 +162,14 @@ impl GroupReport {
         self.lease.observed_holders
     }
 
-    /// Returns the longest time a new holder took to appear after the lease became available.
-    pub(crate) fn longest_takeover_after_availability(&self) -> Duration {
-        self.lease
-            .longest_takeover_after_availability
-            .expect("a takeover test observed a handover")
+    /// Returns how long each new holder took to appear after a lease expired, plus the takeover grace.
+    pub(crate) fn takeovers_after_expiry(&self) -> &[Duration] {
+        &self.lease.takeovers_after_expiry
+    }
+
+    /// Returns how long each new holder took to appear after the first sample showed a release.
+    pub(crate) fn takeovers_after_release(&self) -> &[Duration] {
+        &self.lease.takeovers_after_release
     }
 }
 
@@ -160,6 +190,8 @@ pub(crate) struct NodeGroup {
     /// Each SIGKILL or permitted exit lets one later process stop once on that process's late batch.
     permitted_stale_batch_stops: usize,
     stale_batch_restarts: usize,
+    /// Whether every slot keeps the log for a day, so no EpochStart is cleaned up.
+    is_log_complete: bool,
 }
 
 impl NodeGroup {
@@ -187,10 +219,18 @@ impl NodeGroup {
                 listen: address,
                 local_directory: &local_directory,
                 lease_duration: slot.lease_duration,
-                snapshot_interval: SNAPSHOT_INTERVAL,
-                log_deletion_delay: LOG_DELETION_DELAY,
+                snapshot_interval: slot.snapshot_interval,
+                log_deletion_delay: slot.log_deletion_delay,
             }
             .write_with_metrics(&config_path, metrics_address);
+            let mut contents =
+                std::fs::read_to_string(&config_path).expect("the configuration is readable");
+            // Waiting ReadStream calls must not hold up a step down or a shutdown.
+            contents.push_str("streamStore:\n  backend: memory\n");
+            if slot.standby_mode == SlotStandbyMode::Hot {
+                contents.push_str("standby:\n  mode: hot\n");
+            }
+            std::fs::write(&config_path, contents).expect("the configuration is written");
             slots.push(NodeSlot {
                 name: slot.name.to_owned(),
                 config_path,
@@ -201,6 +241,7 @@ impl NodeGroup {
                 process_count: 0,
                 process: None,
                 may_exit: false,
+                standby_writes_baseline: None,
             });
         }
         let router = ReadinessRouter::start(
@@ -223,6 +264,9 @@ impl NodeGroup {
             lease_history: LeaseHistory::start(inspector),
             permitted_stale_batch_stops: 0,
             stale_batch_restarts: 0,
+            is_log_complete: settings
+                .iter()
+                .all(|slot| slot.log_deletion_delay == LOG_DELETION_DELAY),
         }
     }
 
@@ -236,6 +280,91 @@ impl NodeGroup {
         Channel::from_shared(format!("http://{}", self.router.address()))
             .expect("the router address is a valid URI")
             .connect_lazy()
+    }
+
+    /// Returns how many processes `slot` started so far.
+    /// Returns everything `slot`'s current process logged.
+    pub(crate) fn process_log(&mut self, slot: usize) -> String {
+        self.slots[slot].running().log()
+    }
+
+    /// Panics unless `slot`'s latest takeover served its hot standby's store; returns the replayed batches.
+    pub(crate) fn hot_takeover_replayed_batches(&mut self, slot: usize) -> u64 {
+        let log = self.process_log(slot);
+        let recovering = log
+            .rfind(RECOVERING_MARKER)
+            .unwrap_or_else(|| panic!("slot {} never recovered:\n{log}", self.slots[slot].name));
+        let takeover = &log[recovering..];
+        assert!(
+            takeover.contains(HOT_STANDBY_STORE_MARKER),
+            "slot {} did not serve its hot standby's store:\n{takeover}",
+            self.slots[slot].name
+        );
+        takeover
+            .lines()
+            .filter(|line| line.contains(REPLAY_MARKER))
+            .find_map(|line| {
+                line.split_whitespace()
+                    .find_map(|field| field.strip_prefix(REPLAYED_BATCHES_FIELD))
+                    .and_then(|value| value.parse().ok())
+            })
+            .unwrap_or_else(|| panic!("the takeover logged no replay:\n{takeover}"))
+    }
+
+    /// Records `slot`'s write requests once its process is a confirmed standby.
+    async fn note_standby(&mut self, slot: usize) {
+        if self.slots[slot].standby_writes_baseline.is_none() {
+            let writes = self.slots[slot].object_store.write_requests().await;
+            self.slots[slot].standby_writes_baseline = Some(writes);
+        }
+    }
+
+    /// Panics if a standby wrote to object storage since it was confirmed a standby.
+    pub(crate) async fn check_standbys_wrote_nothing(&mut self) {
+        for slot in 0..self.slots.len() {
+            let Some(baseline) = self.slots[slot].standby_writes_baseline else {
+                continue;
+            };
+            if self.slots[slot].process.is_none() || self.router.is_serving(slot) {
+                self.slots[slot].standby_writes_baseline = None;
+                continue;
+            }
+            let writes = self.slots[slot].object_store.write_requests().await;
+            assert_eq!(
+                writes, baseline,
+                "slot {} wrote to object storage as a standby",
+                self.slots[slot].name
+            );
+        }
+    }
+
+    pub(crate) fn process_starts(&self, slot: usize) -> usize {
+        self.slots[slot].process_count
+    }
+
+    /// Returns the address that `slot`'s processes serve the API on.
+    pub(crate) fn api_address(&self, slot: usize) -> SocketAddr {
+        self.slots[slot].address
+    }
+
+    /// Returns the first and the newest seq of the node's log batches in object storage.
+    pub(crate) async fn log_seq_range(&self) -> (u64, u64) {
+        let inspector = ObjectStoreInspector::connect(&self.emulator.endpoint()).await;
+        let seqs: Vec<u64> = inspector
+            .log_batch_keys()
+            .await
+            .iter()
+            .map(|key| {
+                key.rsplit('/')
+                    .next()
+                    .and_then(|seq| seq.parse().ok())
+                    .unwrap_or_else(|| panic!("{key} does not end with a log seq"))
+            })
+            .collect();
+        (
+            seqs.iter().copied().min().unwrap_or(0),
+            seqs.iter().copied().max().unwrap_or(0),
+        )
     }
 
     /// Returns the object store endpoint that only `slot`'s processes use.
@@ -253,6 +382,7 @@ impl NodeGroup {
         );
         entry.process_count += 1;
         entry.may_exit = false;
+        entry.standby_writes_baseline = None;
         self.router.note_process_start(slot);
         let process = self.fleet.spawn(
             &entry.config_path,
@@ -296,6 +426,23 @@ impl NodeGroup {
             ProcessSignal::Stop => entry.running().freeze_and_wait_until_stopped().await,
             ProcessSignal::Continue => entry.running().send_signal("CONT").await,
         }
+    }
+
+    /// Sends SIGTERM to `slot`'s process without waiting; [`Self::wait_for_clean_exit`] waits for it.
+    pub(crate) async fn send_terminate(&mut self, slot: usize) {
+        self.lease_history.note_possible_release();
+        let entry = &mut self.slots[slot];
+        entry.may_exit = true;
+        entry.running().send_signal("TERM").await;
+    }
+
+    /// Waits up to `budget` for the clean exit that [`Self::send_terminate`] asked for.
+    pub(crate) async fn wait_for_clean_exit(&mut self, slot: usize, budget: Duration) {
+        let entry = &mut self.slots[slot];
+        let process = entry.running();
+        let status = process.wait_for_exit(budget).await;
+        assert_eq!(status.code(), Some(0), "{}", process.log());
+        entry.process = None;
     }
 
     /// Clears `slot`'s object store faults; held writes then land, and may stop the active once.
@@ -420,6 +567,8 @@ impl NodeGroup {
                     && self.slots[*slot].process.is_some()
                     && self.router.is_serving(*slot)
             }) {
+                // An active writes; only standby periods are checked for writes.
+                self.slots[slot].standby_writes_baseline = None;
                 return slot;
             }
             assert!(
@@ -458,6 +607,7 @@ impl NodeGroup {
                 && metrics.starts_with("HTTP/1.1 200")
                 && sample_with_label(&metrics, "dexzd_node_role", "role", "standby") == 1.0
             {
+                self.note_standby(slot).await;
                 return;
             }
             assert!(
@@ -467,6 +617,152 @@ impl NodeGroup {
             );
             tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
         }
+    }
+
+    /// Waits up to `budget` until `slot`'s process reports `dex.HotStandby` SERVING; returns the wait.
+    pub(crate) async fn wait_for_hot_standby(&mut self, slot: usize, budget: Duration) -> Duration {
+        let started = Instant::now();
+        let channel = Channel::from_shared(format!("http://{}", self.slots[slot].address))
+            .expect("the slot address is a valid URI")
+            .connect_lazy();
+        let mut health = HealthClient::new(channel);
+        loop {
+            self.supervise();
+            let check = health.check(HealthCheckRequest {
+                service: HOT_STANDBY_HEALTH_SERVICE_NAME.to_owned(),
+            });
+            if self.slots[slot].process.is_some()
+                && let Ok(Ok(response)) = tokio::time::timeout(HEALTH_CHECK_TIMEOUT, check).await
+                && response.get_ref().status == ServingStatus::Serving as i32
+            {
+                self.note_standby(slot).await;
+                return started.elapsed();
+            }
+            assert!(
+                started.elapsed() < budget,
+                "slot {} did not become a hot standby within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Waits up to `budget` until `slot`'s process reports the `dexzd_node_role` `role`.
+    pub(crate) async fn wait_for_role(&mut self, slot: usize, role: &str, budget: Duration) {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.supervise();
+            if self
+                .metric_sample(slot, "dexzd_node_role", "role", role)
+                .await
+                == Some(1.0)
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "slot {} did not report role {role} within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Waits up to `budget` until `slot`'s process reports the hot standby `state`.
+    pub(crate) async fn wait_for_hot_standby_state(
+        &mut self,
+        slot: usize,
+        state: &str,
+        budget: Duration,
+    ) {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.supervise();
+            if self
+                .metric_sample(slot, "dexzd_hot_standby_state", "state", state)
+                .await
+                == Some(1.0)
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "slot {} did not report hot standby state {state} within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Returns a labelled sample of `slot`'s metrics, or `None` while its listener is down.
+    async fn metric_sample(
+        &self,
+        slot: usize,
+        name: &str,
+        label: &str,
+        value: &str,
+    ) -> Option<f64> {
+        let metrics = try_scrape(self.slots[slot].metrics_address, "/metrics")
+            .await
+            .ok()?;
+        metrics
+            .starts_with("HTTP/1.1 200")
+            .then(|| sample_with_label(&metrics, name, label, value))
+    }
+
+    /// Returns the takeovers that `slot`'s current process reports for one standby mode and store source.
+    pub(crate) async fn takeovers(
+        &self,
+        slot: usize,
+        standby_mode: &str,
+        store_source: &str,
+    ) -> f64 {
+        let metrics = try_scrape(self.slots[slot].metrics_address, "/metrics")
+            .await
+            .expect("the slot serves its metrics");
+        let sample = format!(
+            "dexzd_takeovers_total{{standby_mode=\"{standby_mode}\",store_source=\"{store_source}\"}} "
+        );
+        metrics
+            .lines()
+            .find_map(|line| line.strip_prefix(&sample))
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no {sample} sample in:\n{metrics}"))
+    }
+
+    /// Asks the active process, through the router, to step down.
+    pub(crate) async fn step_down_active(
+        &self,
+        expected_node_id: Option<String>,
+        expected_node_epoch: Option<u64>,
+    ) -> Result<StepDownActiveNodeResponse, tonic::Status> {
+        self.note_possible_release();
+        AdminServiceClient::new(self.router_channel())
+            .step_down_active_node(StepDownActiveNodeRequest {
+                expected_node_id,
+                expected_node_epoch,
+            })
+            .await
+            .map(tonic::Response::into_inner)
+    }
+
+    /// Records that the active may release the lease from now on, as before a step down call.
+    pub(crate) fn note_possible_release(&self) {
+        self.lease_history.note_possible_release();
+    }
+
+    /// Describes the active process of `slot` directly, without the router.
+    pub(crate) async fn describe(
+        &self,
+        slot: usize,
+    ) -> Result<DescribeActiveNodeResponse, tonic::Status> {
+        let channel = Channel::from_shared(format!("http://{}", self.slots[slot].address))
+            .expect("the slot address is a valid URI")
+            .connect_lazy();
+        AdminServiceClient::new(channel)
+            .describe_active_node(DescribeActiveNodeRequest {})
+            .await
+            .map(tonic::Response::into_inner)
     }
 
     /// Waits until the load acknowledges `count` more calls and every counter one more increment.
@@ -494,6 +790,7 @@ impl NodeGroup {
 
     /// Stops every process, standbys first, then checks the serving and lease invariants.
     pub(crate) async fn finish(mut self) -> GroupReport {
+        self.check_standbys_wrote_nothing().await;
         let serving = self.router.serving_backend();
         let mut order: Vec<usize> = (0..self.slots.len())
             .filter(|slot| Some(*slot) != serving)
@@ -511,13 +808,21 @@ impl NodeGroup {
             router,
             lease_history,
             stale_batch_restarts,
+            is_log_complete,
             ..
         } = self;
         let serving = router.shutdown_and_check().await;
-        let lease = lease_history.stop_and_check().await;
+        let lease = lease_history.stop_and_check(is_log_complete).await;
         // Each serving period recovered under its own epoch; a late-batch stop may serve too briefly to see.
-        assert!(
+        let are_periods_within_epochs = if lease.is_log_complete {
             serving.serving_periods <= lease.acquisitions
+        } else {
+            // Cleanup may delete early EpochStarts; distinct serving epochs still never exceed the highest.
+            u64::try_from(serving.serving_periods).expect("a period count fits in u64")
+                <= lease.highest_epoch
+        };
+        assert!(
+            are_periods_within_epochs
                 && lease.acquisitions <= serving.serving_periods + stale_batch_restarts,
             "{} EpochStarts in the log for {} observed serving periods and {stale_batch_restarts} late-batch restarts",
             lease.acquisitions,

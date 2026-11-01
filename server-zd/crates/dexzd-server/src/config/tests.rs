@@ -17,7 +17,7 @@ use dexzd_engine::LocalStoreConfig;
 
 use super::{
     AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
-    DevDurabilityMode, ObjectStoreLocationConfig, SearchBackend, StreamStoreBackend,
+    DevDurabilityMode, ObjectStoreLocationConfig, SearchBackend, StandbyMode, StreamStoreBackend,
     dsn_environment_variable,
 };
 use crate::DevCommandOptions;
@@ -328,6 +328,55 @@ fn dev_rejects_a_separate_hard_delete_store_before_resolving_credentials() {
         error,
         ConfigError::Invalid {
             field: "objectStore.hardDeleteStore",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn hot_standby_mode_reaches_the_engine_and_cold_keeps_the_earlier_lease_poll() {
+    let cold = ComponentConfigs::from_config(&valid_config(), false).expect("cold components");
+    assert!(cold.hot_standby.is_none());
+    assert_eq!(
+        cold.engine_node.lease.held_lease_poll_limit,
+        Duration::from_secs(1)
+    );
+    let mut configuration = Config::parse_yaml(
+        "standby:\n  mode: hot\n  heldLeasePollInterval: 200ms\n  behindLagThreshold: 4s\n",
+    )
+    .expect("the standby section parses");
+    configuration.cluster.node_id = "node-a".to_owned();
+    configuration.object_store.bucket = "dex-test".to_owned();
+    configuration.local_storage.directory = PathBuf::from("/tmp/dexzd-test-store");
+    configuration.validate().expect("hot standby is valid");
+    let hot = ComponentConfigs::from_config(&configuration, false).expect("hot components");
+    let hot_standby = hot
+        .hot_standby
+        .expect("hot mode configures the hot standby");
+    assert_eq!(hot_standby.behind_lag_threshold, Duration::from_secs(4));
+    assert_eq!(
+        hot.engine_node.lease.held_lease_poll_limit,
+        Duration::from_millis(200)
+    );
+}
+
+#[test]
+fn dev_rejects_hot_standby_mode() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let yaml_path = temporary.path().join("config.yaml");
+    fs::write(&yaml_path, "standby:\n  mode: hot\n").expect("write test config");
+    let error = Config::load_dev(&DevCommandOptions {
+        data_dir: temporary.path().join("data"),
+        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        log_dir: None,
+        config: Some(yaml_path),
+        attribute_store_config: None,
+    })
+    .expect_err("dev must reject hot standby mode");
+    assert!(matches!(
+        error,
+        ConfigError::Invalid {
+            field: "standby.mode",
             ..
         }
     ));
@@ -676,6 +725,24 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("dev.s3DataDirectory", |config| {
             config.dev.data_directory = PathBuf::from("/tmp/dev")
         }),
+        ("standby.heldLeasePollInterval", |config| {
+            config.standby.held_lease_poll_interval = Duration::ZERO
+        }),
+        ("standby.behindLagThreshold", |config| {
+            config.standby.behind_lag_threshold = Duration::ZERO
+        }),
+        ("standby.stepDownHoldOff", |config| {
+            config.standby.step_down_hold_off = Duration::ZERO
+        }),
+        ("standby.stepDownHoldOff", |config| {
+            config.standby.mode = StandbyMode::Hot;
+            config.lease.fail_if_held = false;
+            config.standby.step_down_hold_off = Duration::from_millis(1750);
+        }),
+        ("standby.mode", |config| {
+            config.standby.mode = StandbyMode::Hot;
+            config.lease.fail_if_held = true;
+        }),
     ];
     for (expected_field, mutate) in cases {
         let mut configuration = valid_config();
@@ -687,6 +754,11 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }
     }
     valid_config().validate().expect("valid configuration");
+    let mut short_cold_hold_off = valid_config();
+    short_cold_hold_off.standby.step_down_hold_off = Duration::from_millis(1750);
+    short_cold_hold_off
+        .validate()
+        .expect("a cold standby has no lagging delay for the hold-off to exceed");
     let mut separate_hard_delete = valid_config();
     separate_hard_delete.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
         bucket: "hard-delete".to_owned(),

@@ -19,10 +19,12 @@ mod registry;
 pub use cluster::{ClusterBootstrap, ClusterConfig, bootstrap_or_validate, read_cluster};
 pub use error::MetadataError;
 pub use lease::{
-    LeaseConfig, LeaseHandle, LeaseObservers, LeaseReleaseError, LeaseStatus, acquire_lease,
+    LeaseHandle, LeaseObservers, LeaseReleaseError, LeaseStatus, acquire_lease,
     acquire_lease_with_holder_process_id,
 };
-pub use lease_acquisition::LeaseObjectStores;
+pub use lease_acquisition::{
+    LeaseAcquisitionDelay, LeaseConfig, LeaseObjectStores, read_node_lease,
+};
 pub use lease_validity_deadline::LeaseValidityDeadline;
 pub use manifest::{
     ManifestChange, NodeConfig, bump_node_epoch, create_initial_manifest, raise_version_barrier,

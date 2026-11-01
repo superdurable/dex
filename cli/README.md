@@ -656,10 +656,6 @@ details when supplied. Usage and missing-confirmation failures exit with status
 
 ## Administer the active server process
 
-server-zd does not serve AdminService yet, so these commands currently fail with
-Unimplemented. The rest of this section describes them against a server that
-serves AdminService.
-
 `dexcli admin describe` calls AdminService `DescribeActiveNode`. It prints the
 `nodeId`, `nodeEpoch`, and `holderProcessId` of the active server process behind
 `--server`, and changes nothing. It fails with FailedPrecondition while a step

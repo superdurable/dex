@@ -876,36 +876,42 @@ impl Workload {
         count: usize,
         duration: Duration,
     ) {
+        for _ in 0..count {
+            self.start_timer_flow(channel.clone(), duration).await;
+        }
+    }
+
+    /// Starts one acknowledged timer Flow of `duration`, which the ledger verifies; returns its Flow ID.
+    pub(crate) async fn start_timer_flow(&self, channel: Channel, duration: Duration) -> String {
         let mut client = FlowServiceClient::new(channel);
         let is_stopping = AtomicBool::new(false);
         let seconds = i64::try_from(duration.as_secs()).expect("a test timer fits in i64 seconds");
-        for _ in 0..count {
-            let flow_id = self.ledger.new_request_id("spanning-timer");
-            let request = start_request(
-                &flow_id,
-                TIMER_FLOW_TYPE,
-                TIMER_STEP_TYPE,
-                int_value(seconds),
-                StepOptions::default(),
+        let flow_id = self.ledger.new_request_id("spanning-timer");
+        let request = start_request(
+            &flow_id,
+            TIMER_FLOW_TYPE,
+            TIMER_STEP_TYPE,
+            int_value(seconds),
+            StepOptions::default(),
+            &self.ledger,
+        );
+        let first_sent_at = Instant::now();
+        let run_id = tokio::time::timeout(
+            SETUP_BUDGET,
+            start_until_acknowledged(
+                &mut client,
+                &request,
                 &self.ledger,
-            );
-            let first_sent_at = Instant::now();
-            let run_id = tokio::time::timeout(
+                &is_stopping,
                 SETUP_BUDGET,
-                start_until_acknowledged(
-                    &mut client,
-                    &request,
-                    &self.ledger,
-                    &is_stopping,
-                    SETUP_BUDGET,
-                ),
-            )
-            .await
-            .unwrap_or_else(|_| panic!("{flow_id} was not acknowledged within {SETUP_BUDGET:?}"))
-            .expect("setup never stops");
-            self.ledger
-                .record_start(&flow_id, &run_id, WorkloadFlowKind::Timer, first_sent_at);
-        }
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{flow_id} was not acknowledged within {SETUP_BUDGET:?}"))
+        .expect("setup never stops");
+        self.ledger
+            .record_start(&flow_id, &run_id, WorkloadFlowKind::Timer, first_sent_at);
+        flow_id
     }
 
     /// Returns how many acknowledged timer Flows were started before `instant` and ran after it.

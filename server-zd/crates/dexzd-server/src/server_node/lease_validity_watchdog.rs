@@ -277,7 +277,7 @@ mod tests {
             .build()
             .expect("the test runtime starts");
         let health = runtime.block_on(async {
-            let (health, _server) = HealthStatus::new().await;
+            let (health, _server) = HealthStatus::new(deadline.clone()).await;
             health.set_serving().await;
             health
         });

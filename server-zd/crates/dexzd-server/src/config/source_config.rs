@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use super::{
     AttributeStoreConfig, Config, CredentialSource, DevConfig, DevDurabilityMode,
-    ObjectStoreCredentials, SearchBackend, StreamStoreBackend,
+    ObjectStoreCredentials, SearchBackend, StandbyMode, StreamStoreBackend,
 };
 use crate::DevCommandOptions;
 
@@ -139,6 +139,12 @@ impl Config {
                 });
             }
             configuration.attribute_store = read_go_attribute_store_section(path)?;
+        }
+        if configuration.standby.mode == StandbyMode::Hot {
+            return Err(ConfigError::Invalid {
+                field: "standby.mode",
+                message: "dev runs a single process, so it accepts only cold".to_owned(),
+            });
         }
         if configuration.object_store.hard_delete_store.is_some() {
             return Err(ConfigError::Invalid {

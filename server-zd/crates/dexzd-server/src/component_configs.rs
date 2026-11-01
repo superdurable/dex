@@ -12,8 +12,8 @@ use dexzd_api::{CredentialAuthenticatorConfig, FlowServiceConfig};
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
-    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, LocalStoreConfig, RecoveryConfig,
-    SnapshotConfig, default_run_settings,
+    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HotStandbyConfig, LocalStoreConfig,
+    RecoveryConfig, SnapshotConfig, default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
 use dexzd_request_validation::ValidationConfig;
@@ -22,7 +22,7 @@ use dexzd_stream_store::StreamStoreConfig;
 use dexzd_worker_dispatch::MatchingConfig;
 
 use crate::ServerError;
-use crate::config::{Config, StreamStoreBackend, available_cpu_count};
+use crate::config::{Config, StandbyConfig, StandbyMode, StreamStoreBackend, available_cpu_count};
 
 /// The incarnation of this node's log stream; one node writes one stream until multi-node support.
 const LOG_STREAM_INCARNATION: u32 = 1;
@@ -40,6 +40,10 @@ pub(crate) struct ComponentConfigs {
     pub(crate) authenticators: Vec<CredentialAuthenticatorConfig>,
     /// Has no store names when no Attribute Store is configured; orphaned entries still drop.
     pub(crate) attribute_sync: AttributeSyncConfig,
+    /// How this process waits for the lease and steps down.
+    pub(crate) standby: StandbyConfig,
+    /// Set in `hot` standby mode; `None` waits for the lease as a cold standby.
+    pub(crate) hot_standby: Option<HotStandbyConfig>,
 }
 
 impl ComponentConfigs {
@@ -111,6 +115,12 @@ impl ComponentConfigs {
                 duration: config.lease.duration,
                 fail_fast: config.lease.fail_if_held,
                 should_take_over_held_lease,
+                held_lease_poll_limit: match config.standby.mode {
+                    StandbyMode::Hot => config.standby.held_lease_poll_interval,
+                    StandbyMode::Cold => {
+                        dexzd_cluster_metadata::LeaseConfig::default().held_lease_poll_limit
+                    }
+                },
                 ..dexzd_cluster_metadata::LeaseConfig::default()
             },
             local_store: LocalStoreConfig::RocksDb {
@@ -282,6 +292,11 @@ impl ComponentConfigs {
             grpc_max_message_bytes,
             authenticators: config.auth.credential_authenticators(),
             attribute_sync: attribute_sync_config(config)?,
+            standby: config.standby.clone(),
+            hot_standby: (config.standby.mode == StandbyMode::Hot).then(|| HotStandbyConfig {
+                behind_lag_threshold: config.standby.behind_lag_threshold,
+                ..HotStandbyConfig::default()
+            }),
         })
     }
 

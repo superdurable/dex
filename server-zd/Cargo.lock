@@ -1376,11 +1376,14 @@ dependencies = [
  "dexzd-visibility-query",
  "dexzd-worker-dispatch",
  "futures",
+ "http-body-util",
  "humantime-serde",
+ "hyper-util",
  "libc",
  "prometheus-client",
  "prost",
  "prost-types",
+ "rand 0.10.3",
  "rustix",
  "s3mock",
  "s3mock-server",
@@ -1398,6 +1401,7 @@ dependencies = [
  "tower-layer",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1477,6 +1481,7 @@ name = "dexzd-worker-dispatch"
 version = "0.1.0"
 dependencies = [
  "dexzd-clock",
+ "dexzd-cluster-metadata",
  "dexzd-metrics",
  "dexzd-protocol",
  "dexzd-request-validation",

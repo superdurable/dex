@@ -16,6 +16,7 @@ pub(crate) const API_LATENCY_BOUNDS: [f64; 6] = [0.005, 0.025, 0.1, 0.5, 2.5, f6
 pub(crate) const FLOW_LATENCY_BOUNDS: [f64; 8] =
     [1.0, 10.0, 60.0, 600.0, 3600.0, 21600.0, 86400.0, f64::MAX];
 pub(crate) const SCHEDULE_LATENCY_BOUNDS: [f64; 7] = [0.005, 0.025, 0.1, 0.5, 2.5, 10.0, f64::MAX];
+pub(crate) const TAKEOVER_LATENCY_BOUNDS: [f64; 7] = [0.25, 0.5, 1.0, 2.5, 5.0, 15.0, f64::MAX];
 
 #[derive(Debug)]
 struct HistogramState<const N: usize> {

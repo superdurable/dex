@@ -9,55 +9,49 @@
 mod attribute_sync;
 mod bounded_teardown;
 mod client_deadline;
+mod grpc_server;
 mod lease_validity_watchdog;
+mod node_lifecycle;
 mod public_api_authentication;
 mod search_projection;
 #[cfg(test)]
+mod shutdown_budget_tests;
+#[cfg(test)]
 mod startup_cancellation_tests;
 
-use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, RwLock};
-use std::task::{Context, Poll};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_api::{
-    AttributeIndexes, DexFlowService, FlowServiceDependencies, HealthStatus,
-    PublicApiAuthenticator, RequestMetricsLayer, StreamOperations,
+    AttributeIndexes, DexFlowService, FlowServiceDependencies, HealthStatus, StreamOperations,
 };
 use dexzd_apply::FlowStateReader;
-use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
-    AttributeSyncWaker, CommandApplier, CommandCommitter, DeterministicCommandApplier,
-    EffectDependencies, EffectRunner, EffectTasksHandle, EngineCommandAndEffectHooks, EngineNode,
-    EngineNodeDependencies, EngineServices, EngineStartError, FlowCoordinatorDependencies,
-    FlowCoordinatorRegistry, HardDeleteObjects, NodeMetaUploadLedger, NodeStopReason,
-    SystemEngineIdSource,
+    AttributeSyncWaker, CommandCommitter, EffectDependencies, EffectRunner, EffectTasksHandle,
+    EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
+    EngineServices, EngineStartError, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
+    HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreCloseWaiter, NodeMetaUploadLedger,
+    NodeStopReason,
 };
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
-use dexzd_protocol::dex::flow_service_server::FlowServiceServer;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
 use dexzd_search::builtin::{BuiltinSearchBackend, CommittedSearchViewProvider};
 use dexzd_search::{SearchBackend, SearchError};
 use dexzd_stream_store::StreamStore;
-use dexzd_worker_dispatch::{WorkerDispatch, WorkerTaskService};
+use dexzd_worker_dispatch::WorkerDispatch;
 use tokio::net::TcpListener;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tonic::Status;
-use tonic::body::Body;
-use tonic::codegen::{BoxFuture, Service, http};
-use tonic::server::NamedService;
 
 use crate::ServerError;
 use crate::component_configs::ComponentConfigs;
 use crate::config::{Config, SearchBackend as SearchBackendKind};
 use crate::embedded_s3::EmbeddedS3;
 use crate::metrics_server::MetricsServer;
-use crate::object_stores::ObjectStores;
 use crate::registry_committed_command_sink::RegistryCommittedCommandSink;
 use crate::worker_rpc_invoker::PullWorkerRpcInvoker;
 
@@ -65,7 +59,12 @@ pub(crate) use search_projection::SearchOutboxWatermarks;
 
 use attribute_sync::{AttributeStores, AttributeSyncService, AttributeSyncStart};
 use bounded_teardown::BoundedTeardown;
+use grpc_server::{GrpcInstancePhase, GrpcServer, GrpcSettings};
 pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
+use node_lifecycle::{
+    AdministrationRequest, HeldNodeLease, LifecycleActiveNodeAdministration, NodeLifecycle,
+    ProcessParts, StepDownRequest,
+};
 use search_projection::{
     SearchProjection, SearchProjectionModeRebuilder, SearchProjectionStart, SqlVisibilitySearch,
 };
@@ -78,8 +77,12 @@ const EFFECT_TASKS_STOP_BUDGET: Duration = Duration::from_secs(2);
 /// Also bounds the Attribute Sync projector, which stops at the same time.
 const SEARCH_PROJECTION_STOP_BUDGET: Duration = Duration::from_secs(1);
 /// Covers the engine's three-second task stop and its lease release.
-const ENGINE_STOP_BUDGET: Duration =
-    EngineNode::SHUTDOWN_BUDGET.saturating_add(Duration::from_millis(500));
+/// It also covers a cancelled takeover's release.
+const ENGINE_STOP_BUDGET: Duration = longer_duration(
+    EngineNode::SHUTDOWN_BUDGET,
+    EngineNode::TAKEOVER_RELEASE_BUDGET,
+)
+.saturating_add(Duration::from_millis(500));
 const STREAM_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(1);
 /// Closing the relaxed embedded store fsyncs under host load; abandoning it can lose acknowledged writes.
 const EMBEDDED_S3_MINIMUM_STOP_BUDGET: Duration = Duration::from_secs(1);
@@ -91,11 +94,11 @@ const SHUTDOWN_BUDGET: Duration = GRPC_DRAIN_BUDGET
     .saturating_add(ENGINE_STOP_BUDGET)
     .saturating_add(STREAM_STORE_CLOSE_BUDGET)
     .saturating_add(EMBEDDED_S3_MINIMUM_STOP_BUDGET);
-/// gRPC keepalive, equal to the Go Server's.
-const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
-const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Tenant that serves pull Workers until authentication assigns tenants.
 const DEFAULT_TENANT_ID: u64 = 0;
+/// The answer to a step down that reached a standby instance of a process that now serves.
+const STANDBY_INSTANCE_STEP_DOWN_REFUSAL: &str =
+    "the call reached a standby connection that closes soon; retry it";
 
 /// How the process reacts when the lease validity deadline passes without a renewal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +168,15 @@ impl RunningServer {
     }
 }
 
+impl EngineStart {
+    fn into_hot_standby(self) -> Option<HotStandby> {
+        match self {
+            Self::Cold => None,
+            Self::HotStandby(standby) => Some(standby),
+        }
+    }
+}
+
 impl Drop for RunningServer {
     fn drop(&mut self) {
         self.serving.abort();
@@ -216,19 +228,29 @@ pub(crate) async fn start_server(
             }
         };
     let metrics_address = metrics_server.as_ref().map(MetricsServer::address);
-    let grpc = GrpcServer::start(
-        listener,
-        components.grpc_max_message_bytes,
-        metrics.api_requests.clone(),
-        metrics.api_latency.clone(),
-        authenticator.as_ref(),
-    )
-    .await;
     let lease_validity_deadline = LeaseValidityDeadline::disarmed();
+    let (health, _first_health_server) = HealthStatus::new(lease_validity_deadline.clone()).await;
+    let (serving_instance_administration, administration_requests) =
+        LifecycleActiveNodeAdministration::new();
+    let standby_instance_administration = serving_instance_administration.for_standby_instances();
+    let grpc_settings = GrpcSettings {
+        listener: Arc::new(listener),
+        max_message_bytes: components.grpc_max_message_bytes,
+        api_requests: metrics.api_requests.clone(),
+        api_latency: metrics.api_latency.clone(),
+        authenticator,
+        serving_instance_administration: Arc::new(serving_instance_administration),
+        standby_instance_administration: Arc::new(standby_instance_administration),
+        health,
+        lease_validity_deadline: lease_validity_deadline.clone(),
+    };
+    let grpc = GrpcServer::start(&grpc_settings, GrpcInstancePhase::Standby);
     let lease_watchdog = match lease_expiry_response {
         LeaseExpiryResponse::ExitProcess => {
-            match LeaseValidityWatchdog::start(lease_validity_deadline.clone(), grpc.health.clone())
-            {
+            match LeaseValidityWatchdog::start(
+                lease_validity_deadline.clone(),
+                grpc_settings.health.clone(),
+            ) {
                 Ok(lease_watchdog) => Some(lease_watchdog),
                 Err(source) => {
                     grpc.abort().await;
@@ -244,18 +266,20 @@ pub(crate) async fn start_server(
         }
         LeaseExpiryResponse::StopNodeOnly => None,
     };
-    let started = ServerNode::start(
+    let started = Box::pin(NodeLifecycle::start(
         config,
-        &components,
-        metrics.clone(),
+        components,
+        metrics,
         lease_validity_deadline,
+        grpc_settings,
+        grpc,
+        administration_requests,
         cancellation,
-    )
+    ))
     .await;
-    let node = match started {
-        Ok(Some(node)) => node,
+    let lifecycle = match started {
+        Ok(Some(lifecycle)) => lifecycle,
         Ok(None) => {
-            grpc.abort().await;
             if let Some(metrics_server) = metrics_server {
                 metrics_server.shutdown().await;
             }
@@ -265,7 +289,6 @@ pub(crate) async fn start_server(
             return Ok(None);
         }
         Err(error) => {
-            grpc.abort().await;
             if let Some(metrics_server) = metrics_server {
                 metrics_server.shutdown().await;
             }
@@ -279,7 +302,7 @@ pub(crate) async fn start_server(
     let dev_object_store_for_test = embedded_s3.as_ref().map(EmbeddedS3::store_for_test);
     let shutdown_request = CancellationToken::new();
     let serving =
-        tokio::spawn(node.serve(grpc, metrics_server, shutdown_request.clone(), embedded_s3));
+        tokio::spawn(lifecycle.run(metrics_server, shutdown_request.clone(), embedded_s3));
     tracing::info!(address = %local_address, "dex-server-zd serving");
     Ok(Some(RunningServer {
         local_address,
@@ -292,148 +315,66 @@ pub(crate) async fn start_server(
     }))
 }
 
-struct GrpcServer {
-    health: HealthStatus,
-    flow_service_gate: StartupService<FlowServiceServer<DexFlowService>>,
-    worker_task_service_gate: StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
-    max_message_bytes: usize,
-    stop: CancellationToken,
-    task: JoinHandle<Result<(), tonic::transport::Error>>,
+/// How the engine of a serving period gets its local store.
+enum EngineStart {
+    /// Opens or restores the configured store once this process holds the lease.
+    Cold,
+    /// Takes over the store that this hot standby keeps current.
+    HotStandby(HotStandby),
 }
 
-impl GrpcServer {
-    async fn start(
-        listener: TcpListener,
-        max_message_bytes: usize,
-        api_requests: dexzd_metrics::ApiRequests,
-        api_latency: dexzd_metrics::ApiLatency,
-        authenticator: Option<&Arc<PublicApiAuthenticator>>,
-    ) -> Self {
-        let (health, health_server) = HealthStatus::new().await;
-        let flow_service_gate = StartupService::<FlowServiceServer<DexFlowService>>::new();
-        let worker_task_service_gate =
-            StartupService::<WorkerTaskServiceServer<WorkerTaskService>>::new();
-        let stop = CancellationToken::new();
-        let stopped = stop.clone();
-        let task = tokio::spawn(
-            tonic::transport::Server::builder()
-                .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
-                .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT))
-                .layer(RequestMetricsLayer::new(api_requests, api_latency))
-                .layer(tower_layer::layer_fn(
-                    client_deadline::client_deadline_layer,
-                ))
-                .add_service(health_server)
-                .add_service(public_api_authentication::authenticated(
-                    flow_service_gate.clone(),
-                    authenticator,
-                ))
-                .add_service(public_api_authentication::authenticated(
-                    worker_task_service_gate.clone(),
-                    authenticator,
-                ))
-                .serve_with_incoming_shutdown(
-                    futures::stream::unfold(listener, |listener| async move {
-                        let accepted = listener.accept().await.map(|(stream, _)| {
-                            // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
-                            if let Err(error) = stream.set_nodelay(true) {
-                                tracing::warn!(%error, "failed to set TCP_NODELAY on a gRPC connection");
-                            }
-                            stream
-                        });
-                        Some((accepted, listener))
-                    }),
-                    async move { stopped.cancelled().await },
-                ),
-        );
-        Self {
-            health,
-            flow_service_gate,
-            worker_task_service_gate,
-            max_message_bytes,
-            stop,
-            task,
-        }
-    }
-
-    async fn abort(mut self) {
-        self.stop.cancel();
-        self.task.abort();
-        match (&mut self.task).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => tracing::warn!(%error, "startup gRPC server failed"),
-            Err(join_error) if join_error.is_cancelled() => {}
-            Err(join_error) => {
-                tracing::warn!(%join_error, "startup gRPC server task failed");
-            }
-        }
-    }
+/// How the start of a serving period ended without a server error.
+enum ServerNodeStart {
+    Serving(Box<ServerNode>),
+    /// Cancellation arrived before the lease; a hot standby still follows the log.
+    Cancelled(Option<HotStandby>),
+    /// An error arrived before the lease; the hot standby still follows the log.
+    FailedBeforeLease {
+        error: EngineStartError,
+        standby: HotStandby,
+    },
 }
 
-impl Drop for GrpcServer {
-    fn drop(&mut self) {
-        self.stop.cancel();
-        self.task.abort();
-    }
+/// What the engine start returned, before the server maps it.
+enum EngineStartOutcome {
+    Serving(EngineNode),
+    Cancelled(Option<HotStandby>),
+    FailedBeforeLease {
+        error: EngineStartError,
+        standby: HotStandby,
+    },
+    /// A takeover outcome that a later engine added and this server does not handle.
+    Unrecognized,
 }
 
-#[derive(Clone)]
-struct StartupService<S> {
-    serving: Arc<RwLock<Option<S>>>,
+/// Why a serving period ended.
+enum PeriodEnd {
+    Shutdown,
+    Failed(ServerError),
+    StepDown(StepDownRequest),
 }
 
-impl<S> StartupService<S> {
-    fn new() -> Self {
-        Self {
-            serving: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    fn activate(&self, service: S) {
-        *self
-            .serving
-            .write()
-            .expect("startup service lock is poisoned only if a holder panicked") = Some(service);
-    }
+/// How a serving period stops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PeriodStopKind {
+    /// Stops the gRPC instance with its open calls, before the process exits.
+    Shutdown,
+    /// Keeps the gRPC instance, so the step down call gets its answer; public services refuse calls.
+    StepDown,
 }
 
-impl<S: NamedService> NamedService for StartupService<S> {
-    const NAME: &'static str = S::NAME;
+/// The teardown of one stopped serving period.
+struct PeriodStop {
+    teardown: BoundedTeardown,
+    /// Whether this process confirmed that it no longer holds the lease.
+    has_released_lease: bool,
+    /// Reports when the last holder of the period's local store lets it go and the store closes.
+    local_store_close_waiter: LocalStoreCloseWaiter,
+    /// Ends when the stopped instance's public calls end; they may still read the local store.
+    public_calls_ended: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
 }
 
-impl<S> Service<http::Request<Body>> for StartupService<S>
-where
-    S: Service<http::Request<Body>, Response = http::Response<Body>, Error = Infallible>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    S::Future: Send + 'static,
-{
-    type Response = http::Response<Body>;
-    type Error = Infallible;
-    type Future = BoxFuture<Self::Response, Self::Error>;
-
-    fn poll_ready(&mut self, _context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, request: http::Request<Body>) -> Self::Future {
-        let serving = self
-            .serving
-            .read()
-            .expect("startup service lock is poisoned only if a holder panicked")
-            .clone();
-        Box::pin(async move {
-            match serving {
-                Some(mut service) => service.call(request).await,
-                None => Ok(Status::unavailable("the node is starting").into_http()),
-            }
-        })
-    }
-}
-
-/// Every component of one node, in start order.
+/// Every component of one serving period, in start order.
 struct ServerNode {
     metrics: Arc<NodeMetrics>,
     engine: EngineNode,
@@ -441,9 +382,11 @@ struct ServerNode {
     effect_tasks: EffectTasksHandle,
     dispatch: WorkerDispatch,
     stream_store: Arc<StreamStore>,
-    flow_service: DexFlowService,
+    /// Moves into the gRPC gate when the period starts serving.
+    flow_service: Option<DexFlowService>,
     search_projection: Option<SearchProjection>,
     attribute_sync: AttributeSyncService,
+    held_lease: HeldNodeLease,
 }
 
 /// What the engine's command and effect hooks factory builds; captured so the node can own it after start.
@@ -454,33 +397,24 @@ struct ServerNodeStartupParts {
 }
 
 impl ServerNode {
+    /// Connects the period's stores, waits for the lease, and starts every component.
     async fn start(
-        config: &Config,
-        components: &ComponentConfigs,
-        metrics: Arc<NodeMetrics>,
-        lease_validity_deadline: LeaseValidityDeadline,
+        process: &ProcessParts,
+        engine_start: EngineStart,
+        engine_config: &EngineNodeConfig,
         cancellation: &mut watch::Receiver<bool>,
-    ) -> Result<Option<Self>, ServerError> {
-        // A cancelled startup check may leave its probe object behind.
-        let object_stores = match until_cancelled(
-            ObjectStores::connect(
-                &config.object_store,
-                config.commit.multipart_threshold_bytes,
-                metrics.as_ref(),
-            ),
-            cancellation,
-        )
-        .await
-        {
-            Some(connected) => connected?,
-            None => return Ok(None),
-        };
-        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock);
-        let applier: Arc<dyn CommandApplier> = Arc::new(DeterministicCommandApplier);
-        let dispatch = WorkerDispatch::new_with_metrics(
+    ) -> Result<ServerNodeStart, ServerError> {
+        let config = &process.config;
+        let components = &process.components;
+        let metrics = process.metrics.clone();
+        let object_stores = &process.object_stores;
+        let clock = process.clock.clone();
+        let applier = process.applier.clone();
+        let dispatch = WorkerDispatch::new_with_lease_validity_deadline(
             components.matching.clone(),
             clock.clone(),
             metrics.as_ref().clone(),
+            Some(process.lease_validity_deadline.clone()),
         );
         let stream_store = Arc::new(
             StreamStore::new(&components.stream_store)
@@ -514,7 +448,7 @@ impl ServerNode {
                 Some(connected) => Some(connected?),
                 None => {
                     close_stream_store(&stream_store).await;
-                    return Ok(None);
+                    return Ok(ServerNodeStart::Cancelled(engine_start.into_hot_standby()));
                 }
             },
         };
@@ -531,104 +465,149 @@ impl ServerNode {
             Some(connected) => connected?,
             None => {
                 close_stream_store(&stream_store).await;
-                return Ok(None);
+                return Ok(ServerNodeStart::Cancelled(engine_start.into_hot_standby()));
             }
         };
         let attribute_sync_waker = AttributeSyncWaker::new();
         let startup_parts: Arc<Mutex<Option<ServerNodeStartupParts>>> = Arc::new(Mutex::new(None));
-        let started = EngineNode::start_until_cancelled(
-            &components.engine_node,
-            EngineNodeDependencies {
-                metrics: metrics.clone(),
-                object_store: object_stores.primary.clone(),
-                clock: clock.clone(),
-                applier: applier.clone(),
-                id_source: Arc::new(SystemEngineIdSource),
-                lease_validity_deadline,
-            },
-            |services: EngineServices| {
-                let partition_hasher = services.partition_hasher.clone();
-                let hard_delete_objects = HardDeleteObjects::new(
-                    object_stores.hard_delete.clone(),
-                    Arc::new(NodeMetaUploadLedger::new(
-                        services.local_store.clone(),
-                        services.node_meta_lock.clone(),
-                    )),
-                    clock.clone(),
-                    partition_hasher.clone(),
-                    services.id_source.clone(),
-                );
-                let (effect_runner, effect_tasks) = EffectRunner::new(
-                    &components.effects,
-                    EffectDependencies {
-                        metrics: metrics.clone(),
-                        dispatcher: Arc::new(dispatch.clone()),
-                        hard_delete_objects: hard_delete_objects.clone(),
-                        partition_hasher: partition_hasher.clone(),
-                        clock: clock.clone(),
-                        validation_config: components.validation().clone(),
-                        stream_store: stream_store.clone(),
-                        id_source: services.id_source.clone(),
-                        attribute_sync_waker: attribute_sync_waker.clone(),
+        let dependencies = EngineNodeDependencies {
+            metrics: metrics.clone(),
+            object_store: object_stores.primary.clone(),
+            clock: clock.clone(),
+            applier: applier.clone(),
+            id_source: process.id_source.clone(),
+            lease_validity_deadline: process.lease_validity_deadline.clone(),
+        };
+        let command_and_effect_hooks_factory = |services: EngineServices| {
+            let partition_hasher = services.partition_hasher.clone();
+            let hard_delete_objects = HardDeleteObjects::new(
+                object_stores.hard_delete.clone(),
+                Arc::new(NodeMetaUploadLedger::new(
+                    services.local_store.clone(),
+                    services.node_meta_lock.clone(),
+                )),
+                clock.clone(),
+                partition_hasher.clone(),
+                services.id_source.clone(),
+            );
+            let (effect_runner, effect_tasks) = EffectRunner::new(
+                &components.effects,
+                EffectDependencies {
+                    metrics: metrics.clone(),
+                    dispatcher: Arc::new(dispatch.clone()),
+                    hard_delete_objects: hard_delete_objects.clone(),
+                    partition_hasher: partition_hasher.clone(),
+                    clock: clock.clone(),
+                    validation_config: components.validation().clone(),
+                    stream_store: stream_store.clone(),
+                    id_source: services.id_source.clone(),
+                    attribute_sync_waker: attribute_sync_waker.clone(),
+                },
+            );
+            let mode_rebuilder = SearchProjectionModeRebuilder::new(
+                Arc::new(effect_runner.clone()),
+                services.committer.clone(),
+                metrics.clone(),
+                partition_hasher.clone(),
+                is_search_projection_enabled,
+            );
+            let registry = FlowCoordinatorRegistry::new(
+                &components.flow_coordination,
+                FlowCoordinatorDependencies {
+                    hasher: partition_hasher.clone(),
+                    committer: Arc::new(services.committer),
+                    applier: applier.clone(),
+                    effects: Arc::new(effect_runner.clone()),
+                    rpc_invoker: Arc::new(PullWorkerRpcInvoker::new(dispatch.clone())),
+                    hard_delete_reader: Arc::new(hard_delete_objects.clone()),
+                    hard_delete_uploader: Arc::new(hard_delete_objects),
+                    id_source: services.id_source,
+                },
+            );
+            let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
+            let hooks = EngineCommandAndEffectHooks {
+                committed_commands: Arc::new(RegistryCommittedCommandSink::new(
+                    registry.clone(),
+                    search_outbox_watermarks.clone(),
+                )),
+                rebuilder: Arc::new(mode_rebuilder),
+            };
+            *startup_parts
+                .lock()
+                .expect("runtime parts lock is poisoned only if a holder panicked") =
+                Some(ServerNodeStartupParts {
+                    registry,
+                    effect_tasks,
+                    partition_hasher,
+                });
+            hooks
+        };
+        let started = match engine_start {
+            EngineStart::Cold => EngineNode::start_until_cancelled(
+                engine_config,
+                dependencies,
+                command_and_effect_hooks_factory,
+                cancellation,
+            )
+            .await
+            .map(|engine| match engine {
+                Some(engine) => EngineStartOutcome::Serving(engine),
+                None => EngineStartOutcome::Cancelled(None),
+            }),
+            EngineStart::HotStandby(standby) => {
+                match EngineNode::take_over_from_hot_standby_until_cancelled(
+                    engine_config,
+                    dependencies,
+                    command_and_effect_hooks_factory,
+                    standby,
+                    cancellation,
+                )
+                .await
+                {
+                    Ok(HotStandbyTakeover::Serving(engine)) => {
+                        Ok(EngineStartOutcome::Serving(engine))
+                    }
+                    Ok(HotStandbyTakeover::Cancelled(standby)) => {
+                        Ok(EngineStartOutcome::Cancelled(Some(standby)))
+                    }
+                    Ok(_) => Ok(EngineStartOutcome::Unrecognized),
+                    // Before the lease the standby comes back and keeps following.
+                    Err(failure) => match failure.standby {
+                        Some(standby) => Ok(EngineStartOutcome::FailedBeforeLease {
+                            error: failure.error,
+                            standby,
+                        }),
+                        None => Err(failure.error),
                     },
-                );
-                let mode_rebuilder = SearchProjectionModeRebuilder::new(
-                    Arc::new(effect_runner.clone()),
-                    services.committer.clone(),
-                    metrics.clone(),
-                    partition_hasher.clone(),
-                    is_search_projection_enabled,
-                );
-                let registry = FlowCoordinatorRegistry::new(
-                    &components.flow_coordination,
-                    FlowCoordinatorDependencies {
-                        hasher: partition_hasher.clone(),
-                        committer: Arc::new(services.committer),
-                        applier: applier.clone(),
-                        effects: Arc::new(effect_runner.clone()),
-                        rpc_invoker: Arc::new(PullWorkerRpcInvoker::new(dispatch.clone())),
-                        hard_delete_reader: Arc::new(hard_delete_objects.clone()),
-                        hard_delete_uploader: Arc::new(hard_delete_objects),
-                        id_source: services.id_source,
-                    },
-                );
-                let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
-                let hooks = EngineCommandAndEffectHooks {
-                    committed_commands: Arc::new(RegistryCommittedCommandSink::new(
-                        registry.clone(),
-                        search_outbox_watermarks.clone(),
-                    )),
-                    rebuilder: Arc::new(mode_rebuilder),
-                };
-                *startup_parts
-                    .lock()
-                    .expect("runtime parts lock is poisoned only if a holder panicked") =
-                    Some(ServerNodeStartupParts {
-                        registry,
-                        effect_tasks,
-                        partition_hasher,
-                    });
-                hooks
-            },
-            cancellation,
-        )
-        .await;
+                }
+            }
+        };
         let parts = startup_parts
             .lock()
             .expect("runtime parts lock is poisoned only if a holder panicked")
             .take();
         let engine = match started {
-            Ok(Some(engine)) => engine,
-            Ok(None) => {
+            Ok(EngineStartOutcome::Serving(engine)) => engine,
+            Ok(EngineStartOutcome::Cancelled(standby)) => {
+                stop_startup_parts(parts).await;
                 close_stream_store(&stream_store).await;
-                return Ok(None);
+                return Ok(ServerNodeStart::Cancelled(standby));
+            }
+            Ok(EngineStartOutcome::FailedBeforeLease { error, standby }) => {
+                stop_startup_parts(parts).await;
+                close_stream_store(&stream_store).await;
+                return Ok(ServerNodeStart::FailedBeforeLease { error, standby });
+            }
+            Ok(EngineStartOutcome::Unrecognized) => {
+                stop_startup_parts(parts).await;
+                close_stream_store(&stream_store).await;
+                return Err(ServerError::ServingTaskFailed {
+                    detail: "the engine ended a takeover in a way this server does not handle"
+                        .to_owned(),
+                });
             }
             Err(source) => {
-                if let Some(parts) = parts {
-                    parts.registry.close_long_polls();
-                    stop_rpc_tasks(&parts.registry).await;
-                    parts.effect_tasks.shutdown().await;
-                }
+                stop_startup_parts(parts).await;
                 close_stream_store(&stream_store).await;
                 if matches!(
                     &source,
@@ -637,7 +616,7 @@ impl ServerNode {
                     }
                 ) && *cancellation.borrow()
                 {
-                    return Ok(None);
+                    return Ok(ServerNodeStart::Cancelled(None));
                 }
                 return Err(ServerError::EngineStart { source });
             }
@@ -698,52 +677,107 @@ impl ServerNode {
                 search_backend,
             },
         );
-        Ok(Some(Self {
+        let held_lease = HeldNodeLease {
+            node_id: config.cluster.node_id.clone(),
+            node_epoch: engine.node_epoch(),
+            holder_process_id: process.id_source.last_lease_holder_process_id(),
+        };
+        Ok(ServerNodeStart::Serving(Box::new(Self {
             metrics,
             engine,
             registry,
             effect_tasks,
             dispatch,
             stream_store,
-            flow_service,
+            flow_service: Some(flow_service),
             search_projection,
             attribute_sync,
-        }))
+            held_lease,
+        })))
     }
 
-    /// Serves until shutdown is requested or the node stops, then tears everything down.
-    async fn serve(
-        self,
-        grpc: GrpcServer,
-        metrics_server: Option<MetricsServer>,
-        shutdown_request: CancellationToken,
-        embedded_s3: Option<EmbeddedS3>,
-    ) -> Result<(), ServerError> {
-        let (outcome, mut teardown) = self
-            .serve_and_stop_node(grpc, metrics_server, shutdown_request)
-            .await;
-        // Every node component and its S3 client is dropped before the emulator stops.
-        if let Some(embedded_s3) = embedded_s3 {
-            teardown
-                .run(
-                    "embedded S3",
-                    embedded_s3_stop_budget(&teardown),
-                    embedded_s3.shutdown(),
-                )
-                .await;
+    /// Returns the node lease that this period holds.
+    fn held_lease(&self) -> &HeldNodeLease {
+        &self.held_lease
+    }
+
+    /// Returns which local store this period serves from.
+    fn store_source(&self) -> dexzd_metrics::TakeoverStoreSource {
+        if self.engine.is_serving_hot_standby_store() {
+            dexzd_metrics::TakeoverStoreSource::HotStandby
+        } else {
+            dexzd_metrics::TakeoverStoreSource::Restored
         }
-        teardown.finish(outcome)
     }
 
-    /// Serves until shutdown is requested or the node stops, then stops and drops every node component.
-    ///
-    /// Returns how serving ended and the teardown, whose steps so far stay within their budgets.
-    async fn serve_and_stop_node(
-        self,
-        mut grpc: GrpcServer,
-        metrics_server: Option<MetricsServer>,
-        shutdown_request: CancellationToken,
-    ) -> (Result<(), ServerError>, BoundedTeardown) {
+    /// Serves until shutdown, a node stop, or a step down; answers describe and epoch-mismatched step downs meanwhile.
+    async fn serve_until_stopped(
+        &mut self,
+        grpc: &mut GrpcServer,
+        shutdown_request: &CancellationToken,
+        administration_requests: &mut mpsc::Receiver<AdministrationRequest>,
+    ) -> PeriodEnd {
+        if let Some(flow_service) = self.flow_service.take() {
+            let worker_task_service =
+                WorkerTaskServiceServer::new(self.dispatch.service_for_tenant(DEFAULT_TENANT_ID))
+                    .max_decoding_message_size(grpc.max_message_bytes)
+                    .max_encoding_message_size(grpc.max_message_bytes);
+            grpc.flow_service_gate
+                .activate(flow_service.into_server(grpc.max_message_bytes));
+            grpc.worker_task_service_gate.activate(worker_task_service);
+            grpc.health.set_serving().await;
+        }
+        let mut node_stopped = std::pin::pin!(self.engine.wait_for_stop());
+        let registry_halted = self.registry.halted();
+        loop {
+            let request = tokio::select! {
+                () = shutdown_request.cancelled() => return PeriodEnd::Shutdown,
+                reason = &mut node_stopped => {
+                    return PeriodEnd::Failed(ServerError::NodeStopped { reason });
+                }
+                () = registry_halted.cancelled() => {
+                    return PeriodEnd::Failed(ServerError::NodeStopped {
+                        reason: NodeStopReason::CommitPipelineFailed {
+                            detail: "the Flow runtime registry halted".to_owned(),
+                        },
+                    });
+                }
+                served = &mut grpc.task => return PeriodEnd::Failed(match served {
+                    Ok(Ok(())) => ServerError::ServingTaskFailed {
+                        detail: "the gRPC server stopped unexpectedly".to_owned(),
+                    },
+                    Ok(Err(source)) => ServerError::Serve { source },
+                    Err(error) => ServerError::ServingTaskFailed { detail: error.to_string() },
+                }),
+                Some(request) = administration_requests.recv() => request,
+            };
+            if let Some(step_down) = request.answer_description(&self.held_lease)
+                && let Some(step_down) = step_down.check_precondition(&self.held_lease)
+            {
+                // That instance retires within 250 ms of a takeover and would cut a longer answer.
+                if step_down.is_on_standby_instance() {
+                    step_down.refuse_not_active(STANDBY_INSTANCE_STEP_DOWN_REFUSAL);
+                    continue;
+                }
+                // The select picks a ready branch at random, so a stop may race the step down.
+                let stop_reason = self.engine.stop_reason().or_else(|| {
+                    registry_halted
+                        .is_cancelled()
+                        .then(|| NodeStopReason::CommitPipelineFailed {
+                            detail: "the Flow runtime registry halted".to_owned(),
+                        })
+                });
+                if let Some(reason) = stop_reason {
+                    step_down.report_internal_failure(format!("the node stopped: {reason}"));
+                    return PeriodEnd::Failed(ServerError::NodeStopped { reason });
+                }
+                return PeriodEnd::StepDown(step_down);
+            }
+        }
+    }
+
+    /// Stops serving and every component, then releases the lease; only a shutdown sends `grpc` GOAWAY.
+    async fn stop(self, grpc: &mut GrpcServer, kind: PeriodStopKind) -> PeriodStop {
         let Self {
             metrics,
             engine,
@@ -751,70 +785,38 @@ impl ServerNode {
             effect_tasks,
             dispatch,
             stream_store,
-            flow_service,
+            flow_service: _,
             search_projection,
             attribute_sync,
+            held_lease: _,
         } = self;
-        let worker_task_service =
-            WorkerTaskServiceServer::new(dispatch.service_for_tenant(DEFAULT_TENANT_ID))
-                .max_decoding_message_size(grpc.max_message_bytes)
-                .max_encoding_message_size(grpc.max_message_bytes);
-        grpc.flow_service_gate
-            .activate(flow_service.into_server(grpc.max_message_bytes));
-        grpc.worker_task_service_gate.activate(worker_task_service);
-        grpc.health.set_serving().await;
-        let node_stopped = engine.wait_for_stop();
-        let registry_halted = registry.halted();
-        let outcome = tokio::select! {
-            () = shutdown_request.cancelled() => Ok(()),
-            reason = node_stopped => Err(ServerError::NodeStopped { reason }),
-            () = registry_halted.cancelled() => Err(ServerError::NodeStopped {
-                reason: NodeStopReason::CommitPipelineFailed {
-                    detail: "the Flow runtime registry halted".to_owned(),
-                },
-            }),
-            served = &mut grpc.task => Err(match served {
-                Ok(Ok(())) => ServerError::ServingTaskFailed {
-                    detail: "the gRPC server stopped unexpectedly".to_owned(),
-                },
-                Ok(Err(source)) => ServerError::Serve { source },
-                Err(error) => ServerError::ServingTaskFailed { detail: error.to_string() },
-            }),
-        };
-        match &outcome {
-            Ok(()) => tracing::info!("dex-server-zd shutting down"),
-            Err(error) => tracing::error!(%error, "dex-server-zd stopping after a failure"),
-        }
+        let local_store_close_waiter = engine.local_store_close_waiter();
         metrics.set_role(dexzd_metrics::NodeRole::Draining);
         let mut teardown = BoundedTeardown::start();
+        let drain_deadline = tokio::time::Instant::now() + GRPC_DRAIN_BUDGET;
         grpc.health.set_not_serving().await;
         dispatch.shutdown();
         registry.close_long_polls();
         registry.close_rpc_admission();
-        grpc.stop.cancel();
-        let drain = async {
-            tokio::join!(
-                async {
-                    if !grpc.task.is_finished() {
-                        match (&mut grpc.task).await {
-                            Ok(Ok(())) => {}
-                            Ok(Err(error)) => {
-                                tracing::warn!(%error, "gRPC server stopped with an error")
-                            }
-                            Err(error) => tracing::warn!(%error, "gRPC server task failed"),
-                        }
-                    }
-                },
-                registry.wait_for_rpc_tasks(),
-            );
-        };
-        if tokio::time::timeout(GRPC_DRAIN_BUDGET, drain)
+        match kind {
+            PeriodStopKind::Shutdown => grpc.stop.cancel(),
+            PeriodStopKind::StepDown => grpc.deactivate_public_services(),
+        }
+        // Closing it now ends waiting ReadStream calls, which would otherwise wait out the drain.
+        teardown
+            .run(
+                "Stream Store",
+                STREAM_STORE_CLOSE_BUDGET,
+                close_stream_store(&stream_store),
+            )
+            .await;
+        let public_calls_ended = Box::pin(grpc.public_calls_ended());
+        // Only RPC tasks finish before the release; the lease gate refuses other calls after it.
+        if tokio::time::timeout_at(drain_deadline, registry.wait_for_rpc_tasks())
             .await
             .is_err()
         {
             tracing::warn!("open calls did not finish in time; closing them");
-            registry.cancel_rpc_tasks();
-            grpc.task.abort();
         }
         registry.cancel_rpc_tasks();
         teardown
@@ -846,20 +848,36 @@ impl ServerNode {
         if !has_attribute_sync_stopped {
             teardown.record_overrun("Attribute Sync projector", SEARCH_PROJECTION_STOP_BUDGET);
         }
-        teardown
+        let has_released_lease = teardown
             .run_fallible("engine", ENGINE_STOP_BUDGET, engine.shutdown())
             .await;
-        if let Some(metrics_server) = metrics_server {
-            metrics_server.shutdown().await;
+        // The lease gate refuses calls now, so waiting for open ones keeps no client from a successor.
+        if kind == PeriodStopKind::Shutdown && !grpc.task.is_finished() {
+            match tokio::time::timeout_at(drain_deadline, &mut grpc.task).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(error))) => tracing::warn!(%error, "gRPC server stopped with an error"),
+                Ok(Err(error)) => tracing::warn!(%error, "gRPC server task failed"),
+                Err(_) => {
+                    tracing::warn!("open calls did not finish in time; closing them");
+                    grpc.task.abort();
+                }
+            }
         }
-        teardown
-            .run(
-                "Stream Store",
-                STREAM_STORE_CLOSE_BUDGET,
-                close_stream_store(&stream_store),
-            )
-            .await;
-        (outcome, teardown)
+        PeriodStop {
+            teardown,
+            has_released_lease,
+            local_store_close_waiter,
+            public_calls_ended,
+        }
+    }
+}
+
+/// Returns the longer of two budgets, usable in a constant.
+const fn longer_duration(first: Duration, second: Duration) -> Duration {
+    if first.as_nanos() >= second.as_nanos() {
+        first
+    } else {
+        second
     }
 }
 
@@ -889,6 +907,15 @@ fn builtin_search_backend(
     )
     .map_err(|source| ServerError::SearchBackend { source })?;
     Ok(Arc::new(backend))
+}
+
+/// Stops what the hooks factory started when the engine start ended without serving.
+async fn stop_startup_parts(parts: Option<ServerNodeStartupParts>) {
+    if let Some(parts) = parts {
+        parts.registry.close_long_polls();
+        stop_rpc_tasks(&parts.registry).await;
+        parts.effect_tasks.shutdown().await;
+    }
 }
 
 async fn stop_rpc_tasks(registry: &FlowCoordinatorRegistry) {
@@ -942,62 +969,5 @@ impl CommittedSearchViewProvider for CommittedSearchViews {
             .committed_view()
             .map_err(|error| SearchError::Unavailable(error.to_string()))?;
         Ok(Arc::new(view))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_step_budgets_total_the_documented_shutdown_budget() {
-        assert_eq!(SHUTDOWN_BUDGET, Duration::from_secs(15));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_slow_embedded_s3_close_uses_the_budget_that_earlier_steps_left() {
-        let mut teardown = BoundedTeardown::start();
-        teardown.run("engine", ENGINE_STOP_BUDGET, async {}).await;
-        teardown
-            .run(
-                "embedded S3",
-                embedded_s3_stop_budget(&teardown),
-                tokio::time::sleep(Duration::from_secs(3)),
-            )
-            .await;
-        let finished = teardown.finish(Ok(()));
-        assert!(finished.is_ok(), "{finished:?}");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_stalled_embedded_s3_ends_at_the_shutdown_budget_or_after_its_minimum() {
-        let slowest_earlier_steps = SHUTDOWN_BUDGET.saturating_sub(EMBEDDED_S3_MINIMUM_STOP_BUDGET);
-        for earlier_steps in [
-            Duration::ZERO,
-            Duration::from_secs(5),
-            slowest_earlier_steps,
-            Duration::from_secs(14),
-        ] {
-            let started = tokio::time::Instant::now();
-            let mut teardown = BoundedTeardown::start();
-            tokio::time::sleep(earlier_steps).await;
-            let budget = embedded_s3_stop_budget(&teardown);
-            teardown
-                .run("embedded S3", budget, std::future::pending())
-                .await;
-            assert_eq!(
-                started.elapsed(),
-                SHUTDOWN_BUDGET.max(earlier_steps + EMBEDDED_S3_MINIMUM_STOP_BUDGET),
-                "after {earlier_steps:?}"
-            );
-            let expected = format!("embedded S3 exceeded its {} ms budget", budget.as_millis());
-            assert!(
-                matches!(
-                    teardown.finish(Ok(())),
-                    Err(ServerError::ShutdownIncomplete { steps }) if steps == expected
-                ),
-                "after {earlier_steps:?}"
-            );
-        }
     }
 }

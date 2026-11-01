@@ -16,11 +16,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
-    AttributeIndexCapacity, AttributeIndexDeclaration, ClusterConfig, LeaseConfig, LeaseHandle,
-    LeaseReleaseError, LeaseStatus, ManifestChange, MetadataError, NodeConfig, acquire_lease,
-    bootstrap_or_validate, bump_node_epoch, create_initial_manifest, raise_version_barrier,
-    read_attribute_index_registry, read_manifest, register_attribute_indexes, update_manifest,
-    update_partition_snapshot, validate_attribute_index_capacity,
+    AttributeIndexCapacity, AttributeIndexDeclaration, ClusterConfig, LeaseAcquisitionDelay,
+    LeaseConfig, LeaseHandle, LeaseReleaseError, LeaseStatus, ManifestChange, MetadataError,
+    NodeConfig, acquire_lease, bootstrap_or_validate, bump_node_epoch, create_initial_manifest,
+    raise_version_barrier, read_attribute_index_registry, read_manifest,
+    register_attribute_indexes, update_manifest, update_partition_snapshot,
+    validate_attribute_index_capacity,
 };
 use dexzd_object_store::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
@@ -856,6 +857,114 @@ async fn lease_waiter_jitters_its_reads_within_the_poll_interval() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn lease_waiter_reads_a_held_lease_within_the_configured_poll_limit() {
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(TestClock::default());
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        .await
+        .unwrap();
+    let holder = acquire_lease(
+        store.clone(),
+        clock.clone(),
+        &node(),
+        &LeaseConfig::default(),
+    )
+    .await
+    .unwrap();
+    store
+        .lease_read_instants
+        .lock()
+        .expect("test store mutex")
+        .clear();
+    let waiter_store = Arc::clone(&store);
+    let waiter_clock = Arc::clone(&clock);
+    let waiter = tokio::spawn(async move {
+        let config = LeaseConfig {
+            held_lease_poll_limit: Duration::from_millis(250),
+            ..LeaseConfig::default()
+        };
+        acquire_lease(waiter_store, waiter_clock, &node(), &config).await
+    });
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!waiter.is_finished());
+    let reads = store
+        .lease_read_instants
+        .lock()
+        .expect("test store mutex")
+        .clone();
+    let gaps: Vec<Duration> = reads.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    assert!(gaps.len() >= 11, "{gaps:?}");
+    assert!(
+        gaps.iter()
+            .all(|gap| *gap >= Duration::from_millis(125) && *gap <= Duration::from_millis(250)),
+        "{gaps:?}"
+    );
+    holder.shutdown().await.unwrap();
+    waiter.await.unwrap().unwrap().shutdown().await.unwrap();
+}
+
+/// Waits a fixed time before writing an available lease.
+#[derive(Debug)]
+struct FixedAcquisitionDelay(Duration);
+
+impl LeaseAcquisitionDelay for FixedAcquisitionDelay {
+    fn delay_before_acquiring(&self) -> Duration {
+        self.0
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_delayed_waiter_leaves_each_released_lease_to_a_readier_process_first() {
+    const ACQUISITION_DELAY: Duration = Duration::from_secs(2);
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(TestClock::default());
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        .await
+        .unwrap();
+    let holder = acquire_lease(
+        store.clone(),
+        clock.clone(),
+        &node(),
+        &LeaseConfig::default(),
+    )
+    .await
+    .unwrap();
+    let delayed_store = Arc::clone(&store);
+    let delayed_clock = Arc::clone(&clock);
+    let delayed_waiter = tokio::spawn(async move {
+        let config = LeaseConfig {
+            acquisition_delay: Some(Arc::new(FixedAcquisitionDelay(ACQUISITION_DELAY))),
+            ..LeaseConfig::default()
+        };
+        acquire_lease(delayed_store, delayed_clock, &node(), &config).await
+    });
+    let prompt_store = Arc::clone(&store);
+    let prompt_clock = Arc::clone(&clock);
+    let prompt_waiter = tokio::spawn(async move {
+        acquire_lease(prompt_store, prompt_clock, &node(), &LeaseConfig::default()).await
+    });
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    holder.shutdown().await.unwrap();
+    // Each waiter reads within its one-second poll; only the prompt one writes at once.
+    let prompt = prompt_waiter.await.unwrap().unwrap();
+    assert_eq!(prompt.epoch(), 2);
+    tokio::time::sleep(ACQUISITION_DELAY * 2).await;
+    assert!(!delayed_waiter.is_finished());
+    prompt.shutdown().await.unwrap();
+    let released_at = Instant::now();
+    let delayed = delayed_waiter.await.unwrap().unwrap();
+    // A new released version is delayed again before the write.
+    assert!(
+        released_at.elapsed() >= ACQUISITION_DELAY
+            && released_at.elapsed() <= ACQUISITION_DELAY + Duration::from_secs(1),
+        "took the released lease after {:?}",
+        released_at.elapsed()
+    );
+    assert_eq!(delayed.epoch(), 3);
+    delayed.shutdown().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
 async fn lease_waiter_polling_a_short_lease_still_waits_out_the_grace() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
@@ -867,6 +976,7 @@ async fn lease_waiter_polling_a_short_lease_still_waits_out_the_grace() {
         takeover_grace: Duration::from_millis(600),
         fail_fast: false,
         should_take_over_held_lease: false,
+        ..LeaseConfig::default()
     };
     let crashed = acquire_lease(store.clone(), clock.clone(), &node(), &config)
         .await

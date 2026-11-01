@@ -138,6 +138,12 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_behavior_version` | gauge | — | Cluster's current version barrier used by new commands |
 | `dexzd_node_role` | gauge, 1 for current role and 0 otherwise | `role`: starting, standby, recovering, serving, draining | Lifecycle state |
 | `dexzd_lease_epoch` | gauge | — | Owner epoch held by this node, 0 when none |
+| `dexzd_hot_standby_state` | gauge, 1 for current state and 0 otherwise | `state`: inactive, bootstrapping, following, behind, restarting, failed | Hot standby state; inactive while the process serves, starts, or runs as a cold standby |
+| `dexzd_hot_standby_lag_seconds` | gauge | — | How long the hot standby has trailed the end of the log, 0 when caught up |
+| `dexzd_hot_standby_lag_batches` | gauge | — | Log batches the hot standby has yet to apply, as of its last listing |
+| `dexzd_hot_standby_error` | gauge | — | 1 while the hot standby reports the error of a recent restart |
+| `dexzd_takeovers_total` | counter | `standby_mode`: hot, cold; `store_source`: hot_standby, restored | Completed lease takeovers of this process, by whether the node serves the hot standby's store or opened or restored its own |
+| `dexzd_takeover_duration_seconds` | histogram | `store_source`: hot_standby, restored | Hot takeovers only: time from the available lease to serving |
 | `dexzd_lease_renewals_total` | counter | `outcome`: ok, error | Lease renewal attempts |
 | `dexzd_api_requests_total` | counter | `rpc_class`: flow_write, flow_read, search, worker_poll, worker_respond; `code`: gRPC status code in snake_case | Public API calls by final status; unary calls at completion, Worker streams once at close, unauthenticated calls included, health checks excluded |
 | `dexzd_commit_batches_total` | counter | — | Durably committed batches |
@@ -453,11 +459,12 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
 - One ParadeDB schema belongs to one Dex cluster.
 
 On SIGTERM or SIGINT the node stops within 14.5 seconds. Health reports NOT_SERVING, Workers are
-told to reconnect, long polls close, and open calls get 4 seconds to finish. Then effects and the
-engine stop, and the node releases its lease. The process exits 0, and a replacement process with
-the same `cluster.nodeId` acquires the lease at once. When object storage rejects the release, or
-the release does not finish within 2 seconds, the process exits 1 and the lease stays held until it
-expires.
+told to reconnect, long polls and waiting ReadStream calls close, and in-flight RPCs get 4 seconds
+to finish. Then effects and the engine stop, and the node releases its lease. Other open calls
+finish within the same 4 seconds, and the lease gate refuses their answers. The process exits 0,
+and a replacement process with the same `cluster.nodeId` acquires the lease at once. When object
+storage rejects the release, or the release does not finish within 2 seconds, the process exits 1
+and the lease stays held until it expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow coordinator stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
@@ -622,11 +629,63 @@ auth:
 `--expected-node-epoch` or from a describe call made first. After DEADLINE_EXCEEDED, CANCELLED, or
 UNAVAILABLE, retry only with the values that the failed call used, never with values read after it.
 Do not run the command again without these flags; it would describe and step down whichever process
-is active now. A server that does not serve `AdminService` answers UNIMPLEMENTED. server-zd does not
-register `AdminService` yet, so
-today `adminAudiences` is validated at startup and has no other effect. Once it does, a step down
-makes the active process report NOT_SERVING while it keeps running as a standby. Liveness probes of
-a process that may step down must then not use gRPC health.
+is active now. A server that does not serve `AdminService` answers UNIMPLEMENTED. server-zd serves
+`AdminService` outside the startup gate, so a standby answers both RPCs with FAILED_PRECONDITION
+instead of UNAVAILABLE. A step down makes the active process report NOT_SERVING while it keeps
+running as a standby. Liveness probes of a process that may step down must not use gRPC health. See
+[Hot standby](#hot-standby) for the step down sequence.
+
+### Hot standby
+
+`standby.mode: hot` makes every process that waits for the lease a hot standby. It follows the node's
+log from object storage, keeps its local store current, and takes over by replaying only the last
+batches. The default `cold` keeps the behavior of earlier releases: the process opens or restores
+its store only after it takes the lease.
+
+```yaml
+standby:
+  mode: hot                    # default cold
+  heldLeasePollInterval: 250ms # hot only; reads of a lease another process holds
+  stepDownHoldOff: 5s          # wait before a stepped-down process competes again
+  laggingTakeoverDelay: 1500ms # hot only; wait of a standby that is not hot
+  behindLagThreshold: 10s      # hot only; lag above which a standby is not hot
+```
+
+- A hot standby only reads object storage, runs no effects, and answers public calls with
+  UNAVAILABLE. `dex.HotStandby` in `grpc.health.v1` reports SERVING only while it is within
+  `behindLagThreshold`; readiness names stay SERVING only on the active process.
+- When the lease becomes available, a hot standby writes it after 0 to 50 ms of jitter. A standby
+  that is not hot waits `laggingTakeoverDelay` first, with 20% jitter. The conditional lease write
+  alone decides who takes over.
+- An error before the lease keeps the standby following and retries the takeover with backoff from
+  1 s to 30 s.
+- `hot` needs `lease.failIfHeld: false`; `dev` accepts only `cold`; in hot mode,
+  `stepDownHoldOff` must exceed `laggingTakeoverDelay` plus `heldLeasePollInterval`.
+- A standby's gRPC instance closes each connection after 3 s, with a 1 s grace, so a client that
+  reached a standby reconnects. At a takeover the process starts a serving instance without that
+  limit and retires the standby instance. A step down that reaches the retiring standby instance
+  answers `NotActive` at once and asks the caller to retry, because that instance would close the
+  connection before a step down could answer.
+- FlowService and WorkerTaskService calls answer UNAVAILABLE "the node lease is not valid", and
+  readiness names NOT_SERVING, whenever the lease validity deadline has passed, checked when a call
+  arrives and again before its response. Worker dispatch checks it again before it sends each task.
+  A process resumed after a freeze therefore answers no read from stale state and hands out no new
+  task. Other frames of an open PollWorkerTask stream, such as pings and the frames of a task that a
+  Worker already runs, and gRPC health Watch streams are not checked; they change when the process
+  stops serving.
+
+A step down stops the public services, closes waiting ReadStream calls, and waits up to 4 s for
+in-flight RPCs. It then stops every component of the serving period and releases the lease, so
+open public calls never delay the release; the lease gate refuses their answers. The process starts
+a new standby gRPC instance and, before it reopens the local store as a standby or to take the lease
+back, waits up to 4 s for public calls whose responses are still being written and up to 5 s for
+the old store to close. Meanwhile it refuses admin calls as not active. The old
+instance keeps the connection of the step down call until its answer is sent, then sends GOAWAY
+after 250 ms so clients reconnect through the Service. During the hold-off the process watches the
+lease and answers as soon as another process takes over. After the hold-off it competes again and
+answers that it took the lease back. If the release is not confirmed, it stops renewing, answers
+`LeaseReleaseUnconfirmed`, and stands by until the lease expires. If the node stopped while the
+step down was being accepted, the call answers `Internal` and the process exits.
 
 ### Container image
 
@@ -644,9 +703,8 @@ that service directly. Health is NOT_SERVING during startup and SERVING after re
 Health turns NOT_SERVING when the lease validity deadline passes without a renewal. The process
 then exits 1, or is aborted with SIGABRT within 2 more seconds, so a probe never sees a stalled node
 as SERVING for long.
-Today a serving node turns NOT_SERVING only on its way out. Once server-zd serves `AdminService`, a
-step down turns it NOT_SERVING while it keeps running, so use a TCP or exec liveness probe, not gRPC
-health, for a process that may step down.
+A step down turns a serving node NOT_SERVING while it keeps running, so use a TCP or exec liveness
+probe, not gRPC health, for a process that may step down or stand by.
 If the object store startup check fails, the container exits with an error. Docker and Kubernetes
 send SIGTERM directly to the process; it stops accepting work, releases its lease, and normally
 exits 0 within 14.5 seconds.

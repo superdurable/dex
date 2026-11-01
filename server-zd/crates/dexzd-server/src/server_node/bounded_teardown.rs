@@ -54,11 +54,17 @@ impl BoundedTeardown {
         name: &'static str,
         budget: Duration,
         step: impl Future<Output = Result<(), E>>,
-    ) {
+    ) -> bool {
         match tokio::time::timeout(budget, step).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => self.record_failure(name, &error),
-            Err(_) => self.record_overrun(name, budget),
+            Ok(Ok(())) => true,
+            Ok(Err(error)) => {
+                self.record_failure(name, &error);
+                false
+            }
+            Err(_) => {
+                self.record_overrun(name, budget);
+                false
+            }
         }
     }
 

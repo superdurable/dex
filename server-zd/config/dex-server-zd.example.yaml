@@ -42,6 +42,18 @@ commit:
 lease:
   duration: 10s
   failIfHeld: false
+standby:
+  # cold waits for the lease, then opens or restores the local store; hot follows the log from
+  # object storage while waiting, so a takeover replays little. hot needs failIfHeld: false.
+  mode: cold
+  # hot only: how often a waiting process reads a lease that another process holds.
+  heldLeasePollInterval: 250ms
+  # How long a process that stepped down waits before it competes for the lease again.
+  stepDownHoldOff: 5s
+  # hot only: how long a standby that is not hot waits before it takes an available lease.
+  laggingTakeoverDelay: 1500ms
+  # hot only: the lag above which a standby is behind, not hot.
+  behindLagThreshold: 10s
 snapshot:
   logThresholdBytes: 268435456
   interval: 10min
