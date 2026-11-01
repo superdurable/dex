@@ -347,9 +347,19 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 ~~~
 
 每个让位请求都带有前置条件：要让位的进程的 node ID 和 node epoch。不匹配的进程返回
-**FAILED_PRECONDITION**，不做任何修改。没有 **--expected-node-id** 和
-**--expected-node-epoch** 时，**dexcli admin step-down** 会先查询 active 进程，并以查询
-返回的 node ID 和 node epoch 作为前置条件。如果这次查询失败，不会让任何进程让位。
+**FAILED_PRECONDITION**，不做任何修改。**dexcli admin step-down** 的 flag 这样组合：
+
+- 没有 **--expected-node-id** 和 **--expected-node-epoch** 时，先查询 active 进程，并以
+  查询返回的 node ID 和 node epoch 作为前置条件。
+- 只有 **--expected-node-id** 时，先查询。如果 server 报告的是另一个 node ID，就拒绝执行，
+  不让任何进程让位。否则以这个 node ID 和查询到的 node epoch 作为前置条件。第一次运行时
+  用它防止 **--server** 写错。
+- 两个 flag 都有时，原样发送，不查询。
+- 只有 **--expected-node-epoch** 是用法错误。
+
+如果先做的查询失败，这个 command 不会让任何进程让位。正在进行的让位可能是你或其他人已经
+发起的。等过 hold-off，运行 **dexcli admin describe**，只有在你想要的切换还没有发生时才再次
+让位。
 
 释放 lease 之后，让位调用会观察 lease。一旦有其他进程接管，调用立即返回。否则，它在
 hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长持续：提交排空的上限、释放
@@ -386,6 +396,8 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 接管了。用 epoch 8 重试会让这个 standby 让位。在单副本上，同一个进程可能已经以 epoch 9
 拿回 lease，用 epoch 9 重试会造成第二次中断。用原来的 epoch 7 重试，在这两种情况下都会
 返回 **FAILED_PRECONDITION**，不做任何修改。
+
+不要在不带这两个 flag 的情况下再次运行这个 command；它会查询并让当前的 active 进程让位。
 
 可以运行 **dexcli admin describe** 查看发生了什么。如果 node epoch 或 holder process ID
 变了，说明让位或其他接管已经发生，不要重试。让位或其 hold-off 进行期间，describe 返回
@@ -918,7 +930,8 @@ auth:
 authenticator 的 **audiences** 重复，这样公共 API 凭证永远不能授权 admin 调用。
 
 只签发 admin 凭证的 issuer，在设置了 **adminAudiences** 时可以让 **audiences** 为空。
-这样它的 token 永远不能授权 **FlowService** 或 **WorkerTaskService** 调用。
+这样它的 token 永远不能授权 **FlowService** 或 **WorkerTaskService** 调用。如果它是唯一的
+authenticator，公共 API 身份验证仍然开启，所以所有 **FlowService** 和 Worker 调用都会被拒绝。
 
 **dexcli** 的 API key 交换只发送 server ID 和 API key，无法申请 admin audience。只有当
 token endpoint 自己为这个 key 签发带 admin audience 的 token 时，API key 才能用于 admin

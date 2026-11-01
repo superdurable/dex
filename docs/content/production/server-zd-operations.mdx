@@ -414,10 +414,23 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 
 Every step down request carries a precondition: the node ID and node epoch of
 the process to step down. A process that does not match answers
-**FAILED_PRECONDITION** and changes nothing. Without **--expected-node-id** and
-**--expected-node-epoch**, **dexcli admin step-down** first describes the active
-process and expects the node ID and node epoch that describe returns. If that
-describe fails, nothing is stepped down.
+**FAILED_PRECONDITION** and changes nothing. **dexcli admin step-down** combines
+its flags as follows:
+
+- Without **--expected-node-id** and **--expected-node-epoch**, it first
+  describes the active process and expects the node ID and node epoch that
+  describe returns.
+- With **--expected-node-id** alone, it describes first. If the server reports
+  another node ID, it refuses and steps nothing down. Otherwise it expects that
+  node ID and the described node epoch. Use this on a first run to guard against
+  a wrong **--server**.
+- With both flags, it sends them as they are and does not describe.
+- **--expected-node-epoch** alone is a usage error.
+
+If the first describe fails, the command steps nothing down. A step down in
+progress may be one that you or someone else already started. Wait past the
+hold-off, run **dexcli admin describe**, and step down again only if the
+switchover you wanted has not happened.
 
 After the release, the step down call watches the lease. It returns as soon as
 another process takes over. Otherwise it returns after the hold-off and one
@@ -464,6 +477,9 @@ retry with epoch 8 would step down that standby. On a single replica, the same
 process may have taken the lease back at epoch 9, and a retry with epoch 9 would
 cause a second outage. A retry with the original epoch 7 fails with
 **FAILED_PRECONDITION** in both cases and changes nothing.
+
+Do not run the command again without these flags; it would describe and step
+down whichever process is active now.
 
 You can run **dexcli admin describe** to see what happened. A different node
 epoch or holder process ID means that the step down, or another takeover,
@@ -1085,7 +1101,8 @@ public API credential never authorizes an admin call.
 
 An issuer that only signs admin credentials can leave **audiences** empty when
 **adminAudiences** is set. Its tokens then never authorize **FlowService** or
-**WorkerTaskService** calls.
+**WorkerTaskService** calls. If that issuer is the only authenticator, public API
+authentication is still on, so every **FlowService** and Worker call is denied.
 
 The API key exchange of **dexcli** sends only the server ID and the API key, so
 it cannot ask for an admin audience. An API key works for admin commands only if

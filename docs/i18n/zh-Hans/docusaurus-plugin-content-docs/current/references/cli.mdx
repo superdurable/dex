@@ -177,9 +177,12 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 ```
 
 每个让位请求都要求一个 node ID 和 node epoch，不匹配的进程返回 **FAILED_PRECONDITION**，
-不做任何修改。**--expected-node-id** 和 **--expected-node-epoch** 要一起设置。不设置时，
-command 会先查询 active 进程，并以查询返回的 node ID 和 node epoch 作为前置条件。如果
-这次查询失败，不会让任何进程让位。
+不做任何修改。没有 **--expected-node-id** 和 **--expected-node-epoch** 时，command 会先
+查询 active 进程，并以查询返回的 node ID 和 node epoch 作为前置条件。只有
+**--expected-node-id** 时，也会先查询；如果 server 报告的是另一个 node ID 就拒绝执行，否则
+以查询到的 node epoch 作为前置条件。这样第一次运行时可以防止 **--server** 写错。两个 flag
+都有时不查询。只有 **--expected-node-epoch** 是用法错误。如果先做的查询失败，这个 command
+不会让任何进程让位；正在进行的让位可能是你或其他人已经发起的。
 
 这些 command 支持通用的连接、TLS、credential、**--timeout** 和 **--output** flag。
 **dexcli admin step-down** 默认最多等待 2 分钟，长于让位的进程再次竞争 lease 之前的
@@ -198,7 +201,8 @@ audience。参见
 **expectedNodeEpoch** 和一个 **hint**。重试时只能使用这两个值，也就是你最初想让位的那个
 进程的 node ID 和 epoch。绝不要使用失败之后 describe 输出的 epoch，因为它表示那时的 active
 进程。如果 describe 现在显示的 node epoch 或 holder process ID 变了，说明让位已经发生，
-不要重试。没有 **AdminService** 的 server 返回 **UNIMPLEMENTED**。详见
+不要重试。不要在不带这两个 flag 的情况下再次运行这个 command；它会查询并让当前的 active
+进程让位。没有 **AdminService** 的 server 返回 **UNIMPLEMENTED**。详见
 [安全地重试让位](../production/server-zd-operations.mdx#retry-step-down)。
 
 ## 输出和错误

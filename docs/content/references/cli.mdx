@@ -194,10 +194,15 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 ```
 
 Every step down request expects a node ID and node epoch, and a process that
-does not match answers **FAILED_PRECONDITION** and changes nothing. Set
-**--expected-node-id** and **--expected-node-epoch** together. Without them, the
-command first describes the active process and expects the node ID and node
-epoch that describe returns. If that describe fails, nothing is stepped down.
+does not match answers **FAILED_PRECONDITION** and changes nothing. Without
+**--expected-node-id** and **--expected-node-epoch**, the command first describes
+the active process and expects the node ID and node epoch that describe returns.
+With **--expected-node-id** alone, it describes first, refuses if the server
+reports another node ID, and otherwise expects the described node epoch. That
+guards a first run against a wrong **--server**. With both flags, it does not
+describe. **--expected-node-epoch** alone is a usage error. If the first describe
+fails, the command steps nothing down; a step down in progress may be one that
+you or someone else already started.
 
 The commands support the normal connection, TLS, credential, **--timeout**, and
 **--output** flags. **dexcli admin step-down** waits up to 2 minutes by default,
@@ -221,7 +226,8 @@ values: the node ID and epoch of the process you originally meant to step down.
 Never use an epoch that describe printed after the failed call, because it
 identifies whichever process is active by then. If describe now shows another
 node epoch or holder process ID, the step down already happened, so do not
-retry. A server without **AdminService** answers **UNIMPLEMENTED**. See
+retry. Do not run the command again without these flags; it would describe and
+step down whichever process is active now. A server without **AdminService** answers **UNIMPLEMENTED**. See
 [retry a step down safely](../production/server-zd-operations.mdx#retry-step-down)
 for details.
 
