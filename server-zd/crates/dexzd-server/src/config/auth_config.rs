@@ -45,7 +45,8 @@ pub enum AuthenticatorKind {
 ///
 /// As in the Go Server, the Go Server fields of the other kind are accepted and ignored, so a
 /// `jwt` entry may carry `file` and a `staticTokens` entry may carry `issuer`, `audiences`,
-/// `jwksURL`, or `caFile`. `allowInsecureJWKSURL` applies only to `jwt`. Unknown keys are rejected.
+/// `jwksURL`, or `caFile`. `allowInsecureJWKSURL` and `adminAudiences` apply only to `jwt`.
+/// Unknown keys are rejected.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticatorConfig {
