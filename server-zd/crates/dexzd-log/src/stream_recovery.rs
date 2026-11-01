@@ -19,9 +19,13 @@ use crate::batch_codec::{
     BatchContent, DecodedBatch, LogError, StreamIdentity, decode_batch, encode_batch,
 };
 use crate::batch_read_ahead::{LogReadAheadConfig, OrderedBatchReader};
+use crate::stream_layout::{
+    LIST_PAGE_KEYS, batch_key_prefix_length, next_seq_after, parse_listed_seq,
+    validate_batch_identity,
+};
+use crate::stream_tail_reader::{StreamTailReader, StreamTailStep};
 
 const RECOVERY_WRITE_DEADLINE: Duration = Duration::from_secs(10);
-pub(crate) const LIST_PAGE_KEYS: u32 = 1_000;
 
 /// Every accepted batch and voided seq of a recovery, so it grows with the log.
 #[derive(Debug)]
@@ -147,11 +151,10 @@ pub struct StreamRecovery<'a> {
     writer: EpochStartWriter<'a>,
     read_ahead: LogReadAheadConfig,
     from_seq: u64,
-    /// Next seq to examine.
-    seq: u64,
-    effective_epoch: u64,
+    /// Reads from `from_seq` and holds the next seq to examine and the effective epoch.
+    tail: StreamTailReader<'a>,
     voided: VoidedBatches,
-    phase: RecoveryPhase<'a>,
+    phase: RecoveryPhase,
 }
 
 /// Batches that an EpochStart voided; their seqs are kept only for the collecting functions.
@@ -161,9 +164,9 @@ struct VoidedBatches {
     sequences: Option<Vec<u64>>,
 }
 
-enum RecoveryPhase<'a> {
+enum RecoveryPhase {
     /// Reading from `from_seq` up to the first missing seq.
-    Reading(Box<OrderedBatchReader<'a>>),
+    Reading,
     /// Writing the EpochStart at the first missing seq; a batch found there is examined instead.
     WritingEpochStart { deadline: Instant },
     /// No step remains.
@@ -230,12 +233,16 @@ impl<'a> StreamRecovery<'a> {
             },
             read_ahead,
             from_seq,
-            seq: from_seq,
-            effective_epoch: effective_epoch_at_start,
+            tail: StreamTailReader::new(
+                store,
+                stream,
+                from_seq,
+                effective_epoch_at_start,
+                None,
+                read_ahead,
+            )?,
             voided: VoidedBatches::default(),
-            phase: RecoveryPhase::Reading(Box::new(OrderedBatchReader::new(
-                store, stream, from_seq, None, read_ahead,
-            ))),
+            phase: RecoveryPhase::Reading,
         })
     }
 
@@ -243,26 +250,38 @@ impl<'a> StreamRecovery<'a> {
     ///
     /// Returns [`LogError::Fenced`] as soon as the stream shows an epoch that is not older than
     /// the new epoch, [`LogError::MissingBatches`] when the batches from the start position were
-    /// deleted, and [`LogError::Invalid`] after the recovery finished or failed.
+    /// deleted, and [`LogError::Invalid`] after the recovery finished or its deletion check
+    /// failed. While reading, an object storage read error is read again by the next call, and
+    /// other read errors, such as a corrupt or invalid batch, fail every later call. The
+    /// EpochStart write retries transient write errors itself until its deadline and never
+    /// returns them; it returns other write errors, and the next call writes again. Once that
+    /// deadline passes, it returns [`LogError::Deadline`], and every later call returns it again
+    /// because the write keeps the expired deadline.
     pub async fn next_step(&mut self) -> Result<StreamRecoveryStep, LogError> {
         loop {
-            let (seq, batch) = match &mut self.phase {
-                RecoveryPhase::Reading(reader) => {
-                    let (seq, batch) = reader
-                        .next_batch()
-                        .await?
-                        .expect("a reader without a last seq returns every seq");
-                    match batch {
-                        Some(batch) => (seq, batch),
-                        None => {
-                            self.finish_reading().await?;
-                            continue;
-                        }
+            let accepted = match self.phase {
+                RecoveryPhase::Reading => match self.tail.next_step().await? {
+                    StreamTailStep::Accepted(batch) => Some(batch),
+                    StreamTailStep::Voided(seq) => {
+                        self.voided.record(seq);
+                        None
                     }
-                }
+                    StreamTailStep::WaitingAt(_) => {
+                        self.finish_reading().await?;
+                        continue;
+                    }
+                    StreamTailStep::Ended => {
+                        return Err(LogError::Invalid(
+                            "an open log stream has no last seq".into(),
+                        ));
+                    }
+                },
                 RecoveryPhase::WritingEpochStart { deadline } => {
-                    let deadline = *deadline;
-                    match self.writer.create_epoch_start(self.seq, deadline).await? {
+                    match self
+                        .writer
+                        .create_epoch_start(self.tail.next_seq(), deadline)
+                        .await?
+                    {
                         RecoveryWrite::Written => {
                             return self
                                 .finish_recovery()
@@ -273,7 +292,12 @@ impl<'a> StreamRecovery<'a> {
                             if batch.header.epoch >= self.writer.new_epoch {
                                 return Err(LogError::Fenced);
                             }
-                            (self.seq, batch)
+                            let seq = self.tail.next_seq();
+                            let accepted = self.tail.examine_found_batch(batch)?;
+                            if accepted.is_none() {
+                                self.voided.record(seq);
+                            }
+                            accepted
                         }
                     }
                 }
@@ -283,8 +307,8 @@ impl<'a> StreamRecovery<'a> {
                     ));
                 }
             };
-            self.seq = next_seq_after(seq)?;
-            if let Some(batch) = self.accept_batch(batch, seq)? {
+            if let Some(batch) = accepted {
+                self.ensure_older_than_new_epoch()?;
                 return Ok(StreamRecoveryStep::Apply(batch));
             }
         }
@@ -294,23 +318,14 @@ impl<'a> StreamRecovery<'a> {
     ///
     /// Returns the output of `work`.
     pub async fn read_ahead_while<F: Future>(&mut self, work: F) -> F::Output {
-        match &mut self.phase {
-            RecoveryPhase::Reading(reader) => reader.read_ahead_while(work).await,
-            RecoveryPhase::WritingEpochStart { .. } | RecoveryPhase::Finished => work.await,
-        }
+        self.tail.read_ahead_while(work).await
     }
 
-    /// Ends reading at the missing `self.seq` and prepares the EpochStart write there.
+    /// Ends reading at the missing next seq and prepares the EpochStart write there.
     async fn finish_reading(&mut self) -> Result<(), LogError> {
-        // Dropping the reader discards reads past the missing seq unseen.
         self.phase = RecoveryPhase::Finished;
-        if self.seq == self.from_seq {
-            ensure_batches_after_start_were_not_deleted(
-                self.writer.store,
-                self.writer.stream,
-                self.seq,
-            )
-            .await?;
+        if self.tail.next_seq() == self.from_seq {
+            self.tail.ensure_waiting_seq_was_not_deleted().await?;
         }
         self.phase = RecoveryPhase::WritingEpochStart {
             deadline: Instant::now() + RECOVERY_WRITE_DEADLINE,
@@ -321,29 +336,16 @@ impl<'a> StreamRecovery<'a> {
     async fn finish_recovery(&mut self) -> Result<StreamRecoveryResult, LogError> {
         self.phase = RecoveryPhase::Finished;
         self.writer
-            .finish_epoch_start(self.seq, &mut self.voided, self.read_ahead)
+            .finish_epoch_start(self.tail.next_seq(), &mut self.voided, self.read_ahead)
             .await
     }
 
-    /// Voids `batch` when an earlier EpochStart superseded its epoch, or returns it to apply.
-    ///
     /// Returns [`LogError::Fenced`] once the effective epoch reaches the new epoch.
-    fn accept_batch(
-        &mut self,
-        batch: DecodedBatch,
-        seq: u64,
-    ) -> Result<Option<DecodedBatch>, LogError> {
-        if batch.header.epoch < self.effective_epoch {
-            self.voided.record(seq);
-            return Ok(None);
-        }
-        if let Some(epoch_start) = &batch.header.epoch_start {
-            self.effective_epoch = epoch_start.epoch;
-        }
-        if self.effective_epoch >= self.writer.new_epoch {
+    fn ensure_older_than_new_epoch(&self) -> Result<(), LogError> {
+        if self.tail.effective_epoch() >= self.writer.new_epoch {
             return Err(LogError::Fenced);
         }
-        Ok(Some(batch))
+        Ok(())
     }
 }
 
@@ -513,69 +515,4 @@ impl EpochStartWriter<'_> {
             .map(|key| parse_listed_seq(&key, prefix_length))
             .transpose()
     }
-}
-
-/// Fails with [`LogError::MissingBatches`] when `missing_seq` was deleted and later batches remain.
-async fn ensure_batches_after_start_were_not_deleted(
-    store: &dyn ObjectStore,
-    stream: &StreamIdentity,
-    missing_seq: u64,
-) -> Result<(), LogError> {
-    // Cleanup deletes only batches below a published snapshot's applied position, so a replayable
-    // applied position keeps its batch.
-    if missing_seq == 1
-        || store
-            .head(&stream.batch_key(missing_seq - 1))
-            .await?
-            .is_some()
-    {
-        return Ok(());
-    }
-    let missing_key = stream.batch_key(missing_seq);
-    let prefix_length = batch_key_prefix_length(&missing_key);
-    let listing = store
-        .list(&missing_key[..prefix_length], Some(&missing_key), 1)
-        .await?;
-    let Some(next) = listing.objects.first() else {
-        return Ok(());
-    };
-    let next_existing_seq = parse_listed_seq(&next.key, prefix_length)?;
-    Err(LogError::MissingBatches {
-        missing_seq,
-        next_existing_seq,
-    })
-}
-
-/// Returns the length of the stream prefix of `batch_key`, up to its last `/`.
-pub(crate) fn batch_key_prefix_length(batch_key: &str) -> usize {
-    batch_key.rfind('/').expect("a batch key ends with /<seq>") + 1
-}
-
-/// Returns the seq that a listed key of the stream names, or [`LogError::Corrupt`] for another name.
-pub(crate) fn parse_listed_seq(key: &str, prefix_length: usize) -> Result<u64, LogError> {
-    key[prefix_length..]
-        .parse::<u64>()
-        .map_err(|_| LogError::Corrupt(format!("log stream holds an object named {key}")))
-}
-
-fn next_seq_after(seq: u64) -> Result<u64, LogError> {
-    seq.checked_add(1)
-        .ok_or_else(|| LogError::Invalid("stream sequence exhausted".into()))
-}
-
-pub(crate) fn validate_batch_identity(
-    batch: &DecodedBatch,
-    stream: &StreamIdentity,
-    seq: u64,
-) -> Result<(), LogError> {
-    if batch.header.cluster_id != stream.cluster_id
-        || batch.header.node_id != stream.node_id
-        || batch.header.incarnation != stream.incarnation
-        || batch.header.seq != seq
-    {
-        return Err(LogError::Corrupt(format!(
-            "batch at seq {seq} has a different stream identity"
-        )));
-    }
-    Ok(())
 }

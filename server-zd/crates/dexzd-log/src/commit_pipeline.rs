@@ -25,7 +25,7 @@ use crate::batch_codec::{
     BatchContent, BatchRecord, LogError, MAX_RECORD_LENGTH, MAX_UNCOMPRESSED_FRAME_LENGTH,
     StreamIdentity, decode_batch, encode_batch, encoded_record_length,
 };
-use crate::stream_recovery::validate_batch_identity;
+use crate::stream_layout::validate_batch_identity;
 
 #[derive(Clone, Debug)]
 pub struct CommitPipelineConfig {
