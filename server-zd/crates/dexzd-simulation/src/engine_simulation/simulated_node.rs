@@ -422,7 +422,7 @@ impl NodeProcess {
 
     /// Returns whether the process serves from the store a hot standby handed over.
     pub(crate) fn is_serving_hot_standby_store(&self) -> bool {
-        self.engine.is_serving_hot_standby_store_for_test()
+        self.engine.is_serving_hot_standby_store()
     }
 
     /// Returns why the engine stopped, or `None` while it serves.

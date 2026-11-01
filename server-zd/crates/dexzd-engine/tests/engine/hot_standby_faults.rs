@@ -171,7 +171,7 @@ async fn a_hot_standby_retries_its_bootstrap_through_a_long_storage_outage() {
     assert_wrote_nothing(&standby);
     serving.node.shutdown().await.expect("lease released");
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 3);
     node.node.shutdown().await.expect("lease released");
 }
@@ -249,7 +249,7 @@ async fn a_hot_standby_restarts_with_backoff_at_a_corrupt_batch_and_resumes_once
     wait_until_caught_up(&cluster, &standby.standby).await;
     serving.node.shutdown().await.expect("lease released");
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 5);
     node.node.shutdown().await.expect("lease released");
 }
@@ -317,7 +317,7 @@ async fn a_hot_standby_restores_the_newest_snapshot_when_retention_deletes_the_o
     assert_wrote_nothing(&standby);
     serving.node.shutdown().await.expect("lease released");
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 5);
     node.node.shutdown().await.expect("lease released");
 }
@@ -358,7 +358,7 @@ async fn a_takeover_from_a_standby_behind_the_log_serves_its_store_after_a_longe
     serving.node.shutdown().await.expect("lease released");
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert_eq!(
         applied_flows(&node.applier).len(),
         5,
@@ -411,7 +411,7 @@ async fn a_takeover_after_incarnation_changes_the_standby_has_not_seen_serves_it
     let mut takeover_config = second_config;
     takeover_config.node.incarnation = 3;
     let (node, _) = take_over_to_serving(&cluster, takeover_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert_eq!(
         applied_flows(&node.applier).len(),
         2,

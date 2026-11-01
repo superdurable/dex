@@ -566,7 +566,6 @@ where
                 lease,
                 tasks,
                 cluster_id,
-                #[cfg(feature = "test-util")]
                 is_serving_hot_standby_store,
                 local_store_close_waiter,
             }))

@@ -138,7 +138,6 @@ pub struct EngineNode {
     tasks: RunningTasks,
     cluster_id: [u8; 16],
     /// Whether the node serves from the store a hot standby handed over.
-    #[cfg(feature = "test-util")]
     is_serving_hot_standby_store: bool,
     local_store_close_waiter: LocalStoreCloseWaiter,
 }
@@ -268,9 +267,22 @@ impl EngineNode {
         self.cluster_id
     }
 
-    /// Returns whether the node serves from the store that a hot standby handed over.
-    #[cfg(feature = "test-util")]
-    pub fn is_serving_hot_standby_store_for_test(&self) -> bool {
+    /// Returns whether this node serves from the local store that its hot standby handed over.
+    ///
+    /// A takeover from a [`HotStandby`] serves the standby's warm store when the standby followed
+    /// this node into the configured store and the retained log can update it; it then replays
+    /// only the few batches the standby had not applied. Otherwise the takeover opens or restores
+    /// the configured store as an ordinary start does, which replays more of the log. Use it to
+    /// label takeover metrics and logs with how the store was obtained:
+    ///
+    /// ```ignore
+    /// let outcome = if node.is_serving_hot_standby_store() { "warm" } else { "cold" };
+    /// metrics.takeovers_total.with_label_values(&[outcome]).inc();
+    /// ```
+    ///
+    /// Returns `true` only for a node that [`EngineNode::take_over_from_hot_standby_until_cancelled`]
+    /// started from its standby's store, and `false` for every other start.
+    pub fn is_serving_hot_standby_store(&self) -> bool {
         self.is_serving_hot_standby_store
     }
 
