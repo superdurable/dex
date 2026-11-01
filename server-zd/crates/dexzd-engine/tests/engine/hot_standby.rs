@@ -35,8 +35,8 @@ use crate::harness::{CountingApplier, TestCluster, TestNode};
 pub(crate) const LOG_PREFIX: &str = "log/node-a/";
 pub(crate) const FIRST_FLOW: &str = "followed-first";
 /// Longest wait for a standby to reach the end of the log.
-const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
-const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
+pub(crate) const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
+pub(crate) const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
 const MANIFEST_KEY: &str = "manifest";
 
 /// One process's view of the cluster's object storage: records its writes and reads, and can
@@ -53,7 +53,31 @@ pub(crate) struct ProcessObjectStore {
     is_failing_log_reads: AtomicBool,
     is_failing_manifest_reads: AtomicBool,
     is_failing_all_reads: AtomicBool,
+    /// GETs of the cluster object, which every bootstrap reads first.
+    cluster_reads: AtomicU64,
+    read_faults: Mutex<Option<ReadFaults>>,
+    /// Reads drawn so far, which seed each read's fault draw.
+    fault_draws: AtomicU64,
+    /// Holds reads of snapshot objects while `false`.
+    snapshot_reads_open: tokio::sync::watch::Sender<bool>,
+    held_snapshot_reads: AtomicU64,
 }
+
+/// Seeded faults on a process's reads, each in reads per thousand.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReadFaults {
+    /// Reads that fail at once, as an HTTP 5xx or 503 would.
+    pub(crate) failures: u64,
+    /// Reads that fail after a long wait, as a timeout would.
+    pub(crate) timeouts: u64,
+    /// Reads that succeed after a latency spike.
+    pub(crate) slow_reads: u64,
+}
+
+/// How long a timed-out read waits before it fails.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a slow read waits before it proceeds.
+const READ_LATENCY_SPIKE: Duration = Duration::from_secs(2);
 
 impl ProcessObjectStore {
     pub(crate) fn new(inner: Arc<InMemoryObjectStore>) -> Self {
@@ -68,7 +92,86 @@ impl ProcessObjectStore {
             is_failing_log_reads: AtomicBool::new(false),
             is_failing_manifest_reads: AtomicBool::new(false),
             is_failing_all_reads: AtomicBool::new(false),
+            cluster_reads: AtomicU64::new(0),
+            read_faults: Mutex::new(None),
+            fault_draws: AtomicU64::new(0),
+            snapshot_reads_open: tokio::sync::watch::Sender::new(true),
+            held_snapshot_reads: AtomicU64::new(0),
         }
+    }
+
+    /// Injects `faults` into every later read, or none with `None`.
+    pub(crate) fn inject_read_faults(&self, faults: Option<ReadFaults>) {
+        *self
+            .read_faults
+            .lock()
+            .expect("read fault lock is not poisoned") = faults;
+    }
+
+    /// Returns how many times this process read the cluster object, once per bootstrap.
+    pub(crate) fn cluster_reads(&self) -> u64 {
+        self.cluster_reads.load(Ordering::SeqCst)
+    }
+
+    /// Holds every later read of a snapshot object while `is_holding`.
+    pub(crate) fn hold_snapshot_reads(&self, is_holding: bool) {
+        self.snapshot_reads_open.send_replace(!is_holding);
+    }
+
+    /// Returns how many snapshot reads waited while snapshot reads were held.
+    pub(crate) fn held_snapshot_reads(&self) -> u64 {
+        self.held_snapshot_reads.load(Ordering::SeqCst)
+    }
+
+    /// Waits while snapshot reads are held, then applies the injected read faults.
+    async fn delay_or_fail_read(
+        &self,
+        operation: ObjectStoreOperation,
+        key: &str,
+    ) -> ObjectStoreResult<()> {
+        if key.starts_with("snapshot/") && !*self.snapshot_reads_open.borrow() {
+            self.held_snapshot_reads.fetch_add(1, Ordering::SeqCst);
+            let mut open = self.snapshot_reads_open.subscribe();
+            if open.wait_for(|is_open| *is_open).await.is_err() {
+                return Err(read_failure(
+                    operation,
+                    key,
+                    ObjectStoreErrorKind::Transient,
+                ));
+            }
+        }
+        let Some(faults) = *self
+            .read_faults
+            .lock()
+            .expect("read fault lock is not poisoned")
+        else {
+            return Ok(());
+        };
+        let draw = xxhash_rust::xxh3::xxh3_64(
+            &self
+                .fault_draws
+                .fetch_add(1, Ordering::SeqCst)
+                .to_le_bytes(),
+        ) % 1000;
+        if draw < faults.failures {
+            return Err(read_failure(
+                operation,
+                key,
+                ObjectStoreErrorKind::Transient,
+            ));
+        }
+        if draw < faults.failures + faults.timeouts {
+            tokio::time::sleep(READ_TIMEOUT).await;
+            return Err(read_failure(
+                operation,
+                key,
+                ObjectStoreErrorKind::OutcomeUnknown,
+            ));
+        }
+        if draw < faults.failures + faults.timeouts + faults.slow_reads {
+            tokio::time::sleep(READ_LATENCY_SPIKE).await;
+        }
+        Ok(())
     }
 
     pub(crate) fn fail_log_reads(&self, is_failing: bool) {
@@ -81,7 +184,7 @@ impl ProcessObjectStore {
             .store(is_failing, Ordering::SeqCst);
     }
 
-    fn fail_manifest_reads(&self, is_failing: bool) {
+    pub(crate) fn fail_manifest_reads(&self, is_failing: bool) {
         self.is_failing_manifest_reads
             .store(is_failing, Ordering::SeqCst);
     }
@@ -139,6 +242,9 @@ impl ProcessObjectStore {
         if is_manifest {
             self.manifest_reads.fetch_add(1, Ordering::SeqCst);
         }
+        if key == "cluster" {
+            self.cluster_reads.fetch_add(1, Ordering::SeqCst);
+        }
         if key.starts_with("log/") && operation != ObjectStoreOperation::Head {
             self.log_reads.fetch_add(1, Ordering::SeqCst);
         }
@@ -149,15 +255,22 @@ impl ProcessObjectStore {
             || (is_manifest && self.is_failing_manifest_reads.load(Ordering::SeqCst))
             || (key.starts_with("log/") && self.is_failing_log_reads.load(Ordering::SeqCst));
         if is_failing {
-            return Err(ObjectStoreError::new(
+            return Err(read_failure(
                 operation,
                 key,
                 ObjectStoreErrorKind::Transient,
-                "the test fails this process's reads",
             ));
         }
         Ok(())
     }
+}
+
+fn read_failure(
+    operation: ObjectStoreOperation,
+    key: &str,
+    kind: ObjectStoreErrorKind,
+) -> ObjectStoreError {
+    ObjectStoreError::new(operation, key, kind, "the test fails this process's reads")
 }
 
 #[async_trait]
@@ -184,6 +297,8 @@ impl ObjectStore for ProcessObjectStore {
 
     async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
         self.check_read(ObjectStoreOperation::Get, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Get, key)
+            .await?;
         let delay = if key == MANIFEST_KEY {
             self.next_manifest_read_delay
                 .lock()
@@ -206,16 +321,22 @@ impl ObjectStore for ProcessObjectStore {
         range: ByteRange,
     ) -> ObjectStoreResult<Option<ObjectContent>> {
         self.check_read(ObjectStoreOperation::Get, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Get, key)
+            .await?;
         self.inner.get_range(key, range).await
     }
 
     async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
         self.check_read(ObjectStoreOperation::Get, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Get, key)
+            .await?;
         self.inner.get_to_file(key, path).await
     }
 
     async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
         self.check_read(ObjectStoreOperation::Head, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Head, key)
+            .await?;
         self.inner.head(key).await
     }
 
@@ -238,6 +359,8 @@ impl ObjectStore for ProcessObjectStore {
         max_keys: u32,
     ) -> ObjectStoreResult<ObjectListing> {
         self.check_read(ObjectStoreOperation::List, prefix)?;
+        self.delay_or_fail_read(ObjectStoreOperation::List, prefix)
+            .await?;
         self.inner.list(prefix, start_after, max_keys).await
     }
 }
@@ -366,12 +489,12 @@ pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotSta
 }
 
 /// Requires that no write reached object storage and that the read-only store rejected none.
-fn assert_wrote_nothing(standby: &TestStandby) {
+pub(crate) fn assert_wrote_nothing(standby: &TestStandby) {
     assert_eq!(standby.object_store.writes(), 0);
     assert_eq!(standby.standby.rejected_writes_for_test(), 0);
 }
 
-fn assert_not_failed(status: &HotStandbyStatus) {
+pub(crate) fn assert_not_failed(status: &HotStandbyStatus) {
     assert_ne!(
         status.state,
         HotStandbyState::Failed,
@@ -381,7 +504,7 @@ fn assert_not_failed(status: &HotStandbyStatus) {
 }
 
 /// Requires the closed stores to hold the same state apart from fields each process writes itself.
-fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
+pub(crate) fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
     let serving = RocksDbLocalStore::open(serving_directory, RocksDbStoreOptions::default())
         .expect("the serving store opens");
     let standby = RocksDbLocalStore::open(standby_directory, RocksDbStoreOptions::default())
@@ -794,7 +917,7 @@ async fn cluster_id(cluster: &TestCluster) -> [u8; 16] {
         .expect("a cluster ID has 16 bytes")
 }
 
-async fn stream_of(cluster: &TestCluster, incarnation: u32) -> StreamIdentity {
+pub(crate) async fn stream_of(cluster: &TestCluster, incarnation: u32) -> StreamIdentity {
     StreamIdentity {
         cluster_id: cluster_id(cluster).await,
         node_id: "node-a".to_owned(),
@@ -814,7 +937,7 @@ async fn recorded_end_seq(cluster: &TestCluster, incarnation: u32) -> u64 {
     segment.end_seq
 }
 
-async fn wait_for_status(
+pub(crate) async fn wait_for_status(
     standby: &HotStandby,
     description: &str,
     is_reached: impl Fn(&HotStandbyStatus) -> bool,

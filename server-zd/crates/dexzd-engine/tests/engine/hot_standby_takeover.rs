@@ -91,7 +91,7 @@ fn take_over(
 }
 
 /// Takes over without cancellation and returns the serving node.
-async fn take_over_to_serving(
+pub(crate) async fn take_over_to_serving(
     cluster: &TestCluster,
     config: EngineNodeConfig,
     standby: HotStandby,
