@@ -8,6 +8,7 @@
 
 //! A loopback Service that routes to the SERVING process and samples readiness and lease epochs.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -37,6 +38,8 @@ const SIMULTANEOUS_ANSWER_LIMIT: Duration = Duration::from_millis(5);
 const UNREACHABLE_PROBES_BEFORE_CUT: u32 = 8;
 /// The OpenMetrics sample of the epoch a process holds, zero without the lease.
 const LEASE_EPOCH_SAMPLE_PREFIX: &str = "dexzd_lease_epoch ";
+/// Health may trail a lost lease until serving stops; a longer stale SERVING span fails the check.
+const SERVING_WITHOUT_LEASE_BOUND: Duration = Duration::from_secs(1);
 
 /// One process position that the router probes and routes to.
 #[derive(Clone, Debug)]
@@ -49,11 +52,14 @@ pub(crate) struct RouterBackend {
 /// What one readiness probe of one process found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Readiness {
-    /// Every readiness name was SERVING under the lease epoch the process reported.
+    /// Every readiness name was SERVING; `epoch` is `None` when the metrics scrape failed.
     Serving {
-        epoch: u64,
+        epoch: Option<u64>,
     },
     NotServing,
+    /// The probe failed at once, so the process was down or had closed its server.
+    Refused,
+    /// No answer arrived in time, as from a frozen or stalled process that may still serve.
     Unreachable,
 }
 
@@ -77,10 +83,15 @@ impl ReadinessObservation {
         start <= self.sent_at && self.received_at <= end
     }
 
-    fn serving_epoch(&self) -> Option<u64> {
+    fn is_serving(&self) -> bool {
+        matches!(self.readiness, Readiness::Serving { .. })
+    }
+
+    /// Returns the lease epoch of a SERVING answer whose metrics were read.
+    fn lease_epoch(&self) -> Option<u64> {
         match self.readiness {
-            Readiness::Serving { epoch } => Some(epoch),
-            Readiness::NotServing | Readiness::Unreachable => None,
+            Readiness::Serving { epoch } => epoch,
+            Readiness::NotServing | Readiness::Refused | Readiness::Unreachable => None,
         }
     }
 }
@@ -94,11 +105,17 @@ pub(crate) struct ServingReport {
     pub(crate) serving_periods: usize,
     /// SERVING answers from a process that reported no lease epoch, such as one that just lost it.
     pub(crate) serving_without_lease: usize,
+    /// The longest span of one process's SERVING answers without a lease.
+    pub(crate) longest_serving_without_lease: Duration,
+    /// SERVING answers whose lease epoch could not be read; they form no serving period.
+    pub(crate) serving_with_unknown_epoch: usize,
 }
 
 /// The latest probe of each backend and the backend that new connections go to.
 struct RouteState {
     latest: Vec<Option<ReadinessObservation>>,
+    /// When the probe of the current process's latest NOT_SERVING or refused answer was sent.
+    latest_stop_sent_at: Vec<Option<Instant>>,
     unreachable_streaks: Vec<u32>,
     route: Option<usize>,
 }
@@ -138,18 +155,27 @@ impl RouterState {
             return false;
         }
         let streak = &mut route_state.unreachable_streaks[backend];
-        *streak = if observation.readiness == Readiness::Unreachable {
+        *streak = if matches!(
+            observation.readiness,
+            Readiness::Refused | Readiness::Unreachable
+        ) {
             *streak + 1
         } else {
             0
         };
         let should_cut = *streak == UNREACHABLE_PROBES_BEFORE_CUT;
         route_state.latest[backend] = Some(observation);
+        if matches!(
+            observation.readiness,
+            Readiness::NotServing | Readiness::Refused
+        ) {
+            route_state.latest_stop_sent_at[backend] = Some(observation.sent_at);
+        }
         let keeps_route = route_state.route.is_some_and(|routed| {
             route_state.latest[routed].is_some_and(|latest| match latest.readiness {
                 Readiness::Serving { .. } => true,
                 Readiness::NotServing => false,
-                Readiness::Unreachable => {
+                Readiness::Refused | Readiness::Unreachable => {
                     route_state.unreachable_streaks[routed] < UNREACHABLE_PROBES_BEFORE_CUT
                 }
             })
@@ -159,7 +185,7 @@ impl RouterState {
                 .latest
                 .iter()
                 .flatten()
-                .find(|latest| latest.serving_epoch().is_some())
+                .find(|latest| latest.is_serving())
                 .map(|latest| latest.backend);
         }
         drop(route_state);
@@ -195,6 +221,7 @@ impl ReadinessRouter {
             observations: Mutex::new(Vec::new()),
             route: Mutex::new(RouteState {
                 latest: vec![None; backend_count],
+                latest_stop_sent_at: vec![None; backend_count],
                 unreachable_streaks: vec![0; backend_count],
                 route: None,
             }),
@@ -238,6 +265,7 @@ impl ReadinessRouter {
             .lock()
             .expect("the route lock is not poisoned");
         route_state.latest[backend] = None;
+        route_state.latest_stop_sent_at[backend] = None;
         route_state.unreachable_streaks[backend] = 0;
         if route_state.route == Some(backend) {
             route_state.route = None;
@@ -261,9 +289,17 @@ impl ReadinessRouter {
             .lock()
             .expect("the route lock is not poisoned")
             .latest[backend]
-            .is_some_and(|latest| {
-                latest.generation == generation && latest.serving_epoch().is_some()
-            })
+            .is_some_and(|latest| latest.generation == generation && latest.is_serving())
+    }
+
+    /// Returns whether `backend`'s current process answered NOT_SERVING to, or refused, a probe sent since `since`.
+    pub(crate) fn has_stopped_serving_since(&self, backend: usize, since: Instant) -> bool {
+        self.state
+            .route
+            .lock()
+            .expect("the route lock is not poisoned")
+            .latest_stop_sent_at[backend]
+            .is_some_and(|sent_at| sent_at >= since)
     }
 
     /// Stops probing and routing, then panics if two processes reported SERVING at one instant.
@@ -378,17 +414,20 @@ async fn probe_backend(
                 .iter()
                 .all(|response| response.get_ref().status == ServingStatus::Serving as i32)
             {
-                // An epoch that cannot be read gives the answer no period, like a lost probe.
-                metrics
-                    .ok()
-                    .and_then(|metrics| lease_epoch(&metrics))
-                    .map_or(Readiness::Unreachable, |epoch| Readiness::Serving { epoch })
+                // An unread epoch still counts against other processes; it only forms no period.
+                Readiness::Serving {
+                    epoch: metrics
+                        .ok()
+                        .and_then(|metrics| lease_epoch_sample(&metrics)),
+                }
             } else {
                 Readiness::NotServing
             }
         }
-        // A process that is down, starting, frozen, or stalled answers nothing in time.
-        Ok((Err(_), _)) | Err(_) => Readiness::Unreachable,
+        // A process that is down or starting refuses at once.
+        Ok((Err(_), _)) => Readiness::Refused,
+        // A process that is frozen or stalled answers nothing in time.
+        Err(_) => Readiness::Unreachable,
     };
     ReadinessObservation {
         backend,
@@ -400,7 +439,7 @@ async fn probe_backend(
 }
 
 /// Returns the `dexzd_lease_epoch` sample of an OpenMetrics response.
-fn lease_epoch(metrics: &str) -> Option<u64> {
+fn lease_epoch_sample(metrics: &str) -> Option<u64> {
     metrics
         .lines()
         .find_map(|line| line.strip_prefix(LEASE_EPOCH_SAMPLE_PREFIX))
@@ -488,7 +527,7 @@ impl ServingHistory {
             .collect();
         let serving: Vec<&ReadinessObservation> = observations
             .iter()
-            .filter(|observation| observation.serving_epoch().is_some())
+            .filter(|observation| observation.is_serving())
             .collect();
         let periods = self.serving_periods(&serving);
         let mut violations = String::new();
@@ -503,7 +542,7 @@ impl ServingHistory {
                 }
                 let is_same_process = observation.backend == period.backend
                     && observation.generation == period.generation;
-                if !is_same_process && observation.serving_epoch().is_some() {
+                if !is_same_process && observation.is_serving() {
                     let violation = format!(
                         "served while {} served epoch {} from {} to {}",
                         self.process_name(period.backend, period.generation),
@@ -529,13 +568,23 @@ impl ServingHistory {
             violations.is_empty(),
             "two processes served at one instant:\n{violations}"
         );
+        let longest_serving_without_lease = longest_serving_without_lease(&serving);
+        assert!(
+            longest_serving_without_lease <= SERVING_WITHOUT_LEASE_BOUND,
+            "a process answered SERVING without a lease for {longest_serving_without_lease:?}, more than {SERVING_WITHOUT_LEASE_BOUND:?}"
+        );
         ServingReport {
             observations: self.observations.len(),
             serving_observations: serving.len(),
             serving_periods: periods.len(),
             serving_without_lease: serving
                 .iter()
-                .filter(|observation| observation.serving_epoch() == Some(0))
+                .filter(|observation| observation.lease_epoch() == Some(0))
+                .count(),
+            longest_serving_without_lease,
+            serving_with_unknown_epoch: serving
+                .iter()
+                .filter(|observation| observation.lease_epoch().is_none())
                 .count(),
         }
     }
@@ -585,9 +634,9 @@ impl ServingHistory {
     fn serving_periods(&self, serving: &[&ReadinessObservation]) -> Vec<ServingPeriod> {
         let mut periods: Vec<ServingPeriod> = Vec::new();
         for observation in serving {
-            let epoch = observation
-                .serving_epoch()
-                .expect("only SERVING observations form periods");
+            let Some(epoch) = observation.lease_epoch() else {
+                continue;
+            };
             // Health can lag a lost lease briefly; such answers still count against other periods.
             if epoch == 0 {
                 continue;
@@ -639,6 +688,28 @@ impl ServingHistory {
     }
 }
 
+/// Returns the longest span from one process's first to its last SERVING answer without a lease.
+fn longest_serving_without_lease(serving: &[&ReadinessObservation]) -> Duration {
+    let mut spans: BTreeMap<(usize, usize), (Instant, Instant)> = BTreeMap::new();
+    for observation in serving
+        .iter()
+        .filter(|observation| observation.lease_epoch() == Some(0))
+    {
+        spans
+            .entry((observation.backend, observation.generation))
+            .and_modify(|(first, last)| {
+                *first = (*first).min(observation.sent_at);
+                *last = (*last).max(observation.received_at);
+            })
+            .or_insert((observation.sent_at, observation.received_at));
+    }
+    spans
+        .values()
+        .map(|(first, last)| *last - *first)
+        .max()
+        .unwrap_or(Duration::ZERO)
+}
+
 /// Builds a history of two backends, each started once at `start`, from `(backend, sent, received, readiness)`.
 #[cfg(test)]
 fn synthetic_history(start: Instant, answers: &[(usize, u64, u64, Readiness)]) -> ServingHistory {
@@ -669,16 +740,16 @@ fn a_clean_handover_and_a_later_epoch_pass_the_serving_check() {
     let report = synthetic_history(
         start,
         &[
-            (0, 0, 2, Readiness::Serving { epoch: 1 }),
+            (0, 0, 2, Readiness::Serving { epoch: Some(1) }),
             (1, 0, 2, Readiness::NotServing),
-            (0, 30, 32, Readiness::Serving { epoch: 1 }),
-            (0, 45, 47, Readiness::Serving { epoch: 0 }),
+            (0, 30, 32, Readiness::Serving { epoch: Some(1) }),
+            (0, 45, 47, Readiness::Serving { epoch: Some(0) }),
             (0, 60, 62, Readiness::NotServing),
-            (1, 90, 92, Readiness::Serving { epoch: 2 }),
-            (1, 120, 122, Readiness::Serving { epoch: 2 }),
+            (1, 90, 92, Readiness::Serving { epoch: Some(2) }),
+            (1, 120, 122, Readiness::Serving { epoch: Some(2) }),
             (1, 150, 152, Readiness::NotServing),
-            (0, 180, 182, Readiness::Serving { epoch: 3 }),
-            (0, 210, 212, Readiness::Serving { epoch: 3 }),
+            (0, 180, 182, Readiness::Serving { epoch: Some(3) }),
+            (0, 210, 212, Readiness::Serving { epoch: Some(3) }),
         ],
     )
     .check();
@@ -694,9 +765,9 @@ fn an_answer_inside_another_serving_period_fails_the_serving_check() {
     synthetic_history(
         start,
         &[
-            (0, 0, 2, Readiness::Serving { epoch: 1 }),
-            (1, 40, 60, Readiness::Serving { epoch: 2 }),
-            (0, 90, 92, Readiness::Serving { epoch: 1 }),
+            (0, 0, 2, Readiness::Serving { epoch: Some(1) }),
+            (1, 40, 60, Readiness::Serving { epoch: Some(2) }),
+            (0, 90, 92, Readiness::Serving { epoch: Some(1) }),
         ],
     )
     .check();
@@ -710,8 +781,8 @@ fn overlapping_fast_answers_fail_the_serving_check() {
     synthetic_history(
         start,
         &[
-            (0, 10, 12, Readiness::Serving { epoch: 1 }),
-            (1, 11, 13, Readiness::Serving { epoch: 2 }),
+            (0, 10, 12, Readiness::Serving { epoch: Some(1) }),
+            (1, 11, 13, Readiness::Serving { epoch: Some(2) }),
         ],
     )
     .check();
@@ -725,9 +796,41 @@ fn not_serving_inside_one_epoch_fails_the_serving_check() {
     synthetic_history(
         start,
         &[
-            (0, 0, 2, Readiness::Serving { epoch: 1 }),
+            (0, 0, 2, Readiness::Serving { epoch: Some(1) }),
             (0, 30, 32, Readiness::NotServing),
-            (0, 60, 62, Readiness::Serving { epoch: 1 }),
+            (0, 60, 62, Readiness::Serving { epoch: Some(1) }),
+        ],
+    )
+    .check();
+}
+
+/// A SERVING answer whose epoch could not be read still fails inside another process's period.
+#[test]
+#[should_panic(expected = "two processes served at one instant")]
+fn an_unknown_epoch_answer_inside_another_serving_period_fails_the_serving_check() {
+    let start = Instant::now();
+    synthetic_history(
+        start,
+        &[
+            (0, 0, 2, Readiness::Serving { epoch: Some(1) }),
+            (1, 40, 60, Readiness::Serving { epoch: None }),
+            (0, 90, 92, Readiness::Serving { epoch: Some(1) }),
+        ],
+    )
+    .check();
+}
+
+/// A process that answers SERVING without a lease for too long fails the check.
+#[test]
+#[should_panic(expected = "answered SERVING without a lease")]
+fn serving_without_a_lease_for_too_long_fails_the_serving_check() {
+    let start = Instant::now();
+    synthetic_history(
+        start,
+        &[
+            (0, 0, 2, Readiness::Serving { epoch: Some(1) }),
+            (0, 30, 32, Readiness::Serving { epoch: Some(0) }),
+            (0, 1_200, 1_202, Readiness::Serving { epoch: Some(0) }),
         ],
     )
     .check();

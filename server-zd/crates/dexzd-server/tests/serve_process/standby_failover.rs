@@ -20,6 +20,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::Instant;
 
+use crate::PRIMARY_PREFIX;
 use crate::robustness::workload::{LoadShape, ReconnectingWorker, RunningLoad, Workload};
 use node_group::{DirectoryFate, NodeGroup, ProcessSignal, SlotSettings};
 use object_store_endpoints::ObjectStoreFault;
@@ -60,8 +61,8 @@ const LOST_OBJECT_STORE_NOT_SERVING_BOUND: Duration =
     FIRST_LEASE_DURATION.saturating_add(Duration::from_secs(2));
 /// The lease, then the watchdog's two seconds before it aborts the process.
 const LOST_OBJECT_STORE_EXIT_BUDGET: Duration = Duration::from_secs(20);
-/// How long the active keeps sending writes into the blackhole before it stalls.
-const HELD_WRITES_WINDOW: Duration = Duration::from_millis(500);
+/// Covers a 2 s renewal period, a 1 s attempt, and a slow host.
+const RENEWAL_FREEZE_BUDGET: Duration = Duration::from_secs(15);
 const LATE_WRITES_BUDGET: Duration = Duration::from_secs(10);
 /// Timer Flows started right before each failure, which must fire after it.
 const SPANNING_TIMER_COUNT: usize = 2;
@@ -196,14 +197,11 @@ async fn late_writes_of_a_stalled_active_are_fenced_after_the_takeover() {
 
     let lost_at = scenario.start_timers_spanning_the_failure().await;
     let group = &mut scenario.group;
-    group
-        .object_store(FIRST)
-        .inject(ObjectStoreFault::Blackhole)
-        .await;
     // The fault window under test: the load keeps the active writing into the blackhole.
-    tokio::time::sleep(HELD_WRITES_WINDOW).await;
     // A frozen active keeps its connections, so its held writes stay pending at the endpoint.
-    group.signal(FIRST, ProcessSignal::Stop).await;
+    group
+        .blackhole_and_freeze_during_a_lease_renewal(FIRST, RENEWAL_FREEZE_BUDGET)
+        .await;
     assert_eq!(
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
@@ -212,14 +210,11 @@ async fn late_writes_of_a_stalled_active_are_fenced_after_the_takeover() {
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
         .await;
     group.heal_object_store(FIRST).await;
-    let late_writes = group.wait_for_held_puts(FIRST, LATE_WRITES_BUDGET).await;
+    let late_writes = group
+        .wait_for_held_puts(FIRST, &lease_key_prefix(), LATE_WRITES_BUDGET)
+        .await;
     // A late write either loses its condition or lands as a batch the new epoch voids.
-    assert!(
-        late_writes
-            .iter()
-            .all(|(_, status)| *status == 200 || *status == 412),
-        "{late_writes:?}"
-    );
+    assert_late_writes_were_fenced(&late_writes);
     // The process ends without resuming, so only its late writes reach the new active.
     group.signal(FIRST, ProcessSignal::Kill).await;
     group
@@ -234,6 +229,23 @@ async fn late_writes_of_a_stalled_active_are_fenced_after_the_takeover() {
             format!("held writes that landed after the takeover: {late_writes:?}"),
         )
         .await;
+}
+
+/// Returns the key prefix of the node lease object.
+fn lease_key_prefix() -> String {
+    format!("{PRIMARY_PREFIX}/lease/")
+}
+
+/// Panics unless every late lease or manifest write lost its condition; a late log batch may land.
+fn assert_late_writes_were_fenced(late_writes: &[(String, u64)]) {
+    let manifest_key = format!("{PRIMARY_PREFIX}/manifest");
+    for (key, status) in late_writes {
+        let must_fail = key.starts_with(&lease_key_prefix()) || *key == manifest_key;
+        assert!(
+            *status == 412 || (!must_fail && *status == 200),
+            "a late write of {key} returned {status}: {late_writes:?}"
+        );
+    }
 }
 
 /// The active `first` under load with counters, a reconnecting Worker, and `second` waiting.

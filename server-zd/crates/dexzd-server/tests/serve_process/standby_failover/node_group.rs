@@ -20,7 +20,7 @@ use tokio::time::Instant;
 use tonic::transport::Channel;
 
 use super::lease_epochs::{LeaseHistory, LeaseReport};
-use super::object_store_endpoints::ObjectStoreEndpoint;
+use super::object_store_endpoints::{ObjectStoreEndpoint, ObjectStoreFault};
 use super::readiness_router::{ReadinessRouter, RouterBackend, ServingReport};
 use crate::harness::free_loopback_address;
 use crate::metrics::{sample_with_label, try_scrape};
@@ -36,6 +36,12 @@ const SNAPSHOT_INTERVAL: &str = "1h";
 /// A short log deletion delay would let a waiting standby lose writes, a separate known defect.
 const LOG_DELETION_DELAY: &str = "24h";
 const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// Log line of a failed lease renewal attempt that the process retries after a logged backoff.
+const RENEWAL_RETRY_MARKER: &str = "node lease renewal attempt failed; retrying";
+const RENEWAL_RETRY_BACKOFF_FIELD: &str = "retry_in_milliseconds=";
+/// How far into a retried renewal attempt, which lasts at least a second, the process is frozen.
+const RENEWAL_ATTEMPT_FREEZE_OFFSET: Duration = Duration::from_millis(250);
+const LOG_POLL_INTERVAL: Duration = Duration::from_millis(20);
 /// Covers several failovers, each up to a lease, the takeover grace, and a recovery.
 const PROGRESS_BUDGET: Duration = Duration::from_secs(60);
 
@@ -102,7 +108,7 @@ impl fmt::Display for GroupReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed, longest takeover after availability {:?}; {} readiness probes, {} SERVING in {} serving periods, {} SERVING without a lease",
+            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed, longest takeover after availability {:?}; {} readiness probes, {} SERVING in {} serving periods, {} SERVING without a lease for at most {:?}, {} SERVING with an unread epoch",
             self.process_starts,
             self.stale_batch_restarts,
             self.lease.acquisitions,
@@ -111,7 +117,9 @@ impl fmt::Display for GroupReport {
             self.serving.observations,
             self.serving.serving_observations,
             self.serving.serving_periods,
-            self.serving.serving_without_lease
+            self.serving.serving_without_lease,
+            self.serving.longest_serving_without_lease,
+            self.serving.serving_with_unknown_epoch
         )
     }
 }
@@ -279,6 +287,7 @@ impl NodeGroup {
                 self.permitted_stale_batch_stops += 1;
             }
             ProcessSignal::Terminate => {
+                self.lease_history.note_possible_release();
                 let process = entry.running();
                 let status = process.terminate(PROCESS_SHUTDOWN_BUDGET).await;
                 assert_eq!(status.code(), Some(0), "{}", process.log());
@@ -295,10 +304,11 @@ impl NodeGroup {
         self.slots[slot].object_store.clear_faults().await;
     }
 
-    /// Waits up to `budget` until a PUT that `slot`'s faults held reached the store; returns them.
+    /// Waits up to `budget` until a held PUT under `key_prefix` reached the store; returns every held PUT.
     pub(crate) async fn wait_for_held_puts(
         &mut self,
         slot: usize,
+        key_prefix: &str,
         budget: Duration,
     ) -> Vec<(String, u64)> {
         let deadline = Instant::now() + budget;
@@ -308,16 +318,64 @@ impl NodeGroup {
                 .object_store
                 .held_puts_that_completed()
                 .await;
-            if !held_puts.is_empty() {
+            if held_puts.iter().any(|(key, _)| key.starts_with(key_prefix)) {
                 return held_puts;
             }
             assert!(
                 Instant::now() < deadline,
-                "no PUT held at slot {} reached the store within {budget:?}",
+                "no PUT under {key_prefix} held at slot {} reached the store within {budget:?}: {held_puts:?}",
                 self.slots[slot].name
             );
             tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
         }
+    }
+
+    /// Blackholes `slot`'s object store, then freezes its process while a retried lease renewal is held.
+    pub(crate) async fn blackhole_and_freeze_during_a_lease_renewal(
+        &mut self,
+        slot: usize,
+        budget: Duration,
+    ) {
+        let earlier_retries = self.lease_renewal_retry_backoffs(slot).len();
+        self.slots[slot]
+            .object_store
+            .inject(ObjectStoreFault::Blackhole)
+            .await;
+        let deadline = Instant::now() + budget;
+        let backoff = loop {
+            self.supervise();
+            let backoffs = self.lease_renewal_retry_backoffs(slot);
+            if backoffs.len() > earlier_retries {
+                break *backoffs.last().expect("a new retry was just logged");
+            }
+            assert!(
+                Instant::now() < deadline,
+                "slot {} retried no lease renewal within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(LOG_POLL_INTERVAL).await;
+        };
+        // The retried attempt starts after its backoff, and the blackhole holds its PUT.
+        tokio::time::sleep(backoff + RENEWAL_ATTEMPT_FREEZE_OFFSET).await;
+        self.signal(slot, ProcessSignal::Stop).await;
+    }
+
+    /// Returns the backoff of every lease renewal retry that `slot`'s current process logged.
+    fn lease_renewal_retry_backoffs(&mut self, slot: usize) -> Vec<Duration> {
+        self.slots[slot]
+            .running()
+            .log()
+            .lines()
+            .filter(|line| line.contains(RENEWAL_RETRY_MARKER))
+            .map(|line| {
+                let milliseconds = line
+                    .split_whitespace()
+                    .find_map(|field| field.strip_prefix(RENEWAL_RETRY_BACKOFF_FIELD))
+                    .and_then(|value| value.parse().ok())
+                    .expect("a lease renewal retry logs its backoff");
+                Duration::from_millis(milliseconds)
+            })
+            .collect()
     }
 
     /// Lets `slot`'s process exit by itself, as a test-made failure requires.
@@ -372,10 +430,12 @@ impl NodeGroup {
         }
     }
 
-    /// Waits up to `budget` until `slot`'s process stops reporting SERVING; returns the wait.
+    /// Waits until `slot`'s process answers NOT_SERVING to, or refuses, a later probe; timeouts never count.
+    ///
+    /// Returns how long the wait took, at most `budget`.
     pub(crate) async fn wait_for_not_serving(&mut self, slot: usize, budget: Duration) -> Duration {
         let started = Instant::now();
-        while self.router.is_serving(slot) {
+        while !self.router.has_stopped_serving_since(slot, started) {
             self.supervise();
             assert!(
                 started.elapsed() < budget,
