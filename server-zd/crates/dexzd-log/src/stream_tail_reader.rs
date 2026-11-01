@@ -99,8 +99,8 @@ impl<'a> StreamTailReader<'a> {
     ///
     /// Returns the accepted or voided batch at the next seq, [`StreamTailStep::WaitingAt`] when
     /// that seq has no batch yet, or [`StreamTailStep::Ended`] after the last seq of a closed
-    /// stream. Returns a transient object storage error of the next seq, which the next call
-    /// reads again. Returns a corrupt or invalid listing, batch, or stream identity, and an
+    /// stream. Returns an object storage error of the next seq, which the next call reads
+    /// again. Returns a corrupt or invalid listing, batch, or stream identity, and an
     /// exhausted stream sequence, as an error that every later call returns again.
     pub async fn next_step(&mut self) -> Result<StreamTailStep, LogError> {
         let seq = self.next_seq;
@@ -195,7 +195,8 @@ impl<'a> StreamTailReader<'a> {
     ///
     /// It is only a secondary check: unordered or partial cleanup can delete the waiting seq but
     /// keep the seq before it. Callers also require the next seq to reach the manifest segment's
-    /// `start_seq`.
+    /// `start_seq`, read after they observed the missing seq. Cleanup raises `start_seq` before
+    /// deleting, so only a later manifest read is reliable.
     ///
     /// Returns [`LogError::MissingBatches`] when the batch before the next seq is gone and a later
     /// batch exists. Returns `Ok` when the next seq was not written yet or is the first seq.

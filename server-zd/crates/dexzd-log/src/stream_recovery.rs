@@ -251,8 +251,12 @@ impl<'a> StreamRecovery<'a> {
     /// Returns [`LogError::Fenced`] as soon as the stream shows an epoch that is not older than
     /// the new epoch, [`LogError::MissingBatches`] when the batches from the start position were
     /// deleted, and [`LogError::Invalid`] after the recovery finished or its deletion check
-    /// failed. After a transient read or write error, the next call retries it; a corrupt or
-    /// invalid batch fails every later call.
+    /// failed. While reading, an object storage read error is read again by the next call, and
+    /// other read errors, such as a corrupt or invalid batch, fail every later call. The
+    /// EpochStart write retries transient write errors itself until its deadline and never
+    /// returns them; it returns other write errors, and the next call writes again. Once that
+    /// deadline passes, it returns [`LogError::Deadline`], and every later call returns it again
+    /// because the write keeps the expired deadline.
     pub async fn next_step(&mut self) -> Result<StreamRecoveryStep, LogError> {
         loop {
             let accepted = match self.phase {

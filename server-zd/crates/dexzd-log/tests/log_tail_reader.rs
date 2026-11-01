@@ -477,8 +477,8 @@ async fn the_deletion_check_tells_a_deleted_seq_from_an_unwritten_one() {
         "the check never writes"
     );
 
-    // Unordered or partial cleanup can delete the waiting seq but keep the seq before it. The
-    // check misses that deletion, so callers must also compare the manifest's start_seq.
+    // Partial cleanup deletes the waiting seq but keeps its predecessor. The check misses that;
+    // callers also compare manifest start_seq.
     let partly_cleaned = InMemoryObjectStore::new();
     write_batches(&partly_cleaned, 1..=3).await;
     let mut missed = StreamTailReader::new(&partly_cleaned, &stream, 1, 0, None, read_ahead())
@@ -580,6 +580,29 @@ async fn the_reader_rejects_seq_zero_and_invalid_node_ids() {
         StreamTailReader::new(&store, &invalid, 1, 0, None, read_ahead()),
         Err(LogError::Invalid(_))
     ));
+}
+
+#[tokio::test]
+async fn a_reader_at_the_last_seq_fails_every_step_without_reading() {
+    let store = InMemoryObjectStore::new();
+    let stream = stream();
+    let mut reader = StreamTailReader::new(&store, &stream, u64::MAX, 0, None, read_ahead())
+        .expect("the reader starts");
+    for _ in 0..3 {
+        let result = reader.next_step().await;
+        assert!(
+            matches!(&result, Err(LogError::Invalid(detail)) if detail == "stream sequence exhausted"),
+            "{result:?}"
+        );
+        assert_eq!(reader.next_seq(), u64::MAX);
+    }
+    for operation in [
+        ObjectStoreOperation::List,
+        ObjectStoreOperation::Get,
+        ObjectStoreOperation::Head,
+    ] {
+        assert_eq!(store.call_count(operation, LOG_PREFIX), 0, "{operation:?}");
+    }
 }
 
 #[tokio::test]
