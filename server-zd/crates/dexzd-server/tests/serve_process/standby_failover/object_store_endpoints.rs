@@ -43,6 +43,8 @@ pub(crate) enum ObjectStoreFault {
     Latency(Duration),
     /// Delays only requests for node log objects, so lease reads and writes stay fast.
     LogLatency(Duration),
+    /// Delays only requests for hard-delete Attribute objects, such as a GetAttributes read.
+    HardDeleteLatency(Duration),
 
     /// Fails each request with 503 SlowDown with this probability, before it reaches the store.
     ServiceUnavailable { probability: f64 },
@@ -57,11 +59,9 @@ impl ObjectStoreFault {
     fn rules(self) -> String {
         let action = match self {
             Self::Latency(delay) => delay_action(delay),
-            Self::LogLatency(delay) => {
-                return format!(
-                    r#"[{{"key_prefix":"{PRIMARY_PREFIX}/log/","action":{}}}]"#,
-                    delay_action(delay)
-                );
+            Self::LogLatency(delay) => return key_prefix_delay_rules("log/", delay),
+            Self::HardDeleteLatency(delay) => {
+                return key_prefix_delay_rules("hard-delete/", delay);
             }
 
             Self::ServiceUnavailable { probability } => {
@@ -78,6 +78,14 @@ impl ObjectStoreFault {
         };
         format!(r#"[{{"action":{action}}}]"#)
     }
+}
+
+/// Returns rules that delay only requests for keys under `key_prefix` in the primary prefix.
+fn key_prefix_delay_rules(key_prefix: &str, delay: Duration) -> String {
+    format!(
+        r#"[{{"key_prefix":"{PRIMARY_PREFIX}/{key_prefix}","action":{}}}]"#,
+        delay_action(delay)
+    )
 }
 
 fn delay_action(delay: Duration) -> String {

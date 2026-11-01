@@ -365,6 +365,8 @@ struct PeriodStop {
     has_released_lease: bool,
     /// Reports when the last holder of the period's local store lets it go and the store closes.
     local_store_close_waiter: LocalStoreCloseWaiter,
+    /// Ends when the stopped instance's public calls end; they may still read the local store.
+    public_calls_ended: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
 }
 
 /// Every component of one serving period, in start order.
@@ -764,6 +766,8 @@ impl ServerNode {
     }
 
     /// Stops serving and every component, then releases the lease; only a shutdown sends `grpc` GOAWAY.
+    ///
+    /// Open RPC tasks may finish before the release; the lease gate refuses other open calls after it.
     async fn stop(self, grpc: &mut GrpcServer, kind: PeriodStopKind) -> PeriodStop {
         let Self {
             metrics,
@@ -780,6 +784,7 @@ impl ServerNode {
         let local_store_close_waiter = engine.local_store_close_waiter();
         metrics.set_role(dexzd_metrics::NodeRole::Draining);
         let mut teardown = BoundedTeardown::start();
+        let drain_deadline = tokio::time::Instant::now() + GRPC_DRAIN_BUDGET;
         grpc.health.set_not_serving().await;
         dispatch.shutdown();
         registry.close_long_polls();
@@ -788,38 +793,20 @@ impl ServerNode {
             PeriodStopKind::Shutdown => grpc.stop.cancel(),
             PeriodStopKind::StepDown => grpc.deactivate_public_services(),
         }
-        let public_calls_ended = grpc.public_calls_ended();
-        let drain = async {
-            tokio::join!(
-                async {
-                    if kind == PeriodStopKind::Shutdown && !grpc.task.is_finished() {
-                        match (&mut grpc.task).await {
-                            Ok(Ok(())) => {}
-                            Ok(Err(error)) => {
-                                tracing::warn!(%error, "gRPC server stopped with an error")
-                            }
-                            Err(error) => tracing::warn!(%error, "gRPC server task failed"),
-                        }
-                    }
-                },
-                registry.wait_for_rpc_tasks(),
-                async {
-                    // Public calls on a stepped-down instance still hold the local store open.
-                    if kind == PeriodStopKind::StepDown {
-                        public_calls_ended.await;
-                    }
-                },
-            );
-        };
-        if tokio::time::timeout(GRPC_DRAIN_BUDGET, drain)
+        // Closing it now ends waiting ReadStream calls, which would otherwise wait out the drain.
+        teardown
+            .run(
+                "Stream Store",
+                STREAM_STORE_CLOSE_BUDGET,
+                close_stream_store(&stream_store),
+            )
+            .await;
+        let public_calls_ended = Box::pin(grpc.public_calls_ended());
+        if tokio::time::timeout_at(drain_deadline, registry.wait_for_rpc_tasks())
             .await
             .is_err()
         {
             tracing::warn!("open calls did not finish in time; closing them");
-            registry.cancel_rpc_tasks();
-            if kind == PeriodStopKind::Shutdown {
-                grpc.task.abort();
-            }
         }
         registry.cancel_rpc_tasks();
         teardown
@@ -854,17 +841,23 @@ impl ServerNode {
         let has_released_lease = teardown
             .run_fallible("engine", ENGINE_STOP_BUDGET, engine.shutdown())
             .await;
-        teardown
-            .run(
-                "Stream Store",
-                STREAM_STORE_CLOSE_BUDGET,
-                close_stream_store(&stream_store),
-            )
-            .await;
+        // The lease gate refuses calls now, so waiting for open ones keeps no client from a successor.
+        if kind == PeriodStopKind::Shutdown && !grpc.task.is_finished() {
+            match tokio::time::timeout_at(drain_deadline, &mut grpc.task).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(error))) => tracing::warn!(%error, "gRPC server stopped with an error"),
+                Ok(Err(error)) => tracing::warn!(%error, "gRPC server task failed"),
+                Err(_) => {
+                    tracing::warn!("open calls did not finish in time; closing them");
+                    grpc.task.abort();
+                }
+            }
+        }
         PeriodStop {
             teardown,
             has_released_lease,
             local_store_close_waiter,
+            public_calls_ended,
         }
     }
 }

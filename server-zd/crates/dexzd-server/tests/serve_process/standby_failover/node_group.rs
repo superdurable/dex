@@ -223,12 +223,14 @@ impl NodeGroup {
                 log_deletion_delay: slot.log_deletion_delay,
             }
             .write_with_metrics(&config_path, metrics_address);
+            let mut contents =
+                std::fs::read_to_string(&config_path).expect("the configuration is readable");
+            // Waiting ReadStream calls must not hold up a step down or a shutdown.
+            contents.push_str("streamStore:\n  backend: memory\n");
             if slot.standby_mode == SlotStandbyMode::Hot {
-                let mut contents =
-                    std::fs::read_to_string(&config_path).expect("the configuration is readable");
                 contents.push_str("standby:\n  mode: hot\n");
-                std::fs::write(&config_path, contents).expect("the configuration is written");
             }
+            std::fs::write(&config_path, contents).expect("the configuration is written");
             slots.push(NodeSlot {
                 name: slot.name.to_owned(),
                 config_path,
@@ -424,6 +426,23 @@ impl NodeGroup {
             ProcessSignal::Stop => entry.running().freeze_and_wait_until_stopped().await,
             ProcessSignal::Continue => entry.running().send_signal("CONT").await,
         }
+    }
+
+    /// Sends SIGTERM to `slot`'s process without waiting; [`Self::wait_for_clean_exit`] waits for it.
+    pub(crate) async fn send_terminate(&mut self, slot: usize) {
+        self.lease_history.note_possible_release();
+        let entry = &mut self.slots[slot];
+        entry.may_exit = true;
+        entry.running().send_signal("TERM").await;
+    }
+
+    /// Waits up to `budget` for the clean exit that [`Self::send_terminate`] asked for.
+    pub(crate) async fn wait_for_clean_exit(&mut self, slot: usize, budget: Duration) {
+        let entry = &mut self.slots[slot];
+        let process = entry.running();
+        let status = process.wait_for_exit(budget).await;
+        assert_eq!(status.code(), Some(0), "{}", process.log());
+        entry.process = None;
     }
 
     /// Clears `slot`'s object store faults; held writes then land, and may stop the active once.

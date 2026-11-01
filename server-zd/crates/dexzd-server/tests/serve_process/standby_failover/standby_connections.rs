@@ -29,9 +29,11 @@ use tonic::codegen::Service;
 use tonic::codegen::http::Uri;
 use tonic::transport::{Channel, Endpoint};
 
+use super::held_calls::{HELD_CALL_START_WINDOW, HeldCall, start_flow_with_hard_delete_attribute};
+use super::object_store_endpoints::ObjectStoreFault;
 use super::{
-    ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HOT_SLOTS, SECOND, STANDBY_BUDGET,
-    TAKEOVER_BUDGET,
+    ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HELD_READ_DELAY, HELD_READ_FLOW_ID,
+    HOT_SLOTS, SECOND, STANDBY_BUDGET, TAKEOVER_BUDGET,
 };
 
 /// A standby instance's connection age, 3 s, plus its 1 s grace and a margin for a loaded host.
@@ -50,6 +52,8 @@ const READ_FLOW_ID: &str = "counter-0";
 const SEARCH_PAGE_SIZE: i32 = 100;
 /// What a hot standby logs when it cannot open its store, such as one a stepped-down period still holds.
 const STANDBY_BOOTSTRAP_RETRY: &str = "the hot standby could not bootstrap; retrying";
+/// A loaded active's release after a step down call and a hot takeover; well under the held read.
+const STEP_DOWN_SERVED_BOUND: Duration = Duration::from_millis(2500);
 
 /// A client whose first connection lands on a standby reaches the active, and later its successor.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -113,7 +117,9 @@ async fn a_client_connected_to_a_standby_reconnects_to_the_active() {
         .await;
 }
 
-/// A step down while public calls run at the active still leaves it a hot standby.
+/// A step down while public calls run at the active hands over at once and leaves it a hot standby.
+///
+/// One read stays open across the whole step down; the standby reopens the store only after it ends.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
     let mut scenario = FailoverScenario::start("step-down-in-flight", &HOT_SLOTS).await;
@@ -121,9 +127,17 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
         .await;
+    start_flow_with_hard_delete_attribute(group.router_channel(), HELD_READ_FLOW_ID).await;
     let stop_reading = CancellationToken::new();
     let readers = start_readers(group.api_address(FIRST), &stop_reading);
     tokio::time::sleep(READERS_WARM_UP).await;
+    group
+        .object_store(FIRST)
+        .inject(ObjectStoreFault::HardDeleteLatency(HELD_READ_DELAY))
+        .await;
+    let held_read =
+        HeldCall::read_hard_delete_attribute(group.api_address(FIRST), HELD_READ_FLOW_ID);
+    tokio::time::sleep(HELD_CALL_START_WINDOW).await;
     let stepped_down_at = scenario.start_timers_spanning_the_failure().await;
     let group = &mut scenario.group;
     group
@@ -134,7 +148,21 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
+    let served_at = Instant::now();
+    let served_after = served_at - stepped_down_at;
+    let (held_answer, held_read_ended_at) = held_read.finish().await;
+    assert!(
+        served_after <= STEP_DOWN_SERVED_BOUND,
+        "an open read held up the handover: served {served_after:?} after the step down"
+    );
+    assert!(
+        held_read_ended_at > served_at,
+        "the read must stay open until the takeover, or it proves nothing"
+    );
+    let refusal = held_answer.expect_err("a read that outlives the node lease is refused");
+    assert_eq!(refusal.code(), Code::Unavailable, "{refusal}");
     let hot_after = group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
+    group.object_store(FIRST).clear_faults().await;
     let log = group.process_log(FIRST);
     assert!(
         !log.contains(STANDBY_BOOTSTRAP_RETRY),
@@ -147,7 +175,9 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         .finish(
             "step_down_with_calls_in_flight_leaves_a_hot_standby",
             stepped_down_at,
-            format!("hot again {hot_after:?} after the takeover; {reads} reads answered"),
+            format!(
+                "served {served_after:?} after the step down; hot again {hot_after:?} after the takeover; {reads} reads answered"
+            ),
         )
         .await;
 }

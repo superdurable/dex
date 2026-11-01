@@ -21,6 +21,7 @@ use tonic::Code;
 use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 
+use super::held_calls::{HELD_CALL_START_WINDOW, HeldCall};
 use super::node_group::{DirectoryFate, NodeGroup, ProcessSignal};
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
@@ -40,6 +41,10 @@ const BEHIND_STANDBY_LATENCY: Duration = Duration::from_millis(1500);
 const BEHIND_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_secs(3);
 /// A hot standby polls a held lease every 250 ms; a 1 s poll fails this in most runs.
 const STEP_DOWN_HANDOVER_BOUND: Duration = Duration::from_millis(600);
+/// A loaded active's release after a step down call and a hot takeover; under the 4 s gRPC drain.
+const STEP_DOWN_SERVED_BOUND: Duration = Duration::from_secs(3);
+/// A stopping active closes waiting ReadStream calls at once, well before the 4 s gRPC drain.
+const WAITING_READ_END_BOUND: Duration = Duration::from_secs(2);
 /// The lease history samples every 100 ms, so its first released sample may trail the release.
 const RELEASE_SAMPLE_LAG: Duration = Duration::from_millis(250);
 /// A take-back after the hold-off: one lease read and write, and a loaded host.
@@ -280,6 +285,8 @@ async fn step_down_hands_over_to_a_standby_that_is_behind() {
 }
 
 /// P7: ten switchovers under load, alternating step downs and SIGTERM restarts, lose no write.
+///
+/// A ReadStream waits at each active, and must delay neither its release nor its exit.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
     let mut scenario = FailoverScenario::start("switchovers", &HOT_SLOTS).await;
@@ -291,11 +298,16 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
     let mut switchovers = Vec::new();
     let mut first_failure = None;
     for round in 0..SWITCHOVER_COUNT {
+        let active = scenario.group.wait_for_serving(TAKEOVER_BUDGET).await;
+        let standby = if active == FIRST { SECOND } else { FIRST };
+        let waiting_read = HeldCall::wait_for_stream_message(
+            scenario.group.api_address(active),
+            &format!("waiting-reader-{round}"),
+        );
+        tokio::time::sleep(HELD_CALL_START_WINDOW).await;
         let failed_at = scenario.start_timers_spanning_the_failure().await;
         first_failure.get_or_insert(failed_at);
         let group = &mut scenario.group;
-        let active = group.wait_for_serving(TAKEOVER_BUDGET).await;
-        let standby = if active == FIRST { SECOND } else { FIRST };
         if round % 2 == 0 {
             let outcome = group
                 .step_down_active(None, None)
@@ -315,8 +327,19 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
             group.wait_for_takeover(active, TAKEOVER_BUDGET).await,
             standby
         );
+        let served_after = failed_at.elapsed();
+        assert!(
+            round % 2 == 1 || served_after <= STEP_DOWN_SERVED_BOUND,
+            "round {round}: a waiting ReadStream held up the step down: served after {served_after:?}"
+        );
+        let (waiting_answer, waiting_read_ended_at) = waiting_read.finish().await;
+        let waited = waiting_read_ended_at - failed_at;
+        assert!(
+            waiting_answer.is_err() && waited <= WAITING_READ_END_BOUND,
+            "round {round}: the waiting ReadStream ended {waited:?} after the switchover with {waiting_answer:?}"
+        );
         assert_hot_takeover(group, standby).await;
-        switchovers.push(failed_at.elapsed());
+        switchovers.push(served_after);
         if round % 2 == 1 {
             group.restart(active, DirectoryFate::Keep);
         }

@@ -243,13 +243,20 @@ impl NodeLifecycle {
                 drop(answered);
                 None
             };
-            let entry = StandbyEntry {
+            let mut entry = StandbyEntry {
                 hold_off_until: Some(Instant::now() + hold_off),
                 pending,
             };
-            if !wait_for_local_store_close(&stopped.local_store_close_waiter, &mut cancellation)
-                .await
-            {
+            let has_closed = wait_for_local_store_close(
+                stopped.public_calls_ended,
+                &stopped.local_store_close_waiter,
+                &process,
+                &mut requests,
+                &mut entry,
+                &mut cancellation,
+            )
+            .await;
+            if !has_closed {
                 if let Some(waiting) = entry.pending {
                     waiting.answer_unknown("the process stopped during the step down".to_owned());
                 }
@@ -660,21 +667,49 @@ async fn prune_finished_retirements(retirements: &mut Vec<JoinHandle<()>>) {
     }
 }
 
-/// Waits until nothing holds the stepped-down period's local store, so reopening it finds no lock.
+/// Waits until the stepped-down period's public calls end and nothing holds its local store, so
+/// reopening it finds no lock.
 ///
-/// Returns `false` when `cancellation` arrives first; after the budget it returns `true` anyway.
+/// Meanwhile it refuses administration calls and answers a pending step down once a successor
+/// appears.
+///
+/// Returns `false` when `cancellation` arrives first; after the budgets it returns `true` anyway.
 async fn wait_for_local_store_close(
+    public_calls_ended: impl std::future::Future<Output = ()>,
     waiter: &LocalStoreCloseWaiter,
+    process: &ProcessParts,
+    requests: &mut mpsc::Receiver<AdministrationRequest>,
+    entry: &mut StandbyEntry,
     cancellation: &mut watch::Receiver<bool>,
 ) -> bool {
-    tokio::select! {
-        has_closed = waiter.wait_until_closed(LOCAL_STORE_CLOSE_BUDGET) => {
-            if !has_closed {
-                tracing::warn!("the stepped-down local store is still open; standing by anyway");
-            }
-            true
+    let closed = async {
+        // Public calls on a stepped-down instance still hold the local store open.
+        if tokio::time::timeout(GRPC_DRAIN_BUDGET, public_calls_ended)
+            .await
+            .is_err()
+        {
+            tracing::warn!("stepped-down public calls are still open; reopening the store anyway");
         }
-        () = wait_for_cancellation(cancellation) => false,
+        if !waiter.wait_until_closed(LOCAL_STORE_CLOSE_BUDGET).await {
+            tracing::warn!("the stepped-down local store is still open; standing by anyway");
+        }
+    };
+    let mut closed = std::pin::pin!(closed);
+    loop {
+        tokio::select! {
+            () = &mut closed => return true,
+            () = wait_for_cancellation(cancellation) => return false,
+            Some(request) = requests.recv() => {
+                refuse_while_standing_by(
+                    request,
+                    entry.pending.is_some(),
+                    "closing the stepped-down local store",
+                );
+            }
+            () = tokio::time::sleep(SUCCESSOR_POLL_INTERVAL), if entry.pending.is_some() => {
+                answer_on_successor(process, &mut entry.pending, None).await;
+            }
+        }
     }
 }
 

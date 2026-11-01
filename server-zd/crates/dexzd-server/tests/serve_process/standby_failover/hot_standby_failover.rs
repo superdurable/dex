@@ -13,15 +13,17 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::Instant;
 
+use super::held_calls::{HELD_CALL_START_WINDOW, HeldCall, start_flow_with_hard_delete_attribute};
 use super::node_group::{
     DirectoryFate, LOG_DELETION_DELAY, NodeGroup, ProcessSignal, SNAPSHOT_INTERVAL, SlotSettings,
     SlotStandbyMode,
 };
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
-    ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HOT_SLOTS, SECOND, STANDBY_BUDGET,
-    STARTUP_BUDGET, TAKEOVER_BUDGET, assert_hot_takeover,
+    ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HELD_READ_DELAY, HELD_READ_FLOW_ID,
+    HOT_SLOTS, SECOND, STANDBY_BUDGET, STARTUP_BUDGET, TAKEOVER_BUDGET, assert_hot_takeover,
 };
+use crate::SHUTDOWN_BUDGET;
 use crate::robustness::workload::Workload;
 
 const THIRD: usize = 2;
@@ -40,8 +42,8 @@ const LEASE_DEFERRAL_FIELD: &str = "delay_milliseconds=";
 /// The default 1.5 s lagging takeover delay less its 20% jitter, rounded down.
 const LAGGING_DEFERRAL_FLOOR: Duration = Duration::from_millis(1000);
 const DEFERRAL_LOG_BUDGET: Duration = Duration::from_secs(5);
-/// A graceful stop of a loaded active and a hot takeover after its release.
-const SERVED_AFTER_SIGTERM_BOUND: Duration = Duration::from_secs(5);
+/// A loaded active's release after SIGTERM and a hot takeover; well under the held read.
+const SERVED_AFTER_SIGTERM_BOUND: Duration = Duration::from_millis(2500);
 /// Snapshots and log cleanup run every second, so cleanup soon passes a stopped standby.
 const FAST_SNAPSHOT_INTERVAL: &str = "1s";
 const FAST_LOG_DELETION_DELAY: &str = "1s";
@@ -78,27 +80,44 @@ async fn hot_standby_takes_over_when_the_active_is_killed_under_load() {
         .await;
 }
 
-/// P2, hot: SIGTERM of the active releases the lease, and the hot standby takes it at once.
+/// P2, hot: SIGTERM of the active releases the lease before open calls end, and the hot standby
+/// takes it at once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hot_standby_takes_over_when_the_active_is_terminated() {
     let mut scenario = FailoverScenario::start("hot-terminated", &HOT_SLOTS).await;
-    scenario
-        .group
+    let group = &mut scenario.group;
+    group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
         .await;
+    start_flow_with_hard_delete_attribute(group.router_channel(), HELD_READ_FLOW_ID).await;
+    group
+        .object_store(FIRST)
+        .inject(ObjectStoreFault::HardDeleteLatency(HELD_READ_DELAY))
+        .await;
+    let held_read =
+        HeldCall::read_hard_delete_attribute(group.api_address(FIRST), HELD_READ_FLOW_ID);
+    tokio::time::sleep(HELD_CALL_START_WINDOW).await;
     let terminated_at = scenario.start_timers_spanning_the_failure().await;
     let group = &mut scenario.group;
-    group.signal(FIRST, ProcessSignal::Terminate).await;
+    group.send_terminate(FIRST).await;
     assert_eq!(
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
+    let served_at = Instant::now();
     assert_hot_takeover(group, SECOND).await;
-    let served_after = terminated_at.elapsed();
+    let served_after = served_at - terminated_at;
+    let (_, held_read_ended_at) = held_read.finish().await;
     assert!(
         served_after <= SERVED_AFTER_SIGTERM_BOUND,
         "the hot standby served {served_after:?} after SIGTERM"
     );
+    assert!(
+        held_read_ended_at > served_at,
+        "the read must stay open until the takeover, or it proves nothing"
+    );
+    group.wait_for_clean_exit(FIRST, SHUTDOWN_BUDGET).await;
+    group.object_store(FIRST).clear_faults().await;
     group.restart(FIRST, DirectoryFate::Keep);
     group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
     scenario

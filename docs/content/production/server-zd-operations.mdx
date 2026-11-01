@@ -185,12 +185,14 @@ Set **terminationGracePeriodSeconds** to at least 30 seconds. On SIGTERM, the
 node stops within about 14 seconds, in this order:
 
 1. gRPC health reports **NOT_SERVING**.
-2. Workers are told to reconnect, and long polls close.
-3. Open calls get up to 4 seconds to finish.
+2. Workers are told to reconnect, and long polls and the Stream Store close.
+3. In-flight RPCs get up to 4 seconds to finish.
 4. Background work and the engine stop.
 5. Lease renewal stops, and the node releases its lease with a conditional write.
-6. The metrics listener and the Stream Store close.
-7. The process exits.
+6. Other open calls finish within the same 4 seconds. They answer
+   **UNAVAILABLE**, so clients retry them on the new active process.
+7. The metrics listener closes.
+8. The process exits.
 
 The process exits 0 when every step completes. A replacement process with the
 same **cluster.nodeId** then acquires the lease at once. The process exits 1
@@ -513,7 +515,8 @@ dexzd_hot_standby_lag_seconds > 5
 
 **dexcli admin step-down** asks the active process of a node ID to give up its
 lease. The process stops serving and waits briefly for in-flight commits. Then
-it releases the lease and keeps running as a standby. Another process of the
+it releases the lease and keeps running as a standby. Calls still open at the
+release answer **UNAVAILABLE**, so clients retry them on the new active process. Another process of the
 same node ID can take the lease at once, as after a graceful shutdown. The
 stepped-down process waits for a hold-off, **standby.stepDownHoldOff**, before
 it competes for the lease again. If no other process takes over in that time,

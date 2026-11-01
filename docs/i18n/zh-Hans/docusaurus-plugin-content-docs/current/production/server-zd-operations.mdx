@@ -172,12 +172,14 @@ spec:
 按以下顺序停止：
 
 1. gRPC health 报告 **NOT_SERVING**。
-2. 通知 Worker 重新连接，关闭 long poll。
-3. 正在进行的调用最多有 4 秒完成。
+2. 通知 Worker 重新连接，关闭 long poll 和 Stream Store。
+3. 在途的 RPC 最多有 4 秒完成。
 4. 后台工作和引擎停止。
 5. 停止续约 lease，并用条件写释放 lease。
-6. 关闭 metrics 监听器和 Stream Store。
-7. 进程退出。
+6. 其他未结束的调用在同样的 4 秒内结束。它们返回 **UNAVAILABLE**，客户端会在新的 active
+   进程上重试。
+7. 关闭 metrics 监听器。
+8. 进程退出。
 
 每一步都完成时，进程以 0 退出，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。
 如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
@@ -434,7 +436,8 @@ dexzd_hot_standby_lag_seconds > 5
 ## 让 active 进程让位 {#step-down}
 
 **dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
-服务，并短暂等待在途的提交完成，然后释放 lease，并继续作为 standby 运行。同一个 node ID
+服务，并短暂等待在途的提交完成，然后释放 lease，并继续作为 standby 运行。释放时仍未结束的
+调用返回 **UNAVAILABLE**，客户端会在新的 active 进程上重试。同一个 node ID
 的另一个进程随即可以拿到 lease，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
 **standby.stepDownHoldOff**，才会再次竞争 lease。如果这段时间内没有其他进程接管，它会把
 lease 拿回来。**standby.mode** 为 **hot** 时，它在等待期间作为[热 standby](#hot-standby)

@@ -9,6 +9,7 @@
 //! Failover tests of `serve` processes of one node ID, checking writes, serving, leases, and deadlines.
 
 mod frozen_active;
+mod held_calls;
 mod hot_standby_failover;
 mod lease_epochs;
 mod node_group;
@@ -94,6 +95,10 @@ const LATE_WRITES_BUDGET: Duration = Duration::from_secs(10);
 const SPANNING_TIMER_COUNT: usize = 2;
 /// Longer than the start of a failure, so these timers fire after it began.
 const SPANNING_TIMER_DURATION: Duration = Duration::from_secs(3);
+/// Holds a hard-delete Attribute read at the stopping active past its release and the takeover.
+const HELD_READ_DELAY: Duration = Duration::from_millis(3500);
+/// A Flow whose hard-delete Attribute a held read reads.
+const HELD_READ_FLOW_ID: &str = "held-read-flow";
 
 /// P1, crash failover: SIGKILL of the active under load hands the node to the waiting cold standby.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -459,11 +459,12 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
 - One ParadeDB schema belongs to one Dex cluster.
 
 On SIGTERM or SIGINT the node stops within 14.5 seconds. Health reports NOT_SERVING, Workers are
-told to reconnect, long polls close, and open calls get 4 seconds to finish. Then effects and the
-engine stop, and the node releases its lease. The process exits 0, and a replacement process with
-the same `cluster.nodeId` acquires the lease at once. When object storage rejects the release, or
-the release does not finish within 2 seconds, the process exits 1 and the lease stays held until it
-expires.
+told to reconnect, long polls and waiting ReadStream calls close, and in-flight RPCs get 4 seconds
+to finish. Then effects and the engine stop, and the node releases its lease. Other open calls
+finish within the same 4 seconds, and the lease gate refuses their answers. The process exits 0,
+and a replacement process with the same `cluster.nodeId` acquires the lease at once. When object
+storage rejects the release, or the release does not finish within 2 seconds, the process exits 1
+and the lease stays held until it expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow coordinator stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
@@ -668,10 +669,12 @@ standby:
   arrives and again before its response. A process resumed after a freeze therefore answers no read
   from stale state.
 
-A step down stops the public services and waits up to 4 s for in-flight RPCs and for public calls
-whose responses are still being written. It then stops every component of the serving period and
-releases the lease. The process starts a new standby gRPC instance and, before it reopens the local
-store as a standby or to take the lease back, waits up to 5 s for the old store to close. The old
+A step down stops the public services, closes waiting ReadStream calls, and waits up to 4 s for
+in-flight RPCs. It then stops every component of the serving period and releases the lease, so
+open public calls never delay the release; the lease gate refuses their answers. The process starts
+a new standby gRPC instance and, before it reopens the local store as a standby or to take the lease
+back, waits up to 4 s for public calls whose responses are still being written and up to 5 s for
+the old store to close. Meanwhile it refuses admin calls as not active. The old
 instance keeps the connection of the step down call until its answer is sent, then sends GOAWAY
 after 250 ms so clients reconnect through the Service. During the hold-off the process watches the
 lease and answers as soon as another process takes over. After the hold-off it competes again and
