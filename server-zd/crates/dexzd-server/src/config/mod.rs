@@ -13,6 +13,7 @@ mod auth_config;
 mod engine_config;
 mod service_config;
 mod source_config;
+mod standby_config;
 mod storage_config;
 mod validation;
 
@@ -36,6 +37,7 @@ pub use service_config::{
     StreamStoreConfig,
 };
 pub use source_config::ConfigError;
+pub use standby_config::{StandbyConfig, StandbyMode};
 pub use storage_config::{
     CredentialSource, DevConfig, DevDurabilityMode, LocalStorageConfig, ObjectStoreConfig,
     ObjectStoreCredentials, ObjectStoreLocationConfig,
@@ -57,6 +59,8 @@ pub struct Config {
     pub commit: CommitConfig,
     /// Owner lease settings. Defaults to a ten-second lease, or 30 seconds for `dev`.
     pub lease: LeaseConfig,
+    /// How a process waits for the lease and steps down. Defaults to a cold standby.
+    pub standby: StandbyConfig,
     /// Snapshot cadence and log cleanup. Defaults to 256 MiB or ten minutes.
     pub snapshot: SnapshotConfig,
     /// Log replay read-ahead at startup. Defaults to 64 batches and 64 MiB.

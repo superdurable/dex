@@ -37,6 +37,7 @@ impl Config {
         self.validate_search_and_limits()?;
         self.auth.validate()?;
         self.attribute_store.validate()?;
+        self.standby.validate(&self.lease)?;
         Ok(())
     }
 
