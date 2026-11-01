@@ -8,16 +8,10 @@
 
 //! Failover tests with `standby.mode: hot`, numbered after the failure matrix of the hot standby plan.
 
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use tempfile::TempDir;
-use tokio::task::JoinSet;
 use tokio::time::Instant;
-use tonic::transport::Channel;
-use tonic_health::pb::HealthCheckRequest;
-use tonic_health::pb::health_check_response::ServingStatus;
-use tonic_health::pb::health_client::HealthClient;
 
 use super::node_group::{
     DirectoryFate, LOG_DELETION_DELAY, NodeGroup, ProcessSignal, SNAPSHOT_INTERVAL, SlotSettings,
@@ -26,21 +20,15 @@ use super::node_group::{
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
     ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HOT_SLOTS, SECOND, STANDBY_BUDGET,
-    STARTUP_BUDGET, TAKEOVER_BUDGET, assert_exited_after_losing_the_lease,
+    STARTUP_BUDGET, TAKEOVER_BUDGET,
 };
 use crate::robustness::workload::Workload;
 
 const THIRD: usize = 2;
-/// A process that lost its lease exits within the lease and the watchdog's abort budget.
-const LOST_LEASE_EXIT_BUDGET: Duration = Duration::from_secs(20);
 /// Slows each object storage request of one process, so a bootstrap or takeover lasts seconds.
 const SLOW_STANDBY_LATENCY: Duration = Duration::from_millis(400);
 /// How long a fault burst lasts at a standby's endpoint.
 const FAULT_BURST: Duration = Duration::from_secs(3);
-/// Health probes queued at a frozen process, answered once it resumes.
-const BACKLOGGED_PROBES: usize = 4;
-const BACKLOGGED_PROBE_BUDGET: Duration = Duration::from_secs(10);
-const BACKLOG_SEND_WINDOW: Duration = Duration::from_millis(200);
 /// Snapshots and log cleanup run every second, so cleanup soon passes a stopped standby.
 const FAST_SNAPSHOT_INTERVAL: &str = "1s";
 const FAST_LOG_DELETION_DELAY: &str = "1s";
@@ -99,49 +87,6 @@ async fn hot_standby_takes_over_when_the_active_is_terminated() {
             "hot_standby_takes_over_when_the_active_is_terminated",
             terminated_at,
             format!("served {served_after:?} after SIGTERM"),
-        )
-        .await;
-}
-
-/// P3, hot: a frozen active loses the node to the hot standby, exits on resume; records queued health answers.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn frozen_active_loses_the_node_to_the_hot_standby_and_exits_on_resume() {
-    let mut scenario = FailoverScenario::start("hot-frozen", &HOT_SLOTS).await;
-    scenario
-        .group
-        .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
-        .await;
-    let frozen_at = scenario.start_timers_spanning_the_failure().await;
-    let group = &mut scenario.group;
-    group.signal(FIRST, ProcessSignal::Stop).await;
-    assert_eq!(
-        group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
-        SECOND
-    );
-    let served_after = frozen_at.elapsed();
-    group
-        .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
-        .await;
-    let backlog = queue_health_probes(group.api_address(FIRST));
-    // Lets the probes reach the frozen process's socket before it resumes.
-    tokio::time::sleep(BACKLOG_SEND_WINDOW).await;
-    group.permit_exit(FIRST);
-    let resumed_at = Instant::now();
-    group.signal(FIRST, ProcessSignal::Continue).await;
-    let backlogged_answers = collect_health_answers(backlog, resumed_at).await;
-    let status = group
-        .wait_for_permitted_exit(FIRST, LOST_LEASE_EXIT_BUDGET)
-        .await;
-    assert_exited_after_losing_the_lease(status);
-    group.restart(FIRST, DirectoryFate::Keep);
-    group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
-    scenario
-        .finish(
-            "frozen_active_loses_the_node_to_the_hot_standby_and_exits_on_resume",
-            frozen_at,
-            format!(
-                "served {served_after:?} after the freeze; queued health answers after the resume: {backlogged_answers:?}; old active ended with {status}"
-            ),
         )
         .await;
 }
@@ -432,43 +377,4 @@ fn three_hot_slots(
 fn fast_cleanup_hot_slots() -> [SlotSettings<'static>; 2] {
     let [first, second, _] = three_hot_slots(FAST_SNAPSHOT_INTERVAL, FAST_LOG_DELETION_DELAY);
     [first, second]
-}
-
-/// Sends health checks to a frozen process; each waits for the process to resume.
-fn queue_health_probes(address: SocketAddr) -> JoinSet<(ServingStatus, Instant)> {
-    let mut probes = JoinSet::new();
-    for _ in 0..BACKLOGGED_PROBES {
-        probes.spawn(async move {
-            let channel = Channel::from_shared(format!("http://{address}"))
-                .expect("the slot address is a valid URI")
-                .connect_lazy();
-            let answer = tokio::time::timeout(
-                BACKLOGGED_PROBE_BUDGET,
-                HealthClient::new(channel).check(HealthCheckRequest {
-                    service: String::new(),
-                }),
-            )
-            .await;
-            let status = match answer {
-                Ok(Ok(response)) => ServingStatus::try_from(response.get_ref().status)
-                    .unwrap_or(ServingStatus::Unknown),
-                Ok(Err(_)) | Err(_) => ServingStatus::Unknown,
-            };
-            (status, Instant::now())
-        });
-    }
-    probes
-}
-
-/// Returns each queued probe's answer and how long after `resumed_at` it arrived.
-async fn collect_health_answers(
-    mut probes: JoinSet<(ServingStatus, Instant)>,
-    resumed_at: Instant,
-) -> Vec<(ServingStatus, Duration)> {
-    let mut answers = Vec::new();
-    while let Some(answer) = probes.join_next().await {
-        let (status, answered_at) = answer.expect("a health probe task does not panic");
-        answers.push((status, answered_at.saturating_duration_since(resumed_at)));
-    }
-    answers
 }

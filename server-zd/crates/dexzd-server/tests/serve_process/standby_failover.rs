@@ -8,6 +8,7 @@
 
 //! Failover tests of `serve` processes of one node ID, checking writes, serving, leases, and deadlines.
 
+mod frozen_active;
 mod hot_standby_failover;
 mod lease_epochs;
 mod node_group;

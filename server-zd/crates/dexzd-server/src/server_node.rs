@@ -222,7 +222,8 @@ pub(crate) async fn start_server(
             }
         };
     let metrics_address = metrics_server.as_ref().map(MetricsServer::address);
-    let (health, _first_health_server) = HealthStatus::new().await;
+    let lease_validity_deadline = LeaseValidityDeadline::disarmed();
+    let (health, _first_health_server) = HealthStatus::new(lease_validity_deadline.clone()).await;
     let (active_node_administration, administration_requests) =
         LifecycleActiveNodeAdministration::new();
     let grpc_settings = GrpcSettings {
@@ -233,9 +234,9 @@ pub(crate) async fn start_server(
         authenticator,
         active_node_administration: Arc::new(active_node_administration),
         health,
+        lease_validity_deadline: lease_validity_deadline.clone(),
     };
     let grpc = GrpcServer::start(&grpc_settings);
-    let lease_validity_deadline = LeaseValidityDeadline::disarmed();
     let lease_watchdog = match lease_expiry_response {
         LeaseExpiryResponse::ExitProcess => {
             match LeaseValidityWatchdog::start(

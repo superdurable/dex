@@ -11,12 +11,13 @@
 use std::convert::Infallible;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dexzd_api::{
     ActiveNodeAdministration, DexAdminService, DexFlowService, HealthStatus,
     PublicApiAuthenticator, RequestMetricsLayer,
 };
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_protocol::dex::flow_service_server::FlowServiceServer;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
 use dexzd_worker_dispatch::WorkerTaskService;
@@ -36,6 +37,8 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
 const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Lets the step down handler write its answer before GOAWAY reaches that connection.
 const ANSWER_TRANSPORT_GRACE: Duration = Duration::from_millis(250);
+/// The answer to a public call while the node lease is not valid, such as after a freeze.
+const LEASE_NOT_VALID_MESSAGE: &str = "the node lease is not valid";
 
 /// What every gRPC server instance of the process shares.
 pub(super) struct GrpcSettings {
@@ -47,6 +50,8 @@ pub(super) struct GrpcSettings {
     pub(super) authenticator: Option<Arc<PublicApiAuthenticator>>,
     pub(super) active_node_administration: Arc<dyn ActiveNodeAdministration>,
     pub(super) health: HealthStatus,
+    /// Public calls answer only while it is valid, so a resumed process never serves stale state.
+    pub(super) lease_validity_deadline: LeaseValidityDeadline,
 }
 
 /// A tonic server instance whose public services answer UNAVAILABLE until activated.
@@ -62,9 +67,13 @@ pub(super) struct GrpcServer {
 impl GrpcServer {
     /// Starts an instance on the shared listener; health and AdminService answer at once.
     pub(super) fn start(settings: &GrpcSettings) -> Self {
-        let flow_service_gate = StartupService::<FlowServiceServer<DexFlowService>>::new();
+        let flow_service_gate = StartupService::<FlowServiceServer<DexFlowService>>::new(
+            settings.lease_validity_deadline.clone(),
+        );
         let worker_task_service_gate =
-            StartupService::<WorkerTaskServiceServer<WorkerTaskService>>::new();
+            StartupService::<WorkerTaskServiceServer<WorkerTaskService>>::new(
+                settings.lease_validity_deadline.clone(),
+            );
         let admin_service = DexAdminService::authenticated_server(
             settings.active_node_administration.clone(),
             settings.authenticator.clone(),
@@ -161,12 +170,14 @@ impl Drop for GrpcServer {
 #[derive(Clone)]
 pub(super) struct StartupService<S> {
     serving: Arc<RwLock<Option<S>>>,
+    lease_validity_deadline: LeaseValidityDeadline,
 }
 
 impl<S> StartupService<S> {
-    fn new() -> Self {
+    fn new(lease_validity_deadline: LeaseValidityDeadline) -> Self {
         Self {
             serving: Arc::new(RwLock::new(None)),
+            lease_validity_deadline,
         }
     }
 
@@ -212,11 +223,20 @@ where
             .read()
             .expect("startup service lock is poisoned only if a holder panicked")
             .clone();
+        let lease_validity_deadline = self.lease_validity_deadline.clone();
         Box::pin(async move {
-            match serving {
-                Some(mut service) => service.call(request).await,
-                None => Ok(Status::unavailable("the node is starting").into_http()),
+            let Some(mut service) = serving else {
+                return Ok(Status::unavailable("the node is starting").into_http());
+            };
+            if !lease_validity_deadline.is_valid_at(Instant::now()) {
+                return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
             }
+            let response = service.call(request).await?;
+            // A freeze during the call can outlast the lease, so the answer may already be stale.
+            if !lease_validity_deadline.is_valid_at(Instant::now()) {
+                return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
+            }
+            Ok(response)
         })
     }
 }
