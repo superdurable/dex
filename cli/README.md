@@ -662,15 +662,27 @@ serves AdminService.
 
 `dexcli admin describe` calls AdminService `DescribeActiveNode`. It prints the
 `nodeId`, `nodeEpoch`, and `holderProcessId` of the active server process behind
-`--server`, and changes nothing.
+`--server`, and changes nothing. It fails with FailedPrecondition while a step
+down or its hold-off is in progress, and with Unavailable when no server process
+is reachable. Then wait past the hold-off and describe again.
 
 `dexcli admin step-down --yes` calls AdminService `StepDownActiveNode`. The active
 server process stops serving, waits briefly for in-flight commits, and releases
 its lease. Another process of the same node ID can then take over. After the
 release, the call waits for a takeover for up to `leaseReacquisitionHoldOff`.
-Without a takeover, the stepped-down process takes the lease back. The command
-prints:
+Without a takeover, the stepped-down process takes the lease back.
 
+Every step down request carries a precondition: the node ID and node epoch of
+the process to step down. A process that does not match answers
+FailedPrecondition and changes nothing. Without `--expected-node-id` and
+`--expected-node-epoch`, the command first calls `DescribeActiveNode` and expects
+the node ID and node epoch it returns. If that describe fails, nothing is
+stepped down, and the error output carries `stepDownOutcome: notAttempted`. Set
+both flags or neither.
+
+The command prints:
+
+- `expectedNodeId` and `expectedNodeEpoch`: the precondition it sent;
 - `nodeId`, `releasedNodeEpoch`, and `leaseReacquisitionHoldOff`;
 - `leaseHolderAfterStepDown`: `takenOverByAnotherProcess`,
   `takenBackByThisProcess`, or `unknown` when neither was confirmed;
@@ -678,19 +690,20 @@ prints:
   lease, or `leaseHolderUnknownDetail` when it is unknown.
 
 Node epochs are decimal strings, as in protobuf JSON. The command requires
-`--yes`. `--expected-node-epoch epoch` steps down only if the active process
-holds that node epoch; otherwise the server answers FailedPrecondition and
-changes nothing. The default `--timeout` is 2 minutes, well above the drain
-bound, the hold-off, and one lease acquisition attempt. An explicit `--timeout`
-before or after the subcommand replaces it.
+`--yes`. The default `--timeout` is 2 minutes, well above the drain bound, the
+hold-off, and one lease acquisition attempt. An explicit `--timeout` before or
+after the subcommand replaces it.
 
-Each call steps down whichever process is active when it arrives, so a blind
-retry can step down the process that just took over. DeadlineExceeded,
-Canceled, or Unavailable means the outcome is unknown; the error output then
-carries `stepDownOutcome: unknown` and a `hint`. Run `dexcli admin describe`
-first, then retry only with `--expected-node-epoch` set to the node epoch that
-it prints. On a single replica, a step down stops serving for about one
-hold-off, and then the same process takes the lease back.
+DeadlineExceeded, Canceled, or Unavailable means the outcome of the step down is
+unknown. The error output then carries `stepDownOutcome: unknown`, the
+`expectedNodeId` and `expectedNodeEpoch` that the call used, and a `hint`. Retry
+only with those same values, never with values that `dexcli admin describe`
+prints after the failure: they identify whichever process is active by then. If
+describe now shows another node epoch or holder process ID, the step down
+already happened, so do not retry. A retry with the original values would then
+fail with FailedPrecondition and change nothing. On a single replica, a step down
+stops serving for about one hold-off, and then the same process takes the lease
+back with a new node epoch.
 
 Both commands use the regular server, credential, TLS, timeout, and output
 flags. When the server configures authentication, the credential must be a JWT

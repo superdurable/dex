@@ -28,18 +28,22 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// adminTestService answers AdminService calls and records what each step down received.
+// adminTestService answers AdminService calls and records what each call received.
 type adminTestService struct {
 	dexpb.UnimplementedAdminServiceServer
-	description *dexpb.DescribeActiveNodeResponse
-	response    *dexpb.StepDownActiveNodeResponse
-	failure     error
+	// description answers DescribeActiveNode; nil answers node-a at node epoch 7.
+	description     *dexpb.DescribeActiveNodeResponse
+	describeFailure error
+	response        *dexpb.StepDownActiveNodeResponse
+	failure         error
 	// isBlocking makes each step down wait until its call ends, so the client times out.
 	isBlocking bool
 
 	mu                 sync.Mutex
+	describeCount      int
 	callCount          int
 	authorizations     []string
+	expectedNodeIDs    []*string
 	expectedNodeEpochs []*uint64
 	remainingDeadlines []*time.Duration
 }
@@ -50,8 +54,15 @@ func (s *adminTestService) DescribeActiveNode(
 ) (*dexpb.DescribeActiveNodeResponse, error) {
 	requestMetadata, _ := metadata.FromIncomingContext(ctx)
 	s.mu.Lock()
+	s.describeCount++
 	s.authorizations = append(s.authorizations, requestMetadata.Get("authorization")...)
 	s.mu.Unlock()
+	if s.describeFailure != nil {
+		return nil, s.describeFailure
+	}
+	if s.description == nil {
+		return &dexpb.DescribeActiveNodeResponse{NodeId: "node-a", NodeEpoch: 7, HolderProcessId: "active-process"}, nil
+	}
 	return s.description, nil
 }
 
@@ -68,6 +79,7 @@ func (s *adminTestService) StepDownActiveNode(
 	s.mu.Lock()
 	s.callCount++
 	s.authorizations = append(s.authorizations, requestMetadata.Get("authorization")...)
+	s.expectedNodeIDs = append(s.expectedNodeIDs, request.ExpectedNodeId)
 	s.expectedNodeEpochs = append(s.expectedNodeEpochs, request.ExpectedNodeEpoch)
 	s.remainingDeadlines = append(s.remainingDeadlines, remainingDeadline)
 	s.mu.Unlock()
@@ -79,6 +91,12 @@ func (s *adminTestService) StepDownActiveNode(
 		return nil, s.failure
 	}
 	return s.response, nil
+}
+
+func (s *adminTestService) recordedDescribeCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.describeCount
 }
 
 func (s *adminTestService) recordedCallCount() int {
@@ -93,10 +111,11 @@ func (s *adminTestService) recordedAuthorizations() []string {
 	return append([]string(nil), s.authorizations...)
 }
 
-func (s *adminTestService) recordedExpectedNodeEpochs() []*uint64 {
+// recordedPreconditions returns each step down's expected node ID and node epoch, or nil when unset.
+func (s *adminTestService) recordedPreconditions() ([]*string, []*uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]*uint64(nil), s.expectedNodeEpochs...)
+	return append([]*string(nil), s.expectedNodeIDs...), append([]*uint64(nil), s.expectedNodeEpochs...)
 }
 
 func (s *adminTestService) recordedRemainingDeadlines() []*time.Duration {
@@ -186,7 +205,7 @@ func TestAdminDescribePrintsTheActiveNodeAndSendsTheCredential(t *testing.T) {
 	require.Zero(t, service.recordedCallCount())
 }
 
-func TestAdminStepDownPrintsTheTakeoverAndSendsTheCredential(t *testing.T) {
+func TestAdminStepDownDescribesFirstAndExpectsTheDescribedNode(t *testing.T) {
 	service := &adminTestService{response: takeoverResponse()}
 	address := startAdminTestService(t, service)
 	credentialFile := filepath.Join(t.TempDir(), "admin-token")
@@ -198,6 +217,8 @@ func TestAdminStepDownPrintsTheTakeoverAndSendsTheCredential(t *testing.T) {
 
 	require.NoError(t, err)
 	require.JSONEq(t, `{
+		"expectedNodeId": "node-a",
+		"expectedNodeEpoch": "7",
 		"nodeId": "node-a",
 		"releasedNodeEpoch": "7",
 		"leaseReacquisitionHoldOff": "5.5s",
@@ -205,8 +226,35 @@ func TestAdminStepDownPrintsTheTakeoverAndSendsTheCredential(t *testing.T) {
 		"activeNodeEpoch": "8",
 		"activeHolderProcessId": "standby-process"
 	}`, output)
+	require.Equal(t, 1, service.recordedDescribeCount())
 	require.Equal(t, 1, service.recordedCallCount())
-	require.Equal(t, []string{"Bearer admin-jwt"}, service.recordedAuthorizations())
+	expectedNodeIDs, expectedNodeEpochs := service.recordedPreconditions()
+	require.Equal(t, "node-a", *expectedNodeIDs[0])
+	require.Equal(t, uint64(7), *expectedNodeEpochs[0])
+	require.Equal(t, []string{"Bearer admin-jwt", "Bearer admin-jwt"}, service.recordedAuthorizations())
+}
+
+func TestAdminStepDownWithAnExplicitPreconditionSkipsDescribe(t *testing.T) {
+	service := &adminTestService{response: takeoverResponse()}
+	address := startAdminTestService(t, service)
+
+	for _, arguments := range [][]string{
+		{"admin", "step-down", "--yes", "--expected-node-id", "node-b", "--expected-node-epoch", "9", "--server", address},
+		{"admin", "step-down", "--yes", "--expected-node-id", "node-b", "--expected-node-epoch", "0", "--server", address},
+	} {
+		_, err := executeAdminCommand(arguments...)
+		require.NoError(t, err, "%v", arguments)
+	}
+
+	require.Zero(t, service.recordedDescribeCount())
+	expectedNodeIDs, expectedNodeEpochs := service.recordedPreconditions()
+	require.Len(t, expectedNodeIDs, 2)
+	for index, expectedNodeEpoch := range []uint64{9, 0} {
+		require.NotNil(t, expectedNodeIDs[index])
+		require.Equal(t, "node-b", *expectedNodeIDs[index])
+		require.NotNil(t, expectedNodeEpochs[index])
+		require.Equal(t, expectedNodeEpoch, *expectedNodeEpochs[index])
+	}
 }
 
 func TestAdminStepDownReportsATakeBackAndAnUnknownLeaseHolder(t *testing.T) {
@@ -219,6 +267,8 @@ func TestAdminStepDownReportsATakeBackAndAnUnknownLeaseHolder(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.JSONEq(t, `{
+		"expectedNodeId": "node-a",
+		"expectedNodeEpoch": "7",
 		"nodeId": "node-a",
 		"releasedNodeEpoch": "7",
 		"leaseReacquisitionHoldOff": "5.5s",
@@ -236,34 +286,14 @@ func TestAdminStepDownReportsATakeBackAndAnUnknownLeaseHolder(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.JSONEq(t, `{
+		"expectedNodeId": "node-a",
+		"expectedNodeEpoch": "7",
 		"nodeId": "node-a",
 		"releasedNodeEpoch": "7",
 		"leaseReacquisitionHoldOff": "5.5s",
 		"leaseHolderAfterStepDown": "unknown",
 		"leaseHolderUnknownDetail": "reading the node lease failed"
 	}`, output)
-}
-
-func TestAdminStepDownSendsTheExpectedNodeEpochOnlyWhenSet(t *testing.T) {
-	service := &adminTestService{response: takeoverResponse()}
-	address := startAdminTestService(t, service)
-
-	for _, arguments := range [][]string{
-		{"admin", "step-down", "--yes", "--server", address},
-		{"admin", "step-down", "--yes", "--expected-node-epoch", "7", "--server", address},
-		{"admin", "step-down", "--yes", "--expected-node-epoch", "0", "--server", address},
-	} {
-		_, err := executeAdminCommand(arguments...)
-		require.NoError(t, err, "%v", arguments)
-	}
-
-	expectedNodeEpochs := service.recordedExpectedNodeEpochs()
-	require.Len(t, expectedNodeEpochs, 3)
-	require.Nil(t, expectedNodeEpochs[0])
-	require.NotNil(t, expectedNodeEpochs[1])
-	require.Equal(t, uint64(7), *expectedNodeEpochs[1])
-	require.NotNil(t, expectedNodeEpochs[2])
-	require.Equal(t, uint64(0), *expectedNodeEpochs[2])
 }
 
 func TestAdminStepDownWaitsLongerThanTheHoldOffUnlessTimeoutIsSet(t *testing.T) {
@@ -299,6 +329,7 @@ func TestAdminStepDownRequiresConfirmationBeforeCalling(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 2, ExitCode(err))
 	require.Equal(t, "confirmation_required", writtenError(t, err)["kind"])
+	require.Zero(t, service.recordedDescribeCount())
 	require.Zero(t, service.recordedCallCount())
 
 	_, err = executeAdminCommand("admin", "step-down", "--yes", "--server", address)
@@ -308,9 +339,10 @@ func TestAdminStepDownRequiresConfirmationBeforeCalling(t *testing.T) {
 
 func TestAdminStepDownReportsRefusalsAsOperationErrors(t *testing.T) {
 	address := startAdminTestService(t, &adminTestService{
-		failure: status.Error(codes.FailedPrecondition, "the active server process holds node epoch 8, not the expected node epoch 7"),
+		failure: status.Error(codes.FailedPrecondition, "the active server process serves node ID \"node-a\" at node epoch 8, not the expected node ID \"node-a\" at node epoch 7"),
 	})
-	_, err := executeAdminCommand("admin", "step-down", "--yes", "--expected-node-epoch", "7", "--server", address)
+	_, err := executeAdminCommand("admin", "step-down", "--yes",
+		"--expected-node-id", "node-a", "--expected-node-epoch", "7", "--server", address)
 	require.Error(t, err)
 	require.Equal(t, 1, ExitCode(err))
 	written := writtenError(t, err)
@@ -321,7 +353,8 @@ func TestAdminStepDownReportsRefusalsAsOperationErrors(t *testing.T) {
 	flowServiceOnly := startGRPCServer(t, func(grpcServer *grpc.Server) {
 		dexpb.RegisterFlowServiceServer(grpcServer, &dexpb.UnimplementedFlowServiceServer{})
 	})
-	_, err = executeAdminCommand("admin", "step-down", "--yes", "--server", flowServiceOnly)
+	_, err = executeAdminCommand("admin", "step-down", "--yes",
+		"--expected-node-id", "node-a", "--expected-node-epoch", "7", "--server", flowServiceOnly)
 	require.Error(t, err)
 	require.Equal(t, "Unimplemented", writtenError(t, err)["grpcCodeName"])
 	_, err = executeAdminCommand("admin", "describe", "--server", flowServiceOnly)
@@ -331,7 +364,26 @@ func TestAdminStepDownReportsRefusalsAsOperationErrors(t *testing.T) {
 	require.Equal(t, "Unimplemented", written["grpcCodeName"])
 }
 
-func TestAdminStepDownReportsAnUnknownOutcomeWhenTheCallTimesOut(t *testing.T) {
+func TestAdminStepDownSendsNothingWhenTheFirstDescribeFails(t *testing.T) {
+	service := &adminTestService{
+		describeFailure: status.Error(codes.FailedPrecondition, "this server process is not the active process of its node ID"),
+		response:        takeoverResponse(),
+	}
+	address := startAdminTestService(t, service)
+
+	_, err := executeAdminCommand("admin", "step-down", "--yes", "--server", address)
+
+	require.Error(t, err)
+	require.Equal(t, 1, ExitCode(err))
+	written := writtenError(t, err)
+	require.Equal(t, "FailedPrecondition", written["grpcCodeName"])
+	require.Equal(t, "notAttempted", written["stepDownOutcome"])
+	require.Contains(t, written["hint"], "Nothing was stepped down")
+	require.Equal(t, 1, service.recordedDescribeCount())
+	require.Zero(t, service.recordedCallCount())
+}
+
+func TestAdminStepDownReportsTheOriginalPreconditionWhenTheOutcomeIsUnknown(t *testing.T) {
 	service := &adminTestService{isBlocking: true}
 	address := startAdminTestService(t, service)
 
@@ -342,8 +394,11 @@ func TestAdminStepDownReportsAnUnknownOutcomeWhenTheCallTimesOut(t *testing.T) {
 	written := writtenError(t, err)
 	require.Equal(t, "DeadlineExceeded", written["grpcCodeName"])
 	require.Equal(t, "unknown", written["stepDownOutcome"])
-	require.Contains(t, written["hint"], "dexcli admin describe")
-	require.Contains(t, written["hint"], "--expected-node-epoch")
+	require.Equal(t, "node-a", written["expectedNodeId"])
+	require.Equal(t, "7", written["expectedNodeEpoch"])
+	require.Contains(t, written["hint"], `--expected-node-id "node-a" --expected-node-epoch 7`)
+	require.Contains(t, written["hint"], "never with values read after this failure")
+	require.Contains(t, written["hint"], "do not retry")
 	require.Equal(t, 1, service.recordedCallCount())
 }
 
@@ -353,8 +408,11 @@ func TestAdminCommandRejectsInvalidUsage(t *testing.T) {
 		{"admin", "promote"},
 		{"admin", "step-down", "--yes", "unexpected"},
 		{"admin", "step-down", "--unknown-flag"},
-		{"admin", "step-down", "--yes", "--expected-node-epoch", "-1"},
-		{"admin", "step-down", "--yes", "--expected-node-epoch", "latest"},
+		{"admin", "step-down", "--yes", "--expected-node-id", "node-a", "--expected-node-epoch", "-1"},
+		{"admin", "step-down", "--yes", "--expected-node-id", "node-a", "--expected-node-epoch", "latest"},
+		{"admin", "step-down", "--yes", "--expected-node-id", "", "--expected-node-epoch", "7"},
+		{"admin", "step-down", "--yes", "--expected-node-epoch", "7"},
+		{"admin", "step-down", "--yes", "--expected-node-id", "node-a"},
 		{"admin", "describe", "unexpected"},
 	} {
 		_, err := executeAdminCommand(arguments...)
@@ -372,7 +430,9 @@ func TestAdminHelpListsSubcommandsAndFlags(t *testing.T) {
 	output, err = executeAdminCommand("admin", "step-down", "--help")
 	require.NoError(t, err)
 	require.Contains(t, output, "dexcli admin step-down --yes")
-	for _, flagName := range []string{"-yes", "-expected-node-epoch epoch", "-timeout", "-credential-file", "-server"} {
+	for _, flagName := range []string{
+		"-yes", "-expected-node-id ID", "-expected-node-epoch epoch", "-timeout", "-credential-file", "-server",
+	} {
 		require.Contains(t, output, flagName)
 	}
 	require.Contains(t, output, "(default 2m0s)")
