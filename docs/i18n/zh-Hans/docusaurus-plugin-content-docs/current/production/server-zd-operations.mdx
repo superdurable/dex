@@ -794,6 +794,7 @@ key label。
 | 快照 | **dexzd_snapshots_total**，带 **outcome**；**dexzd_snapshot_last_duration_seconds** |
 | 本地磁盘 | **dexzd_local_storage_bytes** |
 | Attribute Store 同步 | 见[监控](#attribute-store-monitoring) |
+| 外部搜索投影 | 见[监控](#search-projection-monitoring) |
 
 **rpc_class** 取 **flow_write**、**flow_read**、**search**、**worker_poll** 或
 **worker_respond**。**code** 是 snake case 形式的 gRPC 状态码，例如 **ok** 或
@@ -960,11 +961,11 @@ Flow type 名称、Step 图和已持久化的 payload。
 
 ## 备份和恢复
 
-对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影在启动后从本地存储
-重建。使用 **search.backend: postgres** 时，恢复较旧的前缀可能导致数据库中的 Attribute
+对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影不会重建：恢复之后，
+请配置新的 **search.paradeDbSchema** 或 **search.postgresSchema**，或者新的数据库，
+让服务端从恢复后的状态装载它。见[首次装载](#search-projection-initial-load)。
+使用 **search.backend: postgres** 时，继续使用旧 schema 还可能导致数据库中的 Attribute
 注册表版本高于恢复后的注册表版本。此时启动会报 Attribute slot 注册表不匹配错误。
-重新启动前，配置新的 **search.postgresSchema** 或新的 PostgreSQL 数据库，让搜索投影和
-slot 分配从恢复后的注册表重建。
 配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
 也要用同样的方式保护。
 
@@ -980,6 +981,87 @@ slot 分配从恢复后的注册表重建。
 4. 启动 server-zd。它会用恢复后的前缀中最新的快照和日志进行恢复。
 
 恢复时间点之后确认的写入会丢失。
+
+## 外部搜索投影 {#search-projection}
+
+使用 **search.backend: paradedb** 或 **search.backend: postgres** 时，SearchFlows
+读取已提交搜索文档在 SQL 中的副本。这个副本就是搜索投影。
+
+### 投影如何工作 {#search-projection-behavior}
+
+- run 的搜索文档每次提交变更，都会在同一次本地提交里向持久的 outbox 追加一个 entry。
+  run 被 purge 时也会追加一个。
+- outbox 属于复制状态。重启或接管后，快照和日志重放会恢复它。
+- 持有 lease 的节点按提交顺序读取 outbox，把每个变更过的 run 的当前文档写入 SQL，
+  然后用一条记入日志的确认命令删除已写入的 entry。
+- 两批之间同一个 run 的多次变更只写一次行。
+- 投影是异步的。数据库变慢或不可用时，提交照常进行，outbox 在本地磁盘上增长。
+  搜索结果会延迟，但不会丢失任何变更，也不会重建。数据库恢复后，投影从最早的 entry 继续。
+- 每个分区的 SQL 进度行记录写入方的 lease epoch。epoch 更低的旧 lease 持有者不能再写入。
+- 每个 outbox entry 约占 60 字节。请按希望撑过的最长数据库故障规划本地存储卷的大小。
+
+### 首次装载 {#search-projection-initial-load}
+
+没有 SQL 进度的分区会做一次性装载。新建数据库或 schema 时，以及集群从 builtin 搜索切换到
+SQL 搜索时，都会这样。节点从同一个一致视图读取该分区所有当前搜索文档，写入空表，然后
+从 outbox 投影之后的变更。日志会为每个分区输出一次
+**loading the partition into an empty SQL visibility projection**。所有分区装载完成后，
+**dexzd_search_initial_load_pending_partitions** 降到 0。
+
+已有进度的 schema 不会重新装载。以下情况请使用新的数据库或 schema：
+
+- 从 SQL 搜索切换到 builtin 搜索，再切换回来之后；
+- 恢复较旧的对象存储前缀之后；
+- schema 由没有 outbox 的旧版服务端写入时。
+
+### 读到自己的写入 {#search-projection-read-your-writes}
+
+SearchFlows 会等待，直到投影包含请求之前提交的所有 outbox entry。最多等待
+**search.readYourWritesWait**。超时后 SearchFlows 返回 **UNAVAILABLE**，不会返回缺少
+这类写入的结果。请带退避重试。
+
+投影遇到无法重试的错误（例如已提交状态无效）而停止后，SearchFlows 返回 **INTERNAL**，
+直到服务端重启。
+
+### 配置 {#search-projection-configuration}
+
+| 字段 | 默认值 | 含义 |
+| --- | --- | --- |
+| **search.readYourWritesWait** | **2s** | SearchFlows 等待投影的最长时间 |
+| **search.outboxBatchSize** | **1000** | 一个 SQL 事务最多处理的 outbox entry 或装载文档数 |
+| **search.outboxPollInterval** | **100ms** | 空闲的投影多久检查一次新 entry。新的提交会立即唤醒它。 |
+| **search.outboxAckInterval** | **100ms** | 同一分区两次确认之间的最短间隔。每次确认都是一条记入日志的命令。 |
+
+### 监控 {#search-projection-monitoring}
+
+| 指标 | 含义 |
+| --- | --- |
+| **dexzd_search_outbox_oldest_entry_age_seconds** | SQL 尚未包含的最早 outbox entry 的年龄，没有时为 0。这就是投影延迟。 |
+| **dexzd_search_outbox_entries** | SQL 尚未包含的 entry 数，按各分区上一次扫描结果求和 |
+| **dexzd_search_outbox_max_partition_entries** | 上述各分区计数中的最大值 |
+| **dexzd_search_outbox_batches_total**，带 **outcome** | 投影的 SQL 事务。失败的事务会重试。 |
+| **dexzd_search_outbox_projected_entries_total** | 已提交的 SQL 事务覆盖的 outbox entry |
+| **dexzd_search_outbox_projected_runs_total** | 合并同一 run 的变更后写入或删除的行 |
+| **dexzd_search_outbox_ack_proposals_total**，带 **outcome** | 确认命令。失败的提交会重试。 |
+| **dexzd_search_initial_load_pending_partitions** | 首次装载尚未完成的分区数 |
+| **dexzd_search_initial_load_documents_total** | 首次装载写入的文档数 |
+| **dexzd_search_skipped_documents_total** | SQL 无法存储、搜索会忽略的已提交文档 |
+
+~~~text
+# Search results lag committed writes by more than 1 minute
+dexzd_search_outbox_oldest_entry_age_seconds > 60
+
+# Every projection transaction failed for 10 minutes
+increase(dexzd_search_outbox_batches_total{outcome="error"}[10m]) > 0
+  and increase(dexzd_search_outbox_batches_total{outcome="ok"}[10m]) == 0
+
+# Every acknowledgement failed for 10 minutes, so the outbox only grows
+increase(dexzd_search_outbox_ack_proposals_total{outcome="error"}[10m]) > 0
+  and increase(dexzd_search_outbox_ack_proposals_total{outcome="ok"}[10m]) == 0
+
+# An initial load is still running; alert when this lasts 30 minutes
+dexzd_search_initial_load_pending_partitions > 0
+~~~
 
 ## PostgreSQL 搜索
 
@@ -1028,10 +1110,10 @@ KeywordArray 下存储的标量字符串按一个元素匹配。
 开销随匹配行数量增加。
 
 Text 匹配查询中的所有 term，不按 BM25 相关度排序。
-投影是异步的，两种外部搜索后端共用 **readYourWritesWait**。
+两种外部搜索后端使用相同的[搜索投影](#search-projection)和 **readYourWritesWait**。
 
 schema 会记录搜索后端。使用不同后端启动时，服务端会报错。
 在 PostgreSQL 和 ParadeDB 之间切换，需要指定新的 database 或 schema。
-服务端会自动从已提交状态重建搜索投影。
+服务端会自动从已提交状态装载它。
 已有的 ParadeDB 第三版 schema 只增加后端标记，不清空数据，也不改变版本号。
 接受 schema 版本 3 的旧版服务端仍可使用它。PostgreSQL 使用 schema 版本 4，旧版服务端会拒绝它。

@@ -169,6 +169,16 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_attribute_sync_write_failures_total` | counter | `failure_kind`: retryable, non_retryable | Failed Attribute Store write transactions; non-retryable failures drop their entries |
 | `dexzd_attribute_sync_dropped_entries_total` | counter | — | Attribute Sync entries dropped after `syncRetryPolicy` was exhausted or the store rejected them |
 | `dexzd_attribute_sync_fenced_writes_total` | counter | — | Attribute Store writes rejected because a newer owner raised the fencing token |
+| `dexzd_search_skipped_documents_total` | counter | — | Committed search documents that SQL visibility cannot store; search omits them |
+| `dexzd_search_outbox_entries` | gauge | — | SearchOutbox entries not yet in SQL visibility, summed over each partition's last scan |
+| `dexzd_search_outbox_max_partition_entries` | gauge | — | The largest per-partition count of `dexzd_search_outbox_entries` |
+| `dexzd_search_outbox_oldest_entry_age_seconds` | gauge | — | Age at scrape time of the oldest SearchOutbox entry not yet in SQL visibility, 0 when none |
+| `dexzd_search_outbox_batches_total` | counter | `outcome`: ok, error | SQL transactions of the search projection; failed ones are retried |
+| `dexzd_search_outbox_projected_entries_total` | counter | — | SearchOutbox entries covered by committed SQL transactions |
+| `dexzd_search_outbox_projected_runs_total` | counter | — | Rows upserted or deleted after changes of one run were combined in a transaction |
+| `dexzd_search_outbox_ack_proposals_total` | counter | `outcome`: ok, error | `SearchOutboxAckCommand` proposals; failed ones are retried |
+| `dexzd_search_initial_load_pending_partitions` | gauge | — | Partitions whose initial SQL visibility load has not finished |
+| `dexzd_search_initial_load_documents_total` | counter | — | Documents written by initial SQL visibility loads |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.
 Worker results return on that same stream. There is no separate Worker response RPC, so `worker_respond` remains a zero latency series.
@@ -410,12 +420,22 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   The connect timeout covers the TLS handshake and authentication, including reconnects.
 - A `search.paradeDbSchema` other than `public` is applied as the `search_path` connection option.
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.
-- A background task copies each committed partition frame's search documents to ParadeDB. Commits
-  never wait for it. When ParadeDB is unavailable, the task retries. When it falls behind its queue
-  or its stored position diverges, it rebuilds the partition from committed local state.
-- On startup, every partition whose ParadeDB position differs from the local store is rebuilt.
-- SearchFlows waits up to `search.readYourWritesWait` until frames committed before the request are
-  searchable, then returns Unavailable.
+- Apply appends a `SearchOutbox` entry for each search document change or purge in the same local
+  commit, while the partition's projection mode is enabled. Before it rebuilds partition work, the
+  lease holder proposes `SetSearchProjectionModeCommand` to every partition whose stored mode
+  differs from `search.backend`.
+- The lease holder's consumer reads each partition's queue in seq order from one committed view.
+  It writes each changed run's current document, the view position, the projected seq, and the
+  lease epoch in one SQL transaction. A lower epoch can no longer write the partition. Then it
+  proposes `SearchOutboxAckCommand`, which range-deletes the entries, at most once per
+  `search.outboxAckInterval` per partition. Commits never wait for the consumer. When ParadeDB is
+  unavailable, the queue grows on local disk and the consumer retries; nothing is rebuilt.
+- A partition without SQL progress is loaded once from a committed view: a new schema, or a switch
+  from builtin search. A schema that already holds progress is never reloaded.
+- SearchFlows waits up to `search.readYourWritesWait` until every partition's projected seq covers
+  the entries committed before the request, then returns Unavailable.
+- `search.outboxBatchSize` (default 1000) bounds the entries or documents of one SQL transaction.
+  `search.outboxPollInterval` (default 100 ms) is the idle poll; new commits wake the consumer.
 - One ParadeDB schema belongs to one Dex cluster.
 
 On SIGTERM or SIGINT the node stops within 14.5 seconds. Health reports NOT_SERVING, Workers are
@@ -762,10 +782,10 @@ From server-zd 1.0 on, add the next version in the change that does any of the f
 `search.backend: postgres` uses PostgreSQL 15+ with no extensions. Configure
 `postgresConnectionString` (or `DEX_ZD_POSTGRES_CONNECTION_STRING`),
 `postgresConnectionPoolSize` (default 10), and `postgresSchema` (default public).
-TLS and `readYourWritesWait` work as for ParadeDB. A database schema records its
-dialect and refuses the other backend; switch to a new database or schema to
-rebuild automatically from committed state. ParadeDB version 3 upgrades without
-clearing documents.
+TLS, the search outbox, and `readYourWritesWait` work as for ParadeDB. A database
+schema records its dialect and refuses the other backend; switch to a new
+database or schema, which is loaded automatically from committed state. ParadeDB
+version 3 upgrades without clearing documents.
 
 Each tenant receives ten Keyword slots and three each of Int, Datetime, Double,
 Bool, KeywordArray, and Text, in registration order. Full types reject new

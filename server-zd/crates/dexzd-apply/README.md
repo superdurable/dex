@@ -16,6 +16,17 @@ and node restart. Conflicting RPCs fail immediately while those locks are held.
 Locks release when the logical method ends. Value pins transfer to each retry
 and release when the method ends; time travel rebuilds pins for retained snapshots in running, backoff, and pending invocations.
 
+## Search outbox
+
+While a partition's `SearchProjectionModeRecord` is enabled, every search
+document change and run purge appends a `SearchOutbox` partition index entry.
+Its seq is the command's `proposed_at_micros`, which the committer raises in log
+order within a partition, so speculative and committed apply write the same key.
+Only `SetSearchProjectionModeCommand` and `SearchOutboxAckCommand` write the mode
+record; disabling deletes the queue, and an ack range-deletes through its seq.
+Replayed commands append nothing; the outer command appends with its own seq.
+An append at or below the acknowledged seq is an invariant violation.
+
 ## Value and storage accounting
 
 Each run tracks encoded Flow and History row bytes, including keys. Live and superseded value bytes use the encoded value sizes in birth records; garbage rows identify the superseded portion. Apply updates these totals from each command's writes and deletes.

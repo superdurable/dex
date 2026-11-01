@@ -950,6 +950,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
 | Attribute Store sync | See [Monitoring](#attribute-store-monitoring) |
+| External search projection | See [Monitoring](#search-projection-monitoring) |
 
 **rpc_class** is one of **flow_write**, **flow_read**, **search**,
 **worker_poll**, and **worker_respond**. **code** is the gRPC status code in
@@ -1139,12 +1140,13 @@ graphs, and persisted payloads.
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The local store is
-rebuilt from it. An external search projection is rebuilt from the local store
-after startup. With **search.backend: postgres**, restoring an older prefix can
-leave the database's Attribute registry version ahead of the restored registry.
-Startup then fails with an Attribute slot registry mismatch. Before restarting,
-configure a new **search.postgresSchema** or a new PostgreSQL database so the
-projection and slot assignments rebuild from the restored registry.
+rebuilt from it. An external search projection is not rebuilt: after a restore,
+configure a new **search.paradeDbSchema** or **search.postgresSchema**, or a new
+database, so the server loads it from the restored state. See
+[Initial load](#search-projection-initial-load). With **search.backend: postgres**,
+reusing the old schema can also leave the database's Attribute registry version
+ahead of the restored registry. Startup then fails with an Attribute slot
+registry mismatch.
 When **objectStore.hardDeleteStore** is configured, its prefix
 holds hard-delete Attribute values. Protect it the same way.
 
@@ -1165,6 +1167,98 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
+
+## External search projection {#search-projection}
+
+With **search.backend: paradedb** or **search.backend: postgres**, SearchFlows
+reads a SQL copy of the committed search documents. This copy is the search
+projection.
+
+### How the projection works {#search-projection-behavior}
+
+- Each committed change to a run's search document appends an entry to a
+  durable outbox in the same local commit. A run purge appends one too.
+- The outbox is part of the replicated state. Snapshots and log replay restore
+  it after a restart or a takeover.
+- The node that holds the lease reads the outbox in commit order. It writes each
+  changed run's current document to SQL. Then it removes the written entries
+  with a logged acknowledgement.
+- Several changes to one run between two batches become one row write.
+- The projection is asynchronous. When the database is slow or unavailable,
+  commits continue and the outbox grows on the local disk. Search results lag,
+  but no change is lost and nothing is rebuilt. After the database recovers, the
+  projection continues from the oldest entry.
+- Each partition's SQL progress row records the writer's lease epoch. A former
+  lease holder with a lower epoch cannot write any more rows.
+- An outbox entry takes about 60 bytes. Size the local store volume for the
+  longest database outage you want to ride out.
+
+### Initial load {#search-projection-initial-load}
+
+A partition without SQL progress gets a one-time load. This happens with a new
+database or schema, and when a cluster switches from builtin search to SQL
+search. The node copies every current search document of the partition from one
+consistent view into the empty table. Then it projects later changes from the
+outbox. The log shows **loading the partition into an empty SQL visibility
+projection** once per partition. **dexzd_search_initial_load_pending_partitions**
+reaches 0 when every partition is loaded.
+
+A schema that already holds progress is never reloaded. Use a new database or
+schema in these cases:
+
+- after you switch from SQL search to builtin search and back;
+- after you restore an older object storage prefix;
+- when an older server release, which had no outbox, wrote the schema.
+
+### Read-your-writes {#search-projection-read-your-writes}
+
+SearchFlows waits until the projection holds every outbox entry committed before
+the request. The wait lasts at most **search.readYourWritesWait**. When it
+expires, SearchFlows returns **UNAVAILABLE**. It never returns results that miss
+such a write. Retry the call with backoff.
+
+When the projection stops after an error it cannot retry, such as invalid
+committed state, SearchFlows returns **INTERNAL** until the server restarts.
+
+### Configuration {#search-projection-configuration}
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| **search.readYourWritesWait** | **2s** | Longest SearchFlows wait for the projection |
+| **search.outboxBatchSize** | **1000** | Most outbox entries or loaded documents in one SQL transaction |
+| **search.outboxPollInterval** | **100ms** | How often an idle projection looks for entries. New commits wake it at once. |
+| **search.outboxAckInterval** | **100ms** | Least time between two acknowledgements of one partition. Each acknowledgement is a logged command. |
+
+### Monitoring {#search-projection-monitoring}
+
+| Metric | Meaning |
+| --- | --- |
+| **dexzd_search_outbox_oldest_entry_age_seconds** | Age of the oldest outbox entry that SQL does not hold yet, 0 when none. This is the projection lag. |
+| **dexzd_search_outbox_entries** | Entries that SQL does not hold yet, summed over partitions, as of each partition's last scan |
+| **dexzd_search_outbox_max_partition_entries** | The largest of those per-partition counts |
+| **dexzd_search_outbox_batches_total** with **outcome** | SQL transactions of the projection. Failed transactions are retried. |
+| **dexzd_search_outbox_projected_entries_total** | Outbox entries that committed SQL transactions covered |
+| **dexzd_search_outbox_projected_runs_total** | Rows written or deleted after changes of one run were combined |
+| **dexzd_search_outbox_ack_proposals_total** with **outcome** | Acknowledgement commands. Failed proposals are retried. |
+| **dexzd_search_initial_load_pending_partitions** | Partitions whose initial load has not finished |
+| **dexzd_search_initial_load_documents_total** | Documents that initial loads wrote |
+| **dexzd_search_skipped_documents_total** | Committed documents that SQL cannot store; search omits them |
+
+~~~text
+# Search results lag committed writes by more than 1 minute
+dexzd_search_outbox_oldest_entry_age_seconds > 60
+
+# Every projection transaction failed for 10 minutes
+increase(dexzd_search_outbox_batches_total{outcome="error"}[10m]) > 0
+  and increase(dexzd_search_outbox_batches_total{outcome="ok"}[10m]) == 0
+
+# Every acknowledgement failed for 10 minutes, so the outbox only grows
+increase(dexzd_search_outbox_ack_proposals_total{outcome="error"}[10m]) > 0
+  and increase(dexzd_search_outbox_ack_proposals_total{outcome="ok"}[10m]) == 0
+
+# An initial load is still running; alert when this lasts 30 minutes
+dexzd_search_initial_load_pending_partitions > 0
+~~~
 
 ## PostgreSQL search
 
@@ -1218,12 +1312,12 @@ such as **!=** and **NOT IN**, often cannot use an index. Explicit
 Their cost grows with the number of matching rows.
 
 Text matches all query terms. It does not rank results by BM25 relevance.
-Projection is asynchronous, and the same **readYourWritesWait** applies to
-both external search backends.
+Both external search backends use the same
+[search projection](#search-projection) and **readYourWritesWait**.
 
 A schema records its search backend. Starting with a different backend fails.
 To switch between PostgreSQL and ParadeDB, select a new database or schema.
-The server rebuilds its search projection from committed state automatically.
+The server loads it from committed state automatically.
 Existing ParadeDB version-three schemas gain the dialect marker without clearing
 data or changing their version. Older releases that accept schema version 3
 can still use them. PostgreSQL uses schema version 4; older releases reject it.

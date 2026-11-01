@@ -23,12 +23,11 @@ mod api_requests;
 mod commit_latency;
 mod fixed_labels;
 mod histogram;
+mod lag_gauges;
 mod object_requests;
 #[cfg(target_os = "linux")]
 mod process;
-mod search_outbox;
 mod semantic;
-mod timer_lag;
 mod worker_stream;
 
 use std::path::PathBuf;
@@ -41,21 +40,20 @@ pub use fixed_labels::{
 };
 pub use histogram::AtomicHistogram;
 use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
+pub use lag_gauges::{
+    SearchOutboxBacklog, SearchOutboxEntries, SearchOutboxMaxPartitionEntries,
+    SearchOutboxOldestEntryAge, TimerLag,
+};
 pub use object_requests::{ObjectKind, ObjectOperation, ObjectRequests, classify_object_kind};
 use prometheus_client::encoding::{EncodeLabelSet, text::encode};
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
-pub use search_outbox::{
-    SearchOutboxBacklog, SearchOutboxEntries, SearchOutboxMaxPartitionEntries,
-    SearchOutboxOldestEntryAge,
-};
 pub use semantic::{
     FlowCloseStatus, FlowCloses, StepAttemptFailures, StepDurability, StepFailureKind,
     StepRetriesExhausted,
 };
-pub use timer_lag::TimerLag;
 pub use worker_stream::{WorkerStreamEvent, WorkerStreamEvents};
 
 /// The node's fixed set of metric handles.
