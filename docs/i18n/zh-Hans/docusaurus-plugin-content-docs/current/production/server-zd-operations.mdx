@@ -961,11 +961,11 @@ Flow type 名称、Step 图和已持久化的 payload。
 
 ## 备份和恢复
 
-对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影不会重建：恢复之后，
-请配置新的 **search.paradeDbSchema** 或 **search.postgresSchema**，或者新的数据库，
-让服务端从恢复后的状态装载它。见[首次装载](#search-projection-initial-load)。
-使用 **search.backend: postgres** 时，继续使用旧 schema 还可能导致数据库中的 Attribute
+对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影的进度超前于恢复后的状态时，
+服务端会在启动时重新装载受影响的分区。见[首次装载](#search-projection-initial-load)。
+使用 **search.backend: postgres** 时，恢复较旧的前缀可能导致数据库中的 Attribute
 注册表版本高于恢复后的注册表版本。此时启动会报 Attribute slot 注册表不匹配错误。
+重新启动前，请配置新的 **search.postgresSchema** 或新的 PostgreSQL 数据库。
 配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
 也要用同样的方式保护。
 
@@ -1002,22 +1002,29 @@ Flow type 名称、Step 图和已持久化的 payload。
 
 ### 首次装载 {#search-projection-initial-load}
 
-没有 SQL 进度的分区会做一次性装载。新建数据库或 schema 时，以及集群从 builtin 搜索切换到
-SQL 搜索时，都会这样。节点从同一个一致视图读取该分区所有当前搜索文档，写入空表，然后
-从 outbox 投影之后的变更。日志会为每个分区输出一次
-**loading the partition into an empty SQL visibility projection**。所有分区装载完成后，
-**dexzd_search_initial_load_pending_partitions** 降到 0。
+启动时，节点会用已提交状态检查每个分区的 SQL 进度。进度无法从 outbox 接着投影时，节点会装载该分区：
 
-已有进度的 schema 不会重新装载。以下情况请使用新的数据库或 schema：
+| 日志中的 reason | 发生的情况 |
+| --- | --- |
+| **no_progress** | 新建数据库或 schema、从 builtin 搜索切换过来，或者装载被崩溃打断 |
+| **no_outbox_progress** | 进度由没有 outbox 的旧版服务端写入 |
+| **enabled_after_progress** | 集群从 SQL 搜索切换到 builtin 搜索，又切换回同一个 schema |
+| **acked_after_progress** | 数据库被恢复到集群已确认的 entry 之前 |
+| **ahead_of_committed_state** | 对象存储前缀被恢复到该进度之前 |
 
-- 从 SQL 搜索切换到 builtin 搜索，再切换回来之后；
-- 恢复较旧的对象存储前缀之后；
-- schema 由没有 outbox 的旧版服务端写入时。
+装载在同一个事务里删除该分区的行和进度，然后从同一个一致视图复制该分区所有当前搜索文档。
+最后一个事务才记录新的进度，所以装载期间崩溃会再装载一次。之后的变更来自 outbox。
+装载只在启动时发生，不会因为数据库变慢而触发。
+
+日志会为每次装载输出 **loading the partition into the SQL visibility projection**，并带上
+**reason**。**dexzd_search_initial_loads_total** 统计装载次数，所有分区装载完成后，
+**dexzd_search_initial_load_pending_partitions** 降到 0。SearchFlows 会等待正在装载的分区，
+见[读到自己的写入](#search-projection-read-your-writes)。
 
 ### 读到自己的写入 {#search-projection-read-your-writes}
 
-SearchFlows 会等待，直到投影包含请求之前提交的所有 outbox entry。最多等待
-**search.readYourWritesWait**。超时后 SearchFlows 返回 **UNAVAILABLE**，不会返回缺少
+SearchFlows 会等待，直到投影包含请求之前提交的所有 outbox entry。重启或接管后，它还会等待
+本地存储中已有的 entry 和正在装载的分区。最多等待 **search.readYourWritesWait**。超时后 SearchFlows 返回 **UNAVAILABLE**，不会返回缺少
 这类写入的结果。请带退避重试。
 
 投影遇到无法重试的错误（例如已提交状态无效）而停止后，SearchFlows 返回 **INTERNAL**，
@@ -1031,6 +1038,7 @@ SearchFlows 会等待，直到投影包含请求之前提交的所有 outbox ent
 | **search.outboxBatchSize** | **1000** | 一个 SQL 事务最多处理的 outbox entry 或装载文档数 |
 | **search.outboxPollInterval** | **100ms** | 空闲的投影多久检查一次新 entry。新的提交会立即唤醒它。 |
 | **search.outboxAckInterval** | **1s** | 同一分区两次确认之间的最短间隔。每次确认都是一条记入日志的命令，因此有 1,024 个繁忙分区的节点每秒最多记录 1,024 条。 |
+| **search.outboxMaxAckEntries** | **10000** | 一次确认最多删除的 outbox entry 数。更长的积压分多条命令确认。不能小于 **search.outboxBatchSize**。 |
 
 ### 监控 {#search-projection-monitoring}
 
@@ -1045,6 +1053,8 @@ SearchFlows 会等待，直到投影包含请求之前提交的所有 outbox ent
 | **dexzd_search_outbox_ack_proposals_total**，带 **outcome** | 确认命令。失败的提交会重试。 |
 | **dexzd_search_initial_load_pending_partitions** | 首次装载尚未完成的分区数 |
 | **dexzd_search_initial_load_documents_total** | 首次装载写入的文档数 |
+| **dexzd_search_initial_loads_total** | 开始的分区装载次数；每次的原因见日志 |
+| **dexzd_search_projection_mode_skipped_partitions_total** | 启动时保留原投影模式的已停止分区；每个还会输出一条 error log |
 | **dexzd_search_skipped_documents_total** | SQL 无法存储、搜索会忽略的已提交文档 |
 
 ~~~text
