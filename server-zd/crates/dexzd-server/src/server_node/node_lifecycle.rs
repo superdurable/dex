@@ -17,14 +17,14 @@ pub(super) use active_node_requests::{
 };
 pub(super) use lease_holder_id_source::LeaseHolderRecordingIdSource;
 
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_cluster_metadata::{LeaseValidityDeadline, read_node_lease};
 use dexzd_engine::{
-    CommandApplier, DeterministicCommandApplier, EngineLocalStore, HotStandby, HotStandbyConfig,
-    HotStandbyDependencies,
+    CommandApplier, DeterministicCommandApplier, HotStandby, HotStandbyConfig,
+    HotStandbyDependencies, LocalStoreCloseWaiter,
 };
 use dexzd_metrics::{NodeMetrics, NodeRole, TakeoverStandbyMode};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -38,7 +38,7 @@ use super::bounded_teardown::BoundedTeardown;
 use super::grpc_server::{GrpcInstancePhase, GrpcServer, GrpcSettings};
 use super::{
     EngineStart, GRPC_DRAIN_BUDGET, PeriodEnd, PeriodStopKind, ServerNode, ServerNodeStart,
-    embedded_s3_stop_budget, until_cancelled,
+    embedded_s3_stop_budget, until_cancelled, wait_for_cancellation,
 };
 use crate::ServerError;
 use crate::component_configs::ComponentConfigs;
@@ -54,7 +54,6 @@ const TAKEOVER_RETRY_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const TAKEOVER_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// Bounds the wait for a stepped-down period's local store to close before this process reopens it.
 const LOCAL_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(5);
-const LOCAL_STORE_CLOSE_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Everything one process keeps across serving periods.
 pub(super) struct ProcessParts {
@@ -246,7 +245,9 @@ impl NodeLifecycle {
                 hold_off_until: Some(Instant::now() + hold_off),
                 pending,
             };
-            if !wait_for_local_store_close(stopped.local_store, &mut cancellation).await {
+            if !wait_for_local_store_close(&stopped.local_store_close_waiter, &mut cancellation)
+                .await
+            {
                 if let Some(waiting) = entry.pending {
                     waiting.answer_unknown("the process stopped during the step down".to_owned());
                 }
@@ -621,25 +622,18 @@ async fn prune_finished_retirements(retirements: &mut Vec<JoinHandle<()>>) {
 ///
 /// Returns `false` when `cancellation` arrives first; after the budget it returns `true` anyway.
 async fn wait_for_local_store_close(
-    local_store: Weak<EngineLocalStore>,
+    waiter: &LocalStoreCloseWaiter,
     cancellation: &mut watch::Receiver<bool>,
 ) -> bool {
-    let deadline = Instant::now() + LOCAL_STORE_CLOSE_BUDGET;
-    while local_store.strong_count() > 0 {
-        if Instant::now() >= deadline {
-            tracing::warn!("the stepped-down local store is still open; standing by anyway");
-            return true;
-        }
-        tokio::select! {
-            () = tokio::time::sleep(LOCAL_STORE_CLOSE_POLL_INTERVAL) => {}
-            changed = cancellation.changed() => {
-                if changed.is_err() || *cancellation.borrow() {
-                    return false;
-                }
+    tokio::select! {
+        has_closed = waiter.wait_until_closed(LOCAL_STORE_CLOSE_BUDGET) => {
+            if !has_closed {
+                tracing::warn!("the stepped-down local store is still open; standing by anyway");
             }
+            true
         }
+        () = wait_for_cancellation(cancellation) => false,
     }
-    true
 }
 
 async fn shut_down_standby(standby: HotStandby) {

@@ -20,7 +20,7 @@ mod shutdown_budget_tests;
 mod startup_cancellation_tests;
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_api::{
@@ -30,10 +30,10 @@ use dexzd_apply::FlowStateReader;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
     AttributeSyncWaker, CommandCommitter, EffectDependencies, EffectRunner, EffectTasksHandle,
-    EngineCommandAndEffectHooks, EngineLocalStore, EngineNode, EngineNodeConfig,
-    EngineNodeDependencies, EngineServices, EngineStartError, FlowCoordinatorDependencies,
-    FlowCoordinatorRegistry, HardDeleteObjects, HotStandby, HotStandbyTakeover,
-    NodeMetaUploadLedger, NodeStopReason,
+    EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
+    EngineServices, EngineStartError, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
+    HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreCloseWaiter, NodeMetaUploadLedger,
+    NodeStopReason,
 };
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
@@ -363,8 +363,8 @@ struct PeriodStop {
     teardown: BoundedTeardown,
     /// Whether this process confirmed that it no longer holds the lease.
     has_released_lease: bool,
-    /// Upgrades until the last holder of the period's local store lets it go and the store closes.
-    local_store: Weak<EngineLocalStore>,
+    /// Reports when the last holder of the period's local store lets it go and the store closes.
+    local_store_close_waiter: LocalStoreCloseWaiter,
 }
 
 /// Every component of one serving period, in start order.
@@ -380,7 +380,6 @@ struct ServerNode {
     search_projection: Option<SearchProjection>,
     attribute_sync: AttributeSyncService,
     held_lease: HeldNodeLease,
-    local_store: Weak<EngineLocalStore>,
 }
 
 /// What the engine's command and effect hooks factory builds; captured so the node can own it after start.
@@ -388,7 +387,6 @@ struct ServerNodeStartupParts {
     registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
     partition_hasher: PartitionHasher,
-    local_store: Weak<EngineLocalStore>,
 }
 
 impl ServerNode {
@@ -474,7 +472,6 @@ impl ServerNode {
         };
         let command_and_effect_hooks_factory = |services: EngineServices| {
             let partition_hasher = services.partition_hasher.clone();
-            let local_store = Arc::downgrade(&services.local_store);
             let hard_delete_objects = HardDeleteObjects::new(
                 object_stores.hard_delete.clone(),
                 Arc::new(NodeMetaUploadLedger::new(
@@ -534,7 +531,6 @@ impl ServerNode {
                     registry,
                     effect_tasks,
                     partition_hasher,
-                    local_store,
                 });
             hooks
         };
@@ -621,7 +617,6 @@ impl ServerNode {
             registry,
             effect_tasks,
             partition_hasher,
-            local_store,
         } = parts.expect("the engine calls the runtime factory before it starts serving");
         let (search_backend, search_projection) = match sql_visibility_search {
             Some(sql_visibility_search) => (
@@ -690,7 +685,6 @@ impl ServerNode {
             search_projection,
             attribute_sync,
             held_lease,
-            local_store,
         })))
     }
 
@@ -773,8 +767,8 @@ impl ServerNode {
             search_projection,
             attribute_sync,
             held_lease: _,
-            local_store,
         } = self;
+        let local_store_close_waiter = engine.local_store_close_waiter();
         metrics.set_role(dexzd_metrics::NodeRole::Draining);
         let mut teardown = BoundedTeardown::start();
         grpc.health.set_not_serving().await;
@@ -861,7 +855,7 @@ impl ServerNode {
         PeriodStop {
             teardown,
             has_released_lease,
-            local_store,
+            local_store_close_waiter,
         }
     }
 }
