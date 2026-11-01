@@ -66,10 +66,14 @@ pub(crate) fn append_search_outbox_entry(
 /// Stores the partition's mode; disabling deletes every queued entry.
 pub(crate) fn apply_search_projection_mode(
     transaction: &mut FlowTransaction<'_>,
+    scope: &CommandScope<'_>,
     command: &SetSearchProjectionModeCommand,
 ) -> Result<HandlerResult, ApplyError> {
     let partition = transaction.context().partition;
     let mut mode = read_mode(transaction)?;
+    if command.enabled && !mode.enabled {
+        mode.enabled_at_seq = command_seq(scope)?;
+    }
     mode.enabled = command.enabled;
     transaction.put_message(
         ColumnFamily::PartitionIndex,
@@ -86,6 +90,7 @@ pub(crate) fn apply_search_projection_mode(
 /// Deletes the partition's entries through the acknowledged seq.
 pub(crate) fn apply_search_outbox_ack(
     transaction: &mut FlowTransaction<'_>,
+    scope: &CommandScope<'_>,
     command: &SearchOutboxAckCommand,
 ) -> Result<HandlerResult, ApplyError> {
     let partition = transaction.context().partition;
@@ -96,6 +101,17 @@ pub(crate) fn apply_search_outbox_ack(
             format!(
                 "search outbox ack of partition {} was routed to partition {}",
                 command.partition, partition.0
+            ),
+        )));
+    }
+    // An ack can only cover entries of commands committed before it.
+    if command.through_seq >= command_seq(scope)? {
+        return Ok(HandlerResult::Rejected(error_reply(
+            grpc_code::INVALID_ARGUMENT,
+            ErrorSubStatus::Uncategorized,
+            format!(
+                "search outbox ack through seq {} is not below its own seq {}",
+                command.through_seq, scope.now_micros
             ),
         )));
     }
@@ -116,6 +132,16 @@ pub(crate) fn apply_search_outbox_ack(
         &mode,
     );
     Ok(applied_partition_command())
+}
+
+/// Returns the command's proposed_at_micros as a SearchOutbox seq.
+fn command_seq(scope: &CommandScope<'_>) -> Result<u64, ApplyError> {
+    u64::try_from(scope.now_micros).map_err(|_| ApplyError::InvariantViolation {
+        detail: format!(
+            "command timestamp {} cannot be a search outbox seq",
+            scope.now_micros
+        ),
+    })
 }
 
 fn read_mode(transaction: &FlowTransaction<'_>) -> Result<SearchProjectionModeRecord, ApplyError> {

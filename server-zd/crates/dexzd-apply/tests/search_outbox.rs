@@ -306,13 +306,13 @@ fn an_append_at_or_below_the_acked_seq_fails_closed() {
     let mut harness = SearchHarness::new();
     harness.mode(true);
     harness.start();
-    let future_seq = harness.next_seq() + 10;
-    harness.ack(future_seq);
+    let acked_seq = harness.entries().last().unwrap().0.seq;
+    harness.ack(acked_seq);
     let indexed = FlowCommand {
         flow_id: "outbox-flow".into(),
         run_id: vec![9; 16],
         behavior_version: 1,
-        proposed_at_micros: i64::try_from(future_seq).unwrap(),
+        proposed_at_micros: i64::try_from(acked_seq).unwrap(),
         command: Some(Command::AttributesSet(AttributesSetCommand {
             request: Some(SetAttributesRequest {
                 attributes: vec![AttributeWrite {
@@ -339,6 +339,41 @@ fn an_append_at_or_below_the_acked_seq_fails_closed() {
         error.to_string().contains("acked search outbox seq"),
         "{error}"
     );
+}
+
+#[test]
+fn an_ack_at_or_above_its_own_seq_is_rejected_without_writes() {
+    let mut harness = SearchHarness::new();
+    harness.mode(true);
+    harness.start();
+    let before = harness.state.clone();
+    let own_seq = harness.next_seq();
+    for through_seq in [own_seq, own_seq + 1, u64::MAX] {
+        let reply = harness.ack(through_seq);
+        assert!(
+            matches!(reply.reply, Some(command_reply::Reply::Error(_))),
+            "{reply:?}"
+        );
+        assert_eq!(harness.state, before);
+    }
+}
+
+#[test]
+fn enabling_records_the_enabling_seq_until_the_next_disable() {
+    let mut harness = SearchHarness::new();
+    let first_enable = harness.next_seq();
+    harness.mode(true);
+    assert_eq!(harness.mode_record().unwrap().enabled_at_seq, first_enable);
+    harness.mode(true);
+    assert_eq!(
+        harness.mode_record().unwrap().enabled_at_seq,
+        first_enable,
+        "re-enabling an enabled partition keeps its seq"
+    );
+    harness.mode(false);
+    let second_enable = harness.next_seq();
+    harness.mode(true);
+    assert_eq!(harness.mode_record().unwrap().enabled_at_seq, second_enable);
 }
 
 #[test]
@@ -370,7 +405,7 @@ fn disabling_keeps_the_acked_seq_and_reenabling_appends_after_it() {
     assert!(!mode.enabled);
     assert_eq!(mode.acked_through_seq, acked);
     assert!(matches!(
-        harness.ack(u64::MAX).reply,
+        harness.ack(acked + 1).reply,
         Some(command_reply::Reply::Ok(_))
     ));
     assert_eq!(harness.mode_record().unwrap().acked_through_seq, acked);
@@ -511,7 +546,18 @@ fn acks_and_other_flows_between_speculative_and_committed_apply_keep_the_outcome
     let other_outcome = apply_flow_command(&other_context, &harness.state, &other_start).unwrap();
     harness.state.commit(&other_outcome);
     let through = harness.entries().last().unwrap().0.seq;
-    harness.ack(through);
+    let ack = FlowCommand {
+        flow_id: "outbox-flow".into(),
+        behavior_version: 1,
+        proposed_at_micros: FIRST_PROPOSED_AT_MICROS + 999,
+        command: Some(Command::SearchOutboxAck(SearchOutboxAckCommand {
+            partition: 0,
+            through_seq: through,
+        })),
+        ..Default::default()
+    };
+    let ack_outcome = apply_flow_command(&context(), &harness.state, &ack).unwrap();
+    harness.state.commit(&ack_outcome);
     assert!(harness.entries().is_empty());
 
     let committed = apply_flow_command(&context(), &harness.state, &next_write).unwrap();

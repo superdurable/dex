@@ -624,4 +624,6 @@ message SearchProjectionModeRecord {
   bool enabled = 1;
   // Highest sequence a SearchOutboxAckCommand deleted through; lower acks change nothing.
   uint64 acked_through_seq = 2;
+  // Seq of the command that last enabled the mode; older SQL progress misses later changes.
+  uint64 enabled_at_seq = 3;
 }
