@@ -109,8 +109,13 @@ async fn take_over_store(
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<Option<Arc<EngineLocalStore>>, EngineStartError> {
     let is_configured_store = standby.has_local_store(&config.local_store);
+    let handed_over = standby.hand_over_store().await;
+    // A standby that bootstrapped while this start waited for the lease knows its cluster only now.
+    if !standby.is_following_cluster(cluster_id) {
+        return Err(other_cluster_error());
+    }
     // The gap check also rejects a store that applied a batch past a closed stream's end.
-    let reusable = match standby.hand_over_store().await {
+    let reusable = match handed_over {
         None => {
             tracing::info!("the hot standby had no local store to hand over");
             None
@@ -119,13 +124,6 @@ async fn take_over_store(
             tracing::error!(
                 "the hot standby followed into another store than this node's; opening the \
                  node's local store"
-            );
-            None
-        }
-        // A standby with a store bootstrapped, so it now knows its cluster.
-        Some(_) if !standby.is_following_cluster(cluster_id) => {
-            tracing::error!(
-                "the hot standby followed another cluster's log; opening the node's local store"
             );
             None
         }
@@ -142,6 +140,13 @@ async fn take_over_store(
         tracing::error!("the hot standby's local store is still open; opening it may fail");
     }
     Ok(reusable)
+}
+
+/// Returns the error of a takeover from a hot standby that follows another cluster's log.
+fn other_cluster_error() -> EngineStartError {
+    EngineStartError::InvalidConfig {
+        detail: "the hot standby follows another cluster's log".to_owned(),
+    }
 }
 
 /// Checks the node configuration and that a hot standby follows the node that starts.
@@ -237,9 +242,7 @@ where
         && !standby.is_following_cluster(cluster_id)
     {
         return Ok(StartOutcome::FailedBeforeLease {
-            error: EngineStartError::InvalidConfig {
-                detail: "the hot standby follows another cluster's log".to_owned(),
-            },
+            error: other_cluster_error(),
             source: local_store_source,
         });
     }

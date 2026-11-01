@@ -30,11 +30,16 @@ use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::{EngineNodeConfig, validate_config};
 use crate::hot_standby::log_follower::FollowProgress;
 use crate::hot_standby::read_only_object_store::ReadOnlyObjectStore;
-use crate::hot_standby::standby_driver::{DRIVER_STOP_BUDGET, StandbyDriver};
-use crate::recovery::{EngineStartError, LocalStoreConfig};
+use crate::hot_standby::standby_driver::{
+    DRIVER_STOP_BUDGET, IgnoredCommittedCommands, StandbyDriver,
+};
+use crate::recovery::{CommittedCommandSink, EngineStartError, LocalStoreConfig};
 
 /// Longest wait in [`HotStandby::shutdown`] for the local store to close once following stopped.
 const SHUTDOWN_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(5);
+
+/// Failed log reads in a row after which [`HotStandbyStatus::read_error`] reports the last one.
+const REPORTED_FAILED_READS: u32 = 3;
 
 /// How often a wait for a closed store checks it again.
 const STORE_CLOSE_POLL: Duration = Duration::from_millis(10);
@@ -140,11 +145,15 @@ pub struct HotStandbyStatus {
     /// Time left before the next bootstrap, in [`HotStandbyState::Restarting`]; `None` while
     /// following still stops.
     pub restart_in: Option<Duration>,
+    /// Why at least three consecutive log reads failed, as when storage is unreachable; `None`
+    /// after a read succeeds.
+    pub read_error: Option<String>,
 }
 
 /// Reads a hot standby's status, also while a takeover owns the standby.
 ///
-/// Take it from [`HotStandby::status_reader`] before the takeover.
+/// Clone it from [`HotStandby::status_reader`] before a takeover, to keep reporting the standby's
+/// state and lag while the takeover waits for the node lease.
 #[derive(Clone)]
 pub struct HotStandbyStatusReader {
     status: Arc<StandbyStatusCell>,
@@ -200,6 +209,37 @@ impl HotStandby {
         standby_config: HotStandbyConfig,
         dependencies: HotStandbyDependencies,
     ) -> Result<Self, EngineStartError> {
+        Self::start_with_committed_commands(
+            config,
+            standby_config,
+            dependencies,
+            Arc::new(IgnoredCommittedCommands),
+        )
+    }
+
+    /// Starts following like [`Self::start`], passing every applied command to
+    /// `committed_commands`.
+    #[cfg(feature = "test-util")]
+    pub fn start_with_committed_commands_for_test(
+        config: EngineNodeConfig,
+        standby_config: HotStandbyConfig,
+        dependencies: HotStandbyDependencies,
+        committed_commands: Arc<dyn CommittedCommandSink>,
+    ) -> Result<Self, EngineStartError> {
+        Self::start_with_committed_commands(
+            config,
+            standby_config,
+            dependencies,
+            committed_commands,
+        )
+    }
+
+    fn start_with_committed_commands(
+        config: EngineNodeConfig,
+        standby_config: HotStandbyConfig,
+        dependencies: HotStandbyDependencies,
+        committed_commands: Arc<dyn CommittedCommandSink>,
+    ) -> Result<Self, EngineStartError> {
         validate_config(&config)?;
         validate_standby_config(&standby_config)?;
         let HotStandbyDependencies {
@@ -229,6 +269,7 @@ impl HotStandby {
                 id_source,
                 status: status.clone(),
                 restart_jitter_seed,
+                committed_commands,
                 following: following.clone(),
                 cancellation: cancellation.clone(),
             }
@@ -254,6 +295,17 @@ impl HotStandby {
     #[cfg(feature = "test-util")]
     pub fn rejected_writes_for_test(&self) -> u64 {
         self.rejected_writes.load(Ordering::SeqCst)
+    }
+
+    /// Returns the store the standby follows into now, which a restore may have replaced.
+    #[cfg(feature = "test-util")]
+    pub fn local_store_for_test(&self) -> Option<Arc<EngineLocalStore>> {
+        self.following
+            .store
+            .lock()
+            .expect("store handle lock is not poisoned")
+            .as_ref()
+            .and_then(Weak::upgrade)
     }
 
     /// Returns a handle that observes and fails the standby, which works after a takeover owns
@@ -541,11 +593,16 @@ enum StandbyPhase {
 }
 
 impl StandbyStatusCell {
+    /// Sets the phase, unless the standby already stopped or failed for good.
     fn set(&self, phase: StandbyPhase) {
-        *self
+        let mut current = self
             .phase
             .lock()
-            .expect("standby status lock is not poisoned") = phase;
+            .expect("standby status lock is not poisoned");
+        // An aborted driver can still run briefly, and a drop must keep the failure reason.
+        if !matches!(*current, StandbyPhase::Stopped | StandbyPhase::Failed(_)) {
+            *current = phase;
+        }
     }
 
     fn set_listing(&self, next_seq: u64, batches: u64) {
@@ -597,6 +654,7 @@ impl StandbyStatusCell {
                 failure: None,
                 last_error,
                 restart_in: None,
+                read_error: None,
             },
             StandbyPhase::Restarting { restart_at } => HotStandbyStatus {
                 state: HotStandbyState::Restarting,
@@ -606,6 +664,7 @@ impl StandbyStatusCell {
                 restart_in: restart_at.map(|restart_at| {
                     restart_at.saturating_duration_since(tokio::time::Instant::now())
                 }),
+                read_error: None,
             },
             StandbyPhase::Stopped => HotStandbyStatus {
                 state: HotStandbyState::Stopped,
@@ -613,6 +672,7 @@ impl StandbyStatusCell {
                 failure: None,
                 last_error,
                 restart_in: None,
+                read_error: None,
             },
             StandbyPhase::Failed(error) => HotStandbyStatus {
                 state: HotStandbyState::Failed,
@@ -620,13 +680,14 @@ impl StandbyStatusCell {
                 failure: Some(error.clone()),
                 last_error,
                 restart_in: None,
+                read_error: None,
             },
             StandbyPhase::Following {
                 progress,
                 started_at_micros,
                 listing,
             } => {
-                let progress = *progress.borrow();
+                let progress = progress.borrow().clone();
                 let duration = lag_duration(&progress, *listing, *started_at_micros, now_micros);
                 let state = if duration > behind_lag_threshold {
                     HotStandbyState::Behind
@@ -644,6 +705,9 @@ impl StandbyStatusCell {
                     failure: None,
                     last_error,
                     restart_in: None,
+                    read_error: (progress.failed_reads >= REPORTED_FAILED_READS)
+                        .then(|| progress.last_read_error.as_deref().map(str::to_owned))
+                        .flatten(),
                 }
             }
         }
@@ -704,6 +768,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_stopped_or_failed_status_ignores_later_phases() {
+        let failed = StandbyStatusCell::default();
+        failed.set(StandbyPhase::Failed(Arc::new(
+            EngineStartError::InvalidConfig {
+                detail: "a test failure".to_owned(),
+            },
+        )));
+        failed.set(StandbyPhase::Stopped);
+        let status = failed.status_at(0, Duration::from_secs(10));
+        assert_eq!(status.state, HotStandbyState::Failed);
+        assert!(status.failure.is_some(), "the failure reason is kept");
+
+        let stopped = StandbyStatusCell::default();
+        stopped.set(StandbyPhase::Stopped);
+        stopped.set(StandbyPhase::Bootstrapping);
+        stopped.set(StandbyPhase::Restarting { restart_at: None });
+        assert_eq!(
+            stopped.status_at(0, Duration::from_secs(10)).state,
+            HotStandbyState::Stopped
+        );
+    }
+
     #[tokio::test(start_paused = true)]
     async fn a_cancelled_handover_keeps_the_driver_for_a_later_stop() {
         let mut standby = standby_with_stuck_driver();
@@ -720,7 +807,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_stop_that_times_out_fences_before_it_aborts_and_reports_stopped() {
+    async fn a_stop_that_times_out_fences_and_aborts_the_driver_and_reports_stopped() {
         let mut standby = standby_with_stuck_driver();
         let write_fence = Arc::new(CommitState::new(4, LeaseValidityDeadline::disarmed()));
         standby

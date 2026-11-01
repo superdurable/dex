@@ -48,7 +48,7 @@ pub(crate) struct FollowPacing {
 }
 
 /// How far a log follower has read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FollowProgress {
     pub(crate) incarnation: u32,
     pub(crate) next_seq: u64,
@@ -60,6 +60,10 @@ pub(crate) struct FollowProgress {
     pub(crate) caught_up_at: Option<Instant>,
     /// When the follower began waiting at `next_seq`, while it waits there.
     pub(crate) waiting_since: Option<Instant>,
+    /// Object storage reads of the log that failed since the last one that succeeded.
+    pub(crate) failed_reads: u32,
+    /// Why the last of those reads failed.
+    pub(crate) last_read_error: Option<Arc<str>>,
 }
 
 /// Why a log follower stopped reading.
@@ -157,6 +161,8 @@ impl LogFollower {
             is_caught_up: false,
             caught_up_at: None,
             waiting_since: None,
+            failed_reads: 0,
+            last_read_error: None,
         });
         let node_id = source.streams.node_id.clone();
         let (sources, source_updates) = watch::channel(source);
@@ -502,9 +508,12 @@ impl FollowTask {
                         seq = tail.next_seq(),
                         "reading the followed log failed; retrying"
                     );
+                    let read_error: Arc<str> = error.to_string().into();
                     self.progress.send_modify(|progress| {
                         progress.is_caught_up = false;
                         progress.waiting_since = None;
+                        progress.failed_reads = progress.failed_reads.saturating_add(1);
+                        progress.last_read_error = Some(read_error);
                     });
                     if let Some(end) = self.wait_before_next_read(backoff).await {
                         return StreamEnd::Finished(end);
@@ -608,6 +617,8 @@ impl FollowTask {
             progress.next_seq = cursor.next_seq;
             progress.is_caught_up = is_caught_up;
             progress.waiting_since = waiting_since;
+            progress.failed_reads = 0;
+            progress.last_read_error = None;
             if is_caught_up {
                 progress.caught_up_at = Some(Instant::now());
             }

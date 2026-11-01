@@ -63,15 +63,15 @@ pub(crate) struct ProcessObjectStore {
     held_snapshot_reads: AtomicU64,
 }
 
-/// Seeded faults on a process's reads, each in reads per thousand.
+/// Seeded faults on a process's reads.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ReadFaults {
-    /// Reads that fail at once, as an HTTP 5xx or 503 would.
-    pub(crate) failures: u64,
-    /// Reads that fail after a long wait, as a timeout would.
-    pub(crate) timeouts: u64,
-    /// Reads that succeed after a latency spike.
-    pub(crate) slow_reads: u64,
+    /// Reads per thousand that fail at once, as an HTTP 5xx or 503 would.
+    pub(crate) failures_per_mille: u64,
+    /// Reads per thousand that fail after a long wait, as a timeout would.
+    pub(crate) timeouts_per_mille: u64,
+    /// Reads per thousand that succeed after a latency spike.
+    pub(crate) slow_reads_per_mille: u64,
 }
 
 /// How long a timed-out read waits before it fails.
@@ -153,14 +153,17 @@ impl ProcessObjectStore {
                 .fetch_add(1, Ordering::SeqCst)
                 .to_le_bytes(),
         ) % 1000;
-        if draw < faults.failures {
+        let failures = faults.failures_per_mille;
+        let timeouts = failures + faults.timeouts_per_mille;
+        let slow_reads = timeouts + faults.slow_reads_per_mille;
+        if draw < failures {
             return Err(read_failure(
                 operation,
                 key,
                 ObjectStoreErrorKind::Transient,
             ));
         }
-        if draw < faults.failures + faults.timeouts {
+        if draw < timeouts {
             tokio::time::sleep(READ_TIMEOUT).await;
             return Err(read_failure(
                 operation,
@@ -168,7 +171,7 @@ impl ProcessObjectStore {
                 ObjectStoreErrorKind::OutcomeUnknown,
             ));
         }
-        if draw < faults.failures + faults.timeouts + faults.slow_reads {
+        if draw < slow_reads {
             tokio::time::sleep(READ_LATENCY_SPIKE).await;
         }
         Ok(())

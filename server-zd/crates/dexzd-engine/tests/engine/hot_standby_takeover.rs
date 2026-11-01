@@ -936,6 +936,83 @@ async fn a_takeover_in_another_cluster_fails_before_the_lease_and_returns_the_st
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_takeover_fails_after_the_lease_when_its_standby_then_follows_another_cluster() {
+    // The standby's cluster does not exist yet, so the check before the lease cannot tell.
+    let mut followed_cluster = TestCluster::new();
+    let standby_config = followed_cluster.config(LocalStoreConfig::InMemory);
+    let standby = start_standby(
+        &followed_cluster,
+        standby_config.clone(),
+        fast_standby_config(),
+    );
+    let status_reader = standby.standby.status_reader();
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let epoch = recorded_epoch(&cluster).await;
+
+    let (_cancel, cancellation) = watch::channel(false);
+    let (takeover_store, takeover) = take_over(
+        &cluster,
+        standby_config.clone(),
+        standby.standby,
+        cancellation,
+    );
+    let takeover = tokio::spawn(takeover);
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while takeover_store.lease_reads() < 2 {
+        assert!(!takeover.is_finished(), "the takeover waits for the lease");
+        assert!(
+            Instant::now() < deadline,
+            "the takeover did not read the held lease"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // While the takeover waits, the standby's cluster appears and the standby follows it.
+    let followed = followed_cluster
+        .start_with(&standby_config)
+        .await
+        .expect("the followed cluster's node starts");
+    followed.commit_prompt(FIRST_FLOW, 1).await;
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while status_reader.status().lag.is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "the standby did not follow its cluster"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    serving.node.shutdown().await.expect("lease released");
+
+    let failed = takeover.await.expect("the takeover task completes").result;
+    assert!(
+        matches!(
+            failed,
+            Err(HotStandbyTakeoverError {
+                error: EngineStartError::InvalidConfig { .. },
+                standby: None,
+                ..
+            })
+        ),
+        "a standby of another cluster is never served"
+    );
+    assert!(
+        recorded_epoch(&cluster).await > epoch,
+        "the takeover took the lease"
+    );
+    let mut successor_config = cluster.config(LocalStoreConfig::InMemory);
+    successor_config.lease.fail_fast = true;
+    let successor = cluster
+        .start_with(&successor_config)
+        .await
+        .expect("the failed takeover released the lease");
+    successor.node.shutdown().await.expect("lease released");
+    followed.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_takeover_does_not_reuse_a_store_whose_positions_name_another_node() {
     let store = Arc::new(EngineLocalStore::Memory(InMemoryLocalStore::new()));
     let mut cluster = TestCluster::new();

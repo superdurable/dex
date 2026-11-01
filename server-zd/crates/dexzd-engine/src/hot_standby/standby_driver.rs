@@ -70,6 +70,8 @@ pub(super) struct StandbyDriver {
     pub(super) status: Arc<StandbyStatusCell>,
     /// Spreads restart delays of different processes apart.
     pub(super) restart_jitter_seed: u64,
+    /// Receives the commands the standby applies; it runs no effects.
+    pub(super) committed_commands: Arc<dyn CommittedCommandSink>,
     /// The write fence and store of the current following period, for the handle to reach.
     pub(super) following: Arc<FollowingHandles>,
     pub(super) cancellation: CancellationToken,
@@ -255,7 +257,7 @@ impl StandbyDriver {
             applier: self.applier.clone(),
             hasher: metadata.cluster.partition_hasher.clone(),
             state: write_fence.clone(),
-            committed_commands: Arc::new(IgnoredCommittedCommands),
+            committed_commands: Arc::clone(&self.committed_commands),
             is_checking_replay: config.commit.debug_replay_checks,
             blocking_work: config.blocking_work,
         })?;
@@ -457,7 +459,7 @@ impl StandbyDriver {
 
     /// Records how many batches the stream holds from the follower's next seq on.
     async fn list_unapplied_batches(&self, following: &FollowingStandby) {
-        let progress = *following.follower.progress().borrow();
+        let progress = following.follower.progress().borrow().clone();
         let stream = StreamIdentity {
             cluster_id: following.cluster_id,
             node_id: self.config.node.node_id.clone(),
@@ -573,7 +575,8 @@ async fn release_store(store: Arc<EngineLocalStore>) {
 
 /// Stops writes through `write_fence`, then waits for the applier lanes.
 ///
-/// Skips the wait when the owner fenced first: an outliving lane cannot write.
+/// A fence that its owner stopped already ends following quickly: a lane that outlives it can
+/// no longer write, and the store's last handle closes it.
 async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPool) {
     if write_fence.stop_reason().is_some() {
         return;
@@ -614,7 +617,7 @@ fn is_configuration_error(error: &EngineStartError) -> bool {
 }
 
 /// Drops committed commands: a standby runs no effects, and the serving start rebuilds them.
-struct IgnoredCommittedCommands;
+pub(super) struct IgnoredCommittedCommands;
 
 impl CommittedCommandSink for IgnoredCommittedCommands {
     fn apply_committed(&self, _committed: CommittedFlowCommand) {}

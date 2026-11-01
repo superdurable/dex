@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Hot standby recovery from object storage faults, corrupt batches, and races with retention,
-//! and takeovers from a standby in every state.
+//! Hot standby recovery from storage faults, corruption, and retention, and takeovers in every state.
 
 use std::time::Duration;
 
@@ -28,8 +27,7 @@ use crate::hot_standby_takeover::take_over_to_serving;
 /// The longest restart delay, 60 seconds, plus its 20 percent jitter.
 const LONGEST_RESTART_DELAY: Duration = Duration::from_secs(72);
 
-/// Asserts that a standby in a transient outage is not failed and waits no longer than the
-/// longest restart delay.
+/// Asserts that a standby in an outage is not failed and backs off at most the longest delay.
 fn assert_retrying(status: &HotStandbyStatus) {
     assert_not_failed(status);
     if let Some(restart_in) = status.restart_in {
@@ -57,9 +55,9 @@ async fn a_hot_standby_follows_through_read_faults_and_latency_spikes_without_re
     wait_until_caught_up(&cluster, &standby.standby).await;
 
     standby.object_store.inject_read_faults(Some(ReadFaults {
-        failures: 150,
-        timeouts: 50,
-        slow_reads: 150,
+        failures_per_mille: 150,
+        timeouts_per_mille: 50,
+        slow_reads_per_mille: 150,
     }));
     for _ in 0..20 {
         commit_to_both_flows(&serving, &second_flow, 1).await;
@@ -95,22 +93,43 @@ async fn a_hot_standby_keeps_retrying_through_a_long_storage_outage_and_catches_
     serving.commit_prompt(FIRST_FLOW, 2).await;
     wait_until_caught_up(&cluster, &standby.standby).await;
 
-    // Ten minutes without object storage.
+    // Ten minutes without object storage: the standby keeps following and reading the log.
     standby.object_store.fail_all_reads(true);
-    for _ in 0..60 {
+    let mut last_lag = Duration::ZERO;
+    let mut last_log_reads = standby.object_store.log_reads();
+    for _ in 0..10 {
         serving.commit_prompt(FIRST_FLOW, 1).await;
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        assert_retrying(&standby.standby.status());
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let status = standby.standby.status();
+        assert_eq!(status.state, HotStandbyState::Behind, "{status:?}");
+        assert_eq!(status.last_error, None, "the standby did not restart");
+        assert!(
+            status
+                .read_error
+                .as_deref()
+                .is_some_and(|error| error.contains("the test fails")),
+            "the status shows why reads fail: {status:?}"
+        );
+        let lag = status.lag.expect("the standby follows").duration;
+        assert!(lag > last_lag, "the lag grows: {lag:?} after {last_lag:?}");
+        last_lag = lag;
+        let log_reads = standby.object_store.log_reads();
+        assert!(
+            log_reads > last_log_reads,
+            "the standby keeps reading the log"
+        );
+        last_log_reads = log_reads;
     }
     standby.object_store.fail_all_reads(false);
     wait_until_caught_up(&cluster, &standby.standby).await;
-    assert_eq!(applied_flows(&standby.applier).len(), 62);
-    wait_for_status(
-        &standby.standby,
-        "following after the outage clears the last error",
-        |status| status.last_error.is_none(),
-    )
-    .await;
+    assert_eq!(applied_flows(&standby.applier).len(), 12);
+    let healed = standby.standby.status();
+    assert_eq!(healed.state, HotStandbyState::Following, "{healed:?}");
+    assert_eq!(
+        healed.read_error, None,
+        "a successful read clears the read error"
+    );
+    assert_eq!(healed.last_error, None);
     assert_wrote_nothing(&standby);
     standby.standby.shutdown().await;
     serving.node.shutdown().await.expect("lease released");
@@ -350,7 +369,7 @@ async fn a_takeover_from_a_standby_behind_the_log_serves_its_store_after_a_longe
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_takeover_serves_a_standby_store_across_incarnation_changes_it_has_not_seen() {
+async fn a_takeover_after_incarnation_changes_the_standby_has_not_seen_serves_its_store() {
     let mut cluster = TestCluster::new();
     let first_config = cluster.config(LocalStoreConfig::InMemory);
     let first = cluster
