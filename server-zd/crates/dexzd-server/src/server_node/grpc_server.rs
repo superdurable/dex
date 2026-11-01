@@ -113,7 +113,7 @@ impl GrpcServer {
                 .layer(tower_layer::layer_fn(
                     client_deadline::client_deadline_layer,
                 ))
-                .add_service(settings.health.server())
+                .add_service(settings.health.server(phase == GrpcInstancePhase::Serving))
                 .add_service(public_api_authentication::authenticated(
                     flow_service_gate.clone(),
                     settings.authenticator.as_ref(),

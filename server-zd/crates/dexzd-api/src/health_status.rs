@@ -39,15 +39,18 @@ impl HealthStatus {
         };
         status.set(ServingStatus::NotServing).await;
         status.set_hot_standby(false).await;
-        let server = status.server();
+        let server = status.server(true);
         (status, server)
     }
 
     /// Returns another health service over the same statuses, for a new gRPC server instance.
-    pub fn server(&self) -> HealthServer<impl Health + use<>> {
+    ///
+    /// Readiness names answer NOT_SERVING unless `serves_public_calls`, so readiness implies served calls.
+    pub fn server(&self, serves_public_calls: bool) -> HealthServer<impl Health + use<>> {
         HealthServer::new(LeaseCheckedHealth {
             reported: HealthService::from_health_reporter(self.reporter.clone()),
             lease_validity_deadline: self.lease_validity_deadline.clone(),
+            serves_public_calls,
         })
     }
 
@@ -84,6 +87,7 @@ impl HealthStatus {
 struct LeaseCheckedHealth {
     reported: HealthService,
     lease_validity_deadline: LeaseValidityDeadline,
+    serves_public_calls: bool,
 }
 
 #[tonic::async_trait]
@@ -94,7 +98,10 @@ impl Health for LeaseCheckedHealth {
     ) -> Result<Response<HealthCheckResponse>, Status> {
         let is_readiness_name = HEALTH_SERVICE_NAMES.contains(&request.get_ref().service.as_str());
         let mut response = self.reported.check(request).await?;
-        if is_readiness_name && !self.lease_validity_deadline.is_valid_at(Instant::now()) {
+        if is_readiness_name
+            && (!self.serves_public_calls
+                || !self.lease_validity_deadline.is_valid_at(Instant::now()))
+        {
             response.get_mut().status = health_check_response::ServingStatus::NotServing as i32;
         }
         Ok(response)
