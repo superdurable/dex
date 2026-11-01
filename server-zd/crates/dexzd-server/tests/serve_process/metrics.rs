@@ -356,22 +356,23 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
 }
 
 async fn scrape(address: SocketAddr, path: &str) -> String {
-    let mut stream = tokio::net::TcpStream::connect(address)
+    try_scrape(address, path)
         .await
-        .expect("metrics listener is reachable");
+        .expect("the metrics listener answers")
+}
+
+/// Returns the raw HTTP response to `GET path`, or the error of a listener that is not up yet.
+pub(crate) async fn try_scrape(address: SocketAddr, path: &str) -> std::io::Result<String> {
+    let mut stream = tokio::net::TcpStream::connect(address).await?;
     stream
         .write_all(
             format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
                 .as_bytes(),
         )
-        .await
-        .expect("request is sent");
+        .await?;
     let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .await
-        .expect("response is received");
-    String::from_utf8(response).expect("metrics text is UTF-8")
+    stream.read_to_end(&mut response).await?;
+    Ok(String::from_utf8(response).expect("metrics text is UTF-8"))
 }
 
 fn sample_sum(body: &str, name: &str) -> f64 {
@@ -387,7 +388,7 @@ fn sample_sum(body: &str, name: &str) -> f64 {
         .sum()
 }
 
-fn sample_with_label(body: &str, name: &str, label: &str, value: &str) -> f64 {
+pub(crate) fn sample_with_label(body: &str, name: &str, label: &str, value: &str) -> f64 {
     let prefix = format!("{name}{{{label}=\"{value}\"}}");
     body.lines()
         .find(|line| line.starts_with(&prefix))

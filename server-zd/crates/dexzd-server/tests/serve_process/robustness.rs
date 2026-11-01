@@ -8,9 +8,9 @@
 
 //! Crash, local disk loss, and frozen-owner tests that check every acknowledged write survives.
 
-mod inspection;
-mod processes;
-mod workload;
+pub(crate) mod inspection;
+pub(crate) mod processes;
+pub(crate) mod workload;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

@@ -133,13 +133,28 @@ impl ObjectStoreInspector {
     }
 
     pub(crate) async fn node_lease(&self) -> NodeLease {
-        let content = self
-            .store
-            .get(&format!("lease/{NODE_ID}"))
+        self.node_lease_if_present()
+            .await
+            .expect("the node lease exists")
+    }
+
+    /// Returns the node lease, or `None` before any process has taken it.
+    pub(crate) async fn node_lease_if_present(&self) -> Option<NodeLease> {
+        self.try_node_lease()
             .await
             .expect("the inspection store reads the lease")
-            .expect("the node lease exists");
-        NodeLease::decode(content.bytes).expect("the lease object is a NodeLease")
+    }
+
+    /// Like [`Self::node_lease_if_present`], but returns a failed read for the caller to retry.
+    pub(crate) async fn try_node_lease(
+        &self,
+    ) -> Result<Option<NodeLease>, dexzd_object_store::ObjectStoreError> {
+        let Some(content) = self.store.get(&format!("lease/{NODE_ID}")).await? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            NodeLease::decode(content.bytes).expect("the lease object is a NodeLease"),
+        ))
     }
 }
 

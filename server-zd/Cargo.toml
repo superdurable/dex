@@ -66,6 +66,7 @@ humantime-serde = "1"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+libc = "0.2"
 prost = "0.14"
 prost-types = "0.14"
 prometheus-client = "0.25.1"

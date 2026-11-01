@@ -20,6 +20,7 @@ mod metrics;
 mod object_store_compatibility;
 mod purging_reads;
 mod robustness;
+mod standby_failover;
 mod standby_health;
 mod standby_takeover;
 
