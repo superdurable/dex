@@ -75,16 +75,15 @@ pub(crate) struct LogFollowerParts {
     pub(crate) store: Arc<EngineLocalStore>,
     /// Stopping it blocks every later frame and position write of `appliers`.
     pub(crate) write_fence: Arc<CommitState>,
-    /// Applies the followed frames to `store` behind `write_fence`.
+    /// Applies followed frames behind `write_fence`; dedicate it, since the follower advances all
+    /// its partitions.
     pub(crate) appliers: Arc<PartitionApplierPool>,
     pub(crate) cluster_id: [u8; 16],
     pub(crate) source: FollowSource,
     pub(crate) pacing: FollowPacing,
 }
 
-/// Follows a node's log from object storage and applies each accepted batch in seq order.
-///
-/// It applies only the contiguous prefix of each stream and waits at the first missing seq.
+/// Applies each accepted batch of a node's log in seq order, waiting at the first missing seq.
 pub(crate) struct LogFollower {
     store: Arc<EngineLocalStore>,
     advancer: Arc<AppliedPositionAdvancer>,
@@ -277,6 +276,15 @@ async fn finish_stopped_task<T>(task: JoinHandle<T>, deadline: Instant) -> Optio
     }
 }
 
+/// A seq the follower waits at.
+struct StalledSeq {
+    seq: u64,
+    /// When to check whether log cleanup deleted it.
+    check_at: Instant,
+    /// Whether a manifest read after the wait began still records it.
+    is_recorded_by_newer_manifest: bool,
+}
+
 /// How reading one stream ended.
 enum StreamEnd {
     /// Every seq through the stream's recorded last seq was read.
@@ -373,13 +381,17 @@ impl FollowTask {
             Err(error) => return StreamEnd::Finished(FollowEnd::Failed(error.into())),
         };
         let mut backoff = self.pacing.initial_poll_backoff;
-        let mut deletion_check: Option<(u64, Instant)> = None;
+        let mut stalled: Option<StalledSeq> = None;
         loop {
-            if self.sources.has_changed().unwrap_or(false)
-                && let Some(end) =
+            if self.sources.has_changed().unwrap_or(false) {
+                if let Some(end) =
                     self.apply_source_update(&mut tail, cursor.incarnation, &mut last_seq)
-            {
-                return StreamEnd::Finished(end);
+                {
+                    return StreamEnd::Finished(end);
+                }
+                if let Some(stalled) = &mut stalled {
+                    stalled.is_recorded_by_newer_manifest = true;
+                }
             }
             let step = tokio::select! {
                 biased;
@@ -409,29 +421,34 @@ impl FollowTask {
                     }));
                     self.record_read(&tail, cursor, Some(sealed_at_micros), false);
                     backoff = self.pacing.initial_poll_backoff;
-                    deletion_check = None;
+                    stalled = None;
                 }
                 Ok(StreamTailStep::Voided(_)) => {
                     self.record_read(&tail, cursor, None, false);
-                    deletion_check = None;
+                    stalled = None;
                 }
                 Ok(StreamTailStep::WaitingAt(seq)) => {
                     self.record_read(&tail, cursor, None, true);
                     let now = Instant::now();
-                    let check_at = match deletion_check {
-                        Some((waiting_seq, check_at)) if waiting_seq == seq => check_at,
-                        _ => now + self.pacing.stalled_seq_deletion_check_after,
+                    let stalled_seq = match &mut stalled {
+                        Some(stalled_seq) if stalled_seq.seq == seq => stalled_seq,
+                        _ => stalled.insert(StalledSeq {
+                            seq,
+                            check_at: now + self.pacing.stalled_seq_deletion_check_after,
+                            is_recorded_by_newer_manifest: false,
+                        }),
                     };
-                    deletion_check = Some((seq, check_at));
-                    if now >= check_at {
+                    if now >= stalled_seq.check_at {
                         let checked = tail.ensure_waiting_seq_was_not_deleted().await;
-                        if let Some(end) =
-                            end_after_stalled_seq_check(checked, stream.incarnation, seq, last_seq)
-                        {
+                        if let Some(end) = end_after_stalled_seq_check(
+                            checked,
+                            stream.incarnation,
+                            stalled_seq,
+                            last_seq,
+                        ) {
                             return StreamEnd::Finished(end);
                         }
-                        deletion_check =
-                            Some((seq, now + self.pacing.stalled_seq_deletion_check_after));
+                        stalled_seq.check_at = now + self.pacing.stalled_seq_deletion_check_after;
                     }
                     if let Some(end) = self.wait_before_next_read(backoff).await {
                         return StreamEnd::Finished(end);
@@ -552,14 +569,16 @@ impl FollowTask {
 
 /// Classifies the deletion check of a seq the follower has waited at for a while.
 ///
-/// Returns [`FollowEnd::LogDeleted`] when log cleanup deleted it, a failure when a closed stream
-/// lacks it, and `None` when it was not written yet or the check could not run.
+/// Returns [`FollowEnd::LogDeleted`] when log cleanup deleted it, and a failure when a closed
+/// stream lacks it although a newer manifest still records it. Returns `None` otherwise, since
+/// the check can miss an unordered deletion that the next manifest reveals.
 fn end_after_stalled_seq_check(
     checked: Result<(), LogError>,
     incarnation: u32,
-    seq: u64,
+    stalled: &StalledSeq,
     last_seq: Option<u64>,
 ) -> Option<FollowEnd> {
+    let seq = stalled.seq;
     match checked {
         Err(LogError::MissingBatches { .. }) => Some(FollowEnd::LogDeleted),
         Err(LogError::Store(error)) => {
@@ -567,12 +586,14 @@ fn end_after_stalled_seq_check(
             None
         }
         Err(error) => Some(FollowEnd::Failed(error.into())),
-        Ok(()) if last_seq.is_some() => Some(FollowEnd::Failed(
-            LogError::Corrupt(format!(
-                "closed log stream of incarnation {incarnation} has no batch at seq {seq}"
+        Ok(()) if last_seq.is_some() && stalled.is_recorded_by_newer_manifest => {
+            Some(FollowEnd::Failed(
+                LogError::Corrupt(format!(
+                    "closed log stream of incarnation {incarnation} has no batch at seq {seq}"
+                ))
+                .into(),
             ))
-            .into(),
-        )),
+        }
         Ok(()) => None,
     }
 }

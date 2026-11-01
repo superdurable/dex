@@ -69,8 +69,7 @@ impl Default for HotStandbyConfig {
 pub struct HotStandbyDependencies {
     /// Process-local metric handles.
     pub metrics: Arc<dexzd_metrics::NodeMetrics>,
-    /// Object storage that holds the cluster metadata, logs, and snapshots. The standby only
-    /// reads it; every write through it fails.
+    /// Object storage holding cluster metadata, logs, and snapshots; the standby only reads it.
     pub object_store: Arc<dyn ObjectStore>,
     /// Wall clock that lag is measured with.
     pub clock: Arc<dyn WallClock>,
@@ -103,12 +102,10 @@ pub struct HotStandbyLag {
     pub incarnation: u32,
     /// Next seq that group reads in that stream.
     pub next_seq: u64,
-    /// Batches after `next_seq` that the last listing of the stream showed, at most 1000. The
-    /// standby lists the stream at each manifest refresh.
+    /// Batches after `next_seq` in the stream listing of the last manifest refresh, at most 1000.
     pub batches: u64,
-    /// Zero after the last read found no next batch. Otherwise the shorter of two ages: the age
-    /// of the last applied batch, from its seal time, and the time since a read last found no
-    /// next batch.
+    /// Zero when caught up; otherwise time since the later of the last applied batch's seal and
+    /// last caught-up read.
     pub duration: Duration,
 }
 
@@ -118,21 +115,14 @@ pub struct HotStandbyLag {
 pub struct HotStandbyStatus {
     /// What the standby is doing.
     pub state: HotStandbyState,
-    /// Lag of the follow group furthest behind; a single node follows one group. `None` while
-    /// the standby bootstraps or after it failed.
+    /// Lag of the follow group furthest behind; `None` while bootstrapping or after a failure.
     pub lag: Option<HotStandbyLag>,
     /// Why the standby stopped, in [`HotStandbyState::Failed`].
     pub failure: Option<Arc<EngineStartError>>,
 }
 
-/// A process of a node that follows the node's log from object storage without the node lease.
-///
-/// It opens the configured local store, or restores the newest snapshot into it. It then applies
-/// every committed batch in seq order, with the rules that recovery uses. It never writes object
-/// storage, never takes the lease, never answers requests, and runs no effects. When log cleanup
-/// deletes batches it still needs, it restores the newest snapshot again.
-///
-/// Drop it or call [`Self::shutdown`] to stop following.
+/// Follows the node's log from object storage without the node lease, so a later takeover
+/// replays little.
 pub struct HotStandby {
     status: Arc<StandbyStatusCell>,
     clock: Arc<dyn WallClock>,

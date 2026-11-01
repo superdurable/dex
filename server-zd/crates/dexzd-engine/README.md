@@ -73,4 +73,6 @@ deduplication.
 - Its committed-command sink does nothing, and it runs no rebuild, timers, dispatch, Attribute Sync, or search projection. A serving start rebuilds those from the local store.
 - It advances idle partitions too. Each position records the epoch in effect after its batch, which recovery accepts after the position.
 - It rereads the manifest periodically. A closed segment bounds the stream it reads, and a new incarnation becomes the next stream. Log cleanup that passes its next seq or its stored positions makes it restore the newest snapshot. While it waits at one seq, it also checks whether cleanup deleted that seq.
-- `HotStandby::status` reports the state and lag. Lag is zero after a read finds no next batch, so an idle log does not look behind.
+- `HotStandby::status` reports the state and the lag of the follow group furthest behind; a single node follows one group. Lag is zero after a read finds no next batch, so an idle log does not look behind. Otherwise it is the time since the later of the last applied batch's seal time and the last read that found no next batch.
+- A `LogFollower` takes its write fence and applier pool from its owner. It advances every partition of the pool, so the pool must serve only the followed partitions.
+- Drop the standby or call `HotStandby::shutdown` to stop following.
