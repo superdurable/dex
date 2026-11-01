@@ -6,8 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_log::{
@@ -38,6 +39,26 @@ fn batch(epoch: u64, seq: u64) -> Bytes {
         records: vec![BatchRecord {
             partition: 2,
             bytes: Bytes::from(format!("seq {seq}")),
+        }],
+        epoch_start_writer: None,
+    })
+    .expect("test batch encodes")
+}
+
+/// Returns a batch whose record is larger than the one [`batch`] writes.
+fn large_batch(epoch: u64, seq: u64) -> Bytes {
+    encode_batch(&BatchContent {
+        stream: stream(),
+        epoch,
+        seq,
+        sealed_at_unix_micros: 42,
+        records: vec![BatchRecord {
+            partition: 2,
+            bytes: Bytes::from(
+                (0..4_096_u32)
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<u8>>(),
+            ),
         }],
         epoch_start_writer: None,
     })
@@ -84,6 +105,7 @@ async fn next(reader: &mut StreamTailReader<'_>) -> Step {
         StreamTailStep::Voided(seq) => Step::Voided(seq),
         StreamTailStep::WaitingAt(seq) => Step::WaitingAt(seq),
         StreamTailStep::Ended => Step::Ended,
+        step => panic!("unexpected tail step {step:?}"),
     }
 }
 
@@ -95,6 +117,24 @@ async fn steps_until_wait(reader: &mut StreamTailReader<'_>) -> Vec<Step> {
         steps.push(step);
         if matches!(step, Step::WaitingAt(_) | Step::Ended) {
             return steps;
+        }
+    }
+}
+
+/// Like [`steps_until_wait`], but lets read-ahead run during a short apply of each accepted batch.
+async fn steps_applying_until_wait(reader: &mut StreamTailReader<'_>) -> Vec<Step> {
+    let mut steps = Vec::new();
+    loop {
+        let step = next(reader).await;
+        steps.push(step);
+        match step {
+            Step::WaitingAt(_) | Step::Ended => return steps,
+            Step::Accepted(_) => {
+                reader
+                    .read_ahead_while(tokio::time::sleep(Duration::from_millis(5)))
+                    .await;
+            }
+            Step::Voided(_) => {}
         }
     }
 }
@@ -114,31 +154,39 @@ fn get_count(store: &InMemoryObjectStore) -> u64 {
     store.call_count(ObjectStoreOperation::Get, LOG_PREFIX)
 }
 
-/// Fails the first GET of each armed key once, before it takes effect.
+/// Fails or delays the first GET of each armed key once.
 #[derive(Default)]
-struct FailFirstGets {
-    armed_keys: Mutex<BTreeSet<String>>,
+struct FirstGetFaults {
+    armed: Mutex<BTreeMap<String, FaultAction>>,
 }
 
-impl FailFirstGets {
-    fn arm(&self, key: String) {
-        self.armed_keys
+impl FirstGetFaults {
+    fn fail_first_get(&self, key: String) {
+        self.arm(key, FaultAction::FailBeforeEffect);
+    }
+
+    fn delay_first_get(&self, key: String, delay: Duration) {
+        self.arm(key, FaultAction::Delay(delay));
+    }
+
+    fn arm(&self, key: String, action: FaultAction) {
+        self.armed
             .lock()
-            .expect("armed key lock is not poisoned")
-            .insert(key);
+            .expect("armed fault lock is not poisoned")
+            .insert(key, action);
     }
 }
 
-impl FaultInjector for FailFirstGets {
+impl FaultInjector for FirstGetFaults {
     fn action(&self, operation: ObjectStoreOperation, key: &str) -> FaultAction {
-        let mut armed_keys = self
-            .armed_keys
-            .lock()
-            .expect("armed key lock is not poisoned");
-        if operation == ObjectStoreOperation::Get && armed_keys.remove(key) {
-            return FaultAction::FailBeforeEffect;
+        if operation != ObjectStoreOperation::Get {
+            return FaultAction::Proceed;
         }
-        FaultAction::Proceed
+        self.armed
+            .lock()
+            .expect("armed fault lock is not poisoned")
+            .remove(key)
+            .unwrap_or(FaultAction::Proceed)
     }
 }
 
@@ -308,9 +356,16 @@ async fn end_at_bounds_a_stream_closed_while_it_is_read() {
         .end_at(4)
         .expect("the stream ends after the read seqs");
     assert_eq!(
-        steps_until_wait(&mut reading_ahead).await,
+        steps_applying_until_wait(&mut reading_ahead).await,
         vec![Step::Accepted(3), Step::Accepted(4), Step::Ended]
     );
+    for seq in [5, 6] {
+        assert_eq!(
+            store.call_count(ObjectStoreOperation::Get, &stream.batch_key(seq)),
+            0,
+            "no GET reads seq {seq} past the end"
+        );
+    }
     assert_eq!(next(&mut reading_ahead).await, Step::Ended);
     reading_ahead
         .end_at(4)
@@ -421,15 +476,71 @@ async fn the_deletion_check_tells_a_deleted_seq_from_an_unwritten_one() {
         10,
         "the check never writes"
     );
+
+    // Unordered or partial cleanup can delete the waiting seq but keep the seq before it. The
+    // check misses that deletion, so callers must also compare the manifest's start_seq.
+    let partly_cleaned = InMemoryObjectStore::new();
+    write_batches(&partly_cleaned, 1..=3).await;
+    let mut missed = StreamTailReader::new(&partly_cleaned, &stream, 1, 0, None, read_ahead())
+        .expect("the reader starts");
+    assert_eq!(
+        steps_until_wait(&mut missed).await.last(),
+        Some(&Step::WaitingAt(4))
+    );
+    write_batches(&partly_cleaned, 4..=6).await;
+    partly_cleaned
+        .delete(&stream.batch_key(4))
+        .await
+        .expect("cleanup deletes seq 4 first");
+    assert_eq!(next(&mut missed).await, Step::WaitingAt(4));
+    missed
+        .ensure_waiting_seq_was_not_deleted()
+        .await
+        .expect("the check misses a deleted seq whose predecessor remains");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_corrupt_read_fails_every_later_step() {
+    let faults = Arc::new(FirstGetFaults::default());
+    let store = InMemoryObjectStore::with_injector(faults.clone());
+    write_batches(&store, 1..=5).await;
+    let stream = stream();
+    faults.delay_first_get(stream.batch_key(3), Duration::from_millis(50));
+    let mut reader = StreamTailReader::new(&store, &stream, 1, 0, None, read_ahead())
+        .expect("the reader starts");
+    assert_eq!(next(&mut reader).await, Step::Accepted(1));
+    // The GET of seq 3 started at its listed size and reads a larger object after its delay.
+    reader
+        .read_ahead_while(async {
+            let key = stream.batch_key(3);
+            store.delete(&key).await.expect("seq 3 is deleted");
+            write(&store, 3, large_batch(1, 3)).await;
+        })
+        .await;
+    assert_eq!(next(&mut reader).await, Step::Accepted(2));
+    for _ in 0..3 {
+        let result = reader.next_step().await;
+        assert!(
+            matches!(&result, Err(LogError::Corrupt(detail)) if detail.contains("seq 3")),
+            "{result:?}"
+        );
+    }
+    assert_eq!(reader.next_seq(), 3);
+    // Ending the stream before the failed seq keeps the failure.
+    reader
+        .end_at(2)
+        .expect("the stream ends at the last returned seq");
+    let result = reader.next_step().await;
+    assert!(matches!(&result, Err(LogError::Corrupt(_))), "{result:?}");
 }
 
 #[tokio::test]
 async fn a_failed_read_is_read_again_by_the_next_step() {
-    let faults = Arc::new(FailFirstGets::default());
+    let faults = Arc::new(FirstGetFaults::default());
     let store = InMemoryObjectStore::with_injector(faults.clone());
     write_batches(&store, 1..=6).await;
     let stream = stream();
-    faults.arm(stream.batch_key(3));
+    faults.fail_first_get(stream.batch_key(3));
     let mut reader = StreamTailReader::new(&store, &stream, 1, 0, None, read_ahead())
         .expect("the reader starts");
     assert_eq!(next(&mut reader).await, Step::Accepted(1));
@@ -439,7 +550,7 @@ async fn a_failed_read_is_read_again_by_the_next_step() {
     assert_eq!(reader.next_seq(), 3);
 
     // The retry probes seq 3 alone; a failed probe is read again too.
-    faults.arm(stream.batch_key(4));
+    faults.fail_first_get(stream.batch_key(4));
     assert_eq!(next(&mut reader).await, Step::Accepted(3));
     assert!(matches!(reader.next_step().await, Err(LogError::Store(_))));
     assert_eq!(

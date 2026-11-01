@@ -831,6 +831,23 @@ async fn recovery_handles_all_precondition_outcomes() {
 }
 
 #[tokio::test]
+async fn a_batch_found_at_the_epoch_start_seq_obeys_the_void_rule() {
+    let store = MemoryStore::default();
+    store.insert(stream().batch_key(1), epoch_start(3, 1)).await;
+    // An older writer lands seq 2 first, so the EpochStart write finds it and moves on.
+    store
+        .inject_race(stream().batch_key(2), batch(1, 2, b"older writer"))
+        .await;
+    let recovered = recover_stream(&store, &FixedClock, &stream(), 0, 0, 4, "new")
+        .await
+        .unwrap();
+    assert_eq!(recovered.batches_to_apply.len(), 1);
+    assert_eq!(recovered.batches_to_apply[0].header.seq, 1);
+    assert_eq!(recovered.void_sequences, vec![2]);
+    assert_eq!(recovered.epoch_start_seq, 3);
+}
+
+#[tokio::test]
 async fn epoch_start_retry_uses_the_original_bytes() {
     let store = MemoryStore::default();
     store

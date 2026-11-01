@@ -19,10 +19,13 @@ use crate::batch_codec::{
     BatchContent, DecodedBatch, LogError, StreamIdentity, decode_batch, encode_batch,
 };
 use crate::batch_read_ahead::{LogReadAheadConfig, OrderedBatchReader};
-use crate::stream_tail_reader::{StreamTailReader, StreamTailStep, next_seq_after};
+use crate::stream_layout::{
+    LIST_PAGE_KEYS, batch_key_prefix_length, next_seq_after, parse_listed_seq,
+    validate_batch_identity,
+};
+use crate::stream_tail_reader::{StreamTailReader, StreamTailStep};
 
 const RECOVERY_WRITE_DEADLINE: Duration = Duration::from_secs(10);
-pub(crate) const LIST_PAGE_KEYS: u32 = 1_000;
 
 /// Every accepted batch and voided seq of a recovery, so it grows with the log.
 #[derive(Debug)]
@@ -247,7 +250,9 @@ impl<'a> StreamRecovery<'a> {
     ///
     /// Returns [`LogError::Fenced`] as soon as the stream shows an epoch that is not older than
     /// the new epoch, [`LogError::MissingBatches`] when the batches from the start position were
-    /// deleted, and [`LogError::Invalid`] after the recovery finished or failed.
+    /// deleted, and [`LogError::Invalid`] after the recovery finished or its deletion check
+    /// failed. After a transient read or write error, the next call retries it; a corrupt or
+    /// invalid batch fails every later call.
     pub async fn next_step(&mut self) -> Result<StreamRecoveryStep, LogError> {
         loop {
             let accepted = match self.phase {
@@ -506,33 +511,4 @@ impl EpochStartWriter<'_> {
             .map(|key| parse_listed_seq(&key, prefix_length))
             .transpose()
     }
-}
-
-/// Returns the length of the stream prefix of `batch_key`, up to its last `/`.
-pub(crate) fn batch_key_prefix_length(batch_key: &str) -> usize {
-    batch_key.rfind('/').expect("a batch key ends with /<seq>") + 1
-}
-
-/// Returns the seq that a listed key of the stream names, or [`LogError::Corrupt`] for another name.
-pub(crate) fn parse_listed_seq(key: &str, prefix_length: usize) -> Result<u64, LogError> {
-    key[prefix_length..]
-        .parse::<u64>()
-        .map_err(|_| LogError::Corrupt(format!("log stream holds an object named {key}")))
-}
-
-pub(crate) fn validate_batch_identity(
-    batch: &DecodedBatch,
-    stream: &StreamIdentity,
-    seq: u64,
-) -> Result<(), LogError> {
-    if batch.header.cluster_id != stream.cluster_id
-        || batch.header.node_id != stream.node_id
-        || batch.header.incarnation != stream.incarnation
-        || batch.header.seq != seq
-    {
-        return Err(LogError::Corrupt(format!(
-            "batch at seq {seq} has a different stream identity"
-        )));
-    }
-    Ok(())
 }

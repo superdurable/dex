@@ -16,7 +16,7 @@ use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 
 use crate::batch_codec::{DecodedBatch, LogError, StreamIdentity, decode_batch};
-use crate::stream_recovery::{
+use crate::stream_layout::{
     LIST_PAGE_KEYS, batch_key_prefix_length, parse_listed_seq, validate_batch_identity,
 };
 

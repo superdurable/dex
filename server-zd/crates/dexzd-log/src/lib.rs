@@ -11,6 +11,7 @@
 mod batch_codec;
 mod batch_read_ahead;
 mod commit_pipeline;
+mod stream_layout;
 mod stream_recovery;
 mod stream_tail_reader;
 

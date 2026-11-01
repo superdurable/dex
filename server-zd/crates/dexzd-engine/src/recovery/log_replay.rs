@@ -166,6 +166,12 @@ impl LogReplay<'_> {
                     .into());
                 }
                 StreamTailStep::Ended => break,
+                step => {
+                    return Err(LogError::Invalid(format!(
+                        "closed log stream replay cannot handle step {step:?}"
+                    ))
+                    .into());
+                }
             }
         }
         tracing::info!(
