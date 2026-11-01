@@ -470,6 +470,7 @@ pub(crate) async fn first_log_seq(cluster: &TestCluster) -> u64 {
 }
 
 /// Waits until the standby has read every batch of the log and found no next one.
+/// Its lanes apply read batches later, so it also waits until every partition applied the last.
 pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotStandby) {
     let deadline = Instant::now() + CATCH_UP_DEADLINE;
     loop {
@@ -481,6 +482,7 @@ pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotSta
             && lag.incarnation == incarnation
             && lag.next_seq == last_seq + 1
             && lag.duration.is_zero()
+            && is_store_applied_through(standby, incarnation, last_seq)
         {
             return;
         }
@@ -490,6 +492,23 @@ pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotSta
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+/// Returns whether every partition of the standby's store is applied through `incarnation`
+/// and `seq`; `false` while the standby has no store.
+fn is_store_applied_through(standby: &HotStandby, incarnation: u32, seq: u64) -> bool {
+    let Some(store) = standby.local_store_for_test() else {
+        return false;
+    };
+    let metas = store
+        .partition_metas()
+        .expect("the standby's partition metadata reads");
+    !metas.is_empty()
+        && metas.iter().all(|meta| {
+            meta.applied
+                .as_ref()
+                .is_some_and(|applied| (applied.incarnation, applied.seq) >= (incarnation, seq))
+        })
 }
 
 /// Requires that no write reached object storage and that the read-only store rejected none.
@@ -613,7 +632,8 @@ async fn a_hot_standby_store_matches_the_serving_store_after_restoring_a_snapsho
     assert_eq!(
         applied.len(),
         8,
-        "the standby applies only the commands after the snapshot"
+        "the standby applies only the commands after the snapshot: {:?}",
+        standby.standby.status()
     );
 
     serving.node.shutdown().await.expect("lease released");
