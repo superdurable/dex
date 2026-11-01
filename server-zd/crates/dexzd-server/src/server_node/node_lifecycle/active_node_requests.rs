@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use dexzd_api::{
     ActiveNodeAdministration, ActiveNodeDescription, ActiveNodeDescriptionError,
     ActiveNodeStepDownError, ActiveNodeStepDownOutcome, LeaseHolderAfterStepDown, NodeLeaseHolder,
+    StepDownPrecondition,
 };
 use dexzd_protocol::dexzd::v1::NodeLease;
 use tokio::sync::{mpsc, oneshot};
@@ -32,9 +33,9 @@ pub(in crate::server_node) enum AdministrationRequest {
     StepDown(StepDownRequest),
 }
 
-/// A step down call and its optional node epoch precondition.
+/// A step down call and the node lease it expects the active process to hold.
 pub(in crate::server_node) struct StepDownRequest {
-    pub(in crate::server_node) expected_node_epoch: Option<u64>,
+    precondition: StepDownPrecondition,
     reply: oneshot::Sender<StepDownReply>,
 }
 
@@ -99,21 +100,23 @@ impl StepDownRequest {
         );
     }
 
-    /// Refuses when the precondition names another epoch; otherwise returns the request.
-    pub(in crate::server_node) fn check_node_epoch(self, active_node_epoch: u64) -> Option<Self> {
-        match self.expected_node_epoch {
-            Some(expected_node_epoch) if expected_node_epoch != active_node_epoch => {
-                send(
-                    self.reply,
-                    Err(ActiveNodeStepDownError::NodeEpochMismatch {
-                        expected_node_epoch,
-                        active_node_epoch,
-                    }),
-                );
-                None
-            }
-            _ => Some(self),
+    /// Refuses when `held` does not satisfy the precondition; otherwise returns the request.
+    pub(in crate::server_node) fn check_precondition(self, held: &HeldNodeLease) -> Option<Self> {
+        if self
+            .precondition
+            .is_satisfied_by(&held.node_id, held.node_epoch)
+        {
+            return Some(self);
         }
+        send(
+            self.reply,
+            Err(ActiveNodeStepDownError::PreconditionMismatch {
+                expected: self.precondition,
+                active_node_id: held.node_id.clone(),
+                active_node_epoch: held.node_epoch,
+            }),
+        );
+        None
     }
 
     pub(in crate::server_node) fn report_unconfirmed_release(self, detail: String) {
@@ -165,11 +168,11 @@ impl ActiveNodeAdministration for LifecycleActiveNodeAdministration {
         })
     }
 
-    async fn step_down_active_node(&self, expected_node_epoch: Option<u64>) -> StepDownReply {
+    async fn step_down_active_node(&self, precondition: StepDownPrecondition) -> StepDownReply {
         let (reply, answer) = oneshot::channel();
         self.requests
             .send(AdministrationRequest::StepDown(StepDownRequest {
-                expected_node_epoch,
+                precondition,
                 reply,
             }))
             .await

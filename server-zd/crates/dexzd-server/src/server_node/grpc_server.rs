@@ -34,6 +34,8 @@ use super::{client_deadline, public_api_authentication};
 /// gRPC keepalive, equal to the Go Server's.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
 const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Lets the step down handler write its answer before GOAWAY reaches that connection.
+const ANSWER_TRANSPORT_GRACE: Duration = Duration::from_millis(250);
 
 /// What every gRPC server instance of the process shares.
 pub(super) struct GrpcSettings {
@@ -125,6 +127,7 @@ impl GrpcServer {
     pub(super) async fn retire_after(mut self, answered: oneshot::Receiver<()>, budget: Duration) {
         // A dropped sender also means the answer went out.
         drop(answered.await);
+        tokio::time::sleep(ANSWER_TRANSPORT_GRACE).await;
         self.stop.cancel();
         match tokio::time::timeout(budget, &mut self.task).await {
             Ok(Ok(Ok(()))) => {}

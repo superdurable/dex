@@ -622,10 +622,12 @@ impl NodeGroup {
     /// Asks the active process, through the router, to step down.
     pub(crate) async fn step_down_active(
         &self,
+        expected_node_id: Option<String>,
         expected_node_epoch: Option<u64>,
     ) -> Result<StepDownActiveNodeResponse, tonic::Status> {
         AdminServiceClient::new(self.router_channel())
             .step_down_active_node(StepDownActiveNodeRequest {
+                expected_node_id,
                 expected_node_epoch,
             })
             .await

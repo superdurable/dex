@@ -63,11 +63,17 @@ async fn step_down_hands_over_to_the_hot_standby_and_the_old_active_stays_hot() 
         Code::FailedPrecondition,
         "{standby_refusal}"
     );
+    let other_node = group
+        .step_down_active(Some(format!("{}-other", active.node_id)), None)
+        .await
+        .expect_err("a step down for another node ID changes nothing");
+    assert_eq!(other_node.code(), Code::FailedPrecondition, "{other_node}");
     let process_starts = group.process_starts(FIRST);
     let stepped_down_at = scenario.start_timers_spanning_the_failure().await;
     let group = &mut scenario.group;
+    // dexcli's default flow: describe first, then step down only that node lease.
     let outcome = group
-        .step_down_active(Some(active.node_epoch))
+        .step_down_active(Some(active.node_id.clone()), Some(active.node_epoch))
         .await
         .expect("the active steps down");
     assert_eq!(outcome.released_node_epoch, active.node_epoch);
@@ -98,12 +104,21 @@ async fn step_down_hands_over_to_the_hot_standby_and_the_old_active_stays_hot() 
         .expect("the new active describes itself");
     assert_eq!(new_active.node_epoch, successor.node_epoch);
     assert_eq!(new_active.holder_process_id, successor.holder_process_id);
+    // A retry with the old precondition must not step down the new active.
     let mismatch = group
-        .step_down_active(Some(active.node_epoch))
+        .step_down_active(Some(active.node_id.clone()), Some(active.node_epoch))
         .await
         .expect_err("a stale epoch precondition changes nothing");
     assert_eq!(mismatch.code(), Code::FailedPrecondition, "{mismatch}");
     assert_eq!(group.wait_for_serving(TAKEOVER_BUDGET).await, SECOND);
+    let unchanged = group
+        .describe(SECOND)
+        .await
+        .expect("the new active still describes itself");
+    assert_eq!(
+        unchanged, new_active,
+        "the refused step down changed nothing"
+    );
     scenario
         .finish(
             "step_down_hands_over_to_the_hot_standby_and_the_old_active_stays_hot",
@@ -135,7 +150,7 @@ async fn step_down_without_a_standby_takes_the_lease_back_after_the_hold_off() {
         .await;
     let stepped_down_at = Instant::now();
     let outcome = group
-        .step_down_active(None)
+        .step_down_active(None, None)
         .await
         .expect("the active steps down");
     let answered_after = stepped_down_at.elapsed();
@@ -255,7 +270,7 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
         let standby = if active == FIRST { SECOND } else { FIRST };
         if round % 2 == 0 {
             let outcome = group
-                .step_down_active(None)
+                .step_down_active(None, None)
                 .await
                 .expect("the active steps down");
             assert!(
@@ -343,6 +358,7 @@ async fn admin_calls_without_an_admin_credential_are_refused() {
         });
     let public = with_public_token
         .step_down_active_node(dexzd_protocol::dex::StepDownActiveNodeRequest {
+            expected_node_id: None,
             expected_node_epoch: None,
         })
         .await
@@ -360,6 +376,7 @@ async fn admin_calls_without_an_admin_credential_are_refused() {
 async fn step_down_through(channel: Channel) -> Result<StepDownActiveNodeResponse, tonic::Status> {
     AdminServiceClient::new(channel)
         .step_down_active_node(dexzd_protocol::dex::StepDownActiveNodeRequest {
+            expected_node_id: None,
             expected_node_epoch: None,
         })
         .await

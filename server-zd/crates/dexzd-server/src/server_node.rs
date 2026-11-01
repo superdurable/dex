@@ -729,7 +729,7 @@ impl ServerNode {
                 Some(request) = administration_requests.recv() => request,
             };
             if let Some(step_down) = request.answer_description(&self.held_lease)
-                && let Some(step_down) = step_down.check_node_epoch(self.held_lease.node_epoch)
+                && let Some(step_down) = step_down.check_precondition(&self.held_lease)
             {
                 return PeriodEnd::StepDown(step_down);
             }
