@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+#![cfg(test)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,7 +25,8 @@ use tokio_postgres::{Client, Config};
 use super::super::integration::TestAttributeRegistry;
 use super::super::{SqlVisibilitySearchBackend, VisibilityDialect};
 use super::{
-    ProjectionError, ProjectionMetricRecorder, SearchDocumentChange, SqlVisibilityProjector,
+    PartitionProjectionBatch, ProjectionError, ProjectionMetricRecorder, ProjectionProgress,
+    SearchDocumentChange, SqlVisibilityProjector, read_initial_load_page,
 };
 use crate::{SearchBackend, SearchError, SearchRequest};
 use dexzd_postgres_connection::ConnectionSettings;
@@ -198,6 +201,57 @@ fn position(sequence: u64) -> LogPosition {
 
 fn assert_send<T: Send>(_: T) {}
 
+const EPOCH: u64 = 5;
+
+fn batch(
+    partition_id: PartitionId,
+    changes: Vec<SearchDocumentChange>,
+    outbox_through_seq: u64,
+    applied_position: Option<LogPosition>,
+) -> PartitionProjectionBatch {
+    PartitionProjectionBatch {
+        partition_id,
+        is_initial_load: false,
+        changes,
+        outbox_through_seq,
+        applied_position,
+    }
+}
+
+fn progress(
+    applied_position: Option<LogPosition>,
+    applied_epoch: u64,
+    outbox_through_seq: u64,
+) -> Option<ProjectionProgress> {
+    Some(ProjectionProgress {
+        applied_position,
+        applied_epoch: Some(applied_epoch),
+        outbox_through_seq: Some(outbox_through_seq),
+    })
+}
+
+async fn stored_version(
+    backend: &SqlVisibilitySearchBackend,
+    tenant_id: TenantId,
+    run_id: RunId,
+) -> i64 {
+    let slot = backend.lock_next_slot().await;
+    slot.client
+        .query_typed_one(
+            "SELECT version FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND run_id = $2::text",
+            &[
+                (
+                    &tenant_id.0.to_string() as &(dyn tokio_postgres::types::ToSql + Sync),
+                    tokio_postgres::types::Type::TEXT,
+                ),
+                (&run_id.to_string(), tokio_postgres::types::Type::TEXT),
+            ],
+        )
+        .await
+        .expect("read projected version")
+        .get(0)
+}
+
 async fn listed_runs(backend: &SqlVisibilitySearchBackend, tenant_id: TenantId) -> Vec<String> {
     backend
         .search(SearchRequest {
@@ -289,13 +343,15 @@ async fn verify_ordered_batch_changes(backend: &Arc<SqlVisibilitySearchBackend>)
             2,
         ),
     ] {
-        let previous = (sequence > 1).then(|| position(sequence - 1));
         projector
-            .apply_batch(
-                partition_id,
-                previous.as_ref(),
-                &position(sequence),
-                &changes,
+            .apply_outbox_batch(
+                EPOCH,
+                &[batch(
+                    partition_id,
+                    changes,
+                    sequence,
+                    Some(position(sequence)),
+                )],
             )
             .await
             .expect("apply ordered changes within one batch");
@@ -324,7 +380,7 @@ async fn verify_ordered_batch_changes(backend: &Arc<SqlVisibilitySearchBackend>)
         );
         assert_eq!(
             projector.read_progress(partition_id).await.unwrap(),
-            Some(position(sequence))
+            progress(Some(position(sequence)), EPOCH, sequence)
         );
     }
 }
@@ -439,21 +495,24 @@ pub(crate) async fn run_projector_scenarios_for_test(
         let tenant_id = TenantId(17);
         let first_run = RunId([1; 16]);
         let second_run = RunId([2; 16]);
-        let rebuilt_run = RunId([3; 16]);
+        let loaded_run = RunId([3; 16]);
         let other_run = RunId([4; 16]);
         let first_record = document(tenant_id, first_run, 1);
         projector
-            .apply_batch(
-                partition_id,
-                None,
-                &position(10),
-                &[upsert(tenant_id, first_run, &first_record)],
+            .apply_outbox_batch(
+                EPOCH,
+                &[batch(
+                    partition_id,
+                    vec![upsert(tenant_id, first_run, &first_record)],
+                    100,
+                    Some(position(10)),
+                )],
             )
             .await
-            .expect("apply first committed batch");
+            .expect("apply the first outbox batch");
         assert_eq!(
             projector.read_progress(partition_id).await.unwrap(),
-            Some(position(10))
+            progress(Some(position(10)), EPOCH, 100)
         );
         assert_eq!(
             listed_runs(&backend, tenant_id).await,
@@ -462,51 +521,152 @@ pub(crate) async fn run_projector_scenarios_for_test(
 
         let changed_record = document(tenant_id, first_run, 2);
         projector
-            .apply_batch(
-                partition_id,
-                None,
-                &position(10),
-                &[upsert(tenant_id, first_run, &changed_record)],
+            .apply_outbox_batch(
+                EPOCH,
+                &[batch(
+                    partition_id,
+                    vec![upsert(tenant_id, first_run, &changed_record)],
+                    90,
+                    None,
+                )],
             )
             .await
-            .expect("ignore replayed position");
-        let version_row = {
-            let slot = backend.lock_next_slot().await;
-            slot.client
-                .query_typed_one(
-                    "SELECT version FROM dexzd_visibility_runs WHERE run_id = $1::text",
-                    &[(
-                        &first_run.to_string() as &(dyn tokio_postgres::types::ToSql + Sync),
-                        tokio_postgres::types::Type::TEXT,
-                    )],
-                )
-                .await
-                .expect("read preserved run version")
-        };
-        assert_eq!(version_row.get::<_, i64>(0), 1);
-        assert!(matches!(
-            projector
-                .apply_batch(partition_id, None, &position(13), &[])
-                .await,
-            Err(ProjectionError::PositionMismatch { .. })
-        ));
-        projector
-            .apply_batch(
-                partition_id,
-                Some(&position(10)),
-                &position(11),
-                &[SearchDocumentChange::Upsert {
-                    tenant_id,
-                    run_id: first_run,
-                    encoded_document: vec![0xff],
-                }],
-            )
-            .await
-            .expect("skip poison document and advance progress");
+            .expect("apply a newer document with a lower outbox seq");
+        assert_eq!(stored_version(&backend, tenant_id, first_run).await, 2);
         assert_eq!(
             projector.read_progress(partition_id).await.unwrap(),
-            Some(position(11))
+            progress(Some(position(10)), EPOCH, 100),
+            "outbox progress never decreases and a batch without a position keeps it"
         );
+        projector
+            .apply_outbox_batch(
+                EPOCH,
+                &[batch(
+                    partition_id,
+                    vec![upsert(tenant_id, first_run, &first_record)],
+                    101,
+                    None,
+                )],
+            )
+            .await
+            .expect("an older redelivered document changes nothing");
+        assert_eq!(stored_version(&backend, tenant_id, first_run).await, 2);
+
+        // A newer lease holder's epoch fences every older writer of the partition.
+        projector
+            .apply_outbox_batch(EPOCH + 1, &[batch(partition_id, Vec::new(), 101, None)])
+            .await
+            .expect("a newer epoch takes over");
+        let fenced = projector
+            .apply_outbox_batch(
+                EPOCH,
+                &[
+                    batch(partition_id, Vec::new(), 300, None),
+                    batch(
+                        other_partition_id,
+                        vec![upsert(
+                            tenant_id,
+                            other_run,
+                            &document(tenant_id, other_run, 1),
+                        )],
+                        300,
+                        None,
+                    ),
+                ],
+            )
+            .await;
+        assert!(
+            matches!(fenced, Err(ProjectionError::Fenced { partition_id: fenced_partition, stored_epoch, epoch })
+                if fenced_partition == partition_id && stored_epoch == EPOCH + 1 && epoch == EPOCH),
+            "{fenced:?}"
+        );
+        assert!(
+            !fenced
+                .as_ref()
+                .err()
+                .is_some_and(ProjectionError::is_retryable)
+        );
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            progress(Some(position(10)), EPOCH + 1, 101)
+        );
+        assert_eq!(
+            projector.read_progress(other_partition_id).await.unwrap(),
+            None,
+            "a fenced transaction writes no partition"
+        );
+        let epoch = EPOCH + 1;
+
+        // A new lease holder fences every partition at start, including partitions without rows.
+        let fenced_progress = projector
+            .fence_all_progress(epoch + 1, 6)
+            .await
+            .expect("fence every partition");
+        assert_eq!(fenced_progress.len(), 6);
+        assert_eq!(
+            fenced_progress.get(&partition_id),
+            progress(Some(position(10)), epoch, 101).as_ref()
+        );
+        assert_eq!(
+            fenced_progress
+                .get(&PartitionId(3))
+                .map(|recorded| recorded.applied_position.clone()),
+            Some(None)
+        );
+        assert!(matches!(
+            projector
+                .apply_outbox_batch(epoch, &[batch(PartitionId(3), Vec::new(), 1, None)])
+                .await,
+            Err(ProjectionError::Fenced { .. })
+        ));
+        // A stale leader's late load cannot delete the partition's rows or progress.
+        let runs_before_stale_load = listed_runs(&backend, tenant_id).await;
+        assert!(!runs_before_stale_load.is_empty());
+        assert!(matches!(
+            projector
+                .apply_outbox_batch(
+                    epoch,
+                    &[PartitionProjectionBatch {
+                        partition_id,
+                        is_initial_load: true,
+                        changes: Vec::new(),
+                        outbox_through_seq: 0,
+                        applied_position: None,
+                    }],
+                )
+                .await,
+            Err(ProjectionError::Fenced { .. })
+        ));
+        assert_eq!(
+            listed_runs(&backend, tenant_id).await,
+            runs_before_stale_load
+        );
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            progress(Some(position(10)), epoch + 1, 101)
+        );
+        assert!(matches!(
+            projector.fence_all_progress(epoch, 6).await,
+            Err(ProjectionError::Fenced { .. })
+        ));
+        let epoch = epoch + 1;
+
+        projector
+            .apply_outbox_batch(
+                epoch,
+                &[batch(
+                    partition_id,
+                    vec![SearchDocumentChange::Upsert {
+                        tenant_id,
+                        run_id: first_run,
+                        encoded_document: vec![0xff],
+                    }],
+                    102,
+                    Some(position(11)),
+                )],
+            )
+            .await
+            .expect("skip a poison document and advance progress");
         assert!(listed_runs(&backend, tenant_id).await.is_empty());
         assert!(
             skipped_reason(&backend, tenant_id, first_run)
@@ -514,129 +674,77 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .is_some_and(|reason| reason.contains("decode committed search document"))
         );
         assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 1);
-        projector
-            .apply_batch(partition_id, Some(&position(10)), &position(11), &[])
-            .await
-            .expect("skip replay without recording poison twice");
-        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 1);
         let second_record = document(tenant_id, second_run, 1);
-        projector
-            .apply_batch(
-                partition_id,
-                Some(&position(11)),
-                &position(13),
-                &[
-                    upsert(tenant_id, first_run, &first_record),
-                    upsert(tenant_id, first_run, &changed_record),
-                    upsert(tenant_id, first_run, &first_record),
-                    upsert(tenant_id, second_run, &second_record),
-                ],
-            )
-            .await
-            .expect("update and add runs");
-        assert_eq!(
-            projector.read_progress(partition_id).await.unwrap(),
-            Some(position(13))
-        );
-        assert_eq!(skipped_reason(&backend, tenant_id, first_run).await, None);
-        let stored_version = {
-            let slot = backend.lock_next_slot().await;
-            slot.client.query_typed_one(
-                "SELECT version FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND run_id = $2::text",
-                &[
-                    (&tenant_id.0.to_string() as &(dyn tokio_postgres::types::ToSql + Sync), tokio_postgres::types::Type::TEXT),
-                    (&first_run.to_string(), tokio_postgres::types::Type::TEXT),
-                ],
-            ).await.expect("read deduplicated version").get::<_, i64>(0)
-        };
-        assert_eq!(stored_version, 2);
-
-        projector
-            .apply_batch(
-                partition_id,
-                Some(&position(13)),
-                &position(17),
-                &[SearchDocumentChange::Delete {
-                    tenant_id,
-                    run_id: first_run,
-                }],
-            )
-            .await
-            .expect("delete purged run");
-        assert_eq!(
-            listed_runs(&backend, tenant_id).await,
-            [second_run.to_string()]
-        );
-
         let other_record = document(tenant_id, other_run, 1);
         projector
-            .apply_batch(
-                other_partition_id,
-                None,
-                &position(8),
-                &[upsert(tenant_id, other_run, &other_record)],
+            .apply_outbox_batch(
+                epoch,
+                &[
+                    batch(
+                        partition_id,
+                        vec![
+                            upsert(tenant_id, first_run, &changed_record),
+                            upsert(tenant_id, second_run, &second_record),
+                        ],
+                        103,
+                        Some(position(13)),
+                    ),
+                    batch(
+                        other_partition_id,
+                        vec![upsert(tenant_id, other_run, &other_record)],
+                        55,
+                        Some(position(13)),
+                    ),
+                ],
             )
             .await
-            .expect("project another partition");
-        let new_owner_position = LogPosition {
-            node_id: "replacement-node".into(),
-            incarnation: 0,
-            seq: 1,
-        };
-        projector
-            .apply_batch(
-                other_partition_id,
-                Some(&position(8)),
-                &new_owner_position,
-                &[],
-            )
-            .await
-            .expect("advance after a node change and sequence restart");
+            .expect("write two partitions in one transaction");
+        assert_eq!(skipped_reason(&backend, tenant_id, first_run).await, None);
+        assert_eq!(listed_runs(&backend, tenant_id).await.len(), 3);
         assert_eq!(
             projector.read_progress(other_partition_id).await.unwrap(),
-            Some(new_owner_position)
+            progress(Some(position(13)), epoch, 55)
         );
-        let rebuilt_record = document(tenant_id, rebuilt_run, 1);
-        let mut failing_documents = CommittedDocuments::default();
-        failing_documents.insert(
-            partition_id,
-            tenant_id,
-            FlowHash(8),
-            rebuilt_run,
-            &rebuilt_record,
-        );
-        let extra_run = RunId([7; 16]);
-        failing_documents.insert(
-            partition_id,
-            tenant_id,
-            FlowHash(9),
-            extra_run,
-            &document(tenant_id, extra_run, 1),
-        );
-        let failing_view: Arc<dyn FlowStateReader + Send + Sync> = Arc::new(FailingDocuments {
-            documents: failing_documents,
-            reads: AtomicUsize::new(0),
-        });
+
+        projector
+            .apply_outbox_batch(
+                epoch,
+                &[batch(
+                    partition_id,
+                    vec![SearchDocumentChange::Delete {
+                        tenant_id,
+                        run_id: first_run,
+                    }],
+                    104,
+                    Some(position(17)),
+                )],
+            )
+            .await
+            .expect("delete a purged run");
+        let listed = listed_runs(&backend, tenant_id).await;
+        assert!(!listed.contains(&first_run.to_string()));
+        assert!(listed.contains(&second_run.to_string()));
         assert!(matches!(
             projector
-                .rebuild_partition(partition_id, &position(19), failing_view)
+                .apply_outbox_batch(
+                    epoch,
+                    &[
+                        batch(partition_id, Vec::new(), 1, None),
+                        batch(partition_id, Vec::new(), 1, None),
+                    ],
+                )
                 .await,
-            Err(ProjectionError::StateRead(_))
+            Err(ProjectionError::InvalidState(_))
         ));
-        assert_eq!(
-            projector.read_progress(partition_id).await.unwrap(),
-            Some(position(17))
-        );
-        let existing_runs = listed_runs(&backend, tenant_id).await;
-        assert!(existing_runs.contains(&second_run.to_string()));
-        assert!(!existing_runs.contains(&rebuilt_run.to_string()));
+
+        // An initial load replaces whatever an unfinished load left in its partition only.
         let mut committed_view = CommittedDocuments::default();
         committed_view.insert(
             partition_id,
             tenant_id,
             FlowHash(8),
-            rebuilt_run,
-            &rebuilt_record,
+            loaded_run,
+            &document(tenant_id, loaded_run, 1),
         );
         let purging_run = RunId([7; 16]);
         let purging_hash = FlowHash(11);
@@ -668,25 +776,69 @@ pub(crate) async fn run_projector_scenarios_for_test(
             poison_run,
             &document(TenantId(18), poison_run, 1),
         );
-        let committed_view: Arc<dyn FlowStateReader + Send + Sync> = Arc::new(committed_view);
-        assert_send(projector.rebuild_partition(
-            partition_id,
-            &position(19),
-            committed_view.clone(),
+        let failing_view = FailingDocuments {
+            documents: CommittedDocuments(committed_view.0.clone()),
+            reads: AtomicUsize::new(0),
+        };
+        assert!(matches!(
+            read_initial_load_page(&failing_view, partition_id, None, 10),
+            Err(ProjectionError::StateRead(_))
         ));
-        assert_send(projector.apply_batch(partition_id, Some(&position(17)), &position(19), &[]));
+        let mut load_changes = Vec::new();
+        let mut next_start = None;
+        while let Some(page) =
+            read_initial_load_page(&committed_view, partition_id, next_start.as_deref(), 2)
+                .expect("read an initial load page")
+        {
+            load_changes.extend(page.changes);
+            next_start = Some(page.next_start);
+        }
+        assert_eq!(load_changes.len(), 2, "the purging run is not loaded");
+        assert_send(projector.apply_outbox_batch(epoch, &[]));
         projector
-            .rebuild_partition(partition_id, &position(19), committed_view.clone())
+            .apply_outbox_batch(
+                epoch,
+                &[PartitionProjectionBatch {
+                    partition_id,
+                    is_initial_load: true,
+                    changes: Vec::new(),
+                    outbox_through_seq: 0,
+                    applied_position: None,
+                }],
+            )
             .await
-            .expect("replace stale partition rows");
+            .expect("start a load");
         assert_eq!(
             projector.read_progress(partition_id).await.unwrap(),
-            Some(position(19))
+            Some(ProjectionProgress {
+                applied_position: None,
+                applied_epoch: Some(epoch),
+                outbox_through_seq: None,
+            }),
+            "a started load forgets the earlier progress until its last batch"
+        );
+        projector
+            .apply_outbox_batch(
+                epoch,
+                &[PartitionProjectionBatch {
+                    partition_id,
+                    is_initial_load: true,
+                    changes: load_changes,
+                    outbox_through_seq: 200,
+                    applied_position: Some(position(19)),
+                }],
+            )
+            .await
+            .expect("load a partition");
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            progress(Some(position(19)), epoch, 200)
         );
         let listed = listed_runs(&backend, tenant_id).await;
         assert_eq!(listed.len(), 2);
-        assert!(listed.contains(&rebuilt_run.to_string()));
+        assert!(listed.contains(&loaded_run.to_string()));
         assert!(listed.contains(&other_run.to_string()));
+        assert!(!listed.contains(&second_run.to_string()));
         assert!(!listed.contains(&poison_run.to_string()));
         assert!(!listed.contains(&purging_run.to_string()));
         assert!(
@@ -696,24 +848,96 @@ pub(crate) async fn run_projector_scenarios_for_test(
         );
         assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 2);
         projector
-            .apply_batch(
-                partition_id,
-                Some(&position(19)),
-                &position(20),
-                &[SearchDocumentChange::Delete {
-                    tenant_id,
-                    run_id: poison_run,
-                }],
+            .apply_outbox_batch(
+                epoch,
+                &[batch(
+                    partition_id,
+                    vec![SearchDocumentChange::Delete {
+                        tenant_id,
+                        run_id: poison_run,
+                    }],
+                    201,
+                    Some(position(20)),
+                )],
             )
             .await
-            .expect("clear skipped document on purge");
+            .expect("clear a skipped document on purge");
         assert_eq!(skipped_reason(&backend, tenant_id, poison_run).await, None);
-        assert!(matches!(
+
+        // A row the database rejects is skipped alone after the batch retries row by row.
+        admin_client
+            .batch_execute(&format!(
+                "ALTER TABLE {schema_name}.dexzd_visibility_runs ADD CONSTRAINT dexzd_test_rejects_poison CHECK (workflow_id <> 'rejected-flow')"
+            ))
+            .await
+            .expect("add a constraint that rejects one row");
+        let rejected_run = RunId([12; 16]);
+        let accepted_runs = [RunId([13; 16]), RunId([14; 16])];
+        let mut rejected_record = document(tenant_id, rejected_run, 1);
+        rejected_record.flow_id = "rejected-flow".into();
+        projector
+            .apply_outbox_batch(
+                epoch,
+                &[batch(
+                    partition_id,
+                    vec![
+                        upsert(
+                            tenant_id,
+                            accepted_runs[0],
+                            &document(tenant_id, accepted_runs[0], 1),
+                        ),
+                        upsert(tenant_id, rejected_run, &rejected_record),
+                        upsert(
+                            tenant_id,
+                            accepted_runs[1],
+                            &document(tenant_id, accepted_runs[1], 1),
+                        ),
+                    ],
+                    202,
+                    Some(position(20)),
+                )],
+            )
+            .await
+            .expect("isolate the rejected row");
+        let listed = listed_runs(&backend, tenant_id).await;
+        assert!(
+            accepted_runs
+                .iter()
+                .all(|run| listed.contains(&run.to_string()))
+        );
+        assert!(!listed.contains(&rejected_run.to_string()));
+        assert!(
+            skipped_reason(&backend, tenant_id, rejected_run)
+                .await
+                .is_some_and(|reason| reason.contains("23514")),
+            "{:?}",
+            skipped_reason(&backend, tenant_id, rejected_run).await
+        );
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            progress(Some(position(20)), epoch, 202)
+        );
+        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 3);
+        for run_id in accepted_runs.into_iter().chain([rejected_run]) {
             projector
-                .rebuild_partition(partition_id, &position(17), committed_view.clone())
-                .await,
-            Err(ProjectionError::StaleRebuild { .. })
-        ));
+                .apply_outbox_batch(
+                    epoch,
+                    &[batch(
+                        partition_id,
+                        vec![SearchDocumentChange::Delete { tenant_id, run_id }],
+                        203,
+                        None,
+                    )],
+                )
+                .await
+                .expect("remove isolation test rows");
+        }
+        admin_client
+            .batch_execute(&format!(
+                "ALTER TABLE {schema_name}.dexzd_visibility_runs DROP CONSTRAINT dexzd_test_rejects_poison"
+            ))
+            .await
+            .expect("drop the rejecting constraint");
 
         verify_ordered_batch_changes(&backend).await;
 
@@ -758,11 +982,14 @@ pub(crate) async fn run_projector_scenarios_for_test(
             let projecting = async {
                 for sequence in 21..=39 {
                     projection_writer
-                        .apply_batch(
-                            partition_id,
-                            Some(&position(sequence - 1)),
-                            &position(sequence),
-                            &[],
+                        .apply_outbox_batch(
+                            epoch,
+                            &[batch(
+                                partition_id,
+                                Vec::new(),
+                                sequence + 200,
+                                Some(position(sequence)),
+                            )],
                         )
                         .await
                         .expect("queue projection behind busy pool");
@@ -778,30 +1005,32 @@ pub(crate) async fn run_projector_scenarios_for_test(
         .expect("search and projection complete with a small shared pool");
         assert_eq!(
             projector.read_progress(partition_id).await.unwrap(),
-            Some(position(39))
+            progress(Some(position(39)), epoch, 239)
         );
         if pool_size == 2 {
-            let previous = position(39);
-            let batch_position = position(43);
-            let rebuild_position = position(44);
-            let (batch_result, rebuild_result) =
+            let first_batches = [batch(partition_id, Vec::new(), 243, Some(position(43)))];
+            let second_batches = [
+                batch(other_partition_id, Vec::new(), 60, None),
+                batch(partition_id, Vec::new(), 244, Some(position(44))),
+            ];
+            let (first_result, second_result) =
                 tokio::time::timeout(Duration::from_secs(10), async {
                     tokio::join!(
-                        projector.apply_batch(partition_id, Some(&previous), &batch_position, &[],),
-                        projector.rebuild_partition(
-                            partition_id,
-                            &rebuild_position,
-                            committed_view.clone(),
-                        )
+                        projector.apply_outbox_batch(epoch, &first_batches),
+                        projector.apply_outbox_batch(epoch, &second_batches)
                     )
                 })
                 .await
-                .expect("same-partition writers serialize");
-            batch_result.expect("batch writer completes");
-            rebuild_result.expect("rebuild writer completes");
+                .expect("writers of the same partition serialize");
+            first_result.expect("the first writer completes");
+            second_result.expect("the second writer completes");
             assert_eq!(
-                projector.read_progress(partition_id).await.unwrap(),
-                Some(position(44))
+                projector
+                    .read_progress(partition_id)
+                    .await
+                    .unwrap()
+                    .and_then(|progress| progress.outbox_through_seq),
+                Some(244)
             );
         }
 
@@ -862,6 +1091,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
         admin_client
             .batch_execute(&format!(
                 "DROP TABLE {schema_name}.dexzd_visibility_skipped_documents; \
+                 ALTER TABLE {schema_name}.dexzd_visibility_progress DROP COLUMN applied_epoch, DROP COLUMN outbox_through_seq; \
                  UPDATE {schema_name}.dexzd_visibility_schema_version SET version = 2 WHERE id = 1"
             ))
             .await
@@ -879,13 +1109,17 @@ pub(crate) async fn run_projector_scenarios_for_test(
             .expect("upgrade schema version two"),
         );
         let version_two_projector = SqlVisibilityProjector::new(version_two_backend.clone());
-        assert_eq!(
-            version_two_projector
-                .read_progress(partition_id)
-                .await
-                .unwrap(),
-            Some(position(if pool_size == 2 { 44 } else { 39 }))
+        let upgraded_progress = version_two_projector
+            .read_progress(partition_id)
+            .await
+            .unwrap()
+            .expect("the upgrade keeps progress rows");
+        assert!(
+            upgraded_progress.applied_position.is_some(),
+            "{upgraded_progress:?}"
         );
+        assert_eq!(upgraded_progress.applied_epoch, None);
+        assert_eq!(upgraded_progress.outbox_through_seq, None);
         assert_eq!(listed_runs(&version_two_backend, tenant_id).await.len(), 2);
         drop(version_two_projector);
         drop(version_two_backend);
@@ -917,7 +1151,8 @@ pub(crate) async fn run_projector_scenarios_for_test(
             upgraded_projector
                 .read_progress(partition_id)
                 .await
-                .unwrap(),
+                .unwrap()
+                .and_then(|progress| progress.applied_position),
             None
         );
         assert!(listed_runs(&upgraded_backend, tenant_id).await.is_empty());

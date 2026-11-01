@@ -190,6 +190,21 @@ pub struct SearchConfig {
     /// Defaults to 2 s; maximum wait for the external search projection to catch up to the node's committed position.
     #[serde(with = "humantime_serde")]
     pub read_your_writes_wait: Duration,
+    /// Defaults to 1000; most SearchOutbox entries the paradedb or postgres projection writes in
+    /// one SQL transaction. Must be positive.
+    pub outbox_batch_size: u32,
+    /// Defaults to 100 ms; how often an idle external search projection looks for new SearchOutbox
+    /// entries. SearchFlows read-your-writes waits wake it at once. Must be positive.
+    #[serde(with = "humantime_serde")]
+    pub outbox_poll_interval: Duration,
+    /// Defaults to 1 s; least time between two acks of one partition's projected SearchOutbox
+    /// entries. Each ack is a logged command, so a node with many busy partitions logs up to one
+    /// ack per partition per interval. Must be positive.
+    #[serde(with = "humantime_serde")]
+    pub outbox_ack_interval: Duration,
+    /// Defaults to 10000; most SearchOutbox entries that one ack deletes. A larger projected range
+    /// is acked in several commands. Must be at least `outboxBatchSize`.
+    pub outbox_max_ack_entries: u32,
 }
 
 fn serialize_parade_db_connection_string<S>(
@@ -228,6 +243,10 @@ impl fmt::Debug for SearchConfig {
             )
             .field("postgres_schema", &self.postgres_schema)
             .field("read_your_writes_wait", &self.read_your_writes_wait)
+            .field("outbox_batch_size", &self.outbox_batch_size)
+            .field("outbox_poll_interval", &self.outbox_poll_interval)
+            .field("outbox_ack_interval", &self.outbox_ack_interval)
+            .field("outbox_max_ack_entries", &self.outbox_max_ack_entries)
             .finish()
     }
 }
@@ -244,6 +263,10 @@ impl Default for SearchConfig {
             postgres_connection_pool_size: 10,
             postgres_schema: "public".to_owned(),
             read_your_writes_wait: Duration::from_secs(2),
+            outbox_batch_size: 1_000,
+            outbox_poll_interval: Duration::from_millis(100),
+            outbox_ack_interval: Duration::from_secs(1),
+            outbox_max_ack_entries: 10_000,
         }
     }
 }

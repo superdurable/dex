@@ -20,6 +20,7 @@ mod metrics;
 mod object_store_compatibility;
 mod purging_reads;
 mod robustness;
+mod search_outbox;
 mod standby_failover;
 mod standby_health;
 mod standby_takeover;
@@ -57,7 +58,7 @@ const FLOW_ID: &str = "serve-flow-1";
 /// Longer than every test budget, so only a released lease lets the next process start.
 const HELD_LEASE_DURATION: &str = "60s";
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(15);
-/// Covers the projection's startup catch-up and rebuild.
+/// Covers the projection's initial load of an empty schema.
 const SEARCH_BUDGET: Duration = Duration::from_secs(30);
 
 fn string_value(text: &str) -> Value {
@@ -543,24 +544,24 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
     primary.shutdown().await;
 }
 
-/// ParadeDB SearchFlows reads committed Flows, and a new process rebuilds a cleared projection.
+/// ParadeDB SearchFlows reads committed Flows, and a new process loads a cleared projection.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn paradedb_search_projects_commits_and_rebuilds_on_startup() {
+async fn paradedb_search_projects_commits_and_loads_a_cleared_schema() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    run_search_projects_commits_and_rebuilds_on_startup_for_test(&database_url, false).await;
+    run_search_projects_commits_and_loads_a_cleared_schema_for_test(&database_url, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn postgres_search_projects_commits_and_rebuilds_on_startup() {
+async fn postgres_search_projects_commits_and_loads_a_cleared_schema() {
     let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
         return;
     };
-    run_search_projects_commits_and_rebuilds_on_startup_for_test(&database_url, true).await;
+    run_search_projects_commits_and_loads_a_cleared_schema_for_test(&database_url, true).await;
 }
 
-async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
+async fn run_search_projects_commits_and_loads_a_cleared_schema_for_test(
     database_url: &str,
     is_postgres: bool,
 ) {
@@ -633,7 +634,7 @@ async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
     let first_log = first.log();
     assert_eq!(first_status.code(), Some(0), "{first_log}");
     assert!(
-        first_log.contains("the SQL visibility search projection caught up"),
+        first_log.contains("loading the partition into the SQL visibility projection"),
         "{first_log}"
     );
 
@@ -665,161 +666,6 @@ async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
 
     let second_status = second.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(second_status.code(), Some(0), "{}", second.log());
-    primary.shutdown().await;
-    schema.drop_schema().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write() {
-    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
-        return;
-    };
-    run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(
-        &database_url,
-        false,
-    )
-    .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn postgres_outage_overflows_the_queue_and_rebuilds_every_committed_write() {
-    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
-        return;
-    };
-    run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(&database_url, true)
-        .await;
-}
-
-async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_test(
-    database_url: &str,
-    is_postgres: bool,
-) {
-    let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
-    let mut proxy = SqlVisibilityTcpProxy::start(database_url).await;
-    let proxied_database_url = proxy.connection_string(database_url);
-    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
-    let primary_endpoint = primary.endpoint();
-    let directory = TempDir::new().expect("a temporary test directory can be created");
-    let address = free_loopback_address();
-    let config_path = directory.path().join("outage.yaml");
-    ServeConfig {
-        primary_endpoint: &primary_endpoint,
-        hard_delete_endpoint: None,
-        listen: address,
-        local_directory: &directory.path().join("store"),
-        lease_duration: HELD_LEASE_DURATION,
-        fail_if_held: true,
-        parade_db: Some(SqlVisibilitySettings {
-            is_postgres,
-            connection_string: &proxied_database_url,
-            schema: schema.name(),
-        }),
-    }
-    .write(&config_path);
-    let mut server =
-        ServeProcess::spawn(&config_path, address, directory.path().join("outage.log"));
-    let channel = server.wait_until_serving().await;
-    let mut flow_client = FlowServiceClient::new(channel);
-    let flow_id = "outage-flow";
-    flow_client
-        .start_flow(StartFlowRequest {
-            flow_id: flow_id.to_owned(),
-            flow_type: FLOW_TYPE.to_owned(),
-            start_step_type: "IdleStep".to_owned(),
-            flow_start_options: Some(FlowStartOptions {
-                flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
-                    ..FlowConfig::default()
-                }),
-                ..FlowStartOptions::default()
-            }),
-            request_id: "outage-start".to_owned(),
-            ..StartFlowRequest::default()
-        })
-        .await
-        .expect("the initial Flow start commits");
-    search_greeting_flows(&mut flow_client)
-        .await
-        .expect("the initial Flow is searchable");
-
-    proxy.cut().await;
-    const WRITE_COUNT: usize = 600;
-    let value_text = "x".repeat(if is_postgres { 1019 } else { 1024 });
-    for write_number in 0..WRITE_COUNT {
-        let attribute_name = format!("outage-{write_number:04}");
-        let value = string_value(&format!("{write_number:04}-{value_text}"));
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            flow_client.set_attributes(SetAttributesRequest {
-                flow_id: flow_id.to_owned(),
-                attributes: vec![AttributeWrite {
-                    key: attribute_name,
-                    value: Some(value),
-                    index_config: Some(IndexConfig {
-                        enable: true,
-                        r#type: IndexType::Keyword as i32,
-                        ..IndexConfig::default()
-                    }),
-                    ..AttributeWrite::default()
-                }],
-                request_id: format!("outage-write-{write_number:04}"),
-                ..SetAttributesRequest::default()
-            }),
-        )
-        .await
-        .expect("commits continue during the SQL visibility outage")
-        .expect("an Attribute write commits during the SQL visibility outage");
-    }
-    assert!(
-        server
-            .log()
-            .contains("a committed frame could not be queued for the search projection"),
-        "the bounded projection queue overflows during the outage: {}",
-        server.log()
-    );
-    proxy.restore();
-
-    let mut retry = tokio::time::interval(Duration::from_millis(200));
-    let mut last_search_result = String::new();
-    let projected = tokio::time::timeout(Duration::from_secs(90), async {
-        loop {
-            retry.tick().await;
-            let search_result = search_greeting_flows(&mut flow_client).await;
-            last_search_result = format!("{search_result:?}");
-            match search_result {
-                Ok(entries) => {
-                    if let Some(entry) = entries.into_iter().find(|entry| entry.flow_id == flow_id)
-                        && entry.indexed_attributes.len() >= WRITE_COUNT
-                    {
-                        return entry;
-                    }
-                }
-                Err(status) if status.code() == tonic::Code::Unavailable => {}
-                Err(status) => panic!("SearchFlows failed after SQL visibility recovery: {status}"),
-            }
-        }
-    })
-    .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "the partition rebuild makes every committed write searchable: {error}; last SearchFlows result: {last_search_result}; server log: {}",
-            server.log()
-        )
-    });
-    for write_number in 0..WRITE_COUNT {
-        let attribute_name = format!("outage-{write_number:04}");
-        let expected_value = string_value(&format!("{write_number:04}-{value_text}"));
-        let actual_value = projected
-            .indexed_attributes
-            .iter()
-            .find(|attribute| attribute.key == attribute_name)
-            .and_then(|attribute| attribute.value.as_ref());
-        assert_eq!(actual_value, Some(&expected_value), "{attribute_name}");
-    }
-    // Overflowed frames reach SQL visibility only through the partition rebuild.
-    let exit_status = server.terminate(SHUTDOWN_BUDGET).await;
-    assert_eq!(exit_status.code(), Some(0), "{}", server.log());
-    proxy.shutdown().await;
     primary.shutdown().await;
     schema.drop_schema().await;
 }

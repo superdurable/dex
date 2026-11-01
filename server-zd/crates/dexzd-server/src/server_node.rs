@@ -61,12 +61,14 @@ use crate::object_stores::ObjectStores;
 use crate::registry_committed_command_sink::RegistryCommittedCommandSink;
 use crate::worker_rpc_invoker::PullWorkerRpcInvoker;
 
-pub(crate) use search_projection::CommittedSearchFrames;
+pub(crate) use search_projection::SearchOutboxWatermarks;
 
 use attribute_sync::{AttributeStores, AttributeSyncService, AttributeSyncStart};
 use bounded_teardown::BoundedTeardown;
 pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
-use search_projection::{SearchProjection, SqlVisibilitySearch};
+use search_projection::{
+    SearchProjection, SearchProjectionModeRebuilder, SearchProjectionStart, SqlVisibilitySearch,
+};
 
 /// Part of the budget for open calls, so the engine still stops cleanly after a stuck call.
 const GRPC_DRAIN_BUDGET: Duration = Duration::from_secs(4);
@@ -499,7 +501,12 @@ impl ServerNode {
         let sql_visibility_search = match config.search.backend {
             SearchBackendKind::Builtin => None,
             SearchBackendKind::Paradedb | SearchBackendKind::Postgres => match until_cancelled(
-                SqlVisibilitySearch::connect(&config.search, attribute_indexes.clone()),
+                SqlVisibilitySearch::connect(
+                    &config.search,
+                    partition_count,
+                    &metrics,
+                    attribute_indexes.clone(),
+                ),
                 cancellation,
             )
             .await
@@ -511,9 +518,10 @@ impl ServerNode {
                 }
             },
         };
-        let committed_search_frames = sql_visibility_search
+        let search_outbox_watermarks = sql_visibility_search
             .as_ref()
-            .map(SqlVisibilitySearch::committed_frames);
+            .map(SqlVisibilitySearch::watermarks);
+        let is_search_projection_enabled = sql_visibility_search.is_some();
         let attribute_stores = match until_cancelled(
             AttributeStores::connect(&config.attribute_store, &components.attribute_sync),
             cancellation,
@@ -564,6 +572,13 @@ impl ServerNode {
                         attribute_sync_waker: attribute_sync_waker.clone(),
                     },
                 );
+                let mode_rebuilder = SearchProjectionModeRebuilder::new(
+                    Arc::new(effect_runner.clone()),
+                    services.committer.clone(),
+                    metrics.clone(),
+                    partition_hasher.clone(),
+                    is_search_projection_enabled,
+                );
                 let registry = FlowCoordinatorRegistry::new(
                     &components.flow_coordination,
                     FlowCoordinatorDependencies {
@@ -581,9 +596,9 @@ impl ServerNode {
                 let hooks = EngineCommandAndEffectHooks {
                     committed_commands: Arc::new(RegistryCommittedCommandSink::new(
                         registry.clone(),
-                        committed_search_frames.clone(),
+                        search_outbox_watermarks.clone(),
                     )),
-                    rebuilder: Arc::new(effect_runner),
+                    rebuilder: Arc::new(mode_rebuilder),
                 };
                 *startup_parts
                     .lock()
@@ -636,9 +651,12 @@ impl ServerNode {
             Some(sql_visibility_search) => (
                 Some(sql_visibility_search.search_backend()),
                 Some(sql_visibility_search.start_projection(
-                    engine.committer().clone(),
-                    partition_count,
-                    metrics.clone(),
+                    SearchProjectionStart {
+                        committer: engine.committer().clone(),
+                        partition_hasher: partition_hasher.clone(),
+                        node_epoch: engine.node_epoch(),
+                        metrics: metrics.clone(),
+                    },
                     engine.wait_for_stop(),
                 )),
             ),

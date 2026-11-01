@@ -64,6 +64,8 @@ message FlowCommand {
     OutboxAckCommand outbox_ack = 71;
     AttributeSyncAckCommand attribute_sync_ack = 72;
     PendingCloseCheckCommand pending_close_check = 73;
+    SearchOutboxAckCommand search_outbox_ack = 74;
+    SetSearchProjectionModeCommand set_search_projection_mode = 75;
     HardDeleteObjectsDeletedCommand hard_delete_objects_deleted = 80;
     RunPurgeCommand run_purge = 81;
   }
@@ -374,3 +376,15 @@ message HardDeleteObjectsDeletedCommand {
 // Retention expired and the owner deleted the run's hard-delete object prefix; apply deletes
 // every key of the run.
 message RunPurgeCommand {}
+
+// Sets whether apply appends SearchOutbox entries in this partition.
+message SetSearchProjectionModeCommand {
+  bool enabled = 1;
+}
+
+// The external search projection wrote this partition's outbox through through_seq; apply deletes
+// those entries.
+message SearchOutboxAckCommand {
+  uint32 partition = 1;
+  uint64 through_seq = 2;
+}

@@ -29,6 +29,9 @@ pub enum PartitionHashError {
     },
 }
 
+/// Prefix of the Flow IDs that route partition-scoped commands.
+const PARTITION_COMMAND_FLOW_ID_PREFIX: &str = "dex-partition-command-";
+
 /// Maps (tenant ID, Flow ID) to a [`FlowHash`] and a [`PartitionId`] with keyed SipHash-2-4.
 ///
 /// The key and partition count come from the cluster object and never change. Every node
@@ -93,6 +96,28 @@ impl PartitionHasher {
     pub fn partition_of_flow(&self, tenant_id: TenantId, flow_id: &str) -> PartitionId {
         self.partition_of(self.flow_hash(tenant_id, flow_id))
     }
+
+    /// Returns, in partition order, a [`TenantId::DEFAULT`] Flow ID that hashes into each partition.
+    ///
+    /// Partition-scoped commands carry these IDs because apply routes commands by Flow ID.
+    pub fn partition_command_flow_ids(&self) -> Vec<String> {
+        let mut flow_ids: Vec<Option<String>> = vec![None; self.partition_count() as usize];
+        let mut remaining = flow_ids.len();
+        let mut candidate: u64 = 0;
+        while remaining > 0 {
+            let flow_id = format!("{PARTITION_COMMAND_FLOW_ID_PREFIX}{candidate}");
+            let partition = self.partition_of_flow(TenantId::DEFAULT, &flow_id);
+            if let Some(slot @ None) = flow_ids.get_mut(usize::from(partition.0)) {
+                *slot = Some(flow_id);
+                remaining -= 1;
+            }
+            candidate += 1;
+        }
+        flow_ids
+            .into_iter()
+            .map(|flow_id| flow_id.expect("the loop ends once every partition has a Flow ID"))
+            .collect()
+    }
 }
 
 impl std::fmt::Debug for PartitionHasher {
@@ -111,6 +136,21 @@ mod tests {
     use crate::{PartitionId, TenantId};
 
     const KEY: [u8; 16] = [7; 16];
+
+    #[test]
+    fn partition_command_flow_ids_route_to_their_partitions() {
+        for count in [1, 16, 1024] {
+            let hasher = PartitionHasher::new(&KEY, count).unwrap();
+            let flow_ids = hasher.partition_command_flow_ids();
+            assert_eq!(flow_ids.len(), count as usize);
+            for (partition, flow_id) in flow_ids.iter().enumerate() {
+                assert_eq!(
+                    hasher.partition_of_flow(TenantId::DEFAULT, flow_id),
+                    PartitionId(u16::try_from(partition).unwrap())
+                );
+            }
+        }
+    }
 
     #[test]
     fn rejects_bad_partition_counts_and_keys() {

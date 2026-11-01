@@ -205,6 +205,14 @@ pub(crate) fn refresh_search_document(
     }
     // RunPurge must delete both SearchDocument and FlowList index keys.
     cursor.rows.put_search_document(transaction, &document);
+    crate::projections::search_outbox::append_search_outbox_entry(
+        transaction,
+        scope,
+        tenant_id,
+        flow_hash,
+        run_id,
+        record.is_purging,
+    )?;
     transaction.put(
         ColumnFamily::PartitionIndex,
         tenant_run_index_key(

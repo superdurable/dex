@@ -6,14 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-mod committed_search_frames;
-mod projection_worker;
+mod outbox_acks;
+mod outbox_consumer;
+mod outbox_watermarks;
+mod projection_mode;
 
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_engine::{CommandCommitter, NodeStopReason};
+use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
 use dexzd_postgres_connection::ConnectionSettings;
 use dexzd_search::SearchBackend;
@@ -21,38 +24,35 @@ use dexzd_search::sql_visibility::{
     AttributeIndexRegistryReader, ProjectionVisibilityWait, SqlVisibilityProjector,
     SqlVisibilitySearchBackend, VisibilityDialect,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::ServerError;
 use crate::config::{ConfigError, SearchBackend as SearchBackendKind, SearchConfig};
 
-pub(crate) use committed_search_frames::CommittedSearchFrames;
+pub(crate) use outbox_watermarks::SearchOutboxWatermarks;
+pub(crate) use projection_mode::SearchProjectionModeRebuilder;
 
-use committed_search_frames::CommittedSearchFrame;
-use projection_worker::SearchProjectionWorker;
+use outbox_consumer::{SearchOutboxConsumer, SearchOutboxDependencies};
 
-/// Frames waiting for the projection; when full, commits continue and the partition rebuilds later.
-const PROJECTION_QUEUE_FRAMES: usize = 4_096;
-/// Search document bytes waiting for the projection; beyond it, frames also become rebuilds.
-const PROJECTION_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 /// Startup waits for another node's schema migration, which holds its lock for at most 5 s.
 const CONNECT_ATTEMPTS: u32 = 3;
 const CONNECT_RETRY_DELAY: Duration = Duration::from_secs(1);
 const DEFAULT_SCHEMA: &str = "public";
 
-/// The SQL visibility SearchFlows backend and the committed frames that its projection consumes.
+/// The SQL visibility SearchFlows backend and the SearchOutbox watermarks of its read-your-writes waits.
 pub(crate) struct SqlVisibilitySearch {
+    cfg: Arc<SearchConfig>,
     backend: Arc<SqlVisibilitySearchBackend>,
-    frames: Arc<CommittedSearchFrames>,
-    queue: mpsc::Receiver<CommittedSearchFrame>,
+    watermarks: Arc<SearchOutboxWatermarks>,
 }
 
 impl SqlVisibilitySearch {
     /// Connects the pool and ensures the schema; call it before the engine replays the log.
     pub(crate) async fn connect(
         search: &SearchConfig,
+        partition_count: u32,
+        metrics: &NodeMetrics,
         registry_reader: Arc<dyn AttributeIndexRegistryReader>,
     ) -> Result<Self, ServerError> {
         let configuration = postgres_configuration(search)?;
@@ -89,10 +89,11 @@ impl SqlVisibilitySearch {
                 "search.paradeDbConnectionPoolSize"
             },
         })?;
-        let (frames, queue) =
-            CommittedSearchFrames::new(PROJECTION_QUEUE_FRAMES, PROJECTION_QUEUE_BYTES);
-        let frames = Arc::new(frames);
-        let visibility_wait: Arc<dyn ProjectionVisibilityWait> = frames.clone();
+        let watermarks = Arc::new(SearchOutboxWatermarks::new(
+            partition_count,
+            metrics.search_outbox_backlog.clone(),
+        ));
+        let visibility_wait: Arc<dyn ProjectionVisibilityWait> = watermarks.clone();
         let mut attempt = 1;
         let backend = loop {
             match SqlVisibilitySearchBackend::connect_dialect_with_settings(
@@ -119,55 +120,65 @@ impl SqlVisibilitySearch {
             "connected to SQL visibility database and ensured its search schema"
         );
         Ok(Self {
+            cfg: Arc::new(search.clone()),
             backend: Arc::new(backend),
-            frames,
-            queue,
+            watermarks,
         })
     }
 
-    /// Returns the frames that the engine's committed-command sink feeds.
-    pub(crate) fn committed_frames(&self) -> Arc<CommittedSearchFrames> {
-        self.frames.clone()
+    /// Returns the watermarks that the engine's committed-command sink raises.
+    pub(crate) fn watermarks(&self) -> Arc<SearchOutboxWatermarks> {
+        self.watermarks.clone()
     }
 
     pub(crate) fn search_backend(&self) -> Arc<dyn SearchBackend> {
         self.backend.clone()
     }
 
-    /// Starts projecting in the background; it stops at `node_stopped` or [`SearchProjection::shutdown`].
+    /// Starts the lease holder's SearchOutbox projection; it stops with the node or its stop token.
     pub(crate) fn start_projection(
         self,
-        committer: CommandCommitter,
-        partition_count: u32,
-        metrics: Arc<NodeMetrics>,
+        start: SearchProjectionStart,
         node_stopped: impl Future<Output = NodeStopReason> + Send + 'static,
     ) -> SearchProjection {
         let projector = SqlVisibilityProjector::new_with_metric_recorder(
             self.backend,
-            Arc::new(SearchProjectionMetrics(metrics)),
+            Arc::new(SearchProjectionMetrics(start.metrics.clone())),
         );
         let backfill = refresh_attribute_slots(projector.clone());
-        let worker = SearchProjectionWorker::new(
-            projector,
-            committer,
-            self.frames,
-            self.queue,
-            partition_count,
+        let consumer = SearchOutboxConsumer::new(
+            self.cfg,
+            SearchOutboxDependencies {
+                projector,
+                committer: start.committer,
+                partition_hasher: start.partition_hasher,
+                node_epoch: start.node_epoch,
+                metrics: start.metrics,
+                watermarks: self.watermarks,
+            },
         );
         let stop = CancellationToken::new();
-        let stopped = stop.clone();
+        let consumer_stop = stop.clone();
         let task = tokio::spawn(async move {
             tokio::select! {
-                () = stopped.cancelled() => {}
+                () = consumer.run(consumer_stop) => {}
                 reason = node_stopped => {
                     tracing::info!(%reason, "the search projection stopped with the node");
                 }
-                () = worker.run() => {}
                 () = backfill => {}
             }
         });
         SearchProjection { stop, task }
     }
+}
+
+/// What the lease holder's search projection needs from the started engine.
+pub(crate) struct SearchProjectionStart {
+    pub(crate) committer: CommandCommitter,
+    pub(crate) partition_hasher: PartitionHasher,
+    /// The lease epoch that fences SQL visibility writes.
+    pub(crate) node_epoch: u64,
+    pub(crate) metrics: Arc<NodeMetrics>,
 }
 
 async fn refresh_attribute_slots(projector: SqlVisibilityProjector) {
@@ -201,6 +212,18 @@ pub(crate) struct SearchProjection {
 }
 
 impl SearchProjection {
+    /// Returns the token that stops the projection, for a node that stops leading without exiting.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a later step-down path stops the projection with it"
+        )
+    )]
+    pub(crate) fn stop_token(&self) -> CancellationToken {
+        self.stop.clone()
+    }
+
     /// Stops the projection, aborting it when it does not stop within `budget`.
     ///
     /// Returns false when the projection had to be aborted.
@@ -294,12 +317,17 @@ mod tests {
             postgres_connection_string: "postgres://localhost:1/unreachable".into(),
             ..Default::default()
         };
-        let error =
-            match SqlVisibilitySearch::connect(&config, Arc::new(ExcessiveAttributeRegistry)).await
-            {
-                Ok(_) => panic!("over-capacity registry must fail startup"),
-                Err(error) => error,
-            };
+        let error = match SqlVisibilitySearch::connect(
+            &config,
+            1,
+            &NodeMetrics::unregistered(),
+            Arc::new(ExcessiveAttributeRegistry),
+        )
+        .await
+        {
+            Ok(_) => panic!("over-capacity registry must fail startup"),
+            Err(error) => error,
+        };
         let message = error.to_string();
         assert!(message.contains("capacity exceeded"), "{message}");
         for position in 0..11 {
@@ -310,10 +338,21 @@ mod tests {
         }
     }
 
+    /// A node that stops leading without exiting stops the projection through its token.
+    #[tokio::test]
+    async fn the_stop_token_ends_the_projection() {
+        let stop = CancellationToken::new();
+        let stopped = stop.clone();
+        let task = tokio::spawn(async move { stopped.cancelled().await });
+        let projection = SearchProjection { stop, task };
+        projection.stop_token().cancel();
+        assert!(projection.shutdown(Duration::from_secs(1)).await);
+    }
+
     /// Only the lease owner may project, so a projection that ignores cancellation must end before release.
     #[tokio::test(start_paused = true)]
     async fn a_projection_that_ignores_cancellation_is_aborted() {
-        let (liveness, mut is_alive) = mpsc::channel::<()>(1);
+        let (liveness, mut is_alive) = tokio::sync::mpsc::channel::<()>(1);
         let task = tokio::spawn(async move {
             let _liveness = liveness;
             std::future::pending::<()>().await;

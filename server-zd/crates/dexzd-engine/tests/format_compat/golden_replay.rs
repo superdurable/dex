@@ -332,6 +332,8 @@ fn command_kind(command: &FlowCommand) -> &'static str {
         Command::OutboxAck(_) => "OutboxAck",
         Command::AttributeSyncAck(_) => "AttributeSyncAck",
         Command::PendingCloseCheck(_) => "PendingCloseCheck",
+        Command::SearchOutboxAck(_) => "SearchOutboxAck",
+        Command::SetSearchProjectionMode(_) => "SetSearchProjectionMode",
         Command::HardDeleteObjectsDeleted(_) => "HardDeleteObjectsDeleted",
         Command::RunPurge(_) => "RunPurge",
     }

@@ -11,8 +11,8 @@ SearchFlows backends for server-zd: a builtin evaluator over local search docume
 that backend. Searches and projection batches share those connections; a busy
 pool queues work, including with pool sizes one and two. The caller's request
 deadline should cancel the search future if it remains queued too long.
-An entire partition rebuild holds one connection until its transaction commits;
-use `pool_size >= 2` when searches must continue during a large rebuild.
+A projection transaction holds one connection until it commits; use
+`pool_size >= 2` when searches must continue during a large initial load.
 
 Every query and projection write uses unnamed, explicitly typed statements.
 This is required for PgBouncer transaction pooling, which can route consecutive
@@ -20,27 +20,36 @@ transactions to different Postgres sessions. Schema setup uses simple SQL
 inside a transaction and refuses a schema version newer than this binary.
 ParadeDB setup needs a role that can create `pg_search`, or the extension must
 already be installed. PostgreSQL setup needs no extensions. One database schema belongs to one Dex cluster because
-projection progress and rebuilds are partition scoped. Upgrading from the
-version-one schema clears derived rows and progress, so rebuild every partition.
-Upgrading version two adds skipped-document records without clearing runs.
+projection progress is partition scoped. Upgrading from the version-one schema
+clears derived rows and progress. Upgrading version two adds skipped-document
+records without clearing runs. Every version gains the `applied_epoch` and
+`outbox_through_seq` progress columns without a version change.
 The caller should retry startup after a schema migration lock timeout.
 
-Forward only committed apply outcomes to the projector. Concatenate every
-outcome of one partition frame in apply order with
-`extract_batch_search_document_changes`, then call `apply_batch` once for the
-frame with the partition's previous and new full `LogPosition` values. The
-method writes data and progress in one transaction. Sparse log sequences are
-normal; a stored position that differs from the caller's previous position
-requires a rebuild. On a mismatch or queue overflow, obtain a consistent
-committed local view and call `rebuild_partition` with that view's applied
-position. Only the current partition owner may project or rebuild a partition.
-Projection failures must not affect command commits.
+The server projects the `SearchOutbox` partition index. `read_outbox_entries`
+pages a partition's entries in seq order from a committed view, and
+`read_run_change` returns the run's current document, or a delete for a purged
+or purging run. `read_initial_load_page` pages every searchable document of a
+partition for a one-time load into a partition without progress.
+`apply_outbox_batch` writes the changes of several partitions and raises their
+progress in one transaction: the outbox seq never decreases, and a batch that
+finishes a committed view also records the view's position. Every touched
+progress row records the writer's node epoch, and a lower epoch fails with
+`ProjectionError::Fenced`. `fence_all_progress` stamps every partition's row
+with a new owner's epoch in one transaction before it projects. An initial-load
+batch first deletes the partition's rows and forgets its progress, so only the
+load's last batch makes the partition look loaded. A NULL outbox seq means the
+progress predates the SearchOutbox. Versioned upserts make a repeated batch harmless. Only the current
+partition owner may project. Projection failures must not affect command
+commits.
 
 An unindexable committed document is recorded in
 `dexzd_visibility_skipped_documents`, omitted from search, and logged as an
-error. Construct the projector with `new_with_metric_recorder` to count these
+error. When the database rejects a row's content, the transaction is retried
+with each row in its own savepoint, and only the rejected rows are skipped.
+Construct the projector with `new_with_metric_recorder` to count these
 events. A later valid upsert or delete removes its skipped-document record.
-The progress position still advances after the skip.
+The progress still advances after the skip.
 
 ## SQL dialects and Attribute slots
 
@@ -69,8 +78,8 @@ The schema records its dialect. A mismatch refuses startup. Version-three
 ParadeDB schemas gain metadata without truncation, rebuilding, or a version
 change, so older version-three binaries remain compatible. PostgreSQL uses
 version four. Startup rejects a registry that disagrees with persisted slot
-assignments and requires a new database or schema. An empty
-progress table causes the server projection worker to rebuild committed data.
+assignments and requires a new database or schema. A partition without
+progress is loaded once by the server's outbox consumer.
 The PostgreSQL backend enables registry capacity and 1024-byte Keyword ingress
 limits. Projection skips older oversized values only when the stored Keyword
 or KeywordArray type matches the registered type. Unregistered keys remain

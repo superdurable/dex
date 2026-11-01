@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -593,6 +594,8 @@ impl ServeProcess {
     }
 }
 
+static NEXT_SCHEMA_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// An isolated schema in the ParadeDB database that `DEX_ZD_PARADEDB_URL` names.
 pub(crate) struct SqlVisibilitySchema {
     client: tokio_postgres::Client,
@@ -625,7 +628,9 @@ impl SqlVisibilitySchema {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the wall clock is after the Unix epoch")
             .as_nanos();
-        let name = format!("dexzd_serve_{}_{nonce}", std::process::id());
+        // Concurrent tests may read the same clock value.
+        let sequence = NEXT_SCHEMA_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let name = format!("dexzd_serve_{}_{nonce}_{sequence}", std::process::id());
         client
             .batch_execute(&format!("CREATE SCHEMA {name}"))
             .await
@@ -650,6 +655,40 @@ impl SqlVisibilitySchema {
             ))
             .await
             .expect("the projection tables are cleared");
+    }
+
+    /// Runs `statements` with `{schema}` replaced by this schema's name.
+    pub(crate) async fn execute(&self, statements: &str) {
+        self.client
+            .batch_execute(&statements.replace("{schema}", &self.name))
+            .await
+            .expect("the test statements run");
+    }
+
+    /// Returns the integer that `query` selects, with `{schema}` replaced by this schema's name.
+    pub(crate) async fn query_count(&self, query: &str) -> i64 {
+        self.client
+            .query_one(&query.replace("{schema}", &self.name), &[])
+            .await
+            .expect("the test query runs")
+            .get(0)
+    }
+
+    /// Returns the `(partition, seq)` rows that `query` selects, with `{schema}` replaced.
+    pub(crate) async fn query_partition_seqs(&self, query: &str) -> BTreeMap<u16, i64> {
+        self.client
+            .query(&query.replace("{schema}", &self.name), &[])
+            .await
+            .expect("the test query runs")
+            .iter()
+            .map(|row| {
+                let partition: i32 = row.get(0);
+                (
+                    u16::try_from(partition).expect("partitions fit in u16"),
+                    row.get(1),
+                )
+            })
+            .collect()
     }
 
     pub(crate) async fn drop_schema(self) {

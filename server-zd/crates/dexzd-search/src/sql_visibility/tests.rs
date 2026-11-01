@@ -8,19 +8,21 @@
 
 use std::collections::BTreeMap;
 
-use dexzd_apply::{ApplyOutcome, StateWrite};
+use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
 use dexzd_keyspace::TenantId;
-use dexzd_keyspace::row_keys::{prefix_range, run_singleton_key, tenant_run_index_key};
-use dexzd_keyspace::{ColumnFamily, FlowHash, IndexKind, PartitionId, RunId, RunTable, run_prefix};
+use dexzd_keyspace::row_keys::{run_singleton_key, search_outbox_key, search_outbox_range_after};
+use dexzd_keyspace::{ColumnFamily, FlowHash, PartitionId, RunId, RunTable};
 use dexzd_protocol::dex::{self, IndexType};
-use dexzd_protocol::dexzd::v1::{RunRecord, SearchAttributeValue, SearchDocumentRecord};
+use dexzd_protocol::dexzd::v1::{
+    RunRecord, SearchAttributeValue, SearchDocumentRecord, SearchOutboxRecord,
+};
 use dexzd_visibility_query::{SearchDocument, SearchValue};
 use prost::Message;
 
 use super::wire_value::{decode_wire_value, encode_wire_value};
 use super::{
     MIGRATION_SQL, ProjectionError, SearchDocumentChange, SearchRow, SearchRowError, SqlValue,
-    extract_batch_search_document_changes, extract_search_document_changes, upsert_statement,
+    read_outbox_entries, read_run_change, upsert_statement,
 };
 
 #[derive(Default)]
@@ -71,225 +73,145 @@ fn migration_has_tenant_first_and_versioned_documents() {
     }
 }
 
-#[test]
-fn extracts_ordered_document_writes_and_run_purge() {
-    let partition_id = PartitionId(3);
-    let tenant_id = TenantId(7);
-    let flow_hash = FlowHash(42);
-    let run_id = RunId([5; 16]);
-    let record = SearchDocumentRecord {
-        version: 1,
-        tenant_id: tenant_id.0,
-        run_id: run_id.as_bytes().to_vec(),
-        ..Default::default()
-    };
-    let encoded_document = record.encode_to_vec();
-    let (start, end) = prefix_range(&run_prefix(flow_hash, run_id));
-    let outcome = ApplyOutcome {
-        writes: vec![
-            StateWrite::Put {
-                column_family: ColumnFamily::Flow,
-                key: run_singleton_key(flow_hash, run_id, RunTable::RunRecord),
-                value: RunRecord {
-                    tenant_id: tenant_id.0,
-                    run_id: run_id.as_bytes().to_vec(),
-                    ..RunRecord::default()
-                }
-                .encode_to_vec(),
-            },
-            StateWrite::Put {
-                column_family: ColumnFamily::Flow,
-                key: run_singleton_key(flow_hash, run_id, RunTable::SearchDocument),
-                value: encoded_document.clone(),
-            },
-            StateWrite::Delete {
-                column_family: ColumnFamily::PartitionIndex,
-                key: tenant_run_index_key(
-                    partition_id,
-                    IndexKind::SearchDocument,
-                    tenant_id,
-                    flow_hash,
-                    run_id,
-                ),
-            },
-            StateWrite::DeleteRange {
-                column_family: ColumnFamily::Flow,
-                start,
-                end,
-            },
-        ],
-        effects: vec![],
-        reply: Default::default(),
-        run_id: Some(run_id),
-    };
-    let changes = extract_search_document_changes(partition_id, &outcome).unwrap();
-    assert_eq!(
-        changes,
-        vec![
-            SearchDocumentChange::Upsert {
-                tenant_id,
-                run_id,
-                encoded_document,
-            },
-            SearchDocumentChange::Delete { tenant_id, run_id },
-        ]
-    );
-    let mut missing_delete = outcome;
-    missing_delete.writes.remove(2);
-    assert!(matches!(
-        extract_search_document_changes(partition_id, &missing_delete),
-        Err(ProjectionError::InvalidState(_))
-    ));
+/// Committed rows for the outbox reader tests.
+#[derive(Default)]
+struct CommittedRows(BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>);
+
+impl FlowStateReader for CommittedRows {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        Ok(self.0.get(&(column_family, key.to_vec())).cloned())
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        Ok(self
+            .0
+            .range((column_family, start.to_vec())..(column_family, end.to_vec()))
+            .take(limit)
+            .map(|((_, key), value)| (key.clone(), value.clone()))
+            .collect())
+    }
 }
 
 #[test]
-fn purging_run_deletes_its_search_projection_before_run_purge() {
+fn outbox_reader_pages_entries_and_reads_each_runs_current_change() {
     let partition_id = PartitionId(3);
     let tenant_id = TenantId(7);
+    let (live_run, purging_run, purged_run) = (RunId([1; 16]), RunId([2; 16]), RunId([3; 16]));
     let flow_hash = FlowHash(42);
-    let run_id = RunId([5; 16]);
+    let mut rows = CommittedRows::default();
+    for (seq, run_id) in [
+        (10, live_run),
+        (11, purging_run),
+        (11, purged_run),
+        (12, live_run),
+    ] {
+        rows.0.insert(
+            (
+                ColumnFamily::PartitionIndex,
+                search_outbox_key(partition_id, seq, flow_hash, run_id),
+            ),
+            SearchOutboxRecord {
+                tenant_id: tenant_id.0,
+                is_purge: run_id != live_run,
+            }
+            .encode_to_vec(),
+        );
+    }
     let document = SearchDocumentRecord {
+        version: 4,
         tenant_id: tenant_id.0,
-        run_id: run_id.as_bytes().to_vec(),
+        run_id: live_run.as_bytes().to_vec(),
         ..SearchDocumentRecord::default()
     };
-    let run_record = RunRecord {
-        tenant_id: tenant_id.0,
-        run_id: run_id.as_bytes().to_vec(),
-        is_purging: true,
-        ..RunRecord::default()
-    };
-    let outcome = ApplyOutcome {
-        writes: vec![
-            StateWrite::Put {
-                column_family: ColumnFamily::Flow,
-                key: run_singleton_key(flow_hash, run_id, RunTable::SearchDocument),
-                value: document.encode_to_vec(),
-            },
-            StateWrite::Put {
-                column_family: ColumnFamily::Flow,
-                key: run_singleton_key(flow_hash, run_id, RunTable::RunRecord),
-                value: run_record.encode_to_vec(),
-            },
-        ],
-        effects: vec![],
-        reply: Default::default(),
-        run_id: Some(run_id),
-    };
-    assert_eq!(
-        extract_search_document_changes(partition_id, &outcome).unwrap(),
-        vec![SearchDocumentChange::Delete { tenant_id, run_id }]
-    );
-}
-
-#[test]
-fn extracts_every_outcome_of_one_batch_in_order() {
-    let partition_id = PartitionId(3);
-    let tenant_id = TenantId(7);
-    let flow_hash = FlowHash(42);
-    let first_run = RunId([5; 16]);
-    let second_run = RunId([6; 16]);
-    let encoded_document = |run_id: RunId| {
-        SearchDocumentRecord {
-            version: 13,
-            tenant_id: tenant_id.0,
-            run_id: run_id.as_bytes().to_vec(),
-            ..Default::default()
-        }
-        .encode_to_vec()
-    };
-    let first_outcome = ApplyOutcome {
-        writes: [first_run, second_run]
-            .into_iter()
-            .map(|run_id| StateWrite::Put {
-                column_family: ColumnFamily::Flow,
-                key: run_singleton_key(flow_hash, run_id, RunTable::SearchDocument),
-                value: encoded_document(run_id),
-            })
-            .collect(),
-        effects: vec![],
-        reply: Default::default(),
-        run_id: Some(first_run),
-    };
-    let second_outcome = ApplyOutcome {
-        writes: vec![StateWrite::Delete {
-            column_family: ColumnFamily::PartitionIndex,
-            key: tenant_run_index_key(
-                partition_id,
-                IndexKind::SearchDocument,
-                tenant_id,
-                flow_hash,
-                first_run,
+    for (run_id, is_purging) in [(live_run, false), (purging_run, true)] {
+        rows.0.insert(
+            (
+                ColumnFamily::Flow,
+                run_singleton_key(flow_hash, run_id, RunTable::RunRecord),
             ),
-        }],
-        effects: vec![],
-        reply: Default::default(),
-        run_id: Some(first_run),
-    };
-    let changes =
-        extract_batch_search_document_changes(partition_id, &[first_outcome, second_outcome])
-            .unwrap();
-    assert_eq!(
-        changes,
-        vec![
-            SearchDocumentChange::Upsert {
-                tenant_id,
-                run_id: first_run,
-                encoded_document: encoded_document(first_run),
-            },
-            SearchDocumentChange::Upsert {
-                tenant_id,
-                run_id: second_run,
-                encoded_document: encoded_document(second_run),
-            },
-            SearchDocumentChange::Delete {
-                tenant_id,
-                run_id: first_run,
-            },
-        ]
+            RunRecord {
+                tenant_id: tenant_id.0,
+                run_id: run_id.as_bytes().to_vec(),
+                is_purging,
+                ..RunRecord::default()
+            }
+            .encode_to_vec(),
+        );
+    }
+    rows.0.insert(
+        (
+            ColumnFamily::Flow,
+            run_singleton_key(flow_hash, live_run, RunTable::SearchDocument),
+        ),
+        document.encode_to_vec(),
     );
-}
 
-#[test]
-fn rejects_malformed_search_document_keys() {
-    let partition_id = PartitionId(3);
-    let run_id = RunId([5; 16]);
-    let flow_hash = FlowHash(42);
-    let mut malformed_document_key = run_singleton_key(flow_hash, run_id, RunTable::SearchDocument);
-    malformed_document_key.push(0);
-    let outcome = ApplyOutcome {
-        writes: vec![StateWrite::Put {
-            column_family: ColumnFamily::Flow,
-            key: malformed_document_key,
-            value: vec![],
-        }],
-        effects: vec![],
-        reply: Default::default(),
-        run_id: Some(run_id),
-    };
+    let (start, end) = search_outbox_range_after(partition_id, 0);
+    let first_page = read_outbox_entries(&rows, partition_id, &start, &end, 2).unwrap();
+    assert_eq!(
+        first_page
+            .iter()
+            .map(|entry| (entry.seq, entry.run_id))
+            .collect::<Vec<_>>(),
+        [(10, live_run), (11, purging_run)]
+    );
+    let mut next_start = first_page.last().unwrap().key.clone();
+    next_start.push(0);
+    let second_page = read_outbox_entries(&rows, partition_id, &next_start, &end, 2).unwrap();
+    assert_eq!(
+        second_page
+            .iter()
+            .map(|entry| (entry.seq, entry.run_id))
+            .collect::<Vec<_>>(),
+        [(11, purged_run), (12, live_run)],
+        "a page boundary inside one seq keeps the seq's remaining entries"
+    );
+    let (after_eleven, _) = search_outbox_range_after(partition_id, 11);
+    let after = read_outbox_entries(&rows, partition_id, &after_eleven, &end, 10).unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].tenant_id, tenant_id);
+
+    assert_eq!(
+        read_run_change(&rows, tenant_id, flow_hash, live_run).unwrap(),
+        SearchDocumentChange::Upsert {
+            tenant_id,
+            run_id: live_run,
+            encoded_document: document.encode_to_vec(),
+        }
+    );
+    for run_id in [purging_run, purged_run] {
+        assert_eq!(
+            read_run_change(&rows, tenant_id, flow_hash, run_id).unwrap(),
+            SearchDocumentChange::Delete { tenant_id, run_id }
+        );
+    }
+    rows.0.remove(&(
+        ColumnFamily::Flow,
+        run_singleton_key(flow_hash, live_run, RunTable::SearchDocument),
+    ));
     assert!(matches!(
-        extract_search_document_changes(partition_id, &outcome),
+        read_run_change(&rows, tenant_id, flow_hash, live_run),
         Err(ProjectionError::InvalidState(_))
     ));
-    let mut malformed_index_key = tenant_run_index_key(
-        partition_id,
-        IndexKind::SearchDocument,
-        TenantId(7),
-        flow_hash,
-        run_id,
+    rows.0.insert(
+        (
+            ColumnFamily::PartitionIndex,
+            search_outbox_key(partition_id, 13, flow_hash, live_run)[..20].to_vec(),
+        ),
+        Vec::new(),
     );
-    malformed_index_key.pop();
-    let outcome = ApplyOutcome {
-        writes: vec![StateWrite::Delete {
-            column_family: ColumnFamily::PartitionIndex,
-            key: malformed_index_key,
-        }],
-        effects: vec![],
-        reply: Default::default(),
-        run_id: Some(run_id),
-    };
     assert!(matches!(
-        extract_search_document_changes(partition_id, &outcome),
+        read_outbox_entries(&rows, partition_id, &start, &end, 10),
         Err(ProjectionError::InvalidState(_))
     ));
 }

@@ -38,7 +38,7 @@ use crate::harness::{
     CountingApplier, PARTITION_COUNT, RecordingCommandAndEffectHooks, TestCluster,
 };
 
-async fn start_deterministic_node(
+pub(crate) async fn start_deterministic_node(
     cluster: &TestCluster,
     config: &EngineNodeConfig,
 ) -> (

@@ -232,11 +232,16 @@ pub enum IndexKind {
     /// `tenant_id(8) ‖ scope(1) ‖ [type_length(2) ‖ flow_type] ‖ default order(18) ‖ run_id(16) ‖
     /// flow_hash(8)`, in SearchFlows default order; see `row_keys::search_order_index_key`.
     SearchOrder = 0x0a,
+    /// `seq(8) ‖ flow_hash(8) ‖ run_id(16)`: search document changes for the external search
+    /// projection, in append order; see `row_keys::search_outbox_key`.
+    SearchOutbox = 0x0b,
+    /// No suffix: the partition's SearchProjectionModeRecord; absent means disabled.
+    SearchProjectionMode = 0x0c,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 12] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -247,6 +252,8 @@ impl IndexKind {
         Self::ActiveWork,
         Self::AttributeSyncPending,
         Self::SearchOrder,
+        Self::SearchOutbox,
+        Self::SearchProjectionMode,
     ];
 }
 
@@ -409,7 +416,7 @@ mod tests {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
         assert_eq!(bytes, (1..=26).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=10).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=12).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
     }
