@@ -269,6 +269,11 @@ impl NodeGroup {
     }
 
     /// Returns how many processes `slot` started so far.
+    /// Returns everything `slot`'s current process logged.
+    pub(crate) fn process_log(&mut self, slot: usize) -> String {
+        self.slots[slot].running().log()
+    }
+
     pub(crate) fn process_starts(&self, slot: usize) -> usize {
         self.slots[slot].process_count
     }

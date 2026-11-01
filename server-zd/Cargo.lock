@@ -1378,6 +1378,7 @@ dependencies = [
  "futures",
  "http-body-util",
  "humantime-serde",
+ "hyper-util",
  "libc",
  "prometheus-client",
  "prost",

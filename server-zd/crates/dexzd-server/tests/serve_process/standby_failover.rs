@@ -14,6 +14,7 @@ mod lease_epochs;
 mod node_group;
 mod object_store_endpoints;
 mod readiness_router;
+mod standby_connections;
 mod step_down;
 
 use std::os::unix::process::ExitStatusExt;
