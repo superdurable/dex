@@ -1553,8 +1553,12 @@ async fn a_hot_standby_retries_a_store_directory_another_handle_holds_and_follow
     );
     tokio::time::sleep(Duration::from_secs(10)).await;
     assert_not_failed(&standby.standby.status());
+    // The standby opened no store, but the holder keeps the directory open in this process.
+    let waiter = standby.standby.local_store_close_waiter();
+    assert!(!waiter.wait_until_closed(Duration::from_secs(1)).await);
 
     drop(holder);
+    assert!(waiter.wait_until_closed(Duration::ZERO).await);
     wait_until_caught_up(&cluster, &standby.standby).await;
     assert_eq!(applied_flows(&standby.applier).len(), 2);
     standby.standby.shutdown().await;

@@ -19,7 +19,7 @@ use rustix::io::Errno;
 
 use crate::local_store::StorageResult;
 
-/// RocksDB stores this process opened for writing, by absolute directory, with their counts.
+/// RocksDB stores this process opened for writing, by canonical directory, with their counts.
 static OPEN_DIRECTORIES: Mutex<BTreeMap<PathBuf, usize>> = Mutex::new(BTreeMap::new());
 
 /// Who holds the lock of a RocksDB store directory.
@@ -42,8 +42,15 @@ pub enum DirectoryLockHolder {
 ///
 /// Returns an I/O error when the directory or its `LOCK` file cannot be read.
 pub fn probe_directory_lock(directory: &Path) -> StorageResult<DirectoryLockHolder> {
-    let directory = std::path::absolute(directory)?;
-    // Held while probing, so this process cannot open the store between the check and the probe.
+    let directory = match std::fs::canonicalize(directory) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(DirectoryLockHolder::Nobody);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    // Held until the probe's file closes: closing any descriptor of `LOCK` releases every
+    // `fcntl` lock this process holds on it, so no store of this process may open meanwhile.
     let open_directories = lock_open_directories();
     if open_directories.contains_key(&directory) {
         return Ok(DirectoryLockHolder::ThisProcess);
@@ -69,6 +76,7 @@ pub fn probe_directory_lock(directory: &Path) -> StorageResult<DirectoryLockHold
         }
         Err(error) => return Err(io::Error::from(error).into()),
     };
+    drop(lock_file);
     drop(open_directories);
     Ok(holder)
 }
@@ -77,29 +85,40 @@ pub fn probe_directory_lock(directory: &Path) -> StorageResult<DirectoryLockHold
 ///
 /// A store leaves this set only after its database closed and released the directory's lock.
 pub fn is_directory_open_in_this_process(directory: &Path) -> bool {
-    std::path::absolute(directory)
+    std::fs::canonicalize(directory)
         .is_ok_and(|directory| lock_open_directories().contains_key(&directory))
 }
 
-/// Registers a store this process opens in `directory` until the returned value drops.
+/// Registers a store this process opens in `directory` until the returned value drops. Creates
+/// the directory first, so every alias of it, such as a symbolic link, names one entry.
 ///
-/// Returns an I/O error when the directory has no absolute form.
+/// Returns an I/O error when the directory cannot be created or canonicalized.
 pub(crate) fn register_open_directory(directory: &Path) -> StorageResult<OpenDirectory> {
-    let directory = std::path::absolute(directory)?;
+    std::fs::create_dir_all(directory)?;
+    let canonical = std::fs::canonicalize(directory)?;
     *lock_open_directories()
-        .entry(directory.clone())
+        .entry(canonical.clone())
         .or_default() += 1;
-    Ok(OpenDirectory { directory })
+    Ok(OpenDirectory {
+        directory: canonical,
+        #[cfg(test)]
+        opened_as: directory.to_path_buf(),
+    })
 }
 
 /// A store directory this process has open; dropping it unregisters the directory.
 #[derive(Debug)]
 pub(crate) struct OpenDirectory {
     directory: PathBuf,
+    /// The path the store was opened through, which RocksDB keys its own lock table by.
+    #[cfg(test)]
+    opened_as: PathBuf,
 }
 
 impl Drop for OpenDirectory {
     fn drop(&mut self) {
+        #[cfg(test)]
+        unregister_checks::check_store_closed(&self.directory, &self.opened_as);
         let mut open_directories = lock_open_directories();
         if let Some(count) = open_directories.get_mut(&self.directory) {
             *count -= 1;
@@ -114,4 +133,47 @@ fn lock_open_directories() -> MutexGuard<'static, BTreeMap<PathBuf, usize>> {
     OPEN_DIRECTORIES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Lets a test check that a store's database closed before its directory is unregistered.
+#[cfg(test)]
+pub(crate) mod unregister_checks {
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, PoisonError};
+
+    /// Directories under check, with whether their database still held the lock at unregister.
+    static CHECKED_DIRECTORIES: Mutex<BTreeMap<PathBuf, Option<bool>>> =
+        Mutex::new(BTreeMap::new());
+
+    /// Checks `directory` at its next unregister.
+    pub(crate) fn watch(directory: &Path) {
+        let directory = std::fs::canonicalize(directory).expect("canonicalize the directory");
+        lock().insert(directory, None);
+    }
+
+    /// Returns whether the database still held the lock when `directory` was unregistered.
+    pub(crate) fn was_open_at_unregister(directory: &Path) -> Option<bool> {
+        let directory = std::fs::canonicalize(directory).expect("canonicalize the directory");
+        lock().get(&directory).copied().flatten()
+    }
+
+    pub(super) fn check_store_closed(directory: &Path, opened_as: &Path) {
+        if !lock().contains_key(directory) {
+            return;
+        }
+        // RocksDB checks its own lock table, keyed by the opening path, before the directory.
+        let reopened = rocksdb::DB::open_default(opened_as);
+        let was_open = reopened
+            .as_ref()
+            .is_err_and(|error| error.to_string().contains("lock hold by current process"));
+        drop(reopened);
+        lock().insert(directory.to_path_buf(), Some(was_open));
+    }
+
+    fn lock() -> std::sync::MutexGuard<'static, BTreeMap<PathBuf, Option<bool>>> {
+        CHECKED_DIRECTORIES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
 }

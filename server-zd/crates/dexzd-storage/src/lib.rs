@@ -35,6 +35,8 @@ pub use state_comparison::{
 #[cfg(test)]
 mod compaction_tests;
 #[cfg(test)]
+mod directory_lock_tests;
+#[cfg(test)]
 mod snapshot_crash_tests;
 #[cfg(test)]
 mod tests;
