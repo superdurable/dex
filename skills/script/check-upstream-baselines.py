@@ -189,6 +189,7 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "| **no_outbox_progress** | An older server release, which had no outbox, wrote the progress |",
         "| **enabled_after_progress** | The cluster switched from SQL search to builtin search and back to the same schema |",
         "| **acked_after_progress** | The database was restored to a point before entries that the cluster already acknowledged |",
+        "| **ahead_of_committed_state** | A defensive check: the progress is ahead of committed state.",
         "Loads happen only at startup,\nnever because the database is slow.",
         "After a restart or a takeover, it also waits for entries already in\n"
         "the local store and for loading partitions.",
@@ -217,6 +218,7 @@ SERVER_ZD_LATEST_STATEMENTS = (
         'Self::NoOutboxProgress => "no_outbox_progress",',
         'Self::EnabledAfterProgress => "enabled_after_progress",',
         'Self::AckedAfterProgress => "acked_after_progress",',
+        'Self::AheadOfCommittedState => "ahead_of_committed_state",',
     )),
     ("server-zd/v0.1.14", "server-zd/crates/dexzd-metrics/src/lib.rs", (
         '"dexzd_search_outbox_entries",',
@@ -255,7 +257,8 @@ SEARCH_PROJECTION_REFERENCES = (
         "Search results lag, but no change is lost and nothing is rebuilt.",
         "When the wait expires, SearchFlows returns UNAVAILABLE; it never returns results that miss such a write",
         "Applications still treat search as [eventually consistent](read-after-write.md).",
-        "`acked_after_progress` after the SQL database was restored to an earlier point. Loads happen only at startup.",
+        "`ahead_of_committed_state` when the progress is ahead of committed state, as after an object storage restore that reuses the schema. "
+        "Loads happen only at startup.",
         "SearchFlows returns INTERNAL until the server restarts.",
         "the projection is fenced and SearchFlows returns UNAVAILABLE.",
         "Optional `search.outboxBatchSize` (default 1000)",
