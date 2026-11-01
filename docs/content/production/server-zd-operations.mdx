@@ -11,7 +11,7 @@ commits every write to object storage before it acknowledges the write. The
 local disk is only a cache. A node rebuilds it from the latest snapshot and the
 command log in object storage.
 
-server-zd serves the **FlowService** and **WorkerTaskService** API. It supports
+server-zd serves the **FlowService**, **WorkerTaskService**, and **AdminService** API. It supports
 only [pull Workers](/production/pull-workers). Run [Dex Web](/production/dex-web)
 as a separate process; server-zd does not serve it. For local development, run
 **dexcli dev**, which starts server-zd and Dex Web. This page covers server-zd
@@ -413,7 +413,7 @@ The other **standby** fields have defaults that fit most deployments:
 | **behindLagThreshold** | 10s | Hot mode only. The lag above which a standby is behind instead of hot. |
 
 **hot** needs **lease.failIfHeld** set to false. **dex-server-zd dev** accepts
-only **cold**. **stepDownHoldOff** must be longer than
+only **cold**. In hot mode, **stepDownHoldOff** must be longer than
 **laggingTakeoverDelay** plus **heldLeasePollInterval**. A release without hot
 standby rejects a configuration that has a **standby** section. Upgrade every
 process before you add the section.
@@ -454,6 +454,15 @@ ready to take over.
 A standby never passes a startup or liveness probe on gRPC health. Give it a
 TCP or exec startup probe and liveness probe.
 
+A standby closes each client connection after about 3 seconds. A client that
+reached it, such as through a Service endpoint that was not yet updated, then
+reconnects and reaches the active process.
+
+A process whose node lease is no longer valid, such as one resumed after a
+freeze longer than its lease, answers public API calls with **UNAVAILABLE** and
+readiness names with **NOT_SERVING** at once, before it exits. It never answers
+a read from state that another process may have changed since.
+
 ### Kubernetes {#hot-standby-kubernetes}
 
 Change the [StatefulSet example](#one-replica-in-a-statefulset) as follows:
@@ -476,6 +485,29 @@ To update both pods:
 Instead of deleting the active pod in step 2, you can
 [step it down](#step-down). It then keeps running until another process takes
 over.
+
+### Lease duration and alerts {#hot-standby-lease-and-alerts}
+
+Keep **lease.duration** at about 10 seconds, the default, when a standby is
+deployed. After a crash, the standby waits until the old lease expires, plus 1
+second, so the lease bounds the failover time. Do not lower it much when you use
+[Attribute Store sync](#attribute-store): a write transaction lasts at most a
+quarter of **lease.duration**, 2.5 seconds with a 10-second lease. See
+[Write timeout](#attribute-store-write-timeout).
+
+Alert when no standby is ready to take over, when a standby failed or keeps
+restarting, and when its lag grows:
+
+~~~text
+# No hot standby
+sum(dexzd_hot_standby_state{state="following"}) == 0
+
+# A standby failed or restarts
+max_over_time(dexzd_hot_standby_state{state=~"failed|restarting"}[5m]) == 1
+
+# A standby lag that keeps growing
+dexzd_hot_standby_lag_seconds > 5
+~~~
 
 ## Step down the active process {#step-down}
 
@@ -1206,10 +1238,9 @@ When authentication is off, as on a local development server, admin calls need
 no credential. Anyone who can reach **api.listen** can then step the node down,
 again and again.
 
-server-zd validates **adminAudiences** at startup. Once it serves
-**AdminService**, it logs each authorized admin call with the caller's **iss**
-and **sub** claims. It logs denied admin calls as warnings, at most once every
-10 seconds. Until then, the setting has no other effect.
+server-zd validates **adminAudiences** at startup. It logs each authorized admin
+call with the caller's **iss** and **sub** claims. It logs denied admin calls as
+warnings, at most once every 10 seconds.
 
 ## Server and SDK protocol compatibility
 

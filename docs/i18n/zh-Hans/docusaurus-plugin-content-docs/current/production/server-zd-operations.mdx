@@ -9,7 +9,7 @@ server-zd 是一种 Dex Server，运行时只依赖对象存储，例如 Amazon 
 它把 Flow 状态保存在本地存储中，每次写入都先提交到对象存储，再向调用方确认。本地磁盘
 只是缓存。节点会用对象存储中最新的快照和命令日志重建它。
 
-server-zd 提供 **FlowService** 和 **WorkerTaskService** API，只支持
+server-zd 提供 **FlowService**、**WorkerTaskService** 和 **AdminService** API，只支持
 [拉取模式 Worker](/production/pull-workers)。[Dex Web](/production/dex-web) 需要作为单独的进程运行，
 server-zd 不提供它。本地开发时运行 **dexcli dev**，它会启动 server-zd 和 Dex Web。本页介绍
 server-zd 0.1。
@@ -349,7 +349,7 @@ standby:
 | **behindLagThreshold** | 10s | 仅 hot 模式。落后超过这个值时，standby 算作 behind，不再算热。 |
 
 **hot** 需要把 **lease.failIfHeld** 设为 false。**dex-server-zd dev** 只接受
-**cold**。**stepDownHoldOff** 必须大于 **laggingTakeoverDelay** 加
+**cold**。hot 模式下，**stepDownHoldOff** 必须大于 **laggingTakeoverDelay** 加
 **heldLeasePollInterval**。不支持热 standby 的版本会拒绝带 **standby** 段的配置。先升级
 所有进程，再加这一段。
 
@@ -382,6 +382,13 @@ cold standby 上，以及 standby bootstrap、重启或 behind 时，报告 **NO
 standby 永远过不了基于 gRPC health 的 startup probe 或 liveness probe。给它使用 TCP 或
 exec 的 startup probe 和 liveness probe。
 
+standby 大约每 3 秒关闭一次每个客户端连接。连到它的客户端，例如通过尚未更新的 Service
+endpoint 连上的，随后会重新连接并到达 active 进程。
+
+node lease 已经失效的进程，例如冻结时间超过 lease 后恢复的进程，会立即对公开 API 调用返回
+**UNAVAILABLE**，对 readiness 名报告 **NOT_SERVING**，然后退出。它不会用其他进程可能已经
+改变的状态回答读请求。
+
 ### Kubernetes {#hot-standby-kubernetes}
 
 对 [StatefulSet 示例](#statefulset-单副本)做以下修改：
@@ -402,6 +409,27 @@ exec 的 startup probe 和 liveness probe。
 
 第 2 步也可以不删除 active pod，而是让它[让位](#step-down)。这样它会一直运行，直到另一个
 进程接管。
+
+### Lease 时长和告警 {#hot-standby-lease-and-alerts}
+
+部署了 standby 时，把 **lease.duration** 保持在默认的 10 秒左右。崩溃之后，standby 要等旧
+lease 过期再加 1 秒，所以 lease 决定了故障切换的时间上限。使用
+[Attribute Store 同步](#attribute-store)时不要把它调得太低：一个写事务最长持续
+**lease.duration** 的四分之一，10 秒的 lease 下是 2.5 秒。见
+[写入超时](#attribute-store-write-timeout)。
+
+在没有 standby 可以接管、standby 失败或反复重启、以及它的落后持续增长时告警：
+
+~~~text
+# No hot standby
+sum(dexzd_hot_standby_state{state="following"}) == 0
+
+# A standby failed or restarts
+max_over_time(dexzd_hot_standby_state{state=~"failed|restarting"}[5m]) == 1
+
+# A standby lag that keeps growing
+dexzd_hot_standby_lag_seconds > 5
+~~~
 
 ## 让 active 进程让位 {#step-down}
 
@@ -1022,9 +1050,8 @@ command。
 身份验证关闭时（例如本地开发 server），admin 调用不需要凭证。这时任何能访问
 **api.listen** 的人都可以让节点让位，而且可以反复这样做。
 
-server-zd 在启动时校验 **adminAudiences**。提供 **AdminService** 之后，server-zd 会记录
-每个被授权的 admin 调用，以及调用方的 **iss** 和 **sub** claim。被拒绝的 admin 调用以
-warning 记录，最多每 10 秒一次。在此之前，这个设置没有其他作用。
+server-zd 在启动时校验 **adminAudiences**，并记录每个被授权的 admin 调用，以及调用方的
+**iss** 和 **sub** claim。被拒绝的 admin 调用以 warning 记录，最多每 10 秒一次。
 
 ## Server 与 SDK 的协议兼容性
 

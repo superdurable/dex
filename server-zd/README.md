@@ -658,16 +658,26 @@ standby:
   alone decides who takes over.
 - An error before the lease keeps the standby following and retries the takeover with backoff from
   1 s to 30 s.
-- `hot` needs `lease.failIfHeld: false`; `dev` accepts only `cold`; `stepDownHoldOff` must exceed
-  `laggingTakeoverDelay` plus `heldLeasePollInterval`.
+- `hot` needs `lease.failIfHeld: false`; `dev` accepts only `cold`; in hot mode,
+  `stepDownHoldOff` must exceed `laggingTakeoverDelay` plus `heldLeasePollInterval`.
+- A standby's gRPC instance closes each connection after 3 s, with a 1 s grace, so a client that
+  reached a standby reconnects. At a takeover the process starts a serving instance without that
+  limit and retires the standby instance.
+- FlowService and WorkerTaskService calls answer UNAVAILABLE "the node lease is not valid", and
+  readiness names NOT_SERVING, whenever the lease validity deadline has passed, checked when a call
+  arrives and again before its response. A process resumed after a freeze therefore answers no read
+  from stale state.
 
-A step down stops the public services, waits up to 4 s for in-flight RPCs, stops every component of
-the serving period, and releases the lease. The process then starts a new gRPC instance and stands by.
-The old instance keeps the connection of the step down call until its answer is sent, then sends
-GOAWAY so clients reconnect through the Service. During the hold-off the process watches the lease
-and answers as soon as another process takes over. After the hold-off it competes again and answers
-that it took the lease back. If the release is not confirmed, it stops renewing, answers
-`LeaseReleaseUnconfirmed`, and stands by until the lease expires.
+A step down stops the public services and waits up to 4 s for in-flight RPCs and for public calls
+whose responses are still being written. It then stops every component of the serving period and
+releases the lease. The process starts a new standby gRPC instance and, before it reopens the local
+store as a standby or to take the lease back, waits up to 5 s for the old store to close. The old
+instance keeps the connection of the step down call until its answer is sent, then sends GOAWAY
+after 250 ms so clients reconnect through the Service. During the hold-off the process watches the
+lease and answers as soon as another process takes over. After the hold-off it competes again and
+answers that it took the lease back. If the release is not confirmed, it stops renewing, answers
+`LeaseReleaseUnconfirmed`, and stands by until the lease expires. If the node stopped while the
+step down was being accepted, the call answers `Internal` and the process exits.
 
 ### Container image
 
