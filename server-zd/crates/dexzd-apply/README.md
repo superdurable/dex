@@ -23,7 +23,11 @@ document change and run purge appends a `SearchOutbox` partition index entry.
 Its seq is the command's `proposed_at_micros`, which the committer raises in log
 order within a partition, so speculative and committed apply write the same key.
 Only `SetSearchProjectionModeCommand` and `SearchOutboxAckCommand` write the mode
-record; disabling deletes the queue, and an ack range-deletes through its seq.
+record; disabling deletes the queue, and an ack deletes the entries after the
+previous acked seq through its own seq. Enabling a disabled mode records the
+enabling command's seq as `enabled_at_seq`, so SQL progress below it is known to
+miss changes. An ack whose seq is not below its own command's seq is rejected
+with INVALID_ARGUMENT and writes nothing.
 Replayed commands append nothing; the outer command appends with its own seq.
 An append at or below the acknowledged seq is an invariant violation.
 
