@@ -82,6 +82,9 @@ pub(crate) struct CommitState {
     store_writes: RwLock<()>,
     halted_partitions: Vec<AtomicBool>,
     lease_validity_deadline: LeaseValidityDeadline,
+    /// Store writes that `begin_store_write` refused after the stop.
+    #[cfg(feature = "test-util")]
+    refused_store_writes: std::sync::atomic::AtomicU64,
 }
 
 impl CommitState {
@@ -98,6 +101,8 @@ impl CommitState {
                 .map(|_| AtomicBool::new(false))
                 .collect(),
             lease_validity_deadline,
+            #[cfg(feature = "test-util")]
+            refused_store_writes: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -160,7 +165,18 @@ impl CommitState {
             .store_writes
             .read()
             .expect("store write lock is not poisoned");
-        self.stop_reason().is_none().then_some(store_write)
+        let is_admitted = self.stop_reason().is_none();
+        #[cfg(feature = "test-util")]
+        if !is_admitted {
+            self.refused_store_writes.fetch_add(1, Ordering::SeqCst);
+        }
+        is_admitted.then_some(store_write)
+    }
+
+    /// Returns how many store writes [`Self::begin_store_write`] refused after the stop.
+    #[cfg(feature = "test-util")]
+    pub(crate) fn refused_store_writes_for_test(&self) -> u64 {
+        self.refused_store_writes.load(Ordering::SeqCst)
     }
 
     pub(crate) fn check_serving(&self) -> Result<(), CommitError> {

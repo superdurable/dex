@@ -47,6 +47,34 @@ pub enum LocalStoreConfig {
     ExistingForTest(Arc<EngineLocalStore>),
 }
 
+impl LocalStoreConfig {
+    /// Returns whether `other` names the same store, such as the same RocksDB directory.
+    ///
+    /// RocksDB tuning is not compared: a store handed over keeps the options it was opened with.
+    pub(crate) fn is_same_store(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::RocksDb { directory, .. },
+                Self::RocksDb {
+                    directory: other_directory,
+                    ..
+                },
+            ) => directory == other_directory,
+            (Self::InMemory, Self::InMemory) => true,
+            #[cfg(feature = "test-util")]
+            (Self::ExistingForTest(store), Self::ExistingForTest(other_store)) => {
+                Arc::ptr_eq(store, other_store)
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns whether the store lives in a directory that only one open handle may use.
+    pub(crate) fn has_directory(&self) -> bool {
+        matches!(self, Self::RocksDb { .. })
+    }
+}
+
 impl fmt::Debug for LocalStoreConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -69,9 +97,6 @@ pub(crate) struct LocalStoreRequirements<'a> {
     pub(crate) partition_count: u32,
     /// Lineage of a store this start creates empty or restores from a snapshot.
     pub(crate) new_store_lineage_id: Uuid,
-    /// Sets an existing store aside and restores the newest snapshot, for a store known to diverge
-    /// from the log.
-    pub(crate) should_discard_existing_store: bool,
 }
 
 /// The lowest applied batch over every partition, ordered by incarnation, then seq.
@@ -101,12 +126,7 @@ pub(crate) async fn open_local_store(
         }
         #[cfg(feature = "test-util")]
         LocalStoreConfig::ExistingForTest(store) => {
-            let reusable = if requirements.should_discard_existing_store {
-                None
-            } else {
-                reusable_existing_store(store, requirements)?
-            };
-            match reusable {
+            match reusable_open_store(store, requirements)? {
                 Some(store) => {
                     return Ok(OpenedLocalStore {
                         store,
@@ -130,11 +150,19 @@ pub(crate) async fn open_local_store(
 }
 
 /// Returns `store` when the retained log can update it, like a reopened RocksDB directory.
-#[cfg(feature = "test-util")]
-fn reusable_existing_store(
+pub(crate) fn reusable_open_store(
     store: &Arc<EngineLocalStore>,
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<Option<Arc<EngineLocalStore>>, EngineStartError> {
+    if let Some(other_node_id) =
+        applied_node_other_than(store.as_ref(), &requirements.streams.node_id)?
+    {
+        tracing::warn!(
+            other_node_id,
+            "the existing local store applied another node's log; restoring the newest snapshot"
+        );
+        return Ok(None);
+    }
     if requirements.snapshot.is_some()
         && lowest_applied_position(store.as_ref(), requirements.partition_count)?.is_none()
     {
@@ -197,10 +225,7 @@ async fn open_rocksdb_store(
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<(RestoredLocalStore, Option<Uuid>), EngineStartError> {
     let mut set_aside_id = None;
-    if is_nonempty_directory(directory)? && requirements.should_discard_existing_store {
-        tracing::warn!("the local store diverged from the log; restoring the newest snapshot");
-        set_aside_id = Some(set_aside(directory)?);
-    } else if is_nonempty_directory(directory)? {
+    if is_nonempty_directory(directory)? {
         match RocksDbLocalStore::open(directory, options) {
             Ok(store)
                 if requirements.snapshot.is_some()
@@ -260,7 +285,7 @@ async fn open_rocksdb_store(
 /// Returns why `store` diverged from the log when a partition applied a batch past the recorded
 /// end of a closed stream, and `None` otherwise. Only a store that followed a batch the log
 /// does not hold has such a position.
-pub(crate) fn find_position_past_closed_end(
+fn find_position_past_closed_end(
     store: &dyn LocalReadView,
     streams: &NodeStreams,
 ) -> Result<Option<EngineStartError>, EngineStartError> {
@@ -290,6 +315,9 @@ pub(crate) fn find_unreplayable_gap(
     streams: &NodeStreams,
     partition_count: u32,
 ) -> Result<Option<EngineStartError>, EngineStartError> {
+    if let Some(divergence) = find_position_past_closed_end(store, streams)? {
+        return Ok(Some(divergence));
+    }
     let applied = lowest_applied_position(store, partition_count)?;
     let open_incarnation = streams.open_segment().incarnation;
     if let Some(applied) = applied
@@ -331,6 +359,19 @@ pub(crate) fn find_unreplayable_gap(
         }
     }
     Ok(None)
+}
+
+/// Returns a node other than `node_id` whose log a partition of `store` applied, if any.
+fn applied_node_other_than(
+    store: &dyn LocalReadView,
+    node_id: &str,
+) -> Result<Option<String>, EngineStartError> {
+    Ok(store
+        .partition_metas()?
+        .into_iter()
+        .filter_map(|meta| meta.applied)
+        .map(|applied| applied.node_id)
+        .find(|applied_node_id| applied_node_id != node_id))
 }
 
 /// Returns the lowest applied position over every partition, or `None` when a partition

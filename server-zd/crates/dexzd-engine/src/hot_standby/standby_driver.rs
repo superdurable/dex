@@ -28,13 +28,14 @@ use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::EngineNodeConfig;
 use crate::flow_coordination::CommittedFlowCommand;
 use crate::hot_standby::log_follower::{
-    FollowEnd, FollowPacing, FollowProgress, FollowSource, LogFollower, LogFollowerParts,
+    FOLLOWER_STOP_BUDGET, FollowEnd, FollowPacing, FollowProgress, FollowSource, LogFollower,
+    LogFollowerParts,
 };
-use crate::hot_standby::{HotStandbyConfig, StandbyPhase, StandbyStatusCell};
+use crate::hot_standby::{FollowingHandles, HotStandbyConfig, StandbyPhase, StandbyStatusCell};
 use crate::recovery::{
     ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreRequirements,
-    OpenedLocalStore, delete_older_set_aside_stores, find_position_past_closed_end,
-    find_unreplayable_gap, open_local_store, rebuild_search_order_indexes,
+    OpenedLocalStore, delete_older_set_aside_stores, find_unreplayable_gap, open_local_store,
+    rebuild_search_order_indexes,
 };
 
 /// First wait before the standby restarts after an error; it doubles up to the maximum.
@@ -46,6 +47,12 @@ const STORE_RELEASE_BUDGET: Duration = Duration::from_secs(5);
 
 /// Longest wait for the standby's applier lanes to stop.
 const APPLIER_STOP_BUDGET: Duration = Duration::from_secs(3);
+
+/// Longest a driver takes to stop after cancellation: its teardown budgets plus a second of slack.
+pub(super) const DRIVER_STOP_BUDGET: Duration = FOLLOWER_STOP_BUDGET
+    .saturating_add(APPLIER_STOP_BUDGET)
+    .saturating_add(STORE_RELEASE_BUDGET)
+    .saturating_add(Duration::from_secs(1));
 
 /// Keys of one listing page, which bound [`crate::HotStandbyLag::batches`].
 const LAG_LISTING_KEYS: u32 = 1_000;
@@ -63,6 +70,8 @@ pub(super) struct StandbyDriver {
     pub(super) status: Arc<StandbyStatusCell>,
     /// Spreads restart delays of different processes apart.
     pub(super) restart_jitter_seed: u64,
+    /// The write fence and store of the current following period, for the handle to reach.
+    pub(super) following: Arc<FollowingHandles>,
     pub(super) cancellation: CancellationToken,
 }
 
@@ -79,19 +88,21 @@ struct FollowingStandby {
 /// How one period of following ended.
 enum FollowingOutcome {
     /// Bootstrap again: log cleanup outran the store, or an error that a restart may fix.
-    Restart {
-        error: Option<String>,
-    },
+    Restart { error: Option<String> },
     /// A configuration error that no restart fixes.
     Failed(EngineStartError),
-    Cancelled,
+    /// Carries the open store when its write fence stopped only for this cancellation.
+    Cancelled {
+        store: Option<Arc<EngineLocalStore>>,
+    },
 }
 
 /// A period of following and the furthest log position it read to.
 struct FollowedPeriod {
     outcome: FollowingOutcome,
     reached: FollowPosition,
-    /// Whether it read past every position that earlier periods reached.
+    /// Whether it read past every position that earlier periods reached, or reached the log end
+    /// there.
     is_progressing: bool,
 }
 
@@ -105,8 +116,20 @@ struct RestartDelays {
 }
 
 impl StandbyDriver {
-    /// Runs until cancelled or until a configuration error.
-    pub(super) async fn run(self) {
+    /// Runs until cancelled or until a configuration error, and reports `Stopped` after a
+    /// cancellation.
+    ///
+    /// Returns the open store when cancellation stopped following with a clean write fence.
+    pub(super) async fn run(self) -> Option<Arc<EngineLocalStore>> {
+        let store = self.run_until_stopped().await;
+        if self.cancellation.is_cancelled() {
+            self.status.set(StandbyPhase::Stopped);
+        }
+        store
+    }
+
+    /// Returns the open store when cancellation stopped following with a clean write fence.
+    async fn run_until_stopped(&self) -> Option<Arc<EngineLocalStore>> {
         let mut delays = RestartDelays {
             jitter_seed: self.restart_jitter_seed,
             restarts: 0,
@@ -117,27 +140,28 @@ impl StandbyDriver {
             self.status.set(StandbyPhase::Bootstrapping);
             let bootstrapped = tokio::select! {
                 biased;
-                () = self.cancellation.cancelled() => return,
+                () = self.cancellation.cancelled() => return None,
                 bootstrapped = self.bootstrap() => bootstrapped,
             };
             let following = match bootstrapped {
                 Ok(Some(following)) => following,
                 Ok(None) => {
                     tracing::info!("the hot standby waits for the cluster object and manifest");
-                    if !self.sleep_unless_cancelled(delays.next_delay()).await {
-                        return;
+                    // Polls without backoff, so a standby of a new cluster follows it promptly.
+                    if !self.sleep_unless_cancelled(RESTART_DELAY_INITIAL).await {
+                        return None;
                     }
                     continue;
                 }
                 Err(error) if is_bootstrap_configuration_error(&error, has_followed) => {
                     self.fail(error);
-                    return;
+                    return None;
                 }
                 Err(error) => {
                     tracing::warn!(%error, "the hot standby could not bootstrap; retrying");
                     self.status.set_last_error(Some(error.to_string()));
                     if !self.wait_to_restart(&mut delays).await {
-                        return;
+                        return None;
                     }
                     continue;
                 }
@@ -160,14 +184,14 @@ impl StandbyDriver {
                     }
                     // A standby that log cleanup keeps outrunning backs off between snapshots too.
                     if !self.wait_to_restart(&mut delays).await {
-                        return;
+                        return None;
                     }
                 }
                 FollowingOutcome::Failed(error) => {
                     self.fail(error);
-                    return;
+                    return None;
                 }
-                FollowingOutcome::Cancelled => return,
+                FollowingOutcome::Cancelled { store } => return store,
             }
         }
     }
@@ -189,37 +213,23 @@ impl StandbyDriver {
         };
         let partition_count = metadata.partition_count();
         let cluster_id = metadata.cluster_id()?;
-        let mut requirements = LocalStoreRequirements {
-            snapshot: metadata.node_snapshot(&config.node.node_id),
-            streams: &metadata.streams,
-            partition_count,
-            new_store_lineage_id: self.id_source.store_lineage_id(),
-            should_discard_existing_store: false,
-        };
-        let mut opened = open_local_store(
-            &config.local_store,
-            self.object_store.as_ref(),
-            &requirements,
-        )
-        .await?;
-        if let Some(divergence) =
-            find_position_past_closed_end(opened.store.as_ref(), &metadata.streams)?
-        {
-            tracing::error!(%divergence, "the hot standby's store diverged from the log; restoring the newest snapshot");
-            drop(opened);
-            requirements.should_discard_existing_store = true;
-            requirements.new_store_lineage_id = self.id_source.store_lineage_id();
-            opened = open_local_store(
-                &config.local_store,
-                self.object_store.as_ref(),
-                &requirements,
-            )
-            .await?;
-        }
+        self.following.set_cluster_id(cluster_id);
+        // The gap check sets aside a store that applied a batch past a closed stream's end.
         let OpenedLocalStore {
             store,
             set_aside_id,
-        } = opened;
+        } = open_local_store(
+            &config.local_store,
+            self.object_store.as_ref(),
+            &LocalStoreRequirements {
+                snapshot: metadata.node_snapshot(&config.node.node_id),
+                streams: &metadata.streams,
+                partition_count,
+                new_store_lineage_id: self.id_source.store_lineage_id(),
+            },
+        )
+        .await?;
+        self.following.set_store(Arc::downgrade(&store));
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {
             tracing::info!(
@@ -239,17 +249,20 @@ impl StandbyDriver {
             partition_count,
             LeaseValidityDeadline::disarmed(),
         ));
+        let frame_applier = FrameApplier::new(FrameApplierParts {
+            metrics: self.metrics.clone(),
+            store: store.clone(),
+            applier: self.applier.clone(),
+            hasher: metadata.cluster.partition_hasher.clone(),
+            state: write_fence.clone(),
+            committed_commands: Arc::new(IgnoredCommittedCommands),
+            is_checking_replay: config.commit.debug_replay_checks,
+            blocking_work: config.blocking_work,
+        })?;
+        // Recorded before any lane exists, so dropping the handle fences every lane.
+        self.following.set_write_fence(Some(write_fence.clone()));
         let appliers = Arc::new(PartitionApplierPool::start(
-            FrameApplier::new(FrameApplierParts {
-                metrics: self.metrics.clone(),
-                store: store.clone(),
-                applier: self.applier.clone(),
-                hasher: metadata.cluster.partition_hasher.clone(),
-                state: write_fence.clone(),
-                committed_commands: Arc::new(IgnoredCommittedCommands),
-                is_checking_replay: config.commit.debug_replay_checks,
-                blocking_work: config.blocking_work,
-            })?,
+            frame_applier,
             config.commit.applier_lanes,
             config.commit.applier_queue_frames,
         ));
@@ -276,6 +289,7 @@ impl StandbyDriver {
             Ok(follower) => follower,
             Err(error) => {
                 stop_appliers(&write_fence, &appliers).await;
+                self.following.set_write_fence(None);
                 return Err(error);
             }
         };
@@ -312,14 +326,18 @@ impl StandbyDriver {
         let outcome = loop {
             tokio::select! {
                 biased;
-                () = self.cancellation.cancelled() => break FollowingOutcome::Cancelled,
+                () = self.cancellation.cancelled() => {
+                    break FollowingOutcome::Cancelled { store: None };
+                }
                 end = following.follower.wait_for_end() => break outcome_of_follow_end(end),
                 () = tokio::time::sleep_until(next_refresh) => {
                     next_refresh = Instant::now() + refresh_interval;
                     // Headroom past the advance's own timeout leaves time for the reads around it.
                     let refreshed = tokio::select! {
                         biased;
-                        () = self.cancellation.cancelled() => break FollowingOutcome::Cancelled,
+                        () = self.cancellation.cancelled() => {
+                            break FollowingOutcome::Cancelled { store: None };
+                        }
                         refreshed = tokio::time::timeout(
                             refresh_interval.saturating_mul(2),
                             self.refresh(&mut following),
@@ -330,14 +348,14 @@ impl StandbyDriver {
                         Ok(None) => {}
                         Err(_) => tracing::warn!("rereading the manifest took too long; retrying"),
                     }
-                    if !is_progressing && position_of(&progress.borrow()) > progress_threshold {
+                    if !is_progressing && self.has_progressed(&progress.borrow(), progress_threshold) {
                         is_progressing = true;
                         self.status.set_last_error(None);
                     }
                 }
             }
         };
-        if !matches!(outcome, FollowingOutcome::Cancelled) {
+        if !matches!(outcome, FollowingOutcome::Cancelled { .. }) {
             self.status
                 .set(StandbyPhase::Restarting { restart_at: None });
         }
@@ -350,17 +368,37 @@ impl StandbyDriver {
         } = following;
         let followed_store = follower.stop().await;
         stop_appliers(&write_fence, &appliers).await;
-        drop((appliers, followed_store));
-        if !matches!(outcome, FollowingOutcome::Cancelled) {
+        let is_cleanly_fenced = write_fence.stop_reason() == Some(NodeStopReason::Shutdown);
+        self.following.set_write_fence(None);
+        drop((appliers, followed_store, write_fence));
+        let outcome = match outcome {
+            FollowingOutcome::Cancelled { .. } if is_cleanly_fenced => {
+                FollowingOutcome::Cancelled { store: Some(store) }
+            }
+            // A failed store write leaves the store untrusted, so a takeover opens it cold.
+            FollowingOutcome::Cancelled { .. } => FollowingOutcome::Cancelled { store: None },
             // The next bootstrap reopens the store's directory, which its last handle locks.
-            release_store(store).await;
-        }
+            outcome @ (FollowingOutcome::Restart { .. } | FollowingOutcome::Failed(_)) => {
+                release_store(store).await;
+                outcome
+            }
+        };
         let reached = position_of(&progress.borrow());
         FollowedPeriod {
             outcome,
             reached,
             is_progressing: is_progressing || reached > progress_threshold,
         }
+    }
+
+    /// Returns whether following read past `threshold`, or waits at the log end there with no
+    /// later batch listed, so not at a hole.
+    fn has_progressed(&self, progress: &FollowProgress, threshold: FollowPosition) -> bool {
+        let position = position_of(progress);
+        position > threshold
+            || (position == threshold
+                && progress.is_caught_up
+                && self.status.listing() == Some((progress.next_seq, 0)))
     }
 
     /// Rereads the manifest, checks the store against it, and passes it to the follower.
@@ -534,7 +572,13 @@ async fn release_store(store: Arc<EngineLocalStore>) {
 }
 
 /// Stops writes through `write_fence`, then waits for the applier lanes.
+///
+/// A fence that its owner stopped already ends following quickly: a lane that outlives it can
+/// no longer write, and the store's last handle closes it.
 async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPool) {
+    if write_fence.stop_reason().is_some() {
+        return;
+    }
     write_fence.stop(NodeStopReason::Shutdown);
     if tokio::time::timeout(APPLIER_STOP_BUDGET, appliers.shutdown())
         .await

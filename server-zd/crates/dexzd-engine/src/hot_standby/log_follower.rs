@@ -26,7 +26,7 @@ use crate::recovery::{
 };
 
 /// Longest wait when a follower stops for its queued frames and final position advance.
-const FOLLOWER_STOP_BUDGET: Duration = Duration::from_secs(3);
+pub(super) const FOLLOWER_STOP_BUDGET: Duration = Duration::from_secs(3);
 
 /// What a log follower reads: the recorded log segments of the followed node, oldest first.
 #[derive(Debug, Clone)]
@@ -95,6 +95,7 @@ pub(crate) struct LogFollowerParts {
 /// Applies each accepted batch of a node's log in seq order, waiting at the first missing seq.
 pub(crate) struct LogFollower {
     store: Arc<EngineLocalStore>,
+    write_fence: Arc<CommitState>,
     advancer: Arc<AppliedPositionAdvancer>,
     sources: watch::Sender<FollowSource>,
     progress: watch::Receiver<FollowProgress>,
@@ -163,7 +164,7 @@ impl LogFollower {
             FollowTask {
                 object_store,
                 appliers,
-                write_fence,
+                write_fence: Arc::clone(&write_fence),
                 cluster_id,
                 node_id,
                 pacing,
@@ -176,6 +177,7 @@ impl LogFollower {
         );
         Ok(Self {
             store,
+            write_fence,
             advancer,
             sources,
             progress,
@@ -239,9 +241,16 @@ impl LogFollower {
         if let Some(task) = self.advance_task.take() {
             finish_stopped_task(task, stop_deadline).await;
         }
-        match tokio::time::timeout_at(stop_deadline, self.advancer.advance_to_last_queued_batch())
-            .await
-        {
+        // A stopped fence refuses position writes, so waiting for queued frames gains nothing.
+        let advanced = tokio::select! {
+            biased;
+            _ = self.write_fence.wait_stopped() => Ok(Ok(())),
+            advanced = tokio::time::timeout_at(
+                stop_deadline,
+                self.advancer.advance_to_last_queued_batch(),
+            ) => advanced,
+        };
+        match advanced {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
                 tracing::warn!(%error, "applied positions were not advanced as the follower stopped");
@@ -405,7 +414,8 @@ impl FollowTask {
         };
         let mut backoff = self.pacing.initial_poll_backoff;
         let mut stalled: Option<StalledSeq> = None;
-        let mut last_accepted_seq: Option<u64> = None;
+        // The store applied every seq before the cursor, from this or an earlier period.
+        let mut last_accepted_seq = cursor.next_seq.checked_sub(1).filter(|seq| *seq > 0);
         loop {
             if self.sources.has_changed().unwrap_or(false) {
                 match self.apply_source_update(

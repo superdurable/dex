@@ -43,7 +43,10 @@ pub use effects::{
 #[cfg(feature = "test-util")]
 pub use engine_id_source::SeededEngineIdSourceForTest;
 pub use engine_id_source::{EngineIdSource, SystemEngineIdSource};
-pub use engine_node::{EngineNode, EngineNodeConfig, EngineNodeDependencies};
+pub use engine_node::{
+    EngineNode, EngineNodeConfig, EngineNodeDependencies, HotStandbyTakeover,
+    HotStandbyTakeoverError,
+};
 pub use flow_coordination::HardDeleteUploads as FlowCoordinationHardDeleteUploads;
 pub use flow_coordination::ReplayMismatch as SpeculativeOutcomeMismatch;
 pub use flow_coordination::{
@@ -55,9 +58,11 @@ pub use flow_coordination::{
     RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult, default_run_settings,
     grpc_code,
 };
+#[cfg(feature = "test-util")]
+pub use hot_standby::HotStandbyProbeForTest;
 pub use hot_standby::{
     HotStandby, HotStandbyConfig, HotStandbyDependencies, HotStandbyLag, HotStandbyState,
-    HotStandbyStatus,
+    HotStandbyStatus, HotStandbyStatusReader,
 };
 pub use long_poll::{
     ATTRIBUTE_REQUEST_TIMEOUT_MESSAGE, STEP_COMPLETION_REQUEST_TIMEOUT_MESSAGE,
