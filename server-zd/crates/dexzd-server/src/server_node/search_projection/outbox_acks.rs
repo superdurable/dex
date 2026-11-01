@@ -49,6 +49,14 @@ struct PartitionAcks {
     acked: u64,
     is_in_flight: bool,
     last_proposed_at: Option<Instant>,
+    /// The partition stopped applying commands, so its acks wait for a restart.
+    is_halted: bool,
+}
+
+impl PartitionAcks {
+    fn is_waiting(&self) -> bool {
+        !self.segments.is_empty() && !self.is_in_flight && !self.is_halted
+    }
 }
 
 struct AckCompletion {
@@ -108,14 +116,24 @@ impl OutboxAcks {
         let now = Instant::now();
         for index in 0..self.partitions.len() {
             let acks = &self.partitions[index];
-            let is_due = !acks.segments.is_empty()
-                && !acks.is_in_flight
+            let is_due = acks.is_waiting()
                 && acks.last_proposed_at.is_none_or(|proposed_at| {
                     now.duration_since(proposed_at) >= self.cfg.outbox_ack_interval
                 });
-            if is_due {
-                self.propose(index, now);
+            if !is_due {
+                continue;
             }
+            let partition =
+                PartitionId(u16::try_from(index).expect("the manifest limits partitions to u16"));
+            if self.committer.is_partition_halted(partition) {
+                tracing::warn!(
+                    partition = partition.0,
+                    "a stopped partition keeps its search outbox entries until a restart"
+                );
+                self.partitions[index].is_halted = true;
+                continue;
+            }
+            self.propose(partition, now);
         }
     }
 
@@ -124,7 +142,7 @@ impl OutboxAcks {
         let now = Instant::now();
         self.partitions
             .iter()
-            .filter(|acks| !acks.segments.is_empty() && !acks.is_in_flight)
+            .filter(|acks| acks.is_waiting())
             .map(|acks| {
                 acks.last_proposed_at.map_or(Duration::ZERO, |proposed_at| {
                     self.cfg
@@ -143,9 +161,8 @@ impl OutboxAcks {
         }
     }
 
-    fn propose(&mut self, index: usize, now: Instant) {
-        let partition =
-            PartitionId(u16::try_from(index).expect("the manifest limits partitions to u16"));
+    fn propose(&mut self, partition: PartitionId, now: Instant) {
+        let index = usize::from(partition.0);
         let through_seq = capped_through_seq(
             &self.partitions[index].segments,
             u64::from(self.cfg.outbox_max_ack_entries),
@@ -215,6 +232,7 @@ impl OutboxAcks {
                     acks.segments.pop_front();
                 }
             }
+            Err(_) if self.committer.is_partition_halted(partition) => acks.is_halted = true,
             Err(error) => {
                 self.metrics.record_search_outbox_ack(Outcome::Error);
                 tracing::debug!(partition = partition.0, %error, "a search outbox ack did not commit; retrying");

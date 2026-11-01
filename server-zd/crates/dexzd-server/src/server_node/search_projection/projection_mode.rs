@@ -99,12 +99,19 @@ impl SearchProjectionModeRebuilder {
             }
         }
         for (partition, ticket) in tickets {
-            let committed = ticket.wait().await.map_err(|error| {
-                format!(
-                    "the search projection mode of partition {} did not commit: {error}",
-                    partition.0
-                )
-            })?;
+            let committed = match ticket.wait().await {
+                Ok(committed) => committed,
+                Err(_) if self.committer.is_partition_halted(partition) => {
+                    self.record_skipped_partition(partition);
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "the search projection mode of partition {} did not commit: {error}",
+                        partition.0
+                    ));
+                }
+            };
             if let Some(command_reply::Reply::Error(error)) = committed.outcome.reply.reply {
                 return Err(format!(
                     "apply rejected the search projection mode of partition {}: {}",
@@ -119,14 +126,12 @@ impl SearchProjectionModeRebuilder {
         );
         Ok(())
     }
-}
 
-impl SearchProjectionModeRebuilder {
-    /// Submits one mode command, retrying while the commit backlog is full.
+    /// Submits one mode command, retrying while the commit backlog is full; each attempt first checks for a halt.
     ///
-    /// A partition can halt after the check; its submissions then fail until the retries run out.
-    ///
-    /// Returns `None` for a stopped partition, which applies no command and keeps its mode.
+    /// Returns the commit ticket. Returns `None` for a stopped partition, which keeps its mode and
+    /// is counted as skipped. Returns an error when the backlog stays full for every attempt, or
+    /// when the committer rejects the command for another reason.
     async fn submit_mode(
         &self,
         partition: PartitionId,
@@ -136,12 +141,7 @@ impl SearchProjectionModeRebuilder {
         let mut attempt = 1;
         loop {
             if self.committer.is_partition_halted(partition) {
-                tracing::error!(
-                    partition = partition.0,
-                    is_enabled = self.is_enabled,
-                    "a stopped partition keeps its previous search projection mode"
-                );
-                self.metrics.search_projection_mode_skipped_partitions.inc();
+                self.record_skipped_partition(partition);
                 return Ok(None);
             }
             match self
@@ -162,6 +162,15 @@ impl SearchProjectionModeRebuilder {
                 }
             }
         }
+    }
+
+    fn record_skipped_partition(&self, partition: PartitionId) {
+        tracing::error!(
+            partition = partition.0,
+            is_enabled = self.is_enabled,
+            "a stopped partition keeps its previous search projection mode"
+        );
+        self.metrics.search_projection_mode_skipped_partitions.inc();
     }
 }
 
