@@ -1621,21 +1621,28 @@ class AdminServiceStub:
     A status that AdminService returns carries ServiceErrorResponse with
     sub_status UNCATEGORIZED:
 
+    InvalidArgument    — expected_node_id is set but empty
     Unauthenticated    — no credential, or no authenticator accepts it
     PermissionDenied   — a valid public API credential without an admin audience
     FailedPrecondition — this Server process is not the active process of its
     node ID, its step down is already in progress, or
-    expected_node_epoch differs from its node epoch
+    expected_node_id or expected_node_epoch differs from
+    the node lease it holds
     Internal           — the step down failed; the detail says whether the
-    node lease may stay held until it expires
+    node lease may stay held until it expires, or that
+    the state of the process is unknown
 
     A Server that does not provide AdminService answers Unimplemented without
     ServiceErrorResponse. No AdminService failure is Unavailable, because a
     retry reaches whichever process is active by then.
 
     On StepDownActiveNode, a client-side DeadlineExceeded, Cancelled, or
-    Unavailable means the outcome is unknown. Call DescribeActiveNode first, and
-    retry only with expected_node_epoch set to the node epoch it returns.
+    Unavailable means the outcome is unknown. Retry only with the same
+    expected_node_id and expected_node_epoch that the failed call carried: the
+    values that identified the process you meant to step down. Never use values
+    that DescribeActiveNode returns after the failure, because they identify
+    whichever process is active by then. If the step down already happened, the
+    retry fails with FailedPrecondition and changes nothing.
     ---------------------------------------------------------------------------
 
     Hosted by server-zd; operators call these RPCs through dexcli.
@@ -1672,21 +1679,28 @@ class AdminServiceServicer:
     A status that AdminService returns carries ServiceErrorResponse with
     sub_status UNCATEGORIZED:
 
+    InvalidArgument    — expected_node_id is set but empty
     Unauthenticated    — no credential, or no authenticator accepts it
     PermissionDenied   — a valid public API credential without an admin audience
     FailedPrecondition — this Server process is not the active process of its
     node ID, its step down is already in progress, or
-    expected_node_epoch differs from its node epoch
+    expected_node_id or expected_node_epoch differs from
+    the node lease it holds
     Internal           — the step down failed; the detail says whether the
-    node lease may stay held until it expires
+    node lease may stay held until it expires, or that
+    the state of the process is unknown
 
     A Server that does not provide AdminService answers Unimplemented without
     ServiceErrorResponse. No AdminService failure is Unavailable, because a
     retry reaches whichever process is active by then.
 
     On StepDownActiveNode, a client-side DeadlineExceeded, Cancelled, or
-    Unavailable means the outcome is unknown. Call DescribeActiveNode first, and
-    retry only with expected_node_epoch set to the node epoch it returns.
+    Unavailable means the outcome is unknown. Retry only with the same
+    expected_node_id and expected_node_epoch that the failed call carried: the
+    values that identified the process you meant to step down. Never use values
+    that DescribeActiveNode returns after the failure, because they identify
+    whichever process is active by then. If the step down already happened, the
+    retry fails with FailedPrecondition and changes nothing.
     ---------------------------------------------------------------------------
 
     Hosted by server-zd; operators call these RPCs through dexcli.
@@ -1697,8 +1711,9 @@ class AdminServiceServicer:
 
         The process that receives the call answers from the node lease it holds.
         It fails with FailedPrecondition when it is not the active process, for
-        example while it starts, stands by, or steps down. The call changes
-        nothing, so it is safe to retry.
+        example while it starts, stands by, or steps down, or while no process
+        holds the lease during a hold-off. Wait past the hold-off and call again.
+        The call changes nothing, so it is safe to retry.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1720,9 +1735,11 @@ class AdminServiceServicer:
         lease acquisition attempt. The response names the process that holds the
         lease, or says that neither case was confirmed within that bound.
 
-        Each call steps down whichever process is active when the call arrives.
-        A blind retry can therefore step down the process that just took over.
-        Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+        Without a precondition, a call steps down whichever process is active when
+        it arrives, so a blind retry can step down the process that just took over.
+        Call DescribeActiveNode first and set expected_node_id and
+        expected_node_epoch to the values it returned. Keep those values for any
+        retry.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1762,21 +1779,28 @@ class AdminService:
     A status that AdminService returns carries ServiceErrorResponse with
     sub_status UNCATEGORIZED:
 
+    InvalidArgument    — expected_node_id is set but empty
     Unauthenticated    — no credential, or no authenticator accepts it
     PermissionDenied   — a valid public API credential without an admin audience
     FailedPrecondition — this Server process is not the active process of its
     node ID, its step down is already in progress, or
-    expected_node_epoch differs from its node epoch
+    expected_node_id or expected_node_epoch differs from
+    the node lease it holds
     Internal           — the step down failed; the detail says whether the
-    node lease may stay held until it expires
+    node lease may stay held until it expires, or that
+    the state of the process is unknown
 
     A Server that does not provide AdminService answers Unimplemented without
     ServiceErrorResponse. No AdminService failure is Unavailable, because a
     retry reaches whichever process is active by then.
 
     On StepDownActiveNode, a client-side DeadlineExceeded, Cancelled, or
-    Unavailable means the outcome is unknown. Call DescribeActiveNode first, and
-    retry only with expected_node_epoch set to the node epoch it returns.
+    Unavailable means the outcome is unknown. Retry only with the same
+    expected_node_id and expected_node_epoch that the failed call carried: the
+    values that identified the process you meant to step down. Never use values
+    that DescribeActiveNode returns after the failure, because they identify
+    whichever process is active by then. If the step down already happened, the
+    retry fails with FailedPrecondition and changes nothing.
     ---------------------------------------------------------------------------
 
     Hosted by server-zd; operators call these RPCs through dexcli.

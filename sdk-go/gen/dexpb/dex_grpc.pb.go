@@ -1433,8 +1433,9 @@ type AdminServiceClient interface {
 	//
 	// The process that receives the call answers from the node lease it holds.
 	// It fails with FailedPrecondition when it is not the active process, for
-	// example while it starts, stands by, or steps down. The call changes
-	// nothing, so it is safe to retry.
+	// example while it starts, stands by, or steps down, or while no process
+	// holds the lease during a hold-off. Wait past the hold-off and call again.
+	// The call changes nothing, so it is safe to retry.
 	DescribeActiveNode(ctx context.Context, in *DescribeActiveNodeRequest, opts ...grpc.CallOption) (*DescribeActiveNodeResponse, error)
 	// Makes the active Server process of a node ID give up its node lease.
 	//
@@ -1451,9 +1452,11 @@ type AdminServiceClient interface {
 	// lease acquisition attempt. The response names the process that holds the
 	// lease, or says that neither case was confirmed within that bound.
 	//
-	// Each call steps down whichever process is active when the call arrives.
-	// A blind retry can therefore step down the process that just took over.
-	// Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+	// Without a precondition, a call steps down whichever process is active when
+	// it arrives, so a blind retry can step down the process that just took over.
+	// Call DescribeActiveNode first and set expected_node_id and
+	// expected_node_epoch to the values it returned. Keep those values for any
+	// retry.
 	StepDownActiveNode(ctx context.Context, in *StepDownActiveNodeRequest, opts ...grpc.CallOption) (*StepDownActiveNodeResponse, error)
 }
 
@@ -1495,8 +1498,9 @@ type AdminServiceServer interface {
 	//
 	// The process that receives the call answers from the node lease it holds.
 	// It fails with FailedPrecondition when it is not the active process, for
-	// example while it starts, stands by, or steps down. The call changes
-	// nothing, so it is safe to retry.
+	// example while it starts, stands by, or steps down, or while no process
+	// holds the lease during a hold-off. Wait past the hold-off and call again.
+	// The call changes nothing, so it is safe to retry.
 	DescribeActiveNode(context.Context, *DescribeActiveNodeRequest) (*DescribeActiveNodeResponse, error)
 	// Makes the active Server process of a node ID give up its node lease.
 	//
@@ -1513,9 +1517,11 @@ type AdminServiceServer interface {
 	// lease acquisition attempt. The response names the process that holds the
 	// lease, or says that neither case was confirmed within that bound.
 	//
-	// Each call steps down whichever process is active when the call arrives.
-	// A blind retry can therefore step down the process that just took over.
-	// Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+	// Without a precondition, a call steps down whichever process is active when
+	// it arrives, so a blind retry can step down the process that just took over.
+	// Call DescribeActiveNode first and set expected_node_id and
+	// expected_node_epoch to the values it returned. Keep those values for any
+	// retry.
 	StepDownActiveNode(context.Context, *StepDownActiveNodeRequest) (*StepDownActiveNodeResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }

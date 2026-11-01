@@ -1707,9 +1707,18 @@ export interface StepDownActiveNodeRequest {
   /**
    * When set, the process steps down only if it holds the node lease at this
    * node epoch. Otherwise the call fails with FailedPrecondition and changes
-   * nothing. When unset, whichever active process receives the call steps down.
+   * nothing. When unset, the node epoch is not checked.
    */
-  expectedNodeEpoch?: bigint | undefined;
+  expectedNodeEpoch?:
+    | bigint
+    | undefined;
+  /**
+   * When set, the process steps down only if it serves this node ID.
+   * Otherwise the call fails with FailedPrecondition and changes nothing. It
+   * keeps a call sent to the wrong server from matching another node's epoch.
+   * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+   */
+  expectedNodeId?: string | undefined;
 }
 
 /** Reports a completed step down and which process held the node lease when the call returned. */
@@ -15453,7 +15462,7 @@ export const DescribeActiveNodeResponse: MessageFns<DescribeActiveNodeResponse> 
 };
 
 function createBaseStepDownActiveNodeRequest(): StepDownActiveNodeRequest {
-  return { expectedNodeEpoch: undefined };
+  return { expectedNodeEpoch: undefined, expectedNodeId: undefined };
 }
 
 export const StepDownActiveNodeRequest: MessageFns<StepDownActiveNodeRequest> = {
@@ -15463,6 +15472,9 @@ export const StepDownActiveNodeRequest: MessageFns<StepDownActiveNodeRequest> = 
         throw new globalThis.Error("value provided for field message.expectedNodeEpoch of type uint64 too large");
       }
       writer.uint32(8).uint64(message.expectedNodeEpoch);
+    }
+    if (message.expectedNodeId !== undefined) {
+      writer.uint32(18).string(message.expectedNodeId);
     }
     return writer;
   },
@@ -15482,6 +15494,14 @@ export const StepDownActiveNodeRequest: MessageFns<StepDownActiveNodeRequest> = 
           message.expectedNodeEpoch = reader.uint64() as bigint;
           continue;
         }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.expectedNodeId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -15499,6 +15519,7 @@ export const StepDownActiveNodeRequest: MessageFns<StepDownActiveNodeRequest> = 
     message.expectedNodeEpoch = (object.expectedNodeEpoch !== undefined && object.expectedNodeEpoch !== null)
       ? BigInt(object.expectedNodeEpoch)
       : undefined;
+    message.expectedNodeId = object.expectedNodeId ?? undefined;
     return message;
   },
 };
@@ -16618,8 +16639,9 @@ export const AdminServiceService = {
    *
    * The process that receives the call answers from the node lease it holds.
    * It fails with FailedPrecondition when it is not the active process, for
-   * example while it starts, stands by, or steps down. The call changes
-   * nothing, so it is safe to retry.
+   * example while it starts, stands by, or steps down, or while no process
+   * holds the lease during a hold-off. Wait past the hold-off and call again.
+   * The call changes nothing, so it is safe to retry.
    */
   describeActiveNode: {
     path: "/dex.AdminService/DescribeActiveNode" as const,
@@ -16648,9 +16670,11 @@ export const AdminServiceService = {
    * lease acquisition attempt. The response names the process that holds the
    * lease, or says that neither case was confirmed within that bound.
    *
-   * Each call steps down whichever process is active when the call arrives.
-   * A blind retry can therefore step down the process that just took over.
-   * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+   * Without a precondition, a call steps down whichever process is active when
+   * it arrives, so a blind retry can step down the process that just took over.
+   * Call DescribeActiveNode first and set expected_node_id and
+   * expected_node_epoch to the values it returned. Keep those values for any
+   * retry.
    */
   stepDownActiveNode: {
     path: "/dex.AdminService/StepDownActiveNode" as const,
@@ -16671,8 +16695,9 @@ export interface AdminServiceServer extends UntypedServiceImplementation {
    *
    * The process that receives the call answers from the node lease it holds.
    * It fails with FailedPrecondition when it is not the active process, for
-   * example while it starts, stands by, or steps down. The call changes
-   * nothing, so it is safe to retry.
+   * example while it starts, stands by, or steps down, or while no process
+   * holds the lease during a hold-off. Wait past the hold-off and call again.
+   * The call changes nothing, so it is safe to retry.
    */
   describeActiveNode: handleUnaryCall<DescribeActiveNodeRequest, DescribeActiveNodeResponse>;
   /**
@@ -16691,9 +16716,11 @@ export interface AdminServiceServer extends UntypedServiceImplementation {
    * lease acquisition attempt. The response names the process that holds the
    * lease, or says that neither case was confirmed within that bound.
    *
-   * Each call steps down whichever process is active when the call arrives.
-   * A blind retry can therefore step down the process that just took over.
-   * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+   * Without a precondition, a call steps down whichever process is active when
+   * it arrives, so a blind retry can step down the process that just took over.
+   * Call DescribeActiveNode first and set expected_node_id and
+   * expected_node_epoch to the values it returned. Keep those values for any
+   * retry.
    */
   stepDownActiveNode: handleUnaryCall<StepDownActiveNodeRequest, StepDownActiveNodeResponse>;
 }
@@ -16704,8 +16731,9 @@ export interface AdminServiceClient extends Client {
    *
    * The process that receives the call answers from the node lease it holds.
    * It fails with FailedPrecondition when it is not the active process, for
-   * example while it starts, stands by, or steps down. The call changes
-   * nothing, so it is safe to retry.
+   * example while it starts, stands by, or steps down, or while no process
+   * holds the lease during a hold-off. Wait past the hold-off and call again.
+   * The call changes nothing, so it is safe to retry.
    */
   describeActiveNode(
     request: DescribeActiveNodeRequest,
@@ -16738,9 +16766,11 @@ export interface AdminServiceClient extends Client {
    * lease acquisition attempt. The response names the process that holds the
    * lease, or says that neither case was confirmed within that bound.
    *
-   * Each call steps down whichever process is active when the call arrives.
-   * A blind retry can therefore step down the process that just took over.
-   * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+   * Without a precondition, a call steps down whichever process is active when
+   * it arrives, so a blind retry can step down the process that just took over.
+   * Call DescribeActiveNode first and set expected_node_id and
+   * expected_node_epoch to the values it returned. Keep those values for any
+   * retry.
    */
   stepDownActiveNode(
     request: StepDownActiveNodeRequest,

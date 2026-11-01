@@ -136,8 +136,9 @@ public final class AdminServiceGrpc {
      * Returns the node ID, node epoch, and lease holder of the active Server process.
      * The process that receives the call answers from the node lease it holds.
      * It fails with FailedPrecondition when it is not the active process, for
-     * example while it starts, stands by, or steps down. The call changes
-     * nothing, so it is safe to retry.
+     * example while it starts, stands by, or steps down, or while no process
+     * holds the lease during a hold-off. Wait past the hold-off and call again.
+     * The call changes nothing, so it is safe to retry.
      * </pre>
      */
     default void describeActiveNode(io.superdurable.gen.DescribeActiveNodeRequest request,
@@ -159,9 +160,11 @@ public final class AdminServiceGrpc {
      * lasts at most the commit drain bound, the release, the hold-off, and one
      * lease acquisition attempt. The response names the process that holds the
      * lease, or says that neither case was confirmed within that bound.
-     * Each call steps down whichever process is active when the call arrives.
-     * A blind retry can therefore step down the process that just took over.
-     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+     * Without a precondition, a call steps down whichever process is active when
+     * it arrives, so a blind retry can step down the process that just took over.
+     * Call DescribeActiveNode first and set expected_node_id and
+     * expected_node_epoch to the values it returned. Keep those values for any
+     * retry.
      * </pre>
      */
     default void stepDownActiveNode(io.superdurable.gen.StepDownActiveNodeRequest request,
@@ -208,8 +211,9 @@ public final class AdminServiceGrpc {
      * Returns the node ID, node epoch, and lease holder of the active Server process.
      * The process that receives the call answers from the node lease it holds.
      * It fails with FailedPrecondition when it is not the active process, for
-     * example while it starts, stands by, or steps down. The call changes
-     * nothing, so it is safe to retry.
+     * example while it starts, stands by, or steps down, or while no process
+     * holds the lease during a hold-off. Wait past the hold-off and call again.
+     * The call changes nothing, so it is safe to retry.
      * </pre>
      */
     public void describeActiveNode(io.superdurable.gen.DescribeActiveNodeRequest request,
@@ -232,9 +236,11 @@ public final class AdminServiceGrpc {
      * lasts at most the commit drain bound, the release, the hold-off, and one
      * lease acquisition attempt. The response names the process that holds the
      * lease, or says that neither case was confirmed within that bound.
-     * Each call steps down whichever process is active when the call arrives.
-     * A blind retry can therefore step down the process that just took over.
-     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+     * Without a precondition, a call steps down whichever process is active when
+     * it arrives, so a blind retry can step down the process that just took over.
+     * Call DescribeActiveNode first and set expected_node_id and
+     * expected_node_epoch to the values it returned. Keep those values for any
+     * retry.
      * </pre>
      */
     public void stepDownActiveNode(io.superdurable.gen.StepDownActiveNodeRequest request,
@@ -268,8 +274,9 @@ public final class AdminServiceGrpc {
      * Returns the node ID, node epoch, and lease holder of the active Server process.
      * The process that receives the call answers from the node lease it holds.
      * It fails with FailedPrecondition when it is not the active process, for
-     * example while it starts, stands by, or steps down. The call changes
-     * nothing, so it is safe to retry.
+     * example while it starts, stands by, or steps down, or while no process
+     * holds the lease during a hold-off. Wait past the hold-off and call again.
+     * The call changes nothing, so it is safe to retry.
      * </pre>
      */
     public io.superdurable.gen.DescribeActiveNodeResponse describeActiveNode(io.superdurable.gen.DescribeActiveNodeRequest request) {
@@ -291,9 +298,11 @@ public final class AdminServiceGrpc {
      * lasts at most the commit drain bound, the release, the hold-off, and one
      * lease acquisition attempt. The response names the process that holds the
      * lease, or says that neither case was confirmed within that bound.
-     * Each call steps down whichever process is active when the call arrives.
-     * A blind retry can therefore step down the process that just took over.
-     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+     * Without a precondition, a call steps down whichever process is active when
+     * it arrives, so a blind retry can step down the process that just took over.
+     * Call DescribeActiveNode first and set expected_node_id and
+     * expected_node_epoch to the values it returned. Keep those values for any
+     * retry.
      * </pre>
      */
     public io.superdurable.gen.StepDownActiveNodeResponse stepDownActiveNode(io.superdurable.gen.StepDownActiveNodeRequest request) {
@@ -326,8 +335,9 @@ public final class AdminServiceGrpc {
      * Returns the node ID, node epoch, and lease holder of the active Server process.
      * The process that receives the call answers from the node lease it holds.
      * It fails with FailedPrecondition when it is not the active process, for
-     * example while it starts, stands by, or steps down. The call changes
-     * nothing, so it is safe to retry.
+     * example while it starts, stands by, or steps down, or while no process
+     * holds the lease during a hold-off. Wait past the hold-off and call again.
+     * The call changes nothing, so it is safe to retry.
      * </pre>
      */
     public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.DescribeActiveNodeResponse> describeActiveNode(
@@ -350,9 +360,11 @@ public final class AdminServiceGrpc {
      * lasts at most the commit drain bound, the release, the hold-off, and one
      * lease acquisition attempt. The response names the process that holds the
      * lease, or says that neither case was confirmed within that bound.
-     * Each call steps down whichever process is active when the call arrives.
-     * A blind retry can therefore step down the process that just took over.
-     * Set expected_node_epoch to the node epoch that DescribeActiveNode returned.
+     * Without a precondition, a call steps down whichever process is active when
+     * it arrives, so a blind retry can step down the process that just took over.
+     * Call DescribeActiveNode first and set expected_node_id and
+     * expected_node_epoch to the values it returned. Keep those values for any
+     * retry.
      * </pre>
      */
     public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.StepDownActiveNodeResponse> stepDownActiveNode(

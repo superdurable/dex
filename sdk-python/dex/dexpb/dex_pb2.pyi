@@ -2135,10 +2135,12 @@ class DescribeActiveNodeResponse(_message.Message):
     def __init__(self, node_id: _Optional[str] = ..., node_epoch: _Optional[int] = ..., holder_process_id: _Optional[str] = ...) -> None: ...
 
 class StepDownActiveNodeRequest(_message.Message):
-    __slots__ = ("expected_node_epoch",)
+    __slots__ = ("expected_node_epoch", "expected_node_id")
     EXPECTED_NODE_EPOCH_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_NODE_ID_FIELD_NUMBER: _ClassVar[int]
     expected_node_epoch: int
-    def __init__(self, expected_node_epoch: _Optional[int] = ...) -> None: ...
+    expected_node_id: str
+    def __init__(self, expected_node_epoch: _Optional[int] = ..., expected_node_id: _Optional[str] = ...) -> None: ...
 
 class StepDownActiveNodeResponse(_message.Message):
     __slots__ = ("node_id", "released_node_epoch", "lease_reacquisition_hold_off", "taken_over_by_another_process", "taken_back_by_this_process", "lease_holder_unknown")

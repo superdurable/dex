@@ -11853,10 +11853,15 @@ type StepDownActiveNodeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// When set, the process steps down only if it holds the node lease at this
 	// node epoch. Otherwise the call fails with FailedPrecondition and changes
-	// nothing. When unset, whichever active process receives the call steps down.
+	// nothing. When unset, the node epoch is not checked.
 	ExpectedNodeEpoch *uint64 `protobuf:"varint,1,opt,name=expected_node_epoch,json=expectedNodeEpoch,proto3,oneof" json:"expected_node_epoch,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// When set, the process steps down only if it serves this node ID.
+	// Otherwise the call fails with FailedPrecondition and changes nothing. It
+	// keeps a call sent to the wrong server from matching another node's epoch.
+	// When unset, the node ID is not checked. Set but empty is InvalidArgument.
+	ExpectedNodeId *string `protobuf:"bytes,2,opt,name=expected_node_id,json=expectedNodeId,proto3,oneof" json:"expected_node_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StepDownActiveNodeRequest) Reset() {
@@ -11894,6 +11899,13 @@ func (x *StepDownActiveNodeRequest) GetExpectedNodeEpoch() uint64 {
 		return *x.ExpectedNodeEpoch
 	}
 	return 0
+}
+
+func (x *StepDownActiveNodeRequest) GetExpectedNodeId() string {
+	if x != nil && x.ExpectedNodeId != nil {
+		return *x.ExpectedNodeId
+	}
+	return ""
 }
 
 // Reports a completed step down and which process held the node lease when the call returned.
@@ -13051,10 +13063,12 @@ const file_dex_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1d\n" +
 	"\n" +
 	"node_epoch\x18\x02 \x01(\x04R\tnodeEpoch\x12*\n" +
-	"\x11holder_process_id\x18\x03 \x01(\tR\x0fholderProcessId\"h\n" +
+	"\x11holder_process_id\x18\x03 \x01(\tR\x0fholderProcessId\"\xac\x01\n" +
 	"\x19StepDownActiveNodeRequest\x123\n" +
-	"\x13expected_node_epoch\x18\x01 \x01(\x04H\x00R\x11expectedNodeEpoch\x88\x01\x01B\x16\n" +
-	"\x14_expected_node_epoch\"\xe0\x03\n" +
+	"\x13expected_node_epoch\x18\x01 \x01(\x04H\x00R\x11expectedNodeEpoch\x88\x01\x01\x12-\n" +
+	"\x10expected_node_id\x18\x02 \x01(\tH\x01R\x0eexpectedNodeId\x88\x01\x01B\x16\n" +
+	"\x14_expected_node_epochB\x13\n" +
+	"\x11_expected_node_id\"\xe0\x03\n" +
 	"\x1aStepDownActiveNodeResponse\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12.\n" +
 	"\x13released_node_epoch\x18\x02 \x01(\x04R\x11releasedNodeEpoch\x12Z\n" +

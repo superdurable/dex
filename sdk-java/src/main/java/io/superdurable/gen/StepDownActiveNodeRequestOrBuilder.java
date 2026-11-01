@@ -14,7 +14,7 @@ public interface StepDownActiveNodeRequestOrBuilder extends
    * <pre>
    * When set, the process steps down only if it holds the node lease at this
    * node epoch. Otherwise the call fails with FailedPrecondition and changes
-   * nothing. When unset, whichever active process receives the call steps down.
+   * nothing. When unset, the node epoch is not checked.
    * </pre>
    *
    * <code>optional uint64 expected_node_epoch = 1;</code>
@@ -25,11 +25,49 @@ public interface StepDownActiveNodeRequestOrBuilder extends
    * <pre>
    * When set, the process steps down only if it holds the node lease at this
    * node epoch. Otherwise the call fails with FailedPrecondition and changes
-   * nothing. When unset, whichever active process receives the call steps down.
+   * nothing. When unset, the node epoch is not checked.
    * </pre>
    *
    * <code>optional uint64 expected_node_epoch = 1;</code>
    * @return The expectedNodeEpoch.
    */
   long getExpectedNodeEpoch();
+
+  /**
+   * <pre>
+   * When set, the process steps down only if it serves this node ID.
+   * Otherwise the call fails with FailedPrecondition and changes nothing. It
+   * keeps a call sent to the wrong server from matching another node's epoch.
+   * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+   * </pre>
+   *
+   * <code>optional string expected_node_id = 2;</code>
+   * @return Whether the expectedNodeId field is set.
+   */
+  boolean hasExpectedNodeId();
+  /**
+   * <pre>
+   * When set, the process steps down only if it serves this node ID.
+   * Otherwise the call fails with FailedPrecondition and changes nothing. It
+   * keeps a call sent to the wrong server from matching another node's epoch.
+   * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+   * </pre>
+   *
+   * <code>optional string expected_node_id = 2;</code>
+   * @return The expectedNodeId.
+   */
+  java.lang.String getExpectedNodeId();
+  /**
+   * <pre>
+   * When set, the process steps down only if it serves this node ID.
+   * Otherwise the call fails with FailedPrecondition and changes nothing. It
+   * keeps a call sent to the wrong server from matching another node's epoch.
+   * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+   * </pre>
+   *
+   * <code>optional string expected_node_id = 2;</code>
+   * @return The bytes for expectedNodeId.
+   */
+  com.google.protobuf.ByteString
+      getExpectedNodeIdBytes();
 }

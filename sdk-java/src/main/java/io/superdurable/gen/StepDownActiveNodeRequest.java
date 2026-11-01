@@ -32,6 +32,7 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private StepDownActiveNodeRequest() {
+    expectedNodeId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -59,7 +60,7 @@ private static final long serialVersionUID = 0L;
    * <pre>
    * When set, the process steps down only if it holds the node lease at this
    * node epoch. Otherwise the call fails with FailedPrecondition and changes
-   * nothing. When unset, whichever active process receives the call steps down.
+   * nothing. When unset, the node epoch is not checked.
    * </pre>
    *
    * <code>optional uint64 expected_node_epoch = 1;</code>
@@ -73,7 +74,7 @@ private static final long serialVersionUID = 0L;
    * <pre>
    * When set, the process steps down only if it holds the node lease at this
    * node epoch. Otherwise the call fails with FailedPrecondition and changes
-   * nothing. When unset, whichever active process receives the call steps down.
+   * nothing. When unset, the node epoch is not checked.
    * </pre>
    *
    * <code>optional uint64 expected_node_epoch = 1;</code>
@@ -82,6 +83,74 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public long getExpectedNodeEpoch() {
     return expectedNodeEpoch_;
+  }
+
+  public static final int EXPECTED_NODE_ID_FIELD_NUMBER = 2;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object expectedNodeId_ = "";
+  /**
+   * <pre>
+   * When set, the process steps down only if it serves this node ID.
+   * Otherwise the call fails with FailedPrecondition and changes nothing. It
+   * keeps a call sent to the wrong server from matching another node's epoch.
+   * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+   * </pre>
+   *
+   * <code>optional string expected_node_id = 2;</code>
+   * @return Whether the expectedNodeId field is set.
+   */
+  @java.lang.Override
+  public boolean hasExpectedNodeId() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * When set, the process steps down only if it serves this node ID.
+   * Otherwise the call fails with FailedPrecondition and changes nothing. It
+   * keeps a call sent to the wrong server from matching another node's epoch.
+   * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+   * </pre>
+   *
+   * <code>optional string expected_node_id = 2;</code>
+   * @return The expectedNodeId.
+   */
+  @java.lang.Override
+  public java.lang.String getExpectedNodeId() {
+    java.lang.Object ref = expectedNodeId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      expectedNodeId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * When set, the process steps down only if it serves this node ID.
+   * Otherwise the call fails with FailedPrecondition and changes nothing. It
+   * keeps a call sent to the wrong server from matching another node's epoch.
+   * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+   * </pre>
+   *
+   * <code>optional string expected_node_id = 2;</code>
+   * @return The bytes for expectedNodeId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getExpectedNodeIdBytes() {
+    java.lang.Object ref = expectedNodeId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      expectedNodeId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
   }
 
   private byte memoizedIsInitialized = -1;
@@ -101,6 +170,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeUInt64(1, expectedNodeEpoch_);
     }
+    if (((bitField0_ & 0x00000002) != 0)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, expectedNodeId_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -108,6 +180,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeUInt64Size(1, expectedNodeEpoch_);
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, expectedNodeId_);
     }
     return size;
   }
@@ -138,6 +213,11 @@ private static final long serialVersionUID = 0L;
       if (getExpectedNodeEpoch()
           != other.getExpectedNodeEpoch()) return false;
     }
+    if (hasExpectedNodeId() != other.hasExpectedNodeId()) return false;
+    if (hasExpectedNodeId()) {
+      if (!getExpectedNodeId()
+          .equals(other.getExpectedNodeId())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -153,6 +233,10 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + EXPECTED_NODE_EPOCH_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
           getExpectedNodeEpoch());
+    }
+    if (hasExpectedNodeId()) {
+      hash = (37 * hash) + EXPECTED_NODE_ID_FIELD_NUMBER;
+      hash = (53 * hash) + getExpectedNodeId().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -290,6 +374,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       expectedNodeEpoch_ = 0L;
+      expectedNodeId_ = "";
       return this;
     }
 
@@ -328,6 +413,10 @@ private static final long serialVersionUID = 0L;
         result.expectedNodeEpoch_ = expectedNodeEpoch_;
         to_bitField0_ |= 0x00000001;
       }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.expectedNodeId_ = expectedNodeId_;
+        to_bitField0_ |= 0x00000002;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -345,6 +434,11 @@ private static final long serialVersionUID = 0L;
       if (other == io.superdurable.gen.StepDownActiveNodeRequest.getDefaultInstance()) return this;
       if (other.hasExpectedNodeEpoch()) {
         setExpectedNodeEpoch(other.getExpectedNodeEpoch());
+      }
+      if (other.hasExpectedNodeId()) {
+        expectedNodeId_ = other.expectedNodeId_;
+        bitField0_ |= 0x00000002;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -377,6 +471,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 8
+            case 18: {
+              expectedNodeId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -399,7 +498,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * When set, the process steps down only if it holds the node lease at this
      * node epoch. Otherwise the call fails with FailedPrecondition and changes
-     * nothing. When unset, whichever active process receives the call steps down.
+     * nothing. When unset, the node epoch is not checked.
      * </pre>
      *
      * <code>optional uint64 expected_node_epoch = 1;</code>
@@ -413,7 +512,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * When set, the process steps down only if it holds the node lease at this
      * node epoch. Otherwise the call fails with FailedPrecondition and changes
-     * nothing. When unset, whichever active process receives the call steps down.
+     * nothing. When unset, the node epoch is not checked.
      * </pre>
      *
      * <code>optional uint64 expected_node_epoch = 1;</code>
@@ -427,7 +526,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * When set, the process steps down only if it holds the node lease at this
      * node epoch. Otherwise the call fails with FailedPrecondition and changes
-     * nothing. When unset, whichever active process receives the call steps down.
+     * nothing. When unset, the node epoch is not checked.
      * </pre>
      *
      * <code>optional uint64 expected_node_epoch = 1;</code>
@@ -445,7 +544,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * When set, the process steps down only if it holds the node lease at this
      * node epoch. Otherwise the call fails with FailedPrecondition and changes
-     * nothing. When unset, whichever active process receives the call steps down.
+     * nothing. When unset, the node epoch is not checked.
      * </pre>
      *
      * <code>optional uint64 expected_node_epoch = 1;</code>
@@ -454,6 +553,127 @@ private static final long serialVersionUID = 0L;
     public Builder clearExpectedNodeEpoch() {
       bitField0_ = (bitField0_ & ~0x00000001);
       expectedNodeEpoch_ = 0L;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object expectedNodeId_ = "";
+    /**
+     * <pre>
+     * When set, the process steps down only if it serves this node ID.
+     * Otherwise the call fails with FailedPrecondition and changes nothing. It
+     * keeps a call sent to the wrong server from matching another node's epoch.
+     * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+     * </pre>
+     *
+     * <code>optional string expected_node_id = 2;</code>
+     * @return Whether the expectedNodeId field is set.
+     */
+    public boolean hasExpectedNodeId() {
+      return ((bitField0_ & 0x00000002) != 0);
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it serves this node ID.
+     * Otherwise the call fails with FailedPrecondition and changes nothing. It
+     * keeps a call sent to the wrong server from matching another node's epoch.
+     * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+     * </pre>
+     *
+     * <code>optional string expected_node_id = 2;</code>
+     * @return The expectedNodeId.
+     */
+    public java.lang.String getExpectedNodeId() {
+      java.lang.Object ref = expectedNodeId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        expectedNodeId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it serves this node ID.
+     * Otherwise the call fails with FailedPrecondition and changes nothing. It
+     * keeps a call sent to the wrong server from matching another node's epoch.
+     * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+     * </pre>
+     *
+     * <code>optional string expected_node_id = 2;</code>
+     * @return The bytes for expectedNodeId.
+     */
+    public com.google.protobuf.ByteString
+        getExpectedNodeIdBytes() {
+      java.lang.Object ref = expectedNodeId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        expectedNodeId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it serves this node ID.
+     * Otherwise the call fails with FailedPrecondition and changes nothing. It
+     * keeps a call sent to the wrong server from matching another node's epoch.
+     * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+     * </pre>
+     *
+     * <code>optional string expected_node_id = 2;</code>
+     * @param value The expectedNodeId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setExpectedNodeId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      expectedNodeId_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it serves this node ID.
+     * Otherwise the call fails with FailedPrecondition and changes nothing. It
+     * keeps a call sent to the wrong server from matching another node's epoch.
+     * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+     * </pre>
+     *
+     * <code>optional string expected_node_id = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearExpectedNodeId() {
+      expectedNodeId_ = getDefaultInstance().getExpectedNodeId();
+      bitField0_ = (bitField0_ & ~0x00000002);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When set, the process steps down only if it serves this node ID.
+     * Otherwise the call fails with FailedPrecondition and changes nothing. It
+     * keeps a call sent to the wrong server from matching another node's epoch.
+     * When unset, the node ID is not checked. Set but empty is InvalidArgument.
+     * </pre>
+     *
+     * <code>optional string expected_node_id = 2;</code>
+     * @param value The bytes for expectedNodeId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setExpectedNodeIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      expectedNodeId_ = value;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
