@@ -10,6 +10,7 @@
 
 mod commit_path;
 mod harness;
+mod hot_standby;
 mod lease_lifecycle;
 mod lease_validity_gate;
 mod log_replay;

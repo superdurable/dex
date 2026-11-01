@@ -16,6 +16,7 @@ mod effects;
 mod engine_id_source;
 mod engine_node;
 mod flow_coordination;
+mod hot_standby;
 mod long_poll;
 mod recovery;
 mod snapshots;
@@ -53,6 +54,10 @@ pub use flow_coordination::{
     HardDeleteValueReader, HardDeleteValueUploader, PendingInvocation, ProposalResult,
     RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult, default_run_settings,
     grpc_code,
+};
+pub use hot_standby::{
+    HotStandby, HotStandbyConfig, HotStandbyDependencies, HotStandbyLag, HotStandbyState,
+    HotStandbyStatus,
 };
 pub use long_poll::{
     ATTRIBUTE_REQUEST_TIMEOUT_MESSAGE, STEP_COMPLETION_REQUEST_TIMEOUT_MESSAGE,

@@ -16,7 +16,7 @@ mod lease_validity_deadline;
 mod manifest;
 mod registry;
 
-pub use cluster::{ClusterBootstrap, ClusterConfig, bootstrap_or_validate};
+pub use cluster::{ClusterBootstrap, ClusterConfig, bootstrap_or_validate, read_cluster};
 pub use error::MetadataError;
 pub use lease::{
     LeaseConfig, LeaseHandle, LeaseObservers, LeaseReleaseError, LeaseStatus, acquire_lease,

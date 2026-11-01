@@ -27,7 +27,8 @@ pub(crate) use command_committer::CommandCommitterParts;
 pub(crate) use commit_state::{CommitState, LEASE_VALIDITY_EXPIRED_DETAIL};
 pub(crate) use log_proposer::{CommitProgress, CommittedBatchRouter, run_log_proposer};
 pub(crate) use partition_applier::{
-    AppliedPositionAdvancer, FrameApplier, PartitionApplierPool, PartitionFrame,
+    AppliedPositionAdvancer, AppliedPositionSource, ApplierPoolClosed, BatchEnqueueError,
+    FollowedBatch, FrameApplier, FrameApplierParts, PartitionApplierPool,
 };
 
 /// Local store type the engine runs on: RocksDB in production, in memory in simulations.

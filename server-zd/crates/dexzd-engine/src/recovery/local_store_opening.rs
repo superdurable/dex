@@ -69,6 +69,9 @@ pub(crate) struct LocalStoreRequirements<'a> {
     pub(crate) partition_count: u32,
     /// Lineage of a store this start creates empty or restores from a snapshot.
     pub(crate) new_store_lineage_id: Uuid,
+    /// Sets an existing store aside and restores the newest snapshot, for a store known to diverge
+    /// from the log.
+    pub(crate) should_discard_existing_store: bool,
 }
 
 /// The lowest applied batch over every partition, ordered by incarnation, then seq.
@@ -98,7 +101,12 @@ pub(crate) async fn open_local_store(
         }
         #[cfg(feature = "test-util")]
         LocalStoreConfig::ExistingForTest(store) => {
-            match reusable_existing_store(store, requirements)? {
+            let reusable = if requirements.should_discard_existing_store {
+                None
+            } else {
+                reusable_existing_store(store, requirements)?
+            };
+            match reusable {
                 Some(store) => {
                     return Ok(OpenedLocalStore {
                         store,
@@ -110,7 +118,9 @@ pub(crate) async fn open_local_store(
         }
         LocalStoreConfig::InMemory => (restore_in_memory(object_store, requirements).await?, None),
     };
-    if let Some(gap) = find_unreplayable_gap(&store, requirements)? {
+    if let Some(gap) =
+        find_unreplayable_gap(&store, requirements.streams, requirements.partition_count)?
+    {
         return Err(gap);
     }
     Ok(OpenedLocalStore {
@@ -133,7 +143,11 @@ fn reusable_existing_store(
         );
         return Ok(None);
     }
-    match find_unreplayable_gap(store.as_ref(), requirements)? {
+    match find_unreplayable_gap(
+        store.as_ref(),
+        requirements.streams,
+        requirements.partition_count,
+    )? {
         None => Ok(Some(Arc::clone(store))),
         Some(gap) => {
             tracing::warn!(gap = %gap, "the retained log cannot update the existing local store; restoring the newest snapshot");
@@ -183,7 +197,10 @@ async fn open_rocksdb_store(
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<(RestoredLocalStore, Option<Uuid>), EngineStartError> {
     let mut set_aside_id = None;
-    if is_nonempty_directory(directory)? {
+    if is_nonempty_directory(directory)? && requirements.should_discard_existing_store {
+        tracing::warn!("the local store diverged from the log; restoring the newest snapshot");
+        set_aside_id = Some(set_aside(directory)?);
+    } else if is_nonempty_directory(directory)? {
         match RocksDbLocalStore::open(directory, options) {
             Ok(store)
                 if requirements.snapshot.is_some()
@@ -194,7 +211,11 @@ async fn open_rocksdb_store(
                     "a partition of the local store applied no batch; restoring the newest snapshot"
                 );
             }
-            Ok(store) => match find_unreplayable_gap(&store, requirements)? {
+            Ok(store) => match find_unreplayable_gap(
+                &store,
+                requirements.streams,
+                requirements.partition_count,
+            )? {
                 None => return Ok((RestoredLocalStore::RocksDb(store), None)),
                 // The copy may be the only evidence that object storage metadata went backwards.
                 Some(gap @ EngineStartError::InvalidMetadata { .. }) => {
@@ -236,13 +257,41 @@ async fn open_rocksdb_store(
     Ok((store, set_aside_id))
 }
 
-/// Returns why the retained log cannot bring `store` up to date, or `None` when it can.
-fn find_unreplayable_gap(
+/// Returns why `store` diverged from the log when a partition applied a batch past the recorded
+/// end of a closed stream, and `None` otherwise. Only a store that followed a batch the log
+/// does not hold has such a position.
+pub(crate) fn find_position_past_closed_end(
     store: &dyn LocalReadView,
-    requirements: &LocalStoreRequirements<'_>,
+    streams: &NodeStreams,
 ) -> Result<Option<EngineStartError>, EngineStartError> {
-    let applied = lowest_applied_position(store, requirements.partition_count)?;
-    let open_incarnation = requirements.streams.open_segment().incarnation;
+    for meta in store.partition_metas()? {
+        let Some(applied) = meta.applied else {
+            continue;
+        };
+        if let Some(end_seq) = streams
+            .segment(applied.incarnation)
+            .and_then(|segment| segment.end_seq)
+            && applied.seq > end_seq
+        {
+            return Ok(Some(EngineStartError::InvalidMetadata {
+                detail: format!(
+                    "partition {} applied seq {} of incarnation {}, past its recorded end {end_seq}",
+                    meta.partition, applied.seq, applied.incarnation
+                ),
+            }));
+        }
+    }
+    Ok(None)
+}
+
+/// Returns why the retained log cannot bring `store` up to date, or `None` when it can.
+pub(crate) fn find_unreplayable_gap(
+    store: &dyn LocalReadView,
+    streams: &NodeStreams,
+    partition_count: u32,
+) -> Result<Option<EngineStartError>, EngineStartError> {
+    let applied = lowest_applied_position(store, partition_count)?;
+    let open_incarnation = streams.open_segment().incarnation;
     if let Some(applied) = applied
         && applied.incarnation > open_incarnation
     {
@@ -254,7 +303,7 @@ fn find_unreplayable_gap(
             ),
         }));
     }
-    let segments = &requirements.streams.segments;
+    let segments = &streams.segments;
     // Cleanup drops older segments whole, so the rest of an unrecorded stream is gone.
     if let Some(applied) = applied
         && !segments

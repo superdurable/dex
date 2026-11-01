@@ -25,10 +25,12 @@ pub use log_replay::RecoveryConfig;
 
 pub(crate) use cluster_metadata::ClusterMetadata;
 pub(crate) use local_store_opening::{
-    LocalStoreRequirements, OpenedLocalStore, delete_older_set_aside_stores, open_local_store,
+    LocalStoreRequirements, OpenedLocalStore, delete_older_set_aside_stores,
+    find_position_past_closed_end, find_unreplayable_gap, lowest_applied_position,
+    open_local_store,
 };
 pub(crate) use log_replay::LogReplay;
-pub(crate) use node_streams::describe_lost_ownership;
+pub(crate) use node_streams::{NodeStreams, describe_lost_ownership};
 pub(crate) use search_order_rebuild::rebuild_search_order_indexes;
 pub(crate) use startup_read_retry::StartupReadRetryStore;
 
