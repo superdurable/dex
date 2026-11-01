@@ -207,7 +207,8 @@ impl NodeLifecycle {
             // The old instance keeps the step down call's connection until the answer goes out.
             let (answered, answer_sent) = oneshot::channel();
             let retiring = std::mem::replace(&mut grpc, GrpcServer::start(&grpc_settings));
-            retirements.push(retiring.retire_after(answer_sent, GRPC_DRAIN_BUDGET));
+            let retirement = tokio::spawn(retiring.retire_after(answer_sent, GRPC_DRAIN_BUDGET));
+            retirements.push(retirement);
             let teardown_result = stopped.teardown.finish(Ok(()));
             if let Err(error) = &teardown_result {
                 tracing::warn!(%error, "stepping down left steps unfinished; standing by anyway");

@@ -122,24 +122,16 @@ impl GrpcServer {
     }
 
     /// Once `answered` resolves, sends GOAWAY and waits up to `budget` for open calls; then aborts.
-    ///
-    /// Returns the task that retires this instance.
-    pub(super) fn retire_after(
-        mut self,
-        answered: oneshot::Receiver<()>,
-        budget: Duration,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            // A dropped sender also means the answer went out.
-            drop(answered.await);
-            self.stop.cancel();
-            match tokio::time::timeout(budget, &mut self.task).await {
-                Ok(Ok(Ok(()))) => {}
-                Ok(Ok(Err(error))) => tracing::warn!(%error, "a retired gRPC server failed"),
-                Ok(Err(error)) => tracing::warn!(%error, "a retired gRPC server task failed"),
-                Err(_) => tracing::warn!("a retired gRPC server kept open calls; closing them"),
-            }
-        })
+    pub(super) async fn retire_after(mut self, answered: oneshot::Receiver<()>, budget: Duration) {
+        // A dropped sender also means the answer went out.
+        drop(answered.await);
+        self.stop.cancel();
+        match tokio::time::timeout(budget, &mut self.task).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(error))) => tracing::warn!(%error, "a retired gRPC server failed"),
+            Ok(Err(error)) => tracing::warn!(%error, "a retired gRPC server task failed"),
+            Err(_) => tracing::warn!("a retired gRPC server kept open calls; closing them"),
+        }
     }
 
     pub(super) async fn abort(mut self) {

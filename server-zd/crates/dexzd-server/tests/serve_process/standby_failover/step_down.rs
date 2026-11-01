@@ -42,9 +42,7 @@ const BEHIND_BUDGET: Duration = Duration::from_secs(60);
 const STEP_DOWN_SEND_WINDOW: Duration = Duration::from_millis(20);
 const ADMIN_TOKEN: &str = "serve-test-static-token";
 
-/// P9, hot standby: a step down hands the node over, and the old active stays as a hot standby.
-///
-/// It also checks describe and the node epoch precondition.
+/// P9, hot: a step down hands over, the old active stays hot, and describe and the epoch precondition work.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn step_down_hands_over_to_the_hot_standby_and_the_old_active_stays_hot() {
     let mut scenario = FailoverScenario::start("step-down", &HOT_SLOTS).await;
@@ -165,7 +163,7 @@ async fn step_down_without_a_standby_takes_the_lease_back_after_the_hold_off() {
     );
 }
 
-/// P9, racing a crash: a step down and a SIGKILL of the active at once still hand the node over.
+/// P9, racing a crash: a step down and a simultaneous SIGKILL of the active still hand over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn step_down_racing_an_active_crash_hands_over_to_the_hot_standby() {
     let mut scenario = FailoverScenario::start("step-down-crash", &HOT_SLOTS).await;

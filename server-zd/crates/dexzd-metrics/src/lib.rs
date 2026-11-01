@@ -24,7 +24,6 @@ mod commit_latency;
 mod fixed_labels;
 mod histogram;
 mod lag_gauges;
-mod hot_standby;
 mod object_requests;
 #[cfg(target_os = "linux")]
 mod process;
@@ -36,14 +35,12 @@ use std::path::PathBuf;
 pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc};
 pub use commit_latency::CommitLatency;
 pub use fixed_labels::{
-    AttributeSyncFailureKind, AttributeSyncWriteFailures, ObjectErrorCounters, OutcomeCounters,
-    RoleGauges,
+    AttributeSyncFailureKind, AttributeSyncWriteFailures, HotStandbyMetricState,
+    HotStandbyStateGauges, ObjectErrorCounters, OutcomeCounters, RoleGauges, TakeoverCounters,
+    TakeoverStandbyMode,
 };
 pub use histogram::AtomicHistogram;
 use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS, TAKEOVER_LATENCY_BOUNDS};
-pub use hot_standby::{
-    HotStandbyMetricState, HotStandbyStateGauges, TakeoverCounters, TakeoverStandbyMode,
-};
 pub use lag_gauges::{
     SearchOutboxBacklog, SearchOutboxEntries, SearchOutboxMaxPartitionEntries,
     SearchOutboxOldestEntryAge, TimerLag,

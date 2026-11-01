@@ -103,9 +103,7 @@ async fn hot_standby_takes_over_when_the_active_is_terminated() {
         .await;
 }
 
-/// P3, hot: a frozen active loses its lease to the hot standby and exits once it resumes.
-///
-/// It also records how the resumed process answers health probes queued during the freeze.
+/// P3, hot: a frozen active loses the node to the hot standby, exits on resume; records queued health answers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn frozen_active_loses_the_node_to_the_hot_standby_and_exits_on_resume() {
     let mut scenario = FailoverScenario::start("hot-frozen", &HOT_SLOTS).await;

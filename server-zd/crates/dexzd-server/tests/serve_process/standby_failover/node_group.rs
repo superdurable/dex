@@ -12,6 +12,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use dexzd_api::HOT_STANDBY_HEALTH_SERVICE_NAME;
@@ -20,6 +21,7 @@ use dexzd_protocol::dex::{
     DescribeActiveNodeRequest, DescribeActiveNodeResponse, StepDownActiveNodeRequest,
     StepDownActiveNodeResponse,
 };
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 use tonic::transport::Channel;
 use tonic_health::pb::HealthCheckRequest;
@@ -160,8 +162,15 @@ impl GroupReport {
     }
 }
 
+/// Node groups that may run at once; more starve each other's lease renewals on a small host.
+static NODE_GROUP_PERMITS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
+    let cpus = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
+    Arc::new(Semaphore::new((cpus / 4).clamp(2, 4)))
+});
+
 /// Serve processes of one node ID, signalled and restarted per slot, behind [`Self::router_address`].
 pub(crate) struct NodeGroup {
+    _running_permit: OwnedSemaphorePermit,
     emulator: DurableEmulator,
     fleet: ServeFleet,
     slots: Vec<NodeSlot>,
@@ -181,6 +190,10 @@ impl NodeGroup {
         workload: &Workload,
         settings: &[SlotSettings<'_>],
     ) -> Self {
+        let running_permit = Arc::clone(&NODE_GROUP_PERMITS)
+            .acquire_owned()
+            .await
+            .expect("the node group semaphore is never closed");
         let emulator = DurableEmulator::start().await;
         let inspector = ObjectStoreInspector::connect(&emulator.endpoint()).await;
         let mut slots = Vec::new();
@@ -229,6 +242,7 @@ impl NodeGroup {
         )
         .await;
         Self {
+            _running_permit: running_permit,
             emulator,
             fleet: ServeFleet::new(directory, workload.summary_source()),
             slots,

@@ -12,9 +12,7 @@ use tonic_health::server::{HealthReporter, HealthService};
 
 /// Service names that `grpc.health.v1` reports; `dexcli dev` waits until all are SERVING.
 pub const HEALTH_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTaskService"];
-/// Service name that reports SERVING only while this process is a hot standby within its lag threshold.
-///
-/// Readiness probes must not check it; rollouts check it to wait for a hot standby.
+/// Health name SERVING only on a hot standby within its lag threshold; for rollouts, never readiness.
 pub const HOT_STANDBY_HEALTH_SERVICE_NAME: &str = "dex.HotStandby";
 
 /// Controls the `grpc.health.v1` status of every Dex readiness name together, and of the hot standby name.

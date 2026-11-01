@@ -74,8 +74,12 @@ const EFFECT_TASKS_STOP_BUDGET: Duration = Duration::from_secs(2);
 /// Also bounds the Attribute Sync projector, which stops at the same time.
 const SEARCH_PROJECTION_STOP_BUDGET: Duration = Duration::from_secs(1);
 /// Covers the engine's three-second task stop and its lease release.
-const ENGINE_STOP_BUDGET: Duration =
-    EngineNode::SHUTDOWN_BUDGET.saturating_add(Duration::from_millis(500));
+/// It also covers a cancelled takeover's release.
+const ENGINE_STOP_BUDGET: Duration = longer_duration(
+    EngineNode::SHUTDOWN_BUDGET,
+    EngineNode::TAKEOVER_RELEASE_BUDGET,
+)
+.saturating_add(Duration::from_millis(500));
 const STREAM_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(1);
 /// Closing the relaxed embedded store fsyncs under host load; abandoning it can lose acknowledged writes.
 const EMBEDDED_S3_MINIMUM_STOP_BUDGET: Duration = Duration::from_secs(1);
@@ -683,9 +687,7 @@ impl ServerNode {
         &self.held_lease
     }
 
-    /// Serves until shutdown is requested, the node stops, or AdminService asks it to step down.
-    ///
-    /// Answers describe calls, and refuses step downs whose epoch precondition fails, meanwhile.
+    /// Serves until shutdown, a node stop, or a step down; answers describe and epoch-mismatched step downs meanwhile.
     async fn serve_until_stopped(
         &mut self,
         grpc: &mut GrpcServer,
@@ -734,9 +736,7 @@ impl ServerNode {
         }
     }
 
-    /// Stops serving and every component, then releases the lease.
-    ///
-    /// A shutdown also drains `grpc` with GOAWAY; a step down only closes its public services.
+    /// Stops serving and every component, then releases the lease; only a shutdown sends `grpc` GOAWAY.
     async fn stop(self, grpc: &mut GrpcServer, kind: PeriodStopKind) -> PeriodStop {
         let Self {
             metrics,
@@ -830,6 +830,15 @@ impl ServerNode {
             teardown,
             has_released_lease,
         }
+    }
+}
+
+/// Returns the longer of two budgets, usable in a constant.
+const fn longer_duration(first: Duration, second: Duration) -> Duration {
+    if first.as_nanos() >= second.as_nanos() {
+        first
+    } else {
+        second
     }
 }
 

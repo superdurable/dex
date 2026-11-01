@@ -27,9 +27,7 @@ const HOT_TAKEOVER_JITTER_LIMIT: Duration = Duration::from_millis(50);
 /// A standby that is not hot waits its configured delay times a factor in this range.
 const LAGGING_TAKEOVER_JITTER: std::ops::RangeInclusive<f64> = 0.8..=1.2;
 
-/// Samples a hot standby's status into metrics and the `dex.HotStandby` health name.
-///
-/// Every exit path calls [`Self::stop`], so the sampling task never outlives its standby.
+/// Samples hot standby status into metrics and `dex.HotStandby` health until [`Self::stop`], which every exit path calls.
 pub(super) struct StandbyStatusPublisher {
     stop: CancellationToken,
     task: JoinHandle<()>,
