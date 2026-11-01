@@ -19,6 +19,7 @@ mod simulated_node;
 mod simulated_object_store;
 mod simulated_workers;
 mod simulation_driver;
+mod standby_takeovers;
 mod workload;
 
 use std::collections::BTreeMap;
@@ -70,6 +71,8 @@ pub enum EngineSimulationProfile {
     /// The fixed set's environment with Step failure policies, short Flow timeouts, and timeout
     /// handlers. Clients also skip Flow timeouts.
     StepFailurePolicies,
+    /// The fixed set's environment plus a hot standby; most serving crashes end in a takeover.
+    HotStandbyTakeovers,
 }
 
 impl EngineSimulationProfile {
@@ -81,6 +84,7 @@ impl EngineSimulationProfile {
                 "redeploys_with_a_short_history_window_keep_every_invariant"
             }
             Self::StepFailurePolicies => "step_failure_policies_keep_every_invariant",
+            Self::HotStandbyTakeovers => "hot_standby_takeovers_keep_every_invariant",
         }
     }
 
@@ -171,6 +175,8 @@ pub struct EngineSimulationSummary {
     /// Comparisons skipped because the node's hard-delete upload ledger held uploads, which the
     /// twin does not model.
     pub state_comparisons_skipped_for_upload_ledger: u64,
+    /// Comparisons skipped because a standby had applied frames the store had not yet.
+    pub comparisons_skipped_behind_shadow: u64,
     /// Of the store comparisons, those made right after a crash recovery.
     pub recovered_state_comparisons: u64,
     /// Recovered-store checks that used the window points of a position behind the shadow, as
@@ -191,6 +197,11 @@ pub struct EngineSimulationSummary {
     pub dispatch_comparisons: u64,
     /// Runs in the final state.
     pub final_runs: usize,
+    /// Starts that discarded the existing store they were given because log cleanup passed it.
+    pub discarded_existing_stores: u64,
+    /// Hot standby events, such as `warm-takeover`, `takeover-crash`, `standby-crash`,
+    /// `standby-outage`, and the states its periodic checks saw.
+    pub hot_standby_events: BTreeMap<String, u64>,
     /// The last trace events of the seed, oldest first; [`Self::merge`] keeps the latest seed's.
     pub recent_events: Vec<String>,
 }
@@ -238,6 +249,8 @@ impl EngineSimulationSummary {
         );
         self.epoch_starts_below_landed_batches += other.epoch_starts_below_landed_batches;
         self.close_barrier.merge(&other.close_barrier);
+        merge_counts(&mut self.hot_standby_events, &other.hot_standby_events);
+        self.discarded_existing_stores += other.discarded_existing_stores;
         merge_counts(&mut self.close_hold_dry_runs, &other.close_hold_dry_runs);
         merge_counts(&mut self.start_failures, &other.start_failures);
         self.clock_jumps += other.clock_jumps;
@@ -256,6 +269,7 @@ impl EngineSimulationSummary {
         self.state_comparisons += other.state_comparisons;
         self.state_comparisons_skipped_for_upload_ledger +=
             other.state_comparisons_skipped_for_upload_ledger;
+        self.comparisons_skipped_behind_shadow += other.comparisons_skipped_behind_shadow;
         self.recovered_state_comparisons += other.recovered_state_comparisons;
         self.recovered_checks_with_older_window_points +=
             other.recovered_checks_with_older_window_points;

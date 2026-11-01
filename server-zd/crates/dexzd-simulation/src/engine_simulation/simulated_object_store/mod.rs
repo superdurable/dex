@@ -11,10 +11,11 @@
 mod closed_stream_replays;
 mod landing_writes;
 mod storage_observations;
+mod store_discards;
 
 use std::future::Future;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -22,9 +23,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use dexzd_engine::HARD_DELETE_OBJECT_KEY_PREFIX;
 use dexzd_object_store::{
-    ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
-    ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
+    ByteRange, FaultAction, FaultInjector, ObjectContent, ObjectListing, ObjectMetadata,
+    ObjectStore, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
+    WriteCondition, WriteOutcome,
 };
+use dexzd_protocol::dexzd::v1::Manifest;
+use prost::Message;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use tokio::sync::watch;
@@ -34,9 +38,12 @@ pub(crate) use closed_stream_replays::replays_voided_closed_batch;
 pub(crate) use landing_writes::SharedObjectStorage;
 use landing_writes::{CrashLanding, UnlandedLogWrites, WriteLanding, lock_unlanded};
 pub(crate) use storage_observations::StorageObservations;
+pub(crate) use store_discards::has_discarded_existing_store;
 
 /// Outlasts the process of a stalled write, whose crash then discards the write.
 const STALLED_WRITE_DELAY: Duration = Duration::from_secs(60 * 60);
+/// Object key of the cluster manifest, a persistent format.
+const MANIFEST_KEY: &str = "manifest";
 
 /// A fault the layer injects into one call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -106,6 +113,12 @@ pub(crate) struct NodeObjectStore {
     start_kind: String,
     faults: Mutex<FaultState>,
     cut_off: watch::Sender<bool>,
+    /// Fails every call at once while set, as an unreachable object storage does.
+    is_in_outage: AtomicBool,
+    /// Puts and deletes this process sent, whatever their outcome.
+    write_calls: AtomicU64,
+    /// The last manifest this process read.
+    last_read_manifest: Mutex<Option<Bytes>>,
     is_serving: AtomicBool,
     unlanded_log_writes: Arc<Mutex<UnlandedLogWrites>>,
 }
@@ -126,6 +139,9 @@ impl NodeObjectStore {
                 fault_probability: 0.0,
             }),
             cut_off: watch::Sender::new(false),
+            is_in_outage: AtomicBool::new(false),
+            write_calls: AtomicU64::new(0),
+            last_read_manifest: Mutex::new(None),
             is_serving: AtomicBool::new(false),
             unlanded_log_writes: Arc::new(Mutex::new(UnlandedLogWrites::default())),
         }
@@ -172,6 +188,42 @@ impl NodeObjectStore {
 
     fn is_cut_off(&self) -> bool {
         *self.cut_off.borrow()
+    }
+
+    /// Returns the last manifest this process read, such as the one its start recovered from.
+    pub(crate) fn last_read_manifest(&self) -> Option<Manifest> {
+        let bytes = self
+            .last_read_manifest
+            .lock()
+            .expect("manifest lock is not poisoned")
+            .clone()?;
+        Some(Manifest::decode(bytes).expect("a manifest object decodes"))
+    }
+
+    /// Returns how many puts and deletes this process sent, whatever their outcome.
+    pub(crate) fn write_calls(&self) -> u64 {
+        self.write_calls.load(Ordering::SeqCst)
+    }
+
+    /// Fails every later call at once while `is_in_outage`, without effect.
+    pub(crate) fn set_outage(&self, is_in_outage: bool) {
+        self.is_in_outage.store(is_in_outage, Ordering::SeqCst);
+    }
+
+    /// Returns the failure of a call during an outage.
+    fn outage_failure(
+        &self,
+        operation: ObjectStoreOperation,
+        key: &str,
+    ) -> Option<ObjectStoreError> {
+        self.is_in_outage.load(Ordering::SeqCst).then(|| {
+            injected_error(
+                operation,
+                key,
+                ObjectStoreErrorKind::Transient,
+                "injected object storage outage",
+            )
+        })
     }
 
     fn plan_call(&self, operation: ObjectStoreOperation, key: &str) -> CallPlan {
@@ -229,6 +281,9 @@ impl NodeObjectStore {
         if self.is_cut_off() {
             return std::future::pending().await;
         }
+        if let Some(failure) = self.outage_failure(operation, key) {
+            return Err(failure);
+        }
         let plan = self.plan_call(operation, key);
         tokio::time::sleep(plan.delay).await;
         if self.is_cut_off() {
@@ -274,8 +329,12 @@ impl NodeObjectStore {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = ObjectStoreResult<T>> + Send + 'static,
     {
+        self.write_calls.fetch_add(1, Ordering::SeqCst);
         if self.is_cut_off() {
             return std::future::pending().await;
+        }
+        if let Some(failure) = self.outage_failure(operation, key) {
+            return Err(failure);
         }
         let process_label = &self.process_label;
         self.observe(|observations| {
@@ -496,10 +555,20 @@ impl ObjectStore for NodeObjectStore {
                     .or_default() += 1;
             });
         }
-        self.run_read(ObjectStoreOperation::Get, key, || {
-            self.storage.store.get(key)
-        })
-        .await
+        let content = self
+            .run_read(ObjectStoreOperation::Get, key, || {
+                self.storage.store.get(key)
+            })
+            .await;
+        if key == MANIFEST_KEY
+            && let Ok(Some(manifest)) = &content
+        {
+            *self
+                .last_read_manifest
+                .lock()
+                .expect("manifest lock is not poisoned") = Some(manifest.bytes.clone());
+        }
+        content
     }
 
     async fn get_range(
@@ -596,3 +665,15 @@ impl ObjectStore for NodeObjectStore {
 
 #[cfg(test)]
 mod tests;
+
+/// Object storage fault probabilities a seed draws from; some seeds run without faults.
+pub(crate) const FAULT_PROBABILITIES: [f64; 5] = [0.0, 0.001, 0.005, 0.01, 0.02];
+
+/// The shared store applies every call; faults come from each process's own layer.
+pub(crate) struct NoInjectedFaults;
+
+impl FaultInjector for NoInjectedFaults {
+    fn action(&self, _operation: ObjectStoreOperation, _key: &str) -> FaultAction {
+        FaultAction::Proceed
+    }
+}

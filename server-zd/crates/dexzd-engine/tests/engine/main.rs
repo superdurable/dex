@@ -11,6 +11,7 @@
 mod commit_path;
 mod harness;
 mod hot_standby;
+mod hot_standby_faults;
 mod hot_standby_takeover;
 mod lease_lifecycle;
 mod lease_validity_gate;

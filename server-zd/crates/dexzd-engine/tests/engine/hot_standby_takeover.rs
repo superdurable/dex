@@ -91,7 +91,7 @@ fn take_over(
 }
 
 /// Takes over without cancellation and returns the serving node.
-async fn take_over_to_serving(
+pub(crate) async fn take_over_to_serving(
     cluster: &TestCluster,
     config: EngineNodeConfig,
     standby: HotStandby,
@@ -176,7 +176,7 @@ async fn a_takeover_after_idle_partitions_reads_little_and_outranks_every_follow
     serving.node.shutdown().await.expect("lease released");
 
     let (node, object_store) = take_over_to_serving(&cluster, standby_config, second.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     let takeover_epoch = recorded_epoch(&cluster).await;
     assert!(
         object_store.log_reads() <= 3,
@@ -217,7 +217,7 @@ async fn a_takeover_serves_the_in_memory_store_that_the_standby_hands_over() {
     // An in-memory store exists only in the standby, so a cold start would replay every batch.
     let (node, object_store) =
         take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert!(
         object_store.log_reads() <= 3,
         "the takeover read {} log objects or listings",
@@ -276,7 +276,7 @@ async fn a_takeover_writes_its_epoch_start_at_the_hole_the_standby_waits_at() {
 
     let standby_applier = standby.applier.clone();
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     let takeover_epoch = recorded_epoch(&cluster).await;
     let at_hole = read_batch(&cluster, &stream, hole_seq).await;
     assert!(
@@ -357,7 +357,7 @@ async fn a_takeover_from_a_store_behind_log_cleanup_restores_the_newest_snapshot
 
     let (node, object_store) =
         take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(!node.node.is_serving_hot_standby_store_for_test());
+    assert!(!node.node.is_serving_hot_standby_store());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 7);
     assert_eq!(node.committed_count(&second_flow).await, 7);
     assert_eq!(
@@ -421,7 +421,7 @@ async fn a_takeover_from_a_standby_without_a_store_restores_the_newest_snapshot(
     serving.node.shutdown().await.expect("lease released");
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(!node.node.is_serving_hot_standby_store_for_test());
+    assert!(!node.node.is_serving_hot_standby_store());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 5);
     assert_eq!(
         applied_flows(&node.applier),
@@ -456,7 +456,7 @@ async fn a_takeover_opens_the_configured_store_when_the_standby_followed_into_an
         standby.standby,
     )
     .await;
-    assert!(!node.node.is_serving_hot_standby_store_for_test());
+    assert!(!node.node.is_serving_hot_standby_store());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 3);
     assert_eq!(
         applied_flows(&node.applier),
@@ -765,7 +765,7 @@ async fn a_standby_lane_mid_apply_at_handover_writes_nothing_after_the_node_serv
     let status_reader = standby.standby.status_reader();
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert_eq!(status_reader.status().state, HotStandbyState::Stopped);
     assert_eq!(
         applied_flows(&node.applier),
@@ -817,7 +817,7 @@ async fn a_takeover_opens_the_store_cold_after_a_standby_store_write_failed_in_t
     let takeover = takeover.await.expect("the takeover task completes");
     let node = serving_test_node(&cluster, takeover);
     assert!(
-        !node.node.is_serving_hot_standby_store_for_test(),
+        !node.node.is_serving_hot_standby_store(),
         "a store behind a failed write fence is not handed over"
     );
     assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
@@ -851,7 +851,7 @@ async fn a_takeover_waits_for_a_lingering_standby_lane_before_it_reopens_the_sto
 
     let takeover = takeover.await.expect("the takeover task completes");
     let node = serving_test_node(&cluster, takeover);
-    assert!(!node.node.is_serving_hot_standby_store_for_test());
+    assert!(!node.node.is_serving_hot_standby_store());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
     assert_eq!(node.committed_count(BLOCKING_FLOW).await, 1);
     node.node.shutdown().await.expect("lease released");
@@ -936,6 +936,83 @@ async fn a_takeover_in_another_cluster_fails_before_the_lease_and_returns_the_st
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_takeover_fails_after_the_lease_when_its_standby_then_follows_another_cluster() {
+    // The standby's cluster does not exist yet, so the check before the lease cannot tell.
+    let mut followed_cluster = TestCluster::new();
+    let standby_config = followed_cluster.config(LocalStoreConfig::InMemory);
+    let standby = start_standby(
+        &followed_cluster,
+        standby_config.clone(),
+        fast_standby_config(),
+    );
+    let status_reader = standby.standby.status_reader();
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let epoch = recorded_epoch(&cluster).await;
+
+    let (_cancel, cancellation) = watch::channel(false);
+    let (takeover_store, takeover) = take_over(
+        &cluster,
+        standby_config.clone(),
+        standby.standby,
+        cancellation,
+    );
+    let takeover = tokio::spawn(takeover);
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while takeover_store.lease_reads() < 2 {
+        assert!(!takeover.is_finished(), "the takeover waits for the lease");
+        assert!(
+            Instant::now() < deadline,
+            "the takeover did not read the held lease"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // While the takeover waits, the standby's cluster appears and the standby follows it.
+    let followed = followed_cluster
+        .start_with(&standby_config)
+        .await
+        .expect("the followed cluster's node starts");
+    followed.commit_prompt(FIRST_FLOW, 1).await;
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while status_reader.status().lag.is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "the standby did not follow its cluster"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    serving.node.shutdown().await.expect("lease released");
+
+    let failed = takeover.await.expect("the takeover task completes").result;
+    assert!(
+        matches!(
+            failed,
+            Err(HotStandbyTakeoverError {
+                error: EngineStartError::InvalidConfig { .. },
+                standby: None,
+                ..
+            })
+        ),
+        "a standby of another cluster is never served"
+    );
+    assert!(
+        recorded_epoch(&cluster).await > epoch,
+        "the takeover took the lease"
+    );
+    let mut successor_config = cluster.config(LocalStoreConfig::InMemory);
+    successor_config.lease.fail_fast = true;
+    let successor = cluster
+        .start_with(&successor_config)
+        .await
+        .expect("the failed takeover released the lease");
+    successor.node.shutdown().await.expect("lease released");
+    followed.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_takeover_does_not_reuse_a_store_whose_positions_name_another_node() {
     let store = Arc::new(EngineLocalStore::Memory(InMemoryLocalStore::new()));
     let mut cluster = TestCluster::new();
@@ -959,7 +1036,7 @@ async fn a_takeover_does_not_reuse_a_store_whose_positions_name_another_node() {
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
     assert!(
-        !node.node.is_serving_hot_standby_store_for_test(),
+        !node.node.is_serving_hot_standby_store(),
         "a store with another node's positions is not reused"
     );
     assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
@@ -1011,7 +1088,7 @@ async fn a_takeover_sets_aside_a_standby_store_that_applied_a_batch_past_the_rec
     second.node.shutdown().await.expect("lease released");
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(!node.node.is_serving_hot_standby_store_for_test());
+    assert!(!node.node.is_serving_hot_standby_store());
     assert_eq!(
         set_aside_copies(&standby_directory).len(),
         1,
@@ -1070,7 +1147,7 @@ async fn a_takeover_serves_a_standby_store_that_voided_a_late_batch_past_the_rec
     second.node.shutdown().await.expect("lease released");
 
     let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
-    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(node.node.is_serving_hot_standby_store());
     assert!(set_aside_copies(&standby_directory).is_empty());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
     node.node.shutdown().await.expect("lease released");

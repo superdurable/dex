@@ -53,7 +53,7 @@ pub(crate) async fn replays_voided_closed_batch(
 
 /// Returns the lowest (incarnation, seq) every partition applied, or `None` when one applied
 /// nothing.
-fn lowest_applied_position(store: &EngineLocalStore) -> Option<(u32, u64)> {
+pub(super) fn lowest_applied_position(store: &EngineLocalStore) -> Option<(u32, u64)> {
     let metas = store
         .partition_metas()
         .expect("an in-memory store reads its partition metadata");

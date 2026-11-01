@@ -20,6 +20,7 @@ use rocksdb::{
 
 use uuid::Uuid;
 
+use crate::directory_lock::{OpenDirectory, register_open_directory};
 use crate::local_store::{
     LocalReadView, LocalStore, ScanDirection, StorageError, StorageResult, WriteBatch,
     WriteOperation, new_node_meta,
@@ -61,6 +62,8 @@ pub struct RocksDbLocalStore {
     db: Arc<DB>,
     path: PathBuf,
     compaction: Mutex<Option<BackgroundCompaction>>,
+    /// Unregisters the directory after the database above closes, since fields drop in order.
+    _open_directory: OpenDirectory,
 }
 
 /// A compaction thread of [`RocksDbLocalStore::start_background_compaction`].
@@ -94,6 +97,8 @@ impl RocksDbLocalStore {
         // Snapshot checkpoints log every file they link, so unbounded info logs outgrow the data.
         db_options.set_max_log_file_size(INFO_LOG_FILE_MAX_BYTES);
         db_options.set_keep_log_file_num(INFO_LOG_FILES_KEPT);
+        // Registered before the open, so a concurrent lock probe sees this process as the holder.
+        let open_directory = register_open_directory(path.as_ref())?;
         let db = DB::open_cf_descriptors(
             &db_options,
             path.as_ref(),
@@ -103,6 +108,7 @@ impl RocksDbLocalStore {
             db: Arc::new(db),
             path: path.as_ref().to_path_buf(),
             compaction: Mutex::new(None),
+            _open_directory: open_directory,
         };
         if store.node_meta()?.is_none() {
             if !is_new_store {

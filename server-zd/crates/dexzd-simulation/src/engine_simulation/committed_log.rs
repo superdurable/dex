@@ -344,6 +344,73 @@ impl CommittedLog {
         twin
     }
 
+    /// Checks that every frame below the applied positions of `store` was finished by some
+    /// process: each batch in the log that carries records of a partition, up to that
+    /// partition's applied position.
+    pub(crate) fn check_log_completeness(
+        &self,
+        store: &EngineLocalStore,
+    ) -> Result<(), InvariantViolation> {
+        let metas = store.partition_metas().map_err(|error| {
+            InvariantViolation::new("local-store-read", format!("partition metas: {error}"))
+        })?;
+        let state = self.lock();
+        let observations = self
+            .storage_observations
+            .lock()
+            .expect("storage observation lock is not poisoned");
+        for meta in metas {
+            let Some(applied) = meta.applied else {
+                continue;
+            };
+            let partition = u16::try_from(meta.partition).expect("a partition fits u16");
+            let through = (applied.incarnation, applied.seq);
+            for (incarnation, seq) in observations
+                .log_batches
+                .log_batches_of(meta.partition, through)
+            {
+                let key = (partition, applied.node_id.clone(), incarnation, seq);
+                if !state.frames.contains_key(&key) {
+                    return Err(InvariantViolation::new(
+                        "log-frame-missing",
+                        format!(
+                            "partition {partition} applied through {through:?}, but no process \
+                             finished its frame of batch {incarnation}:{seq}"
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns whether the shadow holds a frame of some partition above that partition's
+    /// applied position in `store`, as after a standby applied frames this store has not yet.
+    pub(crate) fn is_shadow_ahead_of(
+        &self,
+        store: &EngineLocalStore,
+    ) -> Result<bool, InvariantViolation> {
+        let metas = store.partition_metas().map_err(|error| {
+            InvariantViolation::new("local-store-read", format!("partition metas: {error}"))
+        })?;
+        let applied: BTreeMap<u32, (u32, u64)> = metas
+            .into_iter()
+            .filter_map(|meta| {
+                meta.applied
+                    .map(|applied| (meta.partition, (applied.incarnation, applied.seq)))
+            })
+            .collect();
+        let state = self.lock();
+        Ok(state
+            .newest_frames
+            .values()
+            .any(|(partition, _, incarnation, seq)| {
+                applied
+                    .get(&u32::from(*partition))
+                    .is_none_or(|position| (*incarnation, *seq) > *position)
+            }))
+    }
+
     /// Returns the shadow checker for read-only decoding.
     pub(crate) fn with_shadow<T>(&self, read: impl FnOnce(&ApplyChecker) -> T) -> T {
         read(&self.lock().shadow)
@@ -378,7 +445,19 @@ impl CommittedLog {
         Arc::new(ObservingCommandSink {
             log: Arc::clone(self),
             process_label: process_label.to_owned(),
-            registry,
+            registry: Some(registry),
+        })
+    }
+
+    /// Returns a sink that records the frames a hot standby `process_label` applies.
+    pub(crate) fn standby_sink_for(
+        self: &Arc<Self>,
+        process_label: &str,
+    ) -> Arc<ObservingCommandSink> {
+        Arc::new(ObservingCommandSink {
+            log: Arc::clone(self),
+            process_label: process_label.to_owned(),
+            registry: None,
         })
     }
 
@@ -853,13 +932,16 @@ fn describe_write(write: &StateWrite) -> String {
 pub(crate) struct ObservingCommandSink {
     log: Arc<CommittedLog>,
     process_label: String,
-    registry: FlowCoordinatorRegistry,
+    /// `None` for a hot standby, which runs no Flow runtime.
+    registry: Option<FlowCoordinatorRegistry>,
 }
 
 impl CommittedCommandSink for ObservingCommandSink {
     fn apply_committed(&self, committed: CommittedFlowCommand) {
         self.log.observe(&self.process_label, &committed);
-        self.registry.apply_committed(committed);
+        if let Some(registry) = &self.registry {
+            registry.apply_committed(committed);
+        }
     }
 
     fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {

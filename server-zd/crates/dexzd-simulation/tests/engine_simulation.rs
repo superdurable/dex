@@ -26,6 +26,22 @@ const FIRST_REDEPLOY_SEED: u64 = 0x4ede_0000;
 const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
+const DEFAULT_HOT_STANDBY_SEED_COUNT: u64 = 16;
+/// Hot standbys change every trajectory, so their seeds form their own group.
+const FIRST_HOT_STANDBY_SEED: u64 = 0x57a0_0000;
+/// Seeds that broke the oracle: a standby applied batches the serving process had not applied.
+const HOT_STANDBY_REGRESSION_SEEDS: &[(u64, u64)] = &[
+    (1_470_103_572, 120),
+    (1_470_103_573, 120),
+    (1_470_103_586, 120),
+    (1_470_103_602, 120),
+    (1_470_103_611, 120),
+    (1_470_103_620, 120),
+    (1_470_103_663, 120),
+    (1_470_103_715, 120),
+    // A standby applied frames that the serving process had not, so the twin was ahead.
+    (1_470_103_794, 120),
+];
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
 /// Canonical command digests with full-rate startup faults; a moved regression seed
 /// stops reproducing.
@@ -77,6 +93,12 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         FIRST_REDEPLOY_SEED,
         120,
         0xa330eed649fe9012242114b785ee5ac3,
+    ),
+    (
+        EngineSimulationProfile::HotStandbyTakeovers,
+        FIRST_HOT_STANDBY_SEED,
+        120,
+        0xc0cb0b10a638a971f53dddda5c6b3b16,
     ),
 ];
 
@@ -199,6 +221,68 @@ fn redeploys_with_a_short_history_window_keep_every_invariant() {
     for (name, value) in checks {
         assert!(value > 0, "the redeploy profile had no {name}: {total:#?}");
     }
+}
+
+#[test]
+fn hot_standby_takeovers_keep_every_invariant() {
+    let (seeds, is_single_seed) = configured(
+        DEFAULT_HOT_STANDBY_SEED_COUNT,
+        FIRST_HOT_STANDBY_SEED,
+        HOT_STANDBY_REGRESSION_SEEDS,
+    );
+    let mut total = run_seeds(&seeds, EngineSimulationProfile::HotStandbyTakeovers);
+    total.recent_events.clear();
+    println!("hot standby profile coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    for event in [
+        "warm-takeover",
+        "warm-takeover-compared",
+        "takeover-crash",
+        "standby-crash-kept",
+        "standby-crash-lost",
+        "standby-outage",
+        "standby-redeploy",
+        "standby-crossed-stream-while-following",
+        "check-following",
+        "check-restarting",
+        "standby-following-at-end",
+    ] {
+        assert!(
+            total
+                .hot_standby_events
+                .get(event)
+                .is_some_and(|count| *count > 0),
+            "the hot standby profile had no {event}: {total:#?}"
+        );
+    }
+    assert!(
+        total.recovered_state_comparisons > 0,
+        "no store was compared with the twin after a takeover: {total:#?}"
+    );
+    assert!(
+        total.incarnation_changes > 0,
+        "no standby followed across an incarnation change: {total:#?}"
+    );
+    assert!(
+        total.comparisons_skipped_behind_shadow * 100 <= total.state_comparisons,
+        "over 1% of the twin comparisons were skipped behind a standby: {total:#?}"
+    );
+    let warm_takeovers = total
+        .hot_standby_events
+        .get("warm-takeover")
+        .copied()
+        .unwrap_or(0);
+    let compared = total
+        .hot_standby_events
+        .get("warm-takeover-compared")
+        .copied()
+        .unwrap_or(0);
+    assert!(
+        compared * 10 >= warm_takeovers * 9,
+        "fewer than 90% of the warm takeovers were compared with the twin right away: {total:#?}"
+    );
 }
 
 #[test]
@@ -476,6 +560,10 @@ fn one_seed_produces_the_same_trace_and_final_state_twice() {
         (
             FIRST_STEP_FAILURE_SEED,
             EngineSimulationProfile::StepFailurePolicies,
+        ),
+        (
+            FIRST_HOT_STANDBY_SEED,
+            EngineSimulationProfile::HotStandbyTakeovers,
         ),
     ] {
         let config = EngineSimulationConfig {

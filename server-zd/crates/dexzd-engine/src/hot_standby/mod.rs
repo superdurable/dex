@@ -27,17 +27,19 @@ use tokio_util::sync::CancellationToken;
 use crate::command_applier::CommandApplier;
 use crate::commit::{CommitState, EngineLocalStore, NodeStopReason};
 use crate::engine_id_source::EngineIdSource;
-use crate::engine_node::{EngineNodeConfig, validate_config};
+use crate::engine_node::{EngineNodeConfig, LocalStoreCloseWaiter, validate_config};
 use crate::hot_standby::log_follower::FollowProgress;
 use crate::hot_standby::read_only_object_store::ReadOnlyObjectStore;
-use crate::hot_standby::standby_driver::{DRIVER_STOP_BUDGET, StandbyDriver};
-use crate::recovery::{EngineStartError, LocalStoreConfig};
+use crate::hot_standby::standby_driver::{
+    DRIVER_STOP_BUDGET, IgnoredCommittedCommands, StandbyDriver,
+};
+use crate::recovery::{CommittedCommandSink, EngineStartError, LocalStoreConfig};
 
 /// Longest wait in [`HotStandby::shutdown`] for the local store to close once following stopped.
 const SHUTDOWN_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(5);
 
-/// How often a wait for a closed store checks it again.
-const STORE_CLOSE_POLL: Duration = Duration::from_millis(10);
+/// Failed log reads in a row after which [`HotStandbyStatus::read_error`] reports the last one.
+const REPORTED_FAILED_READS: u32 = 3;
 
 /// Pacing of a hot standby's log following.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +142,9 @@ pub struct HotStandbyStatus {
     /// Time left before the next bootstrap, in [`HotStandbyState::Restarting`]; `None` while
     /// following still stops.
     pub restart_in: Option<Duration>,
+    /// Why at least three consecutive log reads failed, as when storage is unreachable; `None`
+    /// after a read succeeds.
+    pub read_error: Option<String>,
 }
 
 /// Reads a hot standby's status, also while a takeover owns the standby.
@@ -181,7 +186,7 @@ pub struct HotStandby {
 #[derive(Default)]
 struct FollowingHandles {
     write_fence: Mutex<Option<Arc<CommitState>>>,
-    store: Mutex<Option<Weak<EngineLocalStore>>>,
+    store: Arc<Mutex<Option<Weak<EngineLocalStore>>>>,
     /// The cluster the standby read at its last bootstrap.
     cluster_id: Mutex<Option<[u8; 16]>>,
     /// The newest write fence, kept after following stops so a test can read its refusals.
@@ -189,6 +194,9 @@ struct FollowingHandles {
     last_write_fence: Mutex<Option<Arc<CommitState>>>,
     #[cfg(feature = "test-util")]
     is_waiting_for_store_close: std::sync::atomic::AtomicBool,
+    /// Following periods that read into the next incarnation's stream without a restart.
+    #[cfg(feature = "test-util")]
+    stream_crossings: AtomicU64,
 }
 
 impl HotStandby {
@@ -200,6 +208,37 @@ impl HotStandby {
         config: EngineNodeConfig,
         standby_config: HotStandbyConfig,
         dependencies: HotStandbyDependencies,
+    ) -> Result<Self, EngineStartError> {
+        Self::start_with_committed_commands(
+            config,
+            standby_config,
+            dependencies,
+            Arc::new(IgnoredCommittedCommands),
+        )
+    }
+
+    /// Starts following like [`Self::start`], passing every applied command to
+    /// `committed_commands`.
+    #[cfg(feature = "test-util")]
+    pub fn start_with_committed_commands_for_test(
+        config: EngineNodeConfig,
+        standby_config: HotStandbyConfig,
+        dependencies: HotStandbyDependencies,
+        committed_commands: Arc<dyn CommittedCommandSink>,
+    ) -> Result<Self, EngineStartError> {
+        Self::start_with_committed_commands(
+            config,
+            standby_config,
+            dependencies,
+            committed_commands,
+        )
+    }
+
+    fn start_with_committed_commands(
+        config: EngineNodeConfig,
+        standby_config: HotStandbyConfig,
+        dependencies: HotStandbyDependencies,
+        committed_commands: Arc<dyn CommittedCommandSink>,
     ) -> Result<Self, EngineStartError> {
         validate_config(&config)?;
         validate_standby_config(&standby_config)?;
@@ -230,6 +269,7 @@ impl HotStandby {
                 id_source,
                 status: status.clone(),
                 restart_jitter_seed,
+                committed_commands,
                 following: following.clone(),
                 cancellation: cancellation.clone(),
             }
@@ -255,6 +295,23 @@ impl HotStandby {
     #[cfg(feature = "test-util")]
     pub fn rejected_writes_for_test(&self) -> u64 {
         self.rejected_writes.load(Ordering::SeqCst)
+    }
+
+    /// Returns the store the standby follows into now, which a restore may have replaced.
+    #[cfg(feature = "test-util")]
+    pub fn local_store_for_test(&self) -> Option<Arc<EngineLocalStore>> {
+        self.following
+            .store
+            .lock()
+            .expect("store handle lock is not poisoned")
+            .as_ref()
+            .and_then(Weak::upgrade)
+    }
+
+    /// Returns a waiter of the standby's local store, which stays valid after a takeover or a
+    /// shutdown; see [`LocalStoreCloseWaiter`].
+    pub fn local_store_close_waiter(&self) -> LocalStoreCloseWaiter {
+        LocalStoreCloseWaiter::new(Arc::clone(&self.following.store), &self.local_store)
     }
 
     /// Returns a handle that observes and fails the standby, which works after a takeover owns
@@ -333,27 +390,18 @@ impl HotStandby {
     ///
     /// Returns whether the store closed; `true` when the standby never opened one.
     pub(crate) async fn wait_until_store_closed(&self, deadline: tokio::time::Instant) -> bool {
-        let Some(store) = self
-            .following
-            .store
-            .lock()
-            .expect("store handle lock is not poisoned")
-            .clone()
-        else {
-            return true;
-        };
         #[cfg(feature = "test-util")]
         self.following
             .is_waiting_for_store_close
-            .store(store.strong_count() > 0, Ordering::SeqCst);
-        while store.strong_count() > 0 && tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(STORE_CLOSE_POLL).await;
-        }
+            .store(true, Ordering::SeqCst);
+        let is_closed = self
+            .local_store_close_waiter()
+            .wait_until_closed_by(deadline)
+            .await;
         #[cfg(feature = "test-util")]
         self.following
             .is_waiting_for_store_close
             .store(false, Ordering::SeqCst);
-        let is_closed = store.strong_count() == 0;
         if !is_closed {
             tracing::error!("a task still holds the hot standby's local store open");
         }
@@ -383,6 +431,8 @@ impl HotStandby {
             Err(_) => {
                 self.following.stop_current_write_fence();
                 driver.abort();
+                // The aborted driver can no longer report its own stop.
+                self.status_reader.status.set(StandbyPhase::Stopped);
                 tracing::error!("the hot standby did not stop in time and was aborted");
                 None
             }
@@ -394,6 +444,9 @@ impl Drop for HotStandby {
     fn drop(&mut self) {
         // Fencing first keeps a lane that outlives the abort from writing the store.
         self.following.stop_current_write_fence();
+        if self.driver.is_some() {
+            self.status_reader.status.set(StandbyPhase::Stopped);
+        }
         self.cancellation.cancel();
         if let Some(driver) = self.driver.take() {
             driver.abort();
@@ -432,6 +485,11 @@ impl HotStandbyProbeForTest {
             .expect("write fence lock is not poisoned")
             .as_ref()
             .map_or(0, |write_fence| write_fence.refused_store_writes_for_test())
+    }
+
+    /// Returns how many following periods read into the next incarnation's stream.
+    pub fn stream_crossings_for_test(&self) -> u64 {
+        self.following.stream_crossings.load(Ordering::SeqCst)
     }
 
     /// Returns whether a caller waits for a task to close the standby's store.
@@ -476,6 +534,12 @@ impl FollowingHandles {
             .cluster_id
             .lock()
             .expect("cluster ID lock is not poisoned") = Some(cluster_id);
+    }
+
+    /// Counts a following period that read into the next incarnation's stream.
+    fn record_stream_crossing(&self) {
+        #[cfg(feature = "test-util")]
+        self.stream_crossings.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Records the newest store, which a later wait for a closed store watches.
@@ -537,11 +601,16 @@ enum StandbyPhase {
 }
 
 impl StandbyStatusCell {
+    /// Sets the phase, unless the standby already stopped or failed for good.
     fn set(&self, phase: StandbyPhase) {
-        *self
+        let mut current = self
             .phase
             .lock()
-            .expect("standby status lock is not poisoned") = phase;
+            .expect("standby status lock is not poisoned");
+        // An aborted driver can still run briefly, and a drop must keep the failure reason.
+        if !matches!(*current, StandbyPhase::Stopped | StandbyPhase::Failed(_)) {
+            *current = phase;
+        }
     }
 
     fn set_listing(&self, next_seq: u64, batches: u64) {
@@ -593,6 +662,7 @@ impl StandbyStatusCell {
                 failure: None,
                 last_error,
                 restart_in: None,
+                read_error: None,
             },
             StandbyPhase::Restarting { restart_at } => HotStandbyStatus {
                 state: HotStandbyState::Restarting,
@@ -602,6 +672,7 @@ impl StandbyStatusCell {
                 restart_in: restart_at.map(|restart_at| {
                     restart_at.saturating_duration_since(tokio::time::Instant::now())
                 }),
+                read_error: None,
             },
             StandbyPhase::Stopped => HotStandbyStatus {
                 state: HotStandbyState::Stopped,
@@ -609,6 +680,7 @@ impl StandbyStatusCell {
                 failure: None,
                 last_error,
                 restart_in: None,
+                read_error: None,
             },
             StandbyPhase::Failed(error) => HotStandbyStatus {
                 state: HotStandbyState::Failed,
@@ -616,13 +688,14 @@ impl StandbyStatusCell {
                 failure: Some(error.clone()),
                 last_error,
                 restart_in: None,
+                read_error: None,
             },
             StandbyPhase::Following {
                 progress,
                 started_at_micros,
                 listing,
             } => {
-                let progress = *progress.borrow();
+                let progress = progress.borrow().clone();
                 let duration = lag_duration(&progress, *listing, *started_at_micros, now_micros);
                 let state = if duration > behind_lag_threshold {
                     HotStandbyState::Behind
@@ -640,6 +713,9 @@ impl StandbyStatusCell {
                     failure: None,
                     last_error,
                     restart_in: None,
+                    read_error: (progress.failed_reads >= REPORTED_FAILED_READS)
+                        .then(|| progress.last_read_error.as_deref().map(str::to_owned))
+                        .flatten(),
                 }
             }
         }
@@ -671,4 +747,85 @@ fn lag_duration(
     progress.caught_up_at.map_or(data_age, |caught_up_at| {
         data_age.min(caught_up_at.elapsed())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::pending;
+
+    use dexzd_cluster_metadata::LeaseValidityDeadline;
+
+    use super::*;
+
+    /// Returns a standby whose driver ignores cancellation, like one stuck in a long apply.
+    fn standby_with_stuck_driver() -> HotStandby {
+        let driver = tokio::spawn(pending::<Option<Arc<EngineLocalStore>>>());
+        HotStandby {
+            status_reader: HotStandbyStatusReader {
+                status: Arc::new(StandbyStatusCell::default()),
+                clock: Arc::new(dexzd_clock::SystemWallClock),
+                behind_lag_threshold: Duration::from_secs(10),
+            },
+            #[cfg(feature = "test-util")]
+            rejected_writes: Arc::new(AtomicU64::new(0)),
+            local_store: LocalStoreConfig::InMemory,
+            node_id: "node-a".to_owned(),
+            following: Arc::new(FollowingHandles::default()),
+            cancellation: CancellationToken::new(),
+            driver: Some(driver),
+        }
+    }
+
+    #[test]
+    fn a_stopped_or_failed_status_ignores_later_phases() {
+        let failed = StandbyStatusCell::default();
+        failed.set(StandbyPhase::Failed(Arc::new(
+            EngineStartError::InvalidConfig {
+                detail: "a test failure".to_owned(),
+            },
+        )));
+        failed.set(StandbyPhase::Stopped);
+        let status = failed.status_at(0, Duration::from_secs(10));
+        assert_eq!(status.state, HotStandbyState::Failed);
+        assert!(status.failure.is_some(), "the failure reason is kept");
+
+        let stopped = StandbyStatusCell::default();
+        stopped.set(StandbyPhase::Stopped);
+        stopped.set(StandbyPhase::Bootstrapping);
+        stopped.set(StandbyPhase::Restarting { restart_at: None });
+        assert_eq!(
+            stopped.status_at(0, Duration::from_secs(10)).state,
+            HotStandbyState::Stopped
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_handover_keeps_the_driver_for_a_later_stop() {
+        let mut standby = standby_with_stuck_driver();
+        let handover =
+            tokio::time::timeout(Duration::from_millis(1), standby.hand_over_store()).await;
+        assert!(
+            handover.is_err(),
+            "the stuck driver keeps the handover waiting"
+        );
+        assert!(
+            standby.driver.is_some(),
+            "the cancelled handover detached the driver"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_that_times_out_fences_and_aborts_the_driver_and_reports_stopped() {
+        let mut standby = standby_with_stuck_driver();
+        let write_fence = Arc::new(CommitState::new(4, LeaseValidityDeadline::disarmed()));
+        standby
+            .following
+            .set_write_fence(Some(Arc::clone(&write_fence)));
+        let reader = standby.status_reader();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(1);
+        assert!(standby.stop_following(deadline).await.is_none());
+        assert_eq!(write_fence.stop_reason(), Some(NodeStopReason::Shutdown));
+        assert!(standby.driver.is_none(), "the stuck driver was aborted");
+        assert_eq!(reader.status().state, HotStandbyState::Stopped);
+    }
 }

@@ -26,6 +26,7 @@ use prost::Message;
 use crate::apply_checker::ApplyChecker;
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::simulated_clients::ClientRecords;
+use crate::engine_simulation::simulated_node::PARTITION_COUNT;
 use crate::engine_simulation::simulated_workers::AttemptIdentity;
 use crate::invariants::{CheckerMemory, InvariantViolation, check_flow};
 use crate::memory_state::MemoryFlowState;
@@ -41,6 +42,27 @@ const APPLIED_COLUMN_FAMILIES: [ColumnFamily; 4] = [
     ColumnFamily::Value,
     ColumnFamily::PartitionIndex,
 ];
+
+/// Checks invariant 1 at the end of a seed, and compares the final serving store with the twin;
+/// only a pending hard-delete upload may still skip that comparison.
+pub(crate) fn check_acknowledged_writes_and_caught_up(
+    records: &ClientRecords,
+    committed_log: &CommittedLog,
+    serving_store: Option<&EngineLocalStore>,
+) -> Result<(), InvariantViolation> {
+    check_acknowledged_writes(records, committed_log)?;
+    let Some(store) = serving_store else {
+        return Ok(());
+    };
+    match check_store_matches_log(store, committed_log)? {
+        TwinComparison::Compared | TwinComparison::SkippedForUploadLedger => Ok(()),
+        TwinComparison::SkippedBehindShadow => Err(InvariantViolation::new(
+            "store-behind-shadow",
+            "after the calm tail, the serving store still lacks frames a standby applied"
+                .to_owned(),
+        )),
+    }
+}
 
 /// Invariant 1: every acknowledged write is in the canonical committed log.
 pub(crate) fn check_acknowledged_writes(
@@ -106,8 +128,37 @@ pub(crate) fn has_empty_upload_ledger(
     Ok(node_meta.is_none_or(|meta| meta.pending_hard_delete_uploads.is_empty()))
 }
 
+/// How a check compared a store with the never-crashed twin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TwinComparison {
+    Compared,
+    /// The hard-delete upload ledger holds uploads, which the twin does not model.
+    SkippedForUploadLedger,
+    /// A standby applied frames that the store has not applied yet, so the twin is ahead.
+    SkippedBehindShadow,
+}
+
+/// Invariants 1 and 5: no frame of the log below the store's positions went unapplied, and the
+/// store equals a never-crashed twin.
+///
+/// Returns whether the twin was compared, or why the comparison was skipped.
+pub(crate) fn check_store_matches_log(
+    store: &EngineLocalStore,
+    committed_log: &CommittedLog,
+) -> Result<TwinComparison, InvariantViolation> {
+    committed_log.check_log_completeness(store)?;
+    if !has_empty_upload_ledger(store)? {
+        return Ok(TwinComparison::SkippedForUploadLedger);
+    }
+    if committed_log.is_shadow_ahead_of(store)? {
+        return Ok(TwinComparison::SkippedBehindShadow);
+    }
+    check_store_matches_twin(store, &committed_log.twin_store(PARTITION_COUNT))?;
+    Ok(TwinComparison::Compared)
+}
+
 /// Invariant 5: the node's store equals a never-crashed twin, except the canonicalized fields.
-pub(crate) fn check_store_matches_twin(
+fn check_store_matches_twin(
     store: &EngineLocalStore,
     twin: &InMemoryLocalStore,
 ) -> Result<(), InvariantViolation> {

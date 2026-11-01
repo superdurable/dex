@@ -45,7 +45,7 @@ pub use engine_id_source::SeededEngineIdSourceForTest;
 pub use engine_id_source::{EngineIdSource, SystemEngineIdSource};
 pub use engine_node::{
     EngineNode, EngineNodeConfig, EngineNodeDependencies, HotStandbyTakeover,
-    HotStandbyTakeoverError,
+    HotStandbyTakeoverError, LocalStoreCloseWaiter,
 };
 pub use flow_coordination::HardDeleteUploads as FlowCoordinationHardDeleteUploads;
 pub use flow_coordination::ReplayMismatch as SpeculativeOutcomeMismatch;

@@ -15,6 +15,7 @@ dexzd-object-store.workspace = true
 dexzd-protocol.workspace = true
 prost.workspace = true
 rocksdb.workspace = true
+rustix = { workspace = true, features = ["fs"] }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

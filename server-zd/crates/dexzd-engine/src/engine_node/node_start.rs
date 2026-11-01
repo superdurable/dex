@@ -27,8 +27,8 @@ use crate::commit::{
     run_log_proposer,
 };
 use crate::engine_node::{
-    EngineNode, EngineNodeConfig, EngineNodeDependencies, LeasedParts, RunningTasks,
-    validate_config,
+    EngineNode, EngineNodeConfig, EngineNodeDependencies, LeasedParts, LocalStoreCloseWaiter,
+    RunningTasks, validate_config,
 };
 use crate::hot_standby::HotStandby;
 use crate::recovery::{
@@ -81,11 +81,12 @@ impl LocalStoreSource {
 async fn open_serving_store(
     standby: Option<&mut HotStandby>,
     config: &EngineNodeConfig,
+    cluster_id: [u8; 16],
     object_store: &dyn ObjectStore,
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<(OpenedLocalStore, bool), EngineStartError> {
     if let Some(standby) = standby
-        && let Some(store) = take_over_store(standby, config, requirements).await?
+        && let Some(store) = take_over_store(standby, config, cluster_id, requirements).await?
     {
         let opened = OpenedLocalStore {
             store,
@@ -104,11 +105,17 @@ async fn open_serving_store(
 async fn take_over_store(
     standby: &mut HotStandby,
     config: &EngineNodeConfig,
+    cluster_id: [u8; 16],
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<Option<Arc<EngineLocalStore>>, EngineStartError> {
     let is_configured_store = standby.has_local_store(&config.local_store);
+    let handed_over = standby.hand_over_store().await;
+    // A standby that bootstrapped while this start waited for the lease knows its cluster only now.
+    if !standby.is_following_cluster(cluster_id) {
+        return Err(other_cluster_error());
+    }
     // The gap check also rejects a store that applied a batch past a closed stream's end.
-    let reusable = match standby.hand_over_store().await {
+    let reusable = match handed_over {
         None => {
             tracing::info!("the hot standby had no local store to hand over");
             None
@@ -133,6 +140,13 @@ async fn take_over_store(
         tracing::error!("the hot standby's local store is still open; opening it may fail");
     }
     Ok(reusable)
+}
+
+/// Returns the error of a takeover from a hot standby that follows another cluster's log.
+fn other_cluster_error() -> EngineStartError {
+    EngineStartError::InvalidConfig {
+        detail: "the hot standby follows another cluster's log".to_owned(),
+    }
 }
 
 /// Checks the node configuration and that a hot standby follows the node that starts.
@@ -228,9 +242,7 @@ where
         && !standby.is_following_cluster(cluster_id)
     {
         return Ok(StartOutcome::FailedBeforeLease {
-            error: EngineStartError::InvalidConfig {
-                detail: "the hot standby follows another cluster's log".to_owned(),
-            },
+            error: other_cluster_error(),
             source: local_store_source,
         });
     }
@@ -314,6 +326,7 @@ where
         ) = open_serving_store(
             parts.standby.as_mut(),
             config,
+            cluster_id,
             startup_store.as_ref(),
             &LocalStoreRequirements {
                 snapshot: metadata.node_snapshot(&config.node.node_id),
@@ -325,6 +338,8 @@ where
         .await?;
         // Its following stopped; only the lease release path still needs an unfinished one.
         parts.standby = None;
+        let local_store_close_waiter =
+            LocalStoreCloseWaiter::for_store(&store, &config.local_store);
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {
             tracing::info!(
@@ -509,6 +524,7 @@ where
             applied_positions,
             snapshots,
             is_serving_hot_standby_store,
+            local_store_close_waiter,
         ))
     });
     let serving_result = tokio::select! {
@@ -522,7 +538,13 @@ where
     drop(serving_future);
     retrying_store.finish_startup();
     match serving_result {
-        Ok((committer, applied_positions, snapshots, is_serving_hot_standby_store)) => {
+        Ok((
+            committer,
+            applied_positions,
+            snapshots,
+            is_serving_hot_standby_store,
+            local_store_close_waiter,
+        )) => {
             tracing::info!(
                 is_serving_hot_standby_store,
                 "engine node started its local store"
@@ -544,8 +566,8 @@ where
                 lease,
                 tasks,
                 cluster_id,
-                #[cfg(feature = "test-util")]
                 is_serving_hot_standby_store,
+                local_store_close_waiter,
             }))
         }
         Err(error) => {

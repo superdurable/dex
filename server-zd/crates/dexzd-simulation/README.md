@@ -183,6 +183,24 @@ directory invariants hold on the committed history. The engine simulation adds t
    runnable method call is unfinished, and no outbox row or hard-delete object is left waiting.
    Pending calls blocked by a lock holder whose retry is scheduled in the future may remain pending.
 
+A start given an existing store must serve from it unless log cleanup passed the store's
+applied positions, or a partition applied nothing while the node has a snapshot
+(`store-discarded-without-gap`). The check reads the manifest that the start itself read last,
+and also covers a takeover given a standby's store. The summary field
+`discarded_existing_stores` counts the explained discards of starts, and the hot standby event
+`takeover-discarded-store` those of takeovers.
+
+At every twin comparison, every batch in the log that carries records of a partition, up to
+that partition's applied position, must have had its frame finished by some process
+(`log-frame-missing`). A batch is in the log unless an EpochStart voided it or it lies past its
+closed stream's recorded end. A hot standby's frames feed the shadow too, so a store that skipped
+a batch that no other process applied cannot match a twin that lacks it as well. Because a
+standby can apply a frame before the serving process does, a check skips the twin comparison
+while the shadow holds a frame above the serving store's position, and counts the skip in
+`comparisons_skipped_behind_shadow`. The calm tail ends with one more twin comparison, which only
+a pending hard-delete upload may skip; a serving store still behind fails with
+`store-behind-shadow`. The hot standby profile allows at most 1% skipped comparisons.
+
 The log itself is checked too. Copies of one log position must hold the same commands, and a
 partition never applies a new frame below one it already applied. No process applies a frame
 whose batch an EpochStart of a newer epoch at a lower seq of the same stream voided
@@ -271,6 +289,35 @@ seed group: 32 seeds from `1604386816` (`0x5fa10000`). It uses the fixed set's e
 The test requires each outcome that `step_failure_recoveries` counts: `wait-for-proceed`,
 `execute-recovery`, `timeout-handler-recovery`, and `retry-deadline`. It reads the same
 environment variables as the fixed set, without the regression seeds.
+
+### Hot standby profile
+
+A fourth test, `hot_standby_takeovers_keep_every_invariant`, runs the `HotStandbyTakeovers`
+profile on its own seed group: 16 seeds from `1470103552` (`0x57a00000`). It uses the fixed
+set's environment and adds a `HotStandby` process that follows the node's log into its own
+in-memory disk. Its object storage view draws the seed's faults like any other process.
+
+- 70% of the crashes of the serving process end in a takeover from the standby instead of a
+  restart. A takeover that finds the lease held waits for it and tries again with the standby
+  it gets back. 30% of the takeover attempts crash within 300 ms; a process then restarts on the
+  standby's disk. After every takeover a new standby starts on an empty disk.
+- Half of the restarts and takeovers start a new node incarnation. The standby and its takeover
+  share one configuration, so a new incarnation redeploys the standby on its disk first; it then
+  follows the old stream across the segment boundary into the new one.
+- Every 10 to 40 seconds the standby may crash, keeping or losing its disk, or lose object
+  storage entirely for 20 to 150 seconds.
+- Every periodic check requires that the standby never reached `Failed`, and that its own
+  object storage view never received a put or delete. Transient faults and outages must only
+  make it restart.
+- After the calm tail, the standby must follow the log again within 300 seconds.
+- Each takeover runs the recovery checks: the serving store equals the never-crashed twin, and
+  every acknowledged write survives.
+
+The test requires warm takeovers, takeover crashes, standby crashes that keep and lose the
+disk, outages, redeploys, incarnation changes, standbys that crossed a segment boundary while
+following, twin comparisons right after a warm takeover, checks that saw the standby following
+and restarting, and standbys following at the end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
+other profiles keep their trajectories.
 
 ### Pinned trajectories
 
@@ -457,6 +504,9 @@ seconds per seed, with at most 20,000 simulated seconds in total. The job has th
 
 Another nightly job runs the Step failure profile the same way, with its own random base seed,
 48 seeds of 300 simulated seconds, and the redeploy job's limits.
+
+A fourth profile job runs the hot standby profile the same way: 48 seeds of 300 simulated
+seconds with the redeploy job's limits. A release that predates the profile skips it.
 
 Every nightly simulation job, including the apply simulation and seeded-bug acceptance, runs on
 two refs. One is the workflow's commit, which is main for scheduled runs. The other is the

@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,7 +26,8 @@ use dexzd_object_store::{
     WriteCondition, WriteOutcome,
 };
 use dexzd_storage::{
-    CanonicalizedStoreField, RocksDbLocalStore, RocksDbStoreOptions, compare_store_views,
+    CanonicalizedStoreField, LocalReadView, RocksDbLocalStore, RocksDbStoreOptions,
+    compare_store_views,
 };
 use tokio::time::Instant;
 
@@ -34,8 +36,8 @@ use crate::harness::{CountingApplier, TestCluster, TestNode};
 pub(crate) const LOG_PREFIX: &str = "log/node-a/";
 pub(crate) const FIRST_FLOW: &str = "followed-first";
 /// Longest wait for a standby to reach the end of the log.
-const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
-const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
+pub(crate) const CATCH_UP_DEADLINE: Duration = Duration::from_secs(120);
+pub(crate) const BEHIND_LAG_THRESHOLD: Duration = Duration::from_secs(5);
 const MANIFEST_KEY: &str = "manifest";
 
 /// One process's view of the cluster's object storage: records its writes and reads, and can
@@ -52,7 +54,31 @@ pub(crate) struct ProcessObjectStore {
     is_failing_log_reads: AtomicBool,
     is_failing_manifest_reads: AtomicBool,
     is_failing_all_reads: AtomicBool,
+    /// GETs of the cluster object, which every bootstrap reads first.
+    cluster_reads: AtomicU64,
+    read_faults: Mutex<Option<ReadFaults>>,
+    /// Reads drawn so far, which seed each read's fault draw.
+    fault_draws: AtomicU64,
+    /// Holds reads of snapshot objects while `false`.
+    snapshot_reads_open: tokio::sync::watch::Sender<bool>,
+    held_snapshot_reads: AtomicU64,
 }
+
+/// Seeded faults on a process's reads.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReadFaults {
+    /// Reads per thousand that fail at once, as an HTTP 5xx or 503 would.
+    pub(crate) failures_per_mille: u64,
+    /// Reads per thousand that fail after a long wait, as a timeout would.
+    pub(crate) timeouts_per_mille: u64,
+    /// Reads per thousand that succeed after a latency spike.
+    pub(crate) slow_reads_per_mille: u64,
+}
+
+/// How long a timed-out read waits before it fails.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a slow read waits before it proceeds.
+const READ_LATENCY_SPIKE: Duration = Duration::from_secs(2);
 
 impl ProcessObjectStore {
     pub(crate) fn new(inner: Arc<InMemoryObjectStore>) -> Self {
@@ -67,7 +93,89 @@ impl ProcessObjectStore {
             is_failing_log_reads: AtomicBool::new(false),
             is_failing_manifest_reads: AtomicBool::new(false),
             is_failing_all_reads: AtomicBool::new(false),
+            cluster_reads: AtomicU64::new(0),
+            read_faults: Mutex::new(None),
+            fault_draws: AtomicU64::new(0),
+            snapshot_reads_open: tokio::sync::watch::Sender::new(true),
+            held_snapshot_reads: AtomicU64::new(0),
         }
+    }
+
+    /// Injects `faults` into every later read, or none with `None`.
+    pub(crate) fn inject_read_faults(&self, faults: Option<ReadFaults>) {
+        *self
+            .read_faults
+            .lock()
+            .expect("read fault lock is not poisoned") = faults;
+    }
+
+    /// Returns how many times this process read the cluster object, once per bootstrap.
+    pub(crate) fn cluster_reads(&self) -> u64 {
+        self.cluster_reads.load(Ordering::SeqCst)
+    }
+
+    /// Holds every later read of a snapshot object while `is_holding`.
+    pub(crate) fn hold_snapshot_reads(&self, is_holding: bool) {
+        self.snapshot_reads_open.send_replace(!is_holding);
+    }
+
+    /// Returns how many snapshot reads waited while snapshot reads were held.
+    pub(crate) fn held_snapshot_reads(&self) -> u64 {
+        self.held_snapshot_reads.load(Ordering::SeqCst)
+    }
+
+    /// Waits while snapshot reads are held, then applies the injected read faults.
+    async fn delay_or_fail_read(
+        &self,
+        operation: ObjectStoreOperation,
+        key: &str,
+    ) -> ObjectStoreResult<()> {
+        if key.starts_with("snapshot/") && !*self.snapshot_reads_open.borrow() {
+            self.held_snapshot_reads.fetch_add(1, Ordering::SeqCst);
+            let mut open = self.snapshot_reads_open.subscribe();
+            if open.wait_for(|is_open| *is_open).await.is_err() {
+                return Err(read_failure(
+                    operation,
+                    key,
+                    ObjectStoreErrorKind::Transient,
+                ));
+            }
+        }
+        let Some(faults) = *self
+            .read_faults
+            .lock()
+            .expect("read fault lock is not poisoned")
+        else {
+            return Ok(());
+        };
+        let draw = xxhash_rust::xxh3::xxh3_64(
+            &self
+                .fault_draws
+                .fetch_add(1, Ordering::SeqCst)
+                .to_le_bytes(),
+        ) % 1000;
+        let failures = faults.failures_per_mille;
+        let timeouts = failures + faults.timeouts_per_mille;
+        let slow_reads = timeouts + faults.slow_reads_per_mille;
+        if draw < failures {
+            return Err(read_failure(
+                operation,
+                key,
+                ObjectStoreErrorKind::Transient,
+            ));
+        }
+        if draw < timeouts {
+            tokio::time::sleep(READ_TIMEOUT).await;
+            return Err(read_failure(
+                operation,
+                key,
+                ObjectStoreErrorKind::OutcomeUnknown,
+            ));
+        }
+        if draw < slow_reads {
+            tokio::time::sleep(READ_LATENCY_SPIKE).await;
+        }
+        Ok(())
     }
 
     pub(crate) fn fail_log_reads(&self, is_failing: bool) {
@@ -80,7 +188,7 @@ impl ProcessObjectStore {
             .store(is_failing, Ordering::SeqCst);
     }
 
-    fn fail_manifest_reads(&self, is_failing: bool) {
+    pub(crate) fn fail_manifest_reads(&self, is_failing: bool) {
         self.is_failing_manifest_reads
             .store(is_failing, Ordering::SeqCst);
     }
@@ -138,6 +246,9 @@ impl ProcessObjectStore {
         if is_manifest {
             self.manifest_reads.fetch_add(1, Ordering::SeqCst);
         }
+        if key == "cluster" {
+            self.cluster_reads.fetch_add(1, Ordering::SeqCst);
+        }
         if key.starts_with("log/") && operation != ObjectStoreOperation::Head {
             self.log_reads.fetch_add(1, Ordering::SeqCst);
         }
@@ -148,15 +259,22 @@ impl ProcessObjectStore {
             || (is_manifest && self.is_failing_manifest_reads.load(Ordering::SeqCst))
             || (key.starts_with("log/") && self.is_failing_log_reads.load(Ordering::SeqCst));
         if is_failing {
-            return Err(ObjectStoreError::new(
+            return Err(read_failure(
                 operation,
                 key,
                 ObjectStoreErrorKind::Transient,
-                "the test fails this process's reads",
             ));
         }
         Ok(())
     }
+}
+
+fn read_failure(
+    operation: ObjectStoreOperation,
+    key: &str,
+    kind: ObjectStoreErrorKind,
+) -> ObjectStoreError {
+    ObjectStoreError::new(operation, key, kind, "the test fails this process's reads")
 }
 
 #[async_trait]
@@ -183,6 +301,8 @@ impl ObjectStore for ProcessObjectStore {
 
     async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
         self.check_read(ObjectStoreOperation::Get, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Get, key)
+            .await?;
         let delay = if key == MANIFEST_KEY {
             self.next_manifest_read_delay
                 .lock()
@@ -205,16 +325,22 @@ impl ObjectStore for ProcessObjectStore {
         range: ByteRange,
     ) -> ObjectStoreResult<Option<ObjectContent>> {
         self.check_read(ObjectStoreOperation::Get, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Get, key)
+            .await?;
         self.inner.get_range(key, range).await
     }
 
     async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
         self.check_read(ObjectStoreOperation::Get, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Get, key)
+            .await?;
         self.inner.get_to_file(key, path).await
     }
 
     async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
         self.check_read(ObjectStoreOperation::Head, key)?;
+        self.delay_or_fail_read(ObjectStoreOperation::Head, key)
+            .await?;
         self.inner.head(key).await
     }
 
@@ -237,6 +363,8 @@ impl ObjectStore for ProcessObjectStore {
         max_keys: u32,
     ) -> ObjectStoreResult<ObjectListing> {
         self.check_read(ObjectStoreOperation::List, prefix)?;
+        self.delay_or_fail_read(ObjectStoreOperation::List, prefix)
+            .await?;
         self.inner.list(prefix, start_after, max_keys).await
     }
 }
@@ -342,6 +470,7 @@ pub(crate) async fn first_log_seq(cluster: &TestCluster) -> u64 {
 }
 
 /// Waits until the standby has read every batch of the log and found no next one.
+/// Its lanes apply read batches later, so it also waits until every partition applied the last.
 pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotStandby) {
     let deadline = Instant::now() + CATCH_UP_DEADLINE;
     loop {
@@ -353,6 +482,7 @@ pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotSta
             && lag.incarnation == incarnation
             && lag.next_seq == last_seq + 1
             && lag.duration.is_zero()
+            && is_store_applied_through(standby, incarnation, last_seq)
         {
             return;
         }
@@ -364,13 +494,30 @@ pub(crate) async fn wait_until_caught_up(cluster: &TestCluster, standby: &HotSta
     }
 }
 
+/// Returns whether every partition of the standby's store is applied through `incarnation`
+/// and `seq`; `false` while the standby has no store.
+fn is_store_applied_through(standby: &HotStandby, incarnation: u32, seq: u64) -> bool {
+    let Some(store) = standby.local_store_for_test() else {
+        return false;
+    };
+    let metas = store
+        .partition_metas()
+        .expect("the standby's partition metadata reads");
+    !metas.is_empty()
+        && metas.iter().all(|meta| {
+            meta.applied
+                .as_ref()
+                .is_some_and(|applied| (applied.incarnation, applied.seq) >= (incarnation, seq))
+        })
+}
+
 /// Requires that no write reached object storage and that the read-only store rejected none.
-fn assert_wrote_nothing(standby: &TestStandby) {
+pub(crate) fn assert_wrote_nothing(standby: &TestStandby) {
     assert_eq!(standby.object_store.writes(), 0);
     assert_eq!(standby.standby.rejected_writes_for_test(), 0);
 }
 
-fn assert_not_failed(status: &HotStandbyStatus) {
+pub(crate) fn assert_not_failed(status: &HotStandbyStatus) {
     assert_ne!(
         status.state,
         HotStandbyState::Failed,
@@ -380,7 +527,7 @@ fn assert_not_failed(status: &HotStandbyStatus) {
 }
 
 /// Requires the closed stores to hold the same state apart from fields each process writes itself.
-fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
+pub(crate) fn assert_same_stores(serving_directory: &Path, standby_directory: &Path) {
     let serving = RocksDbLocalStore::open(serving_directory, RocksDbStoreOptions::default())
         .expect("the serving store opens");
     let standby = RocksDbLocalStore::open(standby_directory, RocksDbStoreOptions::default())
@@ -485,7 +632,8 @@ async fn a_hot_standby_store_matches_the_serving_store_after_restoring_a_snapsho
     assert_eq!(
         applied.len(),
         8,
-        "the standby applies only the commands after the snapshot"
+        "the standby applies only the commands after the snapshot: {:?}",
+        standby.standby.status()
     );
 
     serving.node.shutdown().await.expect("lease released");
@@ -793,7 +941,7 @@ async fn cluster_id(cluster: &TestCluster) -> [u8; 16] {
         .expect("a cluster ID has 16 bytes")
 }
 
-async fn stream_of(cluster: &TestCluster, incarnation: u32) -> StreamIdentity {
+pub(crate) async fn stream_of(cluster: &TestCluster, incarnation: u32) -> StreamIdentity {
     StreamIdentity {
         cluster_id: cluster_id(cluster).await,
         node_id: "node-a".to_owned(),
@@ -813,7 +961,7 @@ async fn recorded_end_seq(cluster: &TestCluster, incarnation: u32) -> u64 {
     segment.end_seq
 }
 
-async fn wait_for_status(
+pub(crate) async fn wait_for_status(
     standby: &HotStandby,
     description: &str,
     is_reached: impl Fn(&HotStandbyStatus) -> bool,
@@ -1035,6 +1183,92 @@ async fn a_node_start_sets_aside_a_store_that_applied_a_batch_past_the_recorded_
         4,
         "every acknowledged write survives, and the repeated command does not"
     );
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_dropped_hot_standby_reports_stopped() {
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    let standby = start_standby(
+        &cluster,
+        cluster.config(LocalStoreConfig::InMemory),
+        fast_standby_config(),
+    );
+    serving.commit_prompt(FIRST_FLOW, 1).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    let reader = standby.standby.status_reader();
+    drop(standby);
+    assert_eq!(reader.status().state, HotStandbyState::Stopped);
+    serving.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_node_start_reuses_a_store_whose_positions_end_exactly_at_the_recorded_end() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let node_directory = directory.path().join("node");
+    let mut cluster = TestCluster::new();
+    let first_config = cluster.config(rocksdb_store(&node_directory));
+    let first = cluster
+        .start_with(&first_config)
+        .await
+        .expect("incarnation 1 starts");
+    first.commit_prompt(FIRST_FLOW, 3).await;
+    first.node.shutdown().await.expect("lease released");
+    // Incarnation 2 closes the first stream, replays it, and fails at its own first batch.
+    let mut second_config = first_config;
+    second_config.node.incarnation = 2;
+    let second_stream = StreamIdentity {
+        cluster_id: cluster_id(&cluster).await,
+        node_id: "node-a".to_owned(),
+        incarnation: 2,
+    };
+    cluster
+        .faults
+        .fail_puts_of_after(&second_stream.batch_key(1), 0);
+    let failed = tokio::time::timeout(Duration::from_secs(300), cluster.start_with(&second_config))
+        .await
+        .expect("the failing start ends");
+    assert!(failed.is_err(), "the start fails at its first batch");
+    cluster.faults.clear();
+    let end_seq = recorded_end_seq(&cluster, 1).await;
+    {
+        let store = RocksDbLocalStore::open(&node_directory, RocksDbStoreOptions::default())
+            .expect("the closed store opens");
+        for meta in store.partition_metas().expect("read the partition metas") {
+            let applied = meta.applied.expect("every partition applied a batch");
+            assert_eq!(
+                (applied.incarnation, applied.seq),
+                (1, end_seq),
+                "partition {} ends at the recorded end",
+                meta.partition
+            );
+        }
+    }
+
+    let log_reads = |cluster: &TestCluster| {
+        cluster
+            .faults
+            .count_operations(ObjectStoreOperation::Get, |key| key.starts_with(LOG_PREFIX))
+    };
+    let reads_before = log_reads(&cluster);
+    let node = cluster
+        .start_with(&second_config)
+        .await
+        .expect("incarnation 2 starts from the store");
+    assert!(
+        set_aside_copies(&node_directory).is_empty(),
+        "a store at the recorded end is reused"
+    );
+    let replayed_reads = log_reads(&cluster) - reads_before;
+    assert!(
+        replayed_reads <= 2,
+        "the start read {replayed_reads} log batches"
+    );
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 3);
     node.node.shutdown().await.expect("lease released");
 }
 
@@ -1308,12 +1542,99 @@ async fn wait_for_slow_status(
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_hot_standby_fails_when_its_first_open_of_the_store_directory_fails() {
+async fn a_hot_standby_retries_a_store_directory_another_handle_holds_and_follows_once_it_closes() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let standby_directory = directory.path().join("standby");
-    // Another process, such as the node's serving process, holds the directory.
+    // A lingering handle, such as one of a node that just stepped down, holds the directory.
     let holder = RocksDbLocalStore::open(&standby_directory, RocksDbStoreOptions::default())
         .expect("the holder opens the directory");
+    let mut cluster = TestCluster::new();
+    let serving = cluster
+        .start_with(&cluster.config(LocalStoreConfig::InMemory))
+        .await
+        .expect("the serving node starts");
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    let standby = start_standby(
+        &cluster,
+        cluster.config(rocksdb_store(&standby_directory)),
+        fast_standby_config(),
+    );
+    let retrying = wait_for_status(&standby.standby, "the standby retries", |status| {
+        status.state == HotStandbyState::Restarting
+    })
+    .await;
+    assert!(
+        retrying
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error
+                .contains("a store this process opened still holds the directory's lock")),
+        "the lock probe, not a failed open, found this process's handle: {retrying:?}"
+    );
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    assert_not_failed(&standby.standby.status());
+    // The standby opened no store, but the holder keeps the directory open in this process.
+    let waiter = standby.standby.local_store_close_waiter();
+    assert!(!waiter.wait_until_closed(Duration::from_secs(1)).await);
+
+    drop(holder);
+    assert!(waiter.wait_until_closed(Duration::ZERO).await);
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    assert_eq!(applied_flows(&standby.applier).len(), 2);
+    standby.standby.shutdown().await;
+    serving.node.shutdown().await.expect("lease released");
+}
+
+/// Environment variable that makes [`hold_a_store_directory_for_another_test`] hold a store.
+const HELD_DIRECTORY_VARIABLE: &str = "DEXZD_TEST_HELD_STORE_DIRECTORY";
+
+/// Holds the store in the directory that [`HELD_DIRECTORY_VARIABLE`] names until standard input
+/// closes; another test runs it as a second process. Without the variable it does nothing.
+#[test]
+fn hold_a_store_directory_for_another_test() {
+    let Some(directory) = std::env::var_os(HELD_DIRECTORY_VARIABLE) else {
+        return;
+    };
+    let _store = RocksDbLocalStore::open(PathBuf::from(directory), RocksDbStoreOptions::default())
+        .expect("the holding process opens the store");
+    println!("held");
+    std::io::stdout().flush().expect("flush the held line");
+    let mut rest = String::new();
+    std::io::stdin()
+        .read_to_string(&mut rest)
+        .expect("wait for standard input to close");
+}
+
+#[tokio::test]
+async fn a_hot_standby_fails_on_a_directory_another_process_holds_and_leaves_its_log_alone() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let standby_directory = directory.path().join("standby");
+    let mut holder = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args([
+            "--exact",
+            "hot_standby::hold_a_store_directory_for_another_test",
+            "--nocapture",
+        ])
+        .env(HELD_DIRECTORY_VARIABLE, &standby_directory)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("start the holding process");
+    let mut held = String::new();
+    let mut holder_output =
+        std::io::BufReader::new(holder.stdout.take().expect("the holder's output"));
+    while !held.contains("held") {
+        held.clear();
+        let read = std::io::BufRead::read_line(&mut holder_output, &mut held)
+            .expect("read the holder's output");
+        assert!(
+            read > 0,
+            "the holding process exited before it held the store"
+        );
+    }
+    let files_before = directory_files(&standby_directory);
+    let log_before = std::fs::read(standby_directory.join("LOG")).expect("read the holder's LOG");
+
     let mut cluster = TestCluster::new();
     let serving = cluster
         .start_with(&cluster.config(LocalStoreConfig::InMemory))
@@ -1329,15 +1650,84 @@ async fn a_hot_standby_fails_when_its_first_open_of_the_store_directory_fails() 
     })
     .await;
     assert!(
-        matches!(
-            failed.failure.as_deref(),
-            Some(EngineStartError::LocalStoreUnavailable { .. })
-        ),
+        failed.failure.as_deref().is_some_and(|error| matches!(
+            error,
+            EngineStartError::InvalidConfig { detail } if detail.contains("another process")
+        )),
         "{failed:?}"
     );
-    drop(holder);
+    assert_eq!(
+        directory_files(&standby_directory),
+        files_before,
+        "the standby renamed none of the holder's files"
+    );
+    assert_eq!(
+        std::fs::read(standby_directory.join("LOG")).expect("read the holder's LOG"),
+        log_before
+    );
     standby.standby.shutdown().await;
     serving.node.shutdown().await.expect("lease released");
+    drop(holder.stdin.take());
+    holder.wait().expect("the holding process exits");
+}
+
+/// Returns the names of the files in `directory`.
+fn directory_files(directory: &Path) -> Vec<String> {
+    let mut files: Vec<String> = std::fs::read_dir(directory)
+        .expect("list the directory")
+        .map(|entry| {
+            entry
+                .expect("read a directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_standby_reopens_the_directory_of_a_stepped_down_node_once_its_store_closes() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let node_directory = directory.path().join("node");
+    let mut cluster = TestCluster::new();
+    let node_config = cluster.config(rocksdb_store(&node_directory));
+    let serving = cluster
+        .start_with(&node_config)
+        .await
+        .expect("the serving node starts");
+    serving.commit_prompt(FIRST_FLOW, 2).await;
+    let waiter = serving.node.local_store_close_waiter();
+    serving.node.shutdown().await.expect("lease released");
+    assert!(
+        waiter.wait_until_closed(Duration::from_secs(5)).await,
+        "the stepped-down node's store closed"
+    );
+
+    let standby = start_standby(&cluster, node_config, fast_standby_config());
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    assert_eq!(
+        standby.standby.status().last_error,
+        None,
+        "the standby opened the directory at once"
+    );
+    let standby_waiter = standby.standby.local_store_close_waiter();
+    let lingering = standby
+        .standby
+        .local_store_for_test()
+        .expect("the following standby has a store");
+    assert!(
+        !standby.standby.shutdown().await,
+        "a lingering handle keeps the store open"
+    );
+    assert!(
+        !standby_waiter
+            .wait_until_closed(Duration::from_secs(1))
+            .await
+    );
+    drop(lingering);
+    assert!(standby_waiter.wait_until_closed(Duration::ZERO).await);
 }
 
 #[tokio::test(start_paused = true)]

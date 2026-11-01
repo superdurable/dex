@@ -15,6 +15,7 @@ use dexzd_keyspace::PartitionId;
 use dexzd_log::StreamIdentity;
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::LogPosition;
+use dexzd_storage::{DirectoryLockHolder, StorageError, probe_directory_lock};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
@@ -33,9 +34,9 @@ use crate::hot_standby::log_follower::{
 };
 use crate::hot_standby::{FollowingHandles, HotStandbyConfig, StandbyPhase, StandbyStatusCell};
 use crate::recovery::{
-    ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreRequirements,
-    OpenedLocalStore, delete_older_set_aside_stores, find_unreplayable_gap, open_local_store,
-    rebuild_search_order_indexes,
+    ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreConfig,
+    LocalStoreRequirements, OpenedLocalStore, delete_older_set_aside_stores, find_unreplayable_gap,
+    open_local_store, rebuild_search_order_indexes,
 };
 
 /// First wait before the standby restarts after an error; it doubles up to the maximum.
@@ -70,6 +71,8 @@ pub(super) struct StandbyDriver {
     pub(super) status: Arc<StandbyStatusCell>,
     /// Spreads restart delays of different processes apart.
     pub(super) restart_jitter_seed: u64,
+    /// Receives the commands the standby applies; it runs no effects.
+    pub(super) committed_commands: Arc<dyn CommittedCommandSink>,
     /// The write fence and store of the current following period, for the handle to reach.
     pub(super) following: Arc<FollowingHandles>,
     pub(super) cancellation: CancellationToken,
@@ -135,7 +138,6 @@ impl StandbyDriver {
             restarts: 0,
         };
         let mut furthest: Option<FollowPosition> = None;
-        let mut has_followed = false;
         loop {
             self.status.set(StandbyPhase::Bootstrapping);
             let bootstrapped = tokio::select! {
@@ -153,20 +155,20 @@ impl StandbyDriver {
                     }
                     continue;
                 }
-                Err(error) if is_bootstrap_configuration_error(&error, has_followed) => {
+                Err(error) if is_configuration_error(&error) => {
                     self.fail(error);
                     return None;
                 }
                 Err(error) => {
                     tracing::warn!(%error, "the hot standby could not bootstrap; retrying");
-                    self.status.set_last_error(Some(error.to_string()));
+                    self.status
+                        .set_last_error(Some(describe_bootstrap_error(&error)));
                     if !self.wait_to_restart(&mut delays).await {
                         return None;
                     }
                     continue;
                 }
             };
-            has_followed = true;
             let period = self.follow(following, furthest).await;
             if period.is_progressing {
                 delays.restarts = 0;
@@ -214,6 +216,7 @@ impl StandbyDriver {
         let partition_count = metadata.partition_count();
         let cluster_id = metadata.cluster_id()?;
         self.following.set_cluster_id(cluster_id);
+        check_store_directory_lock(&config.local_store)?;
         // The gap check sets aside a store that applied a batch past a closed stream's end.
         let OpenedLocalStore {
             store,
@@ -255,7 +258,7 @@ impl StandbyDriver {
             applier: self.applier.clone(),
             hasher: metadata.cluster.partition_hasher.clone(),
             state: write_fence.clone(),
-            committed_commands: Arc::new(IgnoredCommittedCommands),
+            committed_commands: Arc::clone(&self.committed_commands),
             is_checking_replay: config.commit.debug_replay_checks,
             blocking_work: config.blocking_work,
         })?;
@@ -323,6 +326,7 @@ impl StandbyDriver {
         let refresh_interval = self.standby_config.manifest_refresh_interval;
         let mut next_refresh = Instant::now() + refresh_interval;
         let mut is_progressing = false;
+        let mut has_crossed_stream = false;
         let outcome = loop {
             tokio::select! {
                 biased;
@@ -351,6 +355,10 @@ impl StandbyDriver {
                     if !is_progressing && self.has_progressed(&progress.borrow(), progress_threshold) {
                         is_progressing = true;
                         self.status.set_last_error(None);
+                    }
+                    if !has_crossed_stream && progress.borrow().incarnation > started_at.0 {
+                        has_crossed_stream = true;
+                        self.following.record_stream_crossing();
                     }
                 }
             }
@@ -457,7 +465,7 @@ impl StandbyDriver {
 
     /// Records how many batches the stream holds from the follower's next seq on.
     async fn list_unapplied_batches(&self, following: &FollowingStandby) {
-        let progress = *following.follower.progress().borrow();
+        let progress = following.follower.progress().borrow().clone();
         let stream = StreamIdentity {
             cluster_id: following.cluster_id,
             node_id: self.config.node.node_id.clone(),
@@ -588,13 +596,48 @@ async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPoo
     }
 }
 
-/// Returns whether a bootstrap `error` is a configuration error that no restart fixes.
+/// Returns how the status reports a bootstrap `error`; a locked store directory says who may hold it.
+fn describe_bootstrap_error(error: &EngineStartError) -> String {
+    match error {
+        EngineStartError::LocalStoreUnavailable { directory, source } => format!(
+            "the local store directory {} is unavailable, as when a lingering handle of this \
+             process holds its lock; retrying: {source}",
+            directory.display()
+        ),
+        error => error.to_string(),
+    }
+}
+
+/// Probes the lock of a RocksDB store directory before the standby opens it.
 ///
-/// A store directory that cannot be opened is one before the first following: another process,
-/// such as the node's serving process, may hold it.
-fn is_bootstrap_configuration_error(error: &EngineStartError, has_followed: bool) -> bool {
-    is_configuration_error(error)
-        || (!has_followed && matches!(error, EngineStartError::LocalStoreUnavailable { .. }))
+/// Opening a store that another process holds renames that process's info log, so a held lock
+/// fails here instead. Returns [`EngineStartError::InvalidConfig`] when another process, such as
+/// the serving node, holds it, and [`EngineStartError::LocalStoreUnavailable`], which the standby
+/// retries, when a lingering handle of this process does.
+fn check_store_directory_lock(local_store: &LocalStoreConfig) -> Result<(), EngineStartError> {
+    let LocalStoreConfig::RocksDb { directory, .. } = local_store else {
+        return Ok(());
+    };
+    let unavailable = |source| EngineStartError::LocalStoreUnavailable {
+        directory: directory.clone(),
+        source,
+    };
+    match probe_directory_lock(directory).map_err(unavailable)? {
+        DirectoryLockHolder::AnotherProcess => Err(EngineStartError::InvalidConfig {
+            detail: format!(
+                "another process, such as the serving node, holds the lock of the local store \
+                 directory {}; a hot standby needs a directory of its own",
+                directory.display()
+            ),
+        }),
+        DirectoryLockHolder::ThisProcess => {
+            Err(unavailable(StorageError::Io(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "a store this process opened still holds the directory's lock",
+            ))))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Returns whether `error` is a configuration error that no restart fixes.
@@ -615,7 +658,7 @@ fn is_configuration_error(error: &EngineStartError) -> bool {
 }
 
 /// Drops committed commands: a standby runs no effects, and the serving start rebuilds them.
-struct IgnoredCommittedCommands;
+pub(super) struct IgnoredCommittedCommands;
 
 impl CommittedCommandSink for IgnoredCommittedCommands {
     fn apply_committed(&self, _committed: CommittedFlowCommand) {}
