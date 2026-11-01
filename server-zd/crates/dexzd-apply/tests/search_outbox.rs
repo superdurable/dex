@@ -445,6 +445,84 @@ fn purge_appends_a_purge_entry_that_survives_the_run_range_deletion() {
     assert!(harness.entries().is_empty());
 }
 
+#[test]
+fn acks_and_other_flows_between_speculative_and_committed_apply_keep_the_outcome() {
+    let mut harness = SearchHarness::new();
+    harness.mode(true);
+    harness.start();
+    harness.write(1);
+    let next_write = FlowCommand {
+        flow_id: "outbox-flow".into(),
+        run_id: vec![9; 16],
+        behavior_version: 1,
+        proposed_at_micros: FIRST_PROPOSED_AT_MICROS + 1_000,
+        command: Some(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![AttributeWrite {
+                    key: "number".into(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::IntValue(2)),
+                    }),
+                    index_config: Some(IndexConfig {
+                        enable: true,
+                        r#type: IndexType::Int as i32,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let speculative = apply_flow_command(&context(), &harness.state, &next_write).unwrap();
+
+    // Another Flow of the partition appends, and an ack deletes queued entries, before the commit.
+    let other_context = ApplyContext {
+        partition: PartitionId(0),
+        flow_hash: FlowHash(8),
+    };
+    let other_start = FlowCommand {
+        flow_id: "other-flow".into(),
+        behavior_version: 1,
+        proposed_at_micros: FIRST_PROPOSED_AT_MICROS + 500,
+        command: Some(Command::FlowStart(FlowStartCommand {
+            new_run_id: vec![8; 16],
+            request: Some(StartFlowRequest {
+                flow_id: "other-flow".into(),
+                flow_type: "OutboxFlow".into(),
+                ..Default::default()
+            }),
+            settings: Some(RunSettings {
+                max_run_state_bytes: 1 << 30,
+                max_value_bytes: 16 << 20,
+                wire_inline_threshold_bytes: 100,
+                history_window_semantic_events: 10000,
+                checkpoint_min_written_bytes: 1 << 20,
+                checkpoint_max_commands: 10000,
+                request_dedup_capacity: 100,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let other_outcome = apply_flow_command(&other_context, &harness.state, &other_start).unwrap();
+    harness.state.commit(&other_outcome);
+    let through = harness.entries().last().unwrap().0.seq;
+    harness.ack(through);
+    assert!(harness.entries().is_empty());
+
+    let committed = apply_flow_command(&context(), &harness.state, &next_write).unwrap();
+    assert_eq!(speculative.writes, committed.writes);
+    assert_eq!(speculative.effects, committed.effects);
+    assert_eq!(
+        speculative.reply.encode_to_vec(),
+        committed.reply.encode_to_vec()
+    );
+}
+
 fn context() -> ApplyContext {
     ApplyContext {
         partition: PartitionId(0),

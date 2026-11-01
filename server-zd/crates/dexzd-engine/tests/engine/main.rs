@@ -18,6 +18,7 @@ mod log_replay;
 mod node_identity;
 mod recovery;
 mod restart_replay;
+mod search_outbox;
 mod snapshot_fencing;
 mod snapshot_node_meta;
 mod snapshots;
