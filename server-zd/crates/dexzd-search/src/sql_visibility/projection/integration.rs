@@ -619,6 +619,32 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await,
             Err(ProjectionError::Fenced { .. })
         ));
+        // A stale leader's late load cannot delete the partition's rows or progress.
+        let runs_before_stale_load = listed_runs(&backend, tenant_id).await;
+        assert!(!runs_before_stale_load.is_empty());
+        assert!(matches!(
+            projector
+                .apply_outbox_batch(
+                    epoch,
+                    &[PartitionProjectionBatch {
+                        partition_id,
+                        is_initial_load: true,
+                        changes: Vec::new(),
+                        outbox_through_seq: 0,
+                        applied_position: None,
+                    }],
+                )
+                .await,
+            Err(ProjectionError::Fenced { .. })
+        ));
+        assert_eq!(
+            listed_runs(&backend, tenant_id).await,
+            runs_before_stale_load
+        );
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            progress(Some(position(10)), epoch + 1, 101)
+        );
         assert!(matches!(
             projector.fence_all_progress(epoch, 6).await,
             Err(ProjectionError::Fenced { .. })
