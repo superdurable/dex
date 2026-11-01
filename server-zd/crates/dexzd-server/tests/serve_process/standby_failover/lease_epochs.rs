@@ -43,6 +43,8 @@ pub(crate) struct LeaseReport {
     pub(crate) observed_holders: usize,
     /// EpochStart batches in the log, one for each process that recovered under the lease.
     pub(crate) acquisitions: usize,
+    /// Whether log cleanup was off, so the log still holds every EpochStart.
+    pub(crate) is_log_complete: bool,
     /// The longest time a new holder took to appear after the previous lease became available.
     pub(crate) longest_takeover_after_availability: Option<Duration>,
 }
@@ -75,7 +77,7 @@ impl LeaseHistory {
     }
 
     /// Stops reading, then panics if an epoch fell or the log raised one twice.
-    pub(crate) async fn stop_and_check(mut self) -> LeaseReport {
+    pub(crate) async fn stop_and_check(mut self, is_log_complete: bool) -> LeaseReport {
         self.stop.cancel();
         let (observations, inspector) = self
             .task
@@ -101,6 +103,7 @@ impl LeaseHistory {
         LeaseReport {
             observed_holders,
             acquisitions: epoch_starts.len(),
+            is_log_complete,
             longest_takeover_after_availability: takeovers.into_iter().max(),
         }
     }

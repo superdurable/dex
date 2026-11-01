@@ -537,7 +537,7 @@ impl ServerNode {
                 None => EngineStartOutcome::Cancelled(None),
             }),
             EngineStart::HotStandby(standby) => {
-                EngineNode::take_over_from_hot_standby_until_cancelled(
+                match EngineNode::take_over_from_hot_standby_until_cancelled(
                     engine_config,
                     dependencies,
                     command_and_effect_hooks_factory,
@@ -545,16 +545,23 @@ impl ServerNode {
                     cancellation,
                 )
                 .await
-                .map(|takeover| match takeover {
-                    HotStandbyTakeover::Serving(engine) => EngineStartOutcome::Serving(engine),
-                    HotStandbyTakeover::Cancelled(standby) => {
-                        EngineStartOutcome::Cancelled(Some(standby))
+                {
+                    Ok(HotStandbyTakeover::Serving(engine)) => {
+                        Ok(EngineStartOutcome::Serving(engine))
                     }
-                    HotStandbyTakeover::FailedBeforeLease { error, standby } => {
-                        EngineStartOutcome::FailedBeforeLease { error, standby }
+                    Ok(HotStandbyTakeover::Cancelled(standby)) => {
+                        Ok(EngineStartOutcome::Cancelled(Some(standby)))
                     }
-                    _ => EngineStartOutcome::Unrecognized,
-                })
+                    Ok(_) => Ok(EngineStartOutcome::Unrecognized),
+                    // Before the lease the standby comes back and keeps following.
+                    Err(failure) => match failure.standby {
+                        Some(standby) => Ok(EngineStartOutcome::FailedBeforeLease {
+                            error: failure.error,
+                            standby,
+                        }),
+                        None => Err(failure.error),
+                    },
+                }
             }
         };
         let parts = startup_parts

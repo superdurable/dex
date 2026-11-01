@@ -424,7 +424,7 @@ fn three_hot_slots(
 ) -> [SlotSettings<'static>; 3] {
     ["first", "second", "third"].map(|name| SlotSettings {
         name,
-        lease_duration: if name == "first" { "3s" } else { "15s" },
+        lease_duration: if name == "first" { "6s" } else { "15s" },
         standby_mode: SlotStandbyMode::Hot,
         snapshot_interval,
         log_deletion_delay,

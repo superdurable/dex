@@ -131,6 +131,7 @@ fn metric_state(state: HotStandbyState) -> HotStandbyMetricState {
         HotStandbyState::Behind => HotStandbyMetricState::Behind,
         HotStandbyState::Restarting => HotStandbyMetricState::Restarting,
         HotStandbyState::Failed => HotStandbyMetricState::Failed,
+        HotStandbyState::Stopped => HotStandbyMetricState::Inactive,
         // A state added later is not hot; it reads as restarting until this mapping learns it.
         _ => HotStandbyMetricState::Restarting,
     }

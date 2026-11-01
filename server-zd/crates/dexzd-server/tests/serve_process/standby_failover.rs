@@ -32,7 +32,7 @@ use object_store_endpoints::ObjectStoreFault;
 
 const FIRST: usize = 0;
 const SECOND: usize = 1;
-/// `first` starts active with a short lease; `second` keeps a long lease through host stalls.
+/// `first` starts active with a lease that rides out host stalls; `second` keeps a longer one.
 const SLOTS: [SlotSettings<'static>; 2] = slots(SlotStandbyMode::Cold);
 const HOT_SLOTS: [SlotSettings<'static>; 2] = slots(SlotStandbyMode::Hot);
 
@@ -40,7 +40,7 @@ const fn slots(standby_mode: SlotStandbyMode) -> [SlotSettings<'static>; 2] {
     [
         SlotSettings {
             name: "first",
-            lease_duration: "3s",
+            lease_duration: "6s",
             standby_mode,
             snapshot_interval: SNAPSHOT_INTERVAL,
             log_deletion_delay: LOG_DELETION_DELAY,
@@ -54,7 +54,7 @@ const fn slots(standby_mode: SlotStandbyMode) -> [SlotSettings<'static>; 2] {
         },
     ]
 }
-const FIRST_LEASE_DURATION: Duration = Duration::from_secs(3);
+const FIRST_LEASE_DURATION: Duration = Duration::from_secs(6);
 const LOAD_SHAPE: LoadShape = LoadShape {
     chain_starters: 4,
     timer_starters: 2,
@@ -69,8 +69,8 @@ const STARTUP_BUDGET: Duration = Duration::from_secs(30);
 const TAKEOVER_BUDGET: Duration = Duration::from_secs(30);
 /// A cold standby reads a held lease at most once a second; the rest is margin for loaded hosts.
 const COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_secs(3);
-/// A hot standby reads a held lease every 250 ms; the rest is margin for loaded hosts.
-const HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_millis(1500);
+/// A hot standby reads the lease every 250 ms; a loaded host may add its 1.8 s lagging delay.
+const HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_millis(2500);
 const STANDBY_BUDGET: Duration = Duration::from_secs(30);
 /// A slow object store that the active still serves through.
 const SLOW_OBJECT_STORE_LATENCY: Duration = Duration::from_millis(50);

@@ -170,6 +170,8 @@ pub(crate) struct NodeGroup {
     /// Each SIGKILL or permitted exit lets one later process stop once on that process's late batch.
     permitted_stale_batch_stops: usize,
     stale_batch_restarts: usize,
+    /// Whether every slot keeps the log for a day, so no EpochStart is cleaned up.
+    is_log_complete: bool,
 }
 
 impl NodeGroup {
@@ -234,6 +236,9 @@ impl NodeGroup {
             lease_history: LeaseHistory::start(inspector),
             permitted_stale_batch_stops: 0,
             stale_batch_restarts: 0,
+            is_log_complete: settings
+                .iter()
+                .all(|slot| slot.log_deletion_delay == LOG_DELETION_DELAY),
         }
     }
 
@@ -669,13 +674,14 @@ impl NodeGroup {
             router,
             lease_history,
             stale_batch_restarts,
+            is_log_complete,
             ..
         } = self;
         let serving = router.shutdown_and_check().await;
-        let lease = lease_history.stop_and_check().await;
+        let lease = lease_history.stop_and_check(is_log_complete).await;
         // Each serving period recovered under its own epoch; a late-batch stop may serve too briefly to see.
         assert!(
-            serving.serving_periods <= lease.acquisitions
+            (serving.serving_periods <= lease.acquisitions || !lease.is_log_complete)
                 && lease.acquisitions <= serving.serving_periods + stale_batch_restarts,
             "{} EpochStarts in the log for {} observed serving periods and {stale_batch_restarts} late-batch restarts",
             lease.acquisitions,
