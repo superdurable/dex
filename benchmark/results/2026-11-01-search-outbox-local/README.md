@@ -13,16 +13,17 @@ single-trial local measurements, not production capacity claims.
   15,765,602,304 bytes of VM memory.
 - Unrelated workloads shared the host. Its load average was between 11 and 31 during these runs.
 - Release-mode server-zd source: `736e97b05539dd5c0610de9da63c4f16642039f2`, recorded in
-  [measured-commit.txt](measured-commit.txt). Later commits on the branch change only
-  documentation and this result set.
+  [measured-commit.txt](measured-commit.txt). Later commits on the branch change tests,
+  documentation, and this result set, not the server.
 - `postgres:17` (PostgreSQL 17.11) and `paradedb/paradedb:0.26.1` (ParadeDB on PostgreSQL 18.6),
   the baseline images. Image IDs are saved beside each point.
 
 ## Method
 
-Each point ran `benchmark/local/search-local.sh` unchanged except for two things. The database
-container name starts with `dex-outbox-bench-`. A sampler scraped the outbox metrics every five
-seconds into `outbox-metrics.csv`. Every point used a fresh server data directory and a fresh
+Each point ran a copy of `benchmark/local/search-local.sh` with three changes. The database
+container name starts with `dex-outbox-bench-`. A `DEXBENCH_OUTBOX_SETTINGS` variable can add
+outbox settings to the search section; only the ack interval experiment below used it. A
+sampler scraped the outbox metrics every five seconds into `outbox-metrics.csv`. Every point used a fresh server data directory and a fresh
 database container, 1,024 partitions, 128 seed clients, and the default search settings:
 `outboxBatchSize: 1000`, `outboxPollInterval: 100ms`, and `outboxAckInterval: 1s`. The seed,
 convergence check, WAL probe, and query measurement are the baseline's. Server logs are not
@@ -75,7 +76,7 @@ Each cell is **p50 / p99 in milliseconds** at 1M runs with ten Attributes.
 
 PostgreSQL latencies match the baseline or improve. ParadeDB's Rare Flow type query no longer
 shows the baseline's Flow type collation finding. Its BM25 predicates are about
-1.3 to 1.9 times slower. The baseline's rebuilds reinserted whole partitions, while this run
+1.3 to 2 times slower at p50. The baseline's rebuilds reinserted whole partitions, while this run
 upserted rows in many small transactions. The BM25 index layout that each write pattern leaves
 is a likely cause. This set does not isolate it.
 
@@ -101,5 +102,5 @@ request log.
   now starts after the acked seq.
 - The last two rows stalled while the embedded object store's PUT latency rose from under 1 ms
   to 40–80 ms, with the database container writing to the same disk. Ack volume does not explain
-  them, so they are host contention.
+  them; host disk contention is likely but was not isolated.
 - The default ack interval is one second.

@@ -39,6 +39,8 @@ struct OutboxNode<'a> {
 struct OutboxSearch<'a> {
     sql: Option<SqlVisibilitySettings<'a>>,
     ack_interval: &'a str,
+    /// One splits every page after its first entry, so each partial seq bound and its ack run.
+    batch_size: u32,
 }
 
 impl OutboxNode<'_> {
@@ -65,7 +67,10 @@ impl OutboxNode<'_> {
         .write(&path);
         let mut contents = fs::read_to_string(&path).expect("the serve configuration is readable");
         if is_sql {
-            contents.push_str(&format!("  outboxAckInterval: {}\n", search.ack_interval));
+            contents.push_str(&format!(
+                "  outboxAckInterval: {}\n  outboxBatchSize: {}\n",
+                search.ack_interval, search.batch_size
+            ));
         }
         contents.push_str(&format!("metrics:\n  listen: '{metrics_address}'\n"));
         fs::write(&path, contents).expect("the serve configuration is written");
@@ -127,6 +132,7 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
             OutboxSearch {
                 sql: Some(sql(&proxied_url)),
                 ack_interval: "1h",
+                batch_size: 1000,
             },
         )
         .await;
@@ -203,6 +209,7 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
             OutboxSearch {
                 sql: Some(sql(&proxied_url)),
                 ack_interval: "100ms",
+                batch_size: 1000,
             },
         )
         .await;
@@ -226,6 +233,7 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
             OutboxSearch {
                 sql: Some(sql(&proxied_url)),
                 ack_interval: "1h",
+                batch_size: 1000,
             },
         )
         .await;
@@ -255,6 +263,7 @@ async fn run_outage_crash_and_takeover_for_test(database_url: &str, is_postgres:
             OutboxSearch {
                 sql: None,
                 ack_interval: "100ms",
+                batch_size: 1000,
             },
         )
         .await;
@@ -320,6 +329,7 @@ async fn run_builtin_to_sql_switch_for_test(database_url: &str, is_postgres: boo
             OutboxSearch {
                 sql: None,
                 ack_interval: "100ms",
+                batch_size: 1000,
             },
         )
         .await;
@@ -353,6 +363,7 @@ async fn run_builtin_to_sql_switch_for_test(database_url: &str, is_postgres: boo
                     schema: schema.name(),
                 }),
                 ack_interval: "100ms",
+                batch_size: 1,
             },
         )
         .await;
