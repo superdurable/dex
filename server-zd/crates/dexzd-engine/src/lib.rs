@@ -59,7 +59,7 @@ pub use flow_coordination::{
 pub use hot_standby::HotStandbyWriteFenceForTest;
 pub use hot_standby::{
     HotStandby, HotStandbyConfig, HotStandbyDependencies, HotStandbyLag, HotStandbyState,
-    HotStandbyStatus,
+    HotStandbyStatus, HotStandbyStatusReader,
 };
 pub use long_poll::{
     ATTRIBUTE_REQUEST_TIMEOUT_MESSAGE, STEP_COMPLETION_REQUEST_TIMEOUT_MESSAGE,

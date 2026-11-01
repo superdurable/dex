@@ -940,44 +940,8 @@ async fn a_hot_standby_sets_its_store_aside_after_applying_a_batch_past_the_reco
         .start_with(&second_config)
         .await
         .expect("incarnation 2 starts");
-    // A batch in the fencing epoch repeats the last command past the end the manifest records.
-    let end_seq = recorded_end_seq(&cluster, 1).await;
-    let stream = stream_of(&cluster, 1).await;
-    let mut last_command_seq = end_seq;
-    let mut fencing_epoch = None;
-    let last = loop {
-        let batch = cluster
-            .object_store
-            .get(&stream.batch_key(last_command_seq))
-            .await
-            .expect("read a batch")
-            .expect("the batch exists");
-        let batch = decode_batch(&batch.bytes).expect("decode the batch");
-        fencing_epoch.get_or_insert(batch.header.epoch);
-        if !batch.records.is_empty() {
-            break batch;
-        }
-        last_command_seq -= 1;
-    };
-    let late = encode_batch(&BatchContent {
-        stream: stream.clone(),
-        epoch: fencing_epoch.expect("the stream's end batch was read"),
-        seq: end_seq + 1,
-        sealed_at_unix_micros: last.header.sealed_at_unix_micros,
-        records: last.records,
-        epoch_start_writer: None,
-    })
-    .expect("encode the late batch");
     let applied_before = standby.applier.applied_commands().len();
-    cluster
-        .object_store
-        .put(
-            &stream.batch_key(end_seq + 1),
-            late,
-            WriteCondition::CreateOnly,
-        )
-        .await
-        .expect("the late batch lands");
+    write_a_repeated_command_past_the_recorded_end(&cluster, LateBatchEpoch::Fencing).await;
     let deadline = Instant::now() + CATCH_UP_DEADLINE;
     while standby.applier.applied_commands().len() == applied_before {
         assert!(
@@ -1343,4 +1307,62 @@ async fn a_hot_standby_fails_when_the_cluster_needs_a_newer_behavior_version() {
         "{failed:?}"
     );
     standby.standby.shutdown().await;
+}
+
+/// The epoch of a late batch past the recorded end of a stream.
+pub(crate) enum LateBatchEpoch {
+    /// The epoch of the batch that fences the stream's end, so a reader accepts it.
+    Fencing,
+    /// Epoch 1, which the fencing batch voids.
+    First,
+}
+
+/// Writes a batch past the recorded end of incarnation 1's stream. It repeats the stream's last
+/// command, so a store that applies it diverges from the log.
+///
+/// Returns the recorded end seq.
+pub(crate) async fn write_a_repeated_command_past_the_recorded_end(
+    cluster: &TestCluster,
+    epoch: LateBatchEpoch,
+) -> u64 {
+    let end_seq = recorded_end_seq(cluster, 1).await;
+    let stream = stream_of(cluster, 1).await;
+    let mut last_command_seq = end_seq;
+    let mut fencing_epoch = None;
+    let last = loop {
+        let batch = cluster
+            .object_store
+            .get(&stream.batch_key(last_command_seq))
+            .await
+            .expect("read a batch")
+            .expect("the batch exists");
+        let batch = decode_batch(&batch.bytes).expect("decode the batch");
+        fencing_epoch.get_or_insert(batch.header.epoch);
+        if !batch.records.is_empty() {
+            break batch;
+        }
+        last_command_seq -= 1;
+    };
+    let late = encode_batch(&BatchContent {
+        stream: stream.clone(),
+        epoch: match epoch {
+            LateBatchEpoch::Fencing => fencing_epoch.expect("the stream's end batch was read"),
+            LateBatchEpoch::First => 1,
+        },
+        seq: end_seq + 1,
+        sealed_at_unix_micros: last.header.sealed_at_unix_micros,
+        records: last.records,
+        epoch_start_writer: None,
+    })
+    .expect("encode the late batch");
+    cluster
+        .object_store
+        .put(
+            &stream.batch_key(end_seq + 1),
+            late,
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the late batch lands");
+    end_seq
 }

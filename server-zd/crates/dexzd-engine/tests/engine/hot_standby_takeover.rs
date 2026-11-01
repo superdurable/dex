@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use dexzd_engine::{
     CommitUrgency, EngineCommandAndEffectHooks, EngineLocalStore, EngineNode, EngineNodeConfig,
-    EngineNodeDependencies, EngineServices, EngineStartError, HotStandby, HotStandbyState,
-    HotStandbyTakeover, LocalStoreConfig, SystemEngineIdSource,
+    EngineNodeDependencies, EngineServices, EngineStartError, HotStandby, HotStandbyConfig,
+    HotStandbyState, HotStandbyTakeover, LocalStoreConfig, SystemEngineIdSource,
 };
 use dexzd_log::{StreamIdentity, decode_batch};
 use dexzd_object_store::{ObjectStore, ObjectStoreOperation};
@@ -28,9 +28,10 @@ use crate::harness::{
     BLOCKING_FLOW, CountingApplier, RecordingCommandAndEffectHooks, TestCluster, TestNode,
 };
 use crate::hot_standby::{
-    FIRST_FLOW, LOG_PREFIX, ProcessObjectStore, TestStandby, applied_flows, commit_to_both_flows,
-    fast_standby_config, first_log_seq, last_log_position, rocksdb_store, set_aside_copies,
-    start_standby, wait_until_caught_up,
+    FIRST_FLOW, LOG_PREFIX, LateBatchEpoch, ProcessObjectStore, TestStandby, applied_flows,
+    commit_to_both_flows, fast_standby_config, first_log_seq, last_log_position, rocksdb_store,
+    set_aside_copies, start_standby, wait_until_caught_up,
+    write_a_repeated_command_past_the_recorded_end,
 };
 
 /// Longest wait for a takeover to read the held lease twice.
@@ -483,6 +484,7 @@ async fn cancelling_a_takeover_before_the_lease_returns_the_following_standby() 
     serving.commit_prompt(FIRST_FLOW, 2).await;
     wait_until_caught_up(&cluster, &standby.standby).await;
 
+    let status_reader = standby.standby.status_reader();
     let (cancel, cancellation) = watch::channel(false);
     let (takeover_store, takeover) =
         take_over(&cluster, standby_config, standby.standby, cancellation);
@@ -496,6 +498,28 @@ async fn cancelling_a_takeover_before_the_lease_returns_the_following_standby() 
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    // While the takeover waits for the lease, the reader still reports the following standby.
+    let next_seq_before = status_reader
+        .status()
+        .lag
+        .expect("the standby follows")
+        .next_seq;
+    serving.commit_prompt(FIRST_FLOW, 1).await;
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while status_reader
+        .status()
+        .lag
+        .expect("the standby follows")
+        .next_seq
+        == next_seq_before
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the reader did not report the standby's progress"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(status_reader.status().state, HotStandbyState::Following);
     cancel
         .send(true)
         .expect("the takeover listens for cancellation");
@@ -519,7 +543,7 @@ async fn cancelling_a_takeover_before_the_lease_returns_the_following_standby() 
     wait_until_caught_up(&cluster, &returned).await;
     assert_eq!(
         applied_flows(&standby.applier),
-        vec![FIRST_FLOW.to_owned(); 4],
+        vec![FIRST_FLOW.to_owned(); 5],
         "the returned standby keeps following"
     );
     returned.shutdown().await;
@@ -696,7 +720,7 @@ async fn a_new_standby_on_the_directory_follows_right_after_a_takeover_is_cancel
         None,
         "the new standby opened the directory without a restart"
     );
-    next.standby.shutdown().await;
+    assert!(next.standby.shutdown().await, "the standby's store closed");
     gate_opener.await.expect("the gate opener completes");
 }
 
@@ -878,6 +902,116 @@ async fn a_takeover_does_not_reuse_a_store_whose_positions_name_another_node() {
         !node.node.is_serving_hot_standby_store_for_test(),
         "a store with another node's positions is not reused"
     );
+    assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_takeover_sets_aside_a_standby_store_that_applied_a_batch_past_the_recorded_end() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let serving_directory = directory.path().join("serving");
+    let standby_directory = directory.path().join("standby");
+    let mut cluster = TestCluster::new();
+    let first_config = cluster.config(rocksdb_store(&serving_directory));
+    let first = cluster
+        .start_with(&first_config)
+        .await
+        .expect("incarnation 1 starts");
+    let mut standby_config = cluster.config(rocksdb_store(&standby_directory));
+    standby_config.node.incarnation = 2;
+    // The standby rereads the manifest only after the takeover.
+    let standby = start_standby(
+        &cluster,
+        standby_config.clone(),
+        HotStandbyConfig {
+            manifest_refresh_interval: Duration::from_secs(600),
+            stalled_seq_deletion_check_after: Duration::from_secs(1200),
+            ..fast_standby_config()
+        },
+    );
+    first.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    first.node.shutdown().await.expect("lease released");
+    let mut second_config = first_config;
+    second_config.node.incarnation = 2;
+    let second = cluster
+        .start_with(&second_config)
+        .await
+        .expect("incarnation 2 starts");
+    let applied_before = standby.applier.applied_commands().len();
+    write_a_repeated_command_past_the_recorded_end(&cluster, LateBatchEpoch::Fencing).await;
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while standby.applier.applied_commands().len() == applied_before {
+        assert!(
+            Instant::now() < deadline,
+            "the standby did not apply the late batch"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    second.node.shutdown().await.expect("lease released");
+
+    let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(!node.node.is_serving_hot_standby_store_for_test());
+    assert_eq!(
+        set_aside_copies(&standby_directory).len(),
+        1,
+        "the takeover set the diverged store aside"
+    );
+    assert_eq!(
+        node.committed_count(FIRST_FLOW).await,
+        2,
+        "the repeated command is not served"
+    );
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_takeover_serves_a_standby_store_that_voided_a_late_batch_past_the_recorded_end() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut cluster = TestCluster::new();
+    let first_config = cluster.config(rocksdb_store(&directory.path().join("serving")));
+    let first = cluster
+        .start_with(&first_config)
+        .await
+        .expect("incarnation 1 starts");
+    let standby_directory = directory.path().join("standby");
+    let mut standby_config = cluster.config(rocksdb_store(&standby_directory));
+    standby_config.node.incarnation = 2;
+    let standby = start_standby(
+        &cluster,
+        standby_config.clone(),
+        HotStandbyConfig {
+            manifest_refresh_interval: Duration::from_secs(600),
+            stalled_seq_deletion_check_after: Duration::from_secs(1200),
+            ..fast_standby_config()
+        },
+    );
+    first.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    first.node.shutdown().await.expect("lease released");
+    let mut second_config = first_config;
+    second_config.node.incarnation = 2;
+    let second = cluster
+        .start_with(&second_config)
+        .await
+        .expect("incarnation 2 starts");
+    // The fenced writer's in-flight batch lands in its old epoch, behind the fencing batch.
+    let end_seq =
+        write_a_repeated_command_past_the_recorded_end(&cluster, LateBatchEpoch::First).await;
+    let deadline = Instant::now() + LEASE_READ_DEADLINE;
+    while standby.standby.status().lag.map(|lag| lag.next_seq) != Some(end_seq + 2) {
+        assert!(
+            Instant::now() < deadline,
+            "the standby did not read past the late batch: {:?}",
+            standby.standby.status()
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    second.node.shutdown().await.expect("lease released");
+
+    let (node, _) = take_over_to_serving(&cluster, standby_config, standby.standby).await;
+    assert!(node.node.is_serving_hot_standby_store_for_test());
+    assert!(set_aside_copies(&standby_directory).is_empty());
     assert_eq!(node.committed_count(FIRST_FLOW).await, 2);
     node.node.shutdown().await.expect("lease released");
 }

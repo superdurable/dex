@@ -385,8 +385,12 @@ impl LeasedParts {
             );
         }
         // A successor may reopen the store's directory once it holds the lease.
-        if let Some(standby) = standby {
-            standby.shutdown().await;
+        if let Some(standby) = standby
+            && !standby.shutdown().await
+        {
+            tracing::error!(
+                "the hot standby's local store is still open; releasing the lease anyway"
+            );
         }
         lease.shutdown().await
     }

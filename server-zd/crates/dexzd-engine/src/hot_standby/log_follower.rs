@@ -26,7 +26,7 @@ use crate::recovery::{
 };
 
 /// Longest wait when a follower stops for its queued frames and final position advance.
-const FOLLOWER_STOP_BUDGET: Duration = Duration::from_secs(3);
+pub(super) const FOLLOWER_STOP_BUDGET: Duration = Duration::from_secs(3);
 
 /// What a log follower reads: the recorded log segments of the followed node, oldest first.
 #[derive(Debug, Clone)]

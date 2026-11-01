@@ -28,7 +28,8 @@ use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::EngineNodeConfig;
 use crate::flow_coordination::CommittedFlowCommand;
 use crate::hot_standby::log_follower::{
-    FollowEnd, FollowPacing, FollowProgress, FollowSource, LogFollower, LogFollowerParts,
+    FOLLOWER_STOP_BUDGET, FollowEnd, FollowPacing, FollowProgress, FollowSource, LogFollower,
+    LogFollowerParts,
 };
 use crate::hot_standby::{FollowingHandles, HotStandbyConfig, StandbyPhase, StandbyStatusCell};
 use crate::recovery::{
@@ -46,6 +47,12 @@ const STORE_RELEASE_BUDGET: Duration = Duration::from_secs(5);
 
 /// Longest wait for the standby's applier lanes to stop.
 const APPLIER_STOP_BUDGET: Duration = Duration::from_secs(3);
+
+/// Longest a driver takes to stop after cancellation: its teardown budgets plus a second of slack.
+pub(super) const DRIVER_STOP_BUDGET: Duration = FOLLOWER_STOP_BUDGET
+    .saturating_add(APPLIER_STOP_BUDGET)
+    .saturating_add(STORE_RELEASE_BUDGET)
+    .saturating_add(Duration::from_secs(1));
 
 /// Keys of one listing page, which bound [`crate::HotStandbyLag::batches`].
 const LAG_LISTING_KEYS: u32 = 1_000;

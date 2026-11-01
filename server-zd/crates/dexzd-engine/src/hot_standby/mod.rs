@@ -30,11 +30,11 @@ use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::{EngineNodeConfig, validate_config};
 use crate::hot_standby::log_follower::FollowProgress;
 use crate::hot_standby::read_only_object_store::ReadOnlyObjectStore;
-use crate::hot_standby::standby_driver::StandbyDriver;
+use crate::hot_standby::standby_driver::{DRIVER_STOP_BUDGET, StandbyDriver};
 use crate::recovery::{EngineStartError, LocalStoreConfig};
 
-/// Longest wait in [`HotStandby::shutdown`] for following to stop.
-const SHUTDOWN_BUDGET: Duration = Duration::from_secs(10);
+/// Longest wait in [`HotStandby::shutdown`] for the local store to close once following stopped.
+const STORE_CLOSE_BUDGET: Duration = Duration::from_secs(5);
 
 /// How often a wait for a closed store checks it again.
 const STORE_CLOSE_POLL: Duration = Duration::from_millis(10);
@@ -140,10 +140,29 @@ pub struct HotStandbyStatus {
     pub restart_in: Option<Duration>,
 }
 
+/// Reads a hot standby's status, also while a takeover owns the standby.
+///
+/// Clone it from [`HotStandby::status_reader`] before a takeover, to keep reporting the standby's
+/// state and lag while the takeover waits for the node lease.
+#[derive(Clone)]
+pub struct HotStandbyStatusReader {
+    status: Arc<StandbyStatusCell>,
+    clock: Arc<dyn WallClock>,
+    behind_lag_threshold: Duration,
+}
+
+impl HotStandbyStatusReader {
+    /// Returns the standby's state and lag now.
+    pub fn status(&self) -> HotStandbyStatus {
+        self.status
+            .status_at(self.clock.now_unix_micros(), self.behind_lag_threshold)
+    }
+}
+
 /// Follows the node's log from object storage without the node lease, so a later takeover
 /// replays little.
 pub struct HotStandby {
-    status: Arc<StandbyStatusCell>,
+    status_reader: HotStandbyStatusReader,
     /// Writes the read-only object store rejected; always zero unless the standby has a bug.
     #[cfg(feature = "test-util")]
     rejected_writes: Arc<AtomicU64>,
@@ -151,8 +170,6 @@ pub struct HotStandby {
     local_store: LocalStoreConfig,
     node_id: String,
     following: Arc<FollowingHandles>,
-    clock: Arc<dyn WallClock>,
-    behind_lag_threshold: Duration,
     cancellation: CancellationToken,
     /// Returns the open store when cancellation stopped following cleanly.
     driver: Option<JoinHandle<Option<Arc<EngineLocalStore>>>>,
@@ -210,14 +227,16 @@ impl HotStandby {
             .run(),
         );
         Ok(Self {
-            status,
+            status_reader: HotStandbyStatusReader {
+                status,
+                clock,
+                behind_lag_threshold: standby_config.behind_lag_threshold,
+            },
             #[cfg(feature = "test-util")]
             rejected_writes: observed_rejected_writes,
             local_store,
             node_id,
             following,
-            clock,
-            behind_lag_threshold: standby_config.behind_lag_threshold,
             cancellation,
             driver: Some(driver),
         })
@@ -240,14 +259,21 @@ impl HotStandby {
 
     /// Returns the standby's state and lag now.
     pub fn status(&self) -> HotStandbyStatus {
-        self.status
-            .status_at(self.clock.now_unix_micros(), self.behind_lag_threshold)
+        self.status_reader.status()
     }
 
-    /// Stops following and waits up to 10 seconds for the local store to close.
-    pub async fn shutdown(mut self) {
+    /// Returns a reader of [`Self::status`] that stays valid while a takeover owns the standby.
+    pub fn status_reader(&self) -> HotStandbyStatusReader {
+        self.status_reader.clone()
+    }
+
+    /// Stops following and waits for the local store to close, for at most 17 seconds.
+    ///
+    /// Returns whether the store closed, so another process may reopen its directory. A task
+    /// that still applies a frame can hold it open past the wait.
+    pub async fn shutdown(mut self) -> bool {
         drop(self.stop_following().await);
-        self.wait_until_store_closed(SHUTDOWN_BUDGET).await;
+        self.wait_until_store_closed(STORE_CLOSE_BUDGET).await
     }
 
     /// Returns whether the standby follows into the store that `config` names.
@@ -270,7 +296,9 @@ impl HotStandby {
     }
 
     /// Waits up to `budget` until no handle keeps the last store open, so its directory reopens.
-    pub(crate) async fn wait_until_store_closed(&self, budget: Duration) {
+    ///
+    /// Returns whether the store closed; `true` when the standby never opened one.
+    pub(crate) async fn wait_until_store_closed(&self, budget: Duration) -> bool {
         let Some(store) = self
             .following
             .store
@@ -278,24 +306,26 @@ impl HotStandby {
             .expect("store handle lock is not poisoned")
             .clone()
         else {
-            return;
+            return true;
         };
         let deadline = tokio::time::Instant::now() + budget;
         while store.strong_count() > 0 && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(STORE_CLOSE_POLL).await;
         }
-        if store.strong_count() > 0 {
+        let is_closed = store.strong_count() == 0;
+        if !is_closed {
             tracing::error!("a task still holds the hot standby's local store open");
         }
+        is_closed
     }
 
-    /// Cancels the driver and waits up to 10 seconds for it, then aborts it. Cancel safe.
+    /// Cancels the driver and waits up to 12 seconds for it, then aborts it. Cancel safe.
     ///
     /// Returns the driver's output: the open store after a clean stop.
     async fn stop_following(&mut self) -> Option<Arc<EngineLocalStore>> {
         self.cancellation.cancel();
         let driver = self.driver.as_mut()?;
-        let stopped = tokio::time::timeout(SHUTDOWN_BUDGET, driver).await;
+        let stopped = tokio::time::timeout(DRIVER_STOP_BUDGET, driver).await;
         let driver = self.driver.take()?;
         match stopped {
             Ok(Ok(store)) => store,
