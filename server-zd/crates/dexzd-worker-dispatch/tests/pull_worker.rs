@@ -1214,7 +1214,7 @@ async fn an_idle_worker_gets_no_task_once_the_node_lease_is_not_valid() {
         MatchingConfig::default(),
         Arc::new(SystemWallClock),
         NodeMetrics::unregistered(),
-        lease_validity_deadline.clone(),
+        Some(lease_validity_deadline.clone()),
     );
     let server = start_server(dispatch.clone(), 0).await;
     let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;

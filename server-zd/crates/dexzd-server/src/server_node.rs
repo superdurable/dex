@@ -414,7 +414,7 @@ impl ServerNode {
             components.matching.clone(),
             clock.clone(),
             metrics.as_ref().clone(),
-            process.lease_validity_deadline.clone(),
+            Some(process.lease_validity_deadline.clone()),
         );
         let stream_store = Arc::new(
             StreamStore::new(&components.stream_store)
