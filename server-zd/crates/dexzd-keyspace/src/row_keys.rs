@@ -367,6 +367,20 @@ pub fn active_work_index_key(
     )
 }
 
+/// Key of a pending search projection outside the run's purge range.
+pub fn search_outbox_key(partition: PartitionId, flow_hash: FlowHash, run_id: RunId) -> Vec<u8> {
+    partition_index_key(
+        partition,
+        IndexKind::SearchOutbox,
+        &flow_run_suffix(flow_hash, run_id),
+    )
+}
+
+/// Persisted external search projection mode for one partition; absent means disabled.
+pub fn search_projection_mode_key(partition: PartitionId) -> Vec<u8> {
+    partition_index_prefix(partition, IndexKind::SearchProjectionMode)
+}
+
 /// Attribute Sync pending index key: length-prefixed store name, Flow hash, run ID.
 pub fn attribute_sync_pending_index_key(
     partition: PartitionId,

@@ -169,6 +169,13 @@ pub(crate) fn apply_run_purge(
             ),
         );
     }
+    crate::projections::search_outbox::mark_search_outbox(
+        transaction,
+        scope,
+        run_id,
+        record.next_run_seq,
+        true,
+    )?;
     let mut directory = read_flow_directory(transaction, scope.tenant_id, scope.flow_id())?;
     directory
         .runs

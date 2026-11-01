@@ -113,6 +113,12 @@ fn apply_in_scope(
     let mut transaction = FlowTransaction::new(state, *context);
     let mut is_failure_reapply = false;
     let result = match body {
+        Command::SetSearchProjectionMode(mode) => {
+            crate::projections::search_outbox::apply_search_projection_mode(&mut transaction, mode)
+        }
+        Command::SearchOutboxAck(ack) => {
+            crate::projections::search_outbox::apply_search_outbox_ack(&mut transaction, ack)?
+        }
         Command::FlowStart(start) => flow_start::apply_flow_start(&mut transaction, scope, start)?,
         Command::InboxMessage(message) => {
             crate::cross_flow::apply_inbox_message(&mut transaction, scope, message)?
@@ -334,7 +340,10 @@ pub(crate) fn apply_run_command(
         Command::RpcCommitted(command) => {
             rpc_committed::apply_rpc_committed(transaction, cursor, scope, command)
         }
-        Command::InboxMessage(_) | Command::RunPurge(_) => Err(ApplyError::InvariantViolation {
+        Command::SetSearchProjectionMode(_)
+        | Command::SearchOutboxAck(_)
+        | Command::InboxMessage(_)
+        | Command::RunPurge(_) => Err(ApplyError::InvariantViolation {
             detail: "cross-Flow command routed to the wrong handler".to_owned(),
         }),
         Command::FlowStart(_)

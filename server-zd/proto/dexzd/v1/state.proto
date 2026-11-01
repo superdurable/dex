@@ -609,3 +609,16 @@ message SearchAttributeValue {
   dex.IndexType index_type = 2;
   dex.Value value = 3;
 }
+
+// One pending run projection, retained outside the run's purge range.
+message SearchOutboxRecord {
+  uint64 version = 1;
+  uint64 tenant_id = 2;
+  bool is_delete = 3;
+  int64 pending_since_micros = 4;
+}
+
+// Absent records disable external projection.
+message SearchProjectionModeRecord {
+  bool enabled = 1;
+}
