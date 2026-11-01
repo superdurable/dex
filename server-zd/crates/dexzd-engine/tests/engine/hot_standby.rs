@@ -968,6 +968,77 @@ async fn a_hot_standby_sets_its_store_aside_after_applying_a_batch_past_the_reco
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_node_start_sets_aside_a_store_that_applied_a_batch_past_the_recorded_end() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut cluster = TestCluster::new();
+    let first_config = cluster.config(rocksdb_store(&directory.path().join("serving")));
+    let first = cluster
+        .start_with(&first_config)
+        .await
+        .expect("incarnation 1 starts");
+    let standby_directory = directory.path().join("standby");
+    let mut standby_config = cluster.config(rocksdb_store(&standby_directory));
+    standby_config.node.incarnation = 2;
+    // The standby never rereads the manifest, so it keeps the diverged store.
+    let standby = start_standby(
+        &cluster,
+        standby_config.clone(),
+        HotStandbyConfig {
+            manifest_refresh_interval: Duration::from_secs(600),
+            stalled_seq_deletion_check_after: Duration::from_secs(1200),
+            ..fast_standby_config()
+        },
+    );
+    first.commit_prompt(FIRST_FLOW, 2).await;
+    wait_until_caught_up(&cluster, &standby.standby).await;
+    first.node.shutdown().await.expect("lease released");
+    let mut second_config = first_config;
+    second_config.node.incarnation = 2;
+    let second = cluster
+        .start_with(&second_config)
+        .await
+        .expect("incarnation 2 starts");
+    let applied_before = standby.applier.applied_commands().len();
+    write_a_repeated_command_past_the_recorded_end(&cluster, LateBatchEpoch::Fencing).await;
+    let deadline = Instant::now() + CATCH_UP_DEADLINE;
+    while standby.applier.applied_commands().len() == applied_before {
+        assert!(
+            Instant::now() < deadline,
+            "the standby did not apply the late batch"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        standby.standby.shutdown().await,
+        "the standby's store closed"
+    );
+    second.commit_prompt(FIRST_FLOW, 1).await;
+    second
+        .node
+        .take_snapshot()
+        .await
+        .expect("the snapshot succeeds");
+    second.commit_prompt(FIRST_FLOW, 1).await;
+    second.node.shutdown().await.expect("lease released");
+
+    let node = cluster
+        .start_with(&standby_config)
+        .await
+        .expect("a node starts on the diverged store's directory");
+    assert_eq!(
+        set_aside_copies(&standby_directory).len(),
+        1,
+        "the start set the diverged store aside"
+    );
+    assert_eq!(
+        node.committed_count(FIRST_FLOW).await,
+        4,
+        "every acknowledged write survives, and the repeated command does not"
+    );
+    node.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_node_starts_from_a_hot_standby_store_with_little_replay() {
     start_from_a_hot_standby_store(false).await;
 }

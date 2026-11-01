@@ -34,8 +34,8 @@ use crate::hot_standby::log_follower::{
 use crate::hot_standby::{FollowingHandles, HotStandbyConfig, StandbyPhase, StandbyStatusCell};
 use crate::recovery::{
     ClusterMetadata, CommittedCommandSink, EngineStartError, LocalStoreRequirements,
-    OpenedLocalStore, delete_older_set_aside_stores, find_position_past_closed_end,
-    find_unreplayable_gap, open_local_store, rebuild_search_order_indexes,
+    OpenedLocalStore, delete_older_set_aside_stores, find_unreplayable_gap, open_local_store,
+    rebuild_search_order_indexes,
 };
 
 /// First wait before the standby restarts after an error; it doubles up to the maximum.
@@ -201,37 +201,21 @@ impl StandbyDriver {
         };
         let partition_count = metadata.partition_count();
         let cluster_id = metadata.cluster_id()?;
-        let mut requirements = LocalStoreRequirements {
-            snapshot: metadata.node_snapshot(&config.node.node_id),
-            streams: &metadata.streams,
-            partition_count,
-            new_store_lineage_id: self.id_source.store_lineage_id(),
-            should_discard_existing_store: false,
-        };
-        let mut opened = open_local_store(
-            &config.local_store,
-            self.object_store.as_ref(),
-            &requirements,
-        )
-        .await?;
-        if let Some(divergence) =
-            find_position_past_closed_end(opened.store.as_ref(), &metadata.streams)?
-        {
-            tracing::error!(%divergence, "the hot standby's store diverged from the log; restoring the newest snapshot");
-            drop(opened);
-            requirements.should_discard_existing_store = true;
-            requirements.new_store_lineage_id = self.id_source.store_lineage_id();
-            opened = open_local_store(
-                &config.local_store,
-                self.object_store.as_ref(),
-                &requirements,
-            )
-            .await?;
-        }
+        // The gap check sets aside a store that applied a batch past a closed stream's end.
         let OpenedLocalStore {
             store,
             set_aside_id,
-        } = opened;
+        } = open_local_store(
+            &config.local_store,
+            self.object_store.as_ref(),
+            &LocalStoreRequirements {
+                snapshot: metadata.node_snapshot(&config.node.node_id),
+                streams: &metadata.streams,
+                partition_count,
+                new_store_lineage_id: self.id_source.store_lineage_id(),
+            },
+        )
+        .await?;
         self.following.set_store(Arc::downgrade(&store));
         let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
         if rebuilt_search_order_partitions > 0 {

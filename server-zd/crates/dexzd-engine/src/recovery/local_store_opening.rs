@@ -97,9 +97,6 @@ pub(crate) struct LocalStoreRequirements<'a> {
     pub(crate) partition_count: u32,
     /// Lineage of a store this start creates empty or restores from a snapshot.
     pub(crate) new_store_lineage_id: Uuid,
-    /// Sets an existing store aside and restores the newest snapshot, for a store known to diverge
-    /// from the log.
-    pub(crate) should_discard_existing_store: bool,
 }
 
 /// The lowest applied batch over every partition, ordered by incarnation, then seq.
@@ -129,12 +126,7 @@ pub(crate) async fn open_local_store(
         }
         #[cfg(feature = "test-util")]
         LocalStoreConfig::ExistingForTest(store) => {
-            let reusable = if requirements.should_discard_existing_store {
-                None
-            } else {
-                reusable_open_store(store, requirements)?
-            };
-            match reusable {
+            match reusable_open_store(store, requirements)? {
                 Some(store) => {
                     return Ok(OpenedLocalStore {
                         store,
@@ -233,10 +225,7 @@ async fn open_rocksdb_store(
     requirements: &LocalStoreRequirements<'_>,
 ) -> Result<(RestoredLocalStore, Option<Uuid>), EngineStartError> {
     let mut set_aside_id = None;
-    if is_nonempty_directory(directory)? && requirements.should_discard_existing_store {
-        tracing::warn!("the local store diverged from the log; restoring the newest snapshot");
-        set_aside_id = Some(set_aside(directory)?);
-    } else if is_nonempty_directory(directory)? {
+    if is_nonempty_directory(directory)? {
         match RocksDbLocalStore::open(directory, options) {
             Ok(store)
                 if requirements.snapshot.is_some()
@@ -296,7 +285,7 @@ async fn open_rocksdb_store(
 /// Returns why `store` diverged from the log when a partition applied a batch past the recorded
 /// end of a closed stream, and `None` otherwise. Only a store that followed a batch the log
 /// does not hold has such a position.
-pub(crate) fn find_position_past_closed_end(
+fn find_position_past_closed_end(
     store: &dyn LocalReadView,
     streams: &NodeStreams,
 ) -> Result<Option<EngineStartError>, EngineStartError> {
@@ -326,6 +315,9 @@ pub(crate) fn find_unreplayable_gap(
     streams: &NodeStreams,
     partition_count: u32,
 ) -> Result<Option<EngineStartError>, EngineStartError> {
+    if let Some(divergence) = find_position_past_closed_end(store, streams)? {
+        return Ok(Some(divergence));
+    }
     let applied = lowest_applied_position(store, partition_count)?;
     let open_incarnation = streams.open_segment().incarnation;
     if let Some(applied) = applied

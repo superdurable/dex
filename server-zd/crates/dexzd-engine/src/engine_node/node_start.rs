@@ -34,8 +34,8 @@ use crate::hot_standby::HotStandby;
 use crate::recovery::{
     ClusterMetadata, EngineCommandAndEffectHooks, EngineServices, EngineStartError,
     LocalStoreRequirements, LogReplay, OpenedLocalStore, StartupReadRetryStore,
-    delete_older_set_aside_stores, find_position_past_closed_end, open_local_store,
-    rebuild_search_order_indexes, reusable_open_store,
+    delete_older_set_aside_stores, open_local_store, rebuild_search_order_indexes,
+    reusable_open_store,
 };
 use crate::snapshots::{
     LogCleanup, OwnershipFence, SnapshotCatalog, SnapshotRetention, SnapshotService,
@@ -82,46 +82,32 @@ async fn open_serving_store(
     standby: Option<&mut HotStandby>,
     config: &EngineNodeConfig,
     object_store: &dyn ObjectStore,
-    mut requirements: LocalStoreRequirements<'_>,
+    requirements: &LocalStoreRequirements<'_>,
 ) -> Result<(OpenedLocalStore, bool), EngineStartError> {
-    if let Some(standby) = standby {
-        match take_over_store(standby, config, &requirements).await? {
-            HandedOverStore::Reusable(store) => {
-                let opened = OpenedLocalStore {
-                    store,
-                    set_aside_id: None,
-                };
-                return Ok((opened, true));
-            }
-            HandedOverStore::Closed { is_diverged } => {
-                requirements.should_discard_existing_store = is_diverged;
-            }
-        }
+    if let Some(standby) = standby
+        && let Some(store) = take_over_store(standby, config, requirements).await?
+    {
+        let opened = OpenedLocalStore {
+            store,
+            set_aside_id: None,
+        };
+        return Ok((opened, true));
     }
-    let opened = open_local_store(&config.local_store, object_store, &requirements).await?;
+    let opened = open_local_store(&config.local_store, object_store, requirements).await?;
     Ok((opened, false))
-}
-
-/// What a takeover does with the store that its hot standby handed over.
-enum HandedOverStore {
-    /// Serve from it.
-    Reusable(Arc<EngineLocalStore>),
-    /// Open or restore the configured store; a diverged store is set aside first.
-    Closed { is_diverged: bool },
 }
 
 /// Stops the standby, fences and joins its work, and checks its store under the lease.
 ///
 /// Returns its store when it followed this node into the configured store and the retained log
-/// can update it. Returns [`HandedOverStore::Closed`] otherwise, once the store closed so its
-/// directory reopens.
+/// can update it. Returns `None` otherwise, once the store closed so its directory reopens.
 async fn take_over_store(
     standby: &mut HotStandby,
     config: &EngineNodeConfig,
     requirements: &LocalStoreRequirements<'_>,
-) -> Result<HandedOverStore, EngineStartError> {
+) -> Result<Option<Arc<EngineLocalStore>>, EngineStartError> {
     let is_configured_store = standby.has_local_store(&config.local_store);
-    let mut is_diverged = false;
+    // The gap check also rejects a store that applied a batch past a closed stream's end.
     let reusable = match standby.hand_over_store().await {
         None => {
             tracing::info!("the hot standby had no local store to hand over");
@@ -134,26 +120,17 @@ async fn take_over_store(
             );
             None
         }
-        Some(store) => match find_position_past_closed_end(store.as_ref(), requirements.streams)? {
-            Some(divergence) => {
-                tracing::error!(%divergence, "the hot standby's store diverged from the log; restoring the newest snapshot");
-                is_diverged = true;
-                None
-            }
-            None => reusable_open_store(&store, requirements)?,
-        },
+        Some(store) => reusable_open_store(&store, requirements)?,
     };
-    if let Some(store) = reusable {
+    if reusable.is_some() {
         tracing::info!("serving from the hot standby's local store");
-        return Ok(HandedOverStore::Reusable(store));
-    }
-    if is_configured_store
+    } else if is_configured_store
         && config.local_store.has_directory()
         && !standby.wait_until_store_closed(STORE_CLOSE_BUDGET).await
     {
         tracing::error!("the hot standby's local store is still open; opening it may fail");
     }
-    Ok(HandedOverStore::Closed { is_diverged })
+    Ok(reusable)
 }
 
 /// Checks the node configuration and that a hot standby follows the node that starts.
@@ -326,12 +303,11 @@ where
             parts.standby.as_mut(),
             config,
             startup_store.as_ref(),
-            LocalStoreRequirements {
+            &LocalStoreRequirements {
                 snapshot: metadata.node_snapshot(&config.node.node_id),
                 streams: &metadata.streams,
                 partition_count,
                 new_store_lineage_id: id_source.store_lineage_id(),
-                should_discard_existing_store: false,
             },
         )
         .await?;
