@@ -17,7 +17,7 @@ Choose the primitive from the behavior the application needs, not from a preferr
 
 ## Wait composition
 
-[Pinned wait example](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+[Pinned wait example](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java -->
 ```java
 case "any":
@@ -42,7 +42,7 @@ Use condition IDs when code must distinguish winners, and for every condition in
 
 ## Durable state and locking
 
-[Pinned Attribute example](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java)
+[Pinned Attribute example](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java -->
 ```java
 @Override
@@ -66,7 +66,7 @@ An RPC without Attribute locks or `isTransactional` can query a retained termina
 
 Use `Client.readStream` for forward, one-at-a-time, optionally long-polling consumption. Use `Client.listStreamMessages` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `getNextPageToken()` unchanged until it is empty.
 
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java)
+[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java -->
 ```java
 final StreamMessagesPage<String> page = client.listStreamMessages(
@@ -90,7 +90,7 @@ Use `startFlow` for a new execution, `waitForFlow` for terminal status, [`getAtt
 
 From Java SDK v1.31.0, `Client.getAttributes(flowId, reads...)` reads committed values of registered Attributes and AttributeMap instances in one FlowService request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass singleton `Attribute` definitions, or AttributeMap instances selected with `AttributeMap.instance(key)`. There is no single-Attribute method; pass one read to read one value.
 
-[Released Java Client Attribute read](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/README.md)
+[Released Java Client Attribute read](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/README.md)
 <!-- dex-source: sdk-java/README.md -->
 ```java
 AttributeValues values = client.getAttributes(
@@ -103,7 +103,7 @@ Optional<Note> note = values.get(orderFlow.notes.instance("n1"));
 
 The call takes varargs or a `List<? extends AttributeRead<?>>` of reads built at runtime. The Client copies the list before the request.
 
-[Released SDK integration test](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/src/test/java/io/superdurable/dex/integ/GetAttributesTest.java)
+[Released SDK integration test](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/test/java/io/superdurable/dex/integ/GetAttributesTest.java)
 <!-- dex-source: sdk-java/src/test/java/io/superdurable/dex/integ/GetAttributesTest.java -->
 ```java
 final List<AttributeRead<?>> listReads =
@@ -127,4 +127,4 @@ The call is blocking. It throws these exceptions, and every message names the Fl
 - `ValueMappingException`: a stored value cannot be loaded or decoded as its definition's value class.
 - `DexServiceException`: another FlowService or LoadBlobs failure. It keeps the gRPC code and Dex sub-status. Its message and `getDetail()` start with the call context, such as `getAttributes Flow order-42 Attributes order-status`, before the Server detail. `IllegalStateException` reports a malformed Server response.
 
-On any error the call returns no values. [Released Java Client API](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [AttributeValues](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/src/main/java/io/superdurable/dex/AttributeValues.java)
+On any error the call returns no values. [Released Java Client API](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [AttributeValues](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/main/java/io/superdurable/dex/AttributeValues.java)

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.13"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.14"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -138,7 +138,7 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "A larger new write returns **INVALID_ARGUMENT**.",
         "positive Keyword predicates\ndo not match a stored KeywordArray.",
         "A schema records its search backend. Starting with a different backend fails.",
-        "Startup then fails with an Attribute slot registry mismatch.",
+        "fails with an Attribute slot registry mismatch.",
         "| **commit.maxUnappliedBytes** | 67108864 (64 MiB) |",
     )),
     ("server-zd/v0.1.13", "server-zd/config/dex-server-zd.example.yaml", (
@@ -180,6 +180,105 @@ SERVER_ZD_LATEST_STATEMENTS = (
     ("server-zd/v0.1.13", "server-zd/crates/dexzd-apply/src/steps/step_results.rs", (
         'StepAttemptFailureKind::ValueTooLarge => "ValueTooLarge",',
     )),
+    ("server-zd/v0.1.14", "docs/content/production/server-zd-operations.mdx", (
+        "durable outbox in the same local commit. A run purge appends one too.",
+        "Snapshots and log replay restore\n  it after a restart or a takeover.",
+        "Search results lag,\n  but no change is lost and nothing is rebuilt.",
+        "An outbox entry takes about 60 bytes.",
+        "| **no_progress** | A new database or schema, a switch from builtin search, or a load that a crash interrupted |",
+        "| **no_outbox_progress** | An older server release, which had no outbox, wrote the progress |",
+        "| **enabled_after_progress** | The cluster switched from SQL search to builtin search and back to the same schema |",
+        "| **acked_after_progress** | The database was restored to a point before entries that the cluster already acknowledged |",
+        "| **ahead_of_committed_state** | A defensive check: the progress is ahead of committed state.",
+        "Loads happen only at startup,\nnever because the database is slow.",
+        "After a restart or a takeover, it also waits for entries already in\n"
+        "the local store and for loading partitions.",
+        "It never returns results that miss\nsuch a write.",
+        "SearchFlows returns **INTERNAL** until the server restarts.",
+        "When the schema records a newer node epoch than this node's, the projection\n"
+        "stops and SearchFlows returns **UNAVAILABLE**.",
+        "| **search.readYourWritesWait** | **2s** |",
+        "| **search.outboxBatchSize** | **1000** |",
+        "| **search.outboxPollInterval** | **100ms** |",
+        "| **search.outboxAckInterval** | **1s** |",
+        "| **search.outboxMaxAckEntries** | **10000** |",
+        "Must be at least **search.outboxBatchSize**.",
+        "To switch between PostgreSQL and ParadeDB, select a new database or schema.\n"
+        "The server loads it from committed state automatically.",
+        "configure a new **search.paradeDbSchema** or **search.postgresSchema**, or a new\ndatabase,",
+        "server-zd does not serve **AdminService** yet",
+    )),
+    ("server-zd/v0.1.14", "server-zd/config/dex-server-zd.example.yaml", (
+        "  readYourWritesWait: 2s\n  outboxBatchSize: 1000\n  outboxPollInterval: 100ms\n"
+        "  outboxAckInterval: 1s\n  outboxMaxAckEntries: 10000\n",
+        "adminAudiences: []",
+    )),
+    ("server-zd/v0.1.14", "server-zd/crates/dexzd-server/src/server_node/search_projection/outbox_consumer.rs", (
+        'Self::NoProgress => "no_progress",',
+        'Self::NoOutboxProgress => "no_outbox_progress",',
+        'Self::EnabledAfterProgress => "enabled_after_progress",',
+        'Self::AckedAfterProgress => "acked_after_progress",',
+        'Self::AheadOfCommittedState => "ahead_of_committed_state",',
+    )),
+    ("server-zd/v0.1.14", "server-zd/crates/dexzd-metrics/src/lib.rs", (
+        '"dexzd_search_outbox_entries",',
+        '"dexzd_search_outbox_max_partition_entries",',
+        '"dexzd_search_outbox_oldest_entry_age_seconds",',
+        '"dexzd_search_outbox_batches",',
+        '"dexzd_search_outbox_ack_proposals",',
+        '"dexzd_search_initial_load_pending_partitions",',
+        '"dexzd_search_initial_load_documents",',
+        '"dexzd_search_initial_loads",',
+        '"dexzd_search_projection_mode_skipped_partitions",',
+    )),
+    ("server-zd/v0.1.14", "server-zd/crates/dexzd-search/src/sql_visibility/migration.sql", (
+        "ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS applied_epoch bigint;",
+        "ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS outbox_through_seq bigint;",
+    )),
+    ("server-zd/v0.1.14", "server-zd/README.md", (
+        "`dexzd_search_outbox_batches_total` | counter | `outcome`: ok, error |",
+        "`dexzd_search_outbox_ack_proposals_total` | counter | `outcome`: ok, error |",
+        "server-zd does not\nregister `AdminService` yet",
+        "Before the consumer serves, every enabled partition's appended seq is raised to its last command.",
+    )),
+)
+# Core operations statements for the server-zd v0.1.14 search projection.
+SEARCH_PROJECTION_REFERENCES = (
+    ("core/operations.md", (
+        "server-zd v0.1.14 changes these operator-visible behaviors.",
+        "The in-memory queue, its overflow-triggered partition rebuilds, and the startup catch-up rebuild are gone. "
+        "A backlog is lag, never lost data. Builtin search is unchanged.",
+        "On an existing ParadeDB or PostgreSQL schema, the first start after the upgrade reloads every partition once. "
+        "The log reports reason `no_outbox_progress`. "
+        "Until a partition's load completes, SearchFlows for it waits or returns UNAVAILABLE",
+        "server-zd does not serve AdminService yet, so these calls return UNIMPLEMENTED.",
+        "On server-zd v0.1.14 or later, skip these steps: "
+        "the first start after upgrading from an earlier release reloads every partition.",
+        "Search results lag, but no change is lost and nothing is rebuilt.",
+        "When the wait expires, SearchFlows returns UNAVAILABLE; it never returns results that miss such a write",
+        "Applications still treat search as [eventually consistent](read-after-write.md).",
+        "`ahead_of_committed_state` when the progress is ahead of committed state, as after an object storage restore that reuses the schema. "
+        "Loads happen only at startup.",
+        "SearchFlows returns INTERNAL until the server restarts.",
+        "the projection is fenced and SearchFlows returns UNAVAILABLE.",
+        "Optional `search.outboxBatchSize` (default 1000)",
+        "`search.outboxPollInterval` (default 100ms)",
+        "`search.outboxAckInterval` (default 1s)",
+        "`search.outboxMaxAckEntries` (default 10000)",
+        "Alert on projection lag with `dexzd_search_outbox_oldest_entry_age_seconds`.",
+        "point the server at a new database or schema; the server loads it from committed state automatically.",
+        "After restoring the object storage prefix, configure a new `search.paradeDbSchema` or `search.postgresSchema`, "
+        "or a new database, before restarting the node.",
+        "server-zd/v0.1.14 for CLI v1.32.0",
+    )),
+    ("core/read-after-write.md", (
+        "| Any indexed Attribute write | `SearchFlows`, CLI search, or Dex Web work discovery | **Eventual.**",
+    )),
+)
+# Retired descriptions of the search projection before the server-zd v0.1.14 outbox.
+SEARCH_PROJECTION_RETIRED_WORDING = (
+    "the projection rebuilds from committed state on startup",
+    "rebuilds the partition from committed local state",
 )
 # Per language: (tagged path, needles) showing that the public error model does not map the search sub-statuses.
 SEARCH_SUB_STATUS_TAGGED_STATEMENTS = (
@@ -463,7 +562,7 @@ REFERENCE_1_24_STATEMENTS = (
         "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.13.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.14.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
@@ -1426,6 +1525,17 @@ def check_search_sub_statuses(checkout: Path, baselines: dict[str, str], referen
         require_text(references / page, *needles)
 
 
+def check_search_projection_references(references: Path) -> None:
+    """Checks the server-zd v0.1.14 search projection statements and rejects retired rebuild wording."""
+    for page, needles in SEARCH_PROJECTION_REFERENCES:
+        require_text(references / page, *needles)
+    for page in sorted(references.rglob("*.md")):
+        content = page.read_text()
+        for wording in SEARCH_PROJECTION_RETIRED_WORDING:
+            if wording in content:
+                fail(f"{page} still describes the retired search projection rebuild: {wording}")
+
+
 def require_ancestor(checkout: Path, ancestor: str, descendant: str, label: str) -> None:
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", ancestor, descendant],
@@ -1591,6 +1701,7 @@ def main() -> None:
     check_release_1_28_statements(arguments.dex_root, sdk_baselines)
     check_client_attribute_reads(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_search_sub_statuses(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    check_search_projection_references(SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,
