@@ -308,12 +308,12 @@ async fn acquire_as_cold_standby(
     if !wait_out_hold_off(process, requests, &mut entry, cancellation).await {
         return Ok(None);
     }
-    let start = ServerNode::start(
+    let start = Box::pin(ServerNode::start(
         process,
         EngineStart::Cold,
         &process.components.engine_node,
         cancellation,
-    );
+    ));
     let started = run_until_started(start, process, requests, &mut entry.pending).await;
     match resolve_start(started, &mut entry.pending)? {
         ServerNodeStart::Serving(node) => {
@@ -367,12 +367,12 @@ async fn acquire_as_hot_standby(
         ));
         let mut engine_config = process.components.engine_node.clone();
         engine_config.lease.acquisition_delay = Some(delay.clone());
-        let start = ServerNode::start(
+        let start = Box::pin(ServerNode::start(
             process,
             EngineStart::HotStandby(standby),
             &engine_config,
             cancellation,
-        );
+        ));
         let started = run_until_started(start, process, requests, &mut entry.pending).await;
         let started = match resolve_start(started, &mut entry.pending) {
             Ok(started) => started,

@@ -257,7 +257,7 @@ pub(crate) async fn start_server(
         }
         LeaseExpiryResponse::StopNodeOnly => None,
     };
-    let started = NodeLifecycle::start(
+    let started = Box::pin(NodeLifecycle::start(
         config,
         components,
         metrics,
@@ -266,7 +266,7 @@ pub(crate) async fn start_server(
         grpc,
         administration_requests,
         cancellation,
-    )
+    ))
     .await;
     let lifecycle = match started {
         Ok(Some(lifecycle)) => lifecycle,
