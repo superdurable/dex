@@ -15,6 +15,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dexzd_clock::WallClock;
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_metrics::{NodeMetrics, WorkerStreamEvent};
 use dexzd_protocol::dex::{
     self, DispatchTaskErrorReason, PollWorkerTask, PollWorkerTaskCancelTask, PollWorkerTaskFrame,
@@ -83,7 +84,8 @@ pub enum DispatchOutcome {
     Cancelled,
     /// The method deadline elapsed before a final Worker frame.
     DeadlineExceeded,
-    /// The matching owner shut down while waiting for a Worker.
+    /// The matching owner shut down while waiting for a Worker, or its node lease is no longer
+    /// valid.
     ServerClosing,
 }
 
@@ -125,6 +127,8 @@ struct DispatchInner {
     metrics: NodeMetrics,
     config: MatchingConfig,
     clock: Arc<dyn WallClock>,
+    /// When set, no Task goes out unless it is valid, so a resumed process hands out no work.
+    lease_validity_deadline: Option<LeaseValidityDeadline>,
     registry: Mutex<Registry>,
     shutdown: watch::Sender<bool>,
 }
@@ -203,6 +207,26 @@ impl WorkerDispatch {
         clock: Arc<dyn WallClock>,
         metrics: NodeMetrics,
     ) -> Self {
+        Self::build(config, clock, metrics, None)
+    }
+
+    /// Creates a matching owner that hands out a Task only while `lease_validity_deadline` is
+    /// valid; a dispatch then ends with [`DispatchOutcome::ServerClosing`].
+    pub fn new_with_lease_validity_deadline(
+        config: MatchingConfig,
+        clock: Arc<dyn WallClock>,
+        metrics: NodeMetrics,
+        lease_validity_deadline: LeaseValidityDeadline,
+    ) -> Self {
+        Self::build(config, clock, metrics, Some(lease_validity_deadline))
+    }
+
+    fn build(
+        config: MatchingConfig,
+        clock: Arc<dyn WallClock>,
+        metrics: NodeMetrics,
+        lease_validity_deadline: Option<LeaseValidityDeadline>,
+    ) -> Self {
         assert!(config.max_streams > 0 && config.max_concurrent_tasks_cap > 0);
         assert!(
             config.max_queue_length > 0
@@ -217,6 +241,7 @@ impl WorkerDispatch {
                 metrics,
                 config,
                 clock,
+                lease_validity_deadline,
                 registry: Mutex::new(Registry::default()),
                 shutdown,
             }),
@@ -281,6 +306,14 @@ impl WorkerDispatch {
             cancel,
             task: Some(task),
         })
+    }
+
+    /// Returns whether a Task may go out now: true without a lease validity deadline.
+    fn may_hand_out_tasks(&self) -> bool {
+        self.inner
+            .lease_validity_deadline
+            .as_ref()
+            .is_none_or(|deadline| deadline.is_valid_at(tokio::time::Instant::now().into_std()))
     }
 
     /// Drains streams: idle Workers reconnect now; busy Workers reconnect after their task.
@@ -413,7 +446,7 @@ impl WorkerDispatch {
         let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
         tokio::pin!(search_timer);
         while Instant::now() < queue_end {
-            if *shutdown.borrow() {
+            if *shutdown.borrow() || !self.may_hand_out_tasks() {
                 return Some(DispatchOutcome::ServerClosing);
             }
             if *cancel.borrow() {

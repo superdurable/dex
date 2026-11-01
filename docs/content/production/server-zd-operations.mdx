@@ -462,8 +462,12 @@ reconnects and reaches the active process.
 
 A process whose node lease is no longer valid, such as one resumed after a
 freeze longer than its lease, answers public API calls with **UNAVAILABLE** and
-readiness names with **NOT_SERVING** at once, before it exits. It never answers
-a read from state that another process may have changed since.
+readiness names with **NOT_SERVING** at once, before it exits. It answers no
+call from state that another process may have changed since, and it hands
+Workers no new task. Two kinds of open streams are exceptions until it stops
+serving moments later. An open **PollWorkerTask** stream still carries pings and
+the frames of a task that a Worker already runs. A gRPC health **Watch** stream
+keeps reporting its last status.
 
 ### Kubernetes {#hot-standby-kubernetes}
 

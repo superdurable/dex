@@ -405,10 +405,11 @@ impl ServerNode {
         let object_stores = &process.object_stores;
         let clock = process.clock.clone();
         let applier = process.applier.clone();
-        let dispatch = WorkerDispatch::new_with_metrics(
+        let dispatch = WorkerDispatch::new_with_lease_validity_deadline(
             components.matching.clone(),
             clock.clone(),
             metrics.as_ref().clone(),
+            process.lease_validity_deadline.clone(),
         );
         let stream_store = Arc::new(
             StreamStore::new(&components.stream_store)

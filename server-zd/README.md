@@ -666,8 +666,11 @@ standby:
   limit and retires the standby instance.
 - FlowService and WorkerTaskService calls answer UNAVAILABLE "the node lease is not valid", and
   readiness names NOT_SERVING, whenever the lease validity deadline has passed, checked when a call
-  arrives and again before its response. A process resumed after a freeze therefore answers no read
-  from stale state.
+  arrives and again before its response. Worker dispatch checks it again before it sends each task.
+  A process resumed after a freeze therefore answers no read from stale state and hands out no new
+  task. Other frames of an open PollWorkerTask stream, such as pings and the frames of a task that a
+  Worker already runs, and gRPC health Watch streams are not checked; they change when the process
+  stops serving.
 
 A step down stops the public services, closes waiting ReadStream calls, and waits up to 4 s for
 in-flight RPCs. It then stops every component of the serving period and releases the lease, so

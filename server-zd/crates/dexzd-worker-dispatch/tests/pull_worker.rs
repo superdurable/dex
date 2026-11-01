@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use dexzd_clock::SystemWallClock;
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::{
     self, DispatchTaskErrorReason, InvokeExecuteMethodOutput, InvokeExecuteMethodRequest,
@@ -1203,6 +1204,46 @@ async fn a_search_ends_when_matching_shuts_down() {
         completed(&mut handle).await,
         DispatchOutcome::ServerClosing
     ));
+}
+
+#[tokio::test]
+async fn an_idle_worker_gets_no_task_once_the_node_lease_is_not_valid() {
+    let lease_validity_deadline = LeaseValidityDeadline::disarmed();
+    lease_validity_deadline.arm_until(Instant::now() + Duration::from_secs(60));
+    let dispatch = WorkerDispatch::new_with_lease_validity_deadline(
+        MatchingConfig::default(),
+        Arc::new(SystemWallClock),
+        NodeMetrics::unregistered(),
+        lease_validity_deadline.clone(),
+    );
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
+    let mut served = dispatch
+        .dispatch(request(0, "served-flow"))
+        .expect("dispatch starts");
+    let assigned = task_id(&mut worker).await;
+    worker
+        .sender
+        .send(result(&assigned))
+        .expect("final frame sends");
+    assert!(matches!(
+        completed(&mut served).await,
+        DispatchOutcome::WorkerResult { .. }
+    ));
+    lease_validity_deadline.arm_until(Instant::now());
+    let mut refused = dispatch
+        .dispatch(request(0, "refused-flow"))
+        .expect("dispatch starts");
+    assert!(matches!(
+        completed(&mut refused).await,
+        DispatchOutcome::ServerClosing
+    ));
+    let next_frame =
+        tokio::time::timeout(Duration::from_millis(200), worker.stream.message()).await;
+    assert!(
+        next_frame.is_err(),
+        "the idle Worker must get no Task: {next_frame:?}"
+    );
 }
 
 #[tokio::test]
