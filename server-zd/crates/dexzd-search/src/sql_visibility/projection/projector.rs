@@ -6,14 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use dexzd_apply::{FlowStateReader, StateReadError};
-use dexzd_keyspace::row_keys::{partition_index_range, run_singleton_key};
-use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId, RunTable, TenantId};
+use dexzd_apply::StateReadError;
+use dexzd_keyspace::{PartitionId, RunId, TenantId};
 use dexzd_postgres_connection::ConnectionSettings;
 use dexzd_protocol::dex::IndexType;
-use dexzd_protocol::dexzd::v1::{LogPosition, RunRecord, SearchDocumentRecord};
+use dexzd_protocol::dexzd::v1::{LogPosition, SearchDocumentRecord};
 use prost::Message;
 use thiserror::Error;
 use tokio_postgres::Transaction;
@@ -26,18 +26,37 @@ use super::super::search_backend::{
 };
 use super::super::upsert::upsert_statements_with_slots;
 use super::super::{AttributeSlot, VisibilityDialect};
-use super::changes::{SearchDocumentChange, decode_search_index_key};
+use super::changes::SearchDocumentChange;
 use super::skipped_document::{SkippedSearchDocument, record_skipped_documents};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
 use dexzd_protocol::attribute_index::indexed_keyword_strings;
 use dexzd_protocol::attribute_index::is_system_search_field;
 
-const REBUILD_SCAN_PAGE_SIZE: usize = 256;
+/// What SQL visibility recorded for one partition.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProjectionProgress {
+    /// Committed view whose SearchOutbox entries were all projected; `None` before the initial load finished.
+    pub applied_position: Option<LogPosition>,
+    /// Node epoch of the last writer; a lower epoch can no longer write the partition.
+    pub applied_epoch: Option<u64>,
+    /// Every SearchOutbox entry at or below this sequence is projected; zero when none is.
+    pub outbox_through_seq: u64,
+}
 
-struct RebuildPage {
-    next_start: Vec<u8>,
-    changes: Vec<SearchDocumentChange>,
+/// One partition's share of an outbox batch, written in one SQL transaction with the others.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionProjectionBatch {
+    /// Partition being projected.
+    pub partition_id: PartitionId,
+    /// Deletes the partition's rows before its changes; the first batch of an initial load sets it.
+    pub is_initial_load: bool,
+    /// Changes in outbox order; each run appears at most once.
+    pub changes: Vec<SearchDocumentChange>,
+    /// Raises the partition's outbox progress to this sequence; never lowers it.
+    pub outbox_through_seq: u64,
+    /// Set by the batch that finishes a committed view; it records that view's applied position.
+    pub applied_position: Option<LogPosition>,
 }
 
 /// Receives a countable event for each committed search document omitted from SQL visibility.
@@ -58,31 +77,18 @@ pub enum ProjectionError {
     /// A committed row or index violates its expected format.
     #[error("invalid committed search state: {0}")]
     InvalidState(String),
-    /// The stored position differs from the caller's previous position.
+    /// A newer lease holder wrote the partition; this node must stop projecting.
     #[error(
-        "SQL visibility projection partition {partition_id} has position {stored:?}, expected {expected:?} before {offered:?}"
+        "SQL visibility partition {} was written at node epoch {stored_epoch}, newer than this node's epoch {epoch}",
+        partition_id.0
     )]
-    PositionMismatch {
+    Fenced {
         /// Partition being projected.
         partition_id: PartitionId,
-        /// Position stored in SQL visibility.
-        stored: Option<LogPosition>,
-        /// Previous position expected by the caller.
-        expected: Option<LogPosition>,
-        /// New position offered by the caller.
-        offered: LogPosition,
-    },
-    /// A rebuild source is older than the committed projection.
-    #[error(
-        "SQL visibility partition {partition_id} is at position {current:?}, newer than rebuild position {offered:?}"
-    )]
-    StaleRebuild {
-        /// Partition being rebuilt.
-        partition_id: PartitionId,
-        /// Committed projection position.
-        current: LogPosition,
-        /// Offered rebuild position.
-        offered: LogPosition,
+        /// Epoch stored in the partition's progress row.
+        stored_epoch: u64,
+        /// This writer's node epoch.
+        epoch: u64,
     },
     /// Postgres could not complete a projection operation.
     #[error("{operation} SQL visibility projection: {message}")]

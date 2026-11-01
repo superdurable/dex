@@ -46,11 +46,12 @@ use dexzd_protocol::dexzd::v1::{
     ChannelMetaRecord, ChannelPublishCommand, CheckpointRecord, CommandReply, FlowCommand,
     FlowDirectoryRecord, FlowStartCommand, FlowStopCommand, HardDeleteObjectRecord,
     HardDeleteObjectReference, HistoryRecord, RetryBackoffTimerId, RpcCommittedCommand,
-    RunPurgeCommand, RunRecord, RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand,
-    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
-    StepMethodCompletedCommand, TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand,
-    TimersFiredCommand, ValueRecord, WaitConditionTimerId, command_reply, flow_command::Command,
-    step_method_completed_command, stored_value, timer_id,
+    RunPurgeCommand, RunRecord, RunSettings, SearchDocumentRecord, SetSearchProjectionModeCommand,
+    StepAttemptFailedCommand, StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord,
+    StepInvocationKey, StepInvocationPhase, StepMethod, StepMethodCompletedCommand,
+    TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand, TimersFiredCommand, ValueRecord,
+    WaitConditionTimerId, command_reply, flow_command::Command, step_method_completed_command,
+    stored_value, timer_id,
 };
 use prost::Message;
 
@@ -282,6 +283,19 @@ impl Harness {
             .map(|(_, key)| key.clone())
             .collect();
         assert_eq!(actual, expected);
+    }
+
+    /// Returns the SearchOutbox seqs of the harness partition in queue order.
+    fn search_outbox_seqs(&self) -> Vec<u64> {
+        self.state
+            .rows
+            .keys()
+            .filter(|(column_family, _)| *column_family == ColumnFamily::PartitionIndex)
+            .filter_map(|(_, key)| {
+                dexzd_keyspace::row_keys::decode_search_outbox_key(self.context.partition, key)
+            })
+            .map(|entry| entry.seq)
+            .collect()
     }
 
     fn has_index_entry(&self, kind: IndexKind) -> bool {
@@ -786,6 +800,55 @@ fn beginning_reopens_a_completed_flow_with_the_start_state() {
         harness.step("ChargeStep-1").phase,
         dexzd_protocol::dexzd::v1::StepExecutionPhase::Execute as i32
     );
+}
+
+#[test]
+fn time_travel_appends_one_search_outbox_entry_stamped_with_its_own_command() {
+    let mut harness = Harness::new();
+    let mode = harness.apply(Command::SetSearchProjectionMode(
+        SetSearchProjectionModeCommand { enabled: true },
+    ));
+    assert!(is_ok(&mode.reply));
+    harness.start(start_request());
+    let indexed = harness.apply(Command::AttributesSet(AttributesSetCommand {
+        request: Some(SetAttributesRequest {
+            attributes: vec![AttributeWrite {
+                key: "region".to_owned(),
+                value: Some(string_value("east")),
+                index_config: Some(IndexConfig {
+                    enable: true,
+                    ..IndexConfig::default()
+                }),
+                ..AttributeWrite::default()
+            }],
+            request_id: "index-region".to_owned(),
+            ..SetAttributesRequest::default()
+        }),
+        hard_delete_objects: Vec::new(),
+        request_fingerprint: b"index-region".to_vec(),
+    }));
+    assert!(is_ok(&indexed.reply));
+    let document_key = run_singleton_key(
+        harness.context.flow_hash,
+        harness.run(),
+        RunTable::SearchDocument,
+    );
+    let indexed_document: SearchDocumentRecord = harness
+        .get(ColumnFamily::Flow, &document_key)
+        .expect("the run has a search document");
+    assert_eq!(indexed_document.attributes.len(), 1);
+    let seqs_before = harness.search_outbox_seqs();
+    assert_eq!(seqs_before.len(), 2, "the start and the indexed write");
+
+    harness.travel_to(reset(FlowResetType::Beginning));
+    let travel_stamp = u64::try_from(harness.now_micros).expect("positive stamp");
+    let seqs = harness.search_outbox_seqs();
+    assert_eq!(seqs[..seqs.len() - 1], seqs_before[..]);
+    assert_eq!(seqs.last(), Some(&travel_stamp));
+    let restored_document: SearchDocumentRecord = harness
+        .get(ColumnFamily::Flow, &document_key)
+        .expect("the run has a search document");
+    assert!(restored_document.attributes.is_empty());
 }
 
 #[test]

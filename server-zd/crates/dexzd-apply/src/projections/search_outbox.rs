@@ -40,15 +40,20 @@ pub(crate) fn append_search_outbox_entry(
         return Ok(());
     }
     let partition = transaction.context().partition;
-    if !read_mode(transaction)?.enabled {
+    let mode = read_mode(transaction)?;
+    if !mode.enabled {
         return Ok(());
     }
-    let seq = u64::try_from(scope.now_micros).map_err(|_| ApplyError::InvariantViolation {
-        detail: format!(
-            "command timestamp {} cannot sequence a search outbox entry",
-            scope.now_micros
-        ),
-    })?;
+    // An entry at or below the acked seq would be deleted unprojected, so stop instead.
+    let seq = u64::try_from(scope.now_micros)
+        .ok()
+        .filter(|seq| *seq > mode.acked_through_seq)
+        .ok_or_else(|| ApplyError::InvariantViolation {
+            detail: format!(
+                "command timestamp {} cannot follow the acked search outbox seq {}",
+                scope.now_micros, mode.acked_through_seq
+            ),
+        })?;
     transaction.put_message(
         ColumnFamily::PartitionIndex,
         search_outbox_key(partition, seq, flow_hash, run_id),

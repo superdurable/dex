@@ -302,6 +302,46 @@ fn acks_range_delete_through_their_seq_and_lower_acks_change_nothing() {
 }
 
 #[test]
+fn an_append_at_or_below_the_acked_seq_fails_closed() {
+    let mut harness = SearchHarness::new();
+    harness.mode(true);
+    harness.start();
+    let future_seq = harness.next_seq() + 10;
+    harness.ack(future_seq);
+    let indexed = FlowCommand {
+        flow_id: "outbox-flow".into(),
+        run_id: vec![9; 16],
+        behavior_version: 1,
+        proposed_at_micros: i64::try_from(future_seq).unwrap(),
+        command: Some(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![AttributeWrite {
+                    key: "number".into(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::IntValue(1)),
+                    }),
+                    index_config: Some(IndexConfig {
+                        enable: true,
+                        r#type: IndexType::Int as i32,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let error = apply_flow_command(&context(), &harness.state, &indexed)
+        .expect_err("a stamp at the acked seq cannot append");
+    assert!(
+        error.to_string().contains("acked search outbox seq"),
+        "{error}"
+    );
+}
+
+#[test]
 fn an_ack_routed_to_another_partition_is_rejected_without_writes() {
     let mut harness = SearchHarness::new();
     harness.mode(true);
