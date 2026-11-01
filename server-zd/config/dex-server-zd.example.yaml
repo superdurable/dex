@@ -75,7 +75,7 @@ auth:
   # Empty disables public API authentication. Authenticators are tried in order, for example:
   #   - kind: jwt
   #     issuer: https://issuer.example.com  # exact iss claim; https unless loopback
-  #     audiences: ["dex"]                  # aud must name at least one
+  #     audiences: ["dex"]                  # aud must name at least one; may be empty with adminAudiences
   #     adminAudiences: []                  # aud values that authorize admin RPCs; empty denies them
   #     jwksURL: ""                         # empty discovers keys through the issuer's OpenID configuration
   #     allowInsecureJWKSURL: false         # true permits an http:// jwksURL on a trusted network

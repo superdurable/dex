@@ -59,8 +59,9 @@ pub struct AuthenticatorConfig {
     /// whose `jwks_uri` must follow the same HTTPS rule. Immutable after startup.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub issuer: String,
-    /// Defaults to empty, which is invalid for jwt; a token's `aud` must name at least one of them.
-    /// Immutable after startup.
+    /// Defaults to empty, which is invalid for jwt unless `adminAudiences` is set; a token's `aud`
+    /// must name at least one of them. An empty list with `adminAudiences` makes an admin-only
+    /// issuer whose tokens never authorize public API calls. Immutable after startup.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audiences: Vec<String>,
     /// Defaults to empty, which means tokens of this issuer never authorize admin RPCs, such as
@@ -159,8 +160,10 @@ impl AuthenticatorConfig {
                     check_endpoint_url(&self.jwks_url, self.allow_insecure_jwks_url)
                         .map_err(|error| format!("jwksURL {error}"))?;
                 }
-                if self.audiences.is_empty() {
-                    return Err("audiences must not be empty".to_owned());
+                if self.audiences.is_empty() && self.admin_audiences.is_empty() {
+                    return Err(
+                        "audiences must not be empty unless adminAudiences is set".to_owned()
+                    );
                 }
                 if !issuers.insert(&self.issuer) {
                     return Err("issuer is configured twice".to_owned());
@@ -387,7 +390,7 @@ auth:
             ),
             (
                 single_authenticator("{kind: jwt, issuer: \"https://issuer.example.com\"}"),
-                "[0]: audiences must not be empty",
+                "[0]: audiences must not be empty unless adminAudiences is set",
             ),
             (
                 format!("auth:\n  authenticators:\n    - {jwt}\n    - {jwt}\n"),
@@ -459,6 +462,26 @@ auth:
             auth_section(OPERATOR_AUTH_SECTION).authenticators[0]
                 .admin_audiences
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_admin_only_issuer_needs_no_public_audiences() {
+        let auth = auth_section(&single_authenticator(
+            "{kind: jwt, issuer: \"https://operators.example.com\", adminAudiences: [dex-operators]}",
+        ));
+        auth.validate()
+            .expect("an issuer with only admin audiences is valid");
+        let CredentialAuthenticatorConfig::Jwt(jwt) = &auth.credential_authenticators()[0] else {
+            panic!("a jwt authenticator");
+        };
+        assert!(jwt.audiences.is_empty());
+        assert_eq!(jwt.admin_audiences, vec!["dex-operators".to_owned()]);
+        assert_eq!(
+            validation_message(&single_authenticator(
+                "{kind: jwt, issuer: \"https://operators.example.com\", audiences: [], adminAudiences: []}"
+            )),
+            "[0]: audiences must not be empty unless adminAudiences is set"
         );
     }
 

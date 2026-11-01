@@ -25,11 +25,15 @@ pub trait ActiveNodeAdministration: Send + Sync + 'static {
         &self,
     ) -> Result<ActiveNodeDescription, ActiveNodeDescriptionError>;
 
-    /// Stops serving, drains in-flight commits, releases the node lease, then follows as a standby.
+    /// Asks the serve loop to stop serving, drain in-flight commits, release the node lease, then follow as a standby.
     ///
-    /// When `expected_node_epoch` is set, compare it with this process's node epoch under the same
-    /// guard that starts the step down. On a mismatch, return
-    /// [`ActiveNodeStepDownError::NodeEpochMismatch`] and change nothing.
+    /// The node's lifecycle owner, the serve loop, performs the step down. This future only submits
+    /// the request to it and awaits the result. So the serve loop orders a step down with a graceful
+    /// SIGTERM shutdown, and dropping this future never cancels a submitted step down.
+    ///
+    /// The serve loop checks `precondition` under the same guard that starts the step down, with
+    /// [`StepDownPrecondition::is_satisfied_by`]. On a mismatch, return
+    /// [`ActiveNodeStepDownError::PreconditionMismatch`] and change nothing.
     ///
     /// After the release, the process waits for the reported hold-off before it competes for the
     /// node lease again. Meanwhile it watches the lease and returns as soon as it sees another holder,
@@ -41,19 +45,56 @@ pub trait ActiveNodeAdministration: Send + Sync + 'static {
     /// one lease acquisition attempt.
     ///
     /// Stepping down must not send GOAWAY on, or close, the connection that carries the admin call,
-    /// so the caller receives the result. The handler runs this future in a task of its own, so a
-    /// client deadline or disconnect never drops a started step down.
+    /// so the caller receives the result.
     ///
-    /// Returns [`ActiveNodeStepDownError::NotActive`], `NodeEpochMismatch`, or `AlreadySteppingDown`
-    /// without changing anything. Returns `LeaseReleaseUnconfirmed` after serving stopped when the
-    /// release write was not confirmed: the process stops renewing the lease, which may stay held
-    /// until it expires, and continues as a standby. Returns `Internal` for any other failure: the
-    /// process has stopped serving, never serves again, stops renewing the lease, and exits after
-    /// returning the error, as after losing the lease.
+    /// Returns [`ActiveNodeStepDownError::NotActive`], `PreconditionMismatch`, or
+    /// `AlreadySteppingDown` without changing anything. Returns `LeaseReleaseUnconfirmed` after
+    /// serving stopped when the release write was not confirmed: the process stops renewing the
+    /// lease, which may stay held until it expires, and continues as a standby. Returns `Internal`
+    /// for any other failure. The process has then stopped serving and renewing the lease, and never
+    /// serves again. After handing the error to this future, the serve loop waits a short grace
+    /// period, so the handler can pass the error to the transport, and then exits the process, as
+    /// after losing the lease.
     async fn step_down_active_node(
         &self,
-        expected_node_epoch: Option<u64>,
+        precondition: StepDownPrecondition,
     ) -> Result<ActiveNodeStepDownOutcome, ActiveNodeStepDownError>;
+}
+
+/// The node lease that a step down request expects the active process to hold.
+///
+/// A step down without a precondition steps down whichever process is active when it arrives.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StepDownPrecondition {
+    /// Node ID that the active process must serve; `None` skips the check. Never empty.
+    pub expected_node_id: Option<String>,
+    /// Node epoch of the lease that the active process must hold; `None` skips the check.
+    pub expected_node_epoch: Option<u64>,
+}
+
+impl StepDownPrecondition {
+    /// Returns true when an active process of `node_id` holding `node_epoch` matches every set field.
+    pub fn is_satisfied_by(&self, node_id: &str, node_epoch: u64) -> bool {
+        self.expected_node_id
+            .as_deref()
+            .is_none_or(|expected_node_id| expected_node_id == node_id)
+            && self
+                .expected_node_epoch
+                .is_none_or(|expected_node_epoch| expected_node_epoch == node_epoch)
+    }
+}
+
+impl std::fmt::Display for StepDownPrecondition {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match (&self.expected_node_id, self.expected_node_epoch) {
+            (Some(node_id), Some(node_epoch)) => {
+                write!(formatter, "node ID {node_id:?} at node epoch {node_epoch}")
+            }
+            (Some(node_id), None) => write!(formatter, "node ID {node_id:?}"),
+            (None, Some(node_epoch)) => write!(formatter, "node epoch {node_epoch}"),
+            (None, None) => write!(formatter, "any active process"),
+        }
+    }
 }
 
 /// The node lease that the active server process holds.
@@ -125,13 +166,15 @@ pub enum ActiveNodeStepDownError {
         /// What this process is doing instead.
         detail: String,
     },
-    /// The request's expected node epoch differs from the node epoch this process holds.
+    /// The request's precondition does not match the node lease this process holds.
     #[error(
-        "the active server process holds node epoch {active_node_epoch}, not the expected node epoch {expected_node_epoch}"
+        "the active server process serves node ID {active_node_id:?} at node epoch {active_node_epoch}, not the expected {expected}"
     )]
-    NodeEpochMismatch {
-        /// Node epoch that the request expected.
-        expected_node_epoch: u64,
+    PreconditionMismatch {
+        /// What the request expected.
+        expected: StepDownPrecondition,
+        /// Node ID that this process serves.
+        active_node_id: String,
         /// Node epoch of the node lease that this process holds.
         active_node_epoch: u64,
     },

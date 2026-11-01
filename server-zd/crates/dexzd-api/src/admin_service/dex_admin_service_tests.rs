@@ -27,7 +27,7 @@ use tonic::{Code, Request, Status};
 use super::{
     ActiveNodeAdministration, ActiveNodeDescription, ActiveNodeDescriptionError,
     ActiveNodeStepDownError, ActiveNodeStepDownOutcome, DexAdminService, LeaseHolderAfterStepDown,
-    NodeLeaseHolder, saturating_protobuf_duration,
+    NodeLeaseHolder, StepDownPrecondition, saturating_protobuf_duration,
 };
 use crate::flow_operation_error::GoogleRpcStatus;
 
@@ -36,7 +36,7 @@ pub(crate) struct ScriptedActiveNodeAdministration {
     description: Result<ActiveNodeDescription, ActiveNodeDescriptionError>,
     step_down_result: Result<ActiveNodeStepDownOutcome, ActiveNodeStepDownError>,
     describe_count: AtomicUsize,
-    expected_node_epochs: Mutex<Vec<Option<u64>>>,
+    preconditions: Mutex<Vec<StepDownPrecondition>>,
 }
 
 impl ScriptedActiveNodeAdministration {
@@ -54,7 +54,7 @@ impl ScriptedActiveNodeAdministration {
             description,
             step_down_result,
             describe_count: AtomicUsize::new(0),
-            expected_node_epochs: Mutex::new(Vec::new()),
+            preconditions: Mutex::new(Vec::new()),
         })
     }
 
@@ -63,14 +63,14 @@ impl ScriptedActiveNodeAdministration {
     }
 
     pub(crate) fn step_down_count(&self) -> usize {
-        self.expected_node_epochs().len()
+        self.preconditions().len()
     }
 
-    /// Returns the `expected_node_epoch` of every step down, in call order.
-    pub(crate) fn expected_node_epochs(&self) -> Vec<Option<u64>> {
-        self.expected_node_epochs
+    /// Returns the precondition of every step down, in call order.
+    pub(crate) fn preconditions(&self) -> Vec<StepDownPrecondition> {
+        self.preconditions
             .lock()
-            .expect("the expected node epoch lock")
+            .expect("the precondition lock")
             .clone()
     }
 }
@@ -86,12 +86,12 @@ impl ActiveNodeAdministration for ScriptedActiveNodeAdministration {
 
     async fn step_down_active_node(
         &self,
-        expected_node_epoch: Option<u64>,
+        precondition: StepDownPrecondition,
     ) -> Result<ActiveNodeStepDownOutcome, ActiveNodeStepDownError> {
-        self.expected_node_epochs
+        self.preconditions
             .lock()
-            .expect("the expected node epoch lock")
-            .push(expected_node_epoch);
+            .expect("the precondition lock")
+            .push(precondition);
         self.step_down_result.clone()
     }
 }
@@ -113,12 +113,31 @@ impl ActiveNodeAdministration for BlockingActiveNodeAdministration {
 
     async fn step_down_active_node(
         &self,
-        _expected_node_epoch: Option<u64>,
+        _precondition: StepDownPrecondition,
     ) -> Result<ActiveNodeStepDownOutcome, ActiveNodeStepDownError> {
         self.started.notify_one();
         self.release.notified().await;
         self.finished.notify_one();
         Ok(outcome_with_takeover())
+    }
+}
+
+/// Panics in every step down, as a bug in the serve loop would.
+struct PanickingActiveNodeAdministration;
+
+#[async_trait]
+impl ActiveNodeAdministration for PanickingActiveNodeAdministration {
+    async fn describe_active_node(
+        &self,
+    ) -> Result<ActiveNodeDescription, ActiveNodeDescriptionError> {
+        Ok(active_node_description())
+    }
+
+    async fn step_down_active_node(
+        &self,
+        _precondition: StepDownPrecondition,
+    ) -> Result<ActiveNodeStepDownOutcome, ActiveNodeStepDownError> {
+        panic!("a scripted step down panic");
     }
 }
 
@@ -144,20 +163,45 @@ pub(crate) fn outcome_with_takeover() -> ActiveNodeStepDownOutcome {
     }
 }
 
-async fn step_down(
+fn expecting(
+    expected_node_id: Option<&str>,
     expected_node_epoch: Option<u64>,
+) -> StepDownPrecondition {
+    StepDownPrecondition {
+        expected_node_id: expected_node_id.map(str::to_owned),
+        expected_node_epoch,
+    }
+}
+
+async fn step_down(
+    request: StepDownActiveNodeRequest,
     result: Result<ActiveNodeStepDownOutcome, ActiveNodeStepDownError>,
-) -> (Result<StepDownActiveNodeResponse, Status>, Vec<Option<u64>>) {
+) -> (
+    Result<StepDownActiveNodeResponse, Status>,
+    Vec<StepDownPrecondition>,
+) {
     let administration = ScriptedActiveNodeAdministration::returning(result);
     let service =
         DexAdminService::new(Arc::clone(&administration) as Arc<dyn ActiveNodeAdministration>);
     let response = service
-        .step_down_active_node(Request::new(StepDownActiveNodeRequest {
-            expected_node_epoch,
-        }))
+        .step_down_active_node(Request::new(request))
         .await
         .map(tonic::Response::into_inner);
-    (response, administration.expected_node_epochs())
+    (response, administration.preconditions())
+}
+
+fn unconditional() -> StepDownActiveNodeRequest {
+    StepDownActiveNodeRequest {
+        expected_node_epoch: None,
+        expected_node_id: None,
+    }
+}
+
+fn conditional(expected_node_id: &str, expected_node_epoch: u64) -> StepDownActiveNodeRequest {
+    StepDownActiveNodeRequest {
+        expected_node_epoch: Some(expected_node_epoch),
+        expected_node_id: Some(expected_node_id.to_owned()),
+    }
 }
 
 fn assert_refused(status: &Status, code: Code, message: &str) {
@@ -243,7 +287,7 @@ async fn each_lease_holder_after_a_step_down_maps_to_its_oneof_case() {
     ];
     for (lease_holder, expected_message) in cases {
         let (response, _) = step_down(
-            None,
+            unconditional(),
             Ok(ActiveNodeStepDownOutcome {
                 lease_holder_after_step_down: lease_holder,
                 ..outcome_with_takeover()
@@ -268,13 +312,52 @@ async fn each_lease_holder_after_a_step_down_maps_to_its_oneof_case() {
 }
 
 #[tokio::test]
-async fn the_expected_node_epoch_reaches_the_step_down() {
-    let (response, expected_node_epochs) = step_down(Some(7), Ok(outcome_with_takeover())).await;
-    response.expect("the step down succeeds");
-    let (response, unset_node_epochs) = step_down(None, Ok(outcome_with_takeover())).await;
-    response.expect("the step down succeeds");
-    assert_eq!(expected_node_epochs, vec![Some(7)]);
-    assert_eq!(unset_node_epochs, vec![None]);
+async fn the_precondition_reaches_the_step_down() {
+    let cases = [
+        (conditional("node-a", 7), expecting(Some("node-a"), Some(7))),
+        (
+            StepDownActiveNodeRequest {
+                expected_node_epoch: Some(0),
+                expected_node_id: None,
+            },
+            expecting(None, Some(0)),
+        ),
+        (unconditional(), StepDownPrecondition::default()),
+    ];
+    for (request, expected_precondition) in cases {
+        let (response, preconditions) = step_down(request, Ok(outcome_with_takeover())).await;
+        response.expect("the step down succeeds");
+        assert_eq!(preconditions, vec![expected_precondition]);
+    }
+}
+
+#[tokio::test]
+async fn an_empty_expected_node_id_is_an_invalid_argument() {
+    let (response, preconditions) = step_down(
+        StepDownActiveNodeRequest {
+            expected_node_epoch: Some(7),
+            expected_node_id: Some(String::new()),
+        },
+        Ok(outcome_with_takeover()),
+    )
+    .await;
+    assert_refused(
+        &response.expect_err("an empty node ID is refused"),
+        Code::InvalidArgument,
+        "expected_node_id must not be empty when set",
+    );
+    assert!(preconditions.is_empty());
+}
+
+#[test]
+fn a_precondition_matches_only_the_node_lease_it_names() {
+    assert!(StepDownPrecondition::default().is_satisfied_by("node-a", 7));
+    assert!(expecting(Some("node-a"), Some(7)).is_satisfied_by("node-a", 7));
+    assert!(expecting(None, Some(7)).is_satisfied_by("node-b", 7));
+    assert!(expecting(Some("node-a"), None).is_satisfied_by("node-a", 9));
+    assert!(!expecting(Some("node-a"), Some(7)).is_satisfied_by("node-a", 8));
+    assert!(!expecting(Some("node-a"), Some(7)).is_satisfied_by("node-b", 7));
+    assert!(!expecting(Some("node-a"), None).is_satisfied_by("node-b", 7));
 }
 
 #[tokio::test]
@@ -288,12 +371,22 @@ async fn step_down_failures_map_to_codes_that_do_not_invite_a_retry() {
             "this server process is not the active process of its node ID: the process is a standby",
         ),
         (
-            ActiveNodeStepDownError::NodeEpochMismatch {
-                expected_node_epoch: 7,
+            ActiveNodeStepDownError::PreconditionMismatch {
+                expected: expecting(Some("node-a"), Some(7)),
+                active_node_id: "node-a".to_owned(),
                 active_node_epoch: 8,
             },
             Code::FailedPrecondition,
-            "the active server process holds node epoch 8, not the expected node epoch 7",
+            "the active server process serves node ID \"node-a\" at node epoch 8, not the expected node ID \"node-a\" at node epoch 7",
+        ),
+        (
+            ActiveNodeStepDownError::PreconditionMismatch {
+                expected: expecting(Some("node-b"), None),
+                active_node_id: "node-a".to_owned(),
+                active_node_epoch: 7,
+            },
+            Code::FailedPrecondition,
+            "the active server process serves node ID \"node-a\" at node epoch 7, not the expected node ID \"node-b\"",
         ),
         (
             ActiveNodeStepDownError::AlreadySteppingDown,
@@ -316,8 +409,8 @@ async fn step_down_failures_map_to_codes_that_do_not_invite_a_retry() {
         ),
     ];
     for (error, code, message) in cases {
-        let (response, expected_node_epochs) = step_down(Some(7), Err(error)).await;
-        assert_eq!(expected_node_epochs, vec![Some(7)]);
+        let (response, preconditions) = step_down(conditional("node-a", 7), Err(error)).await;
+        assert_eq!(preconditions, vec![expecting(Some("node-a"), Some(7))]);
         let status = response.expect_err("the step down fails");
         assert_refused(&status, code, message);
     }
@@ -332,9 +425,7 @@ async fn a_dropped_call_does_not_interrupt_a_started_step_down() {
     });
     let service =
         DexAdminService::new(Arc::clone(&administration) as Arc<dyn ActiveNodeAdministration>);
-    let call = service.step_down_active_node(Request::new(StepDownActiveNodeRequest {
-        expected_node_epoch: None,
-    }));
+    let call = service.step_down_active_node(Request::new(unconditional()));
     tokio::select! {
         _ = call => panic!("the step down must still be blocked"),
         () = administration.started.notified() => {}
@@ -344,6 +435,20 @@ async fn a_dropped_call_does_not_interrupt_a_started_step_down() {
     tokio::time::timeout(Duration::from_secs(30), administration.finished.notified())
         .await
         .expect("the step down finishes after its call was dropped");
+}
+
+#[tokio::test]
+async fn a_panicked_step_down_reports_an_unknown_process_state() {
+    let service = DexAdminService::new(Arc::new(PanickingActiveNodeAdministration));
+    let status = service
+        .step_down_active_node(Request::new(conditional("node-a", 7)))
+        .await
+        .expect_err("a panicked step down fails");
+    assert_eq!(status.code(), Code::Internal);
+    assert_eq!(
+        status.message(),
+        "the step down panicked; the state of this server process is unknown"
+    );
 }
 
 #[test]

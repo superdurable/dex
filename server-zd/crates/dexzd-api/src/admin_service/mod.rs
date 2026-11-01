@@ -16,6 +16,7 @@ pub(crate) mod dex_admin_service_tests;
 pub use active_node_administration::{
     ActiveNodeAdministration, ActiveNodeDescription, ActiveNodeDescriptionError,
     ActiveNodeStepDownError, ActiveNodeStepDownOutcome, LeaseHolderAfterStepDown, NodeLeaseHolder,
+    StepDownPrecondition,
 };
 
 use std::sync::Arc;
@@ -28,6 +29,7 @@ use dexzd_protocol::dex::{
     NodeLeaseHolder as NodeLeaseHolderMessage, NodeLeaseHolderUnknown, StepDownActiveNodeRequest,
     StepDownActiveNodeResponse,
 };
+use tokio::task::JoinError;
 use tonic::{Request, Response, Status};
 
 use crate::FlowOperationError;
@@ -110,28 +112,25 @@ impl AdminService for DexAdminService {
         request: Request<StepDownActiveNodeRequest>,
     ) -> Result<Response<StepDownActiveNodeResponse>, Status> {
         let caller = AdminCallerLogFields::of_request(&request);
-        let expected_node_epoch = request.into_inner().expected_node_epoch;
+        let precondition = step_down_precondition(request.into_inner())
+            .map_err(FlowOperationError::into_status)?;
         tracing::info!(
             is_caller_authenticated = caller.is_authenticated(),
             caller_issuer = caller.issuer(),
             caller_subject = caller.subject(),
-            ?expected_node_epoch,
+            expected_node_id = ?precondition.expected_node_id,
+            expected_node_epoch = ?precondition.expected_node_epoch,
             "received a request to step down the active server process"
         );
         let active_node_administration = Arc::clone(&self.active_node_administration);
-        // Dropping the call detaches this task, so a started step down always finishes.
+        // A dropped call detaches this task, which still collects and logs the serve loop's result.
         let step_down = tokio::spawn(async move {
             active_node_administration
-                .step_down_active_node(expected_node_epoch)
+                .step_down_active_node(precondition)
                 .await
         });
-        let result = step_down.await.unwrap_or_else(|join_error| {
-            Err(ActiveNodeStepDownError::Internal {
-                detail: format!("the step down task did not finish: {join_error}"),
-            })
-        });
-        match result {
-            Ok(outcome) => {
+        match step_down.await {
+            Ok(Ok(outcome)) => {
                 tracing::info!(
                     is_caller_authenticated = caller.is_authenticated(),
                     caller_issuer = caller.issuer(),
@@ -143,7 +142,7 @@ impl AdminService for DexAdminService {
                 );
                 Ok(Response::new(step_down_response(outcome)))
             }
-            Err(error) => {
+            Ok(Err(error)) => {
                 tracing::warn!(
                     is_caller_authenticated = caller.is_authenticated(),
                     caller_issuer = caller.issuer(),
@@ -153,8 +152,33 @@ impl AdminService for DexAdminService {
                 );
                 Err(step_down_error(error).into_status())
             }
+            Err(join_error) => {
+                tracing::error!(
+                    is_caller_authenticated = caller.is_authenticated(),
+                    caller_issuer = caller.issuer(),
+                    caller_subject = caller.subject(),
+                    %join_error,
+                    "the step down task did not finish; the state of this server process is unknown"
+                );
+                Err(step_down_task_error(&join_error).into_status())
+            }
         }
     }
+}
+
+/// Validates the request's untrusted precondition fields.
+fn step_down_precondition(
+    request: StepDownActiveNodeRequest,
+) -> Result<StepDownPrecondition, FlowOperationError> {
+    if request.expected_node_id.as_deref() == Some("") {
+        return Err(FlowOperationError::invalid_argument(
+            "expected_node_id must not be empty when set",
+        ));
+    }
+    Ok(StepDownPrecondition {
+        expected_node_id: request.expected_node_id,
+        expected_node_epoch: request.expected_node_epoch,
+    })
 }
 
 fn describe_error(error: ActiveNodeDescriptionError) -> FlowOperationError {
@@ -169,7 +193,7 @@ fn describe_error(error: ActiveNodeDescriptionError) -> FlowOperationError {
 fn step_down_error(error: ActiveNodeStepDownError) -> FlowOperationError {
     match error {
         ActiveNodeStepDownError::NotActive { .. }
-        | ActiveNodeStepDownError::NodeEpochMismatch { .. }
+        | ActiveNodeStepDownError::PreconditionMismatch { .. }
         | ActiveNodeStepDownError::AlreadySteppingDown => {
             FlowOperationError::failed_precondition(error.to_string())
         }
@@ -181,6 +205,18 @@ fn step_down_error(error: ActiveNodeStepDownError) -> FlowOperationError {
         ActiveNodeStepDownError::Internal { .. } => FlowOperationError::Internal {
             detail: error.to_string(),
         },
+    }
+}
+
+/// Maps a panicked or cancelled step down task without claiming what the process does next.
+fn step_down_task_error(join_error: &JoinError) -> FlowOperationError {
+    let cause = if join_error.is_panic() {
+        "the step down panicked"
+    } else {
+        "the step down task was cancelled, for example because the server is shutting down"
+    };
+    FlowOperationError::Internal {
+        detail: format!("{cause}; the state of this server process is unknown"),
     }
 }
 

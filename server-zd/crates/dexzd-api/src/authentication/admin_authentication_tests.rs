@@ -54,6 +54,8 @@ enum TestAuthentication<'audiences> {
     Off,
     /// Static tokens, a JWT issuer with these admin audiences, and an issuer without any.
     AdminAudiences(&'audiences [&'audiences str]),
+    /// The same, except that the admin issuer has no public audiences.
+    AdminOnlyIssuer,
 }
 
 struct AdminTestServer {
@@ -62,6 +64,7 @@ struct AdminTestServer {
     public_only_issuer_key: TestSigningKey,
     admin_issuer_key_set: Arc<ScriptedKeySetSource>,
     administration: Arc<ScriptedActiveNodeAdministration>,
+    authenticator: Option<Arc<PublicApiAuthenticator>>,
     _token_file: tempfile::NamedTempFile,
     serving: JoinHandle<()>,
 }
@@ -90,9 +93,16 @@ impl AdminTestServer {
             ),
         )
         .expect("the token file is written");
+        let (public_audiences, admin_audiences): (&[&str], &[&str]) = match authentication {
+            TestAuthentication::Off => (&[], &[]),
+            TestAuthentication::AdminAudiences(admin_audiences) => {
+                (&[TEST_AUDIENCE], admin_audiences)
+            }
+            TestAuthentication::AdminOnlyIssuer => (&[], &[ADMIN_AUDIENCE]),
+        };
         let authenticator = match authentication {
             TestAuthentication::Off => None,
-            TestAuthentication::AdminAudiences(admin_audiences) => {
+            TestAuthentication::AdminAudiences(_) | TestAuthentication::AdminOnlyIssuer => {
                 Some(Arc::new(PublicApiAuthenticator {
                     authenticators: vec![
                         CredentialAuthenticator::StaticTokens(
@@ -104,11 +114,13 @@ impl AdminTestServer {
                         ),
                         CredentialAuthenticator::Jwt(jwt_verifier(
                             TEST_ISSUER,
+                            public_audiences,
                             admin_audiences,
                             Arc::clone(&admin_issuer_key_set),
                         )),
                         CredentialAuthenticator::Jwt(jwt_verifier(
                             PUBLIC_ONLY_ISSUER,
+                            &[TEST_AUDIENCE],
                             &[],
                             public_only_issuer_key_set,
                         )),
@@ -120,7 +132,7 @@ impl AdminTestServer {
             ScriptedActiveNodeAdministration::returning(Ok(outcome_with_takeover()));
         let admin_service = DexAdminService::authenticated_server(
             Arc::clone(&administration) as Arc<dyn ActiveNodeAdministration>,
-            authenticator,
+            authenticator.clone(),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -144,6 +156,7 @@ impl AdminTestServer {
             public_only_issuer_key,
             admin_issuer_key_set,
             administration,
+            authenticator,
             _token_file: token_file,
             serving,
         }
@@ -179,6 +192,7 @@ impl AdminTestServer {
             .step_down_active_node(with_credential(
                 StepDownActiveNodeRequest {
                     expected_node_epoch: None,
+                    expected_node_id: None,
                 },
                 credential,
             ))
@@ -209,13 +223,17 @@ fn with_credential<T>(message: T, credential: Option<&str>) -> Request<T> {
 
 fn jwt_verifier(
     issuer: &str,
+    public_audiences: &[&str],
     admin_audiences: &[&str],
     key_set_source: Arc<ScriptedKeySetSource>,
 ) -> JwtVerifier {
     JwtVerifier::new(
         JwtAuthenticatorConfig {
             issuer: issuer.to_owned(),
-            audiences: vec![TEST_AUDIENCE.to_owned()],
+            audiences: public_audiences
+                .iter()
+                .map(|audience| (*audience).to_owned())
+                .collect(),
             admin_audiences: admin_audiences
                 .iter()
                 .map(|audience| (*audience).to_owned())
@@ -338,6 +356,33 @@ async fn an_issuer_without_admin_audiences_never_authorizes_admin_calls() {
         .await
         .expect("the admin issuer still authorizes the step down");
     assert_eq!(server.administration.step_down_count(), 1);
+}
+
+#[tokio::test]
+async fn an_admin_only_issuer_authorizes_admin_calls_and_no_public_calls() {
+    let server = AdminTestServer::start(TestAuthentication::AdminOnlyIssuer).await;
+    let admin_jwt = server.jwt(json!(ADMIN_AUDIENCE), 3600);
+    let public_audience_jwt = server.jwt(json!(TEST_AUDIENCE), 3600);
+    server
+        .step_down(Some(&admin_jwt))
+        .await
+        .expect("the admin-only issuer authorizes the step down");
+    assert_refused(
+        server.step_down(Some(&public_audience_jwt)).await,
+        Code::Unauthenticated,
+        INVALID_CREDENTIAL,
+    );
+    assert_eq!(server.administration.step_down_count(), 1);
+    let public_api = server
+        .authenticator
+        .as_ref()
+        .expect("the server authenticates");
+    for credential in [&admin_jwt, &public_audience_jwt] {
+        assert!(
+            public_api.authenticate(credential).await.is_err(),
+            "a token of an admin-only issuer must not authorize a public API call"
+        );
+    }
 }
 
 #[tokio::test]

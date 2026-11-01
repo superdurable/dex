@@ -23,7 +23,7 @@ mod stream_operations;
 pub use admin_service::{
     ActiveNodeAdministration, ActiveNodeDescription, ActiveNodeDescriptionError,
     ActiveNodeStepDownError, ActiveNodeStepDownOutcome, DexAdminService, LeaseHolderAfterStepDown,
-    NodeLeaseHolder,
+    NodeLeaseHolder, StepDownPrecondition,
 };
 pub use attribute_indexes::{AttributeIndexRegistryRefresh, AttributeIndexes};
 pub use authentication::{

@@ -66,7 +66,8 @@ pub struct JwtAuthenticatorConfig {
     /// No default; the caller supplies the issuer URL.
     pub issuer: String,
     /// Accepted `aud` values; a token must name at least one.
-    /// No default; the caller supplies accepted audiences.
+    /// No default; the caller supplies accepted audiences. Empty accepts no public API token, as
+    /// for an issuer that only authorizes AdminService calls.
     pub audiences: Vec<String>,
     /// `aud` values that make a token of this issuer an AdminService credential.
     /// No default; empty means this issuer never authorizes AdminService calls. Empty entries are
