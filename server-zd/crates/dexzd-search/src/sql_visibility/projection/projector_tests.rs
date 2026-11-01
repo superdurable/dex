@@ -15,9 +15,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_postgres::{Config, NoTls};
 
+use super::super::progress::validate_position;
 use super::{
     ProjectionError, database_error, row_from_document, should_retry, upsert_database_error,
-    validate_position,
 };
 
 #[test]
@@ -127,16 +127,11 @@ async fn database_errors_keep_neither_credentials_nor_the_raw_postgres_error() {
             true,
         ),
         (
-            upsert_database_error(
-                partition_id,
-                &[&rows[0]],
-                rejected_startup_error(fields("28P01")).await,
-            ),
+            upsert_database_error(&[&rows[0]], rejected_startup_error(fields("28P01")).await),
             false,
         ),
         (
             upsert_database_error(
-                partition_id,
                 &[&rows[0], &rows[1]],
                 rejected_startup_error(fields("08006")).await,
             ),
@@ -144,7 +139,6 @@ async fn database_errors_keep_neither_credentials_nor_the_raw_postgres_error() {
         ),
         (
             upsert_database_error(
-                partition_id,
                 &[&rows[0], &rows[1]],
                 rejected_startup_error(fields("28P01")).await,
             ),

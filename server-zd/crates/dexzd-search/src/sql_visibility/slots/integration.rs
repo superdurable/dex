@@ -353,7 +353,6 @@ async fn verify_projection_skip(
     let metrics = Arc::new(SkippedDocumentCount(AtomicUsize::new(0)));
     let projector =
         SqlVisibilityProjector::new_with_metric_recorder(backend.clone(), metrics.clone());
-    let mut previous = None;
     for (sequence, index_type, value, is_skipped) in [
         (1, IndexType::Keyword, "x".repeat(1025), true),
         (
@@ -400,9 +399,8 @@ async fn verify_projection_skip(
             seq: sequence,
         };
         projector
-            .apply_batch(
+            .apply_changes_for_test(
                 PartitionId(9),
-                previous.as_ref(),
                 &position,
                 &[SearchDocumentChange::Upsert {
                     tenant_id: TenantId(1),
@@ -413,7 +411,11 @@ async fn verify_projection_skip(
             .await
             .unwrap();
         assert_eq!(
-            projector.read_progress(PartitionId(9)).await.unwrap(),
+            projector
+                .read_progress(PartitionId(9))
+                .await
+                .unwrap()
+                .and_then(|progress| progress.applied_position),
             Some(position.clone())
         );
         let slot = backend.lock_next_slot().await;
@@ -427,7 +429,6 @@ async fn verify_projection_skip(
             .unwrap()
             .get(0);
         assert_eq!(count, i64::from(is_skipped));
-        previous = Some(position);
     }
     let run_id = RunId([31; 16]);
     let mixed_array = serde_json::to_string(&vec!["x".repeat(100); 50]).unwrap();
@@ -452,9 +453,8 @@ async fn verify_projection_skip(
         ..Default::default()
     };
     projector
-        .apply_batch(
+        .apply_changes_for_test(
             PartitionId(9),
-            previous.as_ref(),
             &LogPosition {
                 node_id: "slot-test".into(),
                 incarnation: 1,
@@ -516,13 +516,8 @@ async fn verify_projection_skip(
         ..Default::default()
     };
     projector
-        .apply_batch(
+        .apply_changes_for_test(
             PartitionId(9),
-            Some(&LogPosition {
-                node_id: "slot-test".into(),
-                incarnation: 1,
-                seq: 4,
-            }),
             &LogPosition {
                 node_id: "slot-test".into(),
                 incarnation: 1,

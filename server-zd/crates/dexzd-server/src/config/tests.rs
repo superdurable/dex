@@ -631,6 +631,15 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("search.readYourWritesWait", |config| {
             config.search.read_your_writes_wait = Duration::ZERO
         }),
+        ("search.outboxBatchSize", |config| {
+            config.search.outbox_batch_size = 0
+        }),
+        ("search.outboxPollInterval", |config| {
+            config.search.outbox_poll_interval = Duration::ZERO
+        }),
+        ("search.outboxAckInterval", |config| {
+            config.search.outbox_ack_interval = Duration::ZERO
+        }),
         ("limits.maxFlowStateBytes", |config| {
             config.limits.max_flow_state_bytes = 1
         }),

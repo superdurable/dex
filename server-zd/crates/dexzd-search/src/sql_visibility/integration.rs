@@ -130,9 +130,8 @@ async fn paradedb_projection_and_search_use_direct_tls() {
             ..Default::default()
         };
         projector
-            .apply_batch(
+            .apply_changes_for_test(
                 partition_id,
-                None,
                 &LogPosition {
                     node_id: "tls-node".into(),
                     incarnation: 1,

@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS dexzd_visibility_progress (
 ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS applied_node_id text;
 ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS applied_incarnation bigint;
 ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS applied_seq bigint;
+ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS applied_epoch bigint;
+ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS outbox_through_seq bigint;
 
 CREATE TABLE IF NOT EXISTS dexzd_visibility_skipped_documents (
     tenant_id text NOT NULL,

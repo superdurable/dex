@@ -198,13 +198,17 @@ async fn projection_advances_while_another_partition_backfills() {
     let run_id = RunId([74; 16]);
     tokio::time::timeout(
         Duration::from_secs(3),
-        projector.apply_batch(PartitionId(1), None, &position, &[document_change(run_id)]),
+        projector.apply_changes_for_test(PartitionId(1), &position, &[document_change(run_id)]),
     )
     .await
     .expect("another partition is not stalled by backfill")
     .unwrap();
     assert_eq!(
-        projector.read_progress(PartitionId(1)).await.unwrap(),
+        projector
+            .read_progress(PartitionId(1))
+            .await
+            .unwrap()
+            .and_then(|progress| progress.applied_position),
         Some(position)
     );
     transaction.rollback().await.unwrap();
@@ -333,9 +337,8 @@ async fn distinct_schemas_do_not_share_registration_locks_and_reused_registries_
     };
     tokio::time::timeout(
         Duration::from_secs(3),
-        projector.apply_batch(
+        projector.apply_changes_for_test(
             PartitionId(2),
-            None,
             &position,
             &[document_change(RunId([75; 16]))],
         ),
@@ -497,7 +500,6 @@ async fn late_registered_oversized_keywords_are_skipped_and_counted() {
     let fixture = PostgresFixture::create(&database_url).await;
     let initial_backend = fixture.backend(AttributeIndexRegistry::default()).await;
     let initial_projector = SqlVisibilityProjector::new(initial_backend.clone());
-    let mut previous = None;
     for (sequence, key, index_type, attribute_value) in [
         (
             1,
@@ -565,9 +567,8 @@ async fn late_registered_oversized_keywords_are_skipped_and_counted() {
             seq: sequence,
         };
         initial_projector
-            .apply_batch(
+            .apply_changes_for_test(
                 PartitionId(0),
-                previous.as_ref(),
                 &position,
                 &[SearchDocumentChange::Upsert {
                     tenant_id: TenantId(1),
@@ -577,7 +578,6 @@ async fn late_registered_oversized_keywords_are_skipped_and_counted() {
             )
             .await
             .unwrap();
-        previous = Some(position);
     }
     let count: i64 = fixture
         .client

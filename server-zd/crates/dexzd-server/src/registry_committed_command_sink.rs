@@ -9,41 +9,33 @@
 use std::sync::Arc;
 
 use dexzd_engine::{CommittedCommandSink, CommittedFlowCommand, FlowCoordinatorRegistry};
-use dexzd_keyspace::PartitionId;
-use dexzd_protocol::dexzd::v1::LogPosition;
 
-use crate::server_node::CommittedSearchFrames;
+use crate::server_node::SearchOutboxWatermarks;
 
 /// Forwards every committed command from the commit pipeline to the Flow coordinator registry.
 pub(crate) struct RegistryCommittedCommandSink {
     registry: FlowCoordinatorRegistry,
-    /// Receives search document changes first, so read-your-writes waits cover a woken waiter's frame.
-    search_frames: Option<Arc<CommittedSearchFrames>>,
+    /// Sees SearchOutbox appends first, so read-your-writes waits cover a woken waiter's write.
+    search_outbox_watermarks: Option<Arc<SearchOutboxWatermarks>>,
 }
 
 impl RegistryCommittedCommandSink {
     pub(crate) fn new(
         registry: FlowCoordinatorRegistry,
-        search_frames: Option<Arc<CommittedSearchFrames>>,
+        search_outbox_watermarks: Option<Arc<SearchOutboxWatermarks>>,
     ) -> Self {
         Self {
             registry,
-            search_frames,
+            search_outbox_watermarks,
         }
     }
 }
 
 impl CommittedCommandSink for RegistryCommittedCommandSink {
     fn apply_committed(&self, committed: CommittedFlowCommand) {
-        if let Some(search_frames) = &self.search_frames {
-            search_frames.record_command(&committed);
+        if let Some(watermarks) = &self.search_outbox_watermarks {
+            watermarks.record_committed(&committed);
         }
         self.registry.apply_committed(committed);
-    }
-
-    fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {
-        if let Some(search_frames) = &self.search_frames {
-            search_frames.finish_frame(partition, position);
-        }
     }
 }

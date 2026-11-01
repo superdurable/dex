@@ -1373,6 +1373,7 @@ dependencies = [
  "dexzd-search",
  "dexzd-storage",
  "dexzd-stream-store",
+ "dexzd-visibility-query",
  "dexzd-worker-dispatch",
  "futures",
  "humantime-serde",

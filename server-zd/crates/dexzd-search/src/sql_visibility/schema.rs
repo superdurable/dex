@@ -83,7 +83,7 @@ pub async fn ensure_schema_for_dialect(
         check_dialect(&transaction, dialect).await?;
     }
     if is_current_version(previous_version, dialect)? && has_recorded_dialect(&transaction).await? {
-        return commit_schema(transaction).await;
+        return finish_schema(transaction).await;
     }
     transaction
         .query_typed_one(
@@ -100,7 +100,7 @@ pub async fn ensure_schema_for_dialect(
         check_dialect(&transaction, dialect).await?;
     }
     if is_current_version(previous_version, dialect)? && has_recorded_dialect(&transaction).await? {
-        return commit_schema(transaction).await;
+        return finish_schema(transaction).await;
     }
     if dialect == VisibilityDialect::Postgres {
         let row = transaction
@@ -124,7 +124,7 @@ pub async fn ensure_schema_for_dialect(
         })?;
     transaction.batch_execute("ALTER TABLE dexzd_visibility_schema_version ADD COLUMN IF NOT EXISTS dialect text NOT NULL DEFAULT 'paradedb'").await.map_err(|source| SchemaError::Database { operation: "add dialect to", source })?;
     if previous_version == Some(3) && dialect == VisibilityDialect::ParadeDb {
-        return commit_schema(transaction).await;
+        return finish_schema(transaction).await;
     }
     transaction
         .batch_execute(include_str!("migration.sql"))
@@ -163,6 +163,30 @@ pub async fn ensure_schema_for_dialect(
             operation: "record version of",
             source,
         })?;
+    finish_schema(transaction).await
+}
+
+/// Adds the outbox progress columns, which every schema version gains without a version change.
+async fn finish_schema(transaction: Transaction<'_>) -> Result<(), SchemaError> {
+    let row = transaction
+        .query_typed_one(
+            "SELECT count(*) = 2 FROM pg_attribute WHERE attrelid = to_regclass('dexzd_visibility_progress') AND attname IN ('applied_epoch', 'outbox_through_seq') AND NOT attisdropped",
+            &[],
+        )
+        .await
+        .map_err(|source| SchemaError::Database {
+            operation: "inspect progress columns of",
+            source,
+        })?;
+    if !row.get::<_, bool>(0) {
+        transaction
+            .batch_execute("ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS applied_epoch bigint, ADD COLUMN IF NOT EXISTS outbox_through_seq bigint")
+            .await
+            .map_err(|source| SchemaError::Database {
+                operation: "add outbox progress columns to",
+                source,
+            })?;
+    }
     commit_schema(transaction).await
 }
 

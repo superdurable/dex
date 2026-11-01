@@ -7,15 +7,21 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 mod changes;
+mod outbox_reader;
+mod progress;
 mod projector;
 mod skipped_document;
 
 pub(crate) use skipped_document::{SkippedSearchDocument, record_skipped_documents};
 
-pub use changes::{
-    SearchDocumentChange, extract_batch_search_document_changes, extract_search_document_changes,
+pub use changes::SearchDocumentChange;
+pub use outbox_reader::{
+    InitialLoadPage, OutboxEntry, read_initial_load_page, read_outbox_entries, read_run_change,
 };
-pub use projector::{ProjectionError, ProjectionMetricRecorder, SqlVisibilityProjector};
+pub use projector::{
+    PartitionProjectionBatch, ProjectionError, ProjectionMetricRecorder, ProjectionProgress,
+    SqlVisibilityProjector,
+};
 
 #[cfg(test)]
 mod integration;

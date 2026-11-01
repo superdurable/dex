@@ -26,6 +26,7 @@ mod histogram;
 mod object_requests;
 #[cfg(target_os = "linux")]
 mod process;
+mod search_outbox;
 mod semantic;
 mod timer_lag;
 mod worker_stream;
@@ -46,6 +47,10 @@ use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
+pub use search_outbox::{
+    SearchOutboxBacklog, SearchOutboxEntries, SearchOutboxMaxPartitionEntries,
+    SearchOutboxOldestEntryAge,
+};
 pub use semantic::{
     FlowCloseStatus, FlowCloses, StepAttemptFailures, StepDurability, StepFailureKind,
     StepRetriesExhausted,
@@ -126,6 +131,20 @@ pub struct NodeMetrics {
     pub attribute_sync_fenced_writes: Counter,
     /// Committed search documents omitted because their indexed values are unsupported.
     pub search_skipped_documents: Counter,
+    /// Unprojected SearchOutbox entries and the oldest one's seq, per partition.
+    pub search_outbox_backlog: SearchOutboxBacklog,
+    /// External search projection SQL transactions, by outcome.
+    pub search_outbox_batches: OutcomeCounters,
+    /// SearchOutbox entries that committed SQL transactions covered.
+    pub search_outbox_projected_entries: Counter,
+    /// Run rows that committed SQL transactions upserted or deleted, after per-batch deduplication.
+    pub search_outbox_projected_runs: Counter,
+    /// SearchOutboxAckCommand proposals, by outcome.
+    pub search_outbox_ack_proposals: OutcomeCounters,
+    /// Partitions whose initial load into an empty SQL visibility projection has not finished.
+    pub search_initial_load_pending_partitions: Gauge,
+    /// Documents written by initial loads.
+    pub search_initial_load_documents: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -375,6 +394,51 @@ impl NodeMetrics {
             "Committed documents omitted from the search projection.",
             metrics.search_skipped_documents.clone(),
         );
+        registry.register(
+            "dexzd_search_outbox_entries",
+            "SearchOutbox entries waiting for the external search projection.",
+            SearchOutboxEntries(metrics.search_outbox_backlog.clone()),
+        );
+        registry.register(
+            "dexzd_search_outbox_max_partition_entries",
+            "SearchOutbox entries waiting in the most backlogged partition.",
+            SearchOutboxMaxPartitionEntries(metrics.search_outbox_backlog.clone()),
+        );
+        registry.register(
+            "dexzd_search_outbox_oldest_entry_age_seconds",
+            "Age of the oldest SearchOutbox entry waiting for the external search projection.",
+            SearchOutboxOldestEntryAge(metrics.search_outbox_backlog.clone()),
+        );
+        registry.register(
+            "dexzd_search_outbox_batches",
+            "External search projection SQL transactions, by outcome.",
+            metrics.search_outbox_batches.clone(),
+        );
+        registry.register(
+            "dexzd_search_outbox_projected_entries",
+            "SearchOutbox entries covered by committed SQL transactions.",
+            metrics.search_outbox_projected_entries.clone(),
+        );
+        registry.register(
+            "dexzd_search_outbox_projected_runs",
+            "Run rows upserted or deleted by committed SQL transactions.",
+            metrics.search_outbox_projected_runs.clone(),
+        );
+        registry.register(
+            "dexzd_search_outbox_ack_proposals",
+            "SearchOutboxAckCommand proposals, by outcome.",
+            metrics.search_outbox_ack_proposals.clone(),
+        );
+        registry.register(
+            "dexzd_search_initial_load_pending_partitions",
+            "Partitions whose initial SQL visibility load has not finished.",
+            metrics.search_initial_load_pending_partitions.clone(),
+        );
+        registry.register(
+            "dexzd_search_initial_load_documents",
+            "Documents written by initial SQL visibility loads.",
+            metrics.search_initial_load_documents.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -426,6 +490,13 @@ impl NodeMetrics {
             attribute_sync_dropped_entries: Counter::default(),
             attribute_sync_fenced_writes: Counter::default(),
             search_skipped_documents: Counter::default(),
+            search_outbox_backlog: SearchOutboxBacklog::new(partition_count),
+            search_outbox_batches: OutcomeCounters::default(),
+            search_outbox_projected_entries: Counter::default(),
+            search_outbox_projected_runs: Counter::default(),
+            search_outbox_ack_proposals: OutcomeCounters::default(),
+            search_initial_load_pending_partitions: Gauge::default(),
+            search_initial_load_documents: Counter::default(),
         }
     }
 
@@ -437,6 +508,16 @@ impl NodeMetrics {
     /// Records one lease renewal outcome.
     pub fn record_lease_renewal(&self, outcome: Outcome) {
         self.lease_renewals.record(outcome);
+    }
+
+    /// Records the outcome of one external search projection SQL transaction.
+    pub fn record_search_outbox_batch(&self, outcome: Outcome) {
+        self.search_outbox_batches.record(outcome);
+    }
+
+    /// Records the outcome of one SearchOutboxAckCommand proposal.
+    pub fn record_search_outbox_ack(&self, outcome: Outcome) {
+        self.search_outbox_ack_proposals.record(outcome);
     }
 
     /// Records one snapshot outcome.

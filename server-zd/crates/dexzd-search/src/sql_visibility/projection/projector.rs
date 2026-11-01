@@ -27,6 +27,7 @@ use super::super::search_backend::{
 use super::super::upsert::upsert_statements_with_slots;
 use super::super::{AttributeSlot, VisibilityDialect};
 use super::changes::SearchDocumentChange;
+use super::progress::{lock_progress, read_progress_rows, update_progress, validate_position};
 use super::skipped_document::{SkippedSearchDocument, record_skipped_documents};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
@@ -51,7 +52,7 @@ pub struct PartitionProjectionBatch {
     pub partition_id: PartitionId,
     /// Deletes the partition's rows before its changes; the first batch of an initial load sets it.
     pub is_initial_load: bool,
-    /// Changes in outbox order; each run appears at most once.
+    /// Changes in outbox order; later changes of a run win.
     pub changes: Vec<SearchDocumentChange>,
     /// Raises the partition's outbox progress to this sequence; never lowers it.
     pub outbox_through_seq: u64,
@@ -206,34 +207,21 @@ impl SqlVisibilityProjector {
             .map_err(|error| error.redact_credentials(self.backend.configuration()))
     }
 
-    /// Returns the last committed log position for one partition, if any.
-    pub async fn read_progress(
+    /// Returns the recorded progress of every partition that SQL visibility has a row for.
+    pub async fn read_all_progress(
         &self,
-        partition_id: PartitionId,
-    ) -> Result<Option<LogPosition>, ProjectionError> {
-        let partition_number = i32::from(partition_id.0);
+    ) -> Result<BTreeMap<PartitionId, ProjectionProgress>, ProjectionError> {
         let mut has_retried = false;
         loop {
             let mut slot = self.backend.lock_next_slot().await;
             if slot.is_disconnected() {
                 slot.reconnect(self.backend.configuration()).await?;
             }
-            let result = tokio::time::timeout(
-                DATABASE_OPERATION_TIMEOUT,
-                slot.client.query_typed_opt(
-                    "SELECT applied_node_id, applied_incarnation, applied_seq, applied_position FROM dexzd_visibility_progress WHERE partition_id = $1::integer",
-                    &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
-                ),
-            )
-            .await;
+            let result =
+                tokio::time::timeout(DATABASE_OPERATION_TIMEOUT, read_progress_rows(&slot.client))
+                    .await;
             let result = match result {
-                Ok(result) => result
-                    .map_err(|source| database_error("read progress from", source))
-                    .and_then(|row| {
-                        row.map(|row| position_from_row(&row))
-                            .transpose()
-                            .map(Option::flatten)
-                    }),
+                Ok(result) => result,
                 Err(_) => {
                     slot.invalidate();
                     Err(operation_timeout("read progress from"))
@@ -248,16 +236,28 @@ impl SqlVisibilityProjector {
         }
     }
 
-    /// Applies one committed partition batch after `previous_position` in one transaction.
-    pub async fn apply_batch(
+    /// Returns one partition's recorded progress, or `None` when SQL visibility has no row for it.
+    pub async fn read_progress(
         &self,
         partition_id: PartitionId,
-        previous_position: Option<&LogPosition>,
-        applied_position: &LogPosition,
-        changes: &[SearchDocumentChange],
+    ) -> Result<Option<ProjectionProgress>, ProjectionError> {
+        Ok(self.read_all_progress().await?.remove(&partition_id))
+    }
+
+    /// Writes `batches` and raises their progress in one transaction fenced by `epoch`.
+    ///
+    /// Partitions must be distinct. Every touched progress row records `epoch`. A row the database
+    /// rejects is retried with each row isolated, then recorded as a skipped document.
+    ///
+    /// Returns [`ProjectionError::Fenced`] when a partition's progress carries a newer epoch.
+    pub async fn apply_outbox_batch(
+        &self,
+        epoch: u64,
+        batches: &[PartitionProjectionBatch],
     ) -> Result<(), ProjectionError> {
-        validate_position(applied_position)?;
+        validate_batches(batches)?;
         let mut has_retried = false;
+        let mut row_isolation = RowIsolation::Batched;
         loop {
             let mut slot = self.backend.lock_next_slot().await;
             if slot.is_disconnected() {
@@ -265,12 +265,11 @@ impl SqlVisibilityProjector {
             }
             let result = tokio::time::timeout(
                 DATABASE_OPERATION_TIMEOUT,
-                apply_batch_transaction(
+                outbox_transaction(
                     &mut slot.client,
-                    partition_id,
-                    previous_position,
-                    applied_position,
-                    changes,
+                    epoch,
+                    batches,
+                    row_isolation,
                     &self.backend,
                 ),
             )
@@ -279,9 +278,13 @@ impl SqlVisibilityProjector {
                 Ok(result) => result,
                 Err(_) => {
                     slot.invalidate();
-                    Err(operation_timeout("apply batch to"))
+                    Err(operation_timeout("apply outbox batch to"))
                 }
             };
+            if row_isolation == RowIsolation::Batched && is_row_rejection(&result) {
+                row_isolation = RowIsolation::PerRow;
+                continue;
+            }
             if should_retry(&result, has_retried) {
                 has_retried = true;
                 slot.reconnect(self.backend.configuration()).await?;
@@ -294,57 +297,56 @@ impl SqlVisibilityProjector {
         }
     }
 
-    /// Rebuilds one partition from a consistent committed local view at `applied_position`.
-    pub async fn rebuild_partition(
+    /// Projects `changes` of one partition and records `position` with node epoch 1.
+    #[cfg(test)]
+    pub(crate) async fn apply_changes_for_test(
         &self,
         partition_id: PartitionId,
-        applied_position: &LogPosition,
-        committed_view: Arc<dyn FlowStateReader + Send + Sync>,
+        position: &LogPosition,
+        changes: &[SearchDocumentChange],
     ) -> Result<(), ProjectionError> {
-        validate_position(applied_position)?;
-        let mut has_retried = false;
-        loop {
-            let mut slot = self.backend.lock_next_slot().await;
-            if slot.is_disconnected() {
-                slot.reconnect(self.backend.configuration()).await?;
-            }
-            let result = tokio::time::timeout(
-                DATABASE_OPERATION_TIMEOUT,
-                rebuild_transaction(
-                    &mut slot.client,
-                    partition_id,
-                    applied_position,
-                    committed_view.clone(),
-                    &self.backend,
-                ),
-            )
-            .await;
-            let result = match result {
-                Ok(result) => result,
-                Err(_) => {
-                    slot.invalidate();
-                    Err(operation_timeout("rebuild partition in"))
-                }
-            };
-            if should_retry(&result, has_retried) {
-                has_retried = true;
-                slot.reconnect(self.backend.configuration()).await?;
-                continue;
-            }
-            drop(slot);
-            return result
-                .map(|skipped| record_skipped_documents(skipped, self.metric_recorder.as_deref()))
-                .map_err(|error| error.redact_credentials(self.backend.configuration()));
-        }
+        self.apply_outbox_batch(
+            1,
+            &[PartitionProjectionBatch {
+                partition_id,
+                is_initial_load: false,
+                changes: changes.to_vec(),
+                outbox_through_seq: position.seq,
+                applied_position: Some(position.clone()),
+            }],
+        )
+        .await
     }
 }
 
-async fn apply_batch_transaction(
+/// How a transaction writes upserts; isolating rows lets one rejected row skip alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowIsolation {
+    Batched,
+    PerRow,
+}
+
+fn validate_batches(batches: &[PartitionProjectionBatch]) -> Result<(), ProjectionError> {
+    let mut partitions = std::collections::BTreeSet::new();
+    for batch in batches {
+        if !partitions.insert(batch.partition_id) {
+            return Err(ProjectionError::InvalidState(format!(
+                "outbox batch repeats partition {}",
+                batch.partition_id.0
+            )));
+        }
+        if let Some(position) = &batch.applied_position {
+            validate_position(position)?;
+        }
+    }
+    Ok(())
+}
+
+async fn outbox_transaction(
     client: &mut tokio_postgres::Client,
-    partition_id: PartitionId,
-    previous_position: Option<&LogPosition>,
-    applied_position: &LogPosition,
-    changes: &[SearchDocumentChange],
+    epoch: u64,
+    batches: &[PartitionProjectionBatch],
+    row_isolation: RowIsolation,
     backend: &SqlVisibilitySearchBackend,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let transaction = client
@@ -352,32 +354,37 @@ async fn apply_batch_transaction(
         .await
         .map_err(|source| database_error("begin", source))?;
     let assignments = prepare_attribute_slots(&transaction, backend).await?;
-    let current = lock_progress(&transaction, partition_id).await?;
-    if is_replay(current.as_ref(), applied_position) {
-        transaction
-            .commit()
-            .await
-            .map_err(|source| database_error("commit replay of", source))?;
-        return Ok(Vec::new());
+    let mut partition_ids: Vec<PartitionId> =
+        batches.iter().map(|batch| batch.partition_id).collect();
+    partition_ids.sort_unstable();
+    lock_progress(&transaction, &partition_ids, epoch).await?;
+    let initial_load_partitions: Vec<i32> = batches
+        .iter()
+        .filter(|batch| batch.is_initial_load)
+        .map(|batch| i32::from(batch.partition_id.0))
+        .collect();
+    if !initial_load_partitions.is_empty() {
+        delete_partition_rows(&transaction, &initial_load_partitions).await?;
     }
-    if current.as_ref() != previous_position {
-        return Err(ProjectionError::PositionMismatch {
-            partition_id,
-            stored: current,
-            expected: previous_position.cloned(),
-            offered: applied_position.clone(),
-        });
-    }
+    let changes: Vec<(PartitionId, &SearchDocumentChange)> = batches
+        .iter()
+        .flat_map(|batch| {
+            batch
+                .changes
+                .iter()
+                .map(move |change| (batch.partition_id, change))
+        })
+        .collect();
     let skipped_documents = apply_changes(
         &transaction,
-        partition_id,
-        changes,
+        &changes,
         assignments
             .as_ref()
             .map(|snapshot| snapshot.assignments.as_slice()),
+        row_isolation,
     )
     .await?;
-    update_progress(&transaction, partition_id, applied_position).await?;
+    update_progress(&transaction, epoch, batches).await?;
     transaction
         .commit()
         .await
@@ -385,142 +392,26 @@ async fn apply_batch_transaction(
     Ok(skipped_documents)
 }
 
-async fn rebuild_transaction(
-    client: &mut tokio_postgres::Client,
-    partition_id: PartitionId,
-    applied_position: &LogPosition,
-    committed_view: Arc<dyn FlowStateReader + Send + Sync>,
-    backend: &SqlVisibilitySearchBackend,
-) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
-    let transaction = client
-        .transaction()
-        .await
-        .map_err(|source| database_error("begin rebuild of", source))?;
-    let assignments = prepare_attribute_slots(&transaction, backend).await?;
-    let current = lock_progress(&transaction, partition_id).await?;
-    if current.as_ref().is_some_and(|stored| {
-        same_stream(stored, applied_position) && stored.seq > applied_position.seq
-    }) {
-        return Err(ProjectionError::StaleRebuild {
-            partition_id,
-            current: current.expect("stale comparison requires stored position"),
-            offered: applied_position.clone(),
-        });
-    }
-    let partition_number = i32::from(partition_id.0);
+/// Removes rows left by an unfinished initial load; a partition without progress owns none.
+async fn delete_partition_rows(
+    transaction: &Transaction<'_>,
+    partitions: &[i32],
+) -> Result<(), ProjectionError> {
     transaction
         .execute_typed(
-            "DELETE FROM dexzd_visibility_runs WHERE partition_id = $1::integer",
-            &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
+            "DELETE FROM dexzd_visibility_runs WHERE partition_id = ANY($1::integer[])",
+            &[(&partitions as &(dyn ToSql + Sync), Type::INT4_ARRAY)],
         )
         .await
-        .map_err(|source| database_error("remove stale rows from", source))?;
+        .map_err(|source| database_error("remove unloaded rows from", source))?;
     transaction
         .execute_typed(
-            "DELETE FROM dexzd_visibility_skipped_documents WHERE partition_id = $1::integer",
-            &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
+            "DELETE FROM dexzd_visibility_skipped_documents WHERE partition_id = ANY($1::integer[])",
+            &[(&partitions as &(dyn ToSql + Sync), Type::INT4_ARRAY)],
         )
         .await
-        .map_err(|source| database_error("remove stale skipped documents from", source))?;
-    let (mut start, end) = partition_index_range(partition_id, IndexKind::SearchDocument);
-    let mut skipped_documents = Vec::new();
-    loop {
-        let view = committed_view.clone();
-        let scan_start = start.clone();
-        let scan_end = end.clone();
-        let page = tokio::task::spawn_blocking(move || {
-            read_rebuild_page(view.as_ref(), partition_id, &scan_start, &scan_end)
-        })
-        .await
-        .map_err(|error| {
-            ProjectionError::InvalidState(format!("search rebuild reader task failed: {error}"))
-        })??;
-        let Some(RebuildPage {
-            next_start,
-            changes,
-        }) = page
-        else {
-            break;
-        };
-        start = next_start;
-        skipped_documents.extend(
-            apply_changes(
-                &transaction,
-                partition_id,
-                &changes,
-                assignments
-                    .as_ref()
-                    .map(|snapshot| snapshot.assignments.as_slice()),
-            )
-            .await?,
-        );
-    }
-    update_progress(&transaction, partition_id, applied_position).await?;
-    transaction
-        .commit()
-        .await
-        .map_err(|source| database_error("commit rebuild of", source))?;
-    Ok(skipped_documents)
-}
-
-fn read_rebuild_page(
-    committed_view: &dyn FlowStateReader,
-    partition_id: PartitionId,
-    start: &[u8],
-    end: &[u8],
-) -> Result<Option<RebuildPage>, ProjectionError> {
-    let rows = committed_view.scan(
-        ColumnFamily::PartitionIndex,
-        start,
-        end,
-        REBUILD_SCAN_PAGE_SIZE,
-    )?;
-    let Some((last_key, _)) = rows.last() else {
-        return Ok(None);
-    };
-    if last_key.as_slice() < start {
-        return Err(ProjectionError::InvalidState(
-            "search index scan regressed".into(),
-        ));
-    }
-    let mut next_start = last_key.clone();
-    next_start.push(0);
-    let mut changes = Vec::with_capacity(rows.len());
-    for (index_key, _) in rows {
-        let (tenant_id, flow_hash, run_id) = decode_search_index_key(partition_id, &index_key)?
-            .ok_or_else(|| ProjectionError::InvalidState("search index left partition".into()))?;
-        let run_record_key = run_singleton_key(flow_hash, run_id, RunTable::RunRecord);
-        let encoded_run_record = committed_view
-            .get(ColumnFamily::Flow, &run_record_key)?
-            .ok_or_else(|| {
-                ProjectionError::InvalidState(format!("missing committed run record for {run_id}"))
-            })?;
-        let run_record = RunRecord::decode(encoded_run_record.as_slice()).map_err(|error| {
-            ProjectionError::InvalidState(format!(
-                "decode committed run record for {run_id}: {error}"
-            ))
-        })?;
-        if run_record.is_purging {
-            continue;
-        }
-        let document_key = run_singleton_key(flow_hash, run_id, RunTable::SearchDocument);
-        let encoded_document = committed_view
-            .get(ColumnFamily::Flow, &document_key)?
-            .ok_or_else(|| {
-                ProjectionError::InvalidState(format!(
-                    "missing committed search document for {run_id}"
-                ))
-            })?;
-        changes.push(SearchDocumentChange::Upsert {
-            tenant_id,
-            run_id,
-            encoded_document,
-        });
-    }
-    Ok(Some(RebuildPage {
-        next_start,
-        changes,
-    }))
+        .map_err(|source| database_error("remove unloaded skipped documents from", source))?;
+    Ok(())
 }
 
 async fn prepare_attribute_slots(
@@ -535,20 +426,20 @@ async fn prepare_attribute_slots(
 
 async fn apply_changes(
     transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-    changes: &[SearchDocumentChange],
+    changes: &[(PartitionId, &SearchDocumentChange)],
     assignments: Option<&[AttributeSlot]>,
+    row_isolation: RowIsolation,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let mut pending_rows = Vec::new();
     let mut skipped_documents = Vec::new();
-    for change in changes {
+    for (partition_id, change) in changes {
         match change {
             SearchDocumentChange::Upsert {
                 tenant_id,
                 run_id,
                 encoded_document,
             } => match row_from_document_for_dialect(
-                partition_id,
+                *partition_id,
                 *tenant_id,
                 *run_id,
                 encoded_document,
@@ -558,56 +449,171 @@ async fn apply_changes(
                     pending_rows.push(row);
                 }
                 Err(reason) => {
-                    flush_upserts(transaction, partition_id, &mut pending_rows, assignments)
-                        .await?;
-                    delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
-                    record_skipped_document(
+                    flush_upserts(
                         transaction,
-                        partition_id,
-                        *tenant_id,
-                        *run_id,
-                        &reason,
+                        &mut pending_rows,
+                        assignments,
+                        row_isolation,
+                        &mut skipped_documents,
                     )
                     .await?;
-                    skipped_documents.push(SkippedSearchDocument {
-                        partition_id,
-                        tenant_id: *tenant_id,
-                        run_id: *run_id,
-                        reason: reason.to_string(),
-                    });
+                    skip_document(
+                        transaction,
+                        SkippedSearchDocument {
+                            partition_id: *partition_id,
+                            tenant_id: *tenant_id,
+                            run_id: *run_id,
+                            reason: reason.to_string(),
+                        },
+                        &mut skipped_documents,
+                    )
+                    .await?;
                 }
             },
             SearchDocumentChange::Delete { tenant_id, run_id } => {
-                flush_upserts(transaction, partition_id, &mut pending_rows, assignments).await?;
-                delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
+                flush_upserts(
+                    transaction,
+                    &mut pending_rows,
+                    assignments,
+                    row_isolation,
+                    &mut skipped_documents,
+                )
+                .await?;
+                delete_search_row(transaction, *partition_id, *tenant_id, *run_id).await?;
                 delete_skipped_document(transaction, *tenant_id, *run_id).await?;
             }
         }
     }
-    flush_upserts(transaction, partition_id, &mut pending_rows, assignments).await?;
+    flush_upserts(
+        transaction,
+        &mut pending_rows,
+        assignments,
+        row_isolation,
+        &mut skipped_documents,
+    )
+    .await?;
     Ok(skipped_documents)
 }
 
 async fn flush_upserts(
     transaction: &Transaction<'_>,
-    partition_id: PartitionId,
     pending_rows: &mut Vec<SearchRow>,
     assignments: Option<&[AttributeSlot]>,
+    row_isolation: RowIsolation,
+    skipped_documents: &mut Vec<SkippedSearchDocument>,
 ) -> Result<(), ProjectionError> {
-    let statements = upsert_statements_with_slots(pending_rows, assignments)
+    match row_isolation {
+        RowIsolation::Batched => {
+            let statements = upsert_statements_with_slots(pending_rows, assignments)
+                .map_err(|error| ProjectionError::InvalidState(error.to_string()))?;
+            for chunk in statements {
+                transaction
+                    .execute_typed(
+                        &chunk.statement.sql,
+                        &chunk.statement.typed_parameter_refs(),
+                    )
+                    .await
+                    .map_err(|source| upsert_database_error(&chunk.rows, source))?;
+                delete_skipped_documents(transaction, &chunk.rows).await?;
+            }
+        }
+        RowIsolation::PerRow => {
+            for row in pending_rows.iter() {
+                upsert_isolated_row(transaction, row, assignments, skipped_documents).await?;
+            }
+        }
+    }
+    pending_rows.clear();
+    Ok(())
+}
+
+/// Upserts one row inside a savepoint; a non-transient rejection skips only this row.
+async fn upsert_isolated_row(
+    transaction: &Transaction<'_>,
+    row: &SearchRow,
+    assignments: Option<&[AttributeSlot]>,
+    skipped_documents: &mut Vec<SkippedSearchDocument>,
+) -> Result<(), ProjectionError> {
+    let statements = upsert_statements_with_slots(std::slice::from_ref(row), assignments)
         .map_err(|error| ProjectionError::InvalidState(error.to_string()))?;
-    for chunk in statements {
-        transaction
+    transaction
+        .batch_execute("SAVEPOINT dexzd_projection_row")
+        .await
+        .map_err(|source| database_error("isolate a row in", source))?;
+    let mut rejection = None;
+    for chunk in &statements {
+        if let Err(source) = transaction
             .execute_typed(
                 &chunk.statement.sql,
                 &chunk.statement.typed_parameter_refs(),
             )
             .await
-            .map_err(|source| upsert_database_error(partition_id, &chunk.rows, source))?;
-        delete_skipped_documents(transaction, &chunk.rows).await?;
+        {
+            rejection = Some(source);
+            break;
+        }
     }
-    pending_rows.clear();
+    let Some(source) = rejection else {
+        transaction
+            .batch_execute("RELEASE SAVEPOINT dexzd_projection_row")
+            .await
+            .map_err(|source| database_error("release an isolated row in", source))?;
+        return delete_skipped_documents(transaction, &[row]).await;
+    };
+    let (partition_id, tenant_id, run_id) = row_identity(row);
+    if is_transient_database_error(&source) {
+        return Err(row_database_error(partition_id, run_id, source));
+    }
+    transaction
+        .batch_execute("ROLLBACK TO SAVEPOINT dexzd_projection_row")
+        .await
+        .map_err(|source| database_error("roll back an isolated row in", source))?;
+    skip_document(
+        transaction,
+        SkippedSearchDocument {
+            partition_id,
+            tenant_id,
+            run_id,
+            reason: database_error_message(&source),
+        },
+        skipped_documents,
+    )
+    .await
+}
+
+/// Removes the run's row and records why its committed document is not searchable.
+async fn skip_document(
+    transaction: &Transaction<'_>,
+    skipped: SkippedSearchDocument,
+    skipped_documents: &mut Vec<SkippedSearchDocument>,
+) -> Result<(), ProjectionError> {
+    delete_search_row(
+        transaction,
+        skipped.partition_id,
+        skipped.tenant_id,
+        skipped.run_id,
+    )
+    .await?;
+    record_skipped_document(transaction, &skipped).await?;
+    skipped_documents.push(skipped);
     Ok(())
+}
+
+/// Projected rows keep the identifiers they were built from.
+fn row_identity(row: &SearchRow) -> (PartitionId, TenantId, RunId) {
+    (
+        PartitionId(
+            u16::try_from(row.partition_id).expect("projected rows keep a valid partition ID"),
+        ),
+        TenantId(
+            row.tenant_id
+                .parse()
+                .expect("projected rows keep canonical tenant IDs"),
+        ),
+        row.run_id
+            .parse()
+            .expect("projected rows preserve canonical run identifiers"),
+    )
 }
 
 async fn delete_skipped_documents(
@@ -634,15 +640,11 @@ async fn delete_skipped_documents(
 
 async fn record_skipped_document(
     transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-    tenant_id: TenantId,
-    run_id: RunId,
-    reason: &ProjectionError,
+    skipped: &SkippedSearchDocument,
 ) -> Result<(), ProjectionError> {
-    let tenant_column = super::super::tenant_column_value(tenant_id);
-    let partition_number = i32::from(partition_id.0);
-    let run_column = run_id.to_string();
-    let reason_column = reason.to_string();
+    let tenant_column = super::super::tenant_column_value(skipped.tenant_id);
+    let partition_number = i32::from(skipped.partition_id.0);
+    let run_column = skipped.run_id.to_string();
     transaction
         .execute_typed(
             "INSERT INTO dexzd_visibility_skipped_documents (tenant_id, partition_id, run_id, reason) VALUES ($1::text, $2::integer, $3::text, $4::text) ON CONFLICT (tenant_id, run_id) DO UPDATE SET partition_id = EXCLUDED.partition_id, reason = EXCLUDED.reason",
@@ -650,7 +652,7 @@ async fn record_skipped_document(
                 (&tenant_column as &(dyn ToSql + Sync), Type::TEXT),
                 (&partition_number, Type::INT4),
                 (&run_column, Type::TEXT),
-                (&reason_column, Type::TEXT),
+                (&skipped.reason, Type::TEXT),
             ],
         )
         .await
@@ -777,102 +779,11 @@ fn row_from_document_for_dialect(
     Ok(row)
 }
 
-async fn lock_progress(
-    transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-) -> Result<Option<LogPosition>, ProjectionError> {
-    let partition_number = i32::from(partition_id.0);
-    transaction
-        .execute_typed(
-            "INSERT INTO dexzd_visibility_progress (partition_id, applied_position) VALUES ($1::integer, 0) ON CONFLICT (partition_id) DO NOTHING",
-            &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
-        )
-        .await
-        .map_err(|source| database_error("initialize progress for", source))?;
-    let row = transaction
-        .query_typed_one(
-            "SELECT applied_node_id, applied_incarnation, applied_seq, applied_position FROM dexzd_visibility_progress WHERE partition_id = $1::integer FOR UPDATE",
-            &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
-        )
-        .await
-        .map_err(|source| database_error("lock progress for", source))?;
-    position_from_row(&row)
-}
-
-async fn update_progress(
-    transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-    position: &LogPosition,
-) -> Result<(), ProjectionError> {
-    let sequence = i64::try_from(position.seq)
-        .map_err(|_| ProjectionError::InvalidState("log sequence exceeds bigint".into()))?;
-    let partition_number = i32::from(partition_id.0);
-    let incarnation = i64::from(position.incarnation);
-    transaction
-        .execute_typed(
-            "UPDATE dexzd_visibility_progress SET applied_position = $2::bigint, applied_node_id = $3::text, applied_incarnation = $4::bigint, applied_seq = $5::bigint WHERE partition_id = $1::integer",
-            &[
-                (&partition_number as &(dyn ToSql + Sync), Type::INT4),
-                (&sequence, Type::INT8),
-                (&position.node_id, Type::TEXT),
-                (&incarnation, Type::INT8),
-                (&sequence, Type::INT8),
-            ],
-        )
-        .await
-        .map_err(|source| database_error("update progress for", source))?;
-    Ok(())
-}
-
-fn position_from_row(row: &tokio_postgres::Row) -> Result<Option<LogPosition>, ProjectionError> {
-    let node_id: Option<String> = row
-        .try_get(0)
-        .map_err(|source| database_error("decode progress node from", source))?;
-    let incarnation: Option<i64> = row
-        .try_get(1)
-        .map_err(|source| database_error("decode progress incarnation from", source))?;
-    let sequence: Option<i64> = row
-        .try_get(2)
-        .map_err(|source| database_error("decode progress sequence from", source))?;
-    let legacy_sequence: i64 = row
-        .try_get(3)
-        .map_err(|source| database_error("decode legacy progress from", source))?;
-    match (node_id, incarnation, sequence) {
-        (None, None, None) if legacy_sequence == 0 => Ok(None),
-        (Some(node_id), Some(incarnation), Some(sequence)) => Ok(Some(LogPosition {
-            node_id,
-            incarnation: u32::try_from(incarnation).map_err(|_| {
-                ProjectionError::InvalidState("invalid SQL visibility progress incarnation".into())
-            })?,
-            seq: u64::try_from(sequence).map_err(|_| {
-                ProjectionError::InvalidState("invalid SQL visibility progress sequence".into())
-            })?,
-        })),
-        _ => Err(ProjectionError::InvalidState(
-            "incomplete SQL visibility projection position".into(),
-        )),
-    }
-}
-
-fn validate_position(position: &LogPosition) -> Result<(), ProjectionError> {
-    if position.node_id.is_empty() || position.seq == 0 {
-        return Err(ProjectionError::InvalidState("invalid log position".into()));
-    }
-    i64::try_from(position.seq)
-        .map(|_| ())
-        .map_err(|_| ProjectionError::InvalidState("log sequence exceeds bigint".into()))
-}
-
-fn same_stream(left: &LogPosition, right: &LogPosition) -> bool {
-    left.node_id == right.node_id && left.incarnation == right.incarnation
-}
-
-fn is_replay(stored: Option<&LogPosition>, offered: &LogPosition) -> bool {
-    stored.is_some_and(|stored| same_stream(stored, offered) && stored.seq >= offered.seq)
-}
-
 /// Keeps only the message and classification, so no raw Postgres text survives redaction.
-fn database_error(operation: &'static str, source: tokio_postgres::Error) -> ProjectionError {
+pub(super) fn database_error(
+    operation: &'static str,
+    source: tokio_postgres::Error,
+) -> ProjectionError {
     ProjectionError::Database {
         operation,
         message: database_error_message(&source),
@@ -880,26 +791,16 @@ fn database_error(operation: &'static str, source: tokio_postgres::Error) -> Pro
     }
 }
 
-fn upsert_database_error(
-    partition_id: PartitionId,
-    rows: &[&SearchRow],
-    source: tokio_postgres::Error,
-) -> ProjectionError {
-    let first_run_id = rows
-        .first()
-        .expect("upsert chunks contain at least one row")
-        .run_id
-        .parse()
-        .expect("projected rows preserve canonical run identifiers");
+fn upsert_database_error(rows: &[&SearchRow], source: tokio_postgres::Error) -> ProjectionError {
+    let (partition_id, _, first_run_id) = row_identity(
+        rows.first()
+            .expect("upsert chunks contain at least one row"),
+    );
     if rows.len() == 1 {
         return row_database_error(partition_id, first_run_id, source);
     }
-    let last_run_id = rows
-        .last()
-        .expect("upsert chunks contain at least one row")
-        .run_id
-        .parse()
-        .expect("projected rows preserve canonical run identifiers");
+    let (_, _, last_run_id) =
+        row_identity(rows.last().expect("upsert chunks contain at least one row"));
     ProjectionError::BatchDatabase {
         partition_id,
         row_count: rows.len(),
@@ -947,6 +848,20 @@ fn should_retry(result: &Result<impl Sized, ProjectionError>, has_retried: bool)
                     ..
                 })
         )
+}
+
+/// Whether the database rejected a row's content rather than failing transiently.
+fn is_row_rejection(result: &Result<impl Sized, ProjectionError>) -> bool {
+    matches!(
+        result,
+        Err(ProjectionError::RowDatabase {
+            is_transient: false,
+            ..
+        } | ProjectionError::BatchDatabase {
+            is_transient: false,
+            ..
+        })
+    )
 }
 
 #[cfg(test)]

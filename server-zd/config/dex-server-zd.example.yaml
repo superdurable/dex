@@ -122,6 +122,9 @@ search:
   postgresConnectionPoolSize: 10
   postgresSchema: public
   readYourWritesWait: 2s
+  outboxBatchSize: 1000
+  outboxPollInterval: 100ms
+  outboxAckInterval: 100ms
 limits:
   maxFlowStateBytes: 67108864
   maxChannelMessages: 10000
