@@ -654,6 +654,23 @@ object to stderr with the operation, error kind, gRPC code/name, and status
 details when supplied. Usage and missing-confirmation failures exit with status
 2; connection and RPC failures exit with status 1.
 
+## Step down the active server process
+
+`dexcli admin step-down --yes` calls AdminService `StepDownActiveNode`. The active
+server process of the node ID behind `--server` stops serving, releases its lease,
+and lets another process of the same node ID take over. The command prints
+`nodeId`, `releasedNodeEpoch`, `isTakeoverObserved`, `observedTakeover` when
+another process took over before the call returned, and
+`leaseReacquisitionHoldOff`. It uses the regular server, credential, TLS,
+timeout, and output flags, and requires `--yes`.
+
+When the server configures authentication, the credential must be a JWT whose
+audience is listed in the server's `auth.adminAudiences`, which is empty by
+default. Static tokens never qualify. A server without authentication, such as
+the local dev server, needs no credential. Each call steps down whichever process
+is active when it arrives, so check which process is active before retrying.
+A server without AdminService answers Unimplemented.
+
 ## Build and test
 
 Requirements are Go 1.26+, Node.js 22+, and a `dex-server-zd` binary for dev
