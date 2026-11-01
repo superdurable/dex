@@ -24,7 +24,7 @@ From server-zd v0.1.5, a new transactional or locking RPC, WaitForStepCompletion
 
 The Server preserves **ResourceExhausted** for backend capacity and rate-limit failures instead of reporting **Internal**. The response retains the message and available status details, including a retry-delay hint when supplied. Use the selected SDK's named status representation and inspect available details; do not parse error text or assume every SDK exposes every detail. Apply bounded retries with backoff and jitter within the caller's deadline, honoring a retry hint when available. A failed mutation can still have an uncertain outcome: reconcile using its stable identity and authoritative state before repeating effects. SDK-managed retries may already exhaust the deadline, so avoid stacking unbounded retry loops.
 
-This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server-zd/v0.1.13/server-zd/crates/dexzd-api/src/flow_operation_error.rs)
+This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server-zd/v0.1.14/server-zd/crates/dexzd-api/src/flow_operation_error.rs)
 
 ## Indexed search limits
 
@@ -34,7 +34,7 @@ With server-zd v0.1.13 and `search.backend: postgres`, the Server enforces the [
 - **Keyword length.** A StartFlow or RPC whose indexed Keyword value or KeywordArray element exceeds 1,024 UTF-8 bytes fails with INVALID_ARGUMENT and INDEXED_KEYWORD_TOO_LONG. Nothing from the request commits, although an RPC handler has already run. Treat it as a local input defect: validate or shorten the value before the write, and do not retry the same value. A SetAttributes call made directly through FlowService, such as from `dexcli` or Dex Web, fails the same way; no SDK Client has an Attribute write at the baselines.
 - **Step results.** A Step result that carries such a value cannot return an error to the Worker. The Step attempt fails without retry, and the Step's failure policy applies: by default the Flow fails, a WaitFor proceed-on-failure policy enters Execute, and an Execute failure route starts its recovery Step. A Flow that fails this way reports a Worker API failure as its Flow error type, a recovery Step receives error type **ValueTooLarge**, and the detail names the Attribute and its size. Keep this detail visible for operators, and follow the [recovery error type rule](#recovery-error-types) rather than matching the text. Each language page names its public Flow error type value.
 
-At the Go, Python, and TypeScript v1.30.0 baselines and the Java and Rust v1.31.0 baselines, the generated protocol bindings of every SDK name both values, but no SDK's public error model maps them. A Client call reports either failure as the SDK's generic service error with the Uncategorized sub-status. Worker startup wraps the failed index registration in its startup error. Do not branch on the generated values or the detail text. See the selected language's **error-handling.md** for the exact type. [Released sub-statuses](https://github.com/superdurable/dex/blob/web/v1.30.0/protos/dex.proto)
+At the Go, Python, and TypeScript v1.30.0 baselines and the Java and Rust v1.31.0 baselines, the generated protocol bindings of every SDK name both values, but no SDK's public error model maps them. A Client call reports either failure as the SDK's generic service error with the Uncategorized sub-status. Worker startup wraps the failed index registration in its startup error. Do not branch on the generated values or the detail text. See the selected language's **error-handling.md** for the exact type. [Released sub-statuses](https://github.com/superdurable/dex/blob/web/v1.32.0/protos/dex.proto)
 
 ## Missing or inactive target errors
 
@@ -42,10 +42,10 @@ At the released SDK API baseline, use the exact public names:
 
 | SDK | Combined missing/inactive target error | Source |
 | --- | --- | --- |
-| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/dex/errors.go) |
-| Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.30.0/sdk-python/dex/runtime_errors.py) |
-| TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.30.0/sdk-typescript/src/errors.ts) |
-| Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
+| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.32.0/sdk-go/dex/errors.go) |
+| Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/dex/runtime_errors.py) |
+| TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/sdk-typescript/src/errors.ts) |
+| Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
 | Rust | `SdkError::FlowNotActiveOrNotFound` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs) |
 
 These names replace the old not-active-only names without compatibility aliases. The rename preserves Server routing, protocol sub-statuses, service metadata, and cause chains. The separate Flow-not-found error remains available for operations mapped to it, including the Client Attribute read. Inspect an existing application's installed SDK before changing a catch or import; do not assume older packages export the new names.
@@ -177,7 +177,7 @@ With Go SDK v1.17.0, **RecoveryErrorInfo** offers **IsMethodTimeout**, **IsHeart
 - server-zd ends a running attempt at the retry total duration.
 - An application error type that reuses a backend time-limit name also matches. Give application error types distinct names.
 
-Python and TypeScript at their v1.30.0 baselines, and Java and Rust at v1.31.0, offer no such predicates. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).
+Java, Python, and TypeScript at their v1.32.0 baselines, and Rust at v1.31.0, offer no such predicates. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).
 
 ## Design review
 

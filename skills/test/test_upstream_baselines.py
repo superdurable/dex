@@ -1239,10 +1239,10 @@ class ServerZdSearchStatementsTest(unittest.TestCase):
 
 class SearchSubStatusTest(unittest.TestCase):
     TAGS = {
-        "go": "sdk-go/v1.30.0",
-        "java": "sdk-java/v1.31.0",
-        "python": "sdk-python/v1.30.0",
-        "typescript": "sdk-typescript/v1.30.0",
+        "go": "sdk-go/v1.32.0",
+        "java": "sdk-java/v1.32.0",
+        "python": "sdk-python/v1.32.0",
+        "typescript": "sdk-typescript/v1.32.0",
         "rust": "sdk-rust/v1.31.0",
     }
     PAGES = tuple(page for page, _ in CHECKER.SEARCH_LIMIT_REFERENCES)
@@ -1297,6 +1297,84 @@ class SearchSubStatusTest(unittest.TestCase):
             for needle in needles:
                 with self.subTest(page=page, needle=needle):
                     mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
+
+
+class ServerZdSearchOutboxStatementsTest(unittest.TestCase):
+    TAG = "server-zd/v0.1.14"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.statements = tuple(
+            statement for statement in CHECKER.SERVER_ZD_LATEST_STATEMENTS if statement[0] == self.TAG
+        )
+        self.sources = tagged_sources(self.TAG, *dict.fromkeys(path for _, path, _ in self.statements))
+        self.repository.commit_and_tag(self.TAG, self.sources)
+
+    def check(self):
+        CHECKER.check_server_zd_statements(self.repository.root, self.TAG, self.statements)
+
+    def test_statements_cover_the_search_outbox(self):
+        paths = {path for _, path, _ in self.statements}
+        self.assertIn("server-zd/crates/dexzd-server/src/server_node/search_projection/outbox_consumer.rs", paths)
+        self.assertIn("server-zd/crates/dexzd-metrics/src/lib.rs", paths)
+        self.assertIn("server-zd/config/dex-server-zd.example.yaml", paths)
+
+    def test_latest_release_is_the_server_baseline(self):
+        self.assertEqual(CHECKER.SERVER_ZD_LATEST_RELEASE, self.TAG)
+        self.assertEqual((CHECKER.ROOT / "DEX_SERVER_BASELINE").read_text().strip(), self.TAG)
+
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for _, path, needles in self.statements:
+            for needle in needles:
+                with self.subTest(path=path, needle=needle):
+                    mutated = replace_once(self.sources[path], needle, needle[:-1] + "?")
+                    self.repository.commit_and_tag(self.TAG, {path: mutated})
+                    with self.assertRaises(SystemExit) as raised:
+                        self.check()
+                    self.assertIn(f"{self.TAG}:{path} is missing required text", str(raised.exception))
+                    self.repository.commit_and_tag(self.TAG, {path: self.sources[path]})
+
+
+class SearchProjectionReferencesTest(unittest.TestCase):
+    PAGES = tuple(page for page, _ in CHECKER.SEARCH_PROJECTION_REFERENCES)
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.references = copy_references(Path(temporary.name), *self.PAGES)
+
+    def check(self):
+        CHECKER.check_search_projection_references(self.references)
+
+    def test_real_references_pass(self):
+        CHECKER.check_search_projection_references(CHECKER.SDK_REFERENCES)
+
+    def test_each_reference_statement_must_be_enforced(self):
+        for page, needles in CHECKER.SEARCH_PROJECTION_REFERENCES:
+            for needle in needles:
+                with self.subTest(page=page, needle=needle):
+                    mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
+
+    def test_retired_rebuild_wording_fails_on_any_page(self):
+        for wording in CHECKER.SEARCH_PROJECTION_RETIRED_WORDING:
+            for page in (*self.PAGES, "go/data-handling.md"):
+                with self.subTest(wording=wording, page=page):
+                    target = self.references / page
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    original = target.read_text() if target.exists() else ""
+                    target.write_text(original + "\n" + wording + "\n")
+                    try:
+                        with self.assertRaises(SystemExit) as raised:
+                            self.check()
+                        self.assertIn(str(target), str(raised.exception))
+                    finally:
+                        if original:
+                            target.write_text(original)
+                        else:
+                            target.unlink()
 
 
 class FlowServiceTlsTest(unittest.TestCase):
