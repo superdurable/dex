@@ -155,28 +155,42 @@ dexcli version check --output table
 连接失败或区间不相交时，command 会输出结构化 compatibility error，并以 status 1 退出。
 该 command 支持通用的 **--server**、**--timeout** 和 **--output** flag。
 
-## 让 active server 进程让位 {#admin-step-down}
+## 查询 active server 进程或让它让位 {#admin-step-down}
 
-server-zd 目前还不提供 **AdminService**，所以这个 command 现在会以 **UNIMPLEMENTED**
-失败。本节其余内容描述的是这个 command 在提供 **AdminService** 的 server 上的行为。
+server-zd 目前还不提供 **AdminService**，所以这些 command 现在会以 **UNIMPLEMENTED**
+失败。本节其余内容描述的是这些 command 在提供 **AdminService** 的 server 上的行为。
+
+**dexcli admin describe** 输出 active server 进程的 **nodeId**、**nodeEpoch** 和
+**holderProcessId**，不做任何修改。
 
 **dexcli admin step-down --yes** 请求一个 node ID 的 active server 进程交出 lease，
-让同一个 node ID 的另一个进程接管。这个 command 调用 **AdminService**，而不是
-**FlowService**。它需要 **--yes**，因为在有进程接管之前，server 会停止服务。
+让同一个 node ID 的另一个进程接管。两个 command 都调用 **AdminService**，而不是
+**FlowService**。让位需要 **--yes**，因为在有进程接管之前，server 会停止服务。
 
 ```bash
-dexcli --server dex.example.internal:8801 admin step-down --yes \
+dexcli --server dex.example.internal:8801 admin describe \
   --credential-file /run/secrets/dex/admin-token
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --expected-node-epoch 7 --credential-file /run/secrets/dex/admin-token
 ```
 
-该 command 支持通用的连接、TLS、credential、**--timeout** 和 **--output** flag。
-server 要求身份认证时，credential 必须是 admin JWT。参见
+这些 command 支持通用的连接、TLS、credential、**--timeout** 和 **--output** flag。
+**dexcli admin step-down** 默认最多等待 2 分钟，长于让位的进程再次竞争 lease 之前的
+hold-off。server 要求身份认证时，credential 必须是 admin JWT。API key 交换无法申请 admin
+audience。参见
 [admin 凭证](../production/server-zd-operations.mdx#admin-credentials)。
 
-输出包含 **nodeId**、**releasedNodeEpoch**、**isTakeoverObserved**、
-**leaseReacquisitionHoldOff**，以及另一个进程在调用返回前接管时的
-**observedTakeover**。每次调用都会让调用到达时的 active 进程让位，所以重试前先确认
-哪个进程是 active。没有 **AdminService** 的 server 返回 **UNIMPLEMENTED**。详见
+让位的输出包含 **nodeId**、**releasedNodeEpoch**、**leaseReacquisitionHoldOff** 和
+**leaseHolderAfterStepDown**。最后这个字段的值是 **takenOverByAnotherProcess**、
+**takenBackByThisProcess** 或 **unknown**。已知时，**activeNodeEpoch** 和
+**activeHolderProcessId** 给出持有 lease 的进程。node epoch 以十进制字符串输出。
+
+每次调用都会让调用到达时的 active 进程让位。把 **dexcli admin describe** 输出的 epoch
+传给 **--expected-node-epoch**。这样当其他进程是 active 时，server 返回
+**FAILED_PRECONDITION**，不做任何修改。让位以 **DEADLINE_EXCEEDED**、**CANCELLED** 或
+**UNAVAILABLE** 失败时，结果未知。错误输出中的 **stepDownOutcome** 为 **unknown**，并带有
+**hint**：先运行 **dexcli admin describe**，然后只带上 **--expected-node-epoch** 重试。
+没有 **AdminService** 的 server 返回 **UNIMPLEMENTED**。详见
 [让位](../production/server-zd-operations.mdx#step-down)。
 
 ## 输出和错误

@@ -169,32 +169,48 @@ connection failure, or disjoint interval produces a structured compatibility
 error and exits with status 1. The command supports the normal **--server**,
 **--timeout**, and **--output** flags.
 
-## Step down the active server process {#admin-step-down}
+## Describe or step down the active server process {#admin-step-down}
 
-server-zd does not serve **AdminService** yet, so this command currently fails
-with **UNIMPLEMENTED**. The rest of this section describes the command against a
-server that serves **AdminService**.
+server-zd does not serve **AdminService** yet, so these commands currently fail
+with **UNIMPLEMENTED**. The rest of this section describes the commands against
+a server that serves **AdminService**.
+
+**dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
+**holderProcessId** of the active server process, and changes nothing.
 
 **dexcli admin step-down --yes** asks the active server process of a node ID to
-give up its lease, so that another process of the same node ID can take over. The
-command calls **AdminService**, not **FlowService**. It needs **--yes**, because
-the server stops serving until a process takes over.
+give up its lease, so that another process of the same node ID can take over.
+Both commands call **AdminService**, not **FlowService**. Step down needs
+**--yes**, because the server stops serving until a process takes over.
 
 ```bash
-dexcli --server dex.example.internal:8801 admin step-down --yes \
+dexcli --server dex.example.internal:8801 admin describe \
   --credential-file /run/secrets/dex/admin-token
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --expected-node-epoch 7 --credential-file /run/secrets/dex/admin-token
 ```
 
-The command supports the normal connection, TLS, credential, **--timeout**, and
-**--output** flags. When the server requires authentication, the credential must
-be an admin JWT. See
+The commands support the normal connection, TLS, credential, **--timeout**, and
+**--output** flags. **dexcli admin step-down** waits up to 2 minutes by default,
+longer than the hold-off before the stepped-down process competes for the lease
+again. When the server requires authentication, the credential must be an admin
+JWT. The API key exchange cannot ask for an admin audience. See
 [admin credentials](../production/server-zd-operations.mdx#admin-credentials).
 
-The output reports **nodeId**, **releasedNodeEpoch**, **isTakeoverObserved**,
-**observedTakeover** when another process took over before the call returned,
-and **leaseReacquisitionHoldOff**. Each call steps down whichever process is
-active when it arrives, so check which process is active before you retry. A
-server without **AdminService** answers **UNIMPLEMENTED**. See
+The step down output reports **nodeId**, **releasedNodeEpoch**,
+**leaseReacquisitionHoldOff**, and **leaseHolderAfterStepDown**. That field is
+**takenOverByAnotherProcess**, **takenBackByThisProcess**, or **unknown**.
+**activeNodeEpoch** and **activeHolderProcessId** identify the process that
+holds the lease when it is known. Node epochs are decimal strings.
+
+Each call steps down whichever process is active when it arrives. Pass
+**--expected-node-epoch** with the epoch that **dexcli admin describe** printed.
+The server then answers **FAILED_PRECONDITION** and changes nothing when another
+process is active. A step down that fails with **DEADLINE_EXCEEDED**,
+**CANCELLED**, or **UNAVAILABLE** has an unknown outcome. Its error output
+carries **stepDownOutcome** set to **unknown** and a **hint**: run **dexcli admin
+describe** first, then retry only with **--expected-node-epoch**. A server
+without **AdminService** answers **UNIMPLEMENTED**. See
 [step down](../production/server-zd-operations.mdx#step-down) for details.
 
 ## Output and errors

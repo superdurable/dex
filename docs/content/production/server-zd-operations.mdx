@@ -291,13 +291,17 @@ Use gRPC health for all three probes:
   state and the log tail. A cold restore of an empty store took about 4 s; plan
   for more with real data. The example allows 5 minutes.
 - The **readinessProbe** keeps traffic away while the node is not serving.
-- The **livenessProbe** restarts a node that stops answering. Do not use a TCP
-  probe for liveness: a stalled process can still accept TCP connections in the
-  kernel backlog while it serves nothing.
+- The **livenessProbe** restarts a node that stops answering. On a node that
+  never steps down, prefer gRPC health to a TCP probe: a stalled process can
+  still accept TCP connections in the kernel backlog while it serves nothing.
 
-A serving node never returns to **NOT_SERVING** without exiting, because a lost
+Today a serving node returns to **NOT_SERVING** only by exiting, because a lost
 lease ends the process. Liveness on gRPC health therefore does not cause restart
-loops.
+loops. This stops being true once server-zd serves **AdminService**. A
+[step down](#step-down) makes the active process report **NOT_SERVING** while
+it keeps running as a standby, and a liveness probe on gRPC health would restart
+it. A process that may step down needs the TCP or exec liveness probe of a
+standby.
 
 This probe set is for a single replica, the supported topology. A standby
 replica stays **NOT_SERVING** until it takes over, so it would never pass this
@@ -384,33 +388,79 @@ By default, a starting node waits while another process holds the lease. Set
 
 ## Step down the active process {#step-down}
 
-server-zd does not serve **AdminService** yet, so **dexcli admin step-down**
-currently fails with **UNIMPLEMENTED**. The rest of this section describes the
-command against a server that serves **AdminService**.
+server-zd does not serve **AdminService** yet, so **dexcli admin describe** and
+**dexcli admin step-down** currently fail with **UNIMPLEMENTED**. The rest of
+this section describes the commands against a server that serves
+**AdminService**.
 
 **dexcli admin step-down** asks the active process of a node ID to give up its
-lease. The process stops serving and waits briefly for in-flight commits. Then it releases the lease. Another process of the same node ID can then
-take the lease at once, as after a graceful shutdown. The command needs an
-[admin credential](#admin-credentials) and the **--yes** flag.
+lease. The process stops serving and waits briefly for in-flight commits. Then
+it releases the lease and keeps running as a standby. Another process of the
+same node ID can take the lease at once, as after a graceful shutdown. The
+stepped-down process waits for a hold-off before it competes for the lease
+again. If no other process takes over in that time, it takes the lease back.
+
+**dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
+**holderProcessId** of the active process, and changes nothing. Every lease
+acquisition raises the node epoch. Both commands need an
+[admin credential](#admin-credentials). Step down also needs the **--yes** flag.
 
 ~~~bash
-dexcli --server dex.example.internal:8801 admin step-down --yes \
+dexcli --server dex.example.internal:8801 admin describe \
   --credential-file /run/secrets/dex/admin-token
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --expected-node-epoch 7 --credential-file /run/secrets/dex/admin-token
 ~~~
 
-The call returns after the release. Its output has these fields:
+After the release, the step down call watches the lease. It returns as soon as
+another process takes over. Otherwise it returns after the hold-off and one
+attempt to take the lease back. The call therefore lasts at most the commit
+drain bound, the release, the hold-off, and one lease acquisition attempt.
+**dexcli admin step-down** waits up to 2 minutes unless you set **--timeout**.
+Its output has these fields:
 
-- **nodeId** and **releasedNodeEpoch** name the node ID and the epoch of the
-  released lease.
-- **isTakeoverObserved** says whether another process took the lease before the
-  call returned. **observedTakeover** then gives that process's epoch and holder
-  process ID.
-- **leaseReacquisitionHoldOff** is how long the stepped-down process waits before
-  it competes for the lease again.
+- **nodeId**, **releasedNodeEpoch**, and **leaseReacquisitionHoldOff** give the
+  node ID, the epoch of the released lease, and the hold-off.
+- **leaseHolderAfterStepDown** says which process held the lease when the call
+  returned:
+  - **takenOverByAnotherProcess**: another process took over.
+  - **takenBackByThisProcess**: no other process took over within the
+    hold-off, so the stepped-down process took the lease back.
+  - **unknown**: neither was confirmed, and **leaseHolderUnknownDetail** says
+    why.
+- **activeNodeEpoch** and **activeHolderProcessId** identify the process that
+  holds the lease, when it is known.
 
-Each call steps down whichever process is active when the call arrives. Check
-which process is active before you retry a failed call, because a retry can step
-down the process that just took over. A server without **AdminService** answers
+Node epochs are printed as decimal strings.
+
+### Retry a step down safely {#retry-step-down}
+
+Each call steps down whichever process is active when the call arrives. A blind
+retry can therefore step down the process that just took over. Pass
+**--expected-node-epoch** with the node epoch that **dexcli admin describe**
+printed. The server then steps down only a process that holds that epoch. It
+answers **FAILED_PRECONDITION** otherwise and changes nothing.
+
+A step down that fails with **DEADLINE_EXCEEDED**, **CANCELLED**, or
+**UNAVAILABLE** has an unknown outcome, and the error output says so. Run
+**dexcli admin describe** first. A different node epoch or holder process ID
+means that a step down or another takeover already happened, so do not retry.
+Otherwise retry with **--expected-node-epoch** set to the printed epoch.
+
+### Single replicas, probes, and access {#step-down-single-replica}
+
+On a single replica, no other process can take over. A step down stops serving
+for about one hold-off, and then the same process takes the lease back with a
+new node epoch.
+
+A stepped-down process reports **NOT_SERVING** while it keeps running. Before
+you step down a process, make sure that its liveness probe does not use gRPC
+health, as described in [health checks](#health-checks). Otherwise Kubernetes
+restarts the stepped-down process.
+
+Without authentication, anyone who can reach **api.listen** can step the node
+down, again and again. Configure [admin credentials](#admin-credentials), or
+restrict access to **api.listen**. A server without **AdminService** answers
 **UNIMPLEMENTED**.
 
 ## Object storage
@@ -944,6 +994,7 @@ auth:
     - kind: jwt
       issuer: https://issuer.example.com
       audiences: ["dex"]
+      adminAudiences: []
       jwksURL: ""
       allowInsecureJWKSURL: false
       caFile: ""
@@ -953,7 +1004,8 @@ auth:
 
 **allowInsecureJWKSURL** allows a plain HTTP **jwksURL** on a trusted network. An empty **jwksURL**
 discovers the key set through the issuer's OpenID configuration. **caFile** adds
-a PEM bundle to the system roots.
+a PEM bundle to the system roots. **adminAudiences** lists the audiences that
+authorize [admin calls](#admin-credentials).
 
 The static token file lists SHA-256 hashes, never plaintext tokens:
 
@@ -976,35 +1028,49 @@ trusted callers.
 
 ### Admin credentials {#admin-credentials}
 
-Admin calls, such as [step down](#step-down), need their own credential.
-**auth.adminAudiences** lists the JWT audiences that authorize them. It is empty
-by default.
+Admin calls, such as [describe and step down](#step-down), need their own
+credential. Each **jwt** authenticator can list **adminAudiences**: the JWT
+audiences that make a token of its issuer an admin credential. The list is empty
+by default, so no issuer authorizes admin calls until you configure one.
 
 ~~~yaml
 auth:
-  adminAudiences: ["dex-operators"]
   authenticators:
     - kind: jwt
       issuer: https://issuer.example.com
       audiences: ["dex"]
+      adminAudiences: ["dex-operators"]
 ~~~
 
-When **auth.authenticators** is not empty, an admin call needs a JWT that a
-**jwt** authenticator accepts and whose audience is in **auth.adminAudiences**.
-Static tokens never authorize admin calls, so the default empty list denies every
-admin call. A missing or invalid credential fails with **UNAUTHENTICATED**. A
-valid public API credential without an admin audience fails with
+When **auth.authenticators** is not empty, an admin call needs a JWT that its
+issuer's **jwt** authenticator accepts. One of the token's audiences must be in
+that authenticator's **adminAudiences**. Static tokens never authorize admin
+calls. A missing or invalid credential fails with **UNAUTHENTICATED**. A valid
+public API credential without an admin audience fails with
 **PERMISSION_DENIED**.
 
-When authentication is off, as on a local development server, admin calls need no
-credential.
+Give **adminAudiences** only to an issuer that decides the audiences of its
+tokens itself. Never give them to an issuer that lets callers choose **aud**,
+such as Kubernetes projected service account tokens or a CI OIDC provider shared
+with other projects. Anyone who can get a token from such an issuer could ask
+for an admin audience and step the node down.
 
-A non-empty **auth.adminAudiences** needs a **jwt** authenticator. Its entries
-must differ from the **audiences** of every **jwt** authenticator, so a public API
-credential never authorizes an admin call.
+**adminAudiences** applies only to **jwt** authenticators. Its entries must not
+be empty and must differ from the same authenticator's **audiences**, so a
+public API credential never authorizes an admin call.
 
-server-zd validates **auth.adminAudiences** at startup. Until the server serves
-**AdminService**, the setting has no other effect.
+The API key exchange of **dexcli** sends only the server ID and the API key, so
+it cannot ask for an admin audience. An API key works for admin commands only if
+the token endpoint itself issues tokens with an admin audience for that key.
+
+When authentication is off, as on a local development server, admin calls need
+no credential. Anyone who can reach **api.listen** can then step the node down,
+again and again.
+
+server-zd validates **adminAudiences** at startup. Once it serves
+**AdminService**, it logs each authorized admin call with the caller's **iss**
+and **sub** claims. It logs denied admin calls as warnings, at most once every
+10 seconds. Until then, the setting has no other effect.
 
 ## Server and SDK protocol compatibility
 
