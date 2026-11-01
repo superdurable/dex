@@ -295,18 +295,18 @@ Use gRPC health for all three probes:
   never steps down, prefer gRPC health to a TCP probe: a stalled process can
   still accept TCP connections in the kernel backlog while it serves nothing.
 
-Today a serving node returns to **NOT_SERVING** only by exiting, because a lost
-lease ends the process. Liveness on gRPC health therefore does not cause restart
-loops. This stops being true once server-zd serves **AdminService**. A
+A serving node that never steps down returns to **NOT_SERVING** only by
+exiting, because a lost lease ends the process. Liveness on gRPC health
+therefore does not cause restart loops for it. A
 [step down](#step-down) makes the active process report **NOT_SERVING** while
 it keeps running as a standby, and a liveness probe on gRPC health would restart
 it. A process that may step down needs the TCP or exec liveness probe of a
 standby.
 
-This probe set is for a single replica, the supported topology. A standby
-replica stays **NOT_SERVING** until it takes over, so it would never pass this
-startup probe. A standby needs a TCP or exec startup probe and liveness probe
-instead.
+This probe set is for a single replica. A standby replica stays
+**NOT_SERVING** until it takes over, so it would never pass this startup probe.
+A standby needs a TCP or exec startup probe and liveness probe instead. See
+[hot standby](#hot-standby-health).
 
 The process exits on its own after a fatal error, such as a lost lease or a
 failed commit. During startup, transient or unknown-outcome object storage read errors are retried
@@ -386,19 +386,107 @@ saves few requests, but the unavailable time after a crash keeps growing.
 By default, a starting node waits while another process holds the lease. Set
 **lease.failIfHeld** to true to fail startup instead.
 
-## Step down the active process {#step-down}
+## Hot standby {#hot-standby}
 
-server-zd does not serve **AdminService** yet, so **dexcli admin describe** and
-**dexcli admin step-down** currently fail with **UNIMPLEMENTED**. The rest of
-this section describes the commands against a server that serves
-**AdminService**.
+A standby is a second server-zd process with the same **nodeId** and object
+storage settings, but its own local store. It waits while the active process
+holds the lease. It takes over when the lease is released or expires.
+**standby.mode** chooses what the standby does while it waits:
+
+- **cold**, the default, waits idle. After it takes the lease, it opens or
+  restores its local store and replays the log, like a restart.
+- **hot** follows the node's log from object storage and applies each batch to
+  its local store. A takeover then replays only the last few batches.
+
+~~~yaml
+standby:
+  mode: hot
+~~~
+
+The other **standby** fields have defaults that fit most deployments:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| **heldLeasePollInterval** | 250ms | Hot mode only. How often a standby reads a lease that another process holds. |
+| **stepDownHoldOff** | 5s | How long a process that [stepped down](#step-down) waits before it competes for the lease again. |
+| **laggingTakeoverDelay** | 1500ms | Hot mode only. How long a standby that is not hot waits before it takes an available lease. |
+| **behindLagThreshold** | 10s | Hot mode only. The lag above which a standby is behind instead of hot. |
+
+**hot** needs **lease.failIfHeld** set to false. **dex-server-zd dev** accepts
+only **cold**. **stepDownHoldOff** must be longer than
+**laggingTakeoverDelay** plus **heldLeasePollInterval**. A release without hot
+standby rejects a configuration that has a **standby** section. Upgrade every
+process before you add the section.
+
+A hot standby only reads object storage. It runs no Steps or timers, and it
+answers public API calls with **UNAVAILABLE**. Give it a local volume of the
+same size as the active process.
+
+### Takeover {#hot-standby-takeover}
+
+A hot standby takes a released lease within about one
+**heldLeasePollInterval**. After a crash it still waits until the old lease
+expires, plus 1 second, as described in [Lease](#lease). It shortens the
+recovery after that wait, not the wait itself.
+
+Before it writes the lease, a hot standby waits 0 to 50 ms. A standby that is
+not hot waits about **laggingTakeoverDelay** first. A standby is not hot while
+it bootstraps from a snapshot, restarts after an error, or trails the log by
+more than **behindLagThreshold**. A hot standby therefore wins when there is
+one. The conditional lease write alone decides which process takes over.
+
+If a takeover fails before the standby holds the lease, the standby keeps
+following the log. It tries again after a backoff from 1 to 30 seconds. A
+failure after it holds the lease releases the lease and exits the process with
+status 1.
+
+### Health and probes {#hot-standby-health}
+
+A standby reports **NOT_SERVING** for the default service name,
+**dex.FlowService**, and **dex.WorkerTaskService**. A readiness probe on gRPC
+health therefore sends traffic only to the active process.
+
+The service name **dex.HotStandby** reports **SERVING** only on a hot standby.
+It reports **NOT_SERVING** on the active process, on a cold standby, and while
+a standby bootstraps, restarts, or is behind. Use it to check that a standby is
+ready to take over.
+
+A standby never passes a startup or liveness probe on gRPC health. Give it a
+TCP or exec startup probe and liveness probe.
+
+### Kubernetes {#hot-standby-kubernetes}
+
+Change the [StatefulSet example](#one-replica-in-a-statefulset) as follows:
+
+- Set **replicas** to 2 and **podManagementPolicy** to **Parallel**. Each pod
+  gets its own volume from the claim template.
+- Replace the gRPC **startupProbe** and **livenessProbe** with **tcpSocket**
+  probes on port 8801. Keep the gRPC **readinessProbe**.
+- Set the **updateStrategy** type to **OnDelete**. A rolling update waits for
+  each updated pod to become ready, and a standby never does.
+
+To update both pods:
+
+1. Delete the standby pod. Wait until **dexzd_hot_standby_state** with
+   **state="following"** is 1 on its replacement.
+2. Delete the active pod. Its graceful shutdown releases the lease, and the
+   updated standby takes over at once. Its replacement starts as the new
+   standby.
+
+Instead of deleting the active pod in step 2, you can
+[step it down](#step-down). It then keeps running until another process takes
+over.
+
+## Step down the active process {#step-down}
 
 **dexcli admin step-down** asks the active process of a node ID to give up its
 lease. The process stops serving and waits briefly for in-flight commits. Then
 it releases the lease and keeps running as a standby. Another process of the
 same node ID can take the lease at once, as after a graceful shutdown. The
-stepped-down process waits for a hold-off before it competes for the lease
-again. If no other process takes over in that time, it takes the lease back.
+stepped-down process waits for a hold-off, **standby.stepDownHoldOff**, before
+it competes for the lease again. If no other process takes over in that time,
+it takes the lease back. With **standby.mode** set to **hot**, it follows the
+log as a [hot standby](#hot-standby) while it waits.
 
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active process, and changes nothing. Every lease
@@ -945,6 +1033,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Commit latency | **dexzd_commit_latency_seconds** |
 | Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
 | Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
+| Standby | **dexzd_hot_standby_state** with **state**; **dexzd_hot_standby_lag_seconds**; **dexzd_hot_standby_lag_batches**; **dexzd_hot_standby_error**; **dexzd_takeovers_total** with **standby_mode**; **dexzd_takeover_duration_seconds** |
 | Recovery | **dexzd_recovery_last_duration_seconds**; **dexzd_recovery_last_replayed_bytes** |
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
@@ -955,7 +1044,11 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 **rpc_class** is one of **flow_write**, **flow_read**, **search**,
 **worker_poll**, and **worker_respond**. **code** is the gRPC status code in
 snake case, such as **ok** or **unavailable**. **role** is one of **starting**,
-**standby**, **recovering**, **serving**, and **draining**.
+**standby**, **recovering**, **serving**, and **draining**. **state** is one of
+**inactive**, **bootstrapping**, **following**, **behind**, **restarting**, and
+**failed**. Only **following** is hot. The active process and a cold standby
+report **inactive**. **standby_mode** is **hot** or **cold**.
+**dexzd_takeover_duration_seconds** covers hot takeovers only.
 
 Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each task delivery and each stream
