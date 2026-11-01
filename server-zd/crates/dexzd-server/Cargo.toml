@@ -36,6 +36,7 @@ dexzd-storage.workspace = true
 dexzd-stream-store.workspace = true
 dexzd-worker-dispatch.workspace = true
 futures.workspace = true
+http-body-util.workspace = true
 humantime-serde.workspace = true
 prost.workspace = true
 prometheus-client.workspace = true

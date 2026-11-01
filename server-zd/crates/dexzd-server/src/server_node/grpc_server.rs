@@ -21,10 +21,12 @@ use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_protocol::dex::flow_service_server::FlowServiceServer;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
 use dexzd_worker_dispatch::WorkerTaskService;
+use http_body_util::BodyExt;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tonic::Status;
 use tonic::body::Body;
 use tonic::codegen::{BoxFuture, Service, http};
@@ -39,6 +41,19 @@ const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 const ANSWER_TRANSPORT_GRACE: Duration = Duration::from_millis(250);
 /// The answer to a public call while the node lease is not valid, such as after a freeze.
 const LEASE_NOT_VALID_MESSAGE: &str = "the node lease is not valid";
+/// A standby instance closes each connection this soon, so its clients reconnect to the active.
+const STANDBY_CONNECTION_AGE: Duration = Duration::from_secs(3);
+/// How long an aged standby connection may finish its calls; AdminService answers at once.
+const STANDBY_CONNECTION_AGE_GRACE: Duration = Duration::from_secs(1);
+
+/// Whether an instance belongs to a standby phase or to a serving period.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GrpcInstancePhase {
+    /// Public services refuse calls, and connections are closed after [`STANDBY_CONNECTION_AGE`].
+    Standby,
+    /// Public services serve once activated; connections have no age limit.
+    Serving,
+}
 
 /// What every gRPC server instance of the process shares.
 pub(super) struct GrpcSettings {
@@ -66,7 +81,7 @@ pub(super) struct GrpcServer {
 
 impl GrpcServer {
     /// Starts an instance on the shared listener; health and AdminService answer at once.
-    pub(super) fn start(settings: &GrpcSettings) -> Self {
+    pub(super) fn start(settings: &GrpcSettings, phase: GrpcInstancePhase) -> Self {
         let flow_service_gate = StartupService::<FlowServiceServer<DexFlowService>>::new(
             settings.lease_validity_deadline.clone(),
         );
@@ -81,10 +96,16 @@ impl GrpcServer {
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         let listener = settings.listener.clone();
+        let mut builder = tonic::transport::Server::builder()
+            .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
+            .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT));
+        if phase == GrpcInstancePhase::Standby {
+            builder = builder
+                .max_connection_age(STANDBY_CONNECTION_AGE)
+                .max_connection_age_grace(STANDBY_CONNECTION_AGE_GRACE);
+        }
         let task = tokio::spawn(
-            tonic::transport::Server::builder()
-                .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
-                .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT))
+            builder
                 .layer(RequestMetricsLayer::new(
                     settings.api_requests.clone(),
                     settings.api_latency.clone(),
@@ -132,6 +153,18 @@ impl GrpcServer {
         self.worker_task_service_gate.deactivate();
     }
 
+    /// Returns a wait until every accepted public call, response body included, has ended.
+    pub(super) fn public_calls_ended(&self) -> impl Future<Output = ()> + Send + 'static {
+        let flow_service_gate = self.flow_service_gate.clone();
+        let worker_task_service_gate = self.worker_task_service_gate.clone();
+        async move {
+            tokio::join!(
+                flow_service_gate.wait_for_calls(),
+                worker_task_service_gate.wait_for_calls(),
+            );
+        }
+    }
+
     /// Once `answered` resolves, sends GOAWAY and waits up to `budget` for open calls; then aborts.
     pub(super) async fn retire_after(mut self, answered: oneshot::Receiver<()>, budget: Duration) {
         // A dropped sender also means the answer went out.
@@ -171,6 +204,8 @@ impl Drop for GrpcServer {
 pub(super) struct StartupService<S> {
     serving: Arc<RwLock<Option<S>>>,
     lease_validity_deadline: LeaseValidityDeadline,
+    /// Every accepted call until its response body is dropped; a body can still read the store.
+    calls: TaskTracker,
 }
 
 impl<S> StartupService<S> {
@@ -178,7 +213,13 @@ impl<S> StartupService<S> {
         Self {
             serving: Arc::new(RwLock::new(None)),
             lease_validity_deadline,
+            calls: TaskTracker::new(),
         }
+    }
+
+    async fn wait_for_calls(&self) {
+        self.calls.close();
+        self.calls.wait().await;
     }
 
     pub(super) fn activate(&self, service: S) {
@@ -224,6 +265,7 @@ where
             .expect("startup service lock is poisoned only if a holder panicked")
             .clone();
         let lease_validity_deadline = self.lease_validity_deadline.clone();
+        let calls = self.calls.clone();
         Box::pin(async move {
             let Some(mut service) = serving else {
                 return Ok(Status::unavailable("the node is starting").into_http());
@@ -231,12 +273,18 @@ where
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
             }
+            let call = calls.token();
             let response = service.call(request).await?;
             // A freeze during the call can outlast the lease, so the answer may already be stale.
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
             }
-            Ok(response)
+            Ok(response.map(|body| {
+                Body::new(body.map_frame(move |frame| {
+                    let _ongoing_call = &call;
+                    frame
+                }))
+            }))
         })
     }
 }

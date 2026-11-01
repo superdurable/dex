@@ -15,10 +15,12 @@ mod node_lifecycle;
 mod public_api_authentication;
 mod search_projection;
 #[cfg(test)]
+mod shutdown_budget_tests;
+#[cfg(test)]
 mod startup_cancellation_tests;
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use dexzd_api::{
@@ -28,9 +30,10 @@ use dexzd_apply::FlowStateReader;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
     AttributeSyncWaker, CommandCommitter, EffectDependencies, EffectRunner, EffectTasksHandle,
-    EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
-    EngineServices, EngineStartError, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
-    HardDeleteObjects, HotStandby, HotStandbyTakeover, NodeMetaUploadLedger, NodeStopReason,
+    EngineCommandAndEffectHooks, EngineLocalStore, EngineNode, EngineNodeConfig,
+    EngineNodeDependencies, EngineServices, EngineStartError, FlowCoordinatorDependencies,
+    FlowCoordinatorRegistry, HardDeleteObjects, HotStandby, HotStandbyTakeover,
+    NodeMetaUploadLedger, NodeStopReason,
 };
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
@@ -56,7 +59,7 @@ pub(crate) use search_projection::SearchOutboxWatermarks;
 
 use attribute_sync::{AttributeStores, AttributeSyncService, AttributeSyncStart};
 use bounded_teardown::BoundedTeardown;
-use grpc_server::{GrpcServer, GrpcSettings};
+use grpc_server::{GrpcInstancePhase, GrpcServer, GrpcSettings};
 pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
 use node_lifecycle::{
     AdministrationRequest, HeldNodeLease, LifecycleActiveNodeAdministration, NodeLifecycle,
@@ -236,7 +239,7 @@ pub(crate) async fn start_server(
         health,
         lease_validity_deadline: lease_validity_deadline.clone(),
     };
-    let grpc = GrpcServer::start(&grpc_settings);
+    let grpc = GrpcServer::start(&grpc_settings, GrpcInstancePhase::Standby);
     let lease_watchdog = match lease_expiry_response {
         LeaseExpiryResponse::ExitProcess => {
             match LeaseValidityWatchdog::start(
@@ -360,6 +363,8 @@ struct PeriodStop {
     teardown: BoundedTeardown,
     /// Whether this process confirmed that it no longer holds the lease.
     has_released_lease: bool,
+    /// Upgrades until the last holder of the period's local store lets it go and the store closes.
+    local_store: Weak<EngineLocalStore>,
 }
 
 /// Every component of one serving period, in start order.
@@ -375,6 +380,7 @@ struct ServerNode {
     search_projection: Option<SearchProjection>,
     attribute_sync: AttributeSyncService,
     held_lease: HeldNodeLease,
+    local_store: Weak<EngineLocalStore>,
 }
 
 /// What the engine's command and effect hooks factory builds; captured so the node can own it after start.
@@ -382,6 +388,7 @@ struct ServerNodeStartupParts {
     registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
     partition_hasher: PartitionHasher,
+    local_store: Weak<EngineLocalStore>,
 }
 
 impl ServerNode {
@@ -467,6 +474,7 @@ impl ServerNode {
         };
         let command_and_effect_hooks_factory = |services: EngineServices| {
             let partition_hasher = services.partition_hasher.clone();
+            let local_store = Arc::downgrade(&services.local_store);
             let hard_delete_objects = HardDeleteObjects::new(
                 object_stores.hard_delete.clone(),
                 Arc::new(NodeMetaUploadLedger::new(
@@ -526,6 +534,7 @@ impl ServerNode {
                     registry,
                     effect_tasks,
                     partition_hasher,
+                    local_store,
                 });
             hooks
         };
@@ -612,6 +621,7 @@ impl ServerNode {
             registry,
             effect_tasks,
             partition_hasher,
+            local_store,
         } = parts.expect("the engine calls the runtime factory before it starts serving");
         let (search_backend, search_projection) = match sql_visibility_search {
             Some(sql_visibility_search) => (
@@ -680,6 +690,7 @@ impl ServerNode {
             search_projection,
             attribute_sync,
             held_lease,
+            local_store,
         })))
     }
 
@@ -732,6 +743,18 @@ impl ServerNode {
             if let Some(step_down) = request.answer_description(&self.held_lease)
                 && let Some(step_down) = step_down.check_precondition(&self.held_lease)
             {
+                // The select picks a ready branch at random, so a stop may race the step down.
+                let stop_reason = self.engine.stop_reason().or_else(|| {
+                    registry_halted
+                        .is_cancelled()
+                        .then(|| NodeStopReason::CommitPipelineFailed {
+                            detail: "the Flow runtime registry halted".to_owned(),
+                        })
+                });
+                if let Some(reason) = stop_reason {
+                    step_down.report_internal_failure(format!("the node stopped: {reason}"));
+                    return PeriodEnd::Failed(ServerError::NodeStopped { reason });
+                }
                 return PeriodEnd::StepDown(step_down);
             }
         }
@@ -750,6 +773,7 @@ impl ServerNode {
             search_projection,
             attribute_sync,
             held_lease: _,
+            local_store,
         } = self;
         metrics.set_role(dexzd_metrics::NodeRole::Draining);
         let mut teardown = BoundedTeardown::start();
@@ -761,6 +785,7 @@ impl ServerNode {
             PeriodStopKind::Shutdown => grpc.stop.cancel(),
             PeriodStopKind::StepDown => grpc.deactivate_public_services(),
         }
+        let public_calls_ended = grpc.public_calls_ended();
         let drain = async {
             tokio::join!(
                 async {
@@ -775,6 +800,12 @@ impl ServerNode {
                     }
                 },
                 registry.wait_for_rpc_tasks(),
+                async {
+                    // Public calls on a stepped-down instance still hold the local store open.
+                    if kind == PeriodStopKind::StepDown {
+                        public_calls_ended.await;
+                    }
+                },
             );
         };
         if tokio::time::timeout(GRPC_DRAIN_BUDGET, drain)
@@ -830,6 +861,7 @@ impl ServerNode {
         PeriodStop {
             teardown,
             has_released_lease,
+            local_store,
         }
     }
 }
@@ -931,62 +963,5 @@ impl CommittedSearchViewProvider for CommittedSearchViews {
             .committed_view()
             .map_err(|error| SearchError::Unavailable(error.to_string()))?;
         Ok(Arc::new(view))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_step_budgets_total_the_documented_shutdown_budget() {
-        assert_eq!(SHUTDOWN_BUDGET, Duration::from_secs(15));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_slow_embedded_s3_close_uses_the_budget_that_earlier_steps_left() {
-        let mut teardown = BoundedTeardown::start();
-        teardown.run("engine", ENGINE_STOP_BUDGET, async {}).await;
-        teardown
-            .run(
-                "embedded S3",
-                embedded_s3_stop_budget(&teardown),
-                tokio::time::sleep(Duration::from_secs(3)),
-            )
-            .await;
-        let finished = teardown.finish(Ok(()));
-        assert!(finished.is_ok(), "{finished:?}");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_stalled_embedded_s3_ends_at_the_shutdown_budget_or_after_its_minimum() {
-        let slowest_earlier_steps = SHUTDOWN_BUDGET.saturating_sub(EMBEDDED_S3_MINIMUM_STOP_BUDGET);
-        for earlier_steps in [
-            Duration::ZERO,
-            Duration::from_secs(5),
-            slowest_earlier_steps,
-            Duration::from_secs(14),
-        ] {
-            let started = tokio::time::Instant::now();
-            let mut teardown = BoundedTeardown::start();
-            tokio::time::sleep(earlier_steps).await;
-            let budget = embedded_s3_stop_budget(&teardown);
-            teardown
-                .run("embedded S3", budget, std::future::pending())
-                .await;
-            assert_eq!(
-                started.elapsed(),
-                SHUTDOWN_BUDGET.max(earlier_steps + EMBEDDED_S3_MINIMUM_STOP_BUDGET),
-                "after {earlier_steps:?}"
-            );
-            let expected = format!("embedded S3 exceeded its {} ms budget", budget.as_millis());
-            assert!(
-                matches!(
-                    teardown.finish(Ok(())),
-                    Err(ServerError::ShutdownIncomplete { steps }) if steps == expected
-                ),
-                "after {earlier_steps:?}"
-            );
-        }
     }
 }

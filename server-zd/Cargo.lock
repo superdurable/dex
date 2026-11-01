@@ -1376,6 +1376,7 @@ dependencies = [
  "dexzd-visibility-query",
  "dexzd-worker-dispatch",
  "futures",
+ "http-body-util",
  "humantime-serde",
  "libc",
  "prometheus-client",

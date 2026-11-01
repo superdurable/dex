@@ -119,6 +119,14 @@ impl StepDownRequest {
         None
     }
 
+    /// Answers that the node stopped instead of stepping down; the process then exits.
+    pub(in crate::server_node) fn report_internal_failure(self, detail: String) {
+        send(
+            self.reply,
+            Err(ActiveNodeStepDownError::Internal { detail }),
+        );
+    }
+
     pub(in crate::server_node) fn report_unconfirmed_release(self, detail: String) {
         send(
             self.reply,

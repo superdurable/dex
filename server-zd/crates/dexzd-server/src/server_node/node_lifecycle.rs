@@ -17,13 +17,13 @@ pub(super) use active_node_requests::{
 };
 pub(super) use lease_holder_id_source::LeaseHolderRecordingIdSource;
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_cluster_metadata::{LeaseValidityDeadline, read_node_lease};
 use dexzd_engine::{
-    CommandApplier, DeterministicCommandApplier, HotStandby, HotStandbyConfig,
+    CommandApplier, DeterministicCommandApplier, EngineLocalStore, HotStandby, HotStandbyConfig,
     HotStandbyDependencies,
 };
 use dexzd_metrics::{NodeMetrics, NodeRole, TakeoverStandbyMode};
@@ -35,7 +35,7 @@ use tokio_util::sync::CancellationToken;
 use self::active_node_requests::PendingStepDownAnswer;
 use self::standby_status::{StandbyAcquisitionDelay, StandbyStatusPublisher};
 use super::bounded_teardown::BoundedTeardown;
-use super::grpc_server::{GrpcServer, GrpcSettings};
+use super::grpc_server::{GrpcInstancePhase, GrpcServer, GrpcSettings};
 use super::{
     EngineStart, GRPC_DRAIN_BUDGET, PeriodEnd, PeriodStopKind, ServerNode, ServerNodeStart,
     embedded_s3_stop_budget, until_cancelled,
@@ -52,6 +52,9 @@ const SUCCESSOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// First wait before a takeover retries after an error before the lease; later waits double.
 const TAKEOVER_RETRY_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const TAKEOVER_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// Bounds the wait for a stepped-down period's local store to close before this process reopens it.
+const LOCAL_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(5);
+const LOCAL_STORE_CLOSE_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Everything one process keeps across serving periods.
 pub(super) struct ProcessParts {
@@ -81,6 +84,8 @@ pub(super) struct NodeLifecycle {
     grpc: GrpcServer,
     requests: mpsc::Receiver<AdministrationRequest>,
     node: ServerNode,
+    /// Earlier gRPC instances that finish their open calls in the background.
+    retirements: Vec<JoinHandle<()>>,
 }
 
 impl NodeLifecycle {
@@ -142,13 +147,18 @@ impl NodeLifecycle {
         )
         .await;
         match started {
-            Ok(Some(node)) => Ok(Some(Self {
-                process,
-                grpc_settings,
-                grpc,
-                requests,
-                node,
-            })),
+            Ok(Some(node)) => {
+                let mut grpc = grpc;
+                let retirement = tokio::spawn(swap_in_serving_instance(&mut grpc, &grpc_settings));
+                Ok(Some(Self {
+                    process,
+                    grpc_settings,
+                    grpc,
+                    requests,
+                    node,
+                    retirements: vec![retirement],
+                }))
+            }
             Ok(None) => {
                 grpc.abort().await;
                 Ok(None)
@@ -173,6 +183,7 @@ impl NodeLifecycle {
             mut grpc,
             mut requests,
             mut node,
+            mut retirements,
         } = self;
         let (cancellation_sender, mut cancellation) = watch::channel(false);
         let shutdown_watch = shutdown_request.clone();
@@ -180,7 +191,6 @@ impl NodeLifecycle {
             shutdown_watch.cancelled().await;
             cancellation_sender.send_replace(true);
         });
-        let mut retirements: Vec<JoinHandle<()>> = Vec::new();
         let (outcome, mut teardown) = loop {
             let end = node
                 .serve_until_stopped(&mut grpc, &shutdown_request, &mut requests)
@@ -206,7 +216,11 @@ impl NodeLifecycle {
             let stopped = node.stop(&mut grpc, PeriodStopKind::StepDown).await;
             // The old instance keeps the step down call's connection until the answer goes out.
             let (answered, answer_sent) = oneshot::channel();
-            let retiring = std::mem::replace(&mut grpc, GrpcServer::start(&grpc_settings));
+            let retiring = std::mem::replace(
+                &mut grpc,
+                GrpcServer::start(&grpc_settings, GrpcInstancePhase::Standby),
+            );
+            prune_finished_retirements(&mut retirements).await;
             let retirement = tokio::spawn(retiring.retire_after(answer_sent, GRPC_DRAIN_BUDGET));
             retirements.push(retirement);
             let teardown_result = stopped.teardown.finish(Ok(()));
@@ -232,6 +246,12 @@ impl NodeLifecycle {
                 hold_off_until: Some(Instant::now() + hold_off),
                 pending,
             };
+            if !wait_for_local_store_close(stopped.local_store, &mut cancellation).await {
+                if let Some(waiting) = entry.pending {
+                    waiting.answer_unknown("the process stopped during the step down".to_owned());
+                }
+                break (Ok(()), BoundedTeardown::start());
+            }
             match acquire_serving_node(
                 &process,
                 &grpc_settings,
@@ -241,7 +261,13 @@ impl NodeLifecycle {
             )
             .await
             {
-                Ok(Some(serving)) => node = serving,
+                Ok(Some(serving)) => {
+                    node = serving;
+                    prune_finished_retirements(&mut retirements).await;
+                    let retirement =
+                        tokio::spawn(swap_in_serving_instance(&mut grpc, &grpc_settings));
+                    retirements.push(retirement);
+                }
                 Ok(None) => break (Ok(()), BoundedTeardown::start()),
                 Err(error) => break (Err(error), BoundedTeardown::start()),
             }
@@ -562,6 +588,58 @@ async fn wait_refusing_requests(
             Some(request) = requests.recv() => request.refuse_not_active(state),
         }
     }
+}
+
+/// Replaces the standby instance with a serving one; returns the standby instance's retirement to spawn.
+fn swap_in_serving_instance(
+    grpc: &mut GrpcServer,
+    grpc_settings: &GrpcSettings,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    let standby_instance = std::mem::replace(
+        grpc,
+        GrpcServer::start(grpc_settings, GrpcInstancePhase::Serving),
+    );
+    // A standby instance owes no step down answer, so it may send GOAWAY at once.
+    let (answered, answer_sent) = oneshot::channel();
+    drop(answered);
+    standby_instance.retire_after(answer_sent, GRPC_DRAIN_BUDGET)
+}
+
+/// Awaits the retirements that already ended, so the list holds only running ones.
+async fn prune_finished_retirements(retirements: &mut Vec<JoinHandle<()>>) {
+    let (finished, running): (Vec<_>, Vec<_>) =
+        retirements.drain(..).partition(JoinHandle::is_finished);
+    *retirements = running;
+    for retirement in finished {
+        if let Err(error) = retirement.await {
+            tracing::warn!(%error, "retiring a gRPC server failed");
+        }
+    }
+}
+
+/// Waits until nothing holds the stepped-down period's local store, so reopening it finds no lock.
+///
+/// Returns `false` when `cancellation` arrives first; after the budget it returns `true` anyway.
+async fn wait_for_local_store_close(
+    local_store: Weak<EngineLocalStore>,
+    cancellation: &mut watch::Receiver<bool>,
+) -> bool {
+    let deadline = Instant::now() + LOCAL_STORE_CLOSE_BUDGET;
+    while local_store.strong_count() > 0 {
+        if Instant::now() >= deadline {
+            tracing::warn!("the stepped-down local store is still open; standing by anyway");
+            return true;
+        }
+        tokio::select! {
+            () = tokio::time::sleep(LOCAL_STORE_CLOSE_POLL_INTERVAL) => {}
+            changed = cancellation.changed() => {
+                if changed.is_err() || *cancellation.borrow() {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 async fn shut_down_standby(standby: HotStandby) {
