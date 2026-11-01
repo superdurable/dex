@@ -95,6 +95,11 @@ impl ObjectStoreInspector {
         headers
     }
 
+    /// Returns the key of every log batch object of the node, in key order.
+    pub(crate) async fn log_batch_keys(&self) -> Vec<String> {
+        self.keys_under(&format!("log/{NODE_ID}/")).await
+    }
+
     /// Returns the seq of the newest log batch object, or 0 if there is none.
     pub(crate) async fn newest_log_seq(&self) -> u64 {
         self.keys_under(&format!("log/{NODE_ID}/"))

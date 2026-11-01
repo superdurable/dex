@@ -8,10 +8,12 @@
 
 //! Failover tests of `serve` processes of one node ID, checking writes, serving, leases, and deadlines.
 
+mod hot_standby_failover;
 mod lease_epochs;
 mod node_group;
 mod object_store_endpoints;
 mod readiness_router;
+mod step_down;
 
 use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
@@ -22,23 +24,37 @@ use tokio::time::Instant;
 
 use crate::PRIMARY_PREFIX;
 use crate::robustness::workload::{LoadShape, ReconnectingWorker, RunningLoad, Workload};
-use node_group::{DirectoryFate, NodeGroup, ProcessSignal, SlotSettings};
+use node_group::{
+    DirectoryFate, LOG_DELETION_DELAY, NodeGroup, ProcessSignal, SNAPSHOT_INTERVAL, SlotSettings,
+    SlotStandbyMode,
+};
 use object_store_endpoints::ObjectStoreFault;
 
 const FIRST: usize = 0;
 const SECOND: usize = 1;
-/// `first` starts active with a lease that rides out host stalls; `second` keeps a longer one.
-const SLOTS: [SlotSettings<'static>; 2] = [
-    SlotSettings {
-        name: "first",
-        lease_duration: "6s",
-    },
-    SlotSettings {
-        name: "second",
-        lease_duration: "15s",
-    },
-];
-const FIRST_LEASE_DURATION: Duration = Duration::from_secs(6);
+/// `first` starts active with a short lease; `second` keeps a long lease through host stalls.
+const SLOTS: [SlotSettings<'static>; 2] = slots(SlotStandbyMode::Cold);
+const HOT_SLOTS: [SlotSettings<'static>; 2] = slots(SlotStandbyMode::Hot);
+
+const fn slots(standby_mode: SlotStandbyMode) -> [SlotSettings<'static>; 2] {
+    [
+        SlotSettings {
+            name: "first",
+            lease_duration: "3s",
+            standby_mode,
+            snapshot_interval: SNAPSHOT_INTERVAL,
+            log_deletion_delay: LOG_DELETION_DELAY,
+        },
+        SlotSettings {
+            name: "second",
+            lease_duration: "15s",
+            standby_mode,
+            snapshot_interval: SNAPSHOT_INTERVAL,
+            log_deletion_delay: LOG_DELETION_DELAY,
+        },
+    ]
+}
+const FIRST_LEASE_DURATION: Duration = Duration::from_secs(3);
 const LOAD_SHAPE: LoadShape = LoadShape {
     chain_starters: 4,
     timer_starters: 2,
@@ -53,6 +69,8 @@ const STARTUP_BUDGET: Duration = Duration::from_secs(30);
 const TAKEOVER_BUDGET: Duration = Duration::from_secs(30);
 /// A cold standby reads a held lease at most once a second; the rest is margin for loaded hosts.
 const COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_secs(3);
+/// A hot standby reads a held lease every 250 ms; the rest is margin for loaded hosts.
+const HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND: Duration = Duration::from_millis(1500);
 const STANDBY_BUDGET: Duration = Duration::from_secs(30);
 /// A slow object store that the active still serves through.
 const SLOW_OBJECT_STORE_LATENCY: Duration = Duration::from_millis(50);
@@ -72,7 +90,7 @@ const SPANNING_TIMER_DURATION: Duration = Duration::from_secs(3);
 /// P1, crash failover: SIGKILL of the active under load hands the node to the waiting cold standby.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn killed_active_under_load_hands_over_to_the_cold_standby() {
-    let mut scenario = FailoverScenario::start("killed-active").await;
+    let mut scenario = FailoverScenario::start("killed-active", &SLOTS).await;
     let group = &mut scenario.group;
     // A standby paused under load resumes waiting and never serves beside the live active.
     group.signal(SECOND, ProcessSignal::Stop).await;
@@ -111,7 +129,7 @@ async fn killed_active_under_load_hands_over_to_the_cold_standby() {
 /// P6, double failure: the active and the standby die together; after both restart, one recovers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn killing_active_and_standby_together_recovers_after_both_restart() {
-    let mut scenario = FailoverScenario::start("both-killed").await;
+    let mut scenario = FailoverScenario::start("both-killed", &SLOTS).await;
     let group = &mut scenario.group;
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -140,7 +158,7 @@ async fn killing_active_and_standby_together_recovers_after_both_restart() {
 /// P12, lost object storage: the active stops serving at its validity end; the cold standby takes over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn active_that_loses_object_storage_hands_over_to_the_cold_standby() {
-    let mut scenario = FailoverScenario::start("lost-storage").await;
+    let mut scenario = FailoverScenario::start("lost-storage", &SLOTS).await;
     let group = &mut scenario.group;
     group
         .object_store(FIRST)
@@ -189,7 +207,7 @@ async fn active_that_loses_object_storage_hands_over_to_the_cold_standby() {
 /// P12, late writes: a stalled active's held writes land after the takeover and are fenced.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_writes_of_a_stalled_active_are_fenced_after_the_takeover() {
-    let mut scenario = FailoverScenario::start("late-writes").await;
+    let mut scenario = FailoverScenario::start("late-writes", &SLOTS).await;
     let group = &mut scenario.group;
     group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -254,14 +272,17 @@ struct FailoverScenario {
     workload: Workload,
     worker: ReconnectingWorker,
     load: RunningLoad,
+    /// The longest time a standby may take to write a lease after it became available.
+    takeover_bound: Duration,
     _directory: TempDir,
 }
 
 impl FailoverScenario {
-    async fn start(phase: &str) -> Self {
+    /// Starts `first` serving under load and `second` as a standby of the slots' mode.
+    async fn start(phase: &str, slots: &[SlotSettings<'_>]) -> Self {
         let directory = TempDir::new().expect("a temporary test directory can be created");
         let workload = Workload::new();
-        let mut group = NodeGroup::start(directory.path(), &workload, &SLOTS).await;
+        let mut group = NodeGroup::start(directory.path(), &workload, slots).await;
         group.spawn(FIRST);
         assert_eq!(group.wait_for_serving(STARTUP_BUDGET).await, FIRST);
         let worker = workload.start_reconnecting_worker(group.router_address());
@@ -270,12 +291,21 @@ impl FailoverScenario {
             .await;
         let load = workload.start_shaped_load(group.router_address(), phase, &LOAD_SHAPE);
         group.spawn(SECOND);
-        group.wait_for_standby(SECOND, STANDBY_BUDGET).await;
+        if slots[SECOND].standby_mode == SlotStandbyMode::Hot {
+            group.wait_for_hot_standby(SECOND, STANDBY_BUDGET).await;
+        } else {
+            group.wait_for_standby(SECOND, STANDBY_BUDGET).await;
+        }
+        let takeover_bound = match slots[SECOND].standby_mode {
+            SlotStandbyMode::Cold => COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+            SlotStandbyMode::Hot => HOT_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+        };
         Self {
             group,
             workload,
             worker,
             load,
+            takeover_bound,
             _directory: directory,
         }
     }
@@ -294,13 +324,13 @@ impl FailoverScenario {
 
     /// Adds load after the recovery, verifies the ledger, stops the group, and checks the takeover.
     async fn finish(self, test: &str, failed_at: Instant, details: String) {
-        // The directory stays in `self`, so a panic dumps process logs before it is deleted.
         let Self {
             mut group,
             workload,
             worker,
             load,
-            ..
+            takeover_bound,
+            _directory,
         } = self;
         group
             .wait_for_progress(&workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -317,7 +347,7 @@ impl FailoverScenario {
         assert!(report.serving_periods() >= 2, "{report}");
         assert!(report.observed_lease_holders() >= 2, "{report}");
         assert!(
-            report.longest_takeover_after_availability() <= COLD_TAKEOVER_AFTER_AVAILABILITY_BOUND,
+            report.longest_takeover_after_availability() <= takeover_bound,
             "{report}"
         );
         eprintln!(

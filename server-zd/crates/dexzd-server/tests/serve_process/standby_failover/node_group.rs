@@ -12,12 +12,19 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use dexzd_api::HOT_STANDBY_HEALTH_SERVICE_NAME;
+use dexzd_protocol::dex::admin_service_client::AdminServiceClient;
+use dexzd_protocol::dex::{
+    DescribeActiveNodeRequest, DescribeActiveNodeResponse, StepDownActiveNodeRequest,
+    StepDownActiveNodeResponse,
+};
 use tokio::time::Instant;
 use tonic::transport::Channel;
+use tonic_health::pb::HealthCheckRequest;
+use tonic_health::pb::health_check_response::ServingStatus;
+use tonic_health::pb::health_client::HealthClient;
 
 use super::lease_epochs::{LeaseHistory, LeaseReport};
 use super::object_store_endpoints::{ObjectStoreEndpoint, ObjectStoreFault};
@@ -31,10 +38,10 @@ use crate::robustness::processes::{
 };
 use crate::robustness::workload::{VerificationReport, Workload};
 
-/// No snapshot or log cleanup during a test, so recovery always replays the log.
-const SNAPSHOT_INTERVAL: &str = "1h";
-/// A short log deletion delay would let a waiting standby lose writes, a separate known defect.
-const LOG_DELETION_DELAY: &str = "24h";
+/// No snapshot or log cleanup by default, so recovery replays the log.
+pub(crate) const SNAPSHOT_INTERVAL: &str = "1h";
+pub(crate) const LOG_DELETION_DELAY: &str = "24h";
+const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_millis(500);
 const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// Log line of a failed lease renewal attempt that the process retries after a logged backoff.
 const RENEWAL_RETRY_MARKER: &str = "node lease renewal attempt failed; retrying";
@@ -50,6 +57,16 @@ pub(crate) struct SlotSettings<'a> {
     pub(crate) name: &'a str,
     /// The lease this slot's processes write when they hold it, such as `3s`.
     pub(crate) lease_duration: &'a str,
+    pub(crate) standby_mode: SlotStandbyMode,
+    pub(crate) snapshot_interval: &'a str,
+    pub(crate) log_deletion_delay: &'a str,
+}
+
+/// Whether a slot's processes follow the log while they wait for the lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SlotStandbyMode {
+    Cold,
+    Hot,
 }
 
 /// What happens to a slot's local directory before its next process starts.
@@ -143,15 +160,8 @@ impl GroupReport {
     }
 }
 
-/// Node groups that may run at once; more starve each other's lease renewals on a small host.
-static NODE_GROUP_PERMITS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
-    let cpus = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
-    Arc::new(Semaphore::new((cpus / 4).clamp(2, 4)))
-});
-
 /// Serve processes of one node ID, signalled and restarted per slot, behind [`Self::router_address`].
 pub(crate) struct NodeGroup {
-    _running_permit: OwnedSemaphorePermit,
     emulator: DurableEmulator,
     fleet: ServeFleet,
     slots: Vec<NodeSlot>,
@@ -169,10 +179,6 @@ impl NodeGroup {
         workload: &Workload,
         settings: &[SlotSettings<'_>],
     ) -> Self {
-        let running_permit = Arc::clone(&NODE_GROUP_PERMITS)
-            .acquire_owned()
-            .await
-            .expect("the node group semaphore is never closed");
         let emulator = DurableEmulator::start().await;
         let inspector = ObjectStoreInspector::connect(&emulator.endpoint()).await;
         let mut slots = Vec::new();
@@ -187,10 +193,16 @@ impl NodeGroup {
                 listen: address,
                 local_directory: &local_directory,
                 lease_duration: slot.lease_duration,
-                snapshot_interval: SNAPSHOT_INTERVAL,
-                log_deletion_delay: LOG_DELETION_DELAY,
+                snapshot_interval: slot.snapshot_interval,
+                log_deletion_delay: slot.log_deletion_delay,
             }
             .write_with_metrics(&config_path, metrics_address);
+            if slot.standby_mode == SlotStandbyMode::Hot {
+                let mut contents =
+                    std::fs::read_to_string(&config_path).expect("the configuration is readable");
+                contents.push_str("standby:\n  mode: hot\n");
+                std::fs::write(&config_path, contents).expect("the configuration is written");
+            }
             slots.push(NodeSlot {
                 name: slot.name.to_owned(),
                 config_path,
@@ -215,7 +227,6 @@ impl NodeGroup {
         )
         .await;
         Self {
-            _running_permit: running_permit,
             emulator,
             fleet: ServeFleet::new(directory, workload.summary_source()),
             slots,
@@ -236,6 +247,36 @@ impl NodeGroup {
         Channel::from_shared(format!("http://{}", self.router.address()))
             .expect("the router address is a valid URI")
             .connect_lazy()
+    }
+
+    /// Returns how many processes `slot` started so far.
+    pub(crate) fn process_starts(&self, slot: usize) -> usize {
+        self.slots[slot].process_count
+    }
+
+    /// Returns the address that `slot`'s processes serve the API on.
+    pub(crate) fn api_address(&self, slot: usize) -> SocketAddr {
+        self.slots[slot].address
+    }
+
+    /// Returns the first and the newest seq of the node's log batches in object storage.
+    pub(crate) async fn log_seq_range(&self) -> (u64, u64) {
+        let inspector = ObjectStoreInspector::connect(&self.emulator.endpoint()).await;
+        let seqs: Vec<u64> = inspector
+            .log_batch_keys()
+            .await
+            .iter()
+            .map(|key| {
+                key.rsplit('/')
+                    .next()
+                    .and_then(|seq| seq.parse().ok())
+                    .unwrap_or_else(|| panic!("{key} does not end with a log seq"))
+            })
+            .collect();
+        (
+            seqs.iter().copied().min().unwrap_or(0),
+            seqs.iter().copied().max().unwrap_or(0),
+        )
     }
 
     /// Returns the object store endpoint that only `slot`'s processes use.
@@ -467,6 +508,123 @@ impl NodeGroup {
             );
             tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
         }
+    }
+
+    /// Waits up to `budget` until `slot`'s process reports `dex.HotStandby` SERVING; returns the wait.
+    pub(crate) async fn wait_for_hot_standby(&mut self, slot: usize, budget: Duration) -> Duration {
+        let started = Instant::now();
+        let channel = Channel::from_shared(format!("http://{}", self.slots[slot].address))
+            .expect("the slot address is a valid URI")
+            .connect_lazy();
+        let mut health = HealthClient::new(channel);
+        loop {
+            self.supervise();
+            let check = health.check(HealthCheckRequest {
+                service: HOT_STANDBY_HEALTH_SERVICE_NAME.to_owned(),
+            });
+            if self.slots[slot].process.is_some()
+                && let Ok(Ok(response)) = tokio::time::timeout(HEALTH_CHECK_TIMEOUT, check).await
+                && response.get_ref().status == ServingStatus::Serving as i32
+            {
+                return started.elapsed();
+            }
+            assert!(
+                started.elapsed() < budget,
+                "slot {} did not become a hot standby within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Waits up to `budget` until `slot`'s process reports the `dexzd_node_role` `role`.
+    pub(crate) async fn wait_for_role(&mut self, slot: usize, role: &str, budget: Duration) {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.supervise();
+            if self
+                .metric_sample(slot, "dexzd_node_role", "role", role)
+                .await
+                == Some(1.0)
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "slot {} did not report role {role} within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Waits up to `budget` until `slot`'s process reports the hot standby `state`.
+    pub(crate) async fn wait_for_hot_standby_state(
+        &mut self,
+        slot: usize,
+        state: &str,
+        budget: Duration,
+    ) {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.supervise();
+            if self
+                .metric_sample(slot, "dexzd_hot_standby_state", "state", state)
+                .await
+                == Some(1.0)
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "slot {} did not report hot standby state {state} within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Returns a labelled sample of `slot`'s metrics, or `None` while its listener is down.
+    async fn metric_sample(
+        &self,
+        slot: usize,
+        name: &str,
+        label: &str,
+        value: &str,
+    ) -> Option<f64> {
+        let metrics = try_scrape(self.slots[slot].metrics_address, "/metrics")
+            .await
+            .ok()?;
+        metrics
+            .starts_with("HTTP/1.1 200")
+            .then(|| sample_with_label(&metrics, name, label, value))
+    }
+
+    /// Asks the active process, through the router, to step down.
+    pub(crate) async fn step_down_active(
+        &self,
+        expected_node_epoch: Option<u64>,
+    ) -> Result<StepDownActiveNodeResponse, tonic::Status> {
+        AdminServiceClient::new(self.router_channel())
+            .step_down_active_node(StepDownActiveNodeRequest {
+                expected_node_epoch,
+            })
+            .await
+            .map(tonic::Response::into_inner)
+    }
+
+    /// Describes the active process of `slot` directly, without the router.
+    pub(crate) async fn describe(
+        &self,
+        slot: usize,
+    ) -> Result<DescribeActiveNodeResponse, tonic::Status> {
+        let channel = Channel::from_shared(format!("http://{}", self.slots[slot].address))
+            .expect("the slot address is a valid URI")
+            .connect_lazy();
+        AdminServiceClient::new(channel)
+            .describe_active_node(DescribeActiveNodeRequest {})
+            .await
+            .map(tonic::Response::into_inner)
     }
 
     /// Waits until the load acknowledges `count` more calls and every counter one more increment.

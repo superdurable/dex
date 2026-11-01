@@ -30,10 +30,8 @@ pub(crate) enum ObjectStoreFault {
     /// Delays every request by this long before s3mock handles it.
     Latency(Duration),
     /// Fails each request with 503 SlowDown with this probability, before it reaches the store.
-    #[expect(dead_code, reason = "the hot standby fault tests inject 5xx bursts")]
     ServiceUnavailable { probability: f64 },
     /// Holds every request past the client's timeout; s3mock then drops it unhandled.
-    #[expect(dead_code, reason = "the hot standby fault tests inject timeouts")]
     Timeouts,
     /// Holds requests until cleared; clearing runs only those whose connection stayed open.
     Blackhole,
