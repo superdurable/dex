@@ -697,6 +697,7 @@ impl NodeGroup {
         expected_node_id: Option<String>,
         expected_node_epoch: Option<u64>,
     ) -> Result<StepDownActiveNodeResponse, tonic::Status> {
+        self.note_possible_release();
         AdminServiceClient::new(self.router_channel())
             .step_down_active_node(StepDownActiveNodeRequest {
                 expected_node_id,
@@ -704,6 +705,11 @@ impl NodeGroup {
             })
             .await
             .map(tonic::Response::into_inner)
+    }
+
+    /// Records that the active may release the lease from now on, as before a step down call.
+    pub(crate) fn note_possible_release(&self) {
+        self.lease_history.note_possible_release();
     }
 
     /// Describes the active process of `slot` directly, without the router.

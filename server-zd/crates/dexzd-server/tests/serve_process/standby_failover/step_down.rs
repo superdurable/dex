@@ -204,6 +204,7 @@ async fn step_down_racing_an_active_crash_hands_over_to_the_hot_standby() {
         .await;
     let crashed_at = scenario.start_timers_spanning_the_failure().await;
     let group = &mut scenario.group;
+    group.note_possible_release();
     let step_down = tokio::spawn(step_down_through(group.router_channel()));
     tokio::time::sleep(STEP_DOWN_SEND_WINDOW).await;
     group.signal(FIRST, ProcessSignal::Kill).await;
@@ -243,6 +244,7 @@ async fn step_down_hands_over_to_a_standby_that_is_behind() {
         .await;
     let stepped_down_at = scenario.start_timers_spanning_the_failure().await;
     let group = &mut scenario.group;
+    group.note_possible_release();
     let step_down = tokio::spawn(step_down_through(group.router_channel()));
     // The behind standby writes the lease after its delay; then its reads may speed up.
     group

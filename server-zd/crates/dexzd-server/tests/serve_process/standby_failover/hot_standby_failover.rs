@@ -378,13 +378,10 @@ async fn late_writes_of_a_stalled_active_are_fenced_after_a_hot_takeover() {
         .await;
     let lost_at = scenario.start_timers_spanning_the_failure().await;
     let group = &mut scenario.group;
-    group
-        .object_store(FIRST)
-        .inject(ObjectStoreFault::Blackhole)
-        .await;
     // The fault window under test: the load keeps the active writing into the blackhole.
-    tokio::time::sleep(super::HELD_WRITES_WINDOW).await;
-    group.signal(FIRST, ProcessSignal::Stop).await;
+    group
+        .blackhole_and_freeze_during_a_lease_renewal(FIRST, super::RENEWAL_FREEZE_BUDGET)
+        .await;
     assert_eq!(
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
@@ -395,14 +392,9 @@ async fn late_writes_of_a_stalled_active_are_fenced_after_a_hot_takeover() {
         .await;
     group.heal_object_store(FIRST).await;
     let late_writes = group
-        .wait_for_held_puts(FIRST, super::LATE_WRITES_BUDGET)
+        .wait_for_held_puts(FIRST, &super::lease_key_prefix(), super::LATE_WRITES_BUDGET)
         .await;
-    assert!(
-        late_writes
-            .iter()
-            .all(|(_, status)| *status == 200 || *status == 412),
-        "{late_writes:?}"
-    );
+    super::assert_late_writes_were_fenced(&late_writes);
     group.signal(FIRST, ProcessSignal::Kill).await;
     group.restart(FIRST, DirectoryFate::Keep);
     group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
