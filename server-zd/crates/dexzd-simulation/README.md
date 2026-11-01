@@ -197,8 +197,9 @@ closed stream's recorded end. A hot standby's frames feed the shadow too, so a s
 a batch that no other process applied cannot match a twin that lacks it as well. Because a
 standby can apply a frame before the serving process does, a check skips the twin comparison
 while the shadow holds a frame above the serving store's position, and counts the skip in
-`comparisons_skipped_behind_shadow`. After the calm tail the serving store must have caught up
-(`store-behind-shadow`).
+`comparisons_skipped_behind_shadow`. The calm tail ends with one more twin comparison, which only
+a pending hard-delete upload may skip; a serving store still behind fails with
+`store-behind-shadow`. The hot standby profile allows at most 1% skipped comparisons.
 
 The log itself is checked too. Copies of one log position must hold the same commands, and a
 partition never applies a new frame below one it already applied. No process applies a frame

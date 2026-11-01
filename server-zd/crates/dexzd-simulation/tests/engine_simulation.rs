@@ -265,6 +265,24 @@ fn hot_standby_takeovers_keep_every_invariant() {
         total.incarnation_changes > 0,
         "no standby followed across an incarnation change: {total:#?}"
     );
+    assert!(
+        total.comparisons_skipped_behind_shadow * 100 <= total.state_comparisons,
+        "over 1% of the twin comparisons were skipped behind a standby: {total:#?}"
+    );
+    let warm_takeovers = total
+        .hot_standby_events
+        .get("warm-takeover")
+        .copied()
+        .unwrap_or(0);
+    let compared = total
+        .hot_standby_events
+        .get("warm-takeover-compared")
+        .copied()
+        .unwrap_or(0);
+    assert!(
+        compared * 10 >= warm_takeovers * 9,
+        "fewer than 90% of the warm takeovers were compared with the twin right away: {total:#?}"
+    );
 }
 
 #[test]

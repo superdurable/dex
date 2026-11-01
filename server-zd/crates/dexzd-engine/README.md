@@ -89,3 +89,5 @@ deduplication.
 4. The start fails with `InvalidConfig` when the standby, which may have bootstrapped while the start waited for the lease, follows another cluster. It checks that the standby used the configured store and that its write fence stopped only for the handover, not after a failed store write. It then checks that every applied position names this node, and reruns the gap check against the manifest read under the lease.
 5. When a check fails, or the standby had no store, the start opens or restores the configured store, as a start without a standby does. It first waits up to 30 seconds for a lane that outlived the handover to close a RocksDB store.
 6. The rest of the start is unchanged: a new applier pool with the real hooks, log replay from the applied positions, the EpochStart, and serving.
+
+`EngineNode::is_serving_hot_standby_store` reports whether a takeover served the standby's store or opened the configured store, for example to label takeover metrics.

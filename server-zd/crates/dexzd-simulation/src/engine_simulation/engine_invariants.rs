@@ -43,24 +43,25 @@ const APPLIED_COLUMN_FAMILIES: [ColumnFamily; 4] = [
     ColumnFamily::PartitionIndex,
 ];
 
-/// Checks invariant 1 at the end of a seed, and that the serving store applied every frame a
-/// standby applied, so no twin comparison stays skipped.
+/// Checks invariant 1 at the end of a seed, and compares the final serving store with the twin;
+/// only a pending hard-delete upload may still skip that comparison.
 pub(crate) fn check_acknowledged_writes_and_caught_up(
     records: &ClientRecords,
     committed_log: &CommittedLog,
     serving_store: Option<&EngineLocalStore>,
 ) -> Result<(), InvariantViolation> {
     check_acknowledged_writes(records, committed_log)?;
-    if let Some(store) = serving_store
-        && committed_log.is_shadow_ahead_of(store)?
-    {
-        return Err(InvariantViolation::new(
+    let Some(store) = serving_store else {
+        return Ok(());
+    };
+    match check_store_matches_log(store, committed_log)? {
+        TwinComparison::Compared | TwinComparison::SkippedForUploadLedger => Ok(()),
+        TwinComparison::SkippedBehindShadow => Err(InvariantViolation::new(
             "store-behind-shadow",
             "after the calm tail, the serving store still lacks frames a standby applied"
                 .to_owned(),
-        ));
+        )),
     }
-    Ok(())
 }
 
 /// Invariant 1: every acknowledged write is in the canonical committed log.
