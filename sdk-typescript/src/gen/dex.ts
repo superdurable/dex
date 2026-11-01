@@ -1685,6 +1685,38 @@ export interface TimerInfo {
   status: InternalTimerStatus;
 }
 
+/** Requests a step down of the active Server process that receives the call. */
+export interface StepDownActiveNodeRequest {
+}
+
+/** Reports a completed step down and what the process observed before returning. */
+export interface StepDownActiveNodeResponse {
+  /** Node ID whose active process stepped down. */
+  nodeId: string;
+  /** Node epoch of the node lease that the process released. */
+  releasedNodeEpoch: bigint;
+  /**
+   * The process that acquired the node lease before the call returned. Unset
+   * when no other process took over within the call.
+   */
+  observedTakeover:
+    | ActiveNodeTakeover
+    | undefined;
+  /**
+   * How long the stepped-down process waits before it competes for the node
+   * lease again.
+   */
+  leaseReacquisitionHoldOff: Duration | undefined;
+}
+
+/** Identifies another process of the same node ID that acquired a released node lease. */
+export interface ActiveNodeTakeover {
+  /** Node epoch that the new active process raised when it acquired the lease. */
+  nodeEpoch: bigint;
+  /** Random ID that the new active process recorded as the lease holder. */
+  holderProcessId: string;
+}
+
 function createBaseServerInfo(): ServerInfo {
   return { serverVersion: "", minimumSupportedProtocolVersion: 0, currentProtocolVersion: 0, serverEngine: 0 };
 }
@@ -15274,6 +15306,193 @@ export const TimerInfo: MessageFns<TimerInfo> = {
   },
 };
 
+function createBaseStepDownActiveNodeRequest(): StepDownActiveNodeRequest {
+  return {};
+}
+
+export const StepDownActiveNodeRequest: MessageFns<StepDownActiveNodeRequest> = {
+  encode(_: StepDownActiveNodeRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StepDownActiveNodeRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepDownActiveNodeRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepDownActiveNodeRequest>, I>>(base?: I): StepDownActiveNodeRequest {
+    return StepDownActiveNodeRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepDownActiveNodeRequest>, I>>(_: I): StepDownActiveNodeRequest {
+    const message = createBaseStepDownActiveNodeRequest();
+    return message;
+  },
+};
+
+function createBaseStepDownActiveNodeResponse(): StepDownActiveNodeResponse {
+  return { nodeId: "", releasedNodeEpoch: 0n, observedTakeover: undefined, leaseReacquisitionHoldOff: undefined };
+}
+
+export const StepDownActiveNodeResponse: MessageFns<StepDownActiveNodeResponse> = {
+  encode(message: StepDownActiveNodeResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.nodeId !== "") {
+      writer.uint32(10).string(message.nodeId);
+    }
+    if (message.releasedNodeEpoch !== 0n) {
+      if (BigInt.asUintN(64, message.releasedNodeEpoch) !== message.releasedNodeEpoch) {
+        throw new globalThis.Error("value provided for field message.releasedNodeEpoch of type uint64 too large");
+      }
+      writer.uint32(16).uint64(message.releasedNodeEpoch);
+    }
+    if (message.observedTakeover !== undefined) {
+      ActiveNodeTakeover.encode(message.observedTakeover, writer.uint32(26).fork()).join();
+    }
+    if (message.leaseReacquisitionHoldOff !== undefined) {
+      Duration.encode(message.leaseReacquisitionHoldOff, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StepDownActiveNodeResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepDownActiveNodeResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.nodeId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.releasedNodeEpoch = reader.uint64() as bigint;
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.observedTakeover = ActiveNodeTakeover.decode(reader, reader.uint32());
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.leaseReacquisitionHoldOff = Duration.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepDownActiveNodeResponse>, I>>(base?: I): StepDownActiveNodeResponse {
+    return StepDownActiveNodeResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepDownActiveNodeResponse>, I>>(object: I): StepDownActiveNodeResponse {
+    const message = createBaseStepDownActiveNodeResponse();
+    message.nodeId = object.nodeId ?? "";
+    message.releasedNodeEpoch = (object.releasedNodeEpoch !== undefined && object.releasedNodeEpoch !== null)
+      ? BigInt(object.releasedNodeEpoch)
+      : 0n;
+    message.observedTakeover = (object.observedTakeover !== undefined && object.observedTakeover !== null)
+      ? ActiveNodeTakeover.fromPartial(object.observedTakeover)
+      : undefined;
+    message.leaseReacquisitionHoldOff =
+      (object.leaseReacquisitionHoldOff !== undefined && object.leaseReacquisitionHoldOff !== null)
+        ? Duration.fromPartial(object.leaseReacquisitionHoldOff)
+        : undefined;
+    return message;
+  },
+};
+
+function createBaseActiveNodeTakeover(): ActiveNodeTakeover {
+  return { nodeEpoch: 0n, holderProcessId: "" };
+}
+
+export const ActiveNodeTakeover: MessageFns<ActiveNodeTakeover> = {
+  encode(message: ActiveNodeTakeover, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.nodeEpoch !== 0n) {
+      if (BigInt.asUintN(64, message.nodeEpoch) !== message.nodeEpoch) {
+        throw new globalThis.Error("value provided for field message.nodeEpoch of type uint64 too large");
+      }
+      writer.uint32(8).uint64(message.nodeEpoch);
+    }
+    if (message.holderProcessId !== "") {
+      writer.uint32(18).string(message.holderProcessId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ActiveNodeTakeover {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseActiveNodeTakeover();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.nodeEpoch = reader.uint64() as bigint;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.holderProcessId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ActiveNodeTakeover>, I>>(base?: I): ActiveNodeTakeover {
+    return ActiveNodeTakeover.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ActiveNodeTakeover>, I>>(object: I): ActiveNodeTakeover {
+    const message = createBaseActiveNodeTakeover();
+    message.nodeEpoch = (object.nodeEpoch !== undefined && object.nodeEpoch !== null) ? BigInt(object.nodeEpoch) : 0n;
+    message.holderProcessId = object.holderProcessId ?? "";
+    return message;
+  },
+};
+
 /** Hosted by Dex server; SDKs call these RPCs. */
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
@@ -16115,6 +16334,86 @@ export const WorkerTaskServiceClient = makeGenericClientConstructor(
 ) as unknown as {
   new (address: string, credentials: ChannelCredentials, options?: Partial<ClientOptions>): WorkerTaskServiceClient;
   service: typeof WorkerTaskServiceService;
+  serviceName: string;
+};
+
+/** Hosted by server-zd; operators call these RPCs through dexcli. */
+export type AdminServiceService = typeof AdminServiceService;
+export const AdminServiceService = {
+  /**
+   * Makes the active Server process of a node ID give up its node lease.
+   *
+   * The active process stops serving and waits, within a bound, for in-flight
+   * commits. It then releases the node lease and stays running as a standby
+   * process. It waits for a hold-off before it competes for the lease again, so
+   * another standby process of the same node ID can take over first. If none
+   * does, it takes the lease back. The call returns after the release.
+   *
+   * Each call steps down whichever process is active when the call arrives.
+   * A blind retry can therefore step down the process that just took over.
+   */
+  stepDownActiveNode: {
+    path: "/dex.AdminService/StepDownActiveNode" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: StepDownActiveNodeRequest): Buffer =>
+      Buffer.from(StepDownActiveNodeRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): StepDownActiveNodeRequest => StepDownActiveNodeRequest.decode(value),
+    responseSerialize: (value: StepDownActiveNodeResponse): Buffer =>
+      Buffer.from(StepDownActiveNodeResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): StepDownActiveNodeResponse => StepDownActiveNodeResponse.decode(value),
+  },
+} as const;
+
+export interface AdminServiceServer extends UntypedServiceImplementation {
+  /**
+   * Makes the active Server process of a node ID give up its node lease.
+   *
+   * The active process stops serving and waits, within a bound, for in-flight
+   * commits. It then releases the node lease and stays running as a standby
+   * process. It waits for a hold-off before it competes for the lease again, so
+   * another standby process of the same node ID can take over first. If none
+   * does, it takes the lease back. The call returns after the release.
+   *
+   * Each call steps down whichever process is active when the call arrives.
+   * A blind retry can therefore step down the process that just took over.
+   */
+  stepDownActiveNode: handleUnaryCall<StepDownActiveNodeRequest, StepDownActiveNodeResponse>;
+}
+
+export interface AdminServiceClient extends Client {
+  /**
+   * Makes the active Server process of a node ID give up its node lease.
+   *
+   * The active process stops serving and waits, within a bound, for in-flight
+   * commits. It then releases the node lease and stays running as a standby
+   * process. It waits for a hold-off before it competes for the lease again, so
+   * another standby process of the same node ID can take over first. If none
+   * does, it takes the lease back. The call returns after the release.
+   *
+   * Each call steps down whichever process is active when the call arrives.
+   * A blind retry can therefore step down the process that just took over.
+   */
+  stepDownActiveNode(
+    request: StepDownActiveNodeRequest,
+    callback: (error: ServiceError | null, response: StepDownActiveNodeResponse) => void,
+  ): ClientUnaryCall;
+  stepDownActiveNode(
+    request: StepDownActiveNodeRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: StepDownActiveNodeResponse) => void,
+  ): ClientUnaryCall;
+  stepDownActiveNode(
+    request: StepDownActiveNodeRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: StepDownActiveNodeResponse) => void,
+  ): ClientUnaryCall;
+}
+
+export const AdminServiceClient = makeGenericClientConstructor(AdminServiceService, "dex.AdminService") as unknown as {
+  new (address: string, credentials: ChannelCredentials, options?: Partial<ClientOptions>): AdminServiceClient;
+  service: typeof AdminServiceService;
   serviceName: string;
 };
 

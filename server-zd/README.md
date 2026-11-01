@@ -44,7 +44,7 @@ Worker timeouts, and retry limits.
 | `dexzd-postgres-connection` | PostgreSQL connection string parsing and TLS connections for Attribute Store and search |
 | `dexzd-search` | SearchFlows backends |
 | `dexzd-engine` | Commit pipeline, Flow coordination, effects, recovery |
-| `dexzd-api` | FlowService gRPC handlers and public API authentication |
+| `dexzd-api` | FlowService and AdminService gRPC handlers and public API authentication |
 | `dexzd-server` | The `dex-server-zd` executable |
 | `dexzd-simulation` | Deterministic simulation tests |
 | `dexzd-e2e-tests` | End-to-end tests over the real gRPC protocol |
@@ -542,6 +542,34 @@ server asks it to.
 
 `api.listen` serves plaintext gRPC, so bearer credentials cross the network in clear text.
 Terminate TLS in front of the server, or restrict the network to trusted callers.
+
+#### Admin credentials
+
+`AdminService` holds operator RPCs, such as `StepDownActiveNode`. `auth.adminAudiences` lists the
+JWT audiences that authorize them:
+
+```yaml
+auth:
+  adminAudiences: ["dex-operators"]   # empty by default
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+```
+
+- With authenticators configured, an admin RPC needs a JWT that a `jwt` authenticator accepts
+  and whose `aud` names an entry of `auth.adminAudiences`. Static tokens never authorize admin
+  RPCs. The default empty list therefore denies every admin RPC.
+- A missing or invalid credential ends with UNAUTHENTICATED. A valid public API credential without
+  an admin audience ends with PERMISSION_DENIED and the detail "admin RPCs require a JWT whose
+  audience is listed in auth.adminAudiences".
+- Without authenticators, as on a development server, admin RPCs need no credential.
+- A non-empty list needs a `jwt` authenticator. Its entries must not be empty and must not appear
+  in any `jwt` authenticator's `audiences`, so a public API credential never authorizes
+  administration.
+
+`dexcli admin step-down --yes` calls `StepDownActiveNode`. A server that does not serve
+`AdminService` answers UNIMPLEMENTED.
 
 ### Container image
 

@@ -1590,3 +1590,60 @@ message TimerInfo {
   int64 firing_unix_timestamp_seconds = 2;
   InternalTimerStatus status = 3;
 }
+
+// ---------------------------------------------------------------------------
+// AdminService error handling
+//
+// AdminService serves operators, not applications. When the Server configures
+// public API authentication, every call needs a JWT whose audience is listed
+// in auth.adminAudiences. A Server without authentication allows every call.
+// Failures carry ServiceErrorResponse with sub_status UNCATEGORIZED.
+//
+//   Unauthenticated    — no credential, or no authenticator accepts it
+//   PermissionDenied   — a valid public API credential without an admin audience
+//   FailedPrecondition — this Server process is not the active process of its
+//                        node ID, or its step down is already in progress
+//   Internal           — the step down failed; the detail says whether the
+//                        node lease stays held until it expires
+//   Unimplemented      — the Server does not provide AdminService
+// ---------------------------------------------------------------------------
+
+// Hosted by server-zd; operators call these RPCs through dexcli.
+service AdminService {
+  // Makes the active Server process of a node ID give up its node lease.
+  //
+  // The active process stops serving and waits, within a bound, for in-flight
+  // commits. It then releases the node lease and stays running as a standby
+  // process. It waits for a hold-off before it competes for the lease again, so
+  // another standby process of the same node ID can take over first. If none
+  // does, it takes the lease back. The call returns after the release.
+  //
+  // Each call steps down whichever process is active when the call arrives.
+  // A blind retry can therefore step down the process that just took over.
+  rpc StepDownActiveNode(StepDownActiveNodeRequest) returns (StepDownActiveNodeResponse);
+}
+
+// Requests a step down of the active Server process that receives the call.
+message StepDownActiveNodeRequest {}
+
+// Reports a completed step down and what the process observed before returning.
+message StepDownActiveNodeResponse {
+  // Node ID whose active process stepped down.
+  string node_id = 1;
+  // Node epoch of the node lease that the process released.
+  uint64 released_node_epoch = 2;
+  // The process that acquired the node lease before the call returned. Unset
+  // when no other process took over within the call.
+  ActiveNodeTakeover observed_takeover = 3;
+  // How long the stepped-down process waits before it competes for the node
+  // lease again.
+  google.protobuf.Duration lease_reacquisition_hold_off = 4;
+}
+
+// Identifies another process of the same node ID that acquired a released node lease.
+message ActiveNodeTakeover {
+  // Node epoch that the new active process raised when it acquired the lease.
+  uint64 node_epoch = 1;
+  // Random ID that the new active process recorded as the lease holder.
+  string holder_process_id = 2;
+}

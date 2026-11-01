@@ -227,7 +227,7 @@ impl<'credential> UnverifiedJsonWebToken<'credential> {
 /// Verifies JWTs of one issuer against its cached key set.
 pub(crate) struct JwtVerifier {
     config: JwtAuthenticatorConfig,
-    key_set: JsonWebKeySetCache,
+    key_set: Arc<JsonWebKeySetCache>,
     clock: Arc<dyn WallClock>,
 }
 
@@ -239,8 +239,20 @@ impl JwtVerifier {
     ) -> Self {
         Self {
             config,
-            key_set,
+            key_set: Arc::new(key_set),
             clock,
+        }
+    }
+
+    /// Returns a verifier of the same issuer and key set cache that accepts only `audiences`.
+    pub(super) fn for_audiences(&self, audiences: &[String]) -> Self {
+        Self {
+            config: JwtAuthenticatorConfig {
+                audiences: audiences.to_vec(),
+                ..self.config.clone()
+            },
+            key_set: Arc::clone(&self.key_set),
+            clock: Arc::clone(&self.clock),
         }
     }
 

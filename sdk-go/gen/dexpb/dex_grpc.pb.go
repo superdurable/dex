@@ -1417,3 +1417,129 @@ var WorkerTaskService_ServiceDesc = grpc.ServiceDesc{
 	},
 	Metadata: "dex.proto",
 }
+
+const (
+	AdminService_StepDownActiveNode_FullMethodName = "/dex.AdminService/StepDownActiveNode"
+)
+
+// AdminServiceClient is the client API for AdminService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Hosted by server-zd; operators call these RPCs through dexcli.
+type AdminServiceClient interface {
+	// Makes the active Server process of a node ID give up its node lease.
+	//
+	// The active process stops serving and waits, within a bound, for in-flight
+	// commits. It then releases the node lease and stays running as a standby
+	// process. It waits for a hold-off before it competes for the lease again, so
+	// another standby process of the same node ID can take over first. If none
+	// does, it takes the lease back. The call returns after the release.
+	//
+	// Each call steps down whichever process is active when the call arrives.
+	// A blind retry can therefore step down the process that just took over.
+	StepDownActiveNode(ctx context.Context, in *StepDownActiveNodeRequest, opts ...grpc.CallOption) (*StepDownActiveNodeResponse, error)
+}
+
+type adminServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAdminServiceClient(cc grpc.ClientConnInterface) AdminServiceClient {
+	return &adminServiceClient{cc}
+}
+
+func (c *adminServiceClient) StepDownActiveNode(ctx context.Context, in *StepDownActiveNodeRequest, opts ...grpc.CallOption) (*StepDownActiveNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StepDownActiveNodeResponse)
+	err := c.cc.Invoke(ctx, AdminService_StepDownActiveNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AdminServiceServer is the server API for AdminService service.
+// All implementations must embed UnimplementedAdminServiceServer
+// for forward compatibility.
+//
+// Hosted by server-zd; operators call these RPCs through dexcli.
+type AdminServiceServer interface {
+	// Makes the active Server process of a node ID give up its node lease.
+	//
+	// The active process stops serving and waits, within a bound, for in-flight
+	// commits. It then releases the node lease and stays running as a standby
+	// process. It waits for a hold-off before it competes for the lease again, so
+	// another standby process of the same node ID can take over first. If none
+	// does, it takes the lease back. The call returns after the release.
+	//
+	// Each call steps down whichever process is active when the call arrives.
+	// A blind retry can therefore step down the process that just took over.
+	StepDownActiveNode(context.Context, *StepDownActiveNodeRequest) (*StepDownActiveNodeResponse, error)
+	mustEmbedUnimplementedAdminServiceServer()
+}
+
+// UnimplementedAdminServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAdminServiceServer struct{}
+
+func (UnimplementedAdminServiceServer) StepDownActiveNode(context.Context, *StepDownActiveNodeRequest) (*StepDownActiveNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StepDownActiveNode not implemented")
+}
+func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
+func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
+
+// UnsafeAdminServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AdminServiceServer will
+// result in compilation errors.
+type UnsafeAdminServiceServer interface {
+	mustEmbedUnimplementedAdminServiceServer()
+}
+
+func RegisterAdminServiceServer(s grpc.ServiceRegistrar, srv AdminServiceServer) {
+	// If the following call panics, it indicates UnimplementedAdminServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AdminService_ServiceDesc, srv)
+}
+
+func _AdminService_StepDownActiveNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StepDownActiveNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).StepDownActiveNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_StepDownActiveNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).StepDownActiveNode(ctx, req.(*StepDownActiveNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AdminService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "dex.AdminService",
+	HandlerType: (*AdminServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "StepDownActiveNode",
+			Handler:    _AdminService_StepDownActiveNode_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "dex.proto",
+}

@@ -16,6 +16,8 @@ mod static_token_file;
 mod watched_file;
 
 #[cfg(test)]
+mod admin_authentication_tests;
+#[cfg(test)]
 mod authenticated_service_tests;
 #[cfg(test)]
 mod jwt_verification_tests;
@@ -180,6 +182,24 @@ impl PublicApiAuthenticator {
             });
         }
         Ok(Self { authenticators })
+    }
+
+    /// Returns an authenticator of the same JWT issuers and key caches that accepts only `audiences`.
+    ///
+    /// Static tokens are dropped, so they never authorize admin RPCs. Empty `audiences` reject every JWT.
+    pub(crate) fn for_admin_audiences(&self, audiences: &[String]) -> Self {
+        Self {
+            authenticators: self
+                .authenticators
+                .iter()
+                .filter_map(|authenticator| match authenticator {
+                    CredentialAuthenticator::Jwt(verifier) => Some(CredentialAuthenticator::Jwt(
+                        verifier.for_audiences(audiences),
+                    )),
+                    CredentialAuthenticator::StaticTokens(_) => None,
+                })
+                .collect(),
+        }
     }
 
     /// Accepts `credential` when an authenticator recognizes it.

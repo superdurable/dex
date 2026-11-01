@@ -26,12 +26,28 @@ pub(crate) const MAX_CREDENTIAL_BYTES: usize = 8 << 10;
 const BEARER_PREFIX: &str = "bearer ";
 const MISSING_CREDENTIAL_DETAIL: &str = "a bearer credential is required";
 const INVALID_CREDENTIAL_DETAIL: &str = "the credential is not valid";
+const NOT_ADMIN_CREDENTIAL_DETAIL: &str =
+    "admin RPCs require a JWT whose audience is listed in auth.adminAudiences";
 
 /// Requires a valid bearer credential when each call starts, so open streams outlive credential expiry.
 #[derive(Clone)]
 pub struct AuthenticatedService<S> {
     inner: S,
-    authenticator: Option<Arc<PublicApiAuthenticator>>,
+    authorization: CallAuthorization,
+}
+
+/// Which credentials a wrapped service accepts.
+#[derive(Clone)]
+enum CallAuthorization {
+    /// No authenticator is configured, so every call passes unchecked.
+    Open,
+    /// A credential that the public API authenticator accepts.
+    PublicApi(Arc<PublicApiAuthenticator>),
+    /// A JWT naming an admin audience; `public` tells a refused caller from an unknown one.
+    Admin {
+        admin: Arc<PublicApiAuthenticator>,
+        public: Arc<PublicApiAuthenticator>,
+    },
 }
 
 impl<S> AuthenticatedService<S> {
@@ -39,7 +55,29 @@ impl<S> AuthenticatedService<S> {
     pub fn new(inner: S, authenticator: Option<Arc<PublicApiAuthenticator>>) -> Self {
         Self {
             inner,
-            authenticator,
+            authorization: authenticator
+                .map_or(CallAuthorization::Open, CallAuthorization::PublicApi),
+        }
+    }
+
+    /// Wraps an admin service that needs a JWT from a configured issuer naming one of `admin_audiences`.
+    ///
+    /// With `authenticator` set to `None`, as on a development server, every call passes unchecked.
+    pub fn for_admin_service(
+        inner: S,
+        authenticator: Option<Arc<PublicApiAuthenticator>>,
+        admin_audiences: &[String],
+    ) -> Self {
+        let authorization = match authenticator {
+            None => CallAuthorization::Open,
+            Some(public) => CallAuthorization::Admin {
+                admin: Arc::new(public.for_admin_audiences(admin_audiences)),
+                public,
+            },
+        };
+        Self {
+            inner,
+            authorization,
         }
     }
 }
@@ -68,9 +106,10 @@ where
     }
 
     fn call(&mut self, request: http::Request<RequestBody>) -> Self::Future {
-        let Some(authenticator) = self.authenticator.clone() else {
+        if matches!(self.authorization, CallAuthorization::Open) {
             return Box::pin(self.inner.call(request));
-        };
+        }
+        let authorization = self.authorization.clone();
         let credential = bearer_credential(request.headers()).map(str::to_owned);
         // The ready inner service handles this call; its clone serves the next one.
         let ready_inner = self.inner.clone();
@@ -81,18 +120,54 @@ where
                     service = S::NAME,
                     "rejected a public API call without a bearer credential"
                 );
-                return Ok(unauthenticated(MISSING_CREDENTIAL_DETAIL));
+                return Ok(refused(Code::Unauthenticated, MISSING_CREDENTIAL_DETAIL));
             };
-            if let Err(rejection) = authenticator.authenticate(&credential).await {
-                tracing::debug!(
-                    service = S::NAME,
-                    reason = %rejection,
-                    "rejected a public API credential"
-                );
-                return Ok(unauthenticated(INVALID_CREDENTIAL_DETAIL));
+            if let Err((code, detail)) = authorization.authorize(S::NAME, &credential).await {
+                return Ok(refused(code, detail));
             }
             inner.call(request).await
         })
+    }
+}
+
+impl CallAuthorization {
+    /// Returns `Ok` when `credential` authorizes the call, or the refused status code and detail.
+    async fn authorize(
+        &self,
+        service_name: &'static str,
+        credential: &str,
+    ) -> Result<(), (Code, &'static str)> {
+        match self {
+            Self::Open => Ok(()),
+            Self::PublicApi(authenticator) => {
+                authenticator
+                    .authenticate(credential)
+                    .await
+                    .map_err(|rejection| {
+                        tracing::debug!(
+                            service = service_name,
+                            reason = %rejection,
+                            "rejected a public API credential"
+                        );
+                        (Code::Unauthenticated, INVALID_CREDENTIAL_DETAIL)
+                    })
+            }
+            Self::Admin { admin, public } => {
+                let Err(rejection) = admin.authenticate(credential).await else {
+                    return Ok(());
+                };
+                tracing::debug!(
+                    service = service_name,
+                    reason = %rejection,
+                    "rejected an admin credential"
+                );
+                if public.authenticate(credential).await.is_ok() {
+                    Err((Code::PermissionDenied, NOT_ADMIN_CREDENTIAL_DETAIL))
+                } else {
+                    Err((Code::Unauthenticated, INVALID_CREDENTIAL_DETAIL))
+                }
+            }
+        }
     }
 }
 
@@ -113,8 +188,8 @@ fn bearer_credential(headers: &http::HeaderMap) -> Option<&str> {
     Some(credential.trim()).filter(|credential| !credential.is_empty())
 }
 
-fn unauthenticated<ResponseBody: Default>(detail: &str) -> http::Response<ResponseBody> {
-    FlowOperationError::rejected(Code::Unauthenticated, ErrorSubStatus::Uncategorized, detail)
+fn refused<ResponseBody: Default>(code: Code, detail: &str) -> http::Response<ResponseBody> {
+    FlowOperationError::rejected(code, ErrorSubStatus::Uncategorized, detail)
         .into_status()
         .into_http()
 }

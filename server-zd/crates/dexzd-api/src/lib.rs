@@ -6,8 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! FlowService gRPC handlers for server-zd: request validation, routing to the engine, long polling, error mapping, and public API authentication.
+//! FlowService and AdminService gRPC handlers for server-zd: request validation, routing to the engine, long polling, error mapping, and public API authentication.
 
+mod admin_service;
 mod attribute_indexes;
 mod authentication;
 mod client_deadline;
@@ -19,6 +20,10 @@ mod flow_service_config;
 mod health_status;
 mod stream_operations;
 
+pub use admin_service::{
+    ActiveNodeStepDown, ActiveNodeStepDownError, ActiveNodeStepDownOutcome, ActiveNodeTakeover,
+    DexAdminService,
+};
 pub use attribute_indexes::{AttributeIndexRegistryRefresh, AttributeIndexes};
 pub use authentication::{
     AuthenticatedService, AuthenticationSetupError, CredentialAuthenticatorConfig,
