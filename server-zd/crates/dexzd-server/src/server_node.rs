@@ -777,8 +777,6 @@ impl ServerNode {
     }
 
     /// Stops serving and every component, then releases the lease; only a shutdown sends `grpc` GOAWAY.
-    ///
-    /// Open RPC tasks may finish before the release; the lease gate refuses other open calls after it.
     async fn stop(self, grpc: &mut GrpcServer, kind: PeriodStopKind) -> PeriodStop {
         let Self {
             metrics,
@@ -813,6 +811,7 @@ impl ServerNode {
             )
             .await;
         let public_calls_ended = Box::pin(grpc.public_calls_ended());
+        // Only RPC tasks finish before the release; the lease gate refuses other calls after it.
         if tokio::time::timeout_at(drain_deadline, registry.wait_for_rpc_tasks())
             .await
             .is_err()

@@ -285,8 +285,6 @@ async fn step_down_hands_over_to_a_standby_that_is_behind() {
 }
 
 /// P7: ten switchovers under load, alternating step downs and SIGTERM restarts, lose no write.
-///
-/// A ReadStream waits at each active, and must delay neither its release nor its exit.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
     let mut scenario = FailoverScenario::start("switchovers", &HOT_SLOTS).await;
@@ -300,6 +298,7 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
     for round in 0..SWITCHOVER_COUNT {
         let active = scenario.group.wait_for_serving(TAKEOVER_BUDGET).await;
         let standby = if active == FIRST { SECOND } else { FIRST };
+        // A waiting ReadStream must delay neither the release nor the exit.
         let waiting_read = HeldCall::wait_for_stream_message(
             scenario.group.api_address(active),
             &format!("waiting-reader-{round}"),

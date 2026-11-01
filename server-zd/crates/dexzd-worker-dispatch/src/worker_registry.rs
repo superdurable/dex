@@ -210,9 +210,8 @@ impl WorkerDispatch {
         Self::new_with_lease_validity_deadline(config, clock, metrics, None)
     }
 
-    /// Creates a matching owner that hands out a Task only while `lease_validity_deadline` is
-    /// valid, or always when it is `None`; a refused dispatch ends with
-    /// [`DispatchOutcome::ServerClosing`].
+    /// Creates a matching owner that hands out Tasks only while `lease_validity_deadline` is valid;
+    /// `None` never refuses.
     pub fn new_with_lease_validity_deadline(
         config: MatchingConfig,
         clock: Arc<dyn WallClock>,

@@ -363,9 +363,6 @@ async fn postgres_search_outbox_projects_after_a_step_down_to_a_hot_standby() {
 }
 
 /// After a step down to a hot standby, the new active's consumer projects new and old Flows' writes.
-///
-/// A second step down returns the lease to the first process, whose second SQL serving period
-/// projects them too.
 async fn run_step_down_for_test(database_url: &str, is_postgres: bool) {
     let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
@@ -421,6 +418,7 @@ async fn run_step_down_for_test(database_url: &str, is_postgres: bool) {
         set_counter(&mut second_client, flow_id, 2).await;
     }
     search_until_counters(&mut second_client, &every_flow, 2, &second).await;
+    // Stepping back gives the first process a second SQL serving period, which must project too.
     wait_for_hot_standby(first_address, &first).await;
     let outcome = AdminServiceClient::new(second_channel)
         .step_down_active_node(StepDownActiveNodeRequest::default())

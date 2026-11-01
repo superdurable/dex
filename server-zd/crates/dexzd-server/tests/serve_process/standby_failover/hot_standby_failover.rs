@@ -80,8 +80,7 @@ async fn hot_standby_takes_over_when_the_active_is_killed_under_load() {
         .await;
 }
 
-/// P2, hot: SIGTERM of the active releases the lease before open calls end, and the hot standby
-/// takes it at once.
+/// P2, hot: SIGTERM of the active releases the lease, and the hot standby takes it at once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hot_standby_takes_over_when_the_active_is_terminated() {
     let mut scenario = FailoverScenario::start("hot-terminated", &HOT_SLOTS).await;
@@ -94,6 +93,7 @@ async fn hot_standby_takes_over_when_the_active_is_terminated() {
         .object_store(FIRST)
         .inject(ObjectStoreFault::HardDeleteLatency(HELD_READ_DELAY))
         .await;
+    // The release must not wait for this read.
     let held_read =
         HeldCall::read_hard_delete_attribute(group.api_address(FIRST), HELD_READ_FLOW_ID);
     tokio::time::sleep(HELD_CALL_START_WINDOW).await;

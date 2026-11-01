@@ -520,12 +520,13 @@ dexzd_hot_standby_lag_seconds > 5
 **dexcli admin step-down** asks the active process of a node ID to give up its
 lease. The process stops serving and waits briefly for in-flight commits. Then
 it releases the lease and keeps running as a standby. Calls still open at the
-release answer **UNAVAILABLE**, so clients retry them on the new active process. Another process of the
-same node ID can take the lease at once, as after a graceful shutdown. The
-stepped-down process waits for a hold-off, **standby.stepDownHoldOff**, before
-it competes for the lease again. If no other process takes over in that time,
-it takes the lease back. With **standby.mode** set to **hot**, it follows the
-log as a [hot standby](#hot-standby) while it waits.
+release answer **UNAVAILABLE**, so clients retry them on the new active process.
+Another process of the same node ID can take the lease at once, as after a
+graceful shutdown. The stepped-down process waits for a hold-off,
+**standby.stepDownHoldOff**, before it competes for the lease again. If no other
+process takes over in that time, it takes the lease back. With **standby.mode**
+set to **hot**, it follows the log as a [hot standby](#hot-standby) while it
+waits.
 
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active process, and changes nothing. Every lease
@@ -553,6 +554,10 @@ its flags as follows:
   a wrong **--server**.
 - With both flags, it sends them as they are and does not describe.
 - **--expected-node-epoch** alone is a usage error.
+
+A step down that reaches a standby connection of a process that has just taken
+over answers **FAILED_PRECONDITION** at once and changes nothing. Run it again;
+it then reaches the active process.
 
 If the first describe fails, the command steps nothing down. A step down in
 progress may be one that you or someone else already started. Wait past the

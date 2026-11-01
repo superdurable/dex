@@ -670,9 +670,6 @@ async fn prune_finished_retirements(retirements: &mut Vec<JoinHandle<()>>) {
 /// Waits until the stepped-down period's public calls end and nothing holds its local store, so
 /// reopening it finds no lock.
 ///
-/// Meanwhile it refuses administration calls and answers a pending step down once a successor
-/// appears.
-///
 /// Returns `false` when `cancellation` arrives first; after the budgets it returns `true` anyway.
 async fn wait_for_local_store_close(
     public_calls_ended: impl std::future::Future<Output = ()>,
@@ -699,6 +696,7 @@ async fn wait_for_local_store_close(
         tokio::select! {
             () = &mut closed => return true,
             () = wait_for_cancellation(cancellation) => return false,
+            // A silent process would leave describe and a retried step down waiting.
             Some(request) = requests.recv() => {
                 refuse_while_standing_by(
                     request,

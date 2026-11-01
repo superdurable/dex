@@ -467,6 +467,9 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 - 两个 flag 都有时，原样发送，不查询。
 - 只有 **--expected-node-epoch** 是用法错误。
 
+如果让位请求到达的是刚刚接管的进程上的 standby 连接，它会立即返回 **FAILED_PRECONDITION**，
+不做任何修改。再运行一次，请求就会到达 active 进程。
+
 如果先做的查询失败，这个 command 不会让任何进程让位。正在进行的让位可能是你或其他人已经
 发起的。等过 hold-off，运行 **dexcli admin describe**，只有在你想要的切换还没有发生时才再次
 让位。

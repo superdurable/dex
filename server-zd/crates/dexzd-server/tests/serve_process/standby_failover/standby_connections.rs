@@ -128,9 +128,7 @@ async fn a_client_connected_to_a_standby_reconnects_to_the_active() {
         .await;
 }
 
-/// A step down while public calls run at the active hands over at once and leaves it a hot standby.
-///
-/// One read stays open across the whole step down; the standby reopens the store only after it ends.
+/// A step down while public calls run at the active still leaves it a hot standby.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
     let mut scenario = FailoverScenario::start("step-down-in-flight", &HOT_SLOTS).await;
@@ -146,6 +144,7 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         .object_store(FIRST)
         .inject(ObjectStoreFault::HardDeleteLatency(HELD_READ_DELAY))
         .await;
+    // Open across the whole step down, it must delay neither the handover nor the reopened store.
     let held_read =
         HeldCall::read_hard_delete_attribute(group.api_address(FIRST), HELD_READ_FLOW_ID);
     tokio::time::sleep(HELD_CALL_START_WINDOW).await;
@@ -193,12 +192,7 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         .await;
 }
 
-/// A step down sent right after a takeover on a connection to the new active's standby instance is
-/// answered.
-///
-/// That instance retires within 250 ms of the takeover, so the serving process refuses the call at
-/// once instead of stepping down. A call that misses the window reaches the serving instance and
-/// steps down; that answer travels on a connection that does not age.
+/// A step down on a retiring standby instance's connection right after a takeover gets an answer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn step_down_through_a_retiring_standby_instance_is_answered() {
     let mut scenario = FailoverScenario::start("standby-instance-step-down", &HOT_SLOTS).await;
@@ -261,6 +255,7 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
         .await
         .expect("the first step down task does not panic")
         .expect("the first active steps down");
+    // A call that misses the 250 ms window steps down through the serving instance instead.
     let path = match answer {
         Err(status)
             if status.code() == Code::FailedPrecondition
