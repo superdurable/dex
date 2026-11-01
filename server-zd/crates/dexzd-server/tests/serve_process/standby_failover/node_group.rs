@@ -1,0 +1,423 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//! Several `serve` processes of one node ID behind one readiness router.
+//!
+//! Each process has its own local directory and object store endpoint.
+
+use std::fmt;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
+use std::time::Duration;
+
+use tokio::time::Instant;
+use tonic::transport::Channel;
+
+use super::lease_epochs::{LeaseHistory, LeaseReport};
+use super::object_store_endpoints::ObjectStoreEndpoint;
+use super::readiness_router::{ReadinessRouter, ServingReport};
+use crate::harness::free_loopback_address;
+use crate::metrics::{sample_with_label, try_scrape};
+use crate::robustness::inspection::ObjectStoreInspector;
+use crate::robustness::processes::{
+    DurableEmulator, PROCESS_SHUTDOWN_BUDGET, RobustnessProcess, RobustnessServeConfig,
+    STALE_BATCH_STOP_REASON, ServeFleet,
+};
+use crate::robustness::workload::{VerificationReport, Workload};
+
+/// No snapshot or log cleanup during a test, so recovery always replays the log.
+const SNAPSHOT_INTERVAL: &str = "1h";
+/// A short log deletion delay would let a waiting standby lose writes, a separate known defect.
+const LOG_DELETION_DELAY: &str = "24h";
+const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// Covers several failovers, each up to a lease, the takeover grace, and a recovery.
+const PROGRESS_BUDGET: Duration = Duration::from_secs(60);
+
+/// The settings of one slot; every slot runs the same node ID.
+pub(crate) struct SlotSettings<'a> {
+    pub(crate) name: &'a str,
+    /// The lease this slot's processes write when they hold it, such as `3s`.
+    pub(crate) lease_duration: &'a str,
+}
+
+/// What happens to a slot's local directory before its next process starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DirectoryFate {
+    /// The process restarts on the same directory, like a container restarted in its pod.
+    Keep,
+    /// The directory is deleted, like a pod recreated with an empty `emptyDir`.
+    Wipe,
+}
+
+/// A signal for one slot's process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProcessSignal {
+    /// SIGKILL; waits until the process is reaped.
+    Kill,
+    /// SIGTERM; waits for a clean exit.
+    Terminate,
+    /// SIGSTOP; waits until the kernel reports the process stopped.
+    Stop,
+    /// SIGCONT, without waiting for any effect.
+    Continue,
+}
+
+/// One position in the group: a name, fixed addresses, a directory, and its current process.
+struct NodeSlot {
+    name: String,
+    config_path: PathBuf,
+    local_directory: PathBuf,
+    address: SocketAddr,
+    metrics_address: SocketAddr,
+    object_store: ObjectStoreEndpoint,
+    process_count: usize,
+    process: Option<RobustnessProcess>,
+    /// The test made the current process end by itself, such as by cutting its object storage.
+    may_exit: bool,
+}
+
+impl NodeSlot {
+    fn running(&mut self) -> &mut RobustnessProcess {
+        self.process
+            .as_mut()
+            .unwrap_or_else(|| panic!("slot {} has no running process", self.name))
+    }
+}
+
+/// Counts from a passing group, for the test's report line.
+pub(crate) struct GroupReport {
+    serving: ServingReport,
+    lease: LeaseReport,
+    process_starts: usize,
+    stale_batch_restarts: usize,
+}
+
+impl fmt::Display for GroupReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} process starts, {} stale-batch restarts; {} lease epochs raised, {} lease holders observed; {} readiness probes, {} SERVING in {} serving periods",
+            self.process_starts,
+            self.stale_batch_restarts,
+            self.lease.acquisitions,
+            self.lease.observed_holders,
+            self.serving.observations,
+            self.serving.serving_observations,
+            self.serving.serving_periods
+        )
+    }
+}
+
+/// Serve processes of one node ID against one emulator, restarted and signalled per slot.
+///
+/// Clients and Workers reach the group through [`Self::router_address`].
+pub(crate) struct NodeGroup {
+    emulator: DurableEmulator,
+    fleet: ServeFleet,
+    slots: Vec<NodeSlot>,
+    router: ReadinessRouter,
+    lease_history: LeaseHistory,
+    /// Each SIGKILL or permitted exit lets one later process stop once on that process's late batch.
+    permitted_stale_batch_stops: usize,
+    stale_batch_restarts: usize,
+}
+
+impl NodeGroup {
+    /// Prepares one slot per entry of `settings`; no process runs until [`Self::spawn`].
+    pub(crate) async fn start(
+        directory: &Path,
+        workload: &Workload,
+        settings: &[SlotSettings<'_>],
+    ) -> Self {
+        let emulator = DurableEmulator::start().await;
+        let inspector = ObjectStoreInspector::connect(&emulator.endpoint()).await;
+        let mut slots = Vec::new();
+        for slot in settings {
+            let object_store = ObjectStoreEndpoint::start(emulator.store()).await;
+            let address = free_loopback_address();
+            let metrics_address = free_loopback_address();
+            let config_path = directory.join(format!("{}.yaml", slot.name));
+            let local_directory = directory.join(format!("{}-store", slot.name));
+            RobustnessServeConfig {
+                primary_endpoint: &object_store.endpoint(),
+                listen: address,
+                local_directory: &local_directory,
+                lease_duration: slot.lease_duration,
+                snapshot_interval: SNAPSHOT_INTERVAL,
+                log_deletion_delay: LOG_DELETION_DELAY,
+            }
+            .write_with_metrics(&config_path, metrics_address);
+            slots.push(NodeSlot {
+                name: slot.name.to_owned(),
+                config_path,
+                local_directory,
+                address,
+                metrics_address,
+                object_store,
+                process_count: 0,
+                process: None,
+                may_exit: false,
+            });
+        }
+        let router = ReadinessRouter::start(
+            slots
+                .iter()
+                .map(|slot| (slot.name.clone(), slot.address))
+                .collect(),
+        )
+        .await;
+        Self {
+            emulator,
+            fleet: ServeFleet::new(directory, workload.summary_source()),
+            slots,
+            router,
+            lease_history: LeaseHistory::start(inspector),
+            permitted_stale_batch_stops: 0,
+            stale_batch_restarts: 0,
+        }
+    }
+
+    /// Returns the Service address that routes to whichever process serves.
+    pub(crate) fn router_address(&self) -> SocketAddr {
+        self.router.address()
+    }
+
+    /// Returns a channel through the router.
+    pub(crate) fn router_channel(&self) -> Channel {
+        Channel::from_shared(format!("http://{}", self.router.address()))
+            .expect("the router address is a valid URI")
+            .connect_lazy()
+    }
+
+    /// Returns the object store endpoint that only `slot`'s processes use.
+    pub(crate) fn object_store(&self, slot: usize) -> &ObjectStoreEndpoint {
+        &self.slots[slot].object_store
+    }
+
+    /// Starts a process in `slot`, which must have none.
+    pub(crate) fn spawn(&mut self, slot: usize) {
+        let entry = &mut self.slots[slot];
+        assert!(
+            entry.process.is_none(),
+            "slot {} already runs a process",
+            entry.name
+        );
+        entry.process_count += 1;
+        entry.may_exit = false;
+        self.router.note_process_start(slot);
+        let process = self.fleet.spawn(
+            &entry.config_path,
+            entry.address,
+            &format!("{}-{}", entry.name, entry.process_count),
+        );
+        entry.process = Some(process);
+    }
+
+    /// Starts the next process of `slot` after its previous one ended, keeping or wiping its directory.
+    pub(crate) fn restart(&mut self, slot: usize, fate: DirectoryFate) {
+        let entry = &self.slots[slot];
+        assert!(
+            entry.process.is_none(),
+            "slot {} still runs a process",
+            entry.name
+        );
+        if fate == DirectoryFate::Wipe && entry.local_directory.exists() {
+            std::fs::remove_dir_all(&entry.local_directory)
+                .expect("the local directory is deleted");
+        }
+        self.spawn(slot);
+    }
+
+    /// Sends `signal` to `slot`'s process and waits for its effect.
+    pub(crate) async fn signal(&mut self, slot: usize, signal: ProcessSignal) {
+        let entry = &mut self.slots[slot];
+        match signal {
+            ProcessSignal::Kill => {
+                entry.running().kill().await;
+                entry.process = None;
+                self.permitted_stale_batch_stops += 1;
+            }
+            ProcessSignal::Terminate => {
+                let process = entry.running();
+                let status = process.terminate(PROCESS_SHUTDOWN_BUDGET).await;
+                assert_eq!(status.code(), Some(0), "{}", process.log());
+                entry.process = None;
+            }
+            ProcessSignal::Stop => entry.running().freeze_and_wait_until_stopped().await,
+            ProcessSignal::Continue => entry.running().send_signal("CONT").await,
+        }
+    }
+
+    /// Lets `slot`'s process exit by itself, as a test-made failure requires.
+    pub(crate) fn permit_exit(&mut self, slot: usize) {
+        self.slots[slot].may_exit = true;
+    }
+
+    /// Waits up to `budget` for `slot`'s process to exit after [`Self::permit_exit`].
+    pub(crate) async fn wait_for_permitted_exit(
+        &mut self,
+        slot: usize,
+        budget: Duration,
+    ) -> ExitStatus {
+        let entry = &mut self.slots[slot];
+        assert!(
+            entry.may_exit,
+            "slot {} must permit the exit first",
+            entry.name
+        );
+        let status = entry.running().wait_for_exit(budget).await;
+        entry.process = None;
+        self.permitted_stale_batch_stops += 1;
+        status
+    }
+
+    /// Waits up to `budget` until some process serves and returns its slot.
+    pub(crate) async fn wait_for_serving(&mut self, budget: Duration) -> usize {
+        self.wait_for_serving_slot(None, budget).await
+    }
+
+    /// Waits up to `budget` until a process outside slot `previous` serves and returns its slot.
+    pub(crate) async fn wait_for_takeover(&mut self, previous: usize, budget: Duration) -> usize {
+        self.wait_for_serving_slot(Some(previous), budget).await
+    }
+
+    async fn wait_for_serving_slot(&mut self, excluded: Option<usize>, budget: Duration) -> usize {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.supervise();
+            if let Some(slot) = (0..self.slots.len()).find(|slot| {
+                Some(*slot) != excluded
+                    && self.slots[*slot].process.is_some()
+                    && self.router.is_serving(*slot)
+            }) {
+                return slot;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no process outside slot {excluded:?} served within {budget:?}"
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Waits up to `budget` until `slot`'s process is a standby: it runs and waits for the lease.
+    pub(crate) async fn wait_for_standby(&mut self, slot: usize, budget: Duration) {
+        let deadline = Instant::now() + budget;
+        loop {
+            self.supervise();
+            let metrics_address = self.slots[slot].metrics_address;
+            if self.slots[slot].process.is_some()
+                && let Ok(metrics) = try_scrape(metrics_address, "/metrics").await
+                && metrics.starts_with("HTTP/1.1 200")
+                && sample_with_label(&metrics, "dexzd_node_role", "role", "standby") == 1.0
+            {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "slot {} did not wait for the lease within {budget:?}",
+                self.slots[slot].name
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Waits until the load acknowledges `count` more calls and every counter one more increment.
+    pub(crate) async fn wait_for_progress(&mut self, workload: &Workload, count: u64) {
+        let target = workload.progress_target(count);
+        let deadline = Instant::now() + PROGRESS_BUDGET;
+        while !workload.has_reached(&target) {
+            self.supervise();
+            assert!(
+                Instant::now() < deadline,
+                "the load did not reach {target:?} within {PROGRESS_BUDGET:?}"
+            );
+            tokio::time::sleep(SUPERVISION_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Verifies every acknowledged write on the serving process.
+    pub(crate) async fn verify(&mut self, workload: &Workload) -> VerificationReport {
+        let slot = self.wait_for_serving(PROGRESS_BUDGET).await;
+        let channel = Channel::from_shared(format!("http://{}", self.slots[slot].address))
+            .expect("the slot address is a valid URI")
+            .connect_lazy();
+        workload.verify(channel, self.slots[slot].running()).await
+    }
+
+    /// Stops every process, standbys first, then checks the serving and lease invariants.
+    pub(crate) async fn finish(mut self) -> GroupReport {
+        let serving = self.router.serving_backend();
+        let mut order: Vec<usize> = (0..self.slots.len())
+            .filter(|slot| Some(*slot) != serving)
+            .collect();
+        order.extend(serving);
+        for slot in order {
+            if self.slots[slot].process.is_some() {
+                self.signal(slot, ProcessSignal::Terminate).await;
+            }
+        }
+        let Self {
+            emulator,
+            fleet,
+            slots,
+            router,
+            lease_history,
+            stale_batch_restarts,
+            ..
+        } = self;
+        let serving = router.shutdown_and_check().await;
+        let lease = lease_history.stop_and_check(fleet.log_paths()).await;
+        let process_starts = slots.iter().map(|slot| slot.process_count).sum();
+        for slot in slots {
+            slot.object_store.shutdown().await;
+        }
+        emulator.shutdown().await;
+        GroupReport {
+            serving,
+            lease,
+            process_starts,
+            stale_batch_restarts,
+        }
+    }
+
+    /// Restarts a process that stopped on a late batch of a killed process; panics on any other exit.
+    fn supervise(&mut self) {
+        for slot in 0..self.slots.len() {
+            let entry = &mut self.slots[slot];
+            let Some(status) = entry
+                .process
+                .as_mut()
+                .and_then(RobustnessProcess::exit_status)
+            else {
+                continue;
+            };
+            if entry.may_exit {
+                continue;
+            }
+            let log = entry.running().log();
+            assert!(
+                self.permitted_stale_batch_stops > 0
+                    && status.code() == Some(1)
+                    && log.contains(STALE_BATCH_STOP_REASON),
+                "{} process {} exited with {status}:\n{log}",
+                entry.name,
+                entry.process_count
+            );
+            eprintln!(
+                "supervisor: {} process {} stopped on a late batch of an ended process; restarting it",
+                entry.name, entry.process_count
+            );
+            entry.process = None;
+            self.permitted_stale_batch_stops -= 1;
+            self.stale_batch_restarts += 1;
+            self.restart(slot, DirectoryFate::Keep);
+        }
+    }
+}

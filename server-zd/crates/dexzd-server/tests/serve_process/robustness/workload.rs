@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! A chain and counter workload whose client ledger and Worker journal survive server failures.
+//! A chain, timer, and counter workload whose client ledger and Worker journal survive server failures.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -20,28 +20,37 @@ use dexzd_engine::WAIT_FOR_FLOW_TIMEOUT_MESSAGE;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dexzd_protocol::dex::{
-    AttributeWrite, CloseDecision, CloseDecisionType, FlowAlreadyStartedOptions, FlowConfig,
-    FlowStartOptions, FlowStatus, GetAttributesRequest, InvokeExecuteMethodOutput,
+    AttributeWrite, CloseDecision, CloseDecisionType, ConditionStatus, FlowAlreadyStartedOptions,
+    FlowConfig, FlowStartOptions, FlowStatus, GetAttributesRequest, InvokeExecuteMethodOutput,
     InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeRpcRequest,
     InvokeWaitForMethodOutput, InvokeWaitForMethodResponse, InvokeWorkerRpcRequest,
     InvokeWorkerRpcResponse, PollWorkerTask, PollWorkerTaskFrame, PollWorkerTaskRegister,
-    PollWorkerTaskRequest, StartFlowRequest, StepDecision, StepMovement, StepOptions, Value,
-    WaitForFlowRequest, WaitingCondition, WorkerTarget, invoke_execute_method_output,
-    invoke_wait_for_method_output, poll_worker_task, poll_worker_task_frame,
-    poll_worker_task_request, poll_worker_task_response, value,
+    PollWorkerTaskRequest, StartFlowRequest, StepDecision, StepMovement, StepOptions,
+    TimerCondition, Value, WaitForFlowRequest, WaitingCondition, WaitingConditionType,
+    WorkerTarget, invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task,
+    poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response, value,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_util::sync::CancellationToken;
+use tonic::Code;
 use tonic::transport::Channel;
 
 use super::processes::RobustnessProcess;
 
 const CHAIN_FLOW_TYPE: &str = "RobustnessChainFlow";
 const COUNTER_FLOW_TYPE: &str = "RobustnessCounterFlow";
+const TIMER_FLOW_TYPE: &str = "RobustnessTimerFlow";
 const CHAIN_STEP_TYPE: &str = "ChainStep";
+const TIMER_STEP_TYPE: &str = "TimerStep";
+const TIMER_CONDITION_ID: &str = "robustness-timer";
+/// Short enough that timers started before a failure fire on the process that serves next.
+const TIMER_DURATION_SECONDS: i64 = 1;
+/// A timer Flow completes with this output once its timer fired.
+const TIMER_FLOW_OUTPUT: i64 = 1;
 const COUNTER_START_STEP_TYPE: &str = "CounterStartStep";
 const INCREMENT_COUNTER_RPC: &str = "IncrementCounter";
 const FINISH_COUNTER_RPC: &str = "FinishCounter";
@@ -56,6 +65,7 @@ const STREAMS_PER_QUEUE: usize = 4;
 /// Lets the server release a counter lock soon after a client gave up on the call.
 const RPC_TIMEOUT_SECONDS: i32 = 2;
 const RETRY_PAUSE: Duration = Duration::from_millis(50);
+const WORKER_RECONNECT_PAUSE: Duration = Duration::from_millis(100);
 const PROGRESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const PROGRESS_BUDGET: Duration = Duration::from_secs(30);
 const SETUP_BUDGET: Duration = Duration::from_secs(20);
@@ -84,17 +94,27 @@ struct CounterIncrement {
     value: i64,
 }
 
+/// One TimerStep Execute call that a Worker handled.
+#[derive(Clone, Debug)]
+struct TimerStepExecution {
+    flow_id: String,
+    run_id: String,
+    has_timer_fired: bool,
+}
+
 /// What every Worker incarnation observed, in handling order.
 #[derive(Default)]
 struct WorkerJournal {
     chain_steps: Mutex<Vec<ChainStepExecution>>,
     counter_increments: Mutex<Vec<CounterIncrement>>,
+    timer_steps: Mutex<Vec<TimerStepExecution>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WorkloadFlowKind {
     Chain,
     Counter,
+    Timer,
 }
 
 /// A StartFlow call that returned success.
@@ -128,6 +148,8 @@ struct ClientLedger {
     counters: Mutex<BTreeMap<String, CounterLedger>>,
     acknowledged_count: AtomicU64,
     failed_start_attempts: AtomicU64,
+    /// Increment attempts that failed with UNAVAILABLE and were sent again with their request ID.
+    unavailable_retries: AtomicU64,
     next_request_number: AtomicU64,
     recent_failures: Mutex<VecDeque<String>>,
 }
@@ -221,9 +243,11 @@ pub(crate) struct ProgressTarget {
 #[derive(Debug)]
 pub(crate) struct VerificationReport {
     chain_flows: usize,
+    timer_flows: usize,
     counter_flows: usize,
     acknowledged_increments: usize,
     unknown_increments: u64,
+    unavailable_retries: u64,
     chain_step_executions: usize,
     re_executed_step_executions: usize,
 }
@@ -232,18 +256,35 @@ impl fmt::Display for VerificationReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} chain Flows completed; {} counters completed with {} acknowledged and {} unknown increments; {} chain Step executions, {} re-executed",
+            "{} chain Flows completed; {} timer Flows completed after their timers fired; {} counters completed with {} acknowledged and {} unknown increments after {} UNAVAILABLE retries; {} chain Step executions, {} re-executed",
             self.chain_flows,
+            self.timer_flows,
             self.counter_flows,
             self.acknowledged_increments,
             self.unknown_increments,
+            self.unavailable_retries,
             self.chain_step_executions,
             self.re_executed_step_executions
         )
     }
 }
 
-/// Chain Flows and locked counters driven against one fixed server address.
+/// What one load phase runs.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LoadShape {
+    /// Tasks that each start one chain Flow at a time.
+    pub(crate) chain_starters: usize,
+    /// Tasks that each start one timer Flow at a time.
+    pub(crate) timer_starters: usize,
+    /// Client deadline of every call.
+    pub(crate) call_timeout: Duration,
+    /// How long an UNAVAILABLE increment is resent with its request ID, as an SDK would.
+    ///
+    /// `None` records the failure as an unknown outcome at once.
+    pub(crate) unavailable_retry_budget: Option<Duration>,
+}
+
+/// Chain and timer Flows and locked counters driven against one fixed server address.
 pub(crate) struct Workload {
     ledger: Arc<ClientLedger>,
     journal: Arc<WorkerJournal>,
@@ -266,6 +307,17 @@ impl Workload {
 
     pub(crate) fn acknowledged_count(&self) -> u64 {
         self.ledger.acknowledged_count.load(Ordering::SeqCst)
+    }
+
+    /// Starts a Worker that registers through `address` again whenever its streams end.
+    pub(crate) fn start_reconnecting_worker(&self, address: SocketAddr) -> ReconnectingWorker {
+        let stop = CancellationToken::new();
+        let task = tokio::spawn(run_reconnecting_worker(
+            address,
+            self.journal.clone(),
+            stop.clone(),
+        ));
+        ReconnectingWorker { stop, task }
     }
 
     /// Connects a Worker that records every handler call in the shared journal.
@@ -294,6 +346,7 @@ impl Workload {
                 COUNTER_FLOW_TYPE,
                 COUNTER_START_STEP_TYPE,
                 int_value(0),
+                skipped_wait_for(),
                 &self.ledger,
             );
             let run_id = tokio::time::timeout(
@@ -329,19 +382,49 @@ impl Workload {
         chain_starters: usize,
         call_timeout: Duration,
     ) -> RunningLoad {
+        self.start_shaped_load(
+            address,
+            phase,
+            &LoadShape {
+                chain_starters,
+                timer_starters: 0,
+                call_timeout,
+                unavailable_retry_budget: None,
+            },
+        )
+    }
+
+    /// Starts the starters of `shape` and one writer per counter.
+    ///
+    /// Flow IDs include `phase`, so each phase starts new chain and timer Flows.
+    pub(crate) fn start_shaped_load(
+        &self,
+        address: SocketAddr,
+        phase: &str,
+        shape: &LoadShape,
+    ) -> RunningLoad {
         let is_stopping = Arc::new(AtomicBool::new(false));
         let mut tasks = Vec::new();
-        for starter in 0..chain_starters {
+        let starters = std::iter::repeat_n(WorkloadFlowKind::Chain, shape.chain_starters)
+            .enumerate()
+            .chain(std::iter::repeat_n(WorkloadFlowKind::Timer, shape.timer_starters).enumerate());
+        for (starter, kind) in starters {
             let client = FlowServiceClient::new(lazy_channel(address));
             let ledger = self.ledger.clone();
             let is_stopping = is_stopping.clone();
-            let flow_id_prefix = format!("chain-{phase}-{starter}");
-            let starter_task = tokio::spawn(run_chain_starter(
+            let flow_id_prefix = match kind {
+                WorkloadFlowKind::Timer => format!("timer-{phase}-{starter}"),
+                WorkloadFlowKind::Chain | WorkloadFlowKind::Counter => {
+                    format!("chain-{phase}-{starter}")
+                }
+            };
+            let starter_task = tokio::spawn(run_flow_starter(
                 client,
                 ledger,
                 is_stopping,
                 flow_id_prefix,
-                call_timeout,
+                kind,
+                shape.call_timeout,
             ));
             tasks.push(starter_task);
         }
@@ -354,7 +437,8 @@ impl Workload {
                 ledger,
                 is_stopping,
                 flow_id,
-                call_timeout,
+                shape.call_timeout,
+                shape.unavailable_retry_budget,
             ));
             tasks.push(writer_task);
         }
@@ -412,7 +496,8 @@ impl Workload {
         Ok(())
     }
 
-    fn has_reached(&self, target: &ProgressTarget) -> bool {
+    /// Returns whether the load reached `target`.
+    pub(crate) fn has_reached(&self, target: &ProgressTarget) -> bool {
         if self.acknowledged_count() < target.acknowledged_count {
             return false;
         }
@@ -439,6 +524,7 @@ impl Workload {
         let deadline = Instant::now() + VERIFICATION_BUDGET;
         let starts = self.ledger.starts();
         let mut chain_flows = 0;
+        let mut timer_flows = 0;
         let mut final_counter_values = BTreeMap::new();
         for start in &starts {
             match start.kind {
@@ -453,6 +539,17 @@ impl Workload {
                     .await;
                     chain_flows += 1;
                 }
+                WorkloadFlowKind::Timer => {
+                    self.wait_for_completion(
+                        &mut client,
+                        server,
+                        start,
+                        TIMER_FLOW_OUTPUT,
+                        deadline,
+                    )
+                    .await;
+                    timer_flows += 1;
+                }
                 WorkloadFlowKind::Counter => {
                     let final_value = self
                         .finish_counter(&mut client, server, start, deadline)
@@ -463,13 +560,16 @@ impl Workload {
         }
         let (chain_step_executions, re_executed_step_executions) =
             self.verify_chain_journal(&starts);
+        self.verify_timer_journal(&starts);
         let (acknowledged_increments, unknown_increments) =
             self.verify_counters(&starts, &final_counter_values);
         VerificationReport {
             chain_flows,
+            timer_flows,
             counter_flows: final_counter_values.len(),
             acknowledged_increments,
             unknown_increments,
+            unavailable_retries: self.ledger.unavailable_retries.load(Ordering::SeqCst),
             chain_step_executions,
             re_executed_step_executions,
         }
@@ -710,6 +810,43 @@ impl Workload {
         (handler_calls.len(), re_executed)
     }
 
+    /// Panics unless every acknowledged timer run executed its Step, and only after the timer fired.
+    fn verify_timer_journal(&self, starts: &[AcknowledgedStart]) {
+        let acknowledged_runs: BTreeMap<&str, &str> = starts
+            .iter()
+            .filter(|start| start.kind == WorkloadFlowKind::Timer)
+            .map(|start| (start.flow_id.as_str(), start.run_id.as_str()))
+            .collect();
+        let executions = self
+            .journal
+            .timer_steps
+            .lock()
+            .expect("the journal lock is not poisoned")
+            .clone();
+        let mut executed_flows = BTreeSet::new();
+        for execution in &executions {
+            let Some(run_id) = acknowledged_runs.get(execution.flow_id.as_str()) else {
+                continue;
+            };
+            assert_eq!(
+                execution.run_id, *run_id,
+                "a handler saw a run other than the acknowledged one: {execution:?}"
+            );
+            assert!(
+                execution.has_timer_fired,
+                "{} executed TimerStep before its timer fired: {execution:?}",
+                execution.flow_id
+            );
+            executed_flows.insert(execution.flow_id.as_str());
+        }
+        for flow_id in acknowledged_runs.keys() {
+            assert!(
+                executed_flows.contains(flow_id),
+                "{flow_id} completed, but no Worker executed its TimerStep"
+            );
+        }
+    }
+
     /// Returns the number of acknowledged and unknown-outcome increments.
     fn verify_counters(
         &self,
@@ -794,32 +931,45 @@ impl RunningLoad {
     }
 }
 
-/// Starts one chain Flow at a time and waits for it to close before starting the next.
-async fn run_chain_starter(
+/// Starts one Flow of `kind` at a time and waits for it to close before starting the next.
+async fn run_flow_starter(
     mut client: FlowServiceClient<Channel>,
     ledger: Arc<ClientLedger>,
     is_stopping: Arc<AtomicBool>,
     flow_id_prefix: String,
+    kind: WorkloadFlowKind,
     call_timeout: Duration,
 ) {
     let mut sequence = 0;
     while !is_stopping.load(Ordering::SeqCst) {
         let flow_id = format!("{flow_id_prefix}-{sequence}");
         sequence += 1;
-        let request = start_request(
-            &flow_id,
-            CHAIN_FLOW_TYPE,
-            CHAIN_STEP_TYPE,
-            int_value(0),
-            &ledger,
-        );
+        let request = match kind {
+            WorkloadFlowKind::Chain => start_request(
+                &flow_id,
+                CHAIN_FLOW_TYPE,
+                CHAIN_STEP_TYPE,
+                int_value(0),
+                skipped_wait_for(),
+                &ledger,
+            ),
+            WorkloadFlowKind::Timer => start_request(
+                &flow_id,
+                TIMER_FLOW_TYPE,
+                TIMER_STEP_TYPE,
+                int_value(0),
+                StepOptions::default(),
+                &ledger,
+            ),
+            WorkloadFlowKind::Counter => panic!("counter Flows start in setup, not in the load"),
+        };
         let Some(run_id) =
             start_until_acknowledged(&mut client, &request, &ledger, &is_stopping, call_timeout)
                 .await
         else {
             return;
         };
-        ledger.record_start(&flow_id, &run_id, WorkloadFlowKind::Chain);
+        ledger.record_start(&flow_id, &run_id, kind);
         while !is_stopping.load(Ordering::SeqCst) {
             let wait = client.wait_for_flow(WaitForFlowRequest {
                 flow_id: flow_id.clone(),
@@ -838,37 +988,70 @@ async fn run_chain_starter(
     }
 }
 
-/// Increments one counter sequentially; a failed call is an unknown outcome and is not retried.
+/// Increments one counter sequentially.
+///
+/// A failed call is an unknown outcome, except that UNAVAILABLE is resent with its request ID
+/// within the budget.
 async fn run_counter_writer(
     mut client: FlowServiceClient<Channel>,
     ledger: Arc<ClientLedger>,
     is_stopping: Arc<AtomicBool>,
     flow_id: String,
     call_timeout: Duration,
+    unavailable_retry_budget: Option<Duration>,
 ) {
     while !is_stopping.load(Ordering::SeqCst) {
-        let call = client.invoke_rpc(InvokeRpcRequest {
+        let request = InvokeRpcRequest {
             flow_id: flow_id.clone(),
             rpc_name: INCREMENT_COUNTER_RPC.to_owned(),
             timeout_seconds: RPC_TIMEOUT_SECONDS,
             lock_attribute_keys: vec![COUNTER_ATTRIBUTE.to_owned()],
             request_id: ledger.new_request_id(&flow_id),
             ..InvokeRpcRequest::default()
-        });
-        match tokio::time::timeout(call_timeout, call).await {
-            Ok(Ok(response)) => {
-                let value = integer_of(response.into_inner().output.as_ref());
-                ledger.record_increment(&flow_id, value);
-            }
-            Ok(Err(status)) => {
-                ledger.record_unknown_increment(&flow_id, format!("{flow_id} increment: {status}"));
-                tokio::time::sleep(RETRY_PAUSE).await;
-            }
-            Err(_) => {
-                ledger.record_unknown_increment(&flow_id, format!("{flow_id} increment timed out"));
+        };
+        let retry_deadline = unavailable_retry_budget.map(|budget| Instant::now() + budget);
+        loop {
+            match tokio::time::timeout(call_timeout, client.invoke_rpc(request.clone())).await {
+                Ok(Ok(response)) => {
+                    let value = integer_of(response.into_inner().output.as_ref());
+                    ledger.record_increment(&flow_id, value);
+                    break;
+                }
+                Ok(Err(status))
+                    if is_unavailable(&status)
+                        && retry_deadline.is_some_and(|deadline| Instant::now() < deadline)
+                        && !is_stopping.load(Ordering::SeqCst) =>
+                {
+                    ledger.unavailable_retries.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(RETRY_PAUSE).await;
+                }
+                Ok(Err(status)) => {
+                    ledger.record_unknown_increment(
+                        &flow_id,
+                        format!("{flow_id} increment: {status}"),
+                    );
+                    tokio::time::sleep(RETRY_PAUSE).await;
+                    break;
+                }
+                Err(_) => {
+                    ledger.record_unknown_increment(
+                        &flow_id,
+                        format!("{flow_id} increment timed out"),
+                    );
+                    break;
+                }
             }
         }
     }
+}
+
+/// Returns whether a gRPC SDK would report `status` as UNAVAILABLE.
+///
+/// tonic reports a broken connection as UNKNOWN or CANCELLED with a transport error source.
+fn is_unavailable(status: &tonic::Status) -> bool {
+    status.code() == Code::Unavailable
+        || std::error::Error::source(status)
+            .is_some_and(|source| source.is::<tonic::transport::Error>())
 }
 
 /// Repeats `request` until acknowledged and returns its run ID, or `None` on stop.
@@ -901,6 +1084,7 @@ fn start_request(
     flow_type: &str,
     start_step_type: &str,
     step_input: Value,
+    step_options: StepOptions,
     ledger: &ClientLedger,
 ) -> StartFlowRequest {
     StartFlowRequest {
@@ -908,7 +1092,7 @@ fn start_request(
         flow_type: flow_type.to_owned(),
         start_step_type: start_step_type.to_owned(),
         step_input: Some(step_input),
-        step_options: Some(skipped_wait_for()),
+        step_options: Some(step_options),
         flow_start_options: Some(FlowStartOptions {
             flow_config_override: Some(FlowConfig {
                 worker_target: Some(WorkerTarget { is_pull_mode: true }),
@@ -930,9 +1114,11 @@ fn lazy_channel(address: SocketAddr) -> Channel {
         .connect_lazy()
 }
 
-/// A pull Worker for both workload Flow types; it ends when its server stops.
+/// A pull Worker for every workload Flow type; it ends when its server stops.
 pub(crate) struct WorkloadWorker {
     streams: Vec<WorkerStream>,
+    /// Cancelled when the first stream ends.
+    stream_ended: CancellationToken,
 }
 
 struct WorkerStream {
@@ -945,10 +1131,23 @@ impl WorkloadWorker {
     async fn start(channel: Channel, journal: Arc<WorkerJournal>) -> Result<Self, String> {
         let mut worker = Self {
             streams: Vec::new(),
+            stream_ended: CancellationToken::new(),
         };
-        for queue in [WORKER_ID, CHAIN_FLOW_TYPE, COUNTER_FLOW_TYPE] {
+        for queue in [
+            WORKER_ID,
+            CHAIN_FLOW_TYPE,
+            COUNTER_FLOW_TYPE,
+            TIMER_FLOW_TYPE,
+        ] {
             for _ in 0..STREAMS_PER_QUEUE {
-                match WorkerStream::open(channel.clone(), queue, journal.clone()).await {
+                match WorkerStream::open(
+                    channel.clone(),
+                    queue,
+                    journal.clone(),
+                    worker.stream_ended.clone(),
+                )
+                .await
+                {
                     Ok(stream) => worker.streams.push(stream),
                     Err(error) => {
                         worker.stop().await;
@@ -958,6 +1157,11 @@ impl WorkloadWorker {
             }
         }
         Ok(worker)
+    }
+
+    /// Waits until a stream ends, which happens when its server stops or the connection breaks.
+    async fn wait_until_a_stream_ends(&self) {
+        self.stream_ended.cancelled().await;
     }
 
     /// Closes every stream; fails if a handler panicked.
@@ -977,6 +1181,7 @@ impl WorkerStream {
         channel: Channel,
         queue: &str,
         journal: Arc<WorkerJournal>,
+        stream_ended: CancellationToken,
     ) -> Result<Self, String> {
         let (frames, outgoing) = mpsc::unbounded_channel();
         frames
@@ -985,7 +1190,11 @@ impl WorkerStream {
                     PollWorkerTaskRegister {
                         queue: queue.to_owned(),
                         app_worker_id: WORKER_ID.to_owned(),
-                        flow_types: vec![CHAIN_FLOW_TYPE.to_owned(), COUNTER_FLOW_TYPE.to_owned()],
+                        flow_types: vec![
+                            CHAIN_FLOW_TYPE.to_owned(),
+                            COUNTER_FLOW_TYPE.to_owned(),
+                            TIMER_FLOW_TYPE.to_owned(),
+                        ],
                         sdk_name: "dexzd-server-tests".to_owned(),
                         sdk_version: "0".to_owned(),
                     },
@@ -1015,6 +1224,8 @@ impl WorkerStream {
         );
         let replies = frames.clone();
         let task = tokio::spawn(async move {
+            // Dropped when the task returns or is aborted.
+            let _stream_end_guard = stream_ended.drop_guard();
             while let Some(Ok(response)) = incoming.next().await {
                 let reply = match response.frame {
                     Some(poll_worker_task_response::Frame::Task(task)) => {
@@ -1036,11 +1247,11 @@ impl WorkerStream {
 
 fn task_reply(task: PollWorkerTask, journal: &WorkerJournal) -> PollWorkerTaskRequest {
     let output = match task.request.expect("a task carries a request") {
-        poll_worker_task::Request::WaitFor(_) => {
+        poll_worker_task::Request::WaitFor(request) => {
             poll_worker_task_frame::Output::WaitFor(InvokeWaitForMethodOutput {
                 output: Some(invoke_wait_for_method_output::Output::Result(
                     InvokeWaitForMethodResponse {
-                        waiting_condition: Some(WaitingCondition::default()),
+                        waiting_condition: Some(waiting_condition(&request.step_type)),
                         ..InvokeWaitForMethodResponse::default()
                     },
                 )),
@@ -1071,7 +1282,25 @@ fn task_reply(task: PollWorkerTask, journal: &WorkerJournal) -> PollWorkerTaskRe
     }
 }
 
+/// TimerStep waits for one short timer; every other Step proceeds at once.
+fn waiting_condition(step_type: &str) -> WaitingCondition {
+    if step_type != TIMER_STEP_TYPE {
+        return WaitingCondition::default();
+    }
+    WaitingCondition {
+        waiting_condition_type: WaitingConditionType::AllCompleted.into(),
+        timer_conditions: vec![TimerCondition {
+            condition_id: TIMER_CONDITION_ID.to_owned(),
+            duration_seconds: TIMER_DURATION_SECONDS,
+            ..TimerCondition::default()
+        }],
+        ..WaitingCondition::default()
+    }
+}
+
 /// ChainStep moves to the next index or completes with the last; CounterStartStep ends its thread.
+///
+/// TimerStep completes once its timer fired.
 fn execute(
     request: &InvokeExecuteMethodRequest,
     journal: &WorkerJournal,
@@ -1107,6 +1336,27 @@ fn execute(
                     ..StepDecision::default()
                 }
             }
+        }
+        TIMER_STEP_TYPE => {
+            let has_timer_fired = request.condition_results.as_ref().is_some_and(|results| {
+                results.timer_results.iter().any(|timer| {
+                    timer.condition_id == TIMER_CONDITION_ID
+                        && timer.condition_status == ConditionStatus::Completed as i32
+                })
+            });
+            journal
+                .timer_steps
+                .lock()
+                .expect("the journal lock is not poisoned")
+                .push(TimerStepExecution {
+                    flow_id: context.flow_id.clone(),
+                    run_id: context.run_id.clone(),
+                    has_timer_fired,
+                });
+            close_decision(
+                CloseDecisionType::GracefulComplete,
+                Some(int_value(TIMER_FLOW_OUTPUT)),
+            )
         }
         COUNTER_START_STEP_TYPE => close_decision(CloseDecisionType::DeadEnd, None),
         FINISH_COUNTER_STEP_TYPE => close_decision(
@@ -1214,6 +1464,47 @@ fn integer_of(value: Option<&Value>) -> i64 {
     }
 }
 
+/// A Worker that registers again through one address whenever its streams end.
+pub(crate) struct ReconnectingWorker {
+    stop: CancellationToken,
+    task: JoinHandle<u64>,
+}
+
+impl ReconnectingWorker {
+    /// Closes the current streams and returns how many times the Worker registered.
+    pub(crate) async fn stop(self) -> u64 {
+        self.stop.cancel();
+        self.task
+            .await
+            .expect("the reconnecting Worker task does not panic")
+    }
+}
+
+/// Registers through `address` until `stop`, again whenever a stream ends; returns the registrations.
+async fn run_reconnecting_worker(
+    address: SocketAddr,
+    journal: Arc<WorkerJournal>,
+    stop: CancellationToken,
+) -> u64 {
+    let mut registrations = 0;
+    while !stop.is_cancelled() {
+        // Registration fails while no process serves; the next attempt follows the pause.
+        if let Ok(worker) = WorkloadWorker::start(lazy_channel(address), journal.clone()).await {
+            registrations += 1;
+            tokio::select! {
+                () = worker.wait_until_a_stream_ends() => {}
+                () = stop.cancelled() => {}
+            }
+            worker.stop().await;
+        }
+        tokio::select! {
+            () = tokio::time::sleep(WORKER_RECONNECT_PAUSE) => {}
+            () = stop.cancelled() => {}
+        }
+    }
+    registrations
+}
+
 /// Panics with the server log if `server` has exited.
 fn assert_still_serving(server: &mut RobustnessProcess) {
     if let Some(status) = server.exit_status() {
@@ -1230,10 +1521,15 @@ fn summarize(ledger: &ClientLedger, journal: &WorkerJournal) -> String {
         .iter()
         .filter(|start| start.kind == WorkloadFlowKind::Chain)
         .count();
+    let timer_starts = starts
+        .iter()
+        .filter(|start| start.kind == WorkloadFlowKind::Timer)
+        .count();
     let mut summary = format!(
-        "acknowledged calls: {}; acknowledged chain starts: {chain_starts}; failed start attempts: {}\n",
+        "acknowledged calls: {}; acknowledged chain starts: {chain_starts}; acknowledged timer starts: {timer_starts}; failed start attempts: {}; UNAVAILABLE increment retries: {}\n",
         ledger.acknowledged_count.load(Ordering::SeqCst),
-        ledger.failed_start_attempts.load(Ordering::SeqCst)
+        ledger.failed_start_attempts.load(Ordering::SeqCst),
+        ledger.unavailable_retries.load(Ordering::SeqCst)
     );
     for (flow_id, counter) in ledger.counters() {
         summary.push_str(&format!(

@@ -187,31 +187,40 @@ impl S3Emulator {
     }
 
     async fn admin_request(&self, method: &str, path: &str, body: &str) -> String {
-        let address = self.server.local_address();
-        let mut stream = tokio::net::TcpStream::connect(address)
-            .await
-            .expect("the emulator admin endpoint is reachable");
-        stream
-            .write_all(
-                format!(
-                    "{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                )
-                .as_bytes(),
-            )
-            .await
-            .expect("the admin request is sent");
-        let mut response = Vec::new();
-        stream
-            .read_to_end(&mut response)
-            .await
-            .expect("the admin response is complete");
-        String::from_utf8(response).expect("the admin response is UTF-8")
+        s3mock_admin_request(self.server.local_address(), method, path, body).await
     }
 
     pub(crate) async fn shutdown(self) {
         self.server.shutdown().await;
     }
+}
+
+/// Sends one request to the test controls of the s3mock server at `address` and returns the raw response.
+pub(crate) async fn s3mock_admin_request(
+    address: SocketAddr,
+    method: &str,
+    path: &str,
+    body: &str,
+) -> String {
+    let mut stream = tokio::net::TcpStream::connect(address)
+        .await
+        .expect("the emulator admin endpoint is reachable");
+    stream
+        .write_all(
+            format!(
+                "{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("the admin request is sent");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .expect("the admin response is complete");
+    String::from_utf8(response).expect("the admin response is UTF-8")
 }
 
 /// Settings that differ between the test processes; everything else stays at its default.

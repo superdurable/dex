@@ -42,13 +42,14 @@ const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const STOP_BUDGET: Duration = Duration::from_secs(5);
 const STOP_POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// A new epoch found a batch that a killed process wrote past the recovery gap.
-const STALE_BATCH_STOP_REASON: &str =
+pub(crate) const STALE_BATCH_STOP_REASON: &str =
     "an unacknowledged batch of an earlier epoch holds the next seq; recovery voids it";
 
 /// An s3mock server in this process with the primary bucket and fsync-durable writes.
 ///
 /// It skips signature checks, because unoptimized SigV4 checks slow every request.
 pub(crate) struct DurableEmulator {
+    store: Arc<Store>,
     server: ServerHandle,
     _directory: TempDir,
 }
@@ -65,11 +66,12 @@ impl DurableEmulator {
         store
             .create_bucket(PRIMARY_BUCKET, false)
             .expect("the emulator bucket is created");
+        let store = Arc::new(store);
         let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
             .await
             .expect("the emulator binds a loopback port");
         let server = s3mock_server::start_with_config(
-            Arc::new(store),
+            store.clone(),
             listener,
             ServerConfig {
                 data_directory: directory.path().to_path_buf(),
@@ -79,6 +81,7 @@ impl DurableEmulator {
         )
         .expect("the emulator starts");
         Self {
+            store,
             server,
             _directory: directory,
         }
@@ -86,6 +89,11 @@ impl DurableEmulator {
 
     pub(crate) fn endpoint(&self) -> String {
         format!("http://{}", self.server.local_address())
+    }
+
+    /// Returns the store, so more s3mock servers with their own fault rules can serve it.
+    pub(crate) fn store(&self) -> Arc<Store> {
+        self.store.clone()
     }
 
     pub(crate) async fn shutdown(self) {
@@ -285,6 +293,14 @@ impl RobustnessServeConfig<'_> {
         );
         fs::write(path, contents).expect("the serve configuration is written");
     }
+
+    /// Writes the YAML file with an OpenMetrics listener on `metrics_address`.
+    pub(crate) fn write_with_metrics(&self, path: &Path, metrics_address: SocketAddr) {
+        self.write(path);
+        let mut contents = fs::read_to_string(path).expect("the serve configuration is readable");
+        contents.push_str(&format!("metrics:\n  listen: '{metrics_address}'\n"));
+        fs::write(path, contents).expect("the serve configuration is written");
+    }
 }
 
 /// Spawns every serve process of one test; if the test panics, prints their logs and `summary`.
@@ -316,6 +332,11 @@ impl ServeFleet {
         let log_path = self.log_directory.join(format!("{name}.log"));
         self.log_paths.push(log_path.clone());
         RobustnessProcess::spawn(config_path, address, log_path)
+    }
+
+    /// Returns the log file of every process spawned so far, in spawn order.
+    pub(crate) fn log_paths(&self) -> &[PathBuf] {
+        &self.log_paths
     }
 }
 
@@ -597,7 +618,7 @@ async fn is_macos_process_stopped(process_id: u32) -> bool {
 }
 
 /// Requires the recovery of `process` to have voided at least one earlier epoch's batch.
-fn assert_replay_voided_a_batch(process: &RobustnessProcess) {
+pub(crate) fn assert_replay_voided_a_batch(process: &RobustnessProcess) {
     let log = process.log();
     let voided_batches = replay_field(&log, "voided_batches");
     assert!(
