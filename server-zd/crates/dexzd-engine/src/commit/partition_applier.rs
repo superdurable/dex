@@ -314,7 +314,7 @@ pub(crate) enum BatchEnqueueError {
     PoolClosed(#[from] ApplierPoolClosed),
 }
 
-/// Shortest interval at which a serving node records the last routed batch as every partition's
+/// Shortest interval at which a node records the last queued batch as every partition's
 /// position.
 const MIN_APPLIED_POSITION_ADVANCE_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -322,7 +322,7 @@ const MIN_APPLIED_POSITION_ADVANCE_INTERVAL: Duration = Duration::from_secs(1);
 /// records per second.
 const ADVANCED_PARTITIONS_PER_SECOND: u64 = 8192;
 
-/// Advances every running partition, idle ones included, to the last routed batch, shortening
+/// Advances every running partition, idle ones included, to the last queued batch, shortening
 /// restart replay.
 pub(crate) struct AppliedPositionAdvancer {
     appliers: Arc<PartitionApplierPool>,
@@ -354,7 +354,8 @@ pub(crate) struct FollowedBatch {
 }
 
 impl AppliedPositionAdvancer {
-    /// Creates an advancer whose first advance covers batches routed after recovery's advance.
+    /// Creates an advancer whose first advance covers batches queued after recovery's advance, or
+    /// a follower's first queued batch.
     pub(crate) fn new(
         appliers: Arc<PartitionApplierPool>,
         source: AppliedPositionSource,
@@ -382,7 +383,7 @@ impl AppliedPositionAdvancer {
         }
     }
 
-    /// Advances once per interval in which a batch was routed, until cancelled or the lanes stop.
+    /// Advances once per interval in which a batch was queued, until cancelled or the lanes stop.
     pub(crate) async fn run(self: Arc<Self>, cancellation: CancellationToken) {
         loop {
             tokio::select! {
@@ -390,18 +391,18 @@ impl AppliedPositionAdvancer {
                 () = cancellation.cancelled() => return,
                 () = tokio::time::sleep(self.interval) => {}
             }
-            if self.advance_to_last_routed().await.is_err() {
+            if self.advance_to_last_queued_batch().await.is_err() {
                 // The lanes stop only at shutdown or after the node stopped.
                 return;
             }
         }
     }
 
-    /// Marks every running partition applied through the last routed batch; halted partitions and
+    /// Marks every running partition applied through the last queued batch; halted partitions and
     /// stopped nodes write nothing.
     ///
     /// Returns [`ApplierPoolClosed`] when the applier lanes stopped before the advance finished.
-    pub(crate) async fn advance_to_last_routed(&self) -> Result<(), ApplierPoolClosed> {
+    pub(crate) async fn advance_to_last_queued_batch(&self) -> Result<(), ApplierPoolClosed> {
         let mut advanced = self.advanced.lock().await;
         let Some(FollowedBatch {
             position,

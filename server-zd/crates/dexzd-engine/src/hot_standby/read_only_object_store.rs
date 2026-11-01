@@ -8,6 +8,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -19,11 +20,32 @@ use dexzd_object_store::{
 /// Object storage for a process that does not hold the node lease: reads pass, writes fail.
 pub(crate) struct ReadOnlyObjectStore {
     inner: Arc<dyn ObjectStore>,
+    rejected_writes: Arc<AtomicU64>,
 }
 
 impl ReadOnlyObjectStore {
-    pub(crate) fn new(inner: Arc<dyn ObjectStore>) -> Self {
-        Self { inner }
+    pub(crate) fn new(inner: Arc<dyn ObjectStore>, rejected_writes: Arc<AtomicU64>) -> Self {
+        Self {
+            inner,
+            rejected_writes,
+        }
+    }
+
+    /// Counts, logs, and returns the error of a write that a hot standby must never attempt.
+    fn reject_write(&self, operation: ObjectStoreOperation, key: &str) -> ObjectStoreError {
+        let rejected_writes = self.rejected_writes.fetch_add(1, Ordering::SeqCst) + 1;
+        tracing::error!(
+            %operation,
+            key,
+            rejected_writes,
+            "a hot standby attempted an object storage write"
+        );
+        ObjectStoreError::new(
+            operation,
+            key,
+            ObjectStoreErrorKind::Permanent,
+            "a hot standby never writes object storage",
+        )
     }
 }
 
@@ -35,7 +57,7 @@ impl ObjectStore for ReadOnlyObjectStore {
         _body: Bytes,
         _condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
-        Err(rejected_write(ObjectStoreOperation::Put, key))
+        Err(self.reject_write(ObjectStoreOperation::Put, key))
     }
 
     async fn put_file(
@@ -44,7 +66,7 @@ impl ObjectStore for ReadOnlyObjectStore {
         _path: &Path,
         _condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
-        Err(rejected_write(ObjectStoreOperation::Put, key))
+        Err(self.reject_write(ObjectStoreOperation::Put, key))
     }
 
     async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
@@ -68,11 +90,11 @@ impl ObjectStore for ReadOnlyObjectStore {
     }
 
     async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
-        Err(rejected_write(ObjectStoreOperation::Delete, key))
+        Err(self.reject_write(ObjectStoreOperation::Delete, key))
     }
 
     async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
-        Err(rejected_write(
+        Err(self.reject_write(
             ObjectStoreOperation::Delete,
             keys.first().map_or("", String::as_str),
         ))
@@ -86,17 +108,6 @@ impl ObjectStore for ReadOnlyObjectStore {
     ) -> ObjectStoreResult<ObjectListing> {
         self.inner.list(prefix, start_after, max_keys).await
     }
-}
-
-/// Logs and returns the error of a write that a hot standby must never attempt.
-fn rejected_write(operation: ObjectStoreOperation, key: &str) -> ObjectStoreError {
-    tracing::error!(%operation, key, "a hot standby attempted an object storage write");
-    ObjectStoreError::new(
-        operation,
-        key,
-        ObjectStoreErrorKind::Permanent,
-        "a hot standby never writes object storage",
-    )
 }
 
 #[cfg(test)]
@@ -116,7 +127,8 @@ mod tests {
             )
             .await
             .expect("the test object is stored");
-        let read_only = ReadOnlyObjectStore::new(inner.clone());
+        let rejected_writes = Arc::new(AtomicU64::new(0));
+        let read_only = ReadOnlyObjectStore::new(inner.clone(), rejected_writes.clone());
         let directory = tempfile::tempdir().expect("temporary directory");
         let file = directory.path().join("body");
         std::fs::write(&file, b"body").expect("the test file is written");
@@ -147,6 +159,7 @@ mod tests {
                 u64::from(operation == ObjectStoreOperation::Put)
             );
         }
+        assert_eq!(rejected_writes.load(Ordering::SeqCst), 4);
         let kept = read_only
             .get("kept")
             .await

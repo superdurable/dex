@@ -1201,6 +1201,7 @@ dependencies = [
  "dexzd-apply",
  "dexzd-clock",
  "dexzd-cluster-metadata",
+ "dexzd-engine",
  "dexzd-keyspace",
  "dexzd-log",
  "dexzd-metrics",

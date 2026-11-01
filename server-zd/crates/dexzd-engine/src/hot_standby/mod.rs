@@ -12,6 +12,9 @@ mod log_follower;
 mod read_only_object_store;
 mod standby_driver;
 
+use std::sync::atomic::AtomicU64;
+#[cfg(feature = "test-util")]
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -20,6 +23,7 @@ use dexzd_object_store::ObjectStore;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::command_applier::CommandApplier;
 use crate::engine_id_source::EngineIdSource;
@@ -44,9 +48,9 @@ pub struct HotStandbyConfig {
     /// Defaults to 5 seconds; must be positive. How often the standby rereads the manifest to
     /// learn closed log segments, new incarnations, and log cleanup.
     pub manifest_refresh_interval: Duration,
-    /// Defaults to 20 seconds; must be positive. How long the standby waits at one seq before it
-    /// checks whether log cleanup deleted that seq. A deleted seq makes the standby restore the
-    /// newest snapshot.
+    /// Defaults to 20 seconds; must exceed `manifest_refresh_interval`. How long the standby waits
+    /// at one seq before it checks whether log cleanup deleted that seq. A deleted seq makes the
+    /// standby restore the newest snapshot.
     pub stalled_seq_deletion_check_after: Duration,
     /// Defaults to 10 seconds; must be positive. Lag above which the standby reports
     /// [`HotStandbyState::Behind`] instead of [`HotStandbyState::Following`].
@@ -102,10 +106,9 @@ pub struct HotStandbyLag {
     pub incarnation: u32,
     /// Next seq that group reads in that stream.
     pub next_seq: u64,
-    /// Batches after `next_seq` in the stream listing of the last manifest refresh, at most 1000.
+    /// Batches from `next_seq` on in the stream listing of the last manifest refresh, at most 1000.
     pub batches: u64,
-    /// Zero when caught up; otherwise time since the later of the last applied batch's seal and
-    /// last caught-up read.
+    /// Zero when caught up at the end of the log; otherwise how long the standby has trailed it.
     pub duration: Duration,
 }
 
@@ -119,12 +122,17 @@ pub struct HotStandbyStatus {
     pub lag: Option<HotStandbyLag>,
     /// Why the standby stopped, in [`HotStandbyState::Failed`].
     pub failure: Option<Arc<EngineStartError>>,
+    /// Why the standby last restarted; it retries every error except a configuration error.
+    pub last_error: Option<String>,
 }
 
 /// Follows the node's log from object storage without the node lease, so a later takeover
 /// replays little.
 pub struct HotStandby {
     status: Arc<StandbyStatusCell>,
+    /// Writes the read-only object store rejected; always zero unless the standby has a bug.
+    #[cfg(feature = "test-util")]
+    rejected_writes: Arc<AtomicU64>,
     clock: Arc<dyn WallClock>,
     behind_lag_threshold: Duration,
     cancellation: CancellationToken,
@@ -151,28 +159,41 @@ impl HotStandby {
             id_source,
         } = dependencies;
         let status = Arc::new(StandbyStatusCell::default());
+        let rejected_writes = Arc::new(AtomicU64::new(0));
+        #[cfg(feature = "test-util")]
+        let observed_rejected_writes = Arc::clone(&rejected_writes);
+        let restart_jitter_seed = xxh3_64(id_source.lease_holder_process_id().as_bytes());
         let cancellation = CancellationToken::new();
         let driver = tokio::spawn(
             StandbyDriver {
                 config,
                 standby_config,
                 metrics,
-                object_store: Arc::new(ReadOnlyObjectStore::new(object_store)),
+                object_store: Arc::new(ReadOnlyObjectStore::new(object_store, rejected_writes)),
                 clock: clock.clone(),
                 applier,
                 id_source,
                 status: status.clone(),
+                restart_jitter_seed,
                 cancellation: cancellation.clone(),
             }
             .run(),
         );
         Ok(Self {
             status,
+            #[cfg(feature = "test-util")]
+            rejected_writes: observed_rejected_writes,
             clock,
             behind_lag_threshold: standby_config.behind_lag_threshold,
             cancellation,
             driver: Some(driver),
         })
+    }
+
+    /// Returns how many writes the standby attempted and its read-only object store rejected.
+    #[cfg(feature = "test-util")]
+    pub fn rejected_writes_for_test(&self) -> u64 {
+        self.rejected_writes.load(Ordering::SeqCst)
     }
 
     /// Returns the standby's state and lag now.
@@ -216,8 +237,8 @@ fn validate_standby_config(config: &HotStandbyConfig) -> Result<(), EngineStartE
         Some("hot standby max_poll_backoff must be at least initial_poll_backoff")
     } else if config.manifest_refresh_interval.is_zero() {
         Some("hot standby manifest_refresh_interval must be positive")
-    } else if config.stalled_seq_deletion_check_after.is_zero() {
-        Some("hot standby stalled_seq_deletion_check_after must be positive")
+    } else if config.stalled_seq_deletion_check_after <= config.manifest_refresh_interval {
+        Some("hot standby stalled_seq_deletion_check_after must exceed manifest_refresh_interval")
     } else if config.behind_lag_threshold.is_zero() {
         Some("hot standby behind_lag_threshold must be positive")
     } else {
@@ -231,10 +252,12 @@ fn validate_standby_config(config: &HotStandbyConfig) -> Result<(), EngineStartE
     }
 }
 
-/// The standby's phase, shared by its driver and [`HotStandby::status`].
+/// The standby's phase and last restart error, shared by its driver and [`HotStandby::status`].
 #[derive(Default)]
 struct StandbyStatusCell {
     phase: Mutex<StandbyPhase>,
+    /// Why the standby last restarted; cleared after a stretch of healthy following.
+    last_error: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
@@ -245,7 +268,8 @@ enum StandbyPhase {
         progress: watch::Receiver<FollowProgress>,
         /// Wall-clock start of following, the lag base before the first accepted batch.
         started_at_micros: i64,
-        listed_batches: u64,
+        /// Next seq at the last listing, and the batches it showed from that seq on.
+        listing: Option<(u64, u64)>,
     },
     Failed(Arc<EngineStartError>),
 }
@@ -258,17 +282,29 @@ impl StandbyStatusCell {
             .expect("standby status lock is not poisoned") = phase;
     }
 
-    fn set_listed_batches(&self, batches: u64) {
-        if let StandbyPhase::Following { listed_batches, .. } = &mut *self
+    fn set_listing(&self, next_seq: u64, batches: u64) {
+        if let StandbyPhase::Following { listing, .. } = &mut *self
             .phase
             .lock()
             .expect("standby status lock is not poisoned")
         {
-            *listed_batches = batches;
+            *listing = Some((next_seq, batches));
         }
     }
 
+    fn set_last_error(&self, error: Option<String>) {
+        *self
+            .last_error
+            .lock()
+            .expect("standby status lock is not poisoned") = error;
+    }
+
     fn status_at(&self, now_micros: i64, behind_lag_threshold: Duration) -> HotStandbyStatus {
+        let last_error = self
+            .last_error
+            .lock()
+            .expect("standby status lock is not poisoned")
+            .clone();
         match &*self
             .phase
             .lock()
@@ -278,31 +314,21 @@ impl StandbyStatusCell {
                 state: HotStandbyState::Bootstrapping,
                 lag: None,
                 failure: None,
+                last_error,
             },
             StandbyPhase::Failed(error) => HotStandbyStatus {
                 state: HotStandbyState::Failed,
                 lag: None,
                 failure: Some(error.clone()),
+                last_error,
             },
             StandbyPhase::Following {
                 progress,
                 started_at_micros,
-                listed_batches,
+                listing,
             } => {
                 let progress = *progress.borrow();
-                let duration = if progress.is_caught_up {
-                    Duration::ZERO
-                } else {
-                    let base_micros = progress
-                        .last_accepted_sealed_at_micros
-                        .unwrap_or(*started_at_micros);
-                    let data_age = Duration::from_micros(
-                        u64::try_from(now_micros.saturating_sub(base_micros)).unwrap_or(0),
-                    );
-                    progress.caught_up_at.map_or(data_age, |caught_up_at| {
-                        data_age.min(caught_up_at.elapsed())
-                    })
-                };
+                let duration = lag_duration(&progress, *listing, *started_at_micros, now_micros);
                 let state = if duration > behind_lag_threshold {
                     HotStandbyState::Behind
                 } else {
@@ -313,12 +339,40 @@ impl StandbyStatusCell {
                     lag: Some(HotStandbyLag {
                         incarnation: progress.incarnation,
                         next_seq: progress.next_seq,
-                        batches: *listed_batches,
+                        batches: listing.map_or(0, |(_, batches)| batches),
                         duration,
                     }),
                     failure: None,
+                    last_error,
                 }
             }
         }
     }
+}
+
+/// Returns how far a follower trails the log; see [`HotStandbyLag::duration`].
+fn lag_duration(
+    progress: &FollowProgress,
+    listing: Option<(u64, u64)>,
+    started_at_micros: i64,
+    now_micros: i64,
+) -> Duration {
+    if progress.is_caught_up {
+        let is_waiting_at_hole = listing.is_some_and(|(listed_next_seq, batches)| {
+            listed_next_seq == progress.next_seq && batches > 0
+        });
+        return match progress.waiting_since {
+            Some(waiting_since) if is_waiting_at_hole => waiting_since.elapsed(),
+            _ => Duration::ZERO,
+        };
+    }
+    let base_micros = progress
+        .last_accepted_sealed_at_micros
+        .unwrap_or(started_at_micros);
+    // A seal time ahead of this clock means clock skew, not lag.
+    let data_age =
+        Duration::from_micros(u64::try_from(now_micros.saturating_sub(base_micros)).unwrap_or(0));
+    progress.caught_up_at.map_or(data_age, |caught_up_at| {
+        data_age.min(caught_up_at.elapsed())
+    })
 }

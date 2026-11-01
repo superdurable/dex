@@ -17,6 +17,7 @@ use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::LogPosition;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 use crate::command_applier::CommandApplier;
 use crate::commit::{
@@ -36,9 +37,15 @@ use crate::recovery::{
     rebuild_search_order_indexes,
 };
 
-/// First wait before a failed bootstrap retries; it doubles up to the maximum.
-const BOOTSTRAP_RETRY_INITIAL: Duration = Duration::from_secs(1);
-const BOOTSTRAP_RETRY_MAX: Duration = Duration::from_secs(30);
+/// First wait before the standby restarts after an error; it doubles up to the maximum.
+const RESTART_DELAY_INITIAL: Duration = Duration::from_secs(1);
+const RESTART_DELAY_MAX: Duration = Duration::from_secs(60);
+
+/// Following this long without an error resets the restart delay and clears the last error.
+const HEALTHY_FOLLOWING: Duration = Duration::from_secs(60);
+
+/// Longest wait for the last handle of a stopped store, so its directory can be reopened.
+const STORE_RELEASE_BUDGET: Duration = Duration::from_secs(5);
 
 /// Longest wait for the standby's applier lanes to stop.
 const APPLIER_STOP_BUDGET: Duration = Duration::from_secs(3);
@@ -57,6 +64,8 @@ pub(super) struct StandbyDriver {
     pub(super) applier: Arc<dyn CommandApplier>,
     pub(super) id_source: Arc<dyn EngineIdSource>,
     pub(super) status: Arc<StandbyStatusCell>,
+    /// Spreads restart delays of different processes apart.
+    pub(super) restart_jitter_seed: u64,
     pub(super) cancellation: CancellationToken,
 }
 
@@ -72,15 +81,28 @@ struct FollowingStandby {
 
 /// How one period of following ended.
 enum FollowingOutcome {
-    Restart,
+    /// Bootstrap again: log cleanup outran the store, or an error that a restart may fix.
+    Restart {
+        error: Option<String>,
+    },
+    /// A configuration error that no restart fixes.
     Failed(EngineStartError),
     Cancelled,
 }
 
+/// Exponential restart delays with jitter that the process's seed spreads apart.
+struct RestartDelays {
+    jitter_seed: u64,
+    restarts: u32,
+}
+
 impl StandbyDriver {
-    /// Runs until cancelled or until an error it cannot recover from.
+    /// Runs until cancelled or until a configuration error.
     pub(super) async fn run(self) {
-        let mut retry_delay = BOOTSTRAP_RETRY_INITIAL;
+        let mut delays = RestartDelays {
+            jitter_seed: self.restart_jitter_seed,
+            restarts: 0,
+        };
         loop {
             self.status.set(StandbyPhase::Bootstrapping);
             let bootstrapped = tokio::select! {
@@ -91,27 +113,39 @@ impl StandbyDriver {
             let following = match bootstrapped {
                 Ok(Some(following)) => following,
                 Ok(None) => {
-                    tracing::info!("the hot standby waits for the cluster manifest");
-                    if !self.wait_to_retry(&mut retry_delay).await {
+                    tracing::info!("the hot standby waits for the cluster object and manifest");
+                    if !self.wait_to_restart(&mut delays).await {
                         return;
                     }
                     continue;
                 }
-                Err(error) if is_unrecoverable(&error) => {
+                Err(error) if is_configuration_error(&error) => {
                     self.fail(error);
                     return;
                 }
                 Err(error) => {
                     tracing::warn!(%error, "the hot standby could not bootstrap; retrying");
-                    if !self.wait_to_retry(&mut retry_delay).await {
+                    self.status.set_last_error(Some(error.to_string()));
+                    if !self.wait_to_restart(&mut delays).await {
                         return;
                     }
                     continue;
                 }
             };
-            retry_delay = BOOTSTRAP_RETRY_INITIAL;
-            match self.follow(following).await {
-                FollowingOutcome::Restart => {}
+            let followed_since = Instant::now();
+            let outcome = self.follow(following).await;
+            if followed_since.elapsed() >= HEALTHY_FOLLOWING {
+                delays.restarts = 0;
+            }
+            match outcome {
+                FollowingOutcome::Restart { error: None } => {}
+                FollowingOutcome::Restart { error: Some(error) } => {
+                    tracing::warn!(error, "the hot standby restarts after an error");
+                    self.status.set_last_error(Some(error));
+                    if !self.wait_to_restart(&mut delays).await {
+                        return;
+                    }
+                }
                 FollowingOutcome::Failed(error) => {
                     self.fail(error);
                     return;
@@ -126,9 +160,9 @@ impl StandbyDriver {
     /// Returns `None` until the cluster manifest exists.
     async fn bootstrap(&self) -> Result<Option<FollowingStandby>, EngineStartError> {
         let config = &self.config;
+        let read_at = Instant::now();
         let Some(metadata) = ClusterMetadata::read_existing(
             self.object_store.as_ref(),
-            self.clock.as_ref(),
             config.cluster,
             &config.node,
         )
@@ -193,6 +227,7 @@ impl StandbyDriver {
             cluster_id,
             source: FollowSource {
                 streams: metadata.streams.clone(),
+                read_at,
             },
             pacing: FollowPacing {
                 initial_poll_backoff: self.standby_config.initial_poll_backoff,
@@ -226,30 +261,33 @@ impl StandbyDriver {
         self.status.set(StandbyPhase::Following {
             progress: following.follower.progress(),
             started_at_micros: self.clock.now_unix_micros(),
-            listed_batches: 0,
+            listing: None,
         });
-        let mut next_refresh = Instant::now() + self.standby_config.manifest_refresh_interval;
+        let followed_since = Instant::now();
+        let refresh_interval = self.standby_config.manifest_refresh_interval;
+        let mut next_refresh = Instant::now() + refresh_interval;
         let outcome = loop {
             tokio::select! {
                 biased;
                 () = self.cancellation.cancelled() => break FollowingOutcome::Cancelled,
-                end = following.follower.wait_for_end() => break match end {
-                    FollowEnd::LogDeleted => {
-                        tracing::warn!(
-                            "log cleanup deleted batches the hot standby needs; restoring the \
-                             newest snapshot"
-                        );
-                        FollowingOutcome::Restart
-                    }
-                    FollowEnd::Failed(error) => FollowingOutcome::Failed(error),
-                    FollowEnd::Stopped => FollowingOutcome::Failed(EngineStartError::Stopped {
-                        reason: NodeStopReason::Shutdown,
-                    }),
-                },
+                end = following.follower.wait_for_end() => break outcome_of_follow_end(end),
                 () = tokio::time::sleep_until(next_refresh) => {
-                    next_refresh = Instant::now() + self.standby_config.manifest_refresh_interval;
-                    if let Some(outcome) = self.refresh(&mut following).await {
-                        break outcome;
+                    next_refresh = Instant::now() + refresh_interval;
+                    let refreshed = tokio::select! {
+                        biased;
+                        () = self.cancellation.cancelled() => break FollowingOutcome::Cancelled,
+                        refreshed = tokio::time::timeout(
+                            refresh_interval,
+                            self.refresh(&mut following),
+                        ) => refreshed,
+                    };
+                    match refreshed {
+                        Ok(Some(outcome)) => break outcome,
+                        Ok(None) => {}
+                        Err(_) => tracing::warn!("rereading the manifest took too long; retrying"),
+                    }
+                    if followed_since.elapsed() >= HEALTHY_FOLLOWING {
+                        self.status.set_last_error(None);
                     }
                 }
             }
@@ -263,8 +301,11 @@ impl StandbyDriver {
         } = following;
         let followed_store = follower.stop().await;
         stop_appliers(&write_fence, &appliers).await;
-        // Closing the store before a restart lets the next bootstrap reopen its directory.
-        drop((appliers, followed_store, store));
+        drop((appliers, followed_store));
+        if !matches!(outcome, FollowingOutcome::Cancelled) {
+            // The next bootstrap reopens the store's directory, which its last handle locks.
+            release_store(store).await;
+        }
         outcome
     }
 
@@ -272,13 +313,16 @@ impl StandbyDriver {
     ///
     /// Returns how following ends when the manifest no longer retains what the store needs.
     async fn refresh(&self, following: &mut FollowingStandby) -> Option<FollowingOutcome> {
+        let read_at = Instant::now();
         let current = match following
             .metadata
             .read_current_manifest(self.object_store.as_ref(), &self.config.node)
             .await
         {
             Ok(current) => current,
-            Err(error) if is_unrecoverable(&error) => return Some(FollowingOutcome::Failed(error)),
+            Err(error) if is_configuration_error(&error) => {
+                return Some(FollowingOutcome::Failed(error));
+            }
             Err(error) => {
                 tracing::warn!(%error, "the hot standby could not reread the manifest");
                 return None;
@@ -286,6 +330,7 @@ impl StandbyDriver {
         };
         following.follower.update_source(FollowSource {
             streams: current.streams.clone(),
+            read_at,
         });
         // The gap check reads stored positions, so idle partitions must catch up with the reads.
         let advanced = tokio::time::timeout(
@@ -302,9 +347,13 @@ impl StandbyDriver {
                 Ok(None) => {}
                 Ok(Some(gap)) => {
                     tracing::warn!(%gap, "the retained log cannot update the hot standby's store");
-                    return Some(FollowingOutcome::Restart);
+                    return Some(FollowingOutcome::Restart { error: None });
                 }
-                Err(error) => return Some(FollowingOutcome::Failed(error)),
+                Err(error) => {
+                    return Some(FollowingOutcome::Restart {
+                        error: Some(error.to_string()),
+                    });
+                }
             }
         } else {
             tracing::debug!("applied positions did not advance; checking the store next time");
@@ -314,7 +363,7 @@ impl StandbyDriver {
         None
     }
 
-    /// Records how many batches the stream holds after the follower's next seq.
+    /// Records how many batches the stream holds from the follower's next seq on.
     async fn list_unapplied_batches(&self, following: &FollowingStandby) {
         let progress = *following.follower.progress().borrow();
         let stream = StreamIdentity {
@@ -331,7 +380,9 @@ impl StandbyDriver {
             .list(prefix, Some(&last_read_key), LAG_LISTING_KEYS)
             .await
         {
-            Ok(listing) => self.status.set_listed_batches(listing.objects.len() as u64),
+            Ok(listing) => self
+                .status
+                .set_listing(progress.next_seq, listing.objects.len() as u64),
             Err(error) => {
                 tracing::warn!(%error, "the hot standby could not list its log stream for lag");
             }
@@ -343,17 +394,68 @@ impl StandbyDriver {
         self.status.set(StandbyPhase::Failed(Arc::new(error)));
     }
 
-    /// Waits `retry_delay`, then doubles it up to the maximum.
+    /// Waits for the next restart delay.
     ///
     /// Returns `false` when cancellation arrives first.
-    async fn wait_to_retry(&self, retry_delay: &mut Duration) -> bool {
-        let delay = *retry_delay;
-        *retry_delay = (delay * 2).min(BOOTSTRAP_RETRY_MAX);
+    async fn wait_to_restart(&self, delays: &mut RestartDelays) -> bool {
+        let delay = delays.next_delay();
         tokio::select! {
             biased;
             () = self.cancellation.cancelled() => false,
             () = tokio::time::sleep(delay) => true,
         }
+    }
+}
+
+impl RestartDelays {
+    /// Returns the delay before the next restart: 1 second doubling to 60, within plus or minus
+    /// 20 percent.
+    fn next_delay(&mut self) -> Duration {
+        let base = RESTART_DELAY_INITIAL
+            .saturating_mul(1_u32 << self.restarts.min(6))
+            .min(RESTART_DELAY_MAX);
+        let jitter_permille = 800
+            + u32::try_from(
+                xxh3_64_with_seed(&self.restarts.to_le_bytes(), self.jitter_seed) % 401,
+            )
+            .expect("a value below 401 fits u32");
+        self.restarts = self.restarts.saturating_add(1);
+        base * jitter_permille / 1000
+    }
+}
+
+/// Maps how the follower ended to how following ends.
+fn outcome_of_follow_end(end: FollowEnd) -> FollowingOutcome {
+    match end {
+        FollowEnd::LogDeleted => {
+            tracing::warn!(
+                "log cleanup deleted batches the hot standby needs; restoring the newest snapshot"
+            );
+            FollowingOutcome::Restart { error: None }
+        }
+        FollowEnd::Failed(error) if is_configuration_error(&error) => {
+            FollowingOutcome::Failed(error)
+        }
+        FollowEnd::Failed(error) => FollowingOutcome::Restart {
+            error: Some(error.to_string()),
+        },
+        FollowEnd::TaskFailed { detail } => FollowingOutcome::Restart {
+            error: Some(detail),
+        },
+        FollowEnd::Stopped => FollowingOutcome::Restart {
+            error: Some("the log follower stopped unexpectedly".to_owned()),
+        },
+    }
+}
+
+/// Waits up to [`STORE_RELEASE_BUDGET`] until `store` holds the last handle, then drops it.
+async fn release_store(store: Arc<EngineLocalStore>) {
+    let deadline = Instant::now() + STORE_RELEASE_BUDGET;
+    while Arc::strong_count(&store) > 1 && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    if Arc::strong_count(&store) > 1 {
+        tracing::warn!("another task still holds the hot standby's local store");
     }
 }
 
@@ -368,22 +470,17 @@ async fn stop_appliers(write_fence: &CommitState, appliers: &PartitionApplierPoo
     }
 }
 
-/// Returns whether retrying cannot fix `error`, such as a configuration that contradicts the
-/// cluster.
-fn is_unrecoverable(error: &EngineStartError) -> bool {
+/// Returns whether `error` is a configuration error that no restart fixes.
+fn is_configuration_error(error: &EngineStartError) -> bool {
     match error {
         EngineStartError::NodeIdentityMismatch { .. }
         | EngineStartError::IncarnationRegressed { .. }
-        | EngineStartError::UnsupportedBehaviorVersion { .. }
-        | EngineStartError::LocalStoreUnavailable { .. }
-        | EngineStartError::InvalidConfig { .. }
-        | EngineStartError::Stopped { .. } => true,
+        | EngineStartError::InvalidConfig { .. } => true,
         EngineStartError::Metadata(error) => matches!(
             error,
             MetadataError::ClusterMismatch { .. }
                 | MetadataError::InvalidNodeIdentifier(_)
                 | MetadataError::InvalidConfig { .. }
-                | MetadataError::UnsupportedVersionBarrier { .. }
         ),
         _ => false,
     }

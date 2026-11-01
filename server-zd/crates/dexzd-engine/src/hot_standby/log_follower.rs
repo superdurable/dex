@@ -32,6 +32,8 @@ const FOLLOWER_STOP_BUDGET: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone)]
 pub(crate) struct FollowSource {
     pub(crate) streams: NodeStreams,
+    /// When the manifest that records `streams` was read.
+    pub(crate) read_at: Instant,
 }
 
 /// How a log follower paces its reads.
@@ -56,6 +58,8 @@ pub(crate) struct FollowProgress {
     pub(crate) is_caught_up: bool,
     /// When a read last found no next batch.
     pub(crate) caught_up_at: Option<Instant>,
+    /// When the follower began waiting at `next_seq`, while it waits there.
+    pub(crate) waiting_since: Option<Instant>,
 }
 
 /// Why a log follower stopped reading.
@@ -65,6 +69,8 @@ pub(crate) enum FollowEnd {
     LogDeleted,
     /// The follower cannot continue.
     Failed(EngineStartError),
+    /// The follow task panicked or was aborted.
+    TaskFailed { detail: String },
     /// [`LogFollower::stop`] or a shutdown of the write fence stopped it.
     Stopped,
 }
@@ -146,6 +152,7 @@ impl LogFollower {
             last_accepted_sealed_at_micros: None,
             is_caught_up: false,
             caught_up_at: None,
+            waiting_since: None,
         });
         let node_id = source.streams.node_id.clone();
         let (sources, source_updates) = watch::channel(source);
@@ -189,7 +196,7 @@ impl LogFollower {
     ///
     /// Returns [`ApplierPoolClosed`] when the applier lanes stopped first.
     pub(crate) async fn advance_applied_positions(&self) -> Result<(), ApplierPoolClosed> {
-        self.advancer.advance_to_last_routed().await
+        self.advancer.advance_to_last_queued_batch().await
     }
 
     /// Waits until the follower stops reading on its own. Cancel safe.
@@ -201,11 +208,9 @@ impl LogFollower {
         };
         let end = match task.await {
             Ok(end) => end,
-            Err(error) => FollowEnd::Failed(EngineStartError::Stopped {
-                reason: NodeStopReason::LocalStoreFailed {
-                    detail: format!("the log follower task failed: {error}"),
-                },
-            }),
+            Err(error) => FollowEnd::TaskFailed {
+                detail: format!("the log follower task failed: {error}"),
+            },
         };
         self.follow_task = None;
         end
@@ -222,13 +227,18 @@ impl LogFollower {
                 Some(FollowEnd::Failed(error)) => {
                     tracing::warn!(%error, "the log follower failed as it stopped");
                 }
+                Some(FollowEnd::TaskFailed { detail }) => {
+                    tracing::warn!(detail, "the log follower task failed as it stopped");
+                }
                 Some(FollowEnd::LogDeleted | FollowEnd::Stopped) | None => {}
             }
         }
         if let Some(task) = self.advance_task.take() {
             finish_stopped_task(task, stop_deadline).await;
         }
-        match tokio::time::timeout_at(stop_deadline, self.advancer.advance_to_last_routed()).await {
+        match tokio::time::timeout_at(stop_deadline, self.advancer.advance_to_last_queued_batch())
+            .await
+        {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
                 tracing::warn!(%error, "applied positions were not advanced as the follower stopped");
@@ -279,10 +289,19 @@ async fn finish_stopped_task<T>(task: JoinHandle<T>, deadline: Instant) -> Optio
 /// A seq the follower waits at.
 struct StalledSeq {
     seq: u64,
+    waiting_since: Instant,
     /// When to check whether log cleanup deleted it.
     check_at: Instant,
     /// Whether a manifest read after the wait began still records it.
     is_recorded_by_newer_manifest: bool,
+}
+
+/// What a newer source means for the stream being read.
+enum SourceUpdate {
+    Continue,
+    /// The source closed the stream at or before the seqs read so far.
+    StreamEnded,
+    Finished(FollowEnd),
 }
 
 /// How reading one stream ended.
@@ -346,6 +365,7 @@ impl FollowTask {
                 progress.incarnation = cursor.incarnation;
                 progress.next_seq = cursor.next_seq;
                 progress.is_caught_up = false;
+                progress.waiting_since = None;
             });
         }
     }
@@ -382,15 +402,19 @@ impl FollowTask {
         };
         let mut backoff = self.pacing.initial_poll_backoff;
         let mut stalled: Option<StalledSeq> = None;
+        let mut last_accepted_seq: Option<u64> = None;
         loop {
             if self.sources.has_changed().unwrap_or(false) {
-                if let Some(end) =
-                    self.apply_source_update(&mut tail, cursor.incarnation, &mut last_seq)
-                {
-                    return StreamEnd::Finished(end);
-                }
-                if let Some(stalled) = &mut stalled {
-                    stalled.is_recorded_by_newer_manifest = true;
+                match self.apply_source_update(
+                    &mut tail,
+                    cursor.incarnation,
+                    &mut last_seq,
+                    last_accepted_seq,
+                    &mut stalled,
+                ) {
+                    SourceUpdate::Continue => {}
+                    SourceUpdate::StreamEnded => return StreamEnd::Ended,
+                    SourceUpdate::Finished(end) => return StreamEnd::Finished(end),
                 }
             }
             let step = tokio::select! {
@@ -419,25 +443,27 @@ impl FollowTask {
                         },
                         effective_epoch: tail.effective_epoch(),
                     }));
-                    self.record_read(&tail, cursor, Some(sealed_at_micros), false);
+                    last_accepted_seq = Some(seq);
+                    self.record_read(&tail, cursor, Some(sealed_at_micros), None);
                     backoff = self.pacing.initial_poll_backoff;
                     stalled = None;
                 }
                 Ok(StreamTailStep::Voided(_)) => {
-                    self.record_read(&tail, cursor, None, false);
+                    self.record_read(&tail, cursor, None, None);
                     stalled = None;
                 }
                 Ok(StreamTailStep::WaitingAt(seq)) => {
-                    self.record_read(&tail, cursor, None, true);
                     let now = Instant::now();
                     let stalled_seq = match &mut stalled {
                         Some(stalled_seq) if stalled_seq.seq == seq => stalled_seq,
                         _ => stalled.insert(StalledSeq {
                             seq,
+                            waiting_since: now,
                             check_at: now + self.pacing.stalled_seq_deletion_check_after,
                             is_recorded_by_newer_manifest: false,
                         }),
                     };
+                    self.record_read(&tail, cursor, None, Some(stalled_seq.waiting_since));
                     if now >= stalled_seq.check_at {
                         let checked = tail.ensure_waiting_seq_was_not_deleted().await;
                         if let Some(end) = end_after_stalled_seq_check(
@@ -463,8 +489,10 @@ impl FollowTask {
                         seq = tail.next_seq(),
                         "reading the followed log failed; retrying"
                     );
-                    self.progress
-                        .send_modify(|progress| progress.is_caught_up = false);
+                    self.progress.send_modify(|progress| {
+                        progress.is_caught_up = false;
+                        progress.waiting_since = None;
+                    });
                     if let Some(end) = self.wait_before_next_read(backoff).await {
                         return StreamEnd::Finished(end);
                     }
@@ -483,33 +511,54 @@ impl FollowTask {
 
     /// Applies a newer source to the stream being read.
     ///
-    /// Returns the end of following when the source no longer retains the next seq.
+    /// Returns [`SourceUpdate::StreamEnded`] when the source closed the stream at or before the
+    /// seqs read so far and every batch read past that end was void. Returns the end of following
+    /// when the source no longer retains the next seq, or when an accepted batch lies past the end.
     fn apply_source_update(
         &mut self,
         tail: &mut StreamTailReader<'_>,
         incarnation: u32,
         last_seq: &mut Option<u64>,
-    ) -> Option<FollowEnd> {
-        let segment = self
-            .sources
-            .borrow_and_update()
-            .streams
-            .segment(incarnation);
+        last_accepted_seq: Option<u64>,
+        stalled: &mut Option<StalledSeq>,
+    ) -> SourceUpdate {
+        let (segment, read_at) = {
+            let source = self.sources.borrow_and_update();
+            (source.streams.segment(incarnation), source.read_at)
+        };
         let Some(segment) = segment else {
-            return Some(FollowEnd::LogDeleted);
+            return SourceUpdate::Finished(FollowEnd::LogDeleted);
         };
         if tail.next_seq() < segment.start_seq {
-            return Some(FollowEnd::LogDeleted);
+            return SourceUpdate::Finished(FollowEnd::LogDeleted);
         }
         if let Some(end_seq) = segment.end_seq
             && last_seq.is_none()
         {
+            if tail.next_seq() > end_seq.saturating_add(1) {
+                // A fenced writer's late batch can land past the end that the manifest records.
+                if let Some(accepted_seq) = last_accepted_seq.filter(|seq| *seq > end_seq) {
+                    return SourceUpdate::Finished(FollowEnd::Failed(
+                        LogError::Corrupt(format!(
+                            "log stream of incarnation {incarnation} accepted seq \
+                             {accepted_seq} past its recorded end {end_seq}"
+                        ))
+                        .into(),
+                    ));
+                }
+                return SourceUpdate::StreamEnded;
+            }
             if let Err(error) = tail.end_at(end_seq) {
-                return Some(FollowEnd::Failed(error.into()));
+                return SourceUpdate::Finished(FollowEnd::Failed(error.into()));
             }
             *last_seq = Some(end_seq);
         }
-        None
+        if let Some(stalled) = stalled
+            && read_at >= stalled.waiting_since
+        {
+            stalled.is_recorded_by_newer_manifest = true;
+        }
+        SourceUpdate::Continue
     }
 
     /// Sleeps `backoff`, waking early for a newer source.
@@ -531,18 +580,21 @@ impl FollowTask {
         }
     }
 
+    /// Records the reader's position; `waiting_since` is set while it waits at the next seq.
     fn record_read(
         &self,
         tail: &StreamTailReader<'_>,
         cursor: &mut FollowCursor,
         sealed_at_micros: Option<i64>,
-        is_caught_up: bool,
+        waiting_since: Option<Instant>,
     ) {
         cursor.next_seq = tail.next_seq();
         cursor.effective_epoch = tail.effective_epoch();
+        let is_caught_up = waiting_since.is_some();
         self.progress.send_modify(|progress| {
             progress.next_seq = cursor.next_seq;
             progress.is_caught_up = is_caught_up;
+            progress.waiting_since = waiting_since;
             if is_caught_up {
                 progress.caught_up_at = Some(Instant::now());
             }

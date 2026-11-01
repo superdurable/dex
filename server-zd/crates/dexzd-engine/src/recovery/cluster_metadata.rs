@@ -10,7 +10,7 @@ use dexzd_apply::BehaviorVersion;
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
     ClusterBootstrap, ClusterConfig, MetadataError, NodeConfig, bootstrap_or_validate,
-    create_initial_manifest, read_manifest,
+    create_initial_manifest, read_cluster, read_manifest,
 };
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::{Manifest, SnapshotReference};
@@ -48,17 +48,18 @@ impl ClusterMetadata {
 
     /// Reads and validates the cluster object and manifest without creating either.
     ///
-    /// Returns `None` until a node created the manifest, which it creates after the cluster object.
+    /// Returns `None` while either is missing.
     pub(crate) async fn read_existing(
         object_store: &dyn ObjectStore,
-        clock: &dyn WallClock,
         cluster_config: ClusterConfig,
         node: &NodeConfig,
     ) -> Result<Option<Self>, EngineStartError> {
+        let Some(cluster) = read_cluster(object_store, cluster_config).await? else {
+            return Ok(None);
+        };
         let Some(manifest) = read_manifest(object_store).await? else {
             return Ok(None);
         };
-        let cluster = bootstrap_or_validate(object_store, clock, cluster_config).await?;
         Self::validate(cluster, manifest, node).map(Some)
     }
 

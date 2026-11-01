@@ -604,8 +604,11 @@ impl LeasedParts {
             && state.stop_reason().is_none()
         {
             // The stop blocks every later store write, so the advance must finish first.
-            match tokio::time::timeout(FINAL_ADVANCE_BUDGET, advancer.advance_to_last_routed())
-                .await
+            match tokio::time::timeout(
+                FINAL_ADVANCE_BUDGET,
+                advancer.advance_to_last_queued_batch(),
+            )
+            .await
             {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {

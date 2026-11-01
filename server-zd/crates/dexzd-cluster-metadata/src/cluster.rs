@@ -87,6 +87,28 @@ pub async fn bootstrap_or_validate(
             }
         }
     };
+    validate_cluster(cluster, config)
+}
+
+/// Reads and validates the cluster object without creating it.
+///
+/// Returns `None` until a node created the cluster object.
+pub async fn read_cluster(
+    store: &dyn ObjectStore,
+    config: ClusterConfig,
+) -> Result<Option<ClusterBootstrap>, MetadataError> {
+    PartitionHasher::new(&[0; 16], config.partition_count)?;
+    let Some(content) = store.get(CLUSTER_KEY).await? else {
+        return Ok(None);
+    };
+    validate_cluster(decode_cluster(content.bytes)?, config).map(Some)
+}
+
+/// Checks the stored cluster object against `config` and builds its partition hasher.
+fn validate_cluster(
+    cluster: ClusterObject,
+    config: ClusterConfig,
+) -> Result<ClusterBootstrap, MetadataError> {
     check_match(
         "partition count",
         config.partition_count,

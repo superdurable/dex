@@ -39,6 +39,8 @@ xxhash-rust.workspace = true
 test-util = []
 
 [dev-dependencies]
+# Enables test-util for this crate's own integration tests.
+dexzd-engine = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
