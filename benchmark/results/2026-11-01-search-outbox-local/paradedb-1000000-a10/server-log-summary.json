@@ -1,0 +1,23 @@
+{
+  "source_file": "server.log.gz",
+  "source_sha256": "23328679c0ae051006c0b1640228fe9a8ea722e3fa7d6ad512c279c33bb9568c",
+  "source_compressed_bytes": 4495139,
+  "line_count": 398253,
+  "error_level_line_count": 0,
+  "warn_level_line_count": 0,
+  "initial_load_line_count": 1024,
+  "retried_batch_line_count": 0,
+  "metrics": {
+    "samples": 135,
+    "sample_interval_seconds": 5,
+    "commit_records_total": 3255978.0,
+    "ack_proposals_ok_total": 154954.0,
+    "ack_proposals_error_total": 0.0,
+    "projection_batches_ok_total": 1358.0,
+    "projection_batches_error_total": 0.0,
+    "projected_entries_total": 1950000.0,
+    "projected_runs_total": 1066353.0,
+    "peak_oldest_entry_age_seconds": 70.19298005104065,
+    "peak_unprojected_entries": 17617.0
+  }
+}

@@ -64,6 +64,9 @@ The [local search backend results](results/2026-10-31-search-local/README.md)
 measure S7 at 100k and 1M runs on builtin, ParadeDB, and PostgreSQL. They include
 projection throughput, WAL, Attribute backfill, and a confirmed ParadeDB Flow
 type index collation finding.
+The [local search outbox results](results/2026-11-01-search-outbox-local/README.md)
+repeat the 1M ten-Attribute ParadeDB and PostgreSQL points with the SearchOutbox
+projection, and measure the cost of its acks.
 
 ## Reading the results
 
