@@ -30,9 +30,10 @@ use tokio_util::sync::CancellationToken;
 use crate::blocking_work::BlockingWorkPlacement;
 use crate::command_applier::CommandApplier;
 use crate::commit::{
-    AppliedPositionAdvancer, CommandCommitter, CommandCommitterParts, CommitConfig, CommitProgress,
-    CommitState, CommittedBatchRouter, EngineLocalStore, FrameApplier,
-    LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason, PartitionApplierPool, run_log_proposer,
+    AppliedPositionAdvancer, AppliedPositionSource, CommandCommitter, CommandCommitterParts,
+    CommitConfig, CommitProgress, CommitState, CommittedBatchRouter, EngineLocalStore,
+    FrameApplier, FrameApplierParts, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason,
+    PartitionApplierPool, run_log_proposer,
 };
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
@@ -287,19 +288,9 @@ impl EngineNode {
                 local_store: store.clone(),
                 id_source: id_source.clone(),
             });
-            let pre_replay_semantic_points = if config.commit.debug_replay_checks {
-                FrameApplier::pre_replay_semantic_points(store.as_ref())?
-            } else {
-                std::collections::BTreeSet::new()
-            };
-            tracing::debug!(
-                unverifiable_semantic_points = pre_replay_semantic_points.len(),
-                "semantic points present before log replay lack independent hashes"
-            );
             let appliers = Arc::new(PartitionApplierPool::start(
-                FrameApplier {
+                FrameApplier::new(FrameApplierParts {
                     metrics: metrics.clone(),
-                    metrics_enabled: std::sync::atomic::AtomicBool::new(false),
                     store: store.clone(),
                     applier,
                     hasher: metadata.cluster.partition_hasher.clone(),
@@ -307,11 +298,7 @@ impl EngineNode {
                     committed_commands: hooks.committed_commands.clone(),
                     is_checking_replay: config.commit.debug_replay_checks,
                     blocking_work: config.blocking_work,
-                    semantic_point_hashes: std::sync::Mutex::new(std::collections::BTreeMap::new()),
-                    pre_replay_semantic_points,
-                    verified_time_travels: AtomicU64::new(0),
-                    unverifiable_time_travels: AtomicU64::new(0),
-                },
+                })?,
                 config.commit.applier_lanes,
                 config.commit.applier_queue_frames,
             ));
@@ -372,10 +359,12 @@ impl EngineNode {
             );
             let applied_positions = Arc::new(AppliedPositionAdvancer::new(
                 appliers.clone(),
-                progress.clone(),
-                stream.node_id.clone(),
-                stream.incarnation,
-                epoch,
+                AppliedPositionSource::RoutedBatches {
+                    progress: progress.clone(),
+                    node_id: stream.node_id.clone(),
+                    incarnation: stream.incarnation,
+                    epoch,
+                },
                 partition_count,
             ));
             tasks.spawn(applied_positions.clone().run(tasks.cancellation.clone()));
@@ -714,7 +703,7 @@ async fn release_after_unfinished_start(parts: LeasedParts) -> Result<(), LeaseR
     result
 }
 
-fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineStartError> {
+pub(crate) fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineStartError> {
     let commit = &config.commit;
     let snapshots = &config.snapshots;
     let problem = if commit.applier_lanes == 0 {

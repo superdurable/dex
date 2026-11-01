@@ -62,3 +62,15 @@ applies the first committed command's effects and returns its reply for both com
 Durable admission, resumable Worker calls, and persisted error replay require a separate
 recovery design. Plain RPCs continue to use the non-transactional path without in-flight
 deduplication.
+
+## Hot standby
+
+`HotStandby` runs in a process of the node that does not hold the node lease. It keeps the configured local store current from object storage, so a later takeover replays only the last few batches.
+
+- It reads object storage through a read-only wrapper. Every write fails, so it never writes an EpochStart, a snapshot, the manifest, or a deletion.
+- It opens the local store, or restores the newest snapshot into it, with the same code as a starting node.
+- A `LogFollower` reads the node's log with `StreamTailReader` and applies each accepted batch with the node's frame applier. A batch is one GET; its frames go to the partition applier lanes. The follower applies only the contiguous prefix of each stream and waits at the first missing seq.
+- Its committed-command sink does nothing, and it runs no rebuild, timers, dispatch, Attribute Sync, or search projection. A serving start rebuilds those from the local store.
+- It advances idle partitions too. Each position records the epoch in effect after its batch, which recovery accepts after the position.
+- It rereads the manifest periodically. A closed segment bounds the stream it reads, and a new incarnation becomes the next stream. Log cleanup that passes its next seq or its stored positions makes it restore the newest snapshot. While it waits at one seq, it also checks whether cleanup deleted that seq.
+- `HotStandby::status` reports the state and lag. Lag is zero after a read finds no next batch, so an idle log does not look behind.

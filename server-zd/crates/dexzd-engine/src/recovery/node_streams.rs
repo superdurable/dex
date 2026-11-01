@@ -10,6 +10,7 @@ use dexzd_cluster_metadata::{ManifestChange, NodeConfig};
 use dexzd_protocol::dexzd::v1::{LogSegment, Manifest};
 
 use crate::recovery::EngineStartError;
+use crate::recovery::local_store_opening::AppliedPosition;
 
 /// One log stream of this node that the manifest records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +20,16 @@ pub(crate) struct RecordedSegment {
     pub(crate) start_seq: u64,
     /// Inclusive last seq of a closed segment; `None` while the segment is open.
     pub(crate) end_seq: Option<u64>,
+}
+
+/// Where reading resumes in one recorded segment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SegmentResumePoint {
+    pub(crate) segment: RecordedSegment,
+    /// Last applied seq of this segment, or 0 when none of it is applied.
+    pub(crate) applied_seq: u64,
+    /// Epoch in effect after `applied_seq`, or 0 with it.
+    pub(crate) applied_epoch: u64,
 }
 
 /// This node's recorded log streams, oldest first, and the incarnation it serves.
@@ -105,6 +116,42 @@ impl NodeStreams {
             .expect("from_manifest requires an open segment")
     }
 
+    /// Returns the segments that `applied` does not pass, oldest first, with where each resumes.
+    pub(crate) fn resume_points(
+        &self,
+        applied: Option<AppliedPosition>,
+    ) -> impl Iterator<Item = SegmentResumePoint> + '_ {
+        self.segments
+            .iter()
+            .filter(move |segment| {
+                !applied.is_some_and(|applied| applied.incarnation > segment.incarnation)
+            })
+            .map(move |segment| {
+                let (applied_seq, applied_epoch) = resume_point(applied, segment.incarnation);
+                SegmentResumePoint {
+                    segment: *segment,
+                    applied_seq,
+                    applied_epoch,
+                }
+            })
+    }
+
+    /// Returns the recorded segment of `incarnation`, if the manifest still records it.
+    pub(crate) fn segment(&self, incarnation: u32) -> Option<RecordedSegment> {
+        self.segments
+            .iter()
+            .find(|segment| segment.incarnation == incarnation)
+            .copied()
+    }
+
+    /// Returns the oldest recorded segment newer than `incarnation`.
+    pub(crate) fn segment_after(&self, incarnation: u32) -> Option<RecordedSegment> {
+        self.segments
+            .iter()
+            .find(|segment| segment.incarnation > incarnation)
+            .copied()
+    }
+
     /// Returns whether startup seals the open segment and starts the serving incarnation.
     pub(crate) fn is_changing_incarnation(&self) -> bool {
         self.open_segment().incarnation != self.serving_incarnation
@@ -144,6 +191,14 @@ impl NodeStreams {
             }
         }
         change
+    }
+}
+
+/// Returns the applied (seq, epoch) within `incarnation`, or (0, 0) when nothing of it is applied.
+pub(crate) fn resume_point(applied: Option<AppliedPosition>, incarnation: u32) -> (u64, u64) {
+    match applied {
+        Some(applied) if applied.incarnation == incarnation => (applied.seq, applied.epoch),
+        _ => (0, 0),
     }
 }
 

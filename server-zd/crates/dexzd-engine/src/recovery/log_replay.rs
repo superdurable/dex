@@ -6,13 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
-use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::MetadataError;
-use dexzd_keyspace::PartitionId;
 use dexzd_log::{
     DecodedBatch, LogError, LogReadAheadConfig, StreamIdentity, StreamRecovery,
     StreamRecoveryInputs, StreamRecoveryStep, StreamTailReader, StreamTailStep,
@@ -20,10 +17,10 @@ use dexzd_log::{
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::LogPosition;
 
-use crate::commit::{CommitState, EngineLocalStore, PartitionApplierPool, PartitionFrame};
+use crate::commit::{BatchEnqueueError, CommitState, EngineLocalStore, PartitionApplierPool};
 use crate::engine_id_source::EngineIdSource;
-use crate::recovery::local_store_opening::{AppliedPosition, lowest_applied_position};
-use crate::recovery::node_streams::NodeStreams;
+use crate::recovery::local_store_opening::lowest_applied_position;
+use crate::recovery::node_streams::{NodeStreams, resume_point};
 use crate::recovery::{EngineStartError, describe_lost_ownership};
 
 /// Log replay settings of node startup.
@@ -84,17 +81,14 @@ impl LogReplay<'_> {
     pub(crate) async fn run(&self) -> Result<ReplayedLog, EngineStartError> {
         let applied = lowest_applied_position(self.store, self.state.partition_count())?;
         let mut replayed_bytes = 0_u64;
-        for segment in &self.streams.segments {
-            let Some(end_seq) = segment.end_seq else {
+        for point in self.streams.resume_points(applied) {
+            let Some(end_seq) = point.segment.end_seq else {
                 continue;
             };
-            if applied.is_some_and(|applied| applied.incarnation > segment.incarnation) {
-                continue;
-            }
             replayed_bytes += self
                 .replay_closed_stream(
-                    &self.stream(segment.incarnation),
-                    resume_point(applied, segment.incarnation),
+                    &self.stream(point.segment.incarnation),
+                    (point.applied_seq, point.applied_epoch),
                     end_seq,
                 )
                 .await?;
@@ -281,35 +275,17 @@ impl LogReplay<'_> {
         stream: &StreamIdentity,
         batch: DecodedBatch,
     ) -> Result<u64, EngineStartError> {
-        let mut record_bytes = 0_u64;
-        let mut records_by_partition = BTreeMap::<u32, Vec<Bytes>>::new();
-        for record in batch.records {
-            record_bytes += record.bytes.len() as u64;
-            records_by_partition
-                .entry(record.partition)
-                .or_default()
-                .push(record.bytes);
-        }
-        for (partition, records) in records_by_partition {
-            let partition = u16::try_from(partition)
-                .ok()
-                .filter(|partition| u32::from(*partition) < self.state.partition_count())
-                .ok_or_else(|| EngineStartError::InvalidMetadata {
-                    detail: format!("log batch {} names partition {partition}", batch.header.seq),
-                })?;
-            self.appliers
-                .enqueue(PartitionFrame {
-                    partition: PartitionId(partition),
-                    position: position(stream, batch.header.seq),
-                    epoch: batch.header.epoch,
-                    records,
-                })
-                .await
-                .map_err(|_| EngineStartError::Stopped {
+        self.appliers
+            .enqueue_batch(stream, batch)
+            .await
+            .map_err(|error| match error {
+                BatchEnqueueError::UnknownPartition { .. } => EngineStartError::InvalidMetadata {
+                    detail: error.to_string(),
+                },
+                BatchEnqueueError::PoolClosed(_) => EngineStartError::Stopped {
                     reason: self.stop_reason(),
-                })?;
-        }
-        Ok(record_bytes)
+                },
+            })
     }
 
     /// Records the sealed open stream as closed and opens the serving incarnation.
@@ -356,14 +332,6 @@ fn recovery_error(stream: &StreamIdentity, error: LogError) -> EngineStartError 
             resumes_at: missing_seq,
         },
         error => error.into(),
-    }
-}
-
-/// Returns the applied (seq, epoch) within `incarnation`, or (0, 0) when nothing of it is applied.
-fn resume_point(applied: Option<AppliedPosition>, incarnation: u32) -> (u64, u64) {
-    match applied {
-        Some(applied) if applied.incarnation == incarnation => (applied.seq, applied.epoch),
-        _ => (0, 0),
     }
 }
 

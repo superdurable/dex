@@ -19,6 +19,7 @@ use dexzd_keyspace::row_keys::SEARCH_ORDER_INDEX_VERSION;
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, parse_run_key,
 };
+use dexzd_log::{DecodedBatch, StreamIdentity};
 use dexzd_metrics::{
     FlowCloseStatus, NodeMetrics, StepDurability as MetricStepDurability, StepFailureKind,
 };
@@ -29,7 +30,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 use dexzd_storage::{LocalReadView, LocalStore, ScanDirection, StorageError};
 use prost::Message;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -90,6 +91,61 @@ pub(crate) struct FrameApplier {
     pub(crate) unverifiable_time_travels: AtomicU64,
 }
 
+/// What a [`FrameApplier`] applies frames with.
+pub(crate) struct FrameApplierParts {
+    pub(crate) metrics: Arc<NodeMetrics>,
+    pub(crate) store: Arc<EngineLocalStore>,
+    pub(crate) applier: Arc<dyn CommandApplier>,
+    pub(crate) hasher: PartitionHasher,
+    /// Halted partitions and the write fence; once stopped, no frame or position is written.
+    pub(crate) state: Arc<CommitState>,
+    pub(crate) committed_commands: Arc<dyn CommittedCommandSink>,
+    pub(crate) is_checking_replay: bool,
+    pub(crate) blocking_work: BlockingWorkPlacement,
+}
+
+impl FrameApplier {
+    /// Creates an applier whose metrics stay off until [`PartitionApplierPool::enable_metrics`].
+    ///
+    /// Returns the store error of indexing semantic points when replay checks are on.
+    pub(crate) fn new(parts: FrameApplierParts) -> Result<Self, StorageError> {
+        let FrameApplierParts {
+            metrics,
+            store,
+            applier,
+            hasher,
+            state,
+            committed_commands,
+            is_checking_replay,
+            blocking_work,
+        } = parts;
+        let pre_replay_semantic_points = if is_checking_replay {
+            Self::pre_replay_semantic_points(store.as_ref())?
+        } else {
+            BTreeSet::new()
+        };
+        tracing::debug!(
+            unverifiable_semantic_points = pre_replay_semantic_points.len(),
+            "semantic points present before log replay lack independent hashes"
+        );
+        Ok(Self {
+            metrics,
+            metrics_enabled: AtomicBool::new(false),
+            store,
+            applier,
+            hasher,
+            state,
+            committed_commands,
+            is_checking_replay,
+            blocking_work,
+            semantic_point_hashes: Mutex::new(BTreeMap::new()),
+            pre_replay_semantic_points,
+            verified_time_travels: AtomicU64::new(0),
+            unverifiable_time_travels: AtomicU64::new(0),
+        })
+    }
+}
+
 impl PartitionApplierPool {
     pub(crate) fn start(
         frame_applier: FrameApplier,
@@ -136,6 +192,49 @@ impl PartitionApplierPool {
             .send(LaneWork::Frame(frame))
             .await
             .map_err(|_| ApplierPoolClosed)
+    }
+
+    /// Queues the records of `batch` to the appliers of their partitions.
+    ///
+    /// Returns the record bytes queued, [`BatchEnqueueError::UnknownPartition`] when a record
+    /// names a partition the cluster lacks, and [`BatchEnqueueError::PoolClosed`] when the lanes
+    /// stopped.
+    pub(crate) async fn enqueue_batch(
+        &self,
+        stream: &StreamIdentity,
+        batch: DecodedBatch,
+    ) -> Result<u64, BatchEnqueueError> {
+        let mut record_bytes = 0_u64;
+        let mut records_by_partition = BTreeMap::<u32, Vec<Bytes>>::new();
+        for record in batch.records {
+            record_bytes += record.bytes.len() as u64;
+            records_by_partition
+                .entry(record.partition)
+                .or_default()
+                .push(record.bytes);
+        }
+        let partition_count = self.frame_applier.state.partition_count();
+        for (partition, records) in records_by_partition {
+            let partition = u16::try_from(partition)
+                .ok()
+                .filter(|partition| u32::from(*partition) < partition_count)
+                .ok_or(BatchEnqueueError::UnknownPartition {
+                    seq: batch.header.seq,
+                    partition,
+                })?;
+            self.enqueue(PartitionFrame {
+                partition: PartitionId(partition),
+                position: LogPosition {
+                    node_id: stream.node_id.clone(),
+                    incarnation: stream.incarnation,
+                    seq: batch.header.seq,
+                },
+                epoch: batch.header.epoch,
+                records,
+            })
+            .await?;
+        }
+        Ok(record_bytes)
     }
 
     /// Marks running partitions applied through `position`. Call it after every batch up to it is queued.
@@ -204,6 +303,17 @@ impl Drop for PartitionApplierPool {
 #[error("partition applier pool stopped")]
 pub(crate) struct ApplierPoolClosed;
 
+/// Why the records of a log batch could not be queued.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BatchEnqueueError {
+    /// A record names a partition that the cluster does not have.
+    #[error("log batch {seq} names partition {partition}")]
+    UnknownPartition { seq: u64, partition: u32 },
+    /// The applier lanes stopped.
+    #[error(transparent)]
+    PoolClosed(#[from] ApplierPoolClosed),
+}
+
 /// Shortest interval at which a serving node records the last routed batch as every partition's
 /// position.
 const MIN_APPLIED_POSITION_ADVANCE_INTERVAL: Duration = Duration::from_secs(1);
@@ -216,38 +326,59 @@ const ADVANCED_PARTITIONS_PER_SECOND: u64 = 8192;
 /// restart replay.
 pub(crate) struct AppliedPositionAdvancer {
     appliers: Arc<PartitionApplierPool>,
-    progress: Arc<CommitProgress>,
-    node_id: String,
-    incarnation: u32,
-    /// Epoch of this process; every batch it routes carries it.
-    epoch: u64,
+    source: AppliedPositionSource,
     interval: Duration,
-    /// Routed seq of the last advance; holding it serializes advances.
-    advanced_seq: tokio::sync::Mutex<u64>,
+    /// Incarnation and seq of the last advance; holding it serializes advances.
+    advanced: tokio::sync::Mutex<Option<(u32, u64)>>,
+}
+
+/// Where an [`AppliedPositionAdvancer`] learns the last batch whose frames are all queued.
+pub(crate) enum AppliedPositionSource {
+    /// A serving node's own stream.
+    RoutedBatches {
+        progress: Arc<CommitProgress>,
+        node_id: String,
+        incarnation: u32,
+        /// Epoch of this process; every batch it routes carries it.
+        epoch: u64,
+    },
+    /// A log follower's stream, which records the effective epoch after each queued batch.
+    FollowedBatches(watch::Receiver<Option<FollowedBatch>>),
+}
+
+/// The last batch a log follower queued, with the epoch in effect after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FollowedBatch {
+    pub(crate) position: LogPosition,
+    pub(crate) effective_epoch: u64,
 }
 
 impl AppliedPositionAdvancer {
     /// Creates an advancer whose first advance covers batches routed after recovery's advance.
     pub(crate) fn new(
         appliers: Arc<PartitionApplierPool>,
-        progress: Arc<CommitProgress>,
-        node_id: String,
-        incarnation: u32,
-        epoch: u64,
+        source: AppliedPositionSource,
         partition_count: u32,
     ) -> Self {
-        let advanced_seq = progress.last_routed_seq.load(Ordering::Acquire);
+        let advanced = match &source {
+            AppliedPositionSource::RoutedBatches {
+                progress,
+                incarnation,
+                ..
+            } => Some((
+                *incarnation,
+                progress.last_routed_seq.load(Ordering::Acquire),
+            )),
+            AppliedPositionSource::FollowedBatches(_) => None,
+        };
         let interval = MIN_APPLIED_POSITION_ADVANCE_INTERVAL.max(Duration::from_millis(
             u64::from(partition_count) * 1000 / ADVANCED_PARTITIONS_PER_SECOND,
         ));
         Self {
             appliers,
-            progress,
-            node_id,
-            incarnation,
-            epoch,
+            source,
             interval,
-            advanced_seq: tokio::sync::Mutex::new(advanced_seq),
+            advanced: tokio::sync::Mutex::new(advanced),
         }
     }
 
@@ -271,23 +402,44 @@ impl AppliedPositionAdvancer {
     ///
     /// Returns [`ApplierPoolClosed`] when the applier lanes stopped before the advance finished.
     pub(crate) async fn advance_to_last_routed(&self) -> Result<(), ApplierPoolClosed> {
-        let mut advanced_seq = self.advanced_seq.lock().await;
-        let routed_seq = self.progress.last_routed_seq.load(Ordering::Acquire);
-        if routed_seq <= *advanced_seq {
+        let mut advanced = self.advanced.lock().await;
+        let Some(FollowedBatch {
+            position,
+            effective_epoch,
+        }) = self.source.last_queued_batch()
+        else {
+            return Ok(());
+        };
+        if advanced.is_some_and(|advanced| (position.incarnation, position.seq) <= advanced) {
             return Ok(());
         }
         self.appliers
-            .advance_applied_position(
-                &LogPosition {
-                    node_id: self.node_id.clone(),
-                    incarnation: self.incarnation,
-                    seq: routed_seq,
-                },
-                self.epoch,
-            )
+            .advance_applied_position(&position, effective_epoch)
             .await?;
-        *advanced_seq = routed_seq;
+        *advanced = Some((position.incarnation, position.seq));
         Ok(())
+    }
+}
+
+impl AppliedPositionSource {
+    /// Returns the last batch whose frames are all queued, or `None` before the first one.
+    fn last_queued_batch(&self) -> Option<FollowedBatch> {
+        match self {
+            Self::RoutedBatches {
+                progress,
+                node_id,
+                incarnation,
+                epoch,
+            } => Some(FollowedBatch {
+                position: LogPosition {
+                    node_id: node_id.clone(),
+                    incarnation: *incarnation,
+                    seq: progress.last_routed_seq.load(Ordering::Acquire),
+                },
+                effective_epoch: *epoch,
+            }),
+            Self::FollowedBatches(followed) => followed.borrow().clone(),
+        }
     }
 }
 

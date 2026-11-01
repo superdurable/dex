@@ -110,7 +110,9 @@ pub(crate) async fn open_local_store(
         }
         LocalStoreConfig::InMemory => (restore_in_memory(object_store, requirements).await?, None),
     };
-    if let Some(gap) = find_unreplayable_gap(&store, requirements)? {
+    if let Some(gap) =
+        find_unreplayable_gap(&store, requirements.streams, requirements.partition_count)?
+    {
         return Err(gap);
     }
     Ok(OpenedLocalStore {
@@ -133,7 +135,11 @@ fn reusable_existing_store(
         );
         return Ok(None);
     }
-    match find_unreplayable_gap(store.as_ref(), requirements)? {
+    match find_unreplayable_gap(
+        store.as_ref(),
+        requirements.streams,
+        requirements.partition_count,
+    )? {
         None => Ok(Some(Arc::clone(store))),
         Some(gap) => {
             tracing::warn!(gap = %gap, "the retained log cannot update the existing local store; restoring the newest snapshot");
@@ -194,7 +200,11 @@ async fn open_rocksdb_store(
                     "a partition of the local store applied no batch; restoring the newest snapshot"
                 );
             }
-            Ok(store) => match find_unreplayable_gap(&store, requirements)? {
+            Ok(store) => match find_unreplayable_gap(
+                &store,
+                requirements.streams,
+                requirements.partition_count,
+            )? {
                 None => return Ok((RestoredLocalStore::RocksDb(store), None)),
                 // The copy may be the only evidence that object storage metadata went backwards.
                 Some(gap @ EngineStartError::InvalidMetadata { .. }) => {
@@ -237,12 +247,13 @@ async fn open_rocksdb_store(
 }
 
 /// Returns why the retained log cannot bring `store` up to date, or `None` when it can.
-fn find_unreplayable_gap(
+pub(crate) fn find_unreplayable_gap(
     store: &dyn LocalReadView,
-    requirements: &LocalStoreRequirements<'_>,
+    streams: &NodeStreams,
+    partition_count: u32,
 ) -> Result<Option<EngineStartError>, EngineStartError> {
-    let applied = lowest_applied_position(store, requirements.partition_count)?;
-    let open_incarnation = requirements.streams.open_segment().incarnation;
+    let applied = lowest_applied_position(store, partition_count)?;
+    let open_incarnation = streams.open_segment().incarnation;
     if let Some(applied) = applied
         && applied.incarnation > open_incarnation
     {
@@ -254,7 +265,7 @@ fn find_unreplayable_gap(
             ),
         }));
     }
-    let segments = &requirements.streams.segments;
+    let segments = &streams.segments;
     // Cleanup drops older segments whole, so the rest of an unrecorded stream is gone.
     if let Some(applied) = applied
         && !segments

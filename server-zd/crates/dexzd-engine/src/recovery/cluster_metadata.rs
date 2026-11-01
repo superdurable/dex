@@ -46,6 +46,34 @@ impl ClusterMetadata {
         Self::validate(cluster, manifest, node)
     }
 
+    /// Reads and validates the cluster object and manifest without creating either.
+    ///
+    /// Returns `None` until a node created the manifest, which it creates after the cluster object.
+    pub(crate) async fn read_existing(
+        object_store: &dyn ObjectStore,
+        clock: &dyn WallClock,
+        cluster_config: ClusterConfig,
+        node: &NodeConfig,
+    ) -> Result<Option<Self>, EngineStartError> {
+        let Some(manifest) = read_manifest(object_store).await? else {
+            return Ok(None);
+        };
+        let cluster = bootstrap_or_validate(object_store, clock, cluster_config).await?;
+        Self::validate(cluster, manifest, node).map(Some)
+    }
+
+    /// Re-reads and validates the manifest, keeping the immutable cluster object.
+    pub(crate) async fn read_current_manifest(
+        &self,
+        object_store: &dyn ObjectStore,
+        node: &NodeConfig,
+    ) -> Result<Self, EngineStartError> {
+        let manifest = read_manifest(object_store)
+            .await?
+            .ok_or(MetadataError::Missing { key: "manifest" })?;
+        Self::validate(self.cluster.clone(), manifest, node)
+    }
+
     /// Re-reads the manifest once `epoch` holds the lease, keeping the immutable cluster object.
     /// Fails if another epoch owns it.
     pub(crate) async fn read_under_lease(
