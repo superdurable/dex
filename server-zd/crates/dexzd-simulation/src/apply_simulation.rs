@@ -350,6 +350,8 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::OutboxAck(_)) => "OutboxAck",
         Some(Command::AttributeSyncAck(_)) => "AttributeSyncAck",
         Some(Command::PendingCloseCheck(_)) => "PendingCloseCheck",
+        Some(Command::SearchOutboxAck(_)) => "SearchOutboxAck",
+        Some(Command::SetSearchProjectionMode(_)) => "SetSearchProjectionMode",
         Some(Command::HardDeleteObjectsDeleted(_)) => "HardDeleteObjectsDeleted",
         Some(Command::RunPurge(_)) => "RunPurge",
     }

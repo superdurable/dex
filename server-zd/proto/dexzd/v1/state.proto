@@ -610,15 +610,18 @@ message SearchAttributeValue {
   dex.Value value = 3;
 }
 
-// One pending run projection, retained outside the run's purge range.
+// SearchOutbox index row keyed by seq, Flow hash, and run ID; seq is the command's
+// proposed_at_micros.
 message SearchOutboxRecord {
-  uint64 version = 1;
-  uint64 tenant_id = 2;
-  bool is_delete = 3;
-  int64 pending_since_micros = 4;
+  uint64 tenant_id = 1;
+  // The run was purged or is being purged; the projection deletes its row.
+  bool is_purge = 2;
 }
 
-// Absent records disable external projection.
+// Singleton of the SearchProjectionMode partition index. Absent means disabled.
 message SearchProjectionModeRecord {
+  // Apply appends SearchOutbox entries only while enabled.
   bool enabled = 1;
+  // Highest sequence a SearchOutboxAckCommand deleted through; lower acks change nothing.
+  uint64 acked_through_seq = 2;
 }

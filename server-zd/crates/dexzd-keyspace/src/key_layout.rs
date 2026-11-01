@@ -232,9 +232,10 @@ pub enum IndexKind {
     /// `tenant_id(8) ‖ scope(1) ‖ [type_length(2) ‖ flow_type] ‖ default order(18) ‖ run_id(16) ‖
     /// flow_hash(8)`, in SearchFlows default order; see `row_keys::search_order_index_key`.
     SearchOrder = 0x0a,
-    /// `flow_hash(8) ‖ run_id(16)`; value is a SearchOutboxRecord.
+    /// `seq(8) ‖ flow_hash(8) ‖ run_id(16)`: search document changes for the external search
+    /// projection, in append order; see `row_keys::search_outbox_key`.
     SearchOutbox = 0x0b,
-    /// Singleton SearchProjectionModeRecord; absent means disabled.
+    /// No suffix: the partition's SearchProjectionModeRecord; absent means disabled.
     SearchProjectionMode = 0x0c,
 }
 

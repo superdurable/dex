@@ -367,16 +367,70 @@ pub fn active_work_index_key(
     )
 }
 
-/// Key of a pending search projection outside the run's purge range.
-pub fn search_outbox_key(partition: PartitionId, flow_hash: FlowHash, run_id: RunId) -> Vec<u8> {
-    partition_index_key(
-        partition,
-        IndexKind::SearchOutbox,
-        &flow_run_suffix(flow_hash, run_id),
-    )
+/// One SearchOutbox index entry, decoded from its key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchOutboxEntry {
+    /// The appending command's proposed_at_micros; it increases in log order within a partition.
+    pub seq: u64,
+    /// Flow hash of the changed run.
+    pub flow_hash: FlowHash,
+    /// The changed run.
+    pub run_id: RunId,
 }
 
-/// Persisted external search projection mode for one partition; absent means disabled.
+/// SearchOutbox index key: big-endian seq, Flow hash, run ID. It survives the run's purge.
+pub fn search_outbox_key(
+    partition: PartitionId,
+    seq: u64,
+    flow_hash: FlowHash,
+    run_id: RunId,
+) -> Vec<u8> {
+    let mut suffix = seq.to_be_bytes().to_vec();
+    suffix.extend_from_slice(&flow_run_suffix(flow_hash, run_id));
+    partition_index_key(partition, IndexKind::SearchOutbox, &suffix)
+}
+
+/// Returns the `[start, end)` range of a partition's SearchOutbox entries with seq above `after_seq`.
+pub fn search_outbox_range_after(partition: PartitionId, after_seq: u64) -> (Vec<u8>, Vec<u8>) {
+    let (_, end) = partition_index_range(partition, IndexKind::SearchOutbox);
+    let start = match after_seq.checked_add(1) {
+        Some(first_seq) => {
+            partition_index_key(partition, IndexKind::SearchOutbox, &first_seq.to_be_bytes())
+        }
+        None => end.clone(),
+    };
+    (start, end)
+}
+
+/// Returns the `[start, end)` range of a partition's SearchOutbox entries with seq at most `through_seq`.
+pub fn search_outbox_range_through(partition: PartitionId, through_seq: u64) -> (Vec<u8>, Vec<u8>) {
+    let (start, end) = partition_index_range(partition, IndexKind::SearchOutbox);
+    match through_seq.checked_add(1) {
+        Some(next_seq) => (
+            start,
+            partition_index_key(partition, IndexKind::SearchOutbox, &next_seq.to_be_bytes()),
+        ),
+        None => (start, end),
+    }
+}
+
+/// Decodes a SearchOutbox index key of `partition`; returns `None` for any other key.
+pub fn decode_search_outbox_key(partition: PartitionId, key: &[u8]) -> Option<SearchOutboxEntry> {
+    let prefix = partition_index_prefix(partition, IndexKind::SearchOutbox);
+    let rest = key.strip_prefix(prefix.as_slice())?;
+    if rest.len() != 32 {
+        return None;
+    }
+    let seq = u64::from_be_bytes(rest.get(..8)?.try_into().ok()?);
+    let (flow_hash, run_id) = decode_flow_run_after_prefix(rest, 8)?;
+    Some(SearchOutboxEntry {
+        seq,
+        flow_hash,
+        run_id,
+    })
+}
+
+/// Key of a partition's SearchProjectionModeRecord; an absent record means disabled.
 pub fn search_projection_mode_key(partition: PartitionId) -> Vec<u8> {
     partition_index_prefix(partition, IndexKind::SearchProjectionMode)
 }
@@ -573,8 +627,10 @@ mod tests {
         SearchOrderPosition, attribute_sync_outbox_key, attribute_sync_outbox_store_prefix,
         attribute_sync_pending_index_key, attribute_sync_pending_store_prefix, channel_name_prefix,
         decode_attribute_sync_pending_index_key, decode_search_order_identity,
-        decode_timer_index_key, ordered_timestamp_bytes, prefix_range, search_order_index_key,
-        search_order_index_prefix, timer_index_key, timestamp_from_ordered_bytes,
+        decode_search_outbox_key, decode_timer_index_key, ordered_timestamp_bytes, prefix_range,
+        search_order_index_key, search_order_index_prefix, search_outbox_key,
+        search_outbox_range_after, search_outbox_range_through, search_projection_mode_key,
+        timer_index_key, timestamp_from_ordered_bytes,
     };
     use crate::{FlowHash, PartitionId, RunId, TenantId};
 
@@ -682,6 +738,42 @@ mod tests {
         assert!(
             decode_attribute_sync_pending_index_key(&index_key[..index_key.len() - 1]).is_none()
         );
+    }
+
+    #[test]
+    fn search_outbox_keys_sort_by_seq_and_ranges_split_at_a_seq() {
+        let partition = PartitionId(5);
+        let keys = [
+            search_outbox_key(partition, 7, FlowHash(u64::MAX), RunId([9; 16])),
+            search_outbox_key(partition, 8, FlowHash(0), RunId([0; 16])),
+            search_outbox_key(partition, 8, FlowHash(1), RunId([0; 16])),
+            search_outbox_key(partition, u64::MAX, FlowHash(0), RunId([0; 16])),
+        ];
+        assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+        let entry = decode_search_outbox_key(partition, &keys[2]).unwrap();
+        assert_eq!(
+            (entry.seq, entry.flow_hash, entry.run_id),
+            (8, FlowHash(1), RunId([0; 16]))
+        );
+        assert!(decode_search_outbox_key(PartitionId(6), &keys[2]).is_none());
+        assert!(decode_search_outbox_key(partition, &keys[2][..keys[2].len() - 1]).is_none());
+        assert!(!keys[0].starts_with(&search_projection_mode_key(partition)));
+
+        let contains = |(start, end): &(Vec<u8>, Vec<u8>), key: &Vec<u8>| start <= key && key < end;
+        let through_seven = search_outbox_range_through(partition, 7);
+        assert!(contains(&through_seven, &keys[0]));
+        assert!(!contains(&through_seven, &keys[1]));
+        let after_seven = search_outbox_range_after(partition, 7);
+        assert!(!contains(&after_seven, &keys[0]));
+        assert!(keys[1..].iter().all(|key| contains(&after_seven, key)));
+        let everything = search_outbox_range_through(partition, u64::MAX);
+        assert!(keys.iter().all(|key| contains(&everything, key)));
+        let after_everything = search_outbox_range_after(partition, u64::MAX);
+        assert_eq!(after_everything.0, after_everything.1);
+        assert!(!contains(
+            &everything,
+            &search_projection_mode_key(partition)
+        ));
     }
 
     #[test]

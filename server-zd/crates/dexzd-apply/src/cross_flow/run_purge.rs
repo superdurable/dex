@@ -11,7 +11,9 @@ use dexzd_keyspace::row_keys::{
     hard_delete_pending_key, prefix_range, retention_index_key, run_item_index_key,
     tenant_run_index_key, timer_index_key,
 };
-use dexzd_keyspace::{ColumnFamily, IndexKind, RunId, RunTable, run_prefix, run_table_prefix};
+use dexzd_keyspace::{
+    ColumnFamily, IndexKind, RunId, RunTable, TenantId, run_prefix, run_table_prefix,
+};
 use dexzd_protocol::dex::ErrorSubStatus;
 use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectRecord, HardDeleteObjectsDeletedCommand, OutboxRecord, RetentionTimerId,
@@ -78,6 +80,15 @@ pub(crate) fn on_retention_fired(
     }
     cursor.record.is_purging = true;
     let run_id = cursor.run_id();
+    // Purging hides the run although its search document is unchanged.
+    crate::projections::search_outbox::append_search_outbox_entry(
+        transaction,
+        scope,
+        TenantId(cursor.record.tenant_id),
+        cursor.rows.flow_hash,
+        run_id,
+        true,
+    )?;
     cursor.add_effect(ApplyEffect::RunPurgeRequested { run_id });
     Ok(())
 }
@@ -169,11 +180,12 @@ pub(crate) fn apply_run_purge(
             ),
         );
     }
-    crate::projections::search_outbox::mark_search_outbox(
+    crate::projections::search_outbox::append_search_outbox_entry(
         transaction,
         scope,
+        scope.tenant_id,
+        flow_hash,
         run_id,
-        record.next_run_seq,
         true,
     )?;
     let mut directory = read_flow_directory(transaction, scope.tenant_id, scope.flow_id())?;

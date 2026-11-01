@@ -377,19 +377,14 @@ message HardDeleteObjectsDeletedCommand {
 // every key of the run.
 message RunPurgeCommand {}
 
-// Records the external search projection mode before serving application requests.
+// Sets whether apply appends SearchOutbox entries in this partition.
 message SetSearchProjectionModeCommand {
   bool enabled = 1;
 }
 
-// Acknowledges SQL writes; newer pending versions survive.
+// The external search projection wrote this partition's outbox through through_seq; apply deletes
+// those entries.
 message SearchOutboxAckCommand {
   uint32 partition = 1;
-  repeated SearchOutboxAckEntry entries = 2;
-}
-
-message SearchOutboxAckEntry {
-  uint64 flow_hash = 1;
-  bytes run_id = 2;
-  uint64 version = 3;
+  uint64 through_seq = 2;
 }
