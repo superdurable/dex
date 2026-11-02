@@ -233,6 +233,8 @@ impl NodeLifecycle {
             let stopped = node.stop(&mut grpc, PeriodStopKind::StepDown).await;
             // The old instance keeps the step down call's connection until the answer goes out.
             let (answered, answer_sent) = oneshot::channel();
+            // New connections reach the standby instance; this one sends no GOAWAY before the answer.
+            grpc.stop_accepting();
             let retiring = std::mem::replace(&mut grpc, GrpcServer::start_standby(&grpc_settings));
             prune_finished_retirements(&mut retirements).await;
             let retirement = tokio::spawn(retiring.retire_after(answer_sent, GRPC_DRAIN_BUDGET));
@@ -660,6 +662,8 @@ fn swap_in_serving_instance(
     grpc_settings: &GrpcSettings,
     services: PublicServices,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
+    // A connection it accepted from now on would meet its GOAWAY, so the serving instance gets it.
+    grpc.stop_accepting();
     let standby_instance =
         std::mem::replace(grpc, GrpcServer::start_serving(grpc_settings, services));
     // It serves no public call, so no Worker stream or long poll is cut when it closes.

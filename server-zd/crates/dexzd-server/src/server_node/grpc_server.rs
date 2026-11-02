@@ -22,8 +22,8 @@ use dexzd_protocol::dex::flow_service_server::FlowServiceServer;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
 use dexzd_worker_dispatch::WorkerTaskService;
 use http_body_util::BodyExt;
-use tokio::net::TcpListener;
-use tokio::sync::oneshot;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -68,6 +68,8 @@ pub(super) enum GrpcInstancePhase {
 pub(super) struct GrpcSettings {
     /// Bound once, so connections queue between instances instead of being refused.
     pub(super) listener: Arc<TcpListener>,
+    /// Connections that an instance accepted while it stopped accepting, for its successor.
+    pub(super) handed_over_connections: Arc<HandedOverConnections>,
     pub(super) max_message_bytes: usize,
     pub(super) api_requests: dexzd_metrics::ApiRequests,
     pub(super) api_latency: dexzd_metrics::ApiLatency,
@@ -93,6 +95,8 @@ pub(super) struct GrpcServer {
     pub(super) health: HealthStatus,
     flow_service_gate: StartupService<FlowServiceServer<DexFlowService>>,
     worker_task_service_gate: StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
+    /// Cancelled once a newer instance takes new connections; existing ones keep running.
+    stopped_accepting: CancellationToken,
     pub(super) stop: CancellationToken,
     pub(super) task: JoinHandle<Result<(), tonic::transport::Error>>,
 }
@@ -136,7 +140,12 @@ impl GrpcServer {
             DexAdminService::authenticated_server(administration, settings.authenticator.clone());
         let stop = CancellationToken::new();
         let stopped = stop.clone();
-        let listener = settings.listener.clone();
+        let stopped_accepting = CancellationToken::new();
+        let instance_listener = InstanceListener {
+            listener: settings.listener.clone(),
+            handed_over_connections: settings.handed_over_connections.clone(),
+            stopped_accepting: stopped_accepting.clone(),
+        };
         let mut builder = tonic::transport::Server::builder()
             .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
             .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT));
@@ -165,16 +174,7 @@ impl GrpcServer {
                 ))
                 .add_service(admin_service)
                 .serve_with_incoming_shutdown(
-                    futures::stream::unfold(listener, |listener| async move {
-                        let accepted = listener.accept().await.map(|(stream, _)| {
-                            // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
-                            if let Err(error) = stream.set_nodelay(true) {
-                                tracing::warn!(%error, "failed to set TCP_NODELAY on a gRPC connection");
-                            }
-                            stream
-                        });
-                        Some((accepted, listener))
-                    }),
+                    futures::stream::unfold(instance_listener, InstanceListener::next_connection),
                     async move { stopped.cancelled().await },
                 ),
         );
@@ -182,9 +182,15 @@ impl GrpcServer {
             health: settings.health.clone(),
             flow_service_gate,
             worker_task_service_gate,
+            stopped_accepting,
             stop,
             task,
         }
+    }
+
+    /// Leaves new connections to a newer instance; open connections and their calls keep running.
+    pub(super) fn stop_accepting(&self) {
+        self.stopped_accepting.cancel();
     }
 
     /// Makes FlowService and WorkerTaskService answer that this process stepped down; AdminService keeps answering.
@@ -255,6 +261,75 @@ impl Drop for GrpcServer {
     fn drop(&mut self) {
         self.stop.cancel();
         self.task.abort();
+    }
+}
+
+/// Connections that an instance accepted while it stopped accepting, which its successor serves.
+pub(super) struct HandedOverConnections {
+    sender: mpsc::UnboundedSender<TcpStream>,
+    receiver: Mutex<mpsc::UnboundedReceiver<TcpStream>>,
+}
+
+impl HandedOverConnections {
+    pub(super) fn new() -> Self {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        Self {
+            sender,
+            receiver: Mutex::new(receiver),
+        }
+    }
+
+    fn hand_over(&self, stream: TcpStream) {
+        self.sender
+            .send(stream)
+            .expect("the receiver lives as long as the sender");
+    }
+
+    async fn take(&self) -> TcpStream {
+        self.receiver
+            .lock()
+            .await
+            .recv()
+            .await
+            .expect("the sender lives as long as the receiver")
+    }
+}
+
+/// The shared listener as one instance sees it: it accepts until a newer instance takes over.
+struct InstanceListener {
+    listener: Arc<TcpListener>,
+    handed_over_connections: Arc<HandedOverConnections>,
+    stopped_accepting: CancellationToken,
+}
+
+impl InstanceListener {
+    /// Returns the next connection for this instance; after it stopped accepting, none ever comes.
+    async fn next_connection(self) -> Option<(std::io::Result<TcpStream>, Self)> {
+        loop {
+            let accepted = tokio::select! {
+                biased;
+                () = self.stopped_accepting.cancelled() => {
+                    // An ended stream would make tonic send GOAWAY; that is the retirement's decision.
+                    return std::future::pending().await;
+                }
+                stream = self.handed_over_connections.take() => Ok(stream),
+                accepted = self.listener.accept() => accepted.map(|(stream, _)| stream),
+            };
+            let stream = match accepted {
+                // Accepted while this instance stopped accepting; a GOAWAY would meet its first call.
+                Ok(stream) if self.stopped_accepting.is_cancelled() => {
+                    self.handed_over_connections.hand_over(stream);
+                    continue;
+                }
+                Ok(stream) => stream,
+                Err(error) => return Some((Err(error), self)),
+            };
+            // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
+            if let Err(error) = stream.set_nodelay(true) {
+                tracing::warn!(%error, "failed to set TCP_NODELAY on a gRPC connection");
+            }
+            return Some((Ok(stream), self));
+        }
     }
 }
 

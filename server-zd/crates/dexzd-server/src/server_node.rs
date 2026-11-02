@@ -59,7 +59,7 @@ pub(crate) use search_projection::SearchOutboxWatermarks;
 
 use attribute_sync::{AttributeStores, AttributeSyncService, AttributeSyncStart};
 use bounded_teardown::BoundedTeardown;
-use grpc_server::{GrpcServer, GrpcSettings, PublicServices};
+use grpc_server::{GrpcServer, GrpcSettings, HandedOverConnections, PublicServices};
 pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
 use node_lifecycle::{
     AdministrationRequest, HeldNodeLease, LifecycleActiveNodeAdministration, NodeLifecycle,
@@ -235,6 +235,7 @@ pub(crate) async fn start_server(
     let standby_instance_administration = serving_instance_administration.for_standby_instances();
     let grpc_settings = GrpcSettings {
         listener: Arc::new(listener),
+        handed_over_connections: Arc::new(HandedOverConnections::new()),
         max_message_bytes: components.grpc_max_message_bytes,
         api_requests: metrics.api_requests.clone(),
         api_latency: metrics.api_latency.clone(),

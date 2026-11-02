@@ -69,6 +69,7 @@ async fn no_public_call_answers_starting_once_the_process_serves() {
     let calls = callers.finish().await;
     let first_served_at = first_served_call_sent_since(&calls, None).min(reported_serving_at);
     assert_no_starting_refusal_after(&calls, first_served_at);
+    assert_new_connections_served_after(&calls, first_served_at);
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());
     primary.shutdown().await;
@@ -119,6 +120,7 @@ async fn no_public_call_answers_starting_once_a_take_back_serves() {
     // The take-back answer precedes the swap to the new serving instance.
     let served_again_at = first_served_call_sent_since(&calls, Some(answered_at));
     assert_no_starting_refusal_after(&calls, served_again_at);
+    assert_new_connections_served_after(&calls, served_again_at);
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());
     primary.shutdown().await;
@@ -198,6 +200,32 @@ fn first_served_call_sent_since(calls: &[StartupCall], since: Option<Instant>) -
         .map(|call| call.answered_at)
         .min()
         .expect("the callers were served")
+}
+
+/// Panics if a call on a connection opened after `served_at` was not served.
+///
+/// Such a connection was opened after the serving instance replaced every older one, so only the
+/// serving instance may accept it; a retiring instance would close it before its call.
+fn assert_new_connections_served_after(calls: &[StartupCall], served_at: Instant) {
+    let failures: Vec<_> = calls
+        .iter()
+        .filter(|call| {
+            call.is_on_new_connection
+                && call.sent_at > served_at
+                && call.answer != CallAnswer::Served
+        })
+        .map(|call| {
+            (
+                call.sent_at - served_at,
+                call.failure.clone().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} calls on connections opened after the process served failed: {failures:?}",
+        failures.len()
+    );
 }
 
 /// Panics if a call sent after `served_at` answered that the node is starting.
@@ -288,9 +316,13 @@ enum CallAnswer {
 }
 
 struct StartupCall {
+    /// When the caller started to connect, or to call on its kept connection.
     sent_at: Instant,
     answered_at: Instant,
     answer: CallAnswer,
+    is_on_new_connection: bool,
+    /// Why a call that was not served failed.
+    failure: Option<String>,
 }
 
 /// GetServerInfo callers that run until stopped, each counting its served calls.
@@ -372,16 +404,17 @@ async fn call_until_stopped(
                 .ok()
                 .and_then(Result::ok)
         };
-        let answer = match channel {
-            None => CallAnswer::OtherFailure,
+        let (answer, failure) = match channel {
+            None => (CallAnswer::OtherFailure, Some("no connection".to_owned())),
             Some(channel) => {
                 let mut client = FlowServiceClient::new(channel);
                 match tokio::time::timeout(CALL_TIMEOUT, client.get_server_info(())).await {
-                    Ok(Ok(_)) => CallAnswer::Served,
+                    Ok(Ok(_)) => (CallAnswer::Served, None),
                     Ok(Err(status)) if status.message().contains(STARTING_REFUSAL) => {
-                        CallAnswer::Starting
+                        (CallAnswer::Starting, Some(status.to_string()))
                     }
-                    Ok(Err(_)) | Err(_) => CallAnswer::OtherFailure,
+                    Ok(Err(status)) => (CallAnswer::OtherFailure, Some(status.to_string())),
+                    Err(_) => (CallAnswer::OtherFailure, Some("timed out".to_owned())),
                 }
             }
         };
@@ -392,6 +425,8 @@ async fn call_until_stopped(
             sent_at,
             answered_at: Instant::now(),
             answer,
+            is_on_new_connection: !is_keeping_connection,
+            failure,
         });
         tokio::time::sleep(CALL_INTERVAL).await;
     }
