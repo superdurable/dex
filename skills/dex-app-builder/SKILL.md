@@ -44,7 +44,7 @@ when the host supports it; discover filenames before reading module source.
 Implement once the required types and lifecycle are understood. Let concrete
 compiler, strict FDG or provider diagnostics drive further investigation.
 
-For external products, search the [official catalog](https://superdurable.github.io/dex-connectors-library/catalog.yaml)
+For external products, search the [official catalog](https://connectors.superdurable.io/catalog.yaml)
 using a bounded catalog tool when available. Select a released operation and
 kind, then inspect that exact module's `connector.yaml`, generated operation factory and
 input/output types. Return only matching catalog entries to model context.

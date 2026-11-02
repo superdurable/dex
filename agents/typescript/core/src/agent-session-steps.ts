@@ -28,35 +28,92 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
+import {
+  buildPlanClearedOutput,
+  buildPlanUpdatedOutput,
+  isBlankText,
+  validateAskUserArguments,
+  validateDurableWaitArguments,
+  validateWriteTodosArguments,
+  writeTodosCalledMoreThanOnce,
+  type BuiltInTool,
+} from "./agent-built-in-tools.js";
+import {
+  isCompactionTriggered,
+  isContextCompactionRunner,
+  readRetainedTokenBudget,
+  type ContextCompactionRunner,
+  type ContextSummaryResult,
+} from "./agent-context-compaction.js";
 import type { StreamAgentEventWriter } from "./agent-event-writer.js";
 import {
   ToolExecutionError,
   type AgentTurnContext,
+  type DeferredToolCall,
   type DeferredToolExecution,
+  type DeferredToolOutcome,
   type ToolCallsRequested,
+  type ToolInputRequested,
+  type ToolTaskStarted,
   type TurnCompleted,
 } from "./agent-framework-runner.js";
-import { agentSessionStartInputCodec } from "./agent-session-codecs.js";
+import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
+import { agentSessionStartInputCodec, turnFailureRouteInputCodec } from "./agent-session-codecs.js";
 import {
   agentSessionStepTypes,
+  allPendingMessages,
+  cancelledToolCall,
+  countMessagesAfterUserMessages,
+  isCancellableByTurnControl,
   readRecoveryDetail,
+  toRunnerToolCall,
   toolStepTypeForEffect,
   ToolStepHeartbeats,
+  writePlanUpdated,
   type AgentSessionTransitions,
 } from "./agent-session-transitions.js";
-import type { AgentSessionPersistence } from "./agent-session-persistence.js";
+import {
+  messageSequenceKey,
+  planExecutionKey,
+  type AgentSessionPersistence,
+} from "./agent-session-persistence.js";
+import type { ToolCallSpan } from "./agent-session-tracer.js";
 import {
   approvalDeadlinePassed,
+  buildToolCallNote,
+  blankToolTaskId,
   buildTurnFailureNote,
   emptyAgentUsage,
+  invalidToolTaskPollInterval,
   isFinalToolCallStatus,
+  turnCancelledNoteHeader,
+  turnSteeredNoteHeader,
+  missingToolTaskPoller,
   type AgentInterrupt,
+  type AgentPlan,
+  type AgentInterruptKind,
   type AgentSessionStartInput,
   type AgentState,
-  type AgentToolCall,
+  type AgentToolCallRecord,
+  type AgentUserMessage,
+  type CompactContextInput,
+  type ContextSummary,
+  type FrameworkMessage,
+  type InteractionMode,
+  type PlanStatus,
+  type ToolCallCancellationReason,
 } from "./agent-session-values.js";
 
 const minuteMs = 60_000;
+/** Longest wait between two polls of a tool task, as in the Python core; a longer interval is shortened. */
+const maximumToolTaskPollIntervalSeconds = 86_400;
+// CompactContext makes one model call, so it shares RunModel's timeouts and retries.
+const modelCallStepOptions = {
+  executeMethodTimeoutMs: 15 * minuteMs,
+  heartbeatTimeoutMs: 2 * minuteMs,
+  executeRetry: { maximumAttempts: 3, totalDurationMs: 30 * minuteMs },
+  executeFailure: ExecuteFailure.proceedTo(new StepRef(agentSessionStepTypes.recordTurnFailure)),
+} as const satisfies StepOptions;
 // Recovery Steps must eventually run; cap their backoff so a returning Worker picks them up quickly.
 const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
 // An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
@@ -90,18 +147,20 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
       activeTurnId: null,
       nextMessageSequence: 1,
       lastTurnError: null,
+      acceptsTurnControl: false,
     };
     this.transitions.writeAgentState(context, state);
     persistence.agentUsage.set(context, emptyAgentUsage());
     persistence.pendingInterrupts.set(context, []);
     const initialMessage = input.initialMessage;
-    if (initialMessage === null || initialMessage.trim() === "") {
+    if (initialMessage === null || isBlankText(initialMessage)) {
       return this.transitions.goToAwaitUserMessage();
     }
-    return this.transitions.beginTurn(context, state, initialMessage);
+    return this.transitions.beginTurn(context, state, [{ text: initialMessage }], this.getStepType());
   }
 }
 
+/** Waits for one queued user message, or an approved plan execution, and starts its turn. */
 export class AwaitUserMessageStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
@@ -115,17 +174,79 @@ export class AwaitUserMessageStep implements Step<void> {
     return syncDurability;
   }
 
-  public waitFor(): Wait {
-    return Wait.until(this.transitions.persistence.queuedUserMessages.forOne());
+  public waitFor(context: Context): Wait {
+    const persistence = this.transitions.persistence;
+    // Dex selects Channel conditions in argument order: a steer, a queued message, a plan.
+    const conditions: Condition[] = [
+      persistence.turnControlRequests.range(1, allPendingMessages),
+      persistence.queuedUserMessages.forOne(),
+    ];
+    const plan = this.transitions.readOptionalAgentPlan(context);
+    // Keyed by revision, so an approval of an earlier revision never starts a turn.
+    if (plan !== null && isExecutablePlanStatus(plan.status)) {
+      conditions.push(persistence.planExecutions.forOne(planExecutionKey(plan.revision)));
+    }
+    return Wait.anyOf(...conditions);
   }
 
   public execute(context: Context): StepDecision {
-    const [message] = context.channelResults(this.transitions.persistence.queuedUserMessages);
-    if (message === undefined || message.text.trim() === "") {
-      return this.transitions.goToAwaitUserMessage();
+    const transitions = this.transitions;
+    const persistence = transitions.persistence;
+    if (context.channelResults(persistence.turnControlRequests).length > 0) {
+      return transitions.goToApplyTurnControl();
     }
-    return this.transitions.beginTurn(context, this.transitions.readAgentState(context), message.text);
+    const [message] = context.channelResults(persistence.queuedUserMessages);
+    if (message !== undefined) {
+      if (isBlankText(message.text)) {
+        return transitions.goToAwaitUserMessage();
+      }
+      return this.beginUserMessageTurn(context, message);
+    }
+    const plan = transitions.readOptionalAgentPlan(context);
+    const [execution] =
+      plan === null ? [] : context.channelResults(persistence.planExecutions, planExecutionKey(plan.revision));
+    if (execution === undefined) {
+      return transitions.goToAwaitUserMessage();
+    }
+    if (persistence.pendingPlanExecution.get(context) !== undefined) {
+      persistence.pendingPlanExecution.delete(context);
+    }
+    if (plan === null || execution.revision !== plan.revision || !isExecutablePlanStatus(plan.status)) {
+      return transitions.goToAwaitUserMessage();
+    }
+    const wasPlanDraft = plan.status !== "active";
+    const executedPlan: AgentPlan = wasPlanDraft
+      ? { ...plan, status: "active", updatedAt: new Date().toISOString() }
+      : plan;
+    if (wasPlanDraft) {
+      persistence.agentPlan.set(context, executedPlan);
+    }
+    return transitions.beginTurn(
+      context,
+      transitions.readAgentState(context),
+      [{ text: buildPlanExecutionMessage(plan.revision) }],
+      this.getStepType(),
+      "executing",
+      executedPlan,
+      wasPlanDraft,
+    );
   }
+
+  private beginUserMessageTurn(context: Context, message: AgentUserMessage): StepDecision {
+    const transitions = this.transitions;
+    return transitions.beginTurn(
+      context,
+      transitions.readAgentState(context),
+      [message],
+      this.getStepType(),
+      transitions.decideInteractionMode(context, [message]),
+    );
+  }
+}
+
+/** Plan statuses that `execute_plan` accepts and `AwaitUserMessage` waits for. */
+export function isExecutablePlanStatus(status: PlanStatus): boolean {
+  return status === "draft" || status === "active";
 }
 
 /** Makes the turn's next model call and fans the requested tool calls out to parallel Steps. */
@@ -142,10 +263,7 @@ export class RunModelStep implements Step<void> {
     const persistence = this.transitions.persistence;
     return {
       ...syncDurability,
-      executeMethodTimeoutMs: 15 * minuteMs,
-      heartbeatTimeoutMs: 2 * minuteMs,
-      executeRetry: { maximumAttempts: 3, totalDurationMs: 30 * minuteMs },
-      executeFailure: ExecuteFailure.proceedTo(new StepRef(agentSessionStepTypes.recordTurnFailure)),
+      ...modelCallStepOptions,
       executeLoadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
     };
   }
@@ -162,48 +280,72 @@ export class RunModelStep implements Step<void> {
     if (openToolCall !== undefined) {
       throw new Error(`RunModel for ${turnId} started before tool call ${openToolCall.toolCallId} finished`);
     }
-    const toolCallsById = new Map(toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall]));
-    const frameworkRunState = transitions.readFrameworkRunState(context);
+    const decision = this.decideBeforeModelCall(context, turnId);
+    if (decision !== null) {
+      return decision;
+    }
     const events = transitions.createEventWriter(context, turnId);
     try {
-      const turnContext: AgentTurnContext = {
-        flowId: context.flowId,
-        turnId,
-        attempt: context.attempt,
-        messages: transitions.readMessages(context, 1, state.nextMessageSequence),
-        frameworkRunState,
-        isResuming: frameworkRunState !== null,
-        toolCalls,
-        events,
-        cancellationSignal: context.cancellationSignal,
-        deadline: context.deadline,
-        resolveToolPolicy: (toolName, frameworkEffect) =>
-          transitions.resolveToolPolicy(toolName, frameworkEffect),
-        recordedToolCall: (toolCallId) => toolCallsById.get(toolCallId),
-        heartbeat: () => transitions.recordHeartbeat(context),
-      };
-      const outcome = await transitions.runWithHeartbeats(context, () =>
-        transitions.runner.runModelStep(turnContext),
+      const turnContext = transitions.createTurnContext(context, state, turnId, toolCalls, events, () =>
+        transitions.recordHeartbeat(context),
       );
-      switch (outcome?.kind) {
-        case "completed":
-          return this.completeTurn(context, state, turnId, toolCalls, outcome, events);
-        case "tool_calls_requested":
-          return this.requestToolCalls(context, state, turnId, toolCalls, outcome, events);
-        default:
-          throw new TypeError("runModelStep must return a TurnCompleted or ToolCallsRequested outcome");
+      const throughSequence = await this.selectCompactionBeforeModelCall(turnContext, state);
+      if (throughSequence !== null) {
+        return this.startCompaction(context, state, turnContext.contextSummary ?? null, throughSequence);
       }
+      return await transitions.tracer.traceModelCall(
+        context,
+        this.getStepType(),
+        turnContext,
+        async (modelCallSpan) => {
+          const outcome = await transitions.runWithHeartbeats(context, () =>
+            transitions.runner.runModelStep(turnContext),
+          );
+          switch (outcome?.kind) {
+            case "completed": {
+              modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages));
+              // RunModel loads the whole map, so the count includes messages summarized away.
+              const storedTurnMessageCount = countMessagesAfterUserMessages(
+                transitions.readTurnMessages(context, state, turnId),
+                turnId,
+              );
+              return this.completeTurn(context, state, turnId, toolCalls, outcome, storedTurnMessageCount, events);
+            }
+            case "tool_calls_requested":
+              if ((outcome.newMessages?.length ?? 0) > 0 && transitions.runner.buildUnfinishedTurnMessages === undefined) {
+                // A runner defect: a retry would only repeat the paid model call, so the turn fails now.
+                modelCallSpan.recordOutcome(outcome, []);
+                transitions.recordUsage(context, outcome.usage, events);
+                return recordFailedTurn(transitions, context, state, toolCalls, [], missingUnfinishedTurnMessageBuilder);
+              }
+              modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages ?? []));
+              return this.requestToolCalls(context, state, turnId, toolCalls, outcome, events);
+            default:
+              throw new TypeError("runModelStep must return a TurnCompleted or ToolCallsRequested outcome");
+          }
+        },
+      );
     } finally {
       events.close();
     }
+  }
+
+  /** Returns RunModel's move instead of a model call, or `null` to call the model. */
+  private decideBeforeModelCall(context: Context, turnId: string): StepDecision | null {
+    // Execute state is fixed at the first attempt, so this and the compaction check are RunModel's decision points.
+    if (this.transitions.readTurnControlReason(context, turnId) !== null) {
+      return this.transitions.goToApplyTurnControl();
+    }
+    return null;
   }
 
   private completeTurn(
     context: Context,
     state: AgentState,
     turnId: string,
-    toolCalls: readonly AgentToolCall[],
+    toolCalls: readonly AgentToolCallRecord[],
     outcome: TurnCompleted,
+    storedTurnMessageCount: number,
     events: StreamAgentEventWriter,
   ): StepDecision {
     const transitions = this.transitions;
@@ -220,87 +362,385 @@ export class RunModelStep implements Step<void> {
       turnCount: state.turnCount + 1,
       activeTurnId: null,
       lastTurnError: null,
+      acceptsTurnControl: false,
     });
-    events.writeEvent("turn_completed", { message_count: outcome.newMessages.length });
+    // The turn's user messages are stored but not counted; incremental runners stored more before now.
+    const messageCount = storedTurnMessageCount + outcome.newMessages.length;
+    events.writeEvent("turn_completed", { message_count: messageCount });
     return transitions.goToAwaitUserMessage();
+  }
+
+  /** Returns the sequence to summarize through before this model call, or `null` to make the call. */
+  private async selectCompactionBeforeModelCall(turn: AgentTurnContext, state: AgentState): Promise<number | null> {
+    const transitions = this.transitions;
+    const policy = transitions.config.compaction;
+    const runner = transitions.runner;
+    if (policy === undefined || !isContextCompactionRunner(runner)) {
+      return null;
+    }
+    if (!isCompactionTriggered(policy, await runner.estimateInputTokens(turn))) {
+      return null;
+    }
+    const cutoff = await runner.selectCompactionCutoff(turn, readRetainedTokenBudget(policy));
+    // A cutoff that does not advance means nothing more to summarize, so the pair cannot loop.
+    if (cutoff === null || cutoff <= (turn.contextSummary?.lastSequence ?? 0)) {
+      return null;
+    }
+    if (!Number.isSafeInteger(cutoff) || cutoff >= state.nextMessageSequence) {
+      throw new TypeError(`selectCompactionCutoff returned ${String(cutoff)}, which is not a stored message`);
+    }
+    return cutoff;
+  }
+
+  private startCompaction(
+    context: Context,
+    state: AgentState,
+    previousSummary: ContextSummary | null,
+    throughSequence: number,
+  ): StepDecision {
+    const persistence = this.transitions.persistence;
+    // CompactContext commits once, so this commit is where the status becomes visible.
+    this.transitions.writeAgentState(context, { ...state, status: "compacting_context" });
+    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
+    const messageLoads = [];
+    for (let sequence = firstSequence; sequence <= throughSequence; sequence += 1) {
+      messageLoads.push(persistence.agentMessages.load(messageSequenceKey(sequence)));
+    }
+    const input: CompactContextInput = { throughSequence };
+    return goToMany(
+      StepMovement.of(new StepRef(agentSessionStepTypes.compactContext), input, {
+        ...syncDurability,
+        ...modelCallStepOptions,
+        executeLoadAttributeMapInstances: messageLoads,
+      }),
+    );
   }
 
   private requestToolCalls(
     context: Context,
     state: AgentState,
     turnId: string,
-    toolCalls: readonly AgentToolCall[],
+    toolCalls: readonly AgentToolCallRecord[],
     outcome: ToolCallsRequested,
     events: StreamAgentEventWriter,
   ): StepDecision {
-    validateToolCallsRequested(turnId, toolCalls, outcome);
     const transitions = this.transitions;
+    validateToolCallsRequested(turnId, toolCalls, outcome);
+    const newMessages = outcome.newMessages ?? [];
+    const stateWithMessages =
+      newMessages.length === 0 ? state : transitions.appendMessages(context, state, turnId, newMessages);
     transitions.persistence.frameworkRunState.set(context, outcome.frameworkRunState);
     const createdAt = new Date();
-    const deadline =
-      transitions.config.interruptDeadlineMs === undefined
-        ? null
-        : new Date(createdAt.getTime() + transitions.config.interruptDeadlineMs).toISOString();
-    const interrupts: AgentInterrupt[] = [];
-    // goToMany takes movements of mixed input types, which the SDK types as StepMovement<any>.
-    const movements: StepMovement<any>[] = [];
+    const batch: ToolCallBatchCommit = {
+      context,
+      turnId,
+      createdAt: createdAt.toISOString(),
+      interruptDeadline:
+        transitions.config.interruptDeadlineMs === undefined
+          ? null
+          : new Date(createdAt.getTime() + transitions.config.interruptDeadlineMs).toISOString(),
+      interrupts: [],
+      traceContext: transitions.tracer.readActivationTraceparent(context),
+      movements: [],
+      events,
+      interactionMode: state.interactionMode ?? "chat",
+      writeTodosCallCount: outcome.toolCalls.filter(
+        (toolCall) => toolCall.toolName === "write_todos" && transitions.isEnabledBuiltInTool(toolCall.toolName),
+      ).length,
+    };
     for (const [index, requestedToolCall] of outcome.toolCalls.entries()) {
-      const requiresApproval = requestedToolCall.policy.requiresApproval;
-      const effect = requestedToolCall.policy.effect;
-      transitions.writeToolCall(context, {
-        toolCallId: requestedToolCall.toolCallId,
-        turnId,
-        toolName: requestedToolCall.toolName,
-        arguments: requestedToolCall.arguments,
-        effect,
-        requiresApproval,
-        status: requiresApproval ? "awaiting_approval" : "approved",
-        output: null,
-        error: null,
-        rejectionMessage: null,
-        deferralOrder: toolCalls.length + index,
-        ...(requestedToolCall.toolSourceReference === undefined
-          ? {}
-          : { toolSourceReference: requestedToolCall.toolSourceReference }),
-      });
-      events.writeEvent("tool_call_deferred", {
-        tool_call_id: requestedToolCall.toolCallId,
-        tool_name: requestedToolCall.toolName,
-        effect,
-        requires_approval: requiresApproval,
-      });
-      const nextStepType = requiresApproval
-        ? agentSessionStepTypes.awaitToolApproval
-        : toolStepTypeForEffect(effect);
-      movements.push(toolStepMovement(transitions.persistence, nextStepType, requestedToolCall.toolCallId));
-      if (!requiresApproval) {
-        continue;
+      const deferralOrder = toolCalls.length + index;
+      const toolName = requestedToolCall.toolName;
+      if (batch.interactionMode === "planning" && !(toolName === "write_todos" && transitions.isEnabledBuiltInTool(toolName))) {
+        this.rejectPlanningTurnToolCall(batch, requestedToolCall, deferralOrder);
+      } else if (transitions.isEnabledBuiltInTool(toolName)) {
+        this.deferBuiltInToolCall(batch, requestedToolCall, toolName, deferralOrder);
+      } else {
+        this.deferApplicationToolCall(batch, requestedToolCall, deferralOrder);
       }
-      const interrupt: AgentInterrupt = {
-        interruptId: requestedToolCall.toolCallId,
-        kind: "tool_approval",
-        toolCallId: requestedToolCall.toolCallId,
-        toolName: requestedToolCall.toolName,
-        arguments: requestedToolCall.arguments,
-        createdAt: createdAt.toISOString(),
-        deadline,
-      };
-      interrupts.push(interrupt);
-      events.writeEvent("interrupt_raised", {
-        interrupt_id: interrupt.interruptId,
-        tool_call_id: interrupt.toolCallId,
-        tool_name: interrupt.toolName,
-        deadline: interrupt.deadline,
-      });
     }
-    transitions.persistence.pendingInterrupts.set(context, interrupts);
+    transitions.persistence.pendingInterrupts.set(context, batch.interrupts);
     transitions.recordUsage(context, outcome.usage, events);
-    transitions.writeAgentState(context, { ...state, status: "running_tools" });
-    movements.push(
+    transitions.writeAgentState(context, { ...stateWithMessages, status: "running_tools" });
+    batch.movements.push(
       StepMovement.of(new StepRef(agentSessionStepTypes.resumeTurn), outcome.toolCalls.length),
     );
-    return goToMany(...movements);
+    return goToMany(...batch.movements);
   }
+
+  /** A planning turn hides executable tools; a call to one never runs. */
+  private rejectPlanningTurnToolCall(
+    batch: ToolCallBatchCommit,
+    requestedToolCall: DeferredToolCall,
+    deferralOrder: number,
+  ): void {
+    const isBuiltInTool = this.transitions.isEnabledBuiltInTool(requestedToolCall.toolName);
+    const record = createToolCallRecord(
+      batch,
+      requestedToolCall,
+      isBuiltInTool ? "read" : requestedToolCall.policy.effect,
+      isBuiltInTool ? false : requestedToolCall.policy.requiresApproval,
+      deferralOrder,
+    );
+    writeToolCallDeferred(batch.events, record);
+    this.transitions.finishToolCall(
+      batch.context,
+      { ...record, status: "rejected", rejectionMessage: planningTurnToolRejection },
+      batch.events,
+    );
+  }
+
+  private deferApplicationToolCall(
+    batch: ToolCallBatchCommit,
+    requestedToolCall: DeferredToolCall,
+    deferralOrder: number,
+  ): void {
+    const transitions = this.transitions;
+    const requiresApproval = requestedToolCall.policy.requiresApproval;
+    const effect = requestedToolCall.policy.effect;
+    const record = createToolCallRecord(batch, requestedToolCall, effect, requiresApproval, deferralOrder);
+    transitions.writeToolCall(batch.context, {
+      ...record,
+      status: requiresApproval ? "awaiting_approval" : "approved",
+    });
+    writeToolCallDeferred(batch.events, record);
+    const nextStepType = requiresApproval
+      ? agentSessionStepTypes.awaitToolApproval
+      : toolStepTypeForEffect(effect);
+    batch.movements.push(toolStepMovement(transitions.persistence, nextStepType, requestedToolCall.toolCallId));
+    if (!requiresApproval) {
+      return;
+    }
+    const interrupt: AgentInterrupt = {
+      interruptId: requestedToolCall.toolCallId,
+      kind: "tool_approval",
+      toolCallId: requestedToolCall.toolCallId,
+      toolName: requestedToolCall.toolName,
+      arguments: requestedToolCall.arguments,
+      createdAt: batch.createdAt,
+      deadline: batch.interruptDeadline,
+      question: null,
+      choices: [],
+      allowsFreeText: true,
+    };
+    batch.interrupts.push(interrupt);
+    transitions.writeInterruptRaised(batch.events, interrupt);
+  }
+
+  /** Records a built-in call with its fixed policy and routes it to its wait Step; invalid arguments fail at once. */
+  private deferBuiltInToolCall(
+    batch: ToolCallBatchCommit,
+    requestedToolCall: DeferredToolCall,
+    builtInTool: BuiltInTool,
+    deferralOrder: number,
+  ): void {
+    const transitions = this.transitions;
+    const persistence = transitions.persistence;
+    const record = createToolCallRecord(batch, requestedToolCall, "read", false, deferralOrder);
+    writeToolCallDeferred(batch.events, record);
+    switch (builtInTool) {
+      case "ask_user": {
+        const validation = validateAskUserArguments(record.arguments);
+        if (!validation.isValid) {
+          this.failBuiltInToolCall(batch, record, validation.error);
+          return;
+        }
+        transitions.writeToolCall(batch.context, { ...record, status: "awaiting_answer" });
+        const interrupt: AgentInterrupt = {
+          interruptId: record.toolCallId,
+          kind: "question",
+          toolCallId: record.toolCallId,
+          toolName: record.toolName,
+          arguments: record.arguments,
+          createdAt: batch.createdAt,
+          deadline: batch.interruptDeadline,
+          question: validation.arguments.question,
+          choices: validation.arguments.choices,
+          allowsFreeText: validation.arguments.allowsFreeText,
+        };
+        batch.interrupts.push(interrupt);
+        transitions.writeInterruptRaised(batch.events, interrupt);
+        batch.movements.push(questionAnswerMovement(persistence, { ...record, status: "awaiting_answer" }));
+        return;
+      }
+      case "durable_wait": {
+        const maxDurableWaitSeconds = Math.floor(transitions.config.maxDurableWaitMs / 1_000);
+        const validation = validateDurableWaitArguments(record.arguments, maxDurableWaitSeconds);
+        if (!validation.isValid) {
+          this.failBuiltInToolCall(batch, record, validation.error);
+          return;
+        }
+        const waitUntil = new Date(
+          Date.parse(batch.createdAt) + validation.arguments.durationSeconds * 1_000,
+        ).toISOString();
+        transitions.writeToolCall(batch.context, { ...record, status: "waiting_for_timer", waitUntil });
+        batch.events.writeEvent("timer_started", {
+          tool_call_id: record.toolCallId,
+          wait_until: waitUntil,
+          reason: validation.arguments.reason,
+        });
+        batch.movements.push(toolStepMovement(persistence, agentSessionStepTypes.awaitTimer, record.toolCallId));
+        return;
+      }
+      case "write_todos":
+        this.writeTodos(batch, record);
+        return;
+    }
+  }
+
+  /** Replaces the plan and records the call final, in this commit; no tool Step runs. */
+  private writeTodos(batch: ToolCallBatchCommit, record: AgentToolCallRecord): void {
+    const transitions = this.transitions;
+    if (batch.writeTodosCallCount > 1) {
+      this.failBuiltInToolCall(batch, record, writeTodosCalledMoreThanOnce);
+      return;
+    }
+    const validation = validateWriteTodosArguments(record.arguments);
+    if (!validation.isValid) {
+      this.failBuiltInToolCall(batch, record, validation.error);
+      return;
+    }
+    const tasks = validation.arguments;
+    const previous = transitions.readOptionalAgentPlan(batch.context);
+    const plan: AgentPlan = {
+      revision: (previous?.revision ?? 0) + 1,
+      status: planStatusAfterWrite(tasks, batch.interactionMode),
+      tasks,
+      updatedAt: batch.createdAt,
+    };
+    transitions.persistence.agentPlan.set(batch.context, plan);
+    writePlanUpdated(batch.events, plan);
+    const output =
+      plan.status === "cleared" ? buildPlanClearedOutput(plan.revision) : buildPlanUpdatedOutput(plan.revision, tasks.length);
+    transitions.finishToolCall(batch.context, { ...record, status: "succeeded", output }, batch.events);
+  }
+
+  private failBuiltInToolCall(batch: ToolCallBatchCommit, record: AgentToolCallRecord, error: string): void {
+    this.transitions.finishToolCall(batch.context, { ...record, status: "failed", error }, batch.events);
+  }
+}
+
+/** Summarizes the messages through a sequence for the model input, then moves back to `RunModel`. */
+export class CompactContextStep implements Step<CompactContextInput | undefined> {
+  public readonly inputCodec = turnFailureRouteInputCodec;
+
+  public constructor(private readonly transitions: AgentSessionTransitions) {}
+
+  public getStepType(): string {
+    return agentSessionStepTypes.compactContext;
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      ...syncDurability,
+      ...modelCallStepOptions,
+      executeLoadAttributeMaps: [this.transitions.persistence.agentMessages],
+    };
+  }
+
+  public async execute(context: AsyncContext, input: CompactContextInput | undefined): Promise<StepDecision> {
+    const transitions = this.transitions;
+    if (input === undefined) {
+      throw new TypeError("CompactContext needs a CompactContextInput");
+    }
+    const state = transitions.readAgentState(context);
+    const turnId = state.activeTurnId;
+    if (turnId === null) {
+      throw new Error(`the agent session ${context.flowId} has no active turn`);
+    }
+    const previousSummary = transitions.readContextSummary(context);
+    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
+    const throughSequence = input.throughSequence;
+    if (throughSequence < firstSequence || throughSequence >= state.nextMessageSequence) {
+      throw new Error(`CompactContext cannot summarize through message ${throughSequence}`);
+    }
+    const runner = transitions.runner;
+    if (!isContextCompactionRunner(runner)) {
+      throw new TypeError("CompactContext needs a runner that implements the compaction methods");
+    }
+    const events = transitions.createEventWriter(context, turnId);
+    try {
+      events.writeEvent("compaction_started", { through_sequence: throughSequence });
+      const result = await this.summarize(context, runner, turnId, previousSummary, throughSequence, events);
+      const summary: ContextSummary = {
+        generation: previousSummary === null ? 1 : previousSummary.generation + 1,
+        firstSequence: 1,
+        lastSequence: throughSequence,
+        text: result.text,
+        createdAt: new Date().toISOString(),
+      };
+      transitions.persistence.contextSummary.set(context, summary);
+      transitions.recordUsage(context, result.usage, events);
+      transitions.writeAgentState(context, { ...state, status: "running_model" });
+      events.writeEvent("compaction_finished", { generation: summary.generation, through_sequence: throughSequence });
+      // RunModel loads the whole map: listing instances in each movement would cost run storage.
+      return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+    } finally {
+      events.close();
+    }
+  }
+
+  private async summarize(
+    context: AsyncContext,
+    runner: ContextCompactionRunner,
+    turnId: string,
+    previousSummary: ContextSummary | null,
+    throughSequence: number,
+    events: StreamAgentEventWriter,
+  ): Promise<ContextSummaryResult> {
+    const transitions = this.transitions;
+    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
+    const messages = transitions.readMessages(context, firstSequence, throughSequence + 1);
+    const policy = transitions.config.compaction;
+    return transitions.tracer.traceContextSummary(
+      context,
+      this.getStepType(),
+      turnId,
+      throughSequence,
+      messages,
+      async (summarySpan) => {
+        const result = await transitions.runWithHeartbeats(context, () =>
+          runner.summarizeContext({
+            flowId: context.flowId,
+            turnId,
+            attempt: context.attempt,
+            stepExecutionId: context.stepExecutionId,
+            previousSummary,
+            messages,
+            throughSequence,
+            events,
+            cancellationSignal: context.cancellationSignal,
+            deadline: context.deadline,
+            ...(policy === undefined ? {} : { inputTokenBudget: policy.contextWindowTokens }),
+            heartbeat: () => transitions.recordHeartbeat(context),
+          }),
+        );
+        if (typeof result?.text !== "string" || result.text.trim() === "" || typeof result.usage !== "object") {
+          throw new TypeError("summarizeContext must return summary text and usage");
+        }
+        summarySpan.recordResult(result);
+        return result;
+      },
+    );
+  }
+}
+
+/** Everything one `RunModel` commit collects while it records a batch of tool calls. */
+interface ToolCallBatchCommit {
+  readonly context: Context;
+  readonly turnId: string;
+  readonly createdAt: string;
+  readonly interruptDeadline: string | null;
+  readonly interrupts: AgentInterrupt[];
+  /** W3C traceparent of the activation root that the batch's tool spans join, or `null`. */
+  readonly traceContext: string | null;
+  // goToMany takes movements of mixed input types, which the SDK types as StepMovement<any>.
+  readonly movements: StepMovement<any>[];
+  readonly events: StreamAgentEventWriter;
+  /** The turn's mode; a `planning` turn rejects every call but `write_todos`. */
+  readonly interactionMode: InteractionMode;
+  /** How many calls of the response name the enabled `write_todos`; more than one fails each of them. */
+  readonly writeTodosCallCount: number;
 }
 
 /** Waits for one tool call's approval or its deadline, then runs or rejects the call. */
@@ -319,7 +759,10 @@ export class AwaitToolApprovalStep implements Step<string> {
 
   public waitFor(context: Context, toolCallId: string): Wait {
     const transitions = this.transitions;
-    const conditions: Condition[] = [transitions.persistence.interruptResolutions.forOne(toolCallId)];
+    const conditions: Condition[] = [
+      transitions.persistence.toolCallCancellations.forOne(toolCallId),
+      transitions.persistence.interruptResolutions.forOne(toolCallId),
+    ];
     // A resolved interrupt left PendingInterrupts, so its deadline no longer applies.
     const interrupt = transitions
       .readPendingInterrupts(context)
@@ -339,6 +782,15 @@ export class AwaitToolApprovalStep implements Step<string> {
     if (toolCall.status !== "awaiting_approval") {
       return deadEnd();
     }
+    if (context.channelResults(persistence.toolCallCancellations, toolCallId).length > 0) {
+      return cancelWaitingToolCall(
+        this.transitions,
+        context,
+        toolCall,
+        { interruptId: toolCallId, kind: "tool_approval" },
+        toolStepMovement(persistence, agentSessionStepTypes.awaitToolApproval, toolCallId),
+      );
+    }
     const [resolution] = context.channelResults(persistence.interruptResolutions, toolCallId);
     if (resolution === undefined) {
       if (!context.hasTimerFired()) {
@@ -356,43 +808,68 @@ export class AwaitToolApprovalStep implements Step<string> {
         context,
         pendingInterrupts.filter((interrupt) => interrupt.interruptId !== toolCallId),
       );
-      return this.rejectToolCall(context, toolCall, approvalDeadlinePassed);
+      return this.applyResolution(context, toolCall, false, approvalDeadlinePassed, true);
     }
-    if (!resolution.approved) {
-      return this.rejectToolCall(context, toolCall, resolution.rejectionMessage);
-    }
-    transitions.writeToolCall(context, { ...toolCall, status: "approved" });
-    this.writeInterruptResolved(context, toolCall, true, null);
-    return goToMany(toolStepMovement(persistence, toolStepTypeForEffect(toolCall.effect), toolCallId));
+    return this.applyResolution(context, toolCall, resolution.approved, resolution.rejectionMessage, false);
+  }
+
+  private applyResolution(
+    context: Context,
+    toolCall: AgentToolCallRecord,
+    isApproved: boolean,
+    rejectionMessage: string | null,
+    isDeadlinePassed: boolean,
+  ): StepDecision {
+    return this.transitions.tracer.traceInterruptActivation(
+      context,
+      this.getStepType(),
+      toolCall.turnId,
+      toolCall.toolCallId,
+      isApproved,
+      isDeadlinePassed,
+      (activation) => {
+        if (!isApproved) {
+          return this.rejectToolCall(context, toolCall, rejectionMessage);
+        }
+        // The approval starts a new activation, so the tool's spans join its root, not the RunModel one.
+        const { traceContext: _deferredTraceContext, ...deferredToolCall } = toolCall;
+        this.transitions.writeToolCall(context, {
+          ...deferredToolCall,
+          status: "approved",
+          ...(activation.traceparent === null ? {} : { traceContext: activation.traceparent }),
+        });
+        this.transitions.writeInterruptResolved(context, toolCall.turnId, {
+          interruptId: toolCall.toolCallId,
+          kind: "tool_approval",
+          isApproved: true,
+          isAnswered: false,
+          rejectionMessage: null,
+        });
+        return goToMany(
+          toolStepMovement(
+            this.transitions.persistence,
+            toolStepTypeForEffect(toolCall.effect),
+            toolCall.toolCallId,
+          ),
+        );
+      },
+    );
   }
 
   private rejectToolCall(
     context: Context,
-    toolCall: AgentToolCall,
+    toolCall: AgentToolCallRecord,
     rejectionMessage: string | null,
   ): StepDecision {
-    this.transitions.writeToolCall(context, { ...toolCall, status: "rejected", rejectionMessage });
-    this.writeInterruptResolved(context, toolCall, false, rejectionMessage);
-    this.transitions.writeEvents(context, toolCall.turnId, (events) =>
-      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, "rejected"),
-    );
-    this.transitions.publishToolCallResult(context, toolCall.toolCallId);
+    this.transitions.writeInterruptResolved(context, toolCall.turnId, {
+      interruptId: toolCall.toolCallId,
+      kind: "tool_approval",
+      isApproved: false,
+      isAnswered: false,
+      rejectionMessage,
+    });
+    this.transitions.finishToolCall(context, { ...toolCall, status: "rejected", rejectionMessage });
     return deadEnd();
-  }
-
-  private writeInterruptResolved(
-    context: Context,
-    toolCall: AgentToolCall,
-    isApproved: boolean,
-    rejectionMessage: string | null,
-  ): void {
-    this.transitions.writeEvents(context, toolCall.turnId, (events) =>
-      events.writeEvent("interrupt_resolved", {
-        interrupt_id: toolCall.toolCallId,
-        approved: isApproved,
-        rejection_message: rejectionMessage,
-      }),
-    );
   }
 }
 
@@ -422,48 +899,129 @@ export class ToolCallStep implements Step<string> {
     if (toolCall.status !== "approved" || toolStepTypeForEffect(toolCall.effect) !== this.stepType) {
       throw new Error(`tool call ${toolCallId} cannot run in ${this.stepType}`);
     }
+    // Retries reuse the first attempt's state, so a call that started is never abandoned.
+    const reason = transitions.readTurnControlReason(context, toolCall.turnId);
+    if (reason !== null) {
+      transitions.finishToolCall(context, cancelledToolCall(toolCall, reason));
+      return deadEnd();
+    }
     const events = transitions.createEventWriter(context, toolCall.turnId);
     try {
-      events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
-      const heartbeats = new ToolStepHeartbeats(context);
-      // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
-      await heartbeats.record();
-      const execution: DeferredToolExecution = {
-        flowId: context.flowId,
-        toolCall,
-        idempotencyKey: `${context.flowId}/${toolCall.turnId}/${toolCall.toolCallId}`,
-        attempt: context.attempt,
-        events,
-        cancellationSignal: context.cancellationSignal,
-        deadline: context.deadline,
-        heartbeat: () => heartbeats.record(),
-        ...(heartbeats.previousCheckpoint === undefined ? {} : { heartbeatCheckpoint: heartbeats.previousCheckpoint }),
-        saveHeartbeatCheckpoint: (checkpoint: string) => heartbeats.saveCheckpoint(checkpoint),
-      };
-      let finishedToolCall: AgentToolCall;
-      try {
-        const result = await transitions.runWithHeartbeats(
-          context,
-          () => transitions.runner.executeDeferredToolCall(execution),
-          () => heartbeats.record(),
-        );
-        if (typeof result?.output !== "string") {
+      return await transitions.tracer.traceToolCall(context, this.stepType, toolCall, async (toolCallSpan) => {
+        events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
+        const heartbeats = new ToolStepHeartbeats(context);
+        // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
+        await heartbeats.record();
+        const execution: DeferredToolExecution = {
+          flowId: context.flowId,
+          toolCall: toRunnerToolCall(toolCall),
+          idempotencyKey: `${context.flowId}/${toolCall.turnId}/${toolCall.toolCallId}`,
+          attempt: context.attempt,
+          events,
+          cancellationSignal: context.cancellationSignal,
+          deadline: context.deadline,
+          inputAnswers: toolCall.inputAnswers,
+          supportsToolTasks: transitions.runner.pollToolTask !== undefined,
+          heartbeat: () => heartbeats.record(),
+          ...(heartbeats.previousCheckpoint === undefined ? {} : { heartbeatCheckpoint: heartbeats.previousCheckpoint }),
+          saveHeartbeatCheckpoint: (checkpoint: string) => heartbeats.saveCheckpoint(checkpoint),
+        };
+        let outcome: DeferredToolOutcome;
+        try {
+          outcome = await transitions.runWithHeartbeats(
+            context,
+            () => transitions.runner.executeDeferredToolCall(execution),
+            () => heartbeats.record(),
+          );
+        } catch (error: unknown) {
+          if (!(error instanceof ToolExecutionError)) {
+            throw error;
+          }
+          const failed: AgentToolCallRecord = { ...toolCall, status: "failed", error: error.message };
+          toolCallSpan.recordFinished(failed);
+          transitions.finishToolCall(context, failed, events);
+          return deadEnd();
+        }
+        if (isToolInputRequested(outcome)) {
+          return this.requestToolInput(context, toolCall, outcome, events, toolCallSpan);
+        }
+        if (isToolTaskStarted(outcome)) {
+          return this.startToolTask(context, toolCall, outcome, events, toolCallSpan);
+        }
+        if (typeof outcome?.output !== "string") {
           throw new TypeError(`executeDeferredToolCall returned no output for ${toolCallId}`);
         }
-        finishedToolCall = { ...toolCall, status: "succeeded", output: result.output };
-      } catch (error: unknown) {
-        if (!(error instanceof ToolExecutionError)) {
-          throw error;
-        }
-        finishedToolCall = { ...toolCall, status: "failed", error: error.message };
-      }
-      transitions.writeToolCall(context, finishedToolCall);
-      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, finishedToolCall.status);
-      transitions.publishToolCallResult(context, toolCallId);
-      return deadEnd();
+        const succeeded: AgentToolCallRecord = { ...toolCall, status: "succeeded", output: outcome.output };
+        toolCallSpan.recordFinished(succeeded);
+        transitions.finishToolCall(context, succeeded, events);
+        return deadEnd();
+      });
     } finally {
       events.close();
     }
+  }
+
+  /** Records `awaiting_answer` with the tool's question; `AwaitQuestionAnswer` raises it under the lock. */
+  private requestToolInput(
+    context: Context,
+    toolCall: AgentToolCallRecord,
+    request: ToolInputRequested,
+    events: StreamAgentEventWriter,
+    toolCallSpan: ToolCallSpan,
+  ): StepDecision {
+    const transitions = this.transitions;
+    const waiting = recordToolInputRequest(toolCall, request);
+    toolCallSpan.recordFinished(waiting);
+    if (isFinalToolCallStatus(waiting.status)) {
+      transitions.finishToolCall(context, waiting, events);
+      return deadEnd();
+    }
+    // This Step runs unlocked, so it leaves PendingInterrupts to AwaitQuestionAnswer.
+    transitions.writeToolCall(context, waiting);
+    return goToMany(questionAnswerMovement(transitions.persistence, waiting));
+  }
+
+  /** Records `waiting_for_task` and moves to `PollToolTask`, or records a task it cannot poll by effect. */
+  private startToolTask(
+    context: Context,
+    toolCall: AgentToolCallRecord,
+    started: ToolTaskStarted,
+    events: StreamAgentEventWriter,
+    toolCallSpan: ToolCallSpan,
+  ): StepDecision {
+    const transitions = this.transitions;
+    const pollIntervalSeconds = toolTaskPollIntervalSeconds(started.pollIntervalSeconds);
+    const defect =
+      transitions.runner.pollToolTask === undefined
+        ? missingToolTaskPoller
+        : typeof started.taskId !== "string" || isBlankText(started.taskId)
+          ? blankToolTaskId
+          : pollIntervalSeconds === null
+            ? invalidToolTaskPollInterval
+            : undefined;
+    if (defect !== undefined || pollIntervalSeconds === null) {
+      const finished = recordToolTaskDefect(toolCall, defect ?? invalidToolTaskPollInterval);
+      toolCallSpan.recordFinished(finished);
+      transitions.finishToolCall(context, finished, events);
+      return deadEnd();
+    }
+    // The tool consumed any continuation of its own questions when it ran again.
+    const waiting: AgentToolCallRecord = {
+      ...toolCall,
+      status: "waiting_for_task",
+      taskId: started.taskId,
+      taskPollIntervalSeconds: pollIntervalSeconds,
+      inputContinuation: null,
+      ...noPendingToolQuestion,
+    };
+    toolCallSpan.recordFinished(waiting);
+    transitions.writeToolCall(context, waiting);
+    events.writeEvent("tool_task_started", {
+      tool_call_id: waiting.toolCallId,
+      tool_name: waiting.toolName,
+      task_id: started.taskId,
+    });
+    return goToMany(toolTaskPollMovement(transitions.persistence, waiting));
   }
 }
 
@@ -497,16 +1055,17 @@ export class ToolCallFailureRecordingStep implements Step<string> {
     }
     const status =
       this.isReadFailureRecorded && toolCall.effect === "read" ? "failed" : "outcome_unknown";
-    transitions.writeToolCall(context, { ...toolCall, status, error: readRecoveryDetail(context) });
-    transitions.writeEvents(context, toolCall.turnId, (events) =>
-      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, status),
-    );
-    transitions.publishToolCallResult(context, toolCallId);
+    transitions.finishToolCall(context, { ...toolCall, status, error: readRecoveryDetail(context) });
     return deadEnd();
   }
 }
 
-/** Waits until every tool call of the batch has a final record, then makes the next model call. */
+/**
+ * Waits until every tool call of the batch has a final record, then makes the next model call.
+ *
+ * A steer or `cancel_turn` wakes it early: it cancels the turn's pending interrupts and Timers, waits again, and
+ * once every result is in moves to `ApplyTurnControl` instead of `RunModel`.
+ */
 export class ResumeTurnStep implements Step<number> {
   public readonly inputCodec = expectedResultCountCodec;
 
@@ -517,30 +1076,204 @@ export class ResumeTurnStep implements Step<number> {
   }
 
   public getStepOptions(): StepOptions {
-    return { ...syncDurability, executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls] };
+    const persistence = this.transitions.persistence;
+    // A control wake rewrites PendingInterrupts, which the interrupt RPCs also write.
+    return {
+      ...syncDurability,
+      executeLoadAttributeMaps: [persistence.agentToolCalls],
+      executeLockAttributes: [persistence.pendingInterrupts.lock()],
+    };
   }
 
   public waitFor(_context: Context, expectedResultCount: number): Wait {
-    return Wait.until(this.transitions.persistence.toolCallResults.forN(expectedResultCount));
+    const persistence = this.transitions.persistence;
+    return Wait.anyOf(
+      persistence.toolCallResults.forN(expectedResultCount),
+      persistence.turnControlRequests.range(1, allPendingMessages),
+    );
   }
 
-  public execute(context: Context): StepDecision {
+  public execute(context: Context, expectedResultCount: number): StepDecision {
     const transitions = this.transitions;
     const state = transitions.readAgentState(context);
-    const unfinishedCount = transitions
-      .readTurnToolCalls(context, state.activeTurnId)
-      .filter((toolCall) => !isFinalToolCallStatus(toolCall.status)).length;
+    const turnId = state.activeTurnId;
+    const toolCalls = transitions.readTurnToolCalls(context, turnId);
+    const reason = transitions.readTurnControlReason(context, turnId);
+    if (context.channelResults(transitions.persistence.turnControlRequests).length > 0) {
+      if (reason !== null && turnId !== null) {
+        this.wakeWaitingToolCalls(context, turnId, toolCalls, reason);
+      }
+      // The results did not all arrive, so wait again for the same count.
+      return goTo(new StepRef(agentSessionStepTypes.resumeTurn), expectedResultCount);
+    }
+    const unfinishedCount = toolCalls.filter((toolCall) => !isFinalToolCallStatus(toolCall.status)).length;
     if (unfinishedCount > 0) {
       // A consumed result from an earlier turn must not resume this one early.
       return goTo(new StepRef(agentSessionStepTypes.resumeTurn), unfinishedCount);
     }
+    if (reason !== null) {
+      return transitions.goToApplyTurnControl();
+    }
     transitions.writeAgentState(context, { ...state, status: "running_model" });
     return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
   }
+
+  /** Cancels the turn's pending interrupts and wakes each Step waiting for a person or a Timer. */
+  private wakeWaitingToolCalls(
+    context: Context,
+    turnId: string,
+    toolCalls: readonly AgentToolCallRecord[],
+    reason: ToolCallCancellationReason,
+  ): void {
+    const transitions = this.transitions;
+    const persistence = transitions.persistence;
+    const interrupts = transitions.readPendingInterrupts(context);
+    const cancelledInterruptIds = new Set<string>();
+    for (const toolCall of toolCalls) {
+      if (!isCancellableByTurnControl(toolCall)) {
+        continue;
+      }
+      if (toolCall.status === "waiting_for_timer") {
+        // A later control wake finds the first message still pending and adds none.
+        if (context.channelSize(persistence.toolCallCancellations, toolCall.toolCallId) === 0) {
+          persistence.toolCallCancellations.publish(context, toolCall.toolCallId, { reason });
+        }
+        continue;
+      }
+      const isApproval = toolCall.status === "awaiting_approval";
+      const interruptId = isApproval ? toolCall.toolCallId : questionInterruptId(toolCall);
+      const kind: AgentInterruptKind = isApproval ? "tool_approval" : "question";
+      // An answered interrupt is gone, so its answer wins; an unraised question checks flags.
+      if (
+        interrupts.some(
+          (interrupt) => interrupt.interruptId === interruptId && interrupt.toolCallId === toolCall.toolCallId,
+        )
+      ) {
+        cancelledInterruptIds.add(interruptId);
+        transitions.writeInterruptCancelled(context, turnId, interruptId, kind, reason);
+        persistence.toolCallCancellations.publish(context, toolCall.toolCallId, { reason });
+      }
+    }
+    if (cancelledInterruptIds.size > 0) {
+      persistence.pendingInterrupts.set(
+        context,
+        interrupts.filter((interrupt) => !cancelledInterruptIds.has(interrupt.interruptId)),
+      );
+    }
+  }
 }
 
-export class RecordTurnFailureStep implements Step<void> {
+/** Ends a steered or cancelled turn, then starts a turn with the steered messages. */
+export class ApplyTurnControlStep implements Step<void> {
   public readonly inputCodec = voidCodec;
+
+  public constructor(private readonly transitions: AgentSessionTransitions) {}
+
+  public getStepType(): string {
+    return agentSessionStepTypes.applyTurnControl;
+  }
+
+  public getStepOptions(): StepOptions {
+    const persistence = this.transitions.persistence;
+    return {
+      ...syncDurability,
+      executeRetry: recoveryRetry,
+      executeLoadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
+    };
+  }
+
+  public waitFor(): Wait {
+    const persistence = this.transitions.persistence;
+    // Both conditions are non-blocking: the wait consumes every steered message and stale wake.
+    return Wait.allOf(
+      persistence.steeredUserMessages.atMost(allPendingMessages),
+      persistence.turnControlRequests.atMost(allPendingMessages),
+    );
+  }
+
+  public execute(context: Context): StepDecision {
+    const transitions = this.transitions;
+    let state = transitions.readAgentState(context);
+    const steeredMessages = context.channelResults(transitions.persistence.steeredUserMessages);
+    if (state.activeTurnId !== null) {
+      state = this.endControlledTurn(context, state, state.activeTurnId, steeredMessages.length);
+    }
+    if (steeredMessages.length === 0) {
+      return transitions.goToAwaitUserMessage();
+    }
+    // Any steered message with planMode, or a draft plan, makes it a planning turn.
+    return transitions.beginTurn(
+      context,
+      state,
+      steeredMessages,
+      this.getStepType(),
+      transitions.decideInteractionMode(context, steeredMessages),
+    );
+  }
+
+  /** Ends a steered or cancelled turn with its unfinished-turn messages, or with a note; returns the new state. */
+  private endControlledTurn(
+    context: Context,
+    initialState: AgentState,
+    turnId: string,
+    steeredMessageCount: number,
+  ): AgentState {
+    const transitions = this.transitions;
+    const persistence = transitions.persistence;
+    const toolCalls = transitions.readTurnToolCalls(context, turnId);
+    const openToolCall = toolCalls.find((toolCall) => !isFinalToolCallStatus(toolCall.status));
+    if (openToolCall !== undefined) {
+      throw new Error(`${turnId} ended before tool call ${openToolCall.toolCallId} finished`);
+    }
+    const isCancelled = transitions.readTurnControlReason(context, turnId) === "turn_cancelled";
+    const storedMessageCount = countMessagesAfterUserMessages(
+      transitions.readMessages(context, 1, initialState.nextMessageSequence),
+      turnId,
+    );
+    let messages = transitions.buildUnfinishedTurnMessages(context, initialState, turnId, toolCalls);
+    if (messages === null) {
+      messages = [];
+      if (toolCalls.length > 0) {
+        // The records are deleted below; the note keeps the next model from repeating them.
+        const note = transitions.runner.buildUserMessage(
+          buildToolCallNote(isCancelled ? turnCancelledNoteHeader : turnSteeredNoteHeader, toolCalls),
+        );
+        if (note.role !== "user") {
+          throw new TypeError("buildUserMessage must return a message with role user");
+        }
+        messages = [note];
+      }
+    }
+    const stateWithMessages = transitions.appendMessages(context, initialState, turnId, messages);
+    for (const toolCall of toolCalls) {
+      persistence.agentToolCalls.delete(context, toolCall.toolCallId);
+    }
+    persistence.frameworkRunState.delete(context);
+    const endedState: AgentState = {
+      ...stateWithMessages,
+      status: "waiting_for_user_message",
+      turnCount: stateWithMessages.turnCount + 1,
+      activeTurnId: null,
+      lastTurnError: null,
+      acceptsTurnControl: false,
+    };
+    transitions.writeAgentState(context, endedState);
+    const messageCount = storedMessageCount + messages.length;
+    transitions.writeEvents(context, turnId, (events) =>
+      isCancelled
+        ? events.writeEvent("turn_cancelled", { message_count: messageCount })
+        : events.writeEvent("turn_steered", {
+            steered_message_count: steeredMessageCount,
+            message_count: messageCount,
+          }),
+    );
+    return endedState;
+  }
+}
+
+/** Ends a failed turn; it is the failure route of `RunModel` and `CompactContext`, so it takes either's input. */
+export class RecordTurnFailureStep implements Step<CompactContextInput | undefined> {
+  public readonly inputCodec = turnFailureRouteInputCodec;
 
   public constructor(private readonly transitions: AgentSessionTransitions) {}
 
@@ -549,54 +1282,100 @@ export class RecordTurnFailureStep implements Step<void> {
   }
 
   public getStepOptions(): StepOptions {
+    const persistence = this.transitions.persistence;
+    const hasUnfinishedTurnMessages = this.transitions.runner.buildUnfinishedTurnMessages !== undefined;
     return {
       ...syncDurability,
       executeRetry: recoveryRetry,
-      executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls],
+      executeLoadAttributeMaps: hasUnfinishedTurnMessages
+        ? [persistence.agentMessages, persistence.agentToolCalls]
+        : [persistence.agentToolCalls],
     };
   }
 
   public execute(context: Context): StepDecision {
     const transitions = this.transitions;
-    const persistence = transitions.persistence;
-    let state = transitions.readAgentState(context);
-    const turnError = readRecoveryDetail(context);
+    const state = transitions.readAgentState(context);
     const toolCalls = transitions.readTurnToolCalls(context, state.activeTurnId);
     const finalToolCalls = toolCalls.filter((toolCall) => isFinalToolCallStatus(toolCall.status));
-    // The records are deleted below; the note keeps the next model from repeating writes.
-    if (state.activeTurnId !== null && finalToolCalls.length > 0) {
-      const note = transitions.runner.buildUserMessage(buildTurnFailureNote(finalToolCalls));
-      if (note.role !== "user") {
-        throw new TypeError("buildUserMessage must return a message with role user");
-      }
-      state = transitions.appendMessages(context, state, state.activeTurnId, [note]);
-    }
-    for (const toolCall of toolCalls) {
-      persistence.agentToolCalls.delete(context, toolCall.toolCallId);
-    }
-    persistence.frameworkRunState.delete(context);
-    persistence.pendingInterrupts.set(context, []);
-    transitions.writeAgentState(context, {
-      ...state,
-      status: "waiting_for_user_message",
-      turnCount: state.turnCount + 1,
-      activeTurnId: null,
-      lastTurnError: turnError,
-    });
-    transitions.writeEvents(context, state.activeTurnId, (events) =>
-      events.writeEvent("turn_failed", { error: turnError }),
+    const unfinishedTurnMessages =
+      state.activeTurnId === null
+        ? null
+        : transitions.buildUnfinishedTurnMessages(context, state, state.activeTurnId, finalToolCalls);
+    return recordFailedTurn(
+      transitions,
+      context,
+      state,
+      toolCalls,
+      unfinishedTurnMessages ?? [],
+      readRecoveryDetail(context),
     );
-    return transitions.goToAwaitUserMessage();
   }
 }
 
+/**
+ * Ends the active turn as failed in the current commit: appends the unfinished-turn messages, then the
+ * turn-failure note when the turn has final records, and clears the turn.
+ */
+function recordFailedTurn(
+  transitions: AgentSessionTransitions,
+  context: Context,
+  initialState: AgentState,
+  toolCalls: readonly AgentToolCallRecord[],
+  unfinishedTurnMessages: readonly FrameworkMessage[],
+  turnError: string,
+): StepDecision {
+  const persistence = transitions.persistence;
+  const turnId = initialState.activeTurnId;
+  let state = initialState;
+  const finalToolCalls = toolCalls.filter((toolCall) => isFinalToolCallStatus(toolCall.status));
+  if (turnId !== null) {
+    state = transitions.appendMessages(context, state, turnId, unfinishedTurnMessages);
+  }
+  // The records are deleted below; the note keeps the next model from repeating writes.
+  if (turnId !== null && finalToolCalls.length > 0) {
+    const note = transitions.runner.buildUserMessage(buildTurnFailureNote(finalToolCalls));
+    if (note.role !== "user") {
+      throw new TypeError("buildUserMessage must return a message with role user");
+    }
+    state = transitions.appendMessages(context, state, turnId, [note]);
+  }
+  for (const toolCall of toolCalls) {
+    persistence.agentToolCalls.delete(context, toolCall.toolCallId);
+  }
+  persistence.frameworkRunState.delete(context);
+  persistence.pendingInterrupts.set(context, []);
+  transitions.writeAgentState(context, {
+    ...state,
+    status: "waiting_for_user_message",
+    turnCount: state.turnCount + 1,
+    activeTurnId: null,
+    lastTurnError: turnError,
+    acceptsTurnControl: false,
+  });
+  transitions.writeEvents(context, turnId, (events) => events.writeEvent("turn_failed", { error: turnError }));
+  return transitions.goToAwaitUserMessage();
+}
+
+/** The `AgentMessages` keys that appending these messages after the state's last one will use. */
+function appendedMessageKeys(state: AgentState, messages: readonly FrameworkMessage[]): string[] {
+  return messages.map((_message, offset) => messageSequenceKey(state.nextMessageSequence + offset));
+}
+
+/** `last_turn_error` of a turn whose runner stored messages incrementally without the builder. */
+export const missingUnfinishedTurnMessageBuilder =
+  "a runner that sets ToolCallsRequested.newMessages must implement buildUnfinishedTurnMessages";
+
 function validateToolCallsRequested(
   turnId: string,
-  existingToolCalls: readonly AgentToolCall[],
+  existingToolCalls: readonly AgentToolCallRecord[],
   outcome: ToolCallsRequested,
 ): void {
   if (typeof outcome.frameworkRunState !== "string" || outcome.frameworkRunState === "") {
     throw new TypeError(`ToolCallsRequested for ${turnId} needs a non-empty frameworkRunState`);
+  }
+  if (outcome.newMessages !== undefined && !Array.isArray(outcome.newMessages)) {
+    throw new TypeError(`ToolCallsRequested.newMessages for ${turnId} must be an array`);
   }
   if (outcome.toolCalls.length === 0) {
     throw new TypeError(`ToolCallsRequested for ${turnId} needs at least one tool call`);
@@ -618,7 +1397,7 @@ function validateToolCallsRequested(
  * Returns the full options of a tool Step type. With a tool call ID, the Step loads only that call's
  * record; a movement's options replace the Step's static options, so every option is repeated here.
  */
-function toolStepOptions(
+export function toolStepOptions(
   persistence: AgentSessionPersistence,
   stepType: string,
   toolCallId?: string,
@@ -627,10 +1406,31 @@ function toolStepOptions(
     toolCallId === undefined
       ? { executeLoadAttributeMaps: [persistence.agentToolCalls] }
       : { executeLoadAttributeMapInstances: [persistence.agentToolCalls.load(toolCallId)] };
+  const waitForLoads =
+    toolCallId === undefined
+      ? { waitForLoadAttributeMaps: [persistence.agentToolCalls] }
+      : { waitForLoadAttributeMapInstances: [persistence.agentToolCalls.load(toolCallId)] };
   switch (stepType) {
     case agentSessionStepTypes.awaitToolApproval:
       // The deadline path rewrites PendingInterrupts, which resolve_interrupt and sibling Steps also write.
       return { ...syncDurability, ...loads, executeLockAttributes: [persistence.pendingInterrupts.lock()] };
+    case agentSessionStepTypes.awaitQuestionAnswer:
+      // Raising a tool's question and the deadline path rewrite PendingInterrupts, as in AwaitToolApproval.
+      return {
+        ...syncDurability,
+        ...loads,
+        ...waitForLoads,
+        // A movement loads only its question's instance; see questionAnswerMovement.
+        ...(toolCallId === undefined
+          ? {
+              waitForLoadChannelMaps: [persistence.interruptResolutions],
+              executeLoadChannelMaps: [persistence.interruptResolutions],
+            }
+          : {}),
+        executeLockAttributes: [persistence.pendingInterrupts.lock()],
+      };
+    case agentSessionStepTypes.awaitTimer:
+      return { ...syncDurability, ...loads, ...waitForLoads };
     case agentSessionStepTypes.callTool:
       return {
         ...syncDurability,
@@ -651,6 +1451,8 @@ function toolStepOptions(
           toolStepOptions(persistence, agentSessionStepTypes.recordToolOutcomeUnknown, toolCallId),
         ),
       };
+    case agentSessionStepTypes.pollToolTask:
+      return toolTaskPollOptions(persistence, agentSessionStepTypes.recordToolFailure, toolCallId);
     case agentSessionStepTypes.recordToolFailure:
     case agentSessionStepTypes.recordToolOutcomeUnknown:
       return { ...syncDurability, ...loads, executeRetry: recoveryRetry };
@@ -659,12 +1461,227 @@ function toolStepOptions(
   }
 }
 
-function toolStepMovement(
+export function toolStepMovement(
   persistence: AgentSessionPersistence,
   stepType: string,
   toolCallId: string,
 ): StepMovement<string> {
   return StepMovement.of(new StepRef(stepType), toolCallId, toolStepOptions(persistence, stepType, toolCallId));
+}
+
+/**
+ * Returns the options of `PollToolTask`. It takes no lock and never waits on a cancellation: it owns the
+ * record, and a started task runs on.
+ */
+function toolTaskPollOptions(
+  persistence: AgentSessionPersistence,
+  recoveryStepType: string,
+  toolCallId: string | undefined,
+): StepOptions {
+  const loads =
+    toolCallId === undefined
+      ? {
+          waitForLoadAttributeMaps: [persistence.agentToolCalls],
+          executeLoadAttributeMaps: [persistence.agentToolCalls],
+        }
+      : {
+          waitForLoadAttributeMapInstances: [persistence.agentToolCalls.load(toolCallId)],
+          executeLoadAttributeMapInstances: [persistence.agentToolCalls.load(toolCallId)],
+        };
+  return {
+    ...syncDurability,
+    ...loads,
+    executeRetry: { maximumAttempts: 3 },
+    executeFailure: ExecuteFailure.proceedTo(
+      new StepRef(recoveryStepType),
+      toolStepOptions(persistence, recoveryStepType, toolCallId),
+    ),
+  };
+}
+
+/** Moves to `PollToolTask`; a poll that keeps failing leaves the task running, so the call is recorded by effect. */
+export function toolTaskPollMovement(
+  persistence: AgentSessionPersistence,
+  toolCall: AgentToolCallRecord,
+): StepMovement<string> {
+  const recoveryStepType =
+    toolStepTypeForEffect(toolCall.effect) === agentSessionStepTypes.callTool
+      ? agentSessionStepTypes.recordToolFailure
+      : agentSessionStepTypes.recordToolOutcomeUnknown;
+  return StepMovement.of(
+    new StepRef(agentSessionStepTypes.pollToolTask),
+    toolCall.toolCallId,
+    toolTaskPollOptions(persistence, recoveryStepType, toolCall.toolCallId),
+  );
+}
+
+/** Returns the record of a tool's question: `awaiting_answer`, or `failed` when it is blank. */
+export function recordToolInputRequest(
+  toolCall: AgentToolCallRecord,
+  request: ToolInputRequested,
+): AgentToolCallRecord {
+  const choices = request.choices ?? [];
+  if (
+    typeof request.question !== "string" ||
+    isBlankText(request.question) ||
+    !choices.every((choice) => typeof choice === "string" && !isBlankText(choice))
+  ) {
+    return { ...toolCall, status: "failed", error: "the tool asked for input with a blank question or choice" };
+  }
+  return {
+    ...toolCall,
+    status: "awaiting_answer",
+    inputContinuation: request.continuation,
+    inputQuestion: request.question,
+    inputChoices: [...choices],
+    inputAllowsFreeText: (request.allowsFreeText ?? true) || choices.length === 0,
+  };
+}
+
+/** Returns a final record for a task that cannot be polled: `failed` for a read, else `outcome_unknown`. */
+export function recordToolTaskDefect(toolCall: AgentToolCallRecord, error: string): AgentToolCallRecord {
+  return {
+    ...toolCall,
+    status: toolCall.effect === "read" ? "failed" : "outcome_unknown",
+    error,
+    ...noPendingToolQuestion,
+  };
+}
+
+/** Returns a poll interval in whole seconds from 1 to a day, or `null` when it is not a finite number. */
+export function toolTaskPollIntervalSeconds(seconds: unknown): number | null {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+    return null;
+  }
+  // Dex Timers take whole seconds, and a zero interval would poll without a pause.
+  return Math.min(Math.max(1, Math.ceil(seconds)), maximumToolTaskPollIntervalSeconds);
+}
+
+function createToolCallRecord(
+  batch: ToolCallBatchCommit,
+  requestedToolCall: DeferredToolCall,
+  effect: AgentToolCallRecord["effect"],
+  requiresApproval: boolean,
+  deferralOrder: number,
+): AgentToolCallRecord {
+  return {
+    toolCallId: requestedToolCall.toolCallId,
+    turnId: batch.turnId,
+    toolName: requestedToolCall.toolName,
+    arguments: requestedToolCall.arguments,
+    effect,
+    requiresApproval,
+    status: "approved",
+    output: null,
+    error: null,
+    rejectionMessage: null,
+    deferralOrder,
+    ...(requestedToolCall.toolSourceReference === undefined
+      ? {}
+      : { toolSourceReference: requestedToolCall.toolSourceReference }),
+    ...(batch.traceContext === null ? {} : { traceContext: batch.traceContext }),
+    waitUntil: null,
+    inputContinuation: null,
+    inputAnswers: [],
+    ...noPendingToolQuestion,
+    cancellationReason: null,
+    taskId: null,
+    taskPollIntervalSeconds: null,
+    taskAnswerPending: false,
+  };
+}
+
+function writeToolCallDeferred(events: StreamAgentEventWriter, record: AgentToolCallRecord): void {
+  events.writeEvent("tool_call_deferred", {
+    tool_call_id: record.toolCallId,
+    tool_name: record.toolName,
+    effect: record.effect,
+    requires_approval: record.requiresApproval,
+  });
+}
+
+/** Record fields of a call without a pending tool question. */
+export const noPendingToolQuestion = {
+  inputQuestion: null,
+  inputChoices: [],
+  inputAllowsFreeText: true,
+} as const satisfies Pick<AgentToolCallRecord, "inputQuestion" | "inputChoices" | "inputAllowsFreeText">;
+
+/** Moves to `AwaitQuestionAnswer`, which reads the answer count to tell an unraised question from an answer. */
+export function questionAnswerMovement(
+  persistence: AgentSessionPersistence,
+  toolCall: AgentToolCallRecord,
+): StepMovement<string> {
+  const options = toolStepOptions(persistence, agentSessionStepTypes.awaitQuestionAnswer, toolCall.toolCallId);
+  const interruptId = questionInterruptId(toolCall);
+  const answerLoad = persistence.interruptResolutions.loadMessages(interruptId);
+  // A record keyed by the question's interrupt ID means another call already owns that ID.
+  const recordLoads =
+    interruptId === toolCall.toolCallId
+      ? [persistence.agentToolCalls.load(toolCall.toolCallId)]
+      : [persistence.agentToolCalls.load(toolCall.toolCallId), persistence.agentToolCalls.load(interruptId)];
+  return StepMovement.of(new StepRef(agentSessionStepTypes.awaitQuestionAnswer), toolCall.toolCallId, {
+    ...options,
+    waitForLoadAttributeMapInstances: recordLoads,
+    executeLoadAttributeMapInstances: recordLoads,
+    waitForLoadChannelMapInstances: [answerLoad],
+    executeLoadChannelMapInstances: [answerLoad],
+  });
+}
+
+/** An `ask_user` question uses the tool call ID; a tool's `n`-th question appends `-input-<n>`. */
+export function questionInterruptId(toolCall: AgentToolCallRecord): string {
+  return toolCall.inputQuestion === null
+    ? toolCall.toolCallId
+    : `${toolCall.toolCallId}-input-${toolCall.inputAnswers.length + 1}`;
+}
+
+/** The interrupt a waiting tool call answers to: its ID and kind. */
+export interface WaitingToolCallInterrupt {
+  readonly interruptId: string;
+  readonly kind: AgentInterruptKind;
+}
+
+/**
+ * Records a call that `ToolCallCancellations` woke as cancelled, or waits again. Pass `interrupt` `null` for a
+ * durable wait.
+ */
+export function cancelWaitingToolCall(
+  transitions: AgentSessionTransitions,
+  context: Context,
+  toolCall: AgentToolCallRecord,
+  interrupt: WaitingToolCallInterrupt | null,
+  waitAgain: StepMovement<string>,
+): StepDecision {
+  const persistence = transitions.persistence;
+  // The flags decide; a wake-up left from an earlier turn's call ID changes nothing.
+  const reason = transitions.readTurnControlReason(context, toolCall.turnId);
+  if (reason === null || !isCancellableByTurnControl(toolCall)) {
+    return goToMany(waitAgain);
+  }
+  if (interrupt !== null) {
+    const pendingInterrupts = transitions.readPendingInterrupts(context);
+    if (pendingInterrupts.some((pending) => pending.interruptId === interrupt.interruptId)) {
+      persistence.pendingInterrupts.set(
+        context,
+        pendingInterrupts.filter((pending) => pending.interruptId !== interrupt.interruptId),
+      );
+      transitions.writeInterruptCancelled(context, toolCall.turnId, interrupt.interruptId, interrupt.kind, reason);
+    } else if (context.channelSize(persistence.interruptResolutions, interrupt.interruptId) > 0) {
+      // The answer committed first; the next wait consumes it.
+      return goToMany(waitAgain);
+    }
+  }
+  transitions.finishToolCall(context, cancelledToolCall(toolCall, reason));
+  return deadEnd();
+}
+
+export function isToolInputRequested(outcome: unknown): outcome is ToolInputRequested {
+  return (outcome as { readonly kind?: unknown } | undefined)?.kind === "tool_input_requested";
+}
+
+function isToolTaskStarted(outcome: DeferredToolOutcome): outcome is ToolTaskStarted {
+  return (outcome as { readonly kind?: unknown } | undefined)?.kind === "tool_task_started";
 }
 
 function requirePositiveResultCount(value: number): number {

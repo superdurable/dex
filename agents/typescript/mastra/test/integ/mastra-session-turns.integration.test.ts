@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import type { MastraDBMessage } from "@mastra/core/agent/message-list";
+import { SpanKind } from "@opentelemetry/api";
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import {
   messageSequenceKey,
   outcomeUnknownToolResult,
@@ -27,9 +29,11 @@ import {
   InvocationLog,
   PrivateDexEngine,
   executeCompletedEvent,
+  pollUntil,
   readStepHistory,
 } from "@superdurable/dex-agents/testing";
 
+import { scriptedResponseModelId } from "../fixtures/scripted-language-model.js";
 import {
   createScriptedMastraAgentFlow,
   type ScriptedMastraAgentFlowOptions,
@@ -60,6 +64,8 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
   let environment: AgentTestEnvironment;
   let markerDirectory: string;
   const sessionsByFlowType = new Map<string, AgentSessionTestClient>();
+  const spanExporter = new InMemorySpanExporter();
+  const tracerProvider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(spanExporter)] });
   const variants: Record<string, ScriptedMastraAgentFlowOptions> = {
     ScriptedMastraAgent: {},
     ScriptedMastraAgentWithApprovalDeadline: { interruptDeadlineMs: 3_000 },
@@ -67,6 +73,7 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
     ScriptedMastraAgentWithShadowedTool: { isResearcherShadowed: true },
     ScriptedMastraAgentWithMemoryThread: { isMemoryThreadSelected: true },
     ScriptedMastraAgentWithFastClock: { clockSkewMs: 60 * 60 * 1000 },
+    ScriptedMastraAgentWithTracing: { tracing: { tracerProvider } },
   };
 
   before(async () => {
@@ -87,6 +94,7 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
 
   after(async () => {
     await environment?.close();
+    await tracerProvider.shutdown();
     await engine?.stop();
   });
 
@@ -154,6 +162,53 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
       tool_name: "get_weather",
       status: "succeeded",
     });
+  });
+
+  test("each chat span carries the model, provider, response model, and finish reason of Mastra's step", async () => {
+    const sessions = sessionsOf("ScriptedMastraAgentWithTracing");
+    const sessionId = newSessionId("traced");
+    await sessions.startSession(sessionId, "call get_weather");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    // This model call sends no response metadata, so Mastra fills in its own.
+    await sessions.sendUserMessage(sessionId, "unidentified hello");
+    await sessions.waitForCompletedTurns(sessionId, 2);
+
+    const chatSpans = await pollUntil(
+      () => {
+        const spans = spanExporter
+          .getFinishedSpans()
+          .filter((span) => span.attributes["gen_ai.conversation.id"] === sessionId && span.name.startsWith("chat"));
+        return spans.length >= 3 ? spans : undefined;
+      },
+      { description: `three chat spans of ${sessionId}` },
+    );
+    const describeChatSpan = (responseModel: string | undefined, finishReason: string) => ({
+      name: "chat scripted-model",
+      kind: SpanKind.CLIENT,
+      requestModel: "scripted-model",
+      providerName: "scripted",
+      responseModel,
+      responseId: undefined,
+      finishReasons: [finishReason],
+      inputTokens: 10,
+    });
+    assert.deepEqual(
+      chatSpans.map((span) => ({
+        name: span.name,
+        kind: span.kind,
+        requestModel: span.attributes["gen_ai.request.model"],
+        providerName: span.attributes["gen_ai.provider.name"],
+        responseModel: span.attributes["gen_ai.response.model"],
+        responseId: span.attributes["gen_ai.response.id"],
+        finishReasons: span.attributes["gen_ai.response.finish_reasons"],
+        inputTokens: span.attributes["gen_ai.usage.input_tokens"],
+      })),
+      [
+        describeChatSpan(scriptedResponseModelId("scripted-model"), "tool-calls"),
+        describeChatSpan(scriptedResponseModelId("scripted-model"), "stop"),
+        describeChatSpan(undefined, "stop"),
+      ],
+    );
   });
 
   test("get_agent_snapshot and list_agent_messages return the conversation after a turn", async () => {

@@ -10,21 +10,56 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+from collections.abc import AsyncIterator, Sequence
+from datetime import timedelta
+from pathlib import Path
+
+from agents import Agent, Model, ModelProvider, RunConfig, function_tool, handoff
+from dex import (
+    AsyncWorker,
+    BlobCacheConfig,
+    PullWorkerOptions,
+    Registry,
+    WorkerOptions,
+    open_blob_cache,
+)
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 from dex_agents import (
     AGENT_STATE,
     FRAMEWORK_RUN_STATE,
     AgentEventType,
+    AgentSessionFlow,
+    AgentSessionOptions,
     AgentSessionStatus,
+    AgentTracingOptions,
     AgentUsage,
     MessageRole,
+    ToolEffect,
+    ToolPolicy,
 )
-from dex_agents.testing import wait_until
-from tests.conftest import SupportAgentHarness
+from dex_agents.testing import AgentTestStack, InvocationLog, wait_for_agent_snapshot, wait_until
+from dex_agents_openai_agents import OpenAIAgentsRunner
+from tests.conftest import WORKER_MODULE, SupportAgentHarness
+from tests.scripted_model import CommandScriptedModel
 
 MODEL_CALL_USAGE = AgentUsage(
     model_calls=1, input_tokens=10, output_tokens=5, cached_input_tokens=2, reasoning_tokens=1
+)
+SCRIPTED_MODEL_NAME = "scripted-model"
+# The SDK's ScriptedModel answers with this response ID unless a step sets another.
+SCRIPTED_RESPONSE_ID = "resp-789"
+_MODEL_ATTRIBUTE_PREFIXES = (
+    "gen_ai.request.",
+    "gen_ai.response.",
+    "gen_ai.provider.",
+    "gen_ai.system",
 )
 
 
@@ -157,3 +192,136 @@ async def test_text_and_reasoning_summary_deltas_reach_agent_events(
     assert all(event.step_execution_id for event in events)
     usage_events = [event for event in events if event.type == AgentEventType.USAGE_RECORDED]
     assert json.loads(usage_events[-1].payload)["recorded"]["reasoning_tokens"] == 1
+
+
+async def test_chat_spans_carry_the_requested_model_name_and_the_response_id(
+    tmp_path: Path,
+) -> None:
+    state_dir = tmp_path / "agent-state"
+    state_dir.mkdir()
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    flow = _build_named_model_flow(state_dir, provider)
+    async with (
+        AgentTestStack(tmp_path, [flow], WORKER_MODULE) as stack,
+        _in_process_worker(stack, [flow], tmp_path / "worker-blob-cache"),
+    ):
+        sessions = stack.sessions(flow)
+        tool_session_id = "session-named-model-tool-call"
+        handoff_session_id = "session-named-model-handoff"
+        await sessions.start_session(tool_session_id, 'call lookup {"query": "docs"}')
+        await sessions.start_session(handoff_session_id, "handoff billing")
+        for session_id in (tool_session_id, handoff_session_id):
+            await wait_for_agent_snapshot(
+                sessions,
+                session_id,
+                lambda snapshot: snapshot
+                if snapshot.state is not None and snapshot.state.turn_count == 1
+                else None,
+                description="the first finished turn",
+            )
+    provider.shutdown()
+
+    spans = exporter.get_finished_spans()
+    # ToolCallsRequested, then TurnCompleted: one model call each.
+    assert [_describe_chat_span(span) for span in _chat_spans(spans, tool_session_id)] == [
+        (
+            "chat scripted-model",
+            SpanKind.CLIENT,
+            {
+                "gen_ai.request.model": SCRIPTED_MODEL_NAME,
+                "gen_ai.response.id": SCRIPTED_RESPONSE_ID,
+            },
+        )
+    ] * 2
+    # The handoff makes the Billing agent's model call in the same RunModel.
+    assert [_describe_chat_span(span) for span in _chat_spans(spans, handoff_session_id)] == [
+        ("chat scripted-model", SpanKind.INTERNAL, {"gen_ai.request.model": SCRIPTED_MODEL_NAME})
+    ]
+
+
+class _ScriptedModelProvider(ModelProvider):
+    def __init__(self, model: Model) -> None:
+        self._model = model
+
+    def get_model(self, model_name: str | None) -> Model:
+        if model_name != SCRIPTED_MODEL_NAME:
+            raise ValueError(f"no scripted model named {model_name!r}")
+        return self._model
+
+
+def _build_named_model_flow(state_dir: Path, provider: TracerProvider) -> AgentSessionFlow:
+    @function_tool
+    def lookup(query: str) -> str:
+        """Search the knowledge base."""
+        return f"found {query}"
+
+    billing = Agent(name="Billing", instructions="Handle billing.", model=SCRIPTED_MODEL_NAME)
+    assistant = Agent(
+        name="Assistant",
+        instructions="Help the user.",
+        model=SCRIPTED_MODEL_NAME,
+        tools=[lookup],
+        handoffs=[handoff(billing)],
+    )
+    model = CommandScriptedModel(state_dir, InvocationLog(state_dir / "invocations.log"))
+    return AgentSessionFlow(
+        OpenAIAgentsRunner(
+            assistant,
+            run_config=RunConfig(
+                model_provider=_ScriptedModelProvider(model), tracing_disabled=True
+            ),
+        ),
+        flow_type="NamedModelSupportAgent",
+        options=AgentSessionOptions(
+            tool_policies={"lookup": ToolPolicy(ToolEffect.READ)},
+            tracing=AgentTracingOptions(tracer_provider=provider),
+        ),
+    )
+
+
+def _chat_spans(spans: Sequence[ReadableSpan], session_id: str) -> list[ReadableSpan]:
+    return sorted(
+        (
+            span
+            for span in spans
+            if (span.attributes or {}).get("gen_ai.operation.name") == "chat"
+            and (span.attributes or {}).get("gen_ai.conversation.id") == session_id
+        ),
+        key=lambda span: span.start_time or 0,
+    )
+
+
+def _describe_chat_span(span: ReadableSpan) -> tuple[str, SpanKind, dict[str, object]]:
+    model_attributes: dict[str, object] = {
+        name: value
+        for name, value in (span.attributes or {}).items()
+        if name.startswith(_MODEL_ATTRIBUTE_PREFIXES)
+    }
+    return span.name, span.kind, model_attributes
+
+
+@contextlib.asynccontextmanager
+async def _in_process_worker(
+    stack: AgentTestStack, flows: Sequence[AgentSessionFlow], blob_cache_dir: Path
+) -> AsyncIterator[None]:
+    """Serve ``flows`` from this process, so the test's TracerProvider records RunModel."""
+    blob_cache = open_blob_cache(BlobCacheConfig(str(blob_cache_dir), 64 * 1024 * 1024))
+    worker = AsyncWorker(
+        Registry(list(flows), allow_async_handlers=True),
+        blob_cache,
+        WorkerOptions(
+            server_address=stack.engine.address,
+            pull=PullWorkerOptions(max_concurrent_tasks=8, stop_drain_timeout=timedelta(seconds=5)),
+        ),
+    )
+    serving = asyncio.create_task(worker.start())
+    try:
+        await worker.wait_pull_registered(timeout=30)
+        yield
+    finally:
+        await worker.stop()
+        with contextlib.suppress(asyncio.CancelledError):
+            await serving
+        blob_cache.close()

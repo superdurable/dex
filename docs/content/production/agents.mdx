@@ -149,7 +149,8 @@ must fit within it. To grow past it, run more Worker processes.
 Keep headroom. When no Worker has a free slot within the 10-second dispatch
 wait, a Step consumes an attempt. **RunModel** fails the turn once its 3
 attempts are used. A single-attempt tool that cannot get a Worker in time
-records **outcome_unknown**, even though it never ran.
+records **outcome_unknown**, even though it never ran. See
+[Tool call limits](#never-run-outcome-unknown).
 
 ### Long model calls and timeouts {#timeouts}
 
@@ -159,11 +160,12 @@ them.
 | Step | Method timeout | Heartbeat timeout | Attempts | Failure route |
 | --- | --- | --- | --- | --- |
 | **RunModel** | 15 minutes | 2 minutes | 3 within 30 minutes | **RecordTurnFailure** |
+| **CompactContext** | 15 minutes | 2 minutes | 3 within 30 minutes | **RecordTurnFailure** |
 | **CallTool** | 2 hours, the Dex default | 1 minute, the Dex default | 3 | **RecordToolFailure** |
 | **CallSingleAttemptTool** | 2 hours, the Dex default | 1 minute, the Dex default | 1 | **RecordToolOutcomeUnknown** |
 
-**RunModel** and both tool Steps send a heartbeat every 20 seconds while the
-runner works. A model or tool call that is slow but silent therefore stays
+**RunModel**, **CompactContext**, and both tool Steps send a heartbeat every 20
+seconds while the runner works. A model or tool call that is slow but silent therefore stays
 within its heartbeat timeout. The method timeout still ends a hung call. In
 Python, keep runner and tool code non-blocking: a blocking call on the event
 loop also stops the background heartbeat.
@@ -208,8 +210,9 @@ The packages store state this way:
 
 - **AgentMessages** keeps one AttributeMap instance per message. Each message is
   written once, so the conversation grows by its own size, not by rewrites.
-  **RunModel** and **get_agent_snapshot** still load the whole map, and every
-  model call sends the whole history to the model.
+  **RunModel** and **get_agent_snapshot** still load the whole map. Without
+  [compaction](#compaction), every model call sends the whole history to the
+  model.
 - **FrameworkRunState** holds the framework's state while a turn waits for
   tool results. **RunModel** rewrites it after every model call that asks for
   tools. It holds the turn's work so far, tool outputs included. The OpenAI
@@ -222,10 +225,12 @@ The packages store state this way:
 
 The server checks the run budget for Step heartbeats and Step completions,
 among other writes, and only when the write adds storage. Once a session is
-over the budget, such a Step fails without retry. Its model calls and tool
-calls then fail, so its turns fail. Transactional RPC writes, such as
-**send_user_message**, are not checked. Plan sessions to stay well below 64
-MiB.
+over the budget, such a Step fails without retry. A model call or tool call
+then fails its turn. A Step without a failure route fails the whole session
+instead, when its own write crosses the budget. **AwaitUserMessage**, which
+stores the next user message, is such a Step. Transactional RPC writes, such
+as **send_user_message**, are not checked. Plan sessions to stay well below
+64 MiB.
 
 The Flow history keeps about the newest 10,000 events of a session. Read the
 conversation with **get_agent_snapshot** or **list_agent_messages**, not from
@@ -239,7 +244,47 @@ A stopped session, and its **get_agent_snapshot** RPC, stays available for the
 it. Copy a transcript that must outlive the session with
 **list_agent_messages** before then.
 
-The packages do not compact history yet. Until they do:
+### Compaction and the storage bound {#compaction}
+
+Compaction, from the agents 0.2.0 packages, keeps the model input under the
+context window. Set
+**compaction** in **AgentSessionOptions**, or in the agent definition of a
+Stepwise agent, with the model's context window in tokens. The runner must
+support compaction; Stepwise does, and the framework adapters do not yet.
+Before a model call whose input would reach 85 percent of the window, the
+session runs a **CompactContext** Step instead. It makes one model call that
+folds the earlier messages into a summary, and the next model call receives the
+summary and the newest messages. When the earlier messages do not fit in the
+window, Stepwise leaves the oldest of them out of the summary call and tells the
+model so. A long turn with many tool calls compacts in the middle of the turn.
+
+Enable compaction only after every Worker of the Flow type runs a release that
+has the **CompactContext** Step. The clients that read the session's snapshots
+need agents 0.2.0 too: a 0.1.0 client cannot read the **compacting_context**
+status that a snapshot shows during compaction.
+
+Compaction changes the model input, not the record. Every message stays in
+**AgentMessages**, so **list_agent_messages** and **get_agent_snapshot** still
+return the whole conversation, and every message still counts toward the run
+budget. Each new summary replaces the previous one, which then counts as a
+superseded value while history keeps it. Compaction therefore frees no
+storage. It lets a session keep going until the stored messages, not the model
+window, reach the limit.
+
+Estimate the run budget from the size of the stored messages. In a measured
+2,000-turn session, each turn stored a 100-character question and a
+600-character answer, and the session compacted at an 8,000-token window with
+summaries of about 1,000 tokens. Each turn stored about 2.9 KB of messages and
+used about 5.2 KB of the run budget. Without compaction, the same turns used
+about 4.7 KB each: the messages plus about 1.8 KB of session state updates and
+the superseded values that history keeps. The budget counts those values, not
+the history events themselves. Each compaction added the size of its summary
+plus about 2.5 KB. At that rate, the 64 MiB default holds about 13,000 such
+turns. The estimate is conservative, because a superseded value stops counting
+once the history window prunes it. A turn with tool calls runs more Steps, so
+it adds more than 1.8 KB beyond its messages.
+
+To keep long sessions within the budget:
 
 - Start a new session for new, unrelated work instead of growing one session
   forever.
@@ -278,16 +323,15 @@ A crash repeats at most the one call that was running.
 | Running when the Worker dies | What happens |
 | --- | --- |
 | **RunModel** | That model call runs again, up to 3 attempts within 30 minutes. Then the turn fails. If tools already ran, a note in the history tells the next turn's model not to repeat them. |
+| **CompactContext** | Only the summary call runs again, up to 3 attempts within 30 minutes. The session stores one summary. If every attempt fails, the turn fails, and the next user message compacts again. |
 | **CallTool**, for a read or an idempotent write | The call runs again with the same idempotency key. After the last attempt, a read records **failed** and a write records **outcome_unknown**. |
 | **CallSingleAttemptTool** | The call records **outcome_unknown** and does not run again. The model sees that the outcome is unknown. |
 | A wait for a user message, an approval, or tool results | Nothing runs again. The wait lives in Dex Server. |
 | A tool the framework cannot defer | The tool runs inside **RunModel** and repeats when **RunModel** runs again. It is at-least-once. |
 | A Claude Agent SDK turn segment | Deferred custom tools run in their own **CallTool** or **CallSingleAttemptTool** Steps, as above. Model calls, inline read tools, and CLI tools such as **Bash**, **Write**, **Edit**, and **Task** run inside **RunModel** and repeat when it runs again. They are at-least-once. |
 
-A single-attempt tool can still run twice in one narrow case. Its Step sends
-output before the tool runs. If the Worker dies before Dex receives that output,
-Dex can deliver the same attempt to another Worker. The window is normally well
-under a second.
+A single-attempt tool can still run twice in one narrow case. See
+[Tool call limits](#tool-runs-twice).
 
 A graceful Worker stop waits for active handlers for the drain timeout, 30
 seconds by default. Then it cancels them. A cancelled model call runs again, and
@@ -296,6 +340,79 @@ cancellation records **outcome_unknown**. Set the drain timeout above your usual
 model and tool call times, and set the container's termination grace period
 above the drain timeout. Wait for the new Workers to
 [register](/production/pull-workers#readiness) before you stop the old ones.
+
+## Tool call limits {#tool-call-limits}
+
+A single-attempt tool runs in a **CallSingleAttemptTool** Step. That Step serves
+**non_idempotent_write** and **unclassified** tools. It should run the tool at
+most once, and record **outcome_unknown** when the tool may have run. Two cases
+break that. Plan for both.
+
+### A single-attempt tool can run twice {#tool-runs-twice}
+
+The tool Step sends a heartbeat to Dex just before it runs the tool. Dex does
+not acknowledge heartbeats, so the tool starts without waiting for it to
+arrive. Suppose the Worker dies, or loses its connection to Dex, after the tool
+starts but before that heartbeat reaches Dex. Dex then sees an attempt that
+produced no output. It delivers the same attempt again, and another Worker runs
+the tool a second time. The session records the second run's result. Nothing
+marks the first run. If no Worker takes the attempt within the dispatch wait,
+the call records **outcome_unknown** instead.
+
+The window runs from the start of the tool until the heartbeat reaches Dex:
+
+- A tool that awaits I/O lets the heartbeat go out at its first await. The
+  window is then about one network hop to Dex, typically a few milliseconds or
+  less.
+- A tool that blocks the event loop holds the heartbeat back until the blocking
+  code returns. In Python, a synchronous HTTP client or SDK call inside an async
+  tool puts the whole call inside the window. Run such calls with
+  **asyncio.to_thread**. In TypeScript, synchronous work before the first await
+  has the same effect.
+
+To make a second run harmless, pass the call's idempotency key to the service
+that the tool writes to. Every tool call receives one: the session's Flow ID,
+the turn ID, and the tool call ID, joined by slashes, such as
+**session-42/turn-3/call-7**. The key is the same for every attempt and every
+delivery of the call. When the service deduplicates on it, classify the tool as
+**idempotent_write**, so it also retries after a failure.
+
+### A call that never ran can record outcome_unknown {#never-run-outcome-unknown}
+
+When no Worker accepts a tool Step within the 10-second dispatch wait, the
+attempt fails without running. This happens when every Worker of the Flow type
+is at its task limit, or when none is running. A single-attempt tool then
+records **outcome_unknown**. So does an idempotent write whose last attempt
+fails this way. The call never ran, but the model is told that its outcome is
+unknown, and the session does not retry it. In the Flow's history, the failed
+attempt shows that no Worker accepted it.
+
+Keep tool Steps dispatchable:
+
+- Size each Worker pool as in [Size Workers](#size-workers), with headroom for
+  the largest batch of tool calls.
+- Keep at least one Worker of every agent Flow type running. When a pool scales
+  to zero, a tool call that arrives while Workers start can hit this case.
+- During a deploy, start the new Workers and wait for them to
+  [register](/production/pull-workers#readiness) before you stop the old ones.
+
+### Reconcile outcome_unknown {#reconcile-outcome-unknown}
+
+**outcome_unknown** means the effect may or may not have happened. The session
+never retries such a call, and the model sees that the outcome is unknown.
+Reconcile it outside the session:
+
+1. Find the call. While the turn runs, **get_agent_snapshot** lists it under
+   **tool_calls**, with the failure in **error**. The **AgentEvents** Stream
+   has a **tool_call_finished** event with the status **outcome_unknown**.
+   After the turn, its tool result in the message history says that the outcome
+   is unknown.
+2. Check the target system for the effect, by the call's idempotency key or by
+   your own business key.
+3. If the Flow's history shows that the tool Step's attempt never reached a
+   Worker, the call did not run.
+4. Tell the session the real outcome with **send_user_message**, so the next
+   turn's model works from it.
 
 ## Upgrade agent code while sessions wait {#upgrades}
 

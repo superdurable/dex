@@ -34,6 +34,7 @@ import {
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
+  type ModelCallMetadata,
   type ResolvedToolPolicy,
   type ToolExecutionResult,
 } from "@superdurable/dex-agents";
@@ -59,7 +60,17 @@ type AnyAgent = Agent<any, any>;
 type AnyRunState = RunState<any, AnyAgent>;
 type AnyStreamedRunResult = StreamedRunResult<any, AnyAgent>;
 
+interface OpenAIAgentsModelStepRun {
+  readonly result: AnyStreamedRunResult;
+  /** The agent current when `RunModel` started, then each handoff target, in order. */
+  readonly modelCallAgents: readonly AnyAgent[];
+  /** The `response_done` response ID of each model call, in order. */
+  readonly responseIds: readonly string[];
+}
+
 const handoffEventType = "openai_agents.handoff";
+// The SDK's Chat Completions model reports this response ID when the provider sent none.
+const placeholderResponseId = "FAKE_ID";
 const reasoningSummaryDeltaEventType = "response.reasoning_summary_text.delta";
 // The text tool() returns from its default errorFunction, which hides whether the tool ran.
 const defaultToolErrorOutput = "An error occurred while running the tool. Please try again.";
@@ -95,13 +106,15 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
       turn.frameworkRunState === null
         ? readAgentInputItems(turn.messages)
         : await this.restoreRunState(turn, turn.frameworkRunState, runContext, unreturnedResumedToolCallIds);
-    const result = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
+    const modelStepRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
       this.streamModelCall(turn, runInput, runContext),
     );
+    const result = modelStepRun.result;
     const usage = toAgentUsage(result.state.usage);
+    const modelCallMetadata = createModelCallMetadata(modelStepRun, this.settings.runConfig.model);
     const interruptions = result.interruptions;
     if (interruptions.length === 0) {
-      return { kind: "completed", newMessages: result.output.map(toFrameworkMessage), usage };
+      return { kind: "completed", newMessages: result.output.map(toFrameworkMessage), usage, ...modelCallMetadata };
     }
     const toolCalls: DeferredToolCall[] = [];
     for (const interruption of interruptions) {
@@ -112,6 +125,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
       frameworkRunState: serializeRunStateWithoutContext(result.state),
       toolCalls,
       usage,
+      ...modelCallMetadata,
     };
   }
 
@@ -193,8 +207,10 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     turn: AgentTurnContext,
     runInput: AgentInputItem[] | AnyRunState,
     runContext: RunContext<TContext | undefined>,
-  ): Promise<AnyStreamedRunResult> {
+  ): Promise<OpenAIAgentsModelStepRun> {
     const maxTurns = this.settings.maxTurns;
+    const modelCallAgents = [Array.isArray(runInput) ? this.agentGraph.startingAgent : runInput.currentAgent];
+    const responseIds: string[] = [];
     // The run also stops when a response reuses a recorded call ID, which the SDK would skip.
     const runAbort = new AbortController();
     const signal = AbortSignal.any([turn.cancellationSignal, runAbort.signal]);
@@ -210,6 +226,11 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     );
     for await (const event of result) {
       writeRunStreamEvent(turn.events, event);
+      if (event.type === "agent_updated_stream_event") {
+        modelCallAgents.push(event.agent);
+      } else if (event.type === "raw_model_stream_event" && event.data.type === "response_done") {
+        responseIds.push(event.data.response.id);
+      }
       const reusedToolCallId = findReusedToolCallId(turn, event);
       if (reusedToolCallId !== undefined) {
         runAbort.abort(
@@ -229,7 +250,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     if (result.cancelled || signal.aborted) {
       throw signal.reason ?? new Error(`the model call of turn ${turn.turnId} was cancelled`);
     }
-    return result;
+    return { result, modelCallAgents, responseIds };
   }
 
   private async toDeferredToolCall(
@@ -306,6 +327,38 @@ async function requireInputGuardrailsAllow(
   if (decision.type === "reject") {
     throw new ToolExecutionError(decision.message);
   }
+}
+
+/**
+ * Reads `modelCallMetadata` for one `RunModel`. The SDK's `ModelResponse` names no model, provider, or finish
+ * reason, so only the requested model name and the response ID are known.
+ */
+function createModelCallMetadata(
+  modelStepRun: OpenAIAgentsModelStepRun,
+  runConfigModel: RunConfig["model"],
+): { readonly modelCallMetadata?: ModelCallMetadata } {
+  const requestModelNames = new Set(
+    modelStepRun.modelCallAgents.map((agent) => readRequestedModelName(agent, runConfigModel)),
+  );
+  const requestModel = requestModelNames.size === 1 ? [...requestModelNames][0] : undefined;
+  // A response ID describes one response, so several model calls report none.
+  const [onlyResponseId] = modelStepRun.responseIds.length === 1 ? modelStepRun.responseIds : [];
+  const responseId = onlyResponseId === placeholderResponseId ? undefined : onlyResponseId;
+  if (requestModel === undefined && responseId === undefined) {
+    return {};
+  }
+  return {
+    modelCallMetadata: {
+      ...(requestModel === undefined ? {} : { requestModel }),
+      ...(responseId === undefined ? {} : { responseId }),
+    },
+  };
+}
+
+// The Runner's own precedence; only a model given by name has a name the adapter can read.
+function readRequestedModelName(agent: AnyAgent, runConfigModel: RunConfig["model"]): string | undefined {
+  const selectedModel = agent.model ? agent.model : runConfigModel;
+  return typeof selectedModel === "string" && selectedModel !== "" ? selectedModel : undefined;
 }
 
 function findReusedToolCallId(turn: AgentTurnContext, event: RunStreamEvent): string | undefined {

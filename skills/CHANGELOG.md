@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.63.0 - 2026-11-02
+
+- The official Connector catalog moved to https://connectors.superdurable.io/, and the old `https://superdurable.github.io/dex-connectors-library/` URL redirects there. Synchronize the bundle and plugin manifests at 0.63.0.
+
 ## 0.62.0 - 2026-11-01
 
 - Document server-zd v0.1.15 in Core operations. `standby.mode: hot` runs extra processes with the same node ID; a hot standby follows the log from object storage and takes the lease within about one lease poll after it becomes available, while a crash still waits for the old lease to expire. The default `cold` is unchanged. A standby answers public API calls with UNAVAILABLE, so it needs a TCP or exec startup probe and liveness probe, and the `dex.HotStandby` health name reports whether a hot standby is ready. Record the new hot standby and takeover metrics, and that every process must run v0.1.15 before any configuration adds a `standby` section.

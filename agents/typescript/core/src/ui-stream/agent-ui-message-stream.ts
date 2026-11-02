@@ -8,6 +8,7 @@
 
 import type { Client, StreamMessage } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import {
   describeToolCallOutcome,
@@ -53,7 +54,7 @@ export interface AgentUIMessageStreamOptions {
   /** Client used for every Stream read, Attribute read, and RPC. The caller keeps ownership. */
   readonly client: Client;
   /** The agent session Flow, such as the value an adapter factory returns. */
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   /**
    * Session ID: the Flow ID of the agent session. The value usually comes from the browser, so the route
    * must check that the caller may read this session before it streams.
@@ -99,7 +100,8 @@ export interface AgentUIMessageStreamOptions {
  * The parts follow one turn. Without a resume token they replay the session's active turn from its start.
  * With one they replay the token's turn, or continue it exactly with `continueAfterResumeToken`. The
  * generator returns after the turn completes (`finish` with `stop`), fails (`error`, then `finish` with
- * `error`), or waits only for tool approvals (`finish` with `tool-calls`). It also returns when the turn
+ * `error`), ends through steering or `cancel_turn` (the `turn_steered` or `turn_cancelled` event data part, then
+ * `finish` with `other`), or waits only for tool approvals (`finish` with `tool-calls`). It also returns when the turn
  * ended without its end event on the Stream, or the session Flow closed (`finish` with `other`); the
  * session's committed state decides this, so the stream ends even when the Stream lost every event. On
  * `other`, reload the stored messages with {@link readAgentSessionUIMessages}.
@@ -108,6 +110,8 @@ export interface AgentUIMessageStreamOptions {
  * for example after a Worker crash, the generator emits `reset-step`, so the browser drops the partial
  * text of the interrupted attempt. Tool calls become dynamic tool parts. A tool call that needs approval
  * gets a `tool-approval-request` whose `approvalId` is the `interrupt_id` for `resolve_interrupt`. A
+ * `question` interrupt is not an approval: its `interrupt_raised` and `interrupt_resolved` events arrive as
+ * agent event data parts, and the browser answers it with `answer_question`. A
  * transient `data-agent-resume-token` part follows every part; send the latest one back to resume.
  *
  * The generator reads tool arguments and results from the committed `AgentToolCalls` records, waiting up
@@ -116,8 +120,8 @@ export interface AgentUIMessageStreamOptions {
  * best effort: a part whose event the Stream lost or trimmed is missing until the stored messages replace
  * the streamed message.
  *
- * Stop in the browser only closes the HTTP response. The turn keeps running in Dex; a durable turn cancel
- * is not available yet.
+ * Stop in the browser only closes the HTTP response, and the turn keeps running in Dex. To stop the turn
+ * durably, the application's stop route calls the session's `cancel_turn` RPC.
  *
  * @example
  * ```ts
@@ -181,7 +185,7 @@ export async function prepareAgentUIStreamStart(
 /** Checks a cursor's Dex resume token, replacing a rejected one with the turn's listed start. */
 export async function probeAgentUIStreamStart(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   cursor: AgentUIStreamCursor,
 ): Promise<AgentUIStreamStart | undefined> {
@@ -235,7 +239,7 @@ export async function resolveAgentUIStreamStartCursor(
  */
 export async function createTurnReplayCursor(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   turnId: string,
   knownTurnStartResumeToken: string | null,
@@ -421,9 +425,8 @@ class AgentUIMessageChunkTranslator {
       case "text_delta":
       case "reasoning_delta": {
         const text = readPayloadString(payload, "text");
-        const stepType = readStepType(event.stepExecutionId);
         // Text from a tool Step belongs to no model call, so it travels as event data.
-        if (text === undefined || (stepType !== modelCallStepType && stepType !== "")) {
+        if (text === undefined || !isModelCallStepType(readStepType(event.stepExecutionId))) {
           this.pushAgentEventData(event);
           return;
         }
@@ -447,7 +450,8 @@ class AgentUIMessageChunkTranslator {
       case "interrupt_raised": {
         const interruptId = readPayloadString(payload, "interrupt_id");
         const toolCallId = readPayloadString(payload, "tool_call_id");
-        if (interruptId === undefined || toolCallId === undefined) {
+        // A question is answered with answer_question, not approved, so it stays an event data part.
+        if (interruptId === undefined || toolCallId === undefined || payload["kind"] === "question") {
           this.pushAgentEventData(event);
           return;
         }
@@ -457,7 +461,12 @@ class AgentUIMessageChunkTranslator {
         return;
       }
       case "usage_recorded":
-        if (this.enterModelStep(event) && this.cursor.modelStep !== null) {
+        // A CompactContext summary call is no step of the assistant message; its usage is only event data.
+        if (
+          isModelCallStepType(readStepType(event.stepExecutionId)) &&
+          this.enterModelStep(event) &&
+          this.cursor.modelStep !== null
+        ) {
           this.cursor.modelStep.isUsageRecorded = true;
         }
         this.pushAgentEventData(event);
@@ -473,7 +482,7 @@ class AgentUIMessageChunkTranslator {
       case "interrupt_resolved": {
         const interruptId = readPayloadString(payload, "interrupt_id");
         const isApproved = payload["approved"];
-        if (interruptId === undefined || typeof isApproved !== "boolean") {
+        if (interruptId === undefined || typeof isApproved !== "boolean" || payload["kind"] === "question") {
           this.pushAgentEventData(event);
           return;
         }
@@ -498,6 +507,14 @@ class AgentUIMessageChunkTranslator {
       case "turn_failed":
         if (await this.records.waitForTurnToEnd(this.requireTurnId())) {
           this.endStream("error", readPayloadString(payload, "error") ?? "the agent turn failed");
+        }
+        return;
+      case "turn_steered":
+      case "turn_cancelled":
+        // The turn ended without an answer; the browser reloads its stored messages on `other`.
+        this.pushAgentEventData(event);
+        if (await this.records.waitForTurnToEnd(this.requireTurnId())) {
+          this.endStream("other");
         }
         return;
       default:
@@ -693,13 +710,14 @@ class AgentUIMessageChunkTranslator {
   }
 
   /**
-   * Reports whether the turn waits only for approvals, judged by the committed records: a replay reaches
-   * an approval request before the events that answered it.
+   * Reports whether the turn waits only for approvals, judged by the committed records and
+   * `PendingInterrupts`: a replay reaches an approval request before the events that answered it.
    */
   private async isConfirmedWaitingOnlyForApprovals(): Promise<boolean> {
     if (!this.isWaitingOnlyForApprovals()) {
       return false;
     }
+    const requestedApprovalToolCallIds: string[] = [];
     for (const [toolCallId, state] of this.cursor.toolCalls) {
       if (state !== "approval_requested") {
         continue;
@@ -708,8 +726,11 @@ class AgentUIMessageChunkTranslator {
       if (record?.status !== "awaiting_approval") {
         return false;
       }
+      requestedApprovalToolCallIds.push(toolCallId);
     }
-    return true;
+    // resolve_interrupt removes the interrupt before the approval Step commits the record.
+    const pendingApprovalToolCallIds = await this.records.readPendingApprovalToolCallIds();
+    return requestedApprovalToolCallIds.every((toolCallId) => pendingApprovalToolCallIds.has(toolCallId));
   }
 
   private isWaitingOnlyForApprovals(): boolean {
@@ -834,4 +855,9 @@ export function parseToolArguments(toolArguments: string | null | undefined): un
   } catch {
     return toolArguments;
   }
+}
+
+/** Reports whether events of this Step type belong to a model call: `RunModel`, or unknown for old events. */
+function isModelCallStepType(stepType: string): boolean {
+  return stepType === modelCallStepType || stepType === "";
 }

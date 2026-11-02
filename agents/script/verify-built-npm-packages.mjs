@@ -42,12 +42,39 @@ for (const packageDirectoryName of packages) {
   if (manifest.publishConfig?.access !== "public") problems.push(`${label} lacks publishConfig.access public`);
   if (manifest.license !== "LicenseRef-Sustainable-Use-1.0") problems.push(`${label} license is ${manifest.license}`);
   if (manifest.types === undefined || manifest.exports?.["."]?.types === undefined) problems.push(`${label} has no types`);
+  for (const [subpath, target] of Object.entries(manifest.exports ?? {})) {
+    for (const condition of ["types", "import"]) {
+      const file = target?.[condition];
+      if (typeof file !== "string" || !members.includes(`package/${file.replace(/^\.\//, "")}`)) {
+        problems.push(`${label} export ${subpath} lacks its ${condition} file ${file}`);
+      }
+    }
+  }
+  for (const dependency of Object.keys(manifest.peerDependenciesMeta ?? {})) {
+    if (manifest.peerDependencies?.[dependency] === undefined) {
+      problems.push(`${label} peerDependenciesMeta.${dependency} names no peer dependency`);
+    }
+  }
   if (manifest.repository?.directory !== `agents/typescript/${packageDirectoryName}`) {
     problems.push(`${label} repository.directory is ${manifest.repository?.directory}`);
   }
   for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
     for (const [dependency, range] of Object.entries(manifest[field] ?? {})) {
       if (/^(file|link|workspace|git|https?):/.test(range)) problems.push(`${label} ${field}.${dependency} is ${range}`);
+    }
+  }
+  if (packageDirectoryName === "core") {
+    // OpenTelemetry stays optional: only the API, only as an optional peer dependency.
+    for (const field of ["dependencies", "optionalDependencies"]) {
+      for (const dependency of Object.keys(manifest[field] ?? {})) {
+        if (dependency.startsWith("@opentelemetry/")) problems.push(`${label} ${field} includes ${dependency}`);
+      }
+    }
+    if (manifest.peerDependencies?.["@opentelemetry/api"] === undefined) {
+      problems.push(`${label} must peer-depend on @opentelemetry/api`);
+    }
+    if (manifest.peerDependenciesMeta?.["@opentelemetry/api"]?.optional !== true) {
+      problems.push(`${label} must mark @opentelemetry/api as an optional peer dependency`);
     }
   }
   if (packageDirectoryName !== "core") {

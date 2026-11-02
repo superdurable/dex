@@ -22,6 +22,8 @@ import {
   type PrivateDexEngine,
 } from "@superdurable/dex-agents/testing";
 
+import type { ClaudeAgentSessionOptions } from "../../src/index.js";
+
 import { createClaudeTestAgentFlow, type ClaudeTestAgentCli } from "./claude-test-agent.js";
 import {
   fakeClaudeInvocationLogName,
@@ -51,9 +53,10 @@ export class ClaudeAgentTestHarness {
     engine: PrivateDexEngine,
     isWorkerInProcess: boolean,
     cli?: (stateDirectory: string) => ClaudeTestAgentCli,
+    sessionOptions?: ClaudeAgentSessionOptions,
   ): Promise<ClaudeAgentTestHarness> {
     const stateDirectory = mkdtempSync(join(engine.stateDirectory, "claude-agent-"));
-    const flow = createClaudeTestAgentFlow(stateDirectory, cli?.(stateDirectory));
+    const flow = createClaudeTestAgentFlow(stateDirectory, cli?.(stateDirectory), sessionOptions);
     const environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
       flows: [flow],

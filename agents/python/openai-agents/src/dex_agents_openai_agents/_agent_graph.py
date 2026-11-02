@@ -154,6 +154,10 @@ class DeferrableAgentGraph:
             )
         return tool
 
+    @property
+    def agents(self) -> list[Agent[Any]]:
+        return list(self._agent_clones.values())
+
     def validate_tool_policies(self, tool_policies: Mapping[str, ToolPolicy]) -> None:
         known_names = set(self.tools_by_qualified_name) | self.at_least_once_tool_names
         for tool_name in tool_policies:

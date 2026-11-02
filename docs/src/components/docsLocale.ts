@@ -14,13 +14,22 @@ export function isDocsLocale(value: string | null | undefined): value is DocsLoc
 }
 
 export function persistDocsLocale(locale: DocsLocale): void {
-  window.localStorage.setItem(DOCS_LOCALE_STORAGE_KEY, locale);
-  const shared =
-    window.location.hostname === 'superdurable.io' ||
-    window.location.hostname.endsWith('.superdurable.io');
-  document.cookie =
-    `${DOCS_LOCALE_COOKIE}=${locale}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax` +
-    (shared ? '; Domain=.superdurable.io; Secure' : '');
+  // Blocked storage or cookies must not break the locale link; the preference is best effort.
+  try {
+    window.localStorage.setItem(DOCS_LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // The cookie below still records the preference.
+  }
+  try {
+    const shared =
+      window.location.hostname === 'superdurable.io' ||
+      window.location.hostname.endsWith('.superdurable.io');
+    document.cookie =
+      `${DOCS_LOCALE_COOKIE}=${locale}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax` +
+      (shared ? '; Domain=.superdurable.io; Secure' : '');
+  } catch {
+    // Navigation proceeds without a stored preference.
+  }
 }
 
 export function pathWithoutLocale(pathname: string): string {

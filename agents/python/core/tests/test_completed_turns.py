@@ -74,6 +74,27 @@ async def test_snapshot_returns_the_conversation_after_a_completed_turn(
     assert FRAMEWORK_RUN_STATE not in values
 
 
+async def test_user_message_blank_checks_use_the_python_whitespace_set(
+    harness: ScriptedAgentHarness,
+) -> None:
+    # The TypeScript core matches this set: String.trim() differs on these five and on U+FEFF.
+    python_only_whitespace = "".join(map(chr, (0x1C, 0x1D, 0x1E, 0x1F, 0x85)))
+    byte_order_mark = chr(0xFEFF)
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, python_only_whitespace)
+    assert not await harness.sessions.send_user_message(session_id, python_only_whitespace)
+    assert await harness.sessions.send_user_message(session_id, byte_order_mark)
+    # The scripted model rejects the text, so the turn fails after it starts.
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.state is not None
+    assert snapshot.state.turn_count == 1
+    assert [(message.turn_id, message.role, message.text) for message in snapshot.messages] == [
+        ("turn-1", MessageRole.USER, byte_order_mark),
+    ]
+
+
 async def test_list_agent_messages_pages_backward(harness: ScriptedAgentHarness) -> None:
     await harness.stack.start_worker()
     session_id = harness.new_session_id()

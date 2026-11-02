@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { isFinalToolCallStatus, type AgentToolCall } from "../agent-session-values.js";
+import { isFinalToolCallStatus, type AgentToolCallRecord } from "../agent-session-values.js";
 
 /**
  * What the browser already shows of one tool call in the current model call.
@@ -94,7 +94,7 @@ export function cloneAgentUIStreamCursor(cursor: AgentUIStreamCursor): AgentUISt
 }
 
 /** Returns what a browser that rendered these tool call records shows for them. */
-export function toolCallUIStateOfRecord(toolCall: AgentToolCall): ToolCallUIState {
+export function toolCallUIStateOfRecord(toolCall: AgentToolCallRecord): ToolCallUIState {
   if (isFinalToolCallStatus(toolCall.status)) {
     return "finished";
   }

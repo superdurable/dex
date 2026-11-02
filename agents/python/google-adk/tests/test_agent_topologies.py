@@ -25,14 +25,19 @@ from dex_agents import (
     AgentEventWriter,
     AgentMessage,
     AgentToolCall,
+    AgentTracingOptions,
     AgentTurnContext,
     ToolCallsRequested,
     ToolCallStatus,
 )
-from dex_agents_google_adk import AdkAgentRunner
+from dex_agents_google_adk import AdkAgentRunner, adk_agent_session_flow
 from dex_agents_google_adk._run_state import SuspendedAdkTurn
 from tests.conftest import AdkAgentHarness
-from tests.scripted_adk_agent import MODEL_CALL_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
+from tests.scripted_adk_agent import (
+    MODEL_CALL_LOG_NAME,
+    STATE_DIR_ENVIRONMENT_VARIABLE,
+    build_scripted_adk_agent,
+)
 from tests.scripted_adk_topologies import (
     NESTED_PARALLEL_FLOW_TYPE,
     PARALLEL_OF_SEQUENTIAL_FLOW_TYPE,
@@ -380,3 +385,13 @@ def _turn_context(
         events=AgentEventWriter(lambda event: None, "turn-1", 1, "RunModel-1"),
         heartbeat=record_heartbeat,
     )
+
+
+def test_adk_agent_session_flow_passes_tracing_options_to_the_session() -> None:
+    tracing = AgentTracingOptions(agent_name="Support", is_enabled=False)
+
+    flow = adk_agent_session_flow(
+        build_scripted_adk_agent(), flow_type="TracingOptionsAgent", tracing=tracing
+    )
+
+    assert flow.options.tracing is tracing

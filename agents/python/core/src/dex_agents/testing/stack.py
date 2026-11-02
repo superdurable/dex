@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import TracebackType
@@ -139,11 +140,22 @@ class AgentTestStack:
         """
         return await read_step_history(self._engine.address, flow_id)
 
-    async def start_worker(self, extra_env: Mapping[str, str] | None = None) -> AgentWorkerProcess:
+    async def start_worker(
+        self,
+        extra_env: Mapping[str, str] | None = None,
+        *,
+        python_executable: str | None = None,
+    ) -> AgentWorkerProcess:
         """Start a new Worker child and wait until it serves every pull queue.
+
+        Pass ``python_executable`` to run the Worker on another environment,
+        such as one with an earlier ``dex-agents`` release installed, to test
+        that a session continues after an upgrade.
 
         Args:
             extra_env: Environment variables for this Worker only.
+            python_executable: Interpreter for this Worker; ``None`` uses this
+                process's interpreter.
 
         Returns:
             The running Worker. Call ``kill`` on it to model a crash.
@@ -155,6 +167,7 @@ class AgentTestStack:
             name=f"agent Worker {len(self._workers) + 1}",
             cwd=self._worker_cwd,
             extra_env={**self._worker_env, **(extra_env or {})},
+            python_executable=python_executable or sys.executable,
         )
         self._workers.append(worker)
         await worker.start()

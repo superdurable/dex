@@ -25,6 +25,14 @@ export {
 export { FileGate, InvocationLog } from "./coordination.js";
 export { pollUntil, type PollOptions } from "./polling.js";
 export {
+  ScriptedModelClient,
+  scriptedModelApi,
+  scriptedModelProvider,
+  type ScriptedModelReply,
+  type ScriptedModelResponder,
+  type ScriptedToolCall,
+} from "./scripted-model-client.js";
+export {
   executeCompletedEvent,
   readStepHistory,
   waitForCompletedEvent,

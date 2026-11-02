@@ -11,22 +11,44 @@ import { jsonCodec, type Codec } from "@superdurable/dex";
 import type {
   AgentEvent,
   AgentInterrupt,
+  AgentInterruptKind,
   AgentInterruptResolution,
   AgentMessage,
   AgentMessageRole,
   AgentMessagesPage,
+  AgentPlan,
+  AgentPlanTask,
   AgentSessionStartInput,
   AgentSessionStatus,
   AgentSnapshot,
   AgentState,
-  AgentToolCall,
-  AgentToolCallStatus,
+  AgentToolCallRecord,
+  AgentToolCallRecordStatus,
   AgentUsage,
   AgentUserMessage,
+  AnswerQuestionRequest,
+  CancelTurnRequest,
+  DeleteQueuedMessageRequest,
+  ExecutePlanRequest,
+  InteractionMode,
+  CompactContextInput,
+  ContextSummary,
   ListAgentMessagesInput,
+  PendingUserMessage,
+  PlanExecutionRequest,
+  PlanStatus,
+  PlanTaskStatus,
+  QuestionAnswer,
+  QuestionResolution,
   ResolveInterruptInput,
+  SteerUserMessageRequest,
+  ToolCallCancellation,
+  ToolCallCancellationReason,
   ToolCallCompleted,
   ToolEffect,
+  TurnCancellationRequest,
+  TurnControlKind,
+  TurnControlRequest,
 } from "./agent-session-values.js";
 
 // Wire values are snake_case JSON shared with the Python core; TypeScript values are camelCase.
@@ -35,6 +57,7 @@ const agentSessionStatuses: readonly AgentSessionStatus[] = [
   "waiting_for_user_message",
   "running_model",
   "running_tools",
+  "compacting_context",
 ];
 const agentMessageRoles: readonly AgentMessageRole[] = ["user", "assistant", "tool"];
 const toolEffects: readonly ToolEffect[] = [
@@ -43,14 +66,24 @@ const toolEffects: readonly ToolEffect[] = [
   "non_idempotent_write",
   "unclassified",
 ];
-const agentToolCallStatuses: readonly AgentToolCallStatus[] = [
+const agentToolCallStatuses: readonly AgentToolCallRecordStatus[] = [
   "awaiting_approval",
   "approved",
+  "awaiting_answer",
+  "waiting_for_timer",
+  "waiting_for_task",
   "rejected",
   "succeeded",
   "failed",
   "outcome_unknown",
 ];
+const agentInterruptKinds: readonly AgentInterruptKind[] = ["tool_approval", "question"];
+const interactionModes: readonly InteractionMode[] = ["chat", "planning", "executing"];
+const planStatuses: readonly PlanStatus[] = ["draft", "active", "completed", "cleared"];
+const planTaskStatuses: readonly PlanTaskStatus[] = ["pending", "in_progress", "completed"];
+const toolCallCancellationReasons: readonly ToolCallCancellationReason[] = ["steered", "turn_cancelled"];
+const turnControlKinds: readonly TurnControlKind[] = ["steer", "cancel_turn"];
+const questionResolutions: readonly QuestionResolution[] = ["answered", "declined", "deadline_passed"];
 
 class WireRecordReader {
   private readonly record: Readonly<Record<string, unknown>>;
@@ -105,12 +138,47 @@ class WireRecordReader {
     return this.readInteger(field);
   }
 
+  public readBooleanOrDefault(field: string, defaultValue: boolean): boolean {
+    const value = this.record[field];
+    return value === undefined || value === null ? defaultValue : this.readBoolean(field);
+  }
+
+  public readStringArrayOrEmpty(field: string): readonly string[] {
+    const value = this.record[field];
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+      throw new TypeError(`${this.typeName}.${field} must be an array of strings`);
+    }
+    return value;
+  }
+
+  public readArrayOrEmpty(field: string): readonly unknown[] {
+    const value = this.record[field];
+    return value === undefined || value === null ? [] : this.readArray(field);
+  }
+
   public readBoolean(field: string): boolean {
     const value = this.record[field];
     if (typeof value !== "boolean") {
       throw new TypeError(`${this.typeName}.${field} must be a boolean`);
     }
     return value;
+  }
+
+  public readEnumOrDefault<Literal extends string>(
+    field: string,
+    allowed: readonly Literal[],
+    defaultValue: Literal,
+  ): Literal {
+    const value = this.record[field];
+    return value === undefined || value === null ? defaultValue : this.readEnum(field, allowed);
+  }
+
+  public readNullableEnum<Literal extends string>(field: string, allowed: readonly Literal[]): Literal | null {
+    const value = this.record[field];
+    return value === undefined || value === null ? null : this.readEnum(field, allowed);
   }
 
   public readEnum<Literal extends string>(field: string, allowed: readonly Literal[]): Literal {
@@ -153,17 +221,24 @@ export function encodeAgentState(value: AgentState): unknown {
     active_turn_id: value.activeTurnId,
     next_message_sequence: value.nextMessageSequence,
     last_turn_error: value.lastTurnError,
+    interaction_mode: value.interactionMode ?? "chat",
+    accepts_turn_control: value.acceptsTurnControl ?? false,
   };
 }
 
 export function decodeAgentState(value: unknown): AgentState {
   const reader = new WireRecordReader(value, "AgentState");
+  const interactionMode = reader.readEnumOrDefault("interaction_mode", interactionModes, "chat");
+  const acceptsTurnControl = reader.readBooleanOrDefault("accepts_turn_control", false);
   return {
     status: reader.readEnum("status", agentSessionStatuses),
     turnCount: reader.readInteger("turn_count"),
     activeTurnId: reader.readNullableString("active_turn_id"),
     nextMessageSequence: reader.readInteger("next_message_sequence"),
     lastTurnError: reader.readNullableString("last_turn_error"),
+    // Fields that plans added are omitted at their defaults, so a session without plans decodes to its 0.1.0 shape.
+    ...(interactionMode === "chat" ? {} : { interactionMode }),
+    ...(acceptsTurnControl ? { acceptsTurnControl } : {}),
   };
 }
 
@@ -198,7 +273,7 @@ export function decodeAgentMessage(value: unknown): AgentMessage {
   };
 }
 
-export function encodeAgentToolCall(value: AgentToolCall): unknown {
+export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
   return {
     tool_call_id: value.toolCallId,
     turn_id: value.turnId,
@@ -212,12 +287,24 @@ export function encodeAgentToolCall(value: AgentToolCall): unknown {
     rejection_message: value.rejectionMessage,
     deferral_order: value.deferralOrder,
     tool_source_reference: value.toolSourceReference ?? null,
+    trace_context: value.traceContext ?? null,
+    wait_until: value.waitUntil,
+    input_continuation: value.inputContinuation,
+    input_answers: value.inputAnswers.map(encodeQuestionAnswer),
+    input_question: value.inputQuestion,
+    input_choices: [...value.inputChoices],
+    input_allows_free_text: value.inputAllowsFreeText,
+    cancellation_reason: value.cancellationReason ?? null,
+    task_id: value.taskId ?? null,
+    task_poll_interval_seconds: value.taskPollIntervalSeconds ?? null,
+    task_answer_pending: value.taskAnswerPending ?? false,
   };
 }
 
-export function decodeAgentToolCall(value: unknown): AgentToolCall {
+export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
   const reader = new WireRecordReader(value, "AgentToolCall");
-  const toolCall: AgentToolCall = {
+  const traceContext = reader.readNullableString("trace_context");
+  const toolCall: AgentToolCallRecord = {
     toolCallId: reader.readString("tool_call_id"),
     turnId: reader.readString("turn_id"),
     toolName: reader.readString("tool_name"),
@@ -229,9 +316,39 @@ export function decodeAgentToolCall(value: unknown): AgentToolCall {
     error: reader.readNullableString("error"),
     rejectionMessage: reader.readNullableString("rejection_message"),
     deferralOrder: reader.readIntegerOrDefault("deferral_order", 0),
+    waitUntil: reader.readNullableString("wait_until"),
+    inputContinuation: reader.readNullableString("input_continuation"),
+    inputAnswers: reader.readArrayOrEmpty("input_answers").map(decodeQuestionAnswer),
+    inputQuestion: reader.readNullableString("input_question"),
+    inputChoices: reader.readStringArrayOrEmpty("input_choices"),
+    inputAllowsFreeText: reader.readBooleanOrDefault("input_allows_free_text", true),
+    cancellationReason: reader.readNullableEnum("cancellation_reason", toolCallCancellationReasons),
+    taskId: reader.readNullableString("task_id"),
+    taskPollIntervalSeconds: reader.readNullableInteger("task_poll_interval_seconds"),
+    taskAnswerPending: reader.readBooleanOrDefault("task_answer_pending", false),
+    ...(traceContext === null ? {} : { traceContext }),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
   return toolSourceReference === null ? toolCall : { ...toolCall, toolSourceReference };
+}
+
+export function encodeQuestionAnswer(value: QuestionAnswer): unknown {
+  return {
+    interrupt_id: value.interruptId,
+    question: value.question,
+    answer: value.answer,
+    resolution: value.resolution ?? "answered",
+  };
+}
+
+export function decodeQuestionAnswer(value: unknown): QuestionAnswer {
+  const reader = new WireRecordReader(value, "QuestionAnswer");
+  return {
+    interruptId: reader.readString("interrupt_id"),
+    question: reader.readString("question"),
+    answer: reader.readString("answer"),
+    resolution: reader.readNullableString("resolution") === null ? "answered" : reader.readEnum("resolution", questionResolutions),
+  };
 }
 
 export function encodeAgentInterrupt(value: AgentInterrupt): unknown {
@@ -243,6 +360,9 @@ export function encodeAgentInterrupt(value: AgentInterrupt): unknown {
     arguments: value.arguments,
     created_at: value.createdAt,
     deadline: value.deadline,
+    question: value.question ?? null,
+    choices: [...(value.choices ?? [])],
+    allows_free_text: value.allowsFreeText ?? true,
   };
 }
 
@@ -250,17 +370,20 @@ export function decodeAgentInterrupt(value: unknown): AgentInterrupt {
   const reader = new WireRecordReader(value, "AgentInterrupt");
   return {
     interruptId: reader.readString("interrupt_id"),
-    kind: reader.readEnum("kind", ["tool_approval"] as const),
+    kind: reader.readEnum("kind", agentInterruptKinds),
     toolCallId: reader.readString("tool_call_id"),
     toolName: reader.readString("tool_name"),
     arguments: reader.readString("arguments"),
     createdAt: reader.readString("created_at"),
     deadline: reader.readNullableString("deadline"),
+    question: reader.readNullableString("question"),
+    choices: reader.readStringArrayOrEmpty("choices"),
+    allowsFreeText: reader.readBooleanOrDefault("allows_free_text", true),
   };
 }
 
 export function encodeAgentInterruptResolution(value: AgentInterruptResolution): unknown {
-  return { approved: value.approved, rejection_message: value.rejectionMessage };
+  return { approved: value.approved, rejection_message: value.rejectionMessage, answer: value.answer ?? null };
 }
 
 export function decodeAgentInterruptResolution(value: unknown): AgentInterruptResolution {
@@ -268,7 +391,17 @@ export function decodeAgentInterruptResolution(value: unknown): AgentInterruptRe
   return {
     approved: reader.readBoolean("approved"),
     rejectionMessage: reader.readNullableString("rejection_message"),
+    answer: reader.readNullableString("answer"),
   };
+}
+
+export function encodeAnswerQuestionRequest(value: AnswerQuestionRequest): unknown {
+  return { interrupt_id: value.interruptId, answer: value.answer };
+}
+
+export function decodeAnswerQuestionRequest(value: unknown): AnswerQuestionRequest {
+  const reader = new WireRecordReader(value, "AnswerQuestionRequest");
+  return { interruptId: reader.readString("interrupt_id"), answer: reader.readString("answer") };
 }
 
 export function encodeAgentUsage(value: AgentUsage): unknown {
@@ -293,12 +426,110 @@ export function decodeAgentUsage(value: unknown): AgentUsage {
 }
 
 export function encodeAgentUserMessage(value: AgentUserMessage): unknown {
-  return { text: value.text };
+  return { text: value.text, plan_mode: value.planMode ?? false };
 }
 
 export function decodeAgentUserMessage(value: unknown): AgentUserMessage {
   const reader = new WireRecordReader(value, "AgentUserMessage");
-  return { text: reader.readString("text") };
+  const planMode = reader.readBooleanOrDefault("plan_mode", false);
+  return { text: reader.readString("text"), ...(planMode ? { planMode } : {}) };
+}
+
+export function encodeAgentPlan(value: AgentPlan): unknown {
+  return {
+    revision: value.revision,
+    status: value.status,
+    tasks: value.tasks.map((task: AgentPlanTask) => ({ content: task.content, status: task.status })),
+    updated_at: value.updatedAt,
+  };
+}
+
+export function decodeAgentPlan(value: unknown): AgentPlan {
+  const reader = new WireRecordReader(value, "AgentPlan");
+  return {
+    revision: reader.readInteger("revision"),
+    status: reader.readEnum("status", planStatuses),
+    tasks: reader.readArrayOrEmpty("tasks").map((task): AgentPlanTask => {
+      const taskReader = new WireRecordReader(task, "AgentPlanTask");
+      return { content: taskReader.readString("content"), status: taskReader.readEnum("status", planTaskStatuses) };
+    }),
+    updatedAt: reader.readString("updated_at"),
+  };
+}
+
+export function encodePlanRevisionRequest(value: ExecutePlanRequest | PlanExecutionRequest): unknown {
+  return { revision: value.revision };
+}
+
+export function decodePlanRevisionRequest(value: unknown): PlanExecutionRequest {
+  const reader = new WireRecordReader(value, "PlanExecutionRequest");
+  return { revision: reader.readInteger("revision") };
+}
+
+export function encodePendingUserMessage(value: PendingUserMessage): unknown {
+  return { message_id: value.messageId, message: encodeAgentUserMessage(value.message) };
+}
+
+export function decodePendingUserMessage(value: unknown): PendingUserMessage {
+  const reader = new WireRecordReader(value, "PendingUserMessage");
+  return { messageId: reader.readString("message_id"), message: decodeAgentUserMessage(reader.readObject("message")) };
+}
+
+export function encodeSteerUserMessageRequest(value: SteerUserMessageRequest): unknown {
+  return { message_id: value.messageId, text: value.text };
+}
+
+export function decodeSteerUserMessageRequest(value: unknown): SteerUserMessageRequest {
+  const reader = new WireRecordReader(value, "SteerUserMessageRequest");
+  return { messageId: reader.readNullableString("message_id"), text: reader.readNullableString("text") };
+}
+
+export function encodeDeleteQueuedMessageRequest(value: DeleteQueuedMessageRequest): unknown {
+  return { message_id: value.messageId };
+}
+
+export function decodeDeleteQueuedMessageRequest(value: unknown): DeleteQueuedMessageRequest {
+  const reader = new WireRecordReader(value, "DeleteQueuedMessageRequest");
+  return { messageId: reader.readString("message_id") };
+}
+
+export function encodeCancelTurnRequest(value: CancelTurnRequest): unknown {
+  return { turn_id: value.turnId };
+}
+
+export function decodeCancelTurnRequest(value: unknown): CancelTurnRequest {
+  if (value === null || value === undefined) {
+    return { turnId: null };
+  }
+  const reader = new WireRecordReader(value, "CancelTurnRequest");
+  return { turnId: reader.readNullableString("turn_id") };
+}
+
+export function encodeTurnControlRequest(value: TurnControlRequest): unknown {
+  return { kind: value.kind };
+}
+
+export function decodeTurnControlRequest(value: unknown): TurnControlRequest {
+  const reader = new WireRecordReader(value, "TurnControlRequest");
+  return { kind: reader.readEnum("kind", turnControlKinds) };
+}
+
+export function encodeTurnCancellationRequest(value: TurnCancellationRequest): unknown {
+  return { turn_id: value.turnId, requested_at: value.requestedAt };
+}
+
+export function decodeTurnCancellationRequest(value: unknown): TurnCancellationRequest {
+  const reader = new WireRecordReader(value, "TurnCancellationRequest");
+  return { turnId: reader.readString("turn_id"), requestedAt: reader.readString("requested_at") };
+}
+
+export function encodeToolCallCancellation(value: ToolCallCancellation): unknown {
+  return { reason: value.reason };
+}
+
+export function decodeToolCallCancellation(value: unknown): ToolCallCancellation {
+  const reader = new WireRecordReader(value, "ToolCallCancellation");
+  return { reason: reader.readEnum("reason", toolCallCancellationReasons) };
 }
 
 export function encodeToolCallCompleted(value: ToolCallCompleted): unknown {
@@ -348,6 +579,36 @@ export function decodeResolveInterruptInput(value: unknown): ResolveInterruptInp
   };
 }
 
+export function encodeContextSummary(value: ContextSummary): unknown {
+  return {
+    generation: value.generation,
+    first_sequence: value.firstSequence,
+    last_sequence: value.lastSequence,
+    text: value.text,
+    created_at: value.createdAt,
+  };
+}
+
+export function decodeContextSummary(value: unknown): ContextSummary {
+  const reader = new WireRecordReader(value, "ContextSummary");
+  return {
+    generation: reader.readInteger("generation"),
+    firstSequence: reader.readInteger("first_sequence"),
+    lastSequence: reader.readInteger("last_sequence"),
+    text: reader.readString("text"),
+    createdAt: reader.readString("created_at"),
+  };
+}
+
+export function encodeCompactContextInput(value: CompactContextInput): unknown {
+  return { through_sequence: value.throughSequence };
+}
+
+export function decodeCompactContextInput(value: unknown): CompactContextInput {
+  const reader = new WireRecordReader(value, "CompactContextInput");
+  return { throughSequence: reader.readInteger("through_sequence") };
+}
+
 export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
   return {
     state: value.state === null ? null : encodeAgentState(value.state),
@@ -356,6 +617,13 @@ export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
     tool_calls: value.toolCalls.map(encodeAgentToolCall),
     usage: encodeAgentUsage(value.usage),
     queued_message_count: value.queuedMessageCount,
+    plan: value.plan == null ? null : encodeAgentPlan(value.plan),
+    queued_messages: (value.queuedMessages ?? []).map(encodePendingUserMessage),
+    steered_messages: (value.steeredMessages ?? []).map(encodePendingUserMessage),
+    context_summary:
+      value.contextSummary === undefined || value.contextSummary === null
+        ? null
+        : encodeContextSummary(value.contextSummary),
   };
 }
 
@@ -368,6 +636,13 @@ export function decodeAgentSnapshot(value: unknown): AgentSnapshot {
     toolCalls: reader.readArray("tool_calls").map(decodeAgentToolCall),
     usage: decodeAgentUsage(reader.readObject("usage")),
     queuedMessageCount: reader.readIntegerOrDefault("queued_message_count", 0),
+    ...(reader.readObject("plan") == null ? {} : { plan: decodeAgentPlan(reader.readObject("plan")) }),
+    queuedMessages: reader.readArrayOrEmpty("queued_messages").map(decodePendingUserMessage),
+    steeredMessages: reader.readArrayOrEmpty("steered_messages").map(decodePendingUserMessage),
+    contextSummary:
+      reader.readObject("context_summary") == null
+        ? null
+        : decodeContextSummary(reader.readObject("context_summary")),
   };
 }
 
@@ -443,6 +718,17 @@ export const agentUserMessageCodec = snakeCaseJsonCodec(
   encodeAgentUserMessage,
   decodeAgentUserMessage,
 );
+export const agentPlanCodec = snakeCaseJsonCodec("AgentPlan", encodeAgentPlan, decodeAgentPlan);
+export const planExecutionRequestCodec = snakeCaseJsonCodec<PlanExecutionRequest>(
+  "PlanExecutionRequest",
+  encodePlanRevisionRequest,
+  decodePlanRevisionRequest,
+);
+export const executePlanRequestCodec = snakeCaseJsonCodec<ExecutePlanRequest>(
+  "ExecutePlanRequest",
+  encodePlanRevisionRequest,
+  decodePlanRevisionRequest,
+);
 export const toolCallCompletedCodec = snakeCaseJsonCodec(
   "ToolCallCompleted",
   encodeToolCallCompleted,
@@ -453,6 +739,41 @@ export const resolveInterruptInputCodec = snakeCaseJsonCodec(
   "ResolveInterruptInput",
   encodeResolveInterruptInput,
   decodeResolveInterruptInput,
+);
+export const answerQuestionRequestCodec = snakeCaseJsonCodec(
+  "AnswerQuestionRequest",
+  encodeAnswerQuestionRequest,
+  decodeAnswerQuestionRequest,
+);
+export const steerUserMessageRequestCodec = snakeCaseJsonCodec(
+  "SteerUserMessageRequest",
+  encodeSteerUserMessageRequest,
+  decodeSteerUserMessageRequest,
+);
+export const deleteQueuedMessageRequestCodec = snakeCaseJsonCodec(
+  "DeleteQueuedMessageRequest",
+  encodeDeleteQueuedMessageRequest,
+  decodeDeleteQueuedMessageRequest,
+);
+export const cancelTurnRequestCodec = snakeCaseJsonCodec(
+  "CancelTurnRequest",
+  encodeCancelTurnRequest,
+  decodeCancelTurnRequest,
+);
+export const turnControlRequestCodec = snakeCaseJsonCodec(
+  "TurnControlRequest",
+  encodeTurnControlRequest,
+  decodeTurnControlRequest,
+);
+export const turnCancellationRequestCodec = snakeCaseJsonCodec(
+  "TurnCancellationRequest",
+  encodeTurnCancellationRequest,
+  decodeTurnCancellationRequest,
+);
+export const toolCallCancellationCodec = snakeCaseJsonCodec(
+  "ToolCallCancellation",
+  encodeToolCallCancellation,
+  decodeToolCallCancellation,
 );
 export const agentSnapshotCodec = snakeCaseJsonCodec(
   "AgentSnapshot",
@@ -469,3 +790,25 @@ export const agentMessagesPageCodec = snakeCaseJsonCodec(
   encodeAgentMessagesPage,
   decodeAgentMessagesPage,
 );
+export const contextSummaryCodec = snakeCaseJsonCodec(
+  "ContextSummary",
+  encodeContextSummary,
+  decodeContextSummary,
+);
+
+/** Input of `CompactContext` and `RecordTurnFailure`: a `CompactContextInput`, or `RunModel`'s JSON `null` as `undefined`. */
+export const turnFailureRouteInputCodec: Codec<CompactContextInput | undefined> = {
+  typeName: "TurnFailureRouteInput",
+  wireKind: "json",
+  encode: (value) => ({
+    kind: "json",
+    data: value === undefined ? "null" : JSON.stringify(encodeCompactContextInput(value)),
+  }),
+  decode: (value) => {
+    if (value.kind !== "json") {
+      throw new TypeError(`TurnFailureRouteInput requires JSON, got ${value.kind}`);
+    }
+    const parsed: unknown = JSON.parse(String(value.data));
+    return parsed === null ? undefined : decodeCompactContextInput(parsed);
+  },
+};

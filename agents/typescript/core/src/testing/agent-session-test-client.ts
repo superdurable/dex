@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { RpcLockConflictError, type Client, type StartFlowOptions } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type {
   AgentEvent,
@@ -17,7 +18,8 @@ import type {
   AgentMessagesPage,
   AgentSnapshot,
   AgentState,
-  AgentToolCall,
+  AgentToolCallRecord,
+  PendingUserMessage,
 } from "../agent-session-values.js";
 import { pollUntil } from "./polling.js";
 
@@ -57,7 +59,7 @@ export class AgentSessionTestClient {
     /** Client used for every call. */
     public readonly client: Client,
     /** Flow whose sessions this helper drives. */
-    public readonly flow: AgentSessionFlow,
+    public readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   ) {}
 
   /**
@@ -79,10 +81,64 @@ export class AgentSessionTestClient {
    * Calls `send_user_message`.
    * @param sessionId - Session Flow ID.
    * @param text - Message text.
-   * @returns The RPC result: `false` for blank text.
+   * @param planMode - Whether the message starts a planning turn. Defaults to `false`.
+   * @returns The RPC result: `false` for blank text, or for a `planMode` message when plan mode is off.
    */
-  public sendUserMessage(sessionId: string, text: string): Promise<boolean> {
-    return this.client.invokeRPC(this.flow.sendUserMessage, sessionId, { text });
+  public sendUserMessage(sessionId: string, text: string, planMode = false): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.sendUserMessage, sessionId, { text, planMode });
+  }
+
+  /**
+   * Calls `execute_plan`, retrying an `RpcLockConflictError` for up to 30 seconds.
+   * @param sessionId - Session Flow ID.
+   * @param revision - Plan revision to execute.
+   * @returns The RPC result: `false` when the revision is stale, already pending, or the session is busy.
+   */
+  public executePlan(sessionId: string, revision: number): Promise<boolean> {
+    return retryLockConflicts(() => this.client.invokeRPC(this.flow.executePlan, sessionId, { revision }));
+  }
+
+  /**
+   * Calls `steer_user_message` with new text; while no turn is active, the RPC queues it.
+   * @param sessionId - Session Flow ID.
+   * @param text - Text of the steered message.
+   * @returns The RPC result: `false` for blank text or a turn that does not accept steering.
+   */
+  public steerUserMessage(sessionId: string, text: string): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.steerUserMessage, sessionId, { messageId: null, text });
+  }
+
+  /**
+   * Calls `steer_user_message` with a queued message's ID, which moves that message.
+   * @param sessionId - Session Flow ID.
+   * @param messageId - {@link PendingUserMessage.messageId} of a queued message.
+   * @returns The RPC result: `false` when the message is no longer queued.
+   * @throws {ChannelMessageNotFoundError} When the session consumed the message while the RPC ran.
+   */
+  public steerQueuedMessage(sessionId: string, messageId: string): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.steerUserMessage, sessionId, { messageId, text: null });
+  }
+
+  /**
+   * Calls `delete_queued_message`.
+   * @param sessionId - Session Flow ID.
+   * @param messageId - {@link PendingUserMessage.messageId} of a queued message.
+   * @returns The RPC result: `false` when the message is no longer queued.
+   * @throws {ChannelMessageNotFoundError} When the session consumed the message while the RPC ran.
+   */
+  public deleteQueuedMessage(sessionId: string, messageId: string): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.deleteQueuedMessage, sessionId, { messageId });
+  }
+
+  /**
+   * Calls `cancel_turn`, retrying an `RpcLockConflictError` for up to 30 seconds.
+   * @param sessionId - Session Flow ID.
+   * @param turnId - The turn to stop, or `null` for the active turn. Defaults to `null`.
+   * @returns The RPC result: `false` when no turn is active, `turnId` names another turn, or the turn does not
+   * accept cancellation.
+   */
+  public cancelTurn(sessionId: string, turnId: string | null = null): Promise<boolean> {
+    return retryLockConflicts(() => this.client.invokeRPC(this.flow.cancelTurn, sessionId, { turnId }));
   }
 
   /**
@@ -93,27 +149,28 @@ export class AgentSessionTestClient {
    * @param rejectionMessage - Text shown to the model on rejection. Defaults to `null`.
    * @returns The RPC result: `false` when the interrupt was not pending.
    */
-  public async resolveInterrupt(
+  public resolveInterrupt(
     sessionId: string,
     interruptId: string,
     approved: boolean,
     rejectionMessage: string | null = null,
   ): Promise<boolean> {
-    const deadline = Date.now() + lockConflictRetryTimeoutMs;
-    for (;;) {
-      try {
-        return await this.client.invokeRPC(this.flow.resolveInterrupt, sessionId, {
-          interruptId,
-          approved,
-          rejectionMessage,
-        });
-      } catch (error: unknown) {
-        if (!(error instanceof RpcLockConflictError) || Date.now() >= deadline) {
-          throw error;
-        }
-      }
-      await delay(lockConflictRetryIntervalMs);
-    }
+    return retryLockConflicts(() =>
+      this.client.invokeRPC(this.flow.resolveInterrupt, sessionId, { interruptId, approved, rejectionMessage }),
+    );
+  }
+
+  /**
+   * Calls `answer_question`, retrying an `RpcLockConflictError` for up to 30 seconds.
+   * @param sessionId - Session Flow ID.
+   * @param interruptId - Pending `question` interrupt to answer.
+   * @param answer - The answer text.
+   * @returns The RPC result: `false` when the question was not pending or the answer was refused.
+   */
+  public answerQuestion(sessionId: string, interruptId: string, answer: string): Promise<boolean> {
+    return retryLockConflicts(() =>
+      this.client.invokeRPC(this.flow.answerQuestion, sessionId, { interruptId, answer }),
+    );
   }
 
   /**
@@ -156,7 +213,7 @@ export class AgentSessionTestClient {
    * @param toolCallId - Tool call ID.
    * @returns The record, or `undefined` when it does not exist or its turn completed.
    */
-  public async readToolCall(sessionId: string, toolCallId: string): Promise<AgentToolCall | undefined> {
+  public async readToolCall(sessionId: string, toolCallId: string): Promise<AgentToolCallRecord | undefined> {
     const [toolCall] = await this.client.getAttributes(
       sessionId,
       this.flow.agentToolCalls.instance(toolCallId),
@@ -277,9 +334,9 @@ export class AgentSessionTestClient {
   public waitForToolCall(
     sessionId: string,
     toolCallId: string,
-    predicate: (toolCall: AgentToolCall) => boolean,
+    predicate: (toolCall: AgentToolCallRecord) => boolean,
     options: AgentSessionWaitOptions = {},
-  ): Promise<AgentToolCall> {
+  ): Promise<AgentToolCallRecord> {
     return pollUntil(
       async () => {
         const toolCall = await this.readToolCall(sessionId, toolCallId);
@@ -308,5 +365,19 @@ export class AgentSessionTestClient {
       pageToken = page.nextPageToken;
     } while (pageToken !== "");
     return newestFirst.reverse();
+  }
+}
+
+async function retryLockConflicts(invoke: () => Promise<boolean>): Promise<boolean> {
+  const deadline = Date.now() + lockConflictRetryTimeoutMs;
+  for (;;) {
+    try {
+      return await invoke();
+    } catch (error: unknown) {
+      if (!(error instanceof RpcLockConflictError) || Date.now() >= deadline) {
+        throw error;
+      }
+    }
+    await delay(lockConflictRetryIntervalMs);
   }
 }

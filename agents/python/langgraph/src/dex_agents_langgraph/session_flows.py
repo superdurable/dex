@@ -17,6 +17,7 @@ from dex_agents import (
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     AgentSessionFlow,
     AgentSessionOptions,
+    AgentTracingOptions,
     ToolEffect,
     ToolPolicy,
 )
@@ -34,6 +35,7 @@ def langchain_agent_session_flow(
     default_tool_effect: ToolEffect = ToolEffect.UNCLASSIFIED,
     interrupt_deadline: timedelta | None = None,
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    tracing: AgentTracingOptions | None = None,
     tools: Sequence[BaseTool] = (),
     checkpoint_serializer: SerializerProtocol | None = None,
 ) -> AgentSessionFlow:
@@ -90,6 +92,9 @@ def langchain_agent_session_flow(
             session rejects it. ``None``, the default, waits indefinitely.
         event_stream_capacity_bytes: Byte budget of the ``AgentEvents`` Stream.
             Defaults to 10 MiB.
+        tracing: OpenTelemetry GenAI span options. ``None``, the default,
+            uses ``AgentTracingOptions()``, which emits spans through the global
+            tracer provider when the OpenTelemetry API is installed.
         tools: Tools that tool call Steps may run beyond those of the agent's
             ``ToolNode``, such as tools that middleware adds dynamically.
         checkpoint_serializer: Serializer for the graph checkpoint stored while
@@ -113,6 +118,7 @@ def langchain_agent_session_flow(
             tool_policies=tool_policies or {},
             default_tool_effect=default_tool_effect,
             event_stream_capacity_bytes=event_stream_capacity_bytes,
+            tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
         ),
         tools=tools,
@@ -129,6 +135,7 @@ def langgraph_agent_session_flow(
     default_tool_effect: ToolEffect = ToolEffect.UNCLASSIFIED,
     interrupt_deadline: timedelta | None = None,
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    tracing: AgentTracingOptions | None = None,
     tools: Sequence[BaseTool] = (),
     checkpoint_serializer: SerializerProtocol | None = None,
 ) -> AgentSessionFlow:
@@ -176,6 +183,9 @@ def langgraph_agent_session_flow(
             session rejects it. ``None``, the default, waits indefinitely.
         event_stream_capacity_bytes: Byte budget of the ``AgentEvents`` Stream.
             Defaults to 10 MiB.
+        tracing: OpenTelemetry GenAI span options. ``None``, the default,
+            uses ``AgentTracingOptions()``, which emits spans through the global
+            tracer provider when the OpenTelemetry API is installed.
         tools: Tools that tool call Steps may run beyond those of the graph's
             tool nodes.
         checkpoint_serializer: Serializer for the graph checkpoint stored while
@@ -199,6 +209,7 @@ def langgraph_agent_session_flow(
             tool_policies=tool_policies or {},
             default_tool_effect=default_tool_effect,
             event_stream_capacity_bytes=event_stream_capacity_bytes,
+            tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
         ),
         tools=tools,

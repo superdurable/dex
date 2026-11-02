@@ -362,7 +362,7 @@ def check_app_builder() -> None:
         "writable workspace", "strict FDG 2.0", "dexcli dev",
         "generated operation factory", "management UI capability mapping",
         "Summary RPC", "Display RPC", "Action RPC", "trusted server boundary",
-        "public external product", "https://superdurable.github.io/dex-connectors-library/catalog.yaml",
+        "public external product", "https://connectors.superdurable.io/catalog.yaml",
         "no SubFlows", "selective loads", "locks/CAS", "retention",
         "complete RequestID", "explicit reuse policy", "typed error",
         "data-lifecycle and execution-shape boundary matrices",

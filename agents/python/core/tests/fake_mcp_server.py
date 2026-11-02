@@ -22,6 +22,15 @@ real tool run appends ``<tool> <idempotency key>`` to the ``InvocationLog`` in
 * ``long_report`` (``readOnlyHint``): answers with a task handle that
   ``tasks/get`` completes on its second poll. With ``"gate"``, every poll
   marks that ``FileGate`` and the task completes once the gate is released.
+  With ``"ask": true``, the task is ``input_required`` and asks
+  ``Which format?`` for its ``format`` field, ``pdf`` or ``html``, until
+  ``tasks/update`` answers it; each update logs ``update <task> <format>``.
+  A ``decline`` or ``cancel`` response logs ``update <task> <action>``, and
+  the task completes as ``report on <topic> without a format (<action>)``.
+  With ``"batches": n``, it asks the identical request once per batch and
+  completes as ``report on <topic> as <format>, <format>``. With
+  ``"update_gate"``, the first update stores its answer, then waits at that
+  ``FileGate`` before it responds.
 * ``ask_account`` (``readOnlyHint``): answers ``input_required``.
 * ``repeat_request`` (``readOnlyHint``): always answers a state-only
   ``input_required``.
@@ -70,6 +79,35 @@ class _TaskIdParams(RequestParams):
     task_id: str
 
 
+class _TaskUpdateParams(RequestParams):
+    task_id: str
+    input_responses: dict[str, Any]
+
+
+_TASK_STORE_KEYS = (
+    "polls",
+    "topic",
+    "gate",
+    "ask",
+    "answers",
+    "batches",
+    "update_gate",
+    "declined",
+)
+_FORMAT_REQUEST = {
+    "method": "elicitation/create",
+    "params": {
+        "mode": "form",
+        "message": "Which format?",
+        "requestedSchema": {
+            "type": "object",
+            "properties": {"format": {"type": "string", "enum": ["pdf", "html"]}},
+            "required": ["format"],
+        },
+    },
+}
+
+
 class _FakeTasksExtension(Extension):
     identifier = TASKS_EXTENSION_IDENTIFIER
 
@@ -79,6 +117,7 @@ class _FakeTasksExtension(Extension):
     def methods(self) -> list[MethodBinding]:
         return [
             MethodBinding("tasks/get", _TaskIdParams, self._get_task),
+            MethodBinding("tasks/update", _TaskUpdateParams, self._update_task),
             MethodBinding("tasks/cancel", _TaskIdParams, self._cancel_task),
         ]
 
@@ -123,6 +162,10 @@ class _FakeTasksExtension(Extension):
                 "polls": 0,
                 "topic": arguments.get("topic"),
                 "gate": arguments.get("gate"),
+                "ask": bool(arguments.get("ask")),
+                "answers": [],
+                "batches": int(arguments.get("batches") or 1),
+                "update_gate": arguments.get("update_gate"),
             }
             return {"resultType": "task", **task}
         return await call_next(ctx)
@@ -134,17 +177,50 @@ class _FakeTasksExtension(Extension):
         if stored is None:
             raise MCPError(INVALID_PARAMS, f"unknown task {params.task_id}")
         stored["polls"] += 1
-        task = {
-            key: value for key, value in stored.items() if key not in ("polls", "topic", "gate")
-        }
+        task = {key: value for key, value in stored.items() if key not in _TASK_STORE_KEYS}
+        if stored.get("declined") is not None:
+            task["status"] = "completed"
+            text = f"report on {stored['topic']} without a format ({stored['declined']})"
+            task["result"] = {"content": [{"type": "text", "text": text}]}
+            return {"resultType": "complete", **task}
+        if stored["ask"] and len(stored["answers"]) < stored["batches"]:
+            task["status"] = "input_required"
+            task["statusMessage"] = "waiting for a format"
+            task["inputRequests"] = {"format": _FORMAT_REQUEST}
+            return {"resultType": "complete", **task}
         gate = None if stored["gate"] is None else FileGate(_state_dir(), str(stored["gate"]))
         if gate is not None:
             gate.mark_reached()
-        if (gate is None and stored["polls"] >= 2) or (gate is not None and gate.is_released()):
+        is_complete = gate.is_released() if gate is not None else stored["polls"] >= 2
+        if stored["ask"] or is_complete:
+            suffix = f" as {', '.join(stored['answers'])}" if stored["answers"] else ""
             task["status"] = "completed"
             task["statusMessage"] = "done"
-            task["result"] = {"content": [{"type": "text", "text": f"report on {stored['topic']}"}]}
+            task["result"] = {
+                "content": [{"type": "text", "text": f"report on {stored['topic']}{suffix}"}]
+            }
         return {"resultType": "complete", **task}
+
+    async def _update_task(
+        self, ctx: ServerRequestContext[Any, Any], params: _TaskUpdateParams
+    ) -> HandlerResult:
+        stored = self._tasks.get(params.task_id)
+        if stored is None:
+            raise MCPError(INVALID_PARAMS, f"unknown task {params.task_id}")
+        response = params.input_responses["format"]
+        if response["action"] != "accept":
+            _invocations().record(f"update {params.task_id} {response['action']}")
+            stored["declined"] = response["action"]
+            return {}
+        answer = response["content"]["format"]
+        _invocations().record(f"update {params.task_id} {answer}")
+        stored["answers"].append(answer)
+        if stored["update_gate"] is not None and len(stored["answers"]) == 1:
+            # The task took the answer; the response has not left yet.
+            gate = FileGate(_state_dir(), str(stored["update_gate"]))
+            gate.mark_reached()
+            await gate.wait_for_release()
+        return {}
 
     async def _cancel_task(
         self, ctx: ServerRequestContext[Any, Any], params: _TaskIdParams
@@ -197,7 +273,13 @@ async def send_message(
 
 
 @server.tool(annotations=_READ_ONLY)
-def long_report(topic: str, gate: str | None = None) -> str:
+def long_report(
+    topic: str,
+    gate: str | None = None,
+    ask: bool = False,
+    batches: int = 1,
+    update_gate: str | None = None,
+) -> str:
     """Write a long report; answers with a task handle."""
     return f"report on {topic} without a task"
 

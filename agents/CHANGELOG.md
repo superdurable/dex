@@ -4,7 +4,444 @@ All eleven Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## 0.1.0 (Unreleased)
+## 0.2.0 (Unreleased)
+
+### MCP tool source
+
+- `dex_agents.mcp` (extra `dex-agents[mcp]`, `mcp>=2.3,<3`) and
+  `@superdurable/dex-agents/mcp` (optional peer `@modelcontextprotocol/sdk`
+  `^1.32.2`): `McpToolSource` lists the tools of MCP servers configured on the
+  Worker, over stdio or Streamable HTTP, and runs each call in its own tool
+  Step. `readOnlyHint` makes a tool `read`, `idempotentHint` makes it
+  `idempotent_write`, and an explicit `ToolPolicy` wins. A call whose response
+  never arrived is re-issued only for `read` and `idempotent_write` tools;
+  other tools record `outcome_unknown`. A task of a Streamable HTTP server
+  that any connection can poll becomes a tool task polled by `PollToolTask`
+  (see Tool tasks); a stdio task, and in TypeScript a session-bound task, is
+  polled inside the tool Step with heartbeats and a bounded wait. A retried
+  attempt resumes the same task once its checkpoint reached Dex. In Python, a
+  task's single form elicitation becomes a session question; its answer,
+  decline, or passed deadline goes back with `tasks/update` (`accept`,
+  `decline`, `cancel`), once, from a poll's first attempt, and only to the
+  request it answers; a retried attempt asks the user again. An identical
+  request after the task left `input_required`, or 10 seconds after the
+  answer, is asked as a new question. Other `input_required` answers record
+  `failed`. `mcp.task_status` is written only
+  when a task's status changes. TypeScript requests a 24-hour TTL,
+  `taskTtlMs`, for a polled task.
+- Both cores: `DeferredToolCall.tool_source_reference` (stored on
+  `AgentToolCall` as `tool_source_reference`) and
+  `DeferredToolExecution.heartbeat_checkpoint` / `save_heartbeat_checkpoint`.
+- TypeScript: `toolEffectFromMcpToolAnnotations` maps `idempotentHint` to
+  `idempotent_write` whatever `destructiveHint` says, as the Python adapters
+  do.
+
+### UI streams
+
+- `@superdurable/dex-agents/ui-stream`: an AI SDK UI message stream (protocol
+  `v1`) for `useChat`, resumed through a UI stream resume token, with
+  `reset-step` for a new `RunModel` attempt and tool approvals through
+  `resolve_interrupt`; plain Server-Sent Events resumed with `Last-Event-ID`;
+  and snapshots as AI SDK `UIMessage` objects or wire JSON.
+- `dex_agents.ui_stream`: Server-Sent Event frames resumed with
+  `Last-Event-ID`, and snapshot JSON, for async and synchronous Clients.
+- The testing exports' private engines accept `dex-server-zd` configuration
+  overrides: `serverZdConfigPath` in TypeScript and `server_zd_config` in
+  Python.
+- The browser snapshot JSON, `convertAgentSnapshotToJson` and
+  `agent_snapshot_to_json`, leaves out the fields only the session's Steps
+  use: `framework_item` on messages, and `tool_source_reference`,
+  `trace_context`, `input_continuation`, and `input_answers` on tool calls.
+  Both cores produce the same JSON.
+- The AI SDK UI message stream pauses for an approval only while its interrupt
+  is still in `PendingInterrupts`. A reconnect after `resolve_interrupt` and
+  before the approval Step commits keeps reading instead of showing the
+  approval as pending again.
+
+### OpenTelemetry GenAI spans
+
+Both cores emit OpenTelemetry GenAI spans: one trace per activation, rooted at
+`invoke_agent {agent name}`, with a `chat` span per `RunModel` attempt and an
+`execute_tool {tool name}` span per tool Step attempt. Every span carries the
+session Flow ID as `gen_ai.conversation.id` and `session.id`, and its Dex Flow,
+run, and Step identity. Activations link to the previous one. Content is by
+reference unless the application opts in. Tracing never fails or retries a
+Step: OpenTelemetry errors are logged and the span is skipped.
+
+- `dex-agents`: the optional `otel` extra installs `opentelemetry-api`.
+  `AgentSessionOptions.tracing` takes `AgentTracingOptions` (`is_enabled`,
+  `tracer_provider`, `agent_name`, `should_capture_message_content`,
+  `semantic_conventions_version`). Runners may return `ModelCallMetadata` as
+  `model_call_metadata` in `TurnCompleted` and `ToolCallsRequested`.
+- `@superdurable/dex-agents`: `@opentelemetry/api@^1.3.0` is an optional peer
+  dependency. `AgentSessionOptions.tracing` takes `AgentTracingOptions`
+  (`isEnabled`, `tracerProvider`, `agentName`, `shouldCaptureMessageContent`,
+  `semanticConventionsVersion`). Runners may return `modelCallMetadata` in
+  either outcome.
+- Both session Flows register the `AgentTraceContext` Attribute, which holds
+  the current activation's `traceparent` whenever its root has a valid span
+  context, sampled or not, so the activation's spans share its sampling
+  decision. `AgentToolCall` gains an optional `trace_context`
+  (`traceContext`), the activation root its tool spans join.
+- A `chat` span is named `chat {model}` only when the runner returns
+  `ModelCallMetadata`. Every framework adapter returns it with what its
+  framework reports for the call and leaves the rest unset; each adapter's
+  README lists its fields. When one `RunModel` makes several model calls, an
+  adapter keeps only the values every call shares and leaves out the response
+  ID and finish reasons. A provider identifier becomes its well-known
+  `gen_ai.provider.name` value of the pinned conventions when one applies, and
+  other values pass through unchanged. No adapter derives a provider from a
+  model name, class, base URL, or environment variable.
+  - OpenAI Agents SDK, Python and TypeScript: the requested model when it is
+    given by name, and the response ID unless it is the SDK's placeholder
+    (`__fake_id__` in Python, `FAKE_ID` in TypeScript). The SDK reports no
+    provider, response model, or finish reason.
+  - Pydantic AI: the requested model, and the response model, provider,
+    response ID, and finish reason of the `ModelResponse`. For the `google`,
+    `google-cloud`, and `openai` providers the provider comes from the
+    response's `canonical_system`, which names the endpoint the client
+    reached, so a Vertex AI client reports `gcp.vertex_ai` and an Azure OpenAI
+    client `azure.ai.openai`.
+  - LangChain and LangGraph: the chat model's `ls_model_name`, and the
+    `model_name`, `model_provider`, `id`, and finish reason of the reply's
+    `response_metadata`. `google_genai` becomes `gcp.gen_ai`, because
+    `ChatGoogleGenerativeAI` reports it for both the Gemini API and Vertex AI.
+  - Google ADK: the requested model, and the response's `model_version` and
+    finish reason. ADK keeps no response ID and names no provider.
+  - Vercel AI SDK and Mastra: the model ID, the provider ID by its longest
+    known prefix (`openai.responses` becomes `openai`, `google.vertex.chat`
+    becomes `gcp.vertex_ai`; an unknown ID keeps its first segment, so
+    `togetherai.chat` becomes `togetherai`), the response model when it
+    differs from the requested one, and the finish reason. They report no
+    response ID: when the provider sends none, the AI SDK and Mastra fill in
+    a generated ID and the requested model, and their public APIs do not say
+    which it is.
+  - Claude Agent SDK, Python and TypeScript: the model of the CLI's `init`
+    message, the provider from the result's model usage (`firstParty`
+    becomes `anthropic`, `bedrock` and `mantle` become `aws.bedrock`, `vertex`
+    becomes `gcp.vertex_ai`, and `gateway` reports none), and the response
+    model, message ID, and stop reason of the replies. A segment in which a
+    subagent called a model reports no request model.
+- `createMastraAgentSessionFlow` and `createOpenAIAgentsSessionFlow` pass
+  `tracing` to the session Flow. They dropped it before, so their sessions
+  traced with the global tracer provider and the default options.
+- The Python helpers `claude_agent_session_flow`, `adk_agent_session_flow`,
+  `openai_agents_session_flow`, `langchain_agent_session_flow`,
+  `langgraph_agent_session_flow`, and `pydantic_ai_session_flow` take
+  `tracing`, an `AgentTracingOptions`.
+- The TypeScript Claude Agent SDK adapter counts a subagent's model calls in
+  `AgentUsage.modelCalls`, as the Python adapter does. A turn segment with a
+  subagent call therefore gets an `INTERNAL` `chat` span without usage in both
+  languages.
+
+### Built-in agent loop (Stepwise mode)
+
+Phase 1 of the M2 plan. Stepwise mode runs an agent defined in Dex terms,
+with no framework: one model call per `RunModel` Step, and every tool call its
+own Step, through the same session Flow the adapters use.
+
+- `dex-agents`: `dex_agents.stepwise` with `AgentDefinition`,
+  `@function_tool` (JSON Schemas from type hints, standard library only), the
+  `ModelClient` protocol, `StepwiseAgentRunner`, and
+  `stepwise_agent_session_flow`. After `max_model_calls_per_turn` model calls
+  the next call offers no tools; a tool call the model makes anyway gets the
+  result `The tool call was not run: this turn reached its limit of <n> model
+  calls.`, and the turn ends.
+- `dex-agents`: `dex_agents.litellm.LiteLLMModelClient` behind the new extra
+  `dex-agents[litellm]` (`litellm>=1.104,<1.106`; 1.106 makes every Responses
+  API call import the undeclared `mcp` package). OpenAI models use the
+  Responses API with `store=False` and encrypted reasoning; other providers use
+  streaming Chat Completions with Anthropic thinking signatures. Reasoning items
+  and signatures replay byte for byte, and the client never retries.
+- `dex-agents`: `ScriptedModelClient` in `dex_agents.testing`, and
+  `AgentTestStack.start_worker(python_executable=...)` to run a Worker on
+  another environment, such as an earlier release.
+- `@superdurable/dex-agents/stepwise`: Stepwise mode:
+  `createStepwiseAgentSessionFlow`, `StepwiseAgentRunner`, `functionTool`, and
+  the `ModelClient` interface.
+- `@superdurable/dex-agents/ai-sdk`: `createAiSdkModelClient` for any AI SDK
+  `LanguageModel`, behind the optional peer `ai@^7.0.159`. It makes one
+  `streamText` call per `RunModel` (one step, `maxRetries` 0, tools without
+  `execute`) and replays reasoning and tool call parts with their provider
+  metadata unchanged.
+- `@superdurable/dex-agents/testing`: `ScriptedModelClient` for Stepwise tests
+  without a model key.
+
+### Questions, durable waits, and incremental turn messages
+
+Both cores, with identical Step types, RPC names, wire values, events, and
+model-visible text. Everything is inert until an application enables it.
+
+- `AgentSessionOptions.built_in_tools` (`builtInTools`) enables the
+  `ask_user` and `durable_wait` built-in tools, whose definitions are
+  `BUILT_IN_TOOL_DEFINITIONS` (`builtInToolDefinitions`). `RunModel` routes
+  their calls to their own Steps with no approval and the `read` effect, and
+  fails invalid arguments at once. `null` for an optional `ask_user` argument
+  means absent.
+- `ask_user` raises an interrupt of kind `question`, which the new
+  `answer_question` RPC answers and the new `AwaitQuestionAnswer` Step waits
+  for; the answer is the tool result and the turn continues. A tool can ask too
+  by returning `ToolInputRequested`; `AwaitQuestionAnswer` raises its question
+  under the `PendingInterrupts` lock, so parallel tool calls can ask at once.
+  `interrupt_deadline` applies to questions.
+- `durable_wait` waits on a whole-second Timer in the new `AwaitTimer` Step.
+  `AgentSessionOptions.max_durable_wait` (`maxDurableWaitMs`) defaults to 365
+  days and must be whole seconds.
+- `ToolCallsRequested.new_messages` (`newMessages`) stores a turn's items as
+  they appear. A runner that sets it implements
+  `build_unfinished_turn_messages` (`buildUnfinishedTurnMessages`), which
+  `RecordTurnFailure` calls; a runner without it fails the turn in `RunModel`'s
+  own commit, after one model call.
+- New wire values: `AgentToolCall` statuses `awaiting_answer` and
+  `waiting_for_timer` (non-final) and fields `wait_until`,
+  `input_continuation`, `input_answers`, `input_question`, `input_choices`, and
+  `input_allows_free_text`; `AgentInterrupt` fields `question`, `choices`, and
+  `allows_free_text`; `AgentInterruptResolution.answer`;
+  `AnswerQuestionRequest`; `QuestionAnswer`; the `timer_started` event; and new
+  keys on `interrupt_raised` and `interrupt_resolved`.
+- Both cores write RFC 3339 times with milliseconds and `Z`, such as
+  `2026-11-01T12:00:00.123Z`. Every reader in both cores, 0.1.0 included,
+  accepts the earlier `+00:00` form too.
+
+### Plans and plan mode
+
+Both cores, with identical Step types, persistence names, RPC names, wire
+values, events, and model-visible text. Everything is inert until an
+application enables it.
+
+- The `write_todos` built-in replaces the new `AgentPlan` Attribute
+  (`revision`, `status`, `tasks`, `updated_at`) with the next revision.
+  `RunModel` records the call in its own commit and still moves to
+  `ResumeTurn`; no tool Step runs. An empty list clears the plan, and a
+  response with two `write_todos` calls fails both. The session writes
+  `plan_updated`, and again when an approval marks a draft `active`.
+- `AgentSessionOptions.plan_mode_enabled` (`planModeEnabled`) accepts
+  `AgentUserMessage.plan_mode` (`planMode`) messages, which start a turn whose
+  new `AgentState.interaction_mode` is `planning`; `send_user_message` refuses
+  them otherwise. It needs `write_todos` and a runner that declares
+  `supports_plan_mode` (`supportsPlanMode`, `PlanModeRunner` in Python). A
+  planning turn rejects every call but `write_todos`.
+- The new `execute_plan` RPC approves one plan revision. It locks the new
+  `PendingPlanExecution` Attribute and publishes to the new `PlanExecutions`
+  ChannelMap, keyed by revision, which `AwaitUserMessage` waits on after
+  queued messages; it starts an `executing` turn and writes
+  `plan_execution_started`. A stale revision, or a second approval of a
+  revision not started yet, returns false.
+- Stepwise: `AgentDefinition.plan_mode_enabled` (`planModeEnabled`). A planning
+  turn offers only `write_todos`, and every model call shows the plan with
+  `build_plan_note` (`buildPlanNote`) before the turn's messages.
+  `AgentDefinition.planning_tool_choice` (`planningToolChoice`) is `auto` by
+  default, so a planning turn may also answer in text and end without a draft;
+  `required` forces `write_todos` on the first call while no draft exists. In
+  Python, `required` is refused for a model client whose
+  `supports_forced_tool_choice` returns false, as `LiteLLMModelClient` does
+  for Claude Opus 5.5, Claude Sonnet 5.5, and Anthropic extended thinking,
+  which on an Anthropic, Bedrock Claude, or Vertex AI Claude model is a
+  `thinking` option or any `reasoning_effort` but `"none"`.
+  `InstructionContext` gains `interaction_mode` and `plan`.
+- Both cores reject `NaN` and `Infinity` in built-in tool arguments and report
+  the first unknown argument by code point, so the errors the model sees are
+  the same. An explicit `null` for `plan_mode` or `interaction_mode` reads as
+  the default in both cores.
+- `AgentTurnContext` gains `interaction_mode` and `plan`, `AgentSnapshot`
+  gains `plan`, and `AgentSessionClient` (Python) and the TypeScript testing
+  client gain `execute_plan` and a `plan_mode` argument.
+### Steering and turn cancellation
+
+Both cores, with identical Step types, RPC names, wire values, events, and
+model-visible text. Nothing changes until an application calls the new RPCs.
+
+- `steer_user_message` (`SteerUserMessageRequest`, with a queued message's
+  `message_id` or new `text`) steers the running turn, and
+  `delete_queued_message` (`DeleteQueuedMessageRequest`) removes a queued
+  message. Both are transactional and lock nothing: a message consumed while
+  the RPC runs fails it with `ChannelMessageNotFoundError`, and nothing
+  commits. While no turn is active, `steer_user_message` with `text` queues
+  the message. `cancel_turn` (`CancelTurnRequest`) stops the running turn with
+  no new turn; `true` means the request is recorded, and the turn may still
+  complete first. It locks only `TurnCancellationRequest`, so concurrent
+  cancels apply in order.
+- A steered or cancelled turn ends at its next safe Step boundary. A model
+  call or tool call that has started finishes. Calls that have not started
+  record `rejected` with the new `AgentToolCall.cancellation_reason`
+  (`steered` or `turn_cancelled`) and the result
+  `{"status":"cancelled","reason":"superseded_by_steered_user_message"}` or
+  `{"status":"cancelled","reason":"turn_cancelled_by_user"}`. Final statuses do
+  not change. The new `ApplyTurnControl` Step ends the turn, stores the
+  runner's unfinished-turn messages or a steered or cancelled note, and starts
+  a turn with every steered message, in order. That turn is a planning turn
+  when any steered message has `plan_mode` or a draft plan exists, as for a
+  queued message, and `execute_plan` returns false while a steered message is
+  pending. A `write_todos` call settles in `RunModel`'s own commit, so one
+  that a model call made while the user steered still replaces the plan.
+- New persistence: the `SteeredUserMessages` Channel, the
+  `TurnCancellationRequest` Attribute, and the internal `TurnControlRequests`
+  Channel and `ToolCallCancellations` ChannelMap. `AgentState` gains
+  `accepts_turn_control` (`acceptsTurnControl`), which a turn that 0.2.0
+  started carries. `ResumeTurn` now waits on `TurnControlRequests` too and
+  locks `PendingInterrupts`.
+  `AwaitToolApproval`, `AwaitQuestionAnswer`, and `AwaitTimer` also wait on
+  their `ToolCallCancellations` instance. `AwaitUserMessage` wakes on a steer
+  or cancellation.
+- `get_agent_snapshot` returns `queued_messages` and `steered_messages`
+  (`PendingUserMessage` with the Channel message ID) next to
+  `queued_message_count`. New events `turn_steered` and `turn_cancelled`;
+  `interrupt_resolved.cancellation_reason` is set when steering or
+  cancellation removes an interrupt. New constants
+  `TURN_STEERED_NOTE_HEADER`, `TURN_CANCELLED_NOTE_HEADER`,
+  `TOOL_CALL_CANCELLED_BY_STEERING_RESULT`, and
+  `TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT` (camelCase in TypeScript).
+- `AgentSessionClient` gains `steer_user_message`, `delete_queued_message`,
+  and `cancel_turn`; the TypeScript `AgentSessionTestClient` gains
+  `steerUserMessage`, `steerQueuedMessage`, `deleteQueuedMessage`, and
+  `cancelTurn`. The TypeScript UI message stream ends a steered or cancelled
+  turn with `finish` reason `other`.
+- `build_unfinished_turn_messages` (`buildUnfinishedTurnMessages`) is also
+  called when a steered or cancelled turn ends. A runner that keeps its items
+  in run state may implement it to keep its exact transcript.
+
+### Tool tasks
+
+Both cores, with identical Step types, wire values, events, and error texts
+(the missing-poller text names each language's method). Inert until a runner
+returns the new outcome.
+
+- `execute_deferred_tool_call` may return `ToolTaskStarted(task_id,
+  poll_interval_seconds)` (`{ kind: "tool_task_started", taskId,
+  pollIntervalSeconds }`) when a tool started remote work. The tool Step
+  records the new non-final status `waiting_for_task` with the new
+  `AgentToolCall` fields `task_id` and `task_poll_interval_seconds`, writes the
+  new `tool_task_started` event, and moves to the new `PollToolTask` Step.
+- `PollToolTask` waits on a whole-second Timer and calls the runner's
+  `ToolTaskPoller.poll_tool_task(ToolTaskPoll)` (optional `pollToolTask` in
+  TypeScript) once per execution. It returns a `ToolExecutionResult`, a
+  `ToolTaskPending(poll_interval_seconds, continuation)`, whose continuation
+  the next poll reads as `input_continuation`, or a `ToolInputRequested`,
+  which asks through `AwaitQuestionAnswer`. A task's question never ends the call:
+  an answer, a decline, and a passed deadline each come back to `PollToolTask`
+  at once as a `QuestionAnswer` with the new `resolution` field (`answered`,
+  `declined`, `deadline_passed`), handed to the runner once as
+  `ToolTaskPoll.pending_answer` while the new record field
+  `task_answer_pending` is set. A poll gets three attempts, then the call's
+  failure route by effect. Each poll is an `execute_tool` span. `PollToolTask`
+  takes no lock and is never cancelled, so steering and `cancel_turn` wait
+  for a started task and keep its questions; a call with a task is never
+  recorded `rejected`.
+- `DeferredToolExecution.supports_tool_tasks` (`supportsToolTasks`) tells a
+  tool whether the runner polls tasks; the MCP sources poll inside the tool
+  Step without it.
+- A runner without the poll method that returns `ToolTaskStarted`, a blank
+  `task_id`, or an interval that is not a number records `failed` for a `read`
+  call and `outcome_unknown` otherwise (`MISSING_TOOL_TASK_POLLER`,
+  `BLANK_TOOL_TASK_ID`, `INVALID_TOOL_TASK_POLL_INTERVAL`).
+- `DeferredToolOutcome` gains `ToolTaskStarted`.
+
+### Context compaction
+
+Both cores, with identical Step types, persistence names, wire values, events,
+and model-visible text (plan section A7). Inert until an application sets a
+compaction policy.
+
+- `AgentSessionOptions.compaction` takes a `CompactionPolicy`
+  (`context_window_tokens`, `trigger_ratio` 0.85, `retained_ratio` 0.3;
+  TypeScript `contextWindowTokens`, `triggerRatio`, `retainedRatio`). It needs
+  a runner with the compaction capability, Python `ContextCompactionRunner`
+  and TypeScript's optional `estimateInputTokens`, `selectCompactionCutoff`,
+  and `summarizeContext`; the Flow constructor refuses it otherwise.
+- Before a model call that would cross the threshold, `RunModel` moves to the
+  new `CompactContext` Step instead of calling the model. `CompactContext`
+  makes one summary call, with `RunModel`'s timeouts, retries, and failure
+  route, and writes the new `ContextSummary` Attribute; a crash reruns only the
+  summary call. From then on the runner receives only the messages after the
+  summary, plus the summary in `AgentTurnContext.context_summary`
+  (`contextSummary`). Messages stay in `AgentMessages`, so
+  `list_agent_messages` and `get_agent_snapshot` still return all of them.
+- Stepwise implements the capability, with `AgentDefinition.compaction`. Its
+  model input starts with `[Dex] Summary of the earlier conversation:` and the
+  summary text, it cuts only between model responses whose tool calls all have
+  stored results, so a long turn compacts mid-turn without separating a tool
+  call from its result, and its summary call streams no text. When the summary
+  request plus the configured `max_output_tokens` would exceed
+  `ContextSummaryRequest.input_token_budget` (`inputTokenBudget`), the
+  policy's window, it leaves out the oldest messages up to a cut that never
+  splits a model response, and says so with
+  `[Dex] <n> earlier messages did not fit in this request and are left out.`
+  (Python `build_context_summary_omission_note`, TypeScript
+  `buildContextSummaryOmissionNote`).
+- Each `CompactContext` attempt emits a `chat` span for the summary call, as
+  `RunModel` does, named from the optional
+  `ContextSummaryResult.model_call_metadata` (`modelCallMetadata`).
+- The `message_count` of `turn_completed`, `turn_steered`, and
+  `turn_cancelled` counts every message the turn appended, also those a
+  mid-turn compaction summarized. A steer or cancellation that arrives during
+  `CompactContext` applies at the next `RunModel`, before any model call.
+- New wire values: `AgentState.status` `compacting_context`; `ContextSummary`;
+  `CompactContextInput`; `AgentSnapshot.context_summary`; the
+  `compaction_started` and `compaction_finished` events. The browser snapshot
+  JSON of both UI stream modules carries `context_summary`, and the AI SDK UI
+  message stream keeps the summary call's usage out of the message's steps.
+- Python: `AgentSessionStatus` gains `COMPACTING_CONTEXT`, so an exhaustive
+  `match` over the status must handle it. TypeScript: `AgentSessionStatus`
+  gains `"compacting_context"`. A 0.1.0 client cannot decode a snapshot taken
+  during compaction, so upgrade the clients that read snapshots before enabling
+  it.
+- The 2,000-turn compaction sessions that calibrate the deployment guide run
+  in the new `Agents Long Tests Nightly` workflow: Python with
+  `DEX_AGENTS_LONG_TESTS=1`, TypeScript with `npm run test:long`. `Agents CI`
+  runs a 300-turn guard in each core instead.
+
+### Fixes
+
+- TypeScript: `send_user_message`, the `AwaitUserMessage` Step that takes its
+  messages, and `StartAgentSession`'s initial message check for blank text with
+  Python's `str.strip()` whitespace, as the Python core does. Text made only of
+  U+001C to U+001F or U+0085 is now blank, and text made only of U+FEFF is now
+  a message. 0.1.0 used `String.trim()`.
+
+### Compatibility
+
+- Enable the new options and call the new RPCs only after every Worker of the
+  Flow type runs 0.2.0. A session started on 0.1.0 continues on 0.2.0.
+- Call `steer_user_message` and `cancel_turn` only after every Worker runs
+  0.2.0 and every turn that was active during the rollout has ended. A Step's
+  waits and locks come from the Worker that scheduled it, so such a turn can
+  hold a wait that a steer never wakes. The RPCs refuse a turn that an earlier
+  Worker started or advanced (`AgentState.accepts_turn_control` is false), and
+  a steer while no turn is active is queued, which every Worker's idle wait
+  takes. A turn that started on 0.2.0 during a mixed rollout is not refused.
+- `ResumeTurn` now locks `PendingInterrupts` in its short Execute, so
+  `resolve_interrupt` and `answer_question` can raise `RpcLockConflictError`
+  in sessions that never steer. `AgentSessionClient` retries it for 5 seconds;
+  direct `invoke_rpc` callers should retry it too.
+- Python: `ToolCallStatus` gains the three non-final members, so an exhaustive
+  `match` or `assert_never` over the status of a stored record, such as
+  `AgentSnapshot.tool_calls`, must handle them. Runners still see only final
+  records. `AgentFrameworkRunner` is generic in what
+  `execute_deferred_tool_call` returns; a bare `AgentFrameworkRunner` means
+  `AgentFrameworkRunner[ToolExecutionResult]`, as in 0.1.0, and a runner whose
+  tools ask the user implements `AgentFrameworkRunner[DeferredToolOutcome]`.
+  `AgentSessionFlow.runner` returns `AgentFrameworkRunner[DeferredToolOutcome]`.
+  Every other 0.1.0 API accepts 0.1.0 code: new fields and parameters have
+  defaults.
+- TypeScript: `AgentFrameworkRunner<ToolOutcome = ToolExecutionResult>` is
+  generic, so existing runners and code that calls them compile unchanged. A
+  runner whose tools ask the user implements
+  `AgentFrameworkRunner<DeferredToolOutcome>`. `AgentSnapshot.toolCalls` and
+  records read with `Client.getAttributes` are now `AgentToolCallRecord`, whose
+  status also allows the non-final `awaiting_answer`, `waiting_for_timer`, and
+  `waiting_for_task`;
+  code that assigns them to `AgentToolCall` must widen the type.
+  `AgentToolCallStatus`, which runners see, keeps its six values. Every other
+  0.1.0 type still accepts 0.1.0 code: new fields are optional.
+- TypeScript Claude Agent SDK: `AgentUsage.modelCalls` counts a subagent's
+  model calls, as the Python adapter always did; 0.1.0 counted only the main
+  conversation. The `AgentUsage` Attribute is cumulative, so in a session that
+  started on 0.1.0 the total mixes both meanings: turns that ran on 0.1.0 count
+  main-conversation calls only, and later turns count subagent calls too.
+- The Python adapters' lockfiles record the core's new extras; adapter code is
+  unchanged.
+
+## 0.1.0 (2026-11-01)
 
 First release of the agent framework adapters. Every package runs agent
 sessions in Step mode: each model call is one Dex Step and each tool call is
@@ -36,35 +473,3 @@ its own Step.
 
 Every npm adapter peer-depends on `@superdurable/dex-agents` and
 `@superdurable/dex`, so an application holds one copy of each.
-
-### MCP tool source
-
-- `dex_agents.mcp` (extra `dex-agents[mcp]`, `mcp>=2.3,<3`) and
-  `@superdurable/dex-agents/mcp` (optional peer `@modelcontextprotocol/sdk`
-  `^1.32.2`): `McpToolSource` lists the tools of MCP servers configured on the
-  Worker, over stdio or Streamable HTTP, and runs each call in its own tool
-  Step. `readOnlyHint` makes a tool `read`, `idempotentHint` makes it
-  `idempotent_write`, and an explicit `ToolPolicy` wins. A call whose response
-  never arrived is re-issued only for `read` and `idempotent_write` tools;
-  other tools record `outcome_unknown`. MCP tasks are polled inside the tool
-  Step with heartbeats and a bounded wait, and a retried attempt resumes the
-  same task; `input_required` records `failed`.
-- Both cores: `DeferredToolCall.tool_source_reference` (stored on
-  `AgentToolCall` as `tool_source_reference`) and
-  `DeferredToolExecution.heartbeat_checkpoint` / `save_heartbeat_checkpoint`.
-- TypeScript: `toolEffectFromMcpToolAnnotations` maps `idempotentHint` to
-  `idempotent_write` whatever `destructiveHint` says, as the Python adapters
-  do.
-
-### UI streams
-
-- `@superdurable/dex-agents/ui-stream`: an AI SDK UI message stream (protocol
-  `v1`) for `useChat`, resumed through a UI stream resume token, with
-  `reset-step` for a new `RunModel` attempt and tool approvals through
-  `resolve_interrupt`; plain Server-Sent Events resumed with `Last-Event-ID`;
-  and snapshots as AI SDK `UIMessage` objects or wire JSON.
-- `dex_agents.ui_stream`: Server-Sent Event frames resumed with
-  `Last-Event-ID`, and snapshot JSON, for async and synchronous Clients.
-- The testing exports' private engines accept `dex-server-zd` configuration
-  overrides: `serverZdConfigPath` in TypeScript and `server_zd_config` in
-  Python.

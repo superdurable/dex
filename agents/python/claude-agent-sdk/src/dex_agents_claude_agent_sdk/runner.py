@@ -27,6 +27,7 @@ from claude_agent_sdk import (
     ResultMessage,
     SdkMcpTool,
     StreamEvent,
+    SystemMessage,
     ToolResultBlock,
     UserMessage,
 )
@@ -40,6 +41,7 @@ from dex_agents import (
     DeferredToolExecution,
     FrameworkMessage,
     MessageRole,
+    ModelCallMetadata,
     ToolCallsRequested,
     ToolExecutionError,
     ToolExecutionResult,
@@ -70,6 +72,15 @@ _PERMISSION_MODES_THAT_SKIP_THE_ADAPTER = ("acceptEdits", "auto", "bypassPermiss
 AWAIT_INITIALIZE_CLI_FLAG = "await-initialize"
 _ADAPTER_OWNED_CLI_FLAGS = (AWAIT_INITIALIZE_CLI_FLAG, "mcp-config", "resume", "session-id")
 _SERVER_NAME_PATTERN = re.compile(r"[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*")
+# Claude Code's ModelUsage provider values that have a well-known gen_ai.provider.name.
+_GEN_AI_PROVIDER_NAMES = {
+    "firstParty": "anthropic",
+    "bedrock": "aws.bedrock",
+    "mantle": "aws.bedrock",
+    "vertex": "gcp.vertex_ai",
+}
+# A gateway relays requests to a backend that the CLI does not name.
+_CLAUDE_PROVIDERS_WITHOUT_GEN_AI_PROVIDER = frozenset({"gateway"})
 
 _running_deferred_tool_execution: ContextVar[DeferredToolExecution | None] = ContextVar(
     "dex_agents_claude_agent_sdk_deferred_tool_execution", default=None
@@ -303,17 +314,20 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
         segment_session_id, segment_entries = session_store.take_segment_transcript()
         turn_entries = [*earlier_turn_entries, *segment_entries]
         usage = observer.usage(result)
+        model_call_metadata = observer.model_call_metadata(result, options.model)
         if result.deferred_tool_use is not None:
             return ToolCallsRequested(
                 framework_run_state=encode_run_state(segment_session_id, turn_entries),
                 tool_calls=[tool_call_gate.deferred_tool_call(result.deferred_tool_use)],
                 usage=usage,
+                model_call_metadata=model_call_metadata,
             )
         return TurnCompleted(
             new_messages=project_turn_entries(
                 segment_session_id, turn_entries, self._tool_catalog.policy_tool_name
             ),
             usage=usage,
+            model_call_metadata=model_call_metadata,
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -450,6 +464,11 @@ class _TurnSegmentObserver:
         self._turn = turn
         self._tool_call_gate = tool_call_gate
         self._model_message_ids: set[str] = set()
+        self._provider_response_ids: set[str] = set()
+        self._response_models: set[str] = set()
+        self._finish_reasons: list[str] = []
+        self._init_model: str | None = None
+        self._has_subagent_model_call = False
         self._mirror_errors: list[str] = []
         self._result: ResultMessage | None = None
 
@@ -457,10 +476,19 @@ class _TurnSegmentObserver:
         if isinstance(message, StreamEvent):
             if message.parent_tool_use_id is None:
                 self._write_stream_event_delta(message.event)
+                self._record_finish_reason(message.event)
         elif isinstance(message, AssistantMessage):
             model_message_id = message.message_id or message.uuid
             if model_message_id is not None:
                 self._model_message_ids.add(model_message_id)
+            if message.message_id is not None:
+                self._provider_response_ids.add(message.message_id)
+            self._response_models.add(message.model)
+            if message.parent_tool_use_id is not None:
+                self._has_subagent_model_call = True
+        elif isinstance(message, SystemMessage) and message.subtype == "init":
+            init_model = message.data.get("model")
+            self._init_model = init_model if isinstance(init_model, str) and init_model else None
         elif isinstance(message, UserMessage):
             if isinstance(message.content, list):
                 for block in message.content:
@@ -500,6 +528,28 @@ class _TurnSegmentObserver:
             cached_input_tokens=cache_read_tokens,
         )
 
+    def model_call_metadata(
+        self, result: ResultMessage, options_model: str | None
+    ) -> ModelCallMetadata:
+        # Subagents can request other models, so a segment with one has no single request model.
+        request_model = None if self._has_subagent_model_call else self._init_model or options_model
+        is_single_model_call = len(self._model_message_ids) == 1
+        return ModelCallMetadata(
+            request_model=request_model,
+            response_model=_only_value(self._response_models),
+            provider_name=_gen_ai_provider_name(result, request_model),
+            response_id=_only_value(self._provider_response_ids) if is_single_model_call else None,
+            finish_reasons=tuple(self._finish_reasons) if is_single_model_call else (),
+        )
+
+    def _record_finish_reason(self, event: Mapping[str, Any]) -> None:
+        if event.get("type") != "message_delta":
+            return
+        delta = event.get("delta")
+        stop_reason = delta.get("stop_reason") if isinstance(delta, Mapping) else None
+        if isinstance(stop_reason, str) and stop_reason:
+            self._finish_reasons.append(stop_reason)
+
     def _write_stream_event_delta(self, event: Mapping[str, Any]) -> None:
         if event.get("type") != "content_block_delta":
             return
@@ -510,6 +560,26 @@ class _TurnSegmentObserver:
             self._turn.events.write_text_delta(str(delta.get("text", "")))
         elif delta.get("type") == "thinking_delta":
             self._turn.events.write_reasoning_delta(str(delta.get("thinking", "")))
+
+
+def _only_value(values: set[str]) -> str | None:
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def _gen_ai_provider_name(result: ResultMessage, request_model: str | None) -> str | None:
+    if request_model is None:
+        return None
+    model_usage: Mapping[str, Any] = (result.model_usage or {}).get(request_model) or {}
+    provider = model_usage.get("provider")
+    if not isinstance(provider, str):
+        return None
+    return _gen_ai_provider_name_of_claude_provider(provider)
+
+
+def _gen_ai_provider_name_of_claude_provider(claude_provider: str) -> str | None:
+    if not claude_provider or claude_provider in _CLAUDE_PROVIDERS_WITHOUT_GEN_AI_PROVIDER:
+        return None
+    return _GEN_AI_PROVIDER_NAMES.get(claude_provider, claude_provider)
 
 
 async def _single_user_message(

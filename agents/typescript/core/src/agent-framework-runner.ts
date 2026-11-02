@@ -6,12 +6,19 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { BuiltInTool } from "./agent-built-in-tools.js";
+import type { ContextSummaryRequest, ContextSummaryResult } from "./agent-context-compaction.js";
 import type {
   AgentMessage,
+  AgentPlan,
   AgentToolCall,
+  AgentToolCallRecord,
   AgentToolCallStatus,
   AgentUsage,
+  ContextSummary,
   FrameworkMessage,
+  InteractionMode,
+  QuestionAnswer,
   ToolEffect,
 } from "./agent-session-values.js";
 
@@ -149,8 +156,16 @@ export interface AgentTurnContext {
    */
   readonly attempt: number;
   /**
+   * Dex Step execution ID of this `RunModel` Step, shared by all of its attempts.
+   *
+   * The session always sets this field. It is optional only so that code that builds a context by hand
+   * keeps compiling.
+   */
+  readonly stepExecutionId?: string;
+  /**
    * Every stored session message in ascending sequence order, including the user message that
-   * started this turn. Replay each `frameworkItem` to the framework unchanged.
+   * started this turn. Replay each `frameworkItem` to the framework unchanged. After compaction, only the
+   * messages after {@link contextSummary}.
    */
   readonly messages: readonly AgentMessage[];
   /**
@@ -172,6 +187,44 @@ export interface AgentTurnContext {
   readonly cancellationSignal: AbortSignal;
   /** Absolute deadline of the current attempt, or `undefined` when Dex supplied none. */
   readonly deadline: Date | undefined;
+  /**
+   * Built-in tools enabled for this session through {@link AgentSessionOptions.builtInTools}. Offer
+   * their definitions from {@link builtInToolDefinitions} to the model; the session handles their calls.
+   *
+   * The session always sets this field. It is optional only so that code that builds a context by hand,
+   * such as a unit test, keeps compiling; treat `undefined` as no built-in tools.
+   */
+  readonly enabledBuiltInTools?: ReadonlySet<BuiltInTool>;
+  /**
+   * Explicit policies by tool name from {@link AgentSessionOptions.toolPolicies}, the same map
+   * {@link resolveToolPolicy} applies first. A runner whose framework sets its own approval default, such as
+   * a tool's `requiresApproval`, applies that default only to tools without an explicit policy here.
+   * Optional for the same reason as {@link enabledBuiltInTools}; treat `undefined` as no policies.
+   */
+  readonly toolPolicies?: Readonly<Record<string, ToolPolicy>>;
+  /**
+   * {@link AgentSessionOptions.defaultToolEffect}, the effect of a tool without a policy or framework
+   * metadata. Optional for the same reason as {@link enabledBuiltInTools}.
+   */
+  readonly defaultToolEffect?: ToolEffect;
+  /**
+   * The turn's {@link AgentState.interactionMode}. A runner with {@link AgentFrameworkRunner.supportsPlanMode}
+   * offers only `write_todos` in a `planning` turn. The session always sets it; treat `undefined` as `chat`.
+   */
+  readonly interactionMode?: InteractionMode;
+  /**
+   * The {@link AgentPlan} as committed before this model call, or `null` before `write_todos` first
+   * succeeded. Show it to the model with {@link buildPlanNote}. The session always sets it; treat
+   * `undefined` as `null`.
+   */
+  readonly plan?: AgentPlan | null;
+  /**
+   * The summary of the messages before {@link messages}, or `null`. Only a runner that implements the
+   * compaction methods, such as {@link AgentFrameworkRunner.summarizeContext}, receives one; put its text
+   * before {@link messages} in the model input. Optional for the same reason as {@link enabledBuiltInTools};
+   * treat `undefined` as no summary.
+   */
+  readonly contextSummary?: ContextSummary | null;
   /**
    * Returns the effective policy of a tool; see {@link resolveToolPolicy} for the precedence.
    * Pass it unchanged in {@link DeferredToolCall.policy}.
@@ -218,18 +271,62 @@ export interface DeferredToolCall {
   readonly toolSourceReference?: string;
 }
 
+/**
+ * Model and response of one model call, returned in {@link TurnCompleted} or {@link ToolCallsRequested}
+ * for tracing.
+ *
+ * The session never stores it: it only names the `chat` span and sets its GenAI attributes. Omit a
+ * field when the framework does not expose it.
+ *
+ * @example
+ * ```ts
+ * const modelCallMetadata: ModelCallMetadata = {
+ *   requestModel: "gpt-5",
+ *   responseModel: "gpt-5-2026-08-07",
+ *   providerName: "openai",
+ *   responseId: "resp_123",
+ *   finishReasons: ["tool_calls"],
+ * };
+ * return { kind: "tool_calls_requested", frameworkRunState, toolCalls, usage, modelCallMetadata };
+ * ```
+ */
+export interface ModelCallMetadata {
+  /**
+   * Model name the call requested, such as `"gpt-5"`. It becomes `gen_ai.request.model` and the span
+   * name `chat <requestModel>`.
+   */
+  readonly requestModel?: string;
+  /** Model name the provider reported. */
+  readonly responseModel?: string;
+  /**
+   * GenAI provider, such as `"openai"`, `"anthropic"`, or `"gcp.gemini"`. Use the well-known
+   * `gen_ai.provider.name` value when one applies.
+   */
+  readonly providerName?: string;
+  /** Provider response ID. */
+  readonly responseId?: string;
+  /** Provider finish reasons, one per returned choice. */
+  readonly finishReasons?: readonly string[];
+}
+
 /** Outcome of a model call that produced the turn's final answer. */
 export interface TurnCompleted {
   /** Discriminator. */
   readonly kind: "completed";
   /**
-   * Every message the turn produced after its user message, across all of its model calls, in order:
-   * model output, tool requests, tool results, and the final answer. The session appends them in one
-   * commit and deletes the turn's tool call records.
+   * Every message of the turn that the session has not stored yet, in order: model output, tool
+   * requests, tool results, and the final answer. The session appends them in one commit and deletes the
+   * turn's tool call records.
+   *
+   * A runner that never sets {@link ToolCallsRequested.newMessages} returns every message the turn
+   * produced after its user message, across all of its model calls. A runner that stores messages
+   * incrementally returns only the messages after the ones it already returned.
    */
   readonly newMessages: readonly FrameworkMessage[];
   /** Usage of this model call only; the session adds it to the cumulative usage. */
   readonly usage: AgentUsage;
+  /** Model and response of this model call, for the `chat` span. When omitted, the span is named `chat`. */
+  readonly modelCallMetadata?: ModelCallMetadata;
 }
 
 /** Outcome of a model call that requested tool calls. */
@@ -237,11 +334,21 @@ export interface ToolCallsRequested {
   /** Discriminator. */
   readonly kind: "tool_calls_requested";
   /**
-   * Non-empty serialized framework state from which the next `RunModel` continues the turn, including
-   * the messages this turn has produced so far. The session stores no partial messages; it keeps this
-   * value opaquely in `FrameworkRunState`.
+   * Non-empty serialized framework state from which the next `RunModel` continues the turn. The
+   * session keeps this value opaquely in `FrameworkRunState`. A runner without
+   * {@link newMessages} includes the messages this turn has produced so far; a runner with them keeps
+   * only what the stored messages cannot rebuild, so the value does not grow with the turn.
    */
   readonly frameworkRunState: string;
+  /**
+   * Messages of the turn to store now, in the same commit that records the tool calls. Defaults to none.
+   *
+   * Return the previous model response's tool results and this model response, so the turn's
+   * transcript is stored while its tools run. A runner that sets this field must implement
+   * {@link AgentFrameworkRunner.buildUnfinishedTurnMessages}; the session fails the model call
+   * otherwise. The next {@link AgentTurnContext.messages} include these messages.
+   */
+  readonly newMessages?: readonly FrameworkMessage[];
   /**
    * Every tool call of the model response, at least one. Each runs in its own Step, in parallel. Do not
    * repeat a call that already has a record in {@link AgentTurnContext.toolCalls}; the session rejects
@@ -250,6 +357,8 @@ export interface ToolCallsRequested {
   readonly toolCalls: readonly DeferredToolCall[];
   /** Usage of this model call only. */
   readonly usage: AgentUsage;
+  /** Model and response of this model call, for the `chat` span. When omitted, the span is named `chat`. */
+  readonly modelCallMetadata?: ModelCallMetadata;
 }
 
 /** Result of {@link AgentFrameworkRunner.runModelStep}. */
@@ -279,6 +388,20 @@ export interface DeferredToolExecution {
   /** Absolute deadline of the current attempt, or `undefined`. */
   readonly deadline: Date | undefined;
   /**
+   * Answers to the questions this call asked by returning {@link ToolInputRequested}, oldest first, or
+   * empty. The opaque continuation of the last question is in `toolCall.inputContinuation`.
+   *
+   * The session always sets this field. It is optional only so that code that builds an execution by
+   * hand, such as a unit test, keeps compiling; treat `undefined` as no answers.
+   */
+  readonly inputAnswers?: readonly QuestionAnswer[];
+  /**
+   * Whether the runner implements {@link AgentFrameworkRunner.pollToolTask}, so the tool may return
+   * {@link ToolTaskStarted}. When it is not `true`, run remote work to its end inside the call instead.
+   * Optional for the same reason as {@link inputAnswers}; treat `undefined` as `false`.
+   */
+  readonly supportsToolTasks?: boolean;
+  /**
    * Records a heartbeat. The session already records one every 20 seconds.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
@@ -299,11 +422,152 @@ export interface DeferredToolExecution {
   saveHeartbeatCheckpoint?(checkpoint: string): Promise<void>;
 }
 
-/** Successful result of one deferred tool call. */
+/** Successful result of one deferred tool call. A result without `kind` is a `ToolExecutionResult`. */
 export interface ToolExecutionResult {
   /** Output text recorded on the call and shown to the model. */
   readonly output: string;
 }
+
+/**
+ * Result of a deferred tool call that needs an answer from the user before it can take effect.
+ *
+ * Return it from {@link AgentFrameworkRunner.executeDeferredToolCall} only when the call has had no
+ * effect yet. The tool Step records `awaiting_answer` and stores {@link continuation}. `AwaitQuestionAnswer`
+ * then raises a `question` interrupt with ID `<toolCallId>-input-<n>`, where `n` counts the call's
+ * questions from 1. After `answer_question`, the record returns to `approved` and the same tool Step
+ * type runs the call again, with every answer in {@link DeferredToolExecution.inputAnswers} and the
+ * continuation in `toolCall.inputContinuation`. The tool's later output, not the answer, is the result.
+ * A declined question or a passed deadline records `rejected`, and the tool never runs again.
+ *
+ * Because the call took no effect, a single-attempt tool that runs again after an answer still never
+ * repeats an effect. A crash during the second run records `outcome_unknown`, as for any run.
+ *
+ * @example
+ * ```ts
+ * public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+ *   const confirmation = call.inputAnswers?.at(-1)?.answer;
+ *   if (confirmation === undefined) {
+ *     return { kind: "tool_input_requested", question: "Ship to the saved address?", choices: ["yes", "no"],
+ *       allowsFreeText: false, continuation: null };
+ *   }
+ *   return { output: confirmation === "yes" ? await shipOrder(call.idempotencyKey) : "not shipped" };
+ * }
+ * ```
+ */
+export interface ToolInputRequested {
+  /** Discriminator. */
+  readonly kind: "tool_input_requested";
+  /** Question for the user; it must not be blank. */
+  readonly question: string;
+  /** Answers to offer. Defaults to none, which makes the question free text. */
+  readonly choices?: readonly string[];
+  /** Whether an answer outside {@link choices} is accepted. Defaults to `true`; ignored without choices. */
+  readonly allowsFreeText?: boolean;
+  /** Opaque text returned to the tool with the answer, such as a server request ID, or `null`. */
+  readonly continuation: string | null;
+}
+
+/**
+ * Result of a deferred tool call that started remote work and returned a handle to poll.
+ *
+ * Return it from {@link AgentFrameworkRunner.executeDeferredToolCall} when the tool's work runs
+ * elsewhere and outlives the call, such as an MCP task. The tool Step records `waiting_for_task` with
+ * {@link taskId} and the poll interval, writes `tool_task_started`, and ends. `PollToolTask` then waits
+ * on a Timer for the interval and calls {@link AgentFrameworkRunner.pollToolTask} once per execution, so
+ * no Step or connection is held while the work runs, and a Worker restart only delays the next poll. The
+ * runner must implement `pollToolTask`; without it the session records the call `failed` for a `read`
+ * tool and `outcome_unknown` otherwise.
+ *
+ * The tool Step commits the handle with its result. A `CallTool` attempt that dies after the remote work
+ * started runs again, so save the handle with {@link DeferredToolExecution.saveHeartbeatCheckpoint}
+ * before you return it, and return the saved handle when {@link DeferredToolExecution.heartbeatCheckpoint}
+ * holds one. Once the checkpoint has reached Dex, a retried attempt resumes the same work. Dex may drop a
+ * heartbeat checkpoint, though, so an attempt that dies before its checkpoint is saved and before the tool
+ * Step commits can still start the work a second time on a `CallTool` retry; pass the idempotency key to
+ * the remote system so it can drop the duplicate. Steering and turn cancellation never abandon a started
+ * task: the session waits for it.
+ *
+ * @example
+ * ```ts
+ * public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+ *   if (call.heartbeatCheckpoint !== undefined) {
+ *     return { kind: "tool_task_started", taskId: call.heartbeatCheckpoint, pollIntervalSeconds: 5 };
+ *   }
+ *   const jobId = await reports.start(call.idempotencyKey);
+ *   await call.saveHeartbeatCheckpoint?.(jobId);
+ *   return { kind: "tool_task_started", taskId: jobId, pollIntervalSeconds: 5 };
+ * }
+ * ```
+ */
+export interface ToolTaskStarted {
+  /** Discriminator. */
+  readonly kind: "tool_task_started";
+  /** Handle of the remote work; it must not be blank. The session stores it as the record's `taskId`. */
+  readonly taskId: string;
+  /**
+   * Seconds to wait before the first poll. The session rounds it up to whole seconds, at least 1,
+   * because Dex Timers take whole seconds, and shortens it to at most a day.
+   */
+  readonly pollIntervalSeconds: number;
+}
+
+/** Result of {@link AgentFrameworkRunner.pollToolTask} while the polled task still runs. */
+export interface ToolTaskPending {
+  /** Discriminator. */
+  readonly kind: "tool_task_pending";
+  /** Seconds to wait before the next poll. The session rounds it up to whole seconds, from 1 to a day. */
+  readonly pollIntervalSeconds: number;
+  /**
+   * Text the next poll reads as `toolCall.inputContinuation`, such as which question the task took an answer
+   * to and when. Omitted or `null` clears it: keep what the next poll needs, and drop a question's
+   * continuation once the task took its answer, so an identical later question reads as new.
+   */
+  readonly continuation?: string | null;
+}
+
+/** One task that `PollToolTask` asks the runner to poll. */
+export interface ToolTaskPoll {
+  /** Flow ID, which is the session ID. */
+  readonly flowId: string;
+  /** The call's record, `waiting_for_task`, with `taskId`, `taskPollIntervalSeconds`, and `toolSourceReference`. */
+  readonly toolCall: AgentToolCallRecord;
+  /** `<flowId>/<turnId>/<toolCallId>`, the key the tool Step passed when it started the task. */
+  readonly idempotencyKey: string;
+  /** One-based `PollToolTask` attempt. Each poll gets up to three attempts. */
+  readonly attempt: number;
+  /** How the questions this call asked were resolved, oldest first, whether its tool or its task asked them. */
+  readonly inputAnswers: readonly QuestionAnswer[];
+  /**
+   * The resolution of the task's last question, which has not reached the task yet, or `null`. It is set
+   * only on the first poll after `AwaitQuestionAnswer` resolved the question, which runs at once. Deliver it
+   * to the task: the answer when `resolution` is `answered`, a decline when it is `declined`, and a
+   * cancelled request when it is `deadline_passed`. `toolCall.inputContinuation` holds the question's
+   * continuation, so recognize the request it answers and deliver only to that request. Later polls read the
+   * continuation the last {@link ToolTaskPending} returned. A retried attempt gets it again; when it cannot
+   * tell whether an earlier attempt delivered it, return the task's question as {@link ToolInputRequested}
+   * again rather than send it to what may be a later question. When the task cannot take the resolution,
+   * cancel the task best-effort and throw an error other than {@link ToolExecutionError}, so the session
+   * records the call by its effect.
+   */
+  readonly pendingAnswer: QuestionAnswer | null;
+  /** Events writer bound to the turn and attempt. */
+  readonly events: AgentEventWriter;
+  /** Signal aborted when Dex cancels the attempt. */
+  readonly cancellationSignal: AbortSignal;
+  /** Absolute deadline of the current attempt, or `undefined`. */
+  readonly deadline: Date | undefined;
+  /**
+   * Records a heartbeat. The session already records one every 20 seconds.
+   * @returns A Promise that resolves when the Worker accepted the heartbeat.
+   */
+  heartbeat(): Promise<void>;
+}
+
+/** Result of {@link AgentFrameworkRunner.executeDeferredToolCall}. */
+export type DeferredToolOutcome = ToolExecutionResult | ToolInputRequested | ToolTaskStarted;
+
+/** Result of {@link AgentFrameworkRunner.pollToolTask}. */
+export type ToolTaskPollOutcome = ToolExecutionResult | ToolInputRequested | ToolTaskPending;
 
 /**
  * Tool failure that the model should see, thrown from {@link AgentFrameworkRunner.executeDeferredToolCall}.
@@ -352,6 +616,9 @@ export class ToolExecutionError extends Error {
  *   run in another Worker process.
  * - Throwing from `runModelStep` retries the model call, up to 3 attempts within 30 minutes; then the
  *   turn fails, the session records `last_turn_error`, and it waits for the next user message.
+ * - A runner may store the turn's transcript incrementally with {@link ToolCallsRequested.newMessages};
+ *   it then implements {@link buildUnfinishedTurnMessages}. A runner may offer the
+ *   {@link AgentTurnContext.enabledBuiltInTools} to its model; the session handles their calls.
  *
  * @example
  * ```ts
@@ -372,8 +639,11 @@ export class ToolExecutionError extends Error {
  *   }
  * }
  * ```
+ * @typeParam ToolOutcome - What {@link executeDeferredToolCall} returns. It defaults to
+ * {@link ToolExecutionResult}; a runner whose tools can ask the user a question first or start a remote
+ * task implements `AgentFrameworkRunner<DeferredToolOutcome>`. The session accepts both.
  */
-export interface AgentFrameworkRunner {
+export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = ToolExecutionResult> {
   /**
    * Converts user text into the framework's user message.
    *
@@ -397,12 +667,121 @@ export interface AgentFrameworkRunner {
    * Runs the real tool for one tool call, in `CallTool` or `CallSingleAttemptTool`.
    *
    * @param call - Deferred call to run.
-   * @returns The tool output text.
+   * @returns The tool output text; {@link ToolInputRequested} when the tool needs an answer from the
+   * user before it takes any effect; or {@link ToolTaskStarted} when the tool started remote work that
+   * {@link pollToolTask} polls.
    * @throws {ToolExecutionError} For a failure the model should see; the call is recorded as `failed`.
    * @throws Any other error for an unexpected failure; after the last attempt the record becomes
    * `failed` for a `read` tool and `outcome_unknown` for a write. See {@link ToolExecutionError}.
    */
-  executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult>;
+  executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolOutcome>;
+  /**
+   * Returns the turn's messages that the session has not stored yet, when the turn ends without a final
+   * answer. Optional.
+   *
+   * Implement it when the runner sets {@link ToolCallsRequested.newMessages}. `RecordTurnFailure` calls
+   * it before it appends the turn-failure note, with every record of the turn final. Return the tool
+   * result of every tool call already stored or returned that has no stored result, so no tool call is
+   * left without a result. It must be synchronous and make no model call. When it throws, the session
+   * stores only the turn-failure note, so a runner defect never blocks the failure route.
+   *
+   * @param turn - The ended turn; {@link AgentTurnContext.toolCalls} holds its final records.
+   * @returns The messages to append, in order, possibly none.
+   */
+  buildUnfinishedTurnMessages?(turn: AgentTurnContext): readonly FrameworkMessage[];
+  /**
+   * Whether the runner honors plan mode. Optional; {@link AgentSessionOptions.planModeEnabled} needs `true`,
+   * and `createAgentSessionFlow` throws otherwise.
+   *
+   * Such a runner reads {@link AgentTurnContext.interactionMode} in every `runModelStep`. In a `planning`
+   * turn it offers only the `write_todos` definition from {@link builtInToolDefinitions}. It may force
+   * `write_todos` on the turn's first model call while the plan is not a draft yet, where the model accepts a
+   * forced tool choice; Stepwise does with `planningToolChoice: "required"`. In every
+   * turn it shows the plan with {@link buildPlanNote} as user text before the turn's messages. The Stepwise
+   * runner implements it; a framework adapter that cannot change the tools it offers between turns leaves
+   * plan mode off.
+   */
+  readonly supportsPlanMode?: boolean;
+  /**
+   * Polls one remote task that a tool started with {@link ToolTaskStarted}, once. Optional.
+   *
+   * Implement it when a tool returns `ToolTaskStarted`. `PollToolTask` calls it once per execution,
+   * after a Timer for the call's poll interval, until it returns a result. Polling must only read the
+   * task, and deliver `poll.pendingAnswer` when it is set, because the session may poll again after a
+   * crash. Steering and cancellation never stop a poll.
+   *
+   * @example
+   * ```ts
+   * public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+   *   const job = await reports.get(poll.toolCall.taskId!);
+   *   return job.done ? { output: job.summary } : { kind: "tool_task_pending", pollIntervalSeconds: 10 };
+   * }
+   * ```
+   * @param poll - The call's record and its idempotency key.
+   * @returns {@link ToolExecutionResult} when the task finished, which the model sees;
+   * {@link ToolTaskPending} while it runs; or {@link ToolInputRequested} when it needs the user's answer.
+   * The session asks the question through `AwaitQuestionAnswer` and polls again at once with its
+   * resolution, answered, declined, or past its deadline, as `pendingAnswer`. The task's later result is
+   * the call's result.
+   * @throws {ToolExecutionError} When the task failed in a way the model should see; the call is
+   * recorded as `failed`.
+   * @throws Any other error to fail the poll attempt; after three attempts the record becomes `failed`
+   * for a `read` call and `outcome_unknown` otherwise, because the task may still run.
+   */
+  pollToolTask?(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome>;
+  /**
+   * Estimates the size of the model input that the next {@link runModelStep} sends. Optional; one of the
+   * three compaction methods that {@link AgentSessionOptions.compaction} requires.
+   *
+   * `RunModel` calls it before every model call of a session with a compaction policy. At the policy's
+   * threshold it calls {@link selectCompactionCutoff}, and when that returns a sequence after the current
+   * summary, `CompactContext` calls {@link summarizeContext} once and stores the result as the
+   * `ContextSummary`. From then on, {@link AgentTurnContext.messages} start after the summary and
+   * {@link AgentTurnContext.contextSummary} holds it. A runner without these methods never compacts.
+   *
+   * @example
+   * ```ts
+   * class CompactingRunner extends MyRunner {
+   *   public estimateInputTokens(turn: AgentTurnContext): number {
+   *     return countTokens(buildModelInput(turn));
+   *   }
+   *   public selectCompactionCutoff(turn: AgentTurnContext, retainedTokenBudget: number): number | null {
+   *     return lastSequenceBeforeNewestMessages(turn.messages, retainedTokenBudget);
+   *   }
+   *   public async summarizeContext(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+   *     const response = await model.summarize(request.previousSummary, request.messages);
+   *     return { text: response.text, usage: response.usage };
+   *   }
+   * }
+   * ```
+   * @param turn - The same context the next {@link runModelStep} receives.
+   * @returns The estimated input tokens, in the unit of `CompactionPolicy.contextWindowTokens`.
+   */
+  estimateInputTokens?(turn: AgentTurnContext): number | Promise<number>;
+  /**
+   * Chooses the last message to summarize, so the newest messages fit a token budget. Optional; see
+   * {@link estimateInputTokens}.
+   *
+   * Never separate a tool call from its result: the messages after the cutoff must not start with a tool
+   * result or hold a result whose call is before the cutoff. Keep the turn's unstored tool results
+   * answerable.
+   *
+   * @param turn - The context of the model call that crossed the threshold.
+   * @param retainedTokenBudget - Tokens that the messages after the cutoff may use.
+   * @returns The sequence of the last message to summarize, one of {@link AgentTurnContext.messages}; or
+   * `null` when nothing can be summarized, which lets the model call proceed.
+   */
+  selectCompactionCutoff?(turn: AgentTurnContext, retainedTokenBudget: number): number | null | Promise<number | null>;
+  /**
+   * Folds the previous summary and a range of messages into a new summary, with at most one model call.
+   * Optional; see {@link estimateInputTokens}. A crash during the call reruns only this call.
+   *
+   * @param request - The previous summary and the messages to summarize.
+   * @returns The new summary text and the usage of the call.
+   * @throws Any error to fail the `CompactContext` attempt; it retries up to 3 attempts within 30
+   * minutes, then the turn fails through `RecordTurnFailure`.
+   */
+  summarizeContext?(request: ContextSummaryRequest): Promise<ContextSummaryResult>;
 }
 
 /** MCP tool annotations that classify a tool's side effects. */

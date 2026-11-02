@@ -8,6 +8,7 @@
 
 import type { Client, StreamMessage } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type { AgentEvent, AgentSnapshot } from "../agent-session-values.js";
 import { convertAgentEventToJson, convertAgentSnapshotToJson } from "./agent-event-json.js";
@@ -41,7 +42,7 @@ export interface AgentEventSseOptions {
   /** Client used for every Stream read. The caller keeps ownership. */
   readonly client: Client;
   /** The agent session Flow, the same object the Worker registered. */
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   /** Session ID: the Flow ID of the agent session. */
   readonly flowId: string;
   /**
@@ -101,8 +102,9 @@ export function formatAgentEventSseFrame(message: StreamMessage<AgentEvent>): st
  * iterating, or abort `signal`, when the browser goes away.
  *
  * The browser applies the event rules of the session contract. Within one `step_execution_id` it keeps
- * only the highest `attempt` and drops the partial text of lower attempts. After `turn_completed` or
- * `turn_failed` it replaces the turn's live text with the stored messages. On every connection, load
+ * only the highest `attempt` and drops the partial text of lower attempts. After `turn_completed`,
+ * `turn_failed`, `turn_steered`, or `turn_cancelled` it replaces the turn's live text with the stored
+ * messages. On every connection, load
  * {@link readAgentEventStreamSnapshot} first and open the stream from its `resumeToken`.
  *
  * @example
@@ -221,7 +223,7 @@ export async function createAgentEventSseResponse(
  */
 export async function readAgentEventStreamSnapshot(options: {
   readonly client: Client;
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   readonly flowId: string;
 }): Promise<AgentEventStreamSnapshot> {
   const { client, flow, flowId } = options;

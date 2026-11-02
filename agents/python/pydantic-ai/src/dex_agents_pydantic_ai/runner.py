@@ -46,6 +46,7 @@ from dex_agents import (
     AgentSessionFlow,
     AgentSessionOptions,
     AgentToolCall,
+    AgentTracingOptions,
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
@@ -250,10 +251,13 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
                 ).to_json(),
                 tool_calls=tool_calls,
                 usage=usage,
+                model_call_metadata=capability.model_call_metadata(),
             )
         _require_every_tool_result_recorded(new_messages, capability, recorded_tool_call_ids)
         return TurnCompleted(
-            new_messages=build_turn_messages(turn_messages, user_prompt), usage=usage
+            new_messages=build_turn_messages(turn_messages, user_prompt),
+            usage=usage,
+            model_call_metadata=capability.model_call_metadata(),
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -362,6 +366,7 @@ def pydantic_ai_session_flow(
     default_tool_effect: ToolEffect = ToolEffect.UNCLASSIFIED,
     interrupt_deadline: timedelta | None = None,
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    tracing: AgentTracingOptions | None = None,
     deps_factory: Callable[[str], AgentDepsT] | None = None,
     model: Model | KnownModelName | str | None = None,
 ) -> AgentSessionFlow:
@@ -411,6 +416,9 @@ def pydantic_ai_session_flow(
             default, waits indefinitely.
         event_stream_capacity_bytes: Byte budget of the ``AgentEvents`` Stream,
             shared by every session of this Flow type. Defaults to 10 MiB.
+        tracing: OpenTelemetry GenAI span options. ``None``, the default,
+            uses ``AgentTracingOptions()``, which emits spans through the global
+            tracer provider when the OpenTelemetry API is installed.
         deps_factory: Builds the agent's dependencies from the session ID on
             the Worker, before every model Step and tool Step. ``None`` passes
             ``None``.
@@ -431,6 +439,7 @@ def pydantic_ai_session_flow(
             tool_policies=tool_policies or {},
             default_tool_effect=default_tool_effect,
             event_stream_capacity_bytes=event_stream_capacity_bytes,
+            tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
         ),
     )

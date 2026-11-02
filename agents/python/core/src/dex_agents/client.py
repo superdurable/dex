@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 from dex import AsyncClient, RpcLockConflictError, StartFlowOptions, StreamMessage
@@ -22,8 +23,13 @@ from dex_agents.values import (
     AgentSessionStartInput,
     AgentSnapshot,
     AgentUserMessage,
+    AnswerQuestionRequest,
+    CancelTurnRequest,
+    DeleteQueuedMessageRequest,
+    ExecutePlanRequest,
     ListAgentMessagesRequest,
     ResolveInterruptRequest,
+    SteerUserMessageRequest,
 )
 
 _LOCK_CONFLICT_RETRY_INTERVAL_SECONDS = 0.05
@@ -59,8 +65,9 @@ class AgentSessionClient:
             client: An open ``AsyncClient`` whose Registry contains ``flow``.
                 The caller keeps ownership and closes it.
             flow: The registered ``AgentSessionFlow`` instance.
-            lock_conflict_retry_timeout: How long ``resolve_interrupt`` retries
-                an ``RpcLockConflictError``. Defaults to five seconds.
+            lock_conflict_retry_timeout: How long ``resolve_interrupt``,
+                ``answer_question``, ``execute_plan``, and ``cancel_turn``
+                retry an ``RpcLockConflictError``. Defaults to five seconds.
         """
         self._client = client
         self._flow = flow
@@ -102,21 +109,151 @@ class AgentSessionClient:
             options or StartFlowOptions(),
         )
 
-    async def send_user_message(self, session_id: str, text: str) -> bool:
+    async def send_user_message(
+        self, session_id: str, text: str, *, plan_mode: bool = False
+    ) -> bool:
         """Queue one user message.
 
         Args:
             session_id: Running session.
             text: Message text.
+            plan_mode: ``True`` to start a planning turn that drafts a plan for
+                ``execute_plan``. It needs ``AgentSessionOptions.plan_mode_enabled``.
 
         Returns:
-            ``True`` when queued; ``False`` for whitespace-only text.
+            ``True`` when queued; ``False`` for whitespace-only text, or for a
+            ``plan_mode`` message when plan mode is not enabled.
 
         Raises:
             FlowNotActiveOrNotFoundError: If the session is not running.
         """
         return await self._client.invoke_rpc(
-            self._flow.send_user_message, session_id, AgentUserMessage(text=text)
+            self._flow.send_user_message,
+            session_id,
+            AgentUserMessage(text=text, plan_mode=plan_mode),
+        )
+
+    async def execute_plan(self, session_id: str, revision: int) -> bool:
+        """Approve one plan revision, so the session starts a turn that runs it.
+
+        The call retries ``RpcLockConflictError`` until
+        ``lock_conflict_retry_timeout`` passes. A retry is safe because a
+        conflicting call makes no change.
+
+        Example:
+            >>> snapshot = await sessions.get_agent_snapshot("session-42")
+            >>> if snapshot.plan is not None and snapshot.plan.status is PlanStatus.DRAFT:
+            ...     await sessions.execute_plan("session-42", snapshot.plan.revision)
+
+        Args:
+            session_id: Running session.
+            revision: ``AgentPlan.revision`` the user reviewed.
+
+        Returns:
+            ``True`` when accepted; ``False`` when the revision is not the
+            current ``draft`` or ``active`` plan, an execution of it is already
+            pending, or the session is not idle with nothing queued or pending.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        request = ExecutePlanRequest(revision=revision)
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.execute_plan, session_id, request)
+        )
+
+    async def steer_user_message(
+        self,
+        session_id: str,
+        *,
+        text: str | None = None,
+        message_id: str | None = None,
+    ) -> bool:
+        """Steer the running turn with new text or with a queued message.
+
+        Pass exactly one of ``text`` and ``message_id``. The session applies
+        the steered message at the turn's next safe Step boundary: it lets a
+        running model call or tool call finish, abandons the tool calls that
+        have not started, and starts a new turn with the steered messages.
+
+        Example:
+            >>> await sessions.steer_user_message("session-42", text="Use staging instead")
+            >>> snapshot = await sessions.get_agent_snapshot("session-42")
+            >>> await sessions.steer_user_message(
+            ...     "session-42", message_id=snapshot.queued_messages[0].message_id)
+
+        Args:
+            session_id: Running session.
+            text: Text of a new steered message.
+            message_id: ``PendingUserMessage.message_id`` of a queued message.
+
+        While no turn is active, new ``text`` is queued like
+        ``send_user_message`` and starts the next turn at once.
+
+        Returns:
+            ``True`` when steered, or queued while no turn is active; ``False``
+            when both or neither argument is set, the text is blank, the
+            message is no longer queued, or the active turn began on a Worker
+            without steering.
+
+        Raises:
+            ChannelMessageNotFoundError: If the session consumed the queued
+                message while the call ran; nothing changed, so reload the
+                snapshot.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        return await self._client.invoke_rpc(
+            self._flow.steer_user_message,
+            session_id,
+            SteerUserMessageRequest(message_id=message_id, text=text),
+        )
+
+    async def delete_queued_message(self, session_id: str, message_id: str) -> bool:
+        """Delete one queued user message before it starts a turn.
+
+        Args:
+            session_id: Running session.
+            message_id: ``PendingUserMessage.message_id`` from ``get_agent_snapshot``.
+
+        Returns:
+            ``True`` when deleted; ``False`` when the message is no longer queued.
+
+        Raises:
+            ChannelMessageNotFoundError: If the session consumed the message
+                while the call ran; nothing changed.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        return await self._client.invoke_rpc(
+            self._flow.delete_queued_message,
+            session_id,
+            DeleteQueuedMessageRequest(message_id=message_id),
+        )
+
+    async def cancel_turn(self, session_id: str, turn_id: str | None = None) -> bool:
+        """Stop the running turn at its next safe Step boundary.
+
+        A running model call or tool call finishes first, so the turn may
+        still complete with an answer. The call retries
+        ``RpcLockConflictError``, which only another ``cancel_turn`` causes,
+        until ``lock_conflict_retry_timeout`` passes.
+
+        Args:
+            session_id: Running session.
+            turn_id: The turn to stop, or ``None`` for the active turn.
+
+        Returns:
+            ``True`` when the request is recorded; ``False`` when no turn is
+            active, ``turn_id`` names another turn, or the active turn began
+            on a Worker without steering.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        request = CancelTurnRequest(turn_id=turn_id)
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.cancel_turn, session_id, request)
         )
 
     async def resolve_interrupt(
@@ -150,13 +287,51 @@ class AgentSessionClient:
         request = ResolveInterruptRequest(
             interrupt_id=interrupt_id, approved=approved, rejection_message=rejection_message
         )
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.resolve_interrupt, session_id, request)
+        )
+
+    async def answer_question(self, session_id: str, interrupt_id: str, answer: str) -> bool:
+        """Answer one pending ``question`` interrupt.
+
+        The call retries ``RpcLockConflictError`` until
+        ``lock_conflict_retry_timeout`` passes. A retry is safe because a
+        conflicting call makes no change. Decline a question with
+        ``resolve_interrupt(..., approved=False)``.
+
+        Example:
+            >>> snapshot = await sessions.get_agent_snapshot("session-42")
+            >>> question = next(i for i in snapshot.pending_interrupts
+            ...                 if i.kind is InterruptKind.QUESTION)
+            >>> await sessions.answer_question("session-42", question.interrupt_id,
+            ...                                question.choices[0])
+
+        Args:
+            session_id: Running session.
+            interrupt_id: ``AgentInterrupt.interrupt_id`` of the question.
+            answer: Answer text. It must not be blank, and it must be one of
+                ``choices`` when the question does not allow free text.
+
+        Returns:
+            ``True`` when answered; ``False`` when the question is unknown,
+            already resolved, past its deadline, or not a question, or when the
+            answer is blank or not an allowed choice.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        request = AnswerQuestionRequest(interrupt_id=interrupt_id, answer=answer)
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.answer_question, session_id, request)
+        )
+
+    async def _retry_lock_conflicts(self, invoke: Callable[[], Awaitable[bool]]) -> bool:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._lock_conflict_retry_timeout.total_seconds()
         while True:
             try:
-                return await self._client.invoke_rpc(
-                    self._flow.resolve_interrupt, session_id, request
-                )
+                return await invoke()
             except RpcLockConflictError:
                 if loop.time() >= deadline:
                     raise

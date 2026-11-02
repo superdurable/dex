@@ -24,6 +24,7 @@ from google.adk.auth.credential_service.base_credential_service import BaseCrede
 from google.adk.events import Event
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.memory import BaseMemoryService
+from google.adk.models import LlmResponse
 from google.adk.plugins.plugin_manager import PluginManager
 from google.adk.runners import Runner
 from google.adk.tools import ToolContext
@@ -35,6 +36,7 @@ from dex_agents import (
     AgentEventWriter,
     AgentSessionFlow,
     AgentSessionOptions,
+    AgentTracingOptions,
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
@@ -42,6 +44,7 @@ from dex_agents import (
     DeferredToolExecution,
     FrameworkMessage,
     MessageRole,
+    ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
     ToolEffect,
@@ -291,6 +294,9 @@ class AdkAgentRunner:
             segment_events, turn_events, set(confirmation_request_ids.values())
         )
         usage = _segment_usage(segment_events, deferral_plugin.model_call_count)
+        model_call_metadata = _model_call_metadata(
+            deferral_plugin.requested_models, deferral_plugin.model_responses
+        )
         if not deferred:
             return TurnCompleted(
                 new_messages=[
@@ -299,6 +305,7 @@ class AdkAgentRunner:
                     if event.id != user_event_id and is_adk_event_kept_after_turn(event)
                 ],
                 usage=usage,
+                model_call_metadata=model_call_metadata,
             )
         return ToolCallsRequested(
             framework_run_state=SuspendedAdkTurn(
@@ -309,6 +316,7 @@ class AdkAgentRunner:
             ).to_framework_run_state(),
             tool_calls=deferred,
             usage=usage,
+            model_call_metadata=model_call_metadata,
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -395,6 +403,7 @@ def adk_agent_session_flow(
     default_tool_effect: ToolEffect = ToolEffect.UNCLASSIFIED,
     interrupt_deadline: timedelta | None = None,
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    tracing: AgentTracingOptions | None = None,
     run_config: RunConfig | None = None,
     user_id: str = DEFAULT_ADK_USER_ID,
     artifact_service: BaseArtifactService | None = None,
@@ -437,6 +446,9 @@ def adk_agent_session_flow(
             session rejects it. ``None`` waits indefinitely.
         event_stream_capacity_bytes: Approximate byte budget of the
             ``AgentEvents`` Stream. Defaults to 10 MiB.
+        tracing: OpenTelemetry GenAI span options. ``None``, the default,
+            uses ``AgentTracingOptions()``, which emits spans through the global
+            tracer provider when the OpenTelemetry API is installed.
         run_config: ADK run configuration. See ``AdkAgentRunner``.
         user_id: ADK user ID of every session. Defaults to ``"user"``.
         artifact_service: ADK artifact service, or ``None`` for none.
@@ -467,6 +479,7 @@ def adk_agent_session_flow(
             tool_policies=tool_policies or {},
             default_tool_effect=default_tool_effect,
             event_stream_capacity_bytes=event_stream_capacity_bytes,
+            tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
         ),
     )
@@ -688,6 +701,36 @@ def _raise_for_unanswered_pauses(
             + ", ".join(unanswered_tool_names)
             + ", which a Dex agent session cannot answer"
         )
+
+
+def _model_call_metadata(
+    requested_models: Sequence[str | None], model_responses: Sequence[LlmResponse]
+) -> ModelCallMetadata | None:
+    if not requested_models:
+        return None
+    request_model = _shared_value(requested_models)
+    # Parallel branches interleave responses, so only one call's responses are attributable.
+    if len(requested_models) > 1:
+        return ModelCallMetadata(request_model=request_model)
+    finish_reasons = [
+        response.finish_reason.lower()
+        for response in model_responses
+        if response.finish_reason is not None
+        and response.finish_reason is not types.FinishReason.FINISH_REASON_UNSPECIFIED
+    ]
+    return ModelCallMetadata(
+        request_model=request_model,
+        response_model=_shared_value([response.model_version for response in model_responses]),
+        finish_reasons=finish_reasons[-1:],
+    )
+
+
+def _shared_value(values: Sequence[str | None]) -> str | None:
+    distinct_values = set(values)
+    if len(distinct_values) != 1:
+        return None
+    (value,) = distinct_values
+    return value or None
 
 
 def _segment_usage(segment_events: Sequence[Event], model_call_count: int) -> AgentUsage:

@@ -17,20 +17,32 @@ own Dex Step. It calls the runner from those Steps:
   start of the turn or resumed with final tool call records, and returns
   ``TurnCompleted`` or ``ToolCallsRequested``. It runs no tool it can defer.
 * ``execute_deferred_tool_call`` runs one tool call in its own Step.
+
+A runner may also implement ``UnfinishedTurnMessageBuilder`` when it stores a
+turn's items incrementally through ``ToolCallsRequested.new_messages``,
+``PlanModeRunner`` when it honors plan mode, ``ToolTaskPoller`` when its tools
+start remote tasks with ``ToolTaskStarted``, and
+``dex_agents.compaction.ContextCompactionRunner`` when it can summarize earlier
+messages.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, TypeAlias
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, runtime_checkable
 
+from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
 from dex_agents.values import (
     AgentMessage,
+    AgentPlan,
     AgentToolCall,
     AgentUsage,
+    ContextSummary,
+    InteractionMode,
     MessageRole,
+    QuestionAnswer,
     ToolCallStatus,
     ToolEffect,
 )
@@ -52,6 +64,22 @@ DEFAULT_REJECTION_TOOL_RESULT = "The user rejected this tool call."
 
 #: Rejection message recorded when an interrupt deadline passes.
 APPROVAL_DEADLINE_PASSED = "approval deadline passed"
+
+#: First line of the note ``ApplyTurnControl`` stores after a steered turn ran tools.
+TURN_STEERED_NOTE_HEADER = "[Dex] The user steered the conversation after these tool calls ran:"
+
+#: First line of the note ``ApplyTurnControl`` stores after a cancelled turn ran tools.
+TURN_CANCELLED_NOTE_HEADER = "[Dex] The user stopped the previous turn after these tool calls ran:"
+
+#: Model-visible result of a tool call that steering abandoned before it started.
+TOOL_CALL_CANCELLED_BY_STEERING_RESULT = (
+    '{"status":"cancelled","reason":"superseded_by_steered_user_message"}'
+)
+
+#: Model-visible result of a tool call that ``cancel_turn`` abandoned before it started.
+TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT = (
+    '{"status":"cancelled","reason":"turn_cancelled_by_user"}'
+)
 
 
 @dataclass(frozen=True)
@@ -171,7 +199,27 @@ def build_turn_failure_note(tool_calls: Sequence[AgentToolCall]) -> str:
     Raises:
         ValueError: If a record is not final.
     """
-    lines = [TURN_FAILURE_NOTE_HEADER]
+    return build_tool_call_note(TURN_FAILURE_NOTE_HEADER, tool_calls)
+
+
+def build_tool_call_note(header: str, tool_calls: Sequence[AgentToolCall]) -> str:
+    """Return a note in the turn-failure note's line format with another first line.
+
+    The session stores it for a turn that ended without a final answer. Use
+    ``build_turn_failure_note`` for a failed turn.
+
+    Args:
+        header: First line, such as ``TURN_STEERED_NOTE_HEADER``.
+        tool_calls: Final records of the ending turn.
+
+    Returns:
+        ``header``, one line per record as in ``build_turn_failure_note``, and
+        ``TURN_FAILURE_NOTE_FOOTER``, joined with newlines.
+
+    Raises:
+        ValueError: If a record is not final.
+    """
+    lines = [header]
     for tool_call in sorted(tool_calls, key=lambda record: record.deferral_order):
         outcome = describe_tool_call_outcome(tool_call)
         lines.append(
@@ -185,8 +233,9 @@ def build_turn_failure_note(tool_calls: Sequence[AgentToolCall]) -> str:
 class FrameworkMessage:
     """Describe one framework item that the session should store.
 
-    A runner returns these from ``build_user_message`` and in
-    ``TurnCompleted.new_messages``. The session adds the sequence, turn ID, and
+    A runner returns these from ``build_user_message``, in
+    ``TurnCompleted.new_messages``, and in ``ToolCallsRequested.new_messages``.
+    The session adds the sequence, turn ID, and
     creation time, and stores each as an ``AgentMessage``. On later turns the
     runner receives them back in ``AgentTurnContext.messages`` and rebuilds
     framework input from ``framework_item`` alone.
@@ -243,29 +292,85 @@ class DeferredToolCall:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ModelCallMetadata:
+    """Describe the model and response of one model call, for tracing.
+
+    Return it as ``model_call_metadata`` in ``TurnCompleted`` or
+    ``ToolCallsRequested``. The session never stores it: it only names the
+    ``chat`` span and sets its GenAI attributes. Leave a field ``None`` when the
+    framework does not expose it.
+
+    Example:
+        >>> ModelCallMetadata(
+        ...     request_model="gpt-5",
+        ...     response_model="gpt-5-2026-08-07",
+        ...     provider_name="openai",
+        ...     response_id="resp_123",
+        ...     finish_reasons=("tool_calls",),
+        ... )
+
+    Attributes:
+        request_model: Model name the call requested, such as ``"gpt-5"``. It
+            becomes ``gen_ai.request.model`` and the span name
+            ``chat <request_model>``.
+        response_model: Model name the provider reported, or ``None``.
+        provider_name: GenAI provider, such as ``"openai"``, ``"anthropic"``, or
+            ``"gcp.gemini"``. Use the well-known ``gen_ai.provider.name`` value
+            when one applies.
+        response_id: Provider response ID, or ``None``.
+        finish_reasons: Provider finish reasons, one per returned choice.
+    """
+
+    request_model: str | None = None
+    response_model: str | None = None
+    provider_name: str | None = None
+    response_id: str | None = None
+    finish_reasons: Sequence[str] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
 class TurnCompleted:
     """Report that the model call produced the turn's final answer.
 
     Attributes:
-        new_messages: Every item the turn produced after its user message, in
-            order and across all of its model calls: model output, tool
-            requests, tool results, and the final answer. The session appends
-            them in one commit.
+        new_messages: The turn's items that the session has not stored yet,
+            in order: model output, tool requests, tool results, and the final
+            answer. For a runner that never sets
+            ``ToolCallsRequested.new_messages``, that is every item the turn
+            produced after its user message, across all of its model calls.
+            The session appends them in one commit.
         usage: Usage of this model call only.
+        model_call_metadata: Model and response of this model call, for the
+            ``chat`` span. ``None``, the default, leaves the span named ``chat``.
     """
 
     new_messages: Sequence[FrameworkMessage]
     usage: AgentUsage = field(default_factory=AgentUsage)
+    model_call_metadata: ModelCallMetadata | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
 class ToolCallsRequested:
     """Report that the model call asked for tools, which the session runs as Steps.
 
-    The session commits the run state and one record per tool call in one Step
-    result, then starts the tool call Steps in parallel. The turn's new
-    messages stay inside ``framework_run_state`` until the turn completes; the
-    session stores no partial messages.
+    The session commits the run state, ``new_messages``, and one record per
+    tool call in one Step result, then starts the tool call Steps in parallel.
+
+    A runner either keeps the turn's items inside ``framework_run_state`` until
+    the turn completes, or stores them as they appear through
+    ``new_messages``. Storing them keeps ``framework_run_state`` small, because
+    the session rewrites it after every model call. A runner that sets
+    ``new_messages`` must implement ``UnfinishedTurnMessageBuilder``; otherwise
+    ``RunModel`` raises ``TypeError`` and the attempt fails.
+
+    Example:
+        >>> return ToolCallsRequested(
+        ...     framework_run_state=json.dumps({"model_calls": 2}),
+        ...     tool_calls=[DeferredToolCall(tool_call_id="call-1", tool_name="lookup",
+        ...                                  arguments='{"id": 7}',
+        ...                                  policy=turn.resolve_tool_policy("lookup"))],
+        ...     new_messages=[previous_tool_results, assistant_tool_call_item],
+        ... )
 
     Attributes:
         framework_run_state: Framework-serialized state that continues the
@@ -273,11 +378,18 @@ class ToolCallsRequested:
             returns it unchanged as ``AgentTurnContext.framework_run_state``.
         tool_calls: At least one tool call, in the order the model made them.
         usage: Usage of this model call only.
+        model_call_metadata: Model and response of this model call, for the
+            ``chat`` span. ``None``, the default, leaves the span named ``chat``.
+        new_messages: Items the session appends now, in the same commit that
+            records the tool calls, such as the previous round's tool results
+            and the assistant item that asks for these tools. Defaults to none.
     """
 
     framework_run_state: str
     tool_calls: Sequence[DeferredToolCall]
     usage: AgentUsage = field(default_factory=AgentUsage)
+    model_call_metadata: ModelCallMetadata | None = None
+    new_messages: Sequence[FrameworkMessage] = ()
 
 
 #: The result of one ``run_model_step`` call.
@@ -298,7 +410,8 @@ class AgentTurnContext:
         turn_id: ``"turn-<n>"`` of the running turn.
         attempt: One-based ``RunModel`` attempt.
         messages: Every stored message in sequence order. The last user
-            message belongs to this turn.
+            message belongs to this turn. After compaction, only the messages
+            after ``context_summary.last_sequence``.
         framework_run_state: The value from this turn's last
             ``ToolCallsRequested``, or ``None`` for the turn's first model call.
         tool_calls: Every tool call record of this turn by tool call ID. When
@@ -309,6 +422,19 @@ class AgentTurnContext:
         heartbeat: Coroutine function that records Step liveness. The session
             already heartbeats in the background; call it only from a loop that
             could otherwise starve the event loop.
+        enabled_built_in_tools: Built-in tools from
+            ``AgentSessionOptions.built_in_tools``. Offer their definitions from
+            ``BUILT_IN_TOOL_DEFINITIONS`` to the model. Empty by default.
+        interaction_mode: The turn's ``AgentState.interaction_mode``. A
+            ``PlanModeRunner`` offers only ``write_todos`` in a ``PLANNING``
+            turn. Defaults to ``CHAT``.
+        plan: The ``AgentPlan`` as committed before this model call, or ``None``
+            before ``write_todos`` first succeeded. Show it to the model with
+            ``build_plan_note``. Defaults to ``None``.
+        context_summary: The summary of the messages before ``messages``, or
+            ``None``. Only a runner that implements
+            ``ContextCompactionRunner`` receives one; put its text before
+            ``messages`` in the model input.
     """
 
     flow_id: str
@@ -321,6 +447,10 @@ class AgentTurnContext:
     default_tool_effect: ToolEffect
     events: AgentEventWriter
     heartbeat: Callable[[], Awaitable[None]]
+    enabled_built_in_tools: frozenset[BuiltInTool] = frozenset()
+    interaction_mode: InteractionMode = InteractionMode.CHAT
+    plan: AgentPlan | None = None
+    context_summary: ContextSummary | None = None
 
     @property
     def is_resuming(self) -> bool:
@@ -389,6 +519,14 @@ class DeferredToolExecution:
             including the session's background heartbeats, carries it too, so
             the next attempt reads it as ``heartbeat_checkpoint``. ``None`` when
             the caller cannot save checkpoints.
+        input_answers: Answers to the questions this tool asked through
+            ``ToolInputRequested``, oldest first. Empty on the first run. The
+            continuation of the last question is
+            ``tool_call.input_continuation``.
+        supports_tool_tasks: Whether the runner implements ``ToolTaskPoller``,
+            so the tool may return ``ToolTaskStarted``. When it is ``False``,
+            run remote work to its end inside the call instead. Defaults to
+            ``False``.
     """
 
     flow_id: str
@@ -399,6 +537,8 @@ class DeferredToolExecution:
     heartbeat: Callable[[], Awaitable[None]]
     heartbeat_checkpoint: str | None = None
     save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None = None
+    input_answers: Sequence[QuestionAnswer] = ()
+    supports_tool_tasks: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -410,6 +550,180 @@ class ToolExecutionResult:
     """
 
     output: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolInputRequested:
+    """Ask the user a question on behalf of a tool that needs input to continue.
+
+    Return it from ``execute_deferred_tool_call`` instead of a
+    ``ToolExecutionResult`` only when the call has taken no effect yet. The
+    tool Step records ``awaiting_answer`` with the question and moves to
+    ``AwaitQuestionAnswer``, which raises a ``question`` interrupt with ID
+    ``"<tool_call_id>-input-<n>"`` under the ``PendingInterrupts`` lock and
+    waits for the answer. Parallel tool calls can ask at the same time.
+    After ``answer_question``, the same tool Step type runs the call again,
+    with every answer in ``DeferredToolExecution.input_answers`` and this
+    ``continuation`` in ``tool_call.input_continuation``. The tool's later
+    output is the result the model sees. A declined question or a passed
+    deadline records ``rejected`` instead.
+
+    A single-attempt tool that runs again after an answer still never repeats
+    an effect, because the first run took none.
+
+    Example:
+        >>> async def execute_deferred_tool_call(self, call):
+        ...     if not call.input_answers:
+        ...         return ToolInputRequested(question="Which account?",
+        ...                                   choices=["checking", "savings"],
+        ...                                   allows_free_text=False,
+        ...                                   continuation='{"step": "pick_account"}')
+        ...     return ToolExecutionResult(output=transfer(call.input_answers[-1].answer))
+
+    Attributes:
+        question: Question text the user sees. It must not be blank.
+        choices: Answers to offer. Empty means free text only.
+        allows_free_text: Whether an answer outside ``choices`` is accepted.
+            Ignored, as ``True``, when ``choices`` is empty.
+        continuation: Opaque text the tool needs to continue, or ``None``.
+    """
+
+    question: str
+    choices: Sequence[str] = ()
+    allows_free_text: bool = True
+    continuation: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolTaskStarted:
+    """Report that a tool started remote work and returned a handle to poll.
+
+    Return it from ``execute_deferred_tool_call`` when the tool's work runs
+    elsewhere and outlives the call, such as an MCP task. The tool Step records
+    ``waiting_for_task`` with ``task_id`` and the poll interval, writes
+    ``tool_task_started``, and ends. ``PollToolTask`` then waits on a Timer for
+    the interval and calls ``ToolTaskPoller.poll_tool_task`` once per
+    execution, so no Step or connection is held while the work runs, and a
+    Worker restart only delays the next poll. The runner must implement
+    ``ToolTaskPoller``; without it the session records the call ``failed`` for
+    a ``READ`` tool and ``outcome_unknown`` otherwise.
+
+    The tool Step commits the handle with its result. A ``CallTool`` attempt
+    that dies after the remote work started runs again, so save the handle with
+    ``DeferredToolExecution.save_heartbeat_checkpoint`` before you return it,
+    and return the saved handle when ``heartbeat_checkpoint`` holds one. Once
+    the checkpoint has reached Dex, a retried attempt resumes the same work.
+    Dex may drop a heartbeat checkpoint, though, so an attempt that dies before
+    its checkpoint is saved and before the tool Step commits can still start
+    the work a second time on a ``CallTool`` retry; pass the idempotency key to
+    the remote system so it can drop the duplicate. Steering and turn
+    cancellation never abandon a started task: the session waits for it.
+
+    Example:
+        >>> async def execute_deferred_tool_call(self, call):
+        ...     if call.heartbeat_checkpoint is not None:
+        ...         return ToolTaskStarted(task_id=call.heartbeat_checkpoint,
+        ...                                poll_interval_seconds=5)
+        ...     job_id = await reports.start(call.idempotency_key)
+        ...     await call.save_heartbeat_checkpoint(job_id)
+        ...     return ToolTaskStarted(task_id=job_id, poll_interval_seconds=5)
+
+    Attributes:
+        task_id: Handle of the remote work. It must not be blank. The session
+            stores it as ``AgentToolCall.task_id``.
+        poll_interval_seconds: Seconds to wait before the first poll. The
+            session rounds it up to whole seconds, at least 1, because Dex
+            Timers take whole seconds, and shortens it to at most a day.
+    """
+
+    task_id: str
+    poll_interval_seconds: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolTaskPending:
+    """Report that a polled task is still running.
+
+    Return it from ``ToolTaskPoller.poll_tool_task``. ``PollToolTask`` stores
+    the interval and the continuation, and polls again after the interval.
+
+    Attributes:
+        poll_interval_seconds: Seconds to wait before the next poll. The
+            session rounds it up to whole seconds, from 1 to a day.
+        continuation: Text the next poll reads as
+            ``tool_call.input_continuation``, such as which question the task
+            took an answer to and when. ``None``, the default, clears it: keep
+            what the next poll needs, and drop a question's continuation once
+            the task took its answer, so an identical later question reads as
+            new.
+    """
+
+    poll_interval_seconds: int
+    continuation: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolTaskPoll:
+    """Give ``poll_tool_task`` one task to poll.
+
+    Attributes:
+        flow_id: Session ID, which is the Flow ID.
+        tool_call: The call's record, ``WAITING_FOR_TASK``, with ``task_id``,
+            ``task_poll_interval_seconds``, and ``tool_source_reference``.
+        idempotency_key: ``"<flow_id>/<turn_id>/<tool_call_id>"``, the key the
+            tool Step passed when it started the task.
+        attempt: One-based ``PollToolTask`` attempt. Each poll gets up to three
+            attempts.
+        input_answers: How the questions this call asked were resolved,
+            oldest first, whether its tool or its task asked them.
+        events: Writer for live events, bound to the turn and attempt.
+        heartbeat: Coroutine function that records Step liveness. The session
+            already heartbeats in the background.
+        pending_answer: The resolution of the task's last question, which has
+            not reached the task yet, or ``None``. It is set only on the first
+            poll after ``AwaitQuestionAnswer`` resolved the question, which runs
+            at once. Deliver it to the task: the answer when ``resolution`` is
+            ``ANSWERED``, a decline when it is ``DECLINED``, and a cancelled
+            request when it is ``DEADLINE_PASSED``. ``tool_call.input_continuation``
+            holds the question's continuation, so recognize the request it
+            answers and deliver only to that request. Later polls read the
+            continuation the last ``ToolTaskPending`` returned. A retried attempt
+            gets it again; when it cannot tell whether an earlier attempt
+            delivered it, return the task's question as ``ToolInputRequested``
+            again rather than send it to what may be a later question. When the
+            task cannot take the resolution, cancel the task best-effort and
+            raise an exception other than ``ToolExecutionError``, so the session
+            records the call by its effect.
+    """
+
+    flow_id: str
+    tool_call: AgentToolCall
+    idempotency_key: str
+    attempt: int
+    input_answers: Sequence[QuestionAnswer]
+    events: AgentEventWriter
+    heartbeat: Callable[[], Awaitable[None]]
+    pending_answer: QuestionAnswer | None = None
+
+
+#: The result of one ``execute_deferred_tool_call`` call.
+DeferredToolOutcome: TypeAlias = ToolExecutionResult | ToolInputRequested | ToolTaskStarted
+
+#: The result of one ``poll_tool_task`` call.
+ToolTaskPollOutcome: TypeAlias = ToolExecutionResult | ToolInputRequested | ToolTaskPending
+
+if TYPE_CHECKING:
+    # Type checkers read the default; Python 3.11 has no TypeVar defaults at runtime.
+    from typing_extensions import TypeVar as DefaultedTypeVar
+
+    ToolOutcomeT_co = DefaultedTypeVar(
+        "ToolOutcomeT_co",
+        bound=DeferredToolOutcome,
+        covariant=True,
+        default=ToolExecutionResult,
+    )
+else:
+    ToolOutcomeT_co = TypeVar("ToolOutcomeT_co", bound=DeferredToolOutcome, covariant=True)
 
 
 class ToolExecutionError(Exception):
@@ -429,7 +743,7 @@ class ToolExecutionError(Exception):
     """
 
 
-class AgentFrameworkRunner(Protocol):
+class AgentFrameworkRunner(Protocol[ToolOutcomeT_co]):
     """Run one agent framework inside the durable agent session Flow.
 
     Implement this protocol once per framework and pass the runner to
@@ -437,6 +751,12 @@ class AgentFrameworkRunner(Protocol):
     run again after a crash or retry: keep the runner stateless between calls
     and derive everything from the arguments. Tool calls run in parallel
     Steps, so ``execute_deferred_tool_call`` may run concurrently with itself.
+
+    The type parameter is what ``execute_deferred_tool_call`` returns. It
+    defaults to ``ToolExecutionResult``, so a bare ``AgentFrameworkRunner``
+    means the same as in 0.1.0. A runner whose tools can ask the user a
+    question or start a remote task implements
+    ``AgentFrameworkRunner[DeferredToolOutcome]``.
 
     Example:
         >>> class EchoRunner:
@@ -498,19 +818,144 @@ class AgentFrameworkRunner(Protocol):
         """
         ...
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolOutcomeT_co:
         """Run one tool call exactly as the framework would, in its own Step.
 
         Args:
             call: The approved record and its idempotency key.
 
         Returns:
-            The tool output the model sees.
+            The tool output the model sees; ``ToolInputRequested`` when the
+            tool needs an answer from the user before it takes any effect; or
+            ``ToolTaskStarted`` when the tool started remote work that
+            ``ToolTaskPoller.poll_tool_task`` polls.
 
         Raises:
             ToolExecutionError: The tool failed in a way the model should see.
             Exception: Any other exception fails the Step attempt. After the
                 last attempt the record becomes ``FAILED`` for a ``READ`` call
                 and ``OUTCOME_UNKNOWN`` for a write.
+        """
+        ...
+
+
+@runtime_checkable
+class UnfinishedTurnMessageBuilder(Protocol):
+    """Let a runner that stores items incrementally finish a turn's transcript.
+
+    Implement it next to ``AgentFrameworkRunner`` when the runner sets
+    ``ToolCallsRequested.new_messages``. The session calls it when a turn ends
+    without a final answer, in ``RecordTurnFailure`` and, after steering or
+    ``cancel_turn``, in ``ApplyTurnControl``, so the stored transcript never
+    holds a tool call without its result. The session checks for the method at
+    runtime; a runner without it behaves as before. A runner that keeps its
+    items in ``framework_run_state`` can implement it too: after steering, the
+    next model input then holds the turn's exact tool calls and results instead
+    of a note.
+
+    Example:
+        >>> class MyRunner:
+        ...     def build_unfinished_turn_messages(self, turn):
+        ...         return [tool_result_message(record) for record in turn.tool_calls.values()
+        ...                 if not is_stored(turn, record.tool_call_id)]
+    """
+
+    def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
+        """Return the items of an ending turn that the session has not stored yet.
+
+        The session calls it with every record of the turn final. In
+        ``RecordTurnFailure`` it stores the result before the turn-failure
+        note. In ``ApplyTurnControl`` it stores the result instead of the
+        steered or cancelled note. It makes no model call. If it raises, the
+        session stores only the note.
+
+        Args:
+            turn: Committed state of the ending turn. ``events`` writes live
+                events; ``attempt`` is the calling Step's attempt.
+
+        Returns:
+            The items not stored yet, including a tool result for every tool
+            call already stored or returned by the turn.
+        """
+        ...
+
+
+@runtime_checkable
+class PlanModeRunner(Protocol):
+    """Declare that a runner honors plan mode.
+
+    ``AgentSessionOptions.plan_mode_enabled`` needs a runner that sets
+    ``supports_plan_mode`` to ``True``; ``AgentSessionFlow`` raises otherwise.
+    Such a runner reads ``AgentTurnContext.interaction_mode`` in every
+    ``run_model_step``:
+
+    * In a ``PLANNING`` turn it offers only the ``write_todos`` definition from
+      ``BUILT_IN_TOOL_DEFINITIONS``. It may force ``write_todos`` on the
+      turn's first model call while the plan is not a draft yet, where the
+      model accepts a forced tool choice; Stepwise does with
+      ``planning_tool_choice="required"``.
+    * In every turn it shows the plan with ``build_plan_note(turn.plan,
+      turn.interaction_mode)`` as user text before the turn's messages.
+
+    The Stepwise runner implements it. A framework adapter that cannot change
+    the tools it offers between turns leaves plan mode off.
+
+    Example:
+        >>> class MyRunner:
+        ...     supports_plan_mode = True
+    """
+
+    @property
+    def supports_plan_mode(self) -> bool:
+        """Report whether the runner honors ``AgentTurnContext.interaction_mode``.
+
+        Returns:
+            ``True`` when the runner implements plan mode as described above.
+        """
+        ...
+
+
+@runtime_checkable
+class ToolTaskPoller(Protocol):
+    """Let a runner whose tools return ``ToolTaskStarted`` poll their tasks.
+
+    Implement it next to ``AgentFrameworkRunner``. ``PollToolTask`` calls
+    ``poll_tool_task`` once per execution, after a Timer for the call's poll
+    interval, until it returns a result. The session checks for the method at
+    runtime; a runner without it never starts a task.
+
+    Example:
+        >>> class MyRunner:
+        ...     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        ...         job = await reports.get(poll.tool_call.task_id)
+        ...         if job.done:
+        ...             return ToolExecutionResult(output=job.summary)
+        ...         return ToolTaskPending(poll_interval_seconds=10)
+    """
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        """Poll one remote task once.
+
+        Polling must only read the task, and deliver ``poll.pending_answer``
+        when it is set, because the session may poll again after a crash.
+        Steering and cancellation never stop a poll.
+
+        Args:
+            poll: The call's record and its idempotency key.
+
+        Returns:
+            ``ToolExecutionResult`` when the task finished, which the model
+            sees; ``ToolTaskPending`` while it runs; or ``ToolInputRequested``
+            when it needs the user's answer. The session asks the question
+            through ``AwaitQuestionAnswer`` and polls again at once with its
+            resolution, answered, declined, or past its deadline, as
+            ``pending_answer``. The task's later result is the call's result.
+
+        Raises:
+            ToolExecutionError: The task failed in a way the model should see.
+                The session records ``FAILED``.
+            Exception: Any other exception fails the poll attempt. After three
+                attempts the record becomes ``FAILED`` for a ``READ`` call and
+                ``OUTCOME_UNKNOWN`` otherwise, because the task may still run.
         """
         ...

@@ -13,9 +13,18 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import {
+  createAgentSessionFlow,
+  emptyAgentUsage,
   messageSequenceKey,
+  missingToolTaskPoller,
   outcomeUnknownToolResult,
+  type AgentFrameworkRunner,
   type AgentMessage,
+  type AgentTurnContext,
+  type AgentTurnOutcome,
+  type DeferredToolOutcome,
+  type FrameworkMessage,
+  type ToolExecutionResult,
 } from "../../src/index.js";
 import {
   AgentSessionTestClient,
@@ -23,11 +32,12 @@ import {
   FileGate,
   InvocationLog,
   PrivateDexEngine,
+  pollUntil,
   executeCompletedEvent,
   readStepHistory,
   waitForCompletedEvent,
 } from "../../src/testing/index.js";
-import { createScriptedAgentFlow } from "../fixtures/scripted-agent-runner.js";
+import { ScriptedAgentRunner, createScriptedAgentFlow } from "../fixtures/scripted-agent-runner.js";
 
 describe("agent session turns with an in-process Worker", () => {
   let engine: PrivateDexEngine;
@@ -35,6 +45,10 @@ describe("agent session turns with an in-process Worker", () => {
   let sessions: AgentSessionTestClient;
   let deadlineSessions: AgentSessionTestClient;
   let longDeadlineSessions: AgentSessionTestClient;
+  let askUserSessions: AgentSessionTestClient;
+  let malformedBuilderSessions: AgentSessionTestClient;
+  let missingBuilderSessions: AgentSessionTestClient;
+  let withoutPollerSessions: AgentSessionTestClient;
   let markerDirectory: string;
 
   before(async () => {
@@ -49,14 +63,49 @@ describe("agent session turns with an in-process Worker", () => {
       flowType: "ScriptedAgentWithLongApprovalDeadline",
       interruptDeadlineMs: 60_000,
     });
+    const askUserFlow = createScriptedAgentFlow(markerDirectory, {
+      flowType: "ScriptedAgentWithAskUser",
+      builtInTools: ["ask_user"],
+    });
+    const malformedBuilderFlow = createScriptedAgentFlow(markerDirectory, {
+      flowType: "ScriptedAgentWithMalformedUnfinishedMessages",
+      unfinishedTurnMessages: "malformed",
+    });
+    const missingBuilderFlow = createAgentSessionFlow(
+      new IncrementalRunnerWithoutBuilder(join(markerDirectory, "incremental-model-calls.log")),
+      "IncrementalRunnerWithoutBuilder",
+    );
+    const pollingRunner = new ScriptedAgentRunner(markerDirectory);
+    // The same tools, without pollToolTask.
+    const runnerWithoutPoller: AgentFrameworkRunner<DeferredToolOutcome> = {
+      buildUserMessage: (text) => pollingRunner.buildUserMessage(text),
+      runModelStep: (turn) => pollingRunner.runModelStep(turn),
+      executeDeferredToolCall: (call) => pollingRunner.executeDeferredToolCall(call),
+    };
+    const withoutPollerFlow = createScriptedAgentFlow(markerDirectory, {
+      flowType: "ScriptedAgentWithoutTaskPoller",
+      runner: runnerWithoutPoller,
+    });
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, deadlineFlow, longDeadlineFlow],
+      flows: [
+        flow,
+        deadlineFlow,
+        longDeadlineFlow,
+        askUserFlow,
+        malformedBuilderFlow,
+        missingBuilderFlow,
+        withoutPollerFlow,
+      ],
       isWorkerInProcess: true,
     });
     longDeadlineSessions = new AgentSessionTestClient(environment.client, longDeadlineFlow);
     sessions = new AgentSessionTestClient(environment.client, flow);
     deadlineSessions = new AgentSessionTestClient(environment.client, deadlineFlow);
+    askUserSessions = new AgentSessionTestClient(environment.client, askUserFlow);
+    malformedBuilderSessions = new AgentSessionTestClient(environment.client, malformedBuilderFlow);
+    missingBuilderSessions = new AgentSessionTestClient(environment.client, missingBuilderFlow);
+    withoutPollerSessions = new AgentSessionTestClient(environment.client, withoutPollerFlow);
   });
 
   after(async () => {
@@ -185,6 +234,23 @@ describe("agent session turns with an in-process Worker", () => {
     const olderPage = await sessions.listAgentMessages(sessionId, 2, 0);
     assert.deepEqual(olderPage.messages.map(describeMessage), ["1 turn-1 user hello"]);
     assert.equal(olderPage.nextBeforeSequence, null);
+  });
+
+  test("user message blank checks use Python's whitespace set", async () => {
+    // String.trim() keeps these but Python's str.strip() removes them, and the reverse for U+FEFF.
+    const pythonOnlyWhitespace = String.fromCodePoint(0x1c, 0x1d, 0x1e, 0x1f, 0x85);
+    const byteOrderMark = String.fromCodePoint(0xfeff);
+    const sessionId = newSessionId("blank-text");
+    await sessions.startSession(sessionId, pythonOnlyWhitespace);
+    assert.equal(await sessions.sendUserMessage(sessionId, pythonOnlyWhitespace), false);
+    assert.equal(await sessions.sendUserMessage(sessionId, byteOrderMark), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.messages.map(describeMessage), [
+      `1 turn-1 user ${byteOrderMark}`,
+      `2 turn-1 assistant echo: ${byteOrderMark}`,
+    ]);
   });
 
   test("a rejected write never runs and the model sees the rejection message", async () => {
@@ -357,8 +423,11 @@ describe("agent session turns with an in-process Worker", () => {
     );
     assert.deepEqual(JSON.parse(resolvedEvent?.payload ?? "null"), {
       interrupt_id: "turn-1-send_email",
+      kind: "tool_approval",
       approved: false,
+      answered: false,
       rejection_message: "approval deadline passed",
+      cancellation_reason: null,
     });
   });
 
@@ -560,13 +629,238 @@ describe("agent session turns with an in-process Worker", () => {
       .filter((event) => event.type === "interrupt_resolved")
       .map((event) => JSON.parse(event.payload) as Record<string, unknown>);
     assert.deepEqual(resolutions, [
-      { interrupt_id: "turn-1-send_email", approved: true, rejection_message: null },
+      {
+        interrupt_id: "turn-1-send_email",
+        kind: "tool_approval",
+        approved: true,
+        answered: false,
+        rejection_message: null,
+        cancellation_reason: null,
+      },
       {
         interrupt_id: "turn-1-charge_card",
+        kind: "tool_approval",
         approved: false,
+        answered: false,
         rejection_message: "approval deadline passed",
+        cancellation_reason: null,
       },
     ]);
+  });
+
+  test("a tool that asks for input raises a question and runs again with the answer and its continuation", async () => {
+    new FileGate(markerDirectory, "confirm_shipment").release();
+    const sessionId = newSessionId("tool-input");
+    await sessions.startSession(sessionId, "call confirm_shipment");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "confirm_shipment");
+    assert.deepEqual(
+      [interrupt.interruptId, interrupt.kind, interrupt.question, interrupt.choices, interrupt.allowsFreeText],
+      ["turn-1-confirm_shipment-input-1", "question", "Ship now?", ["yes", "no"], false],
+    );
+    const waiting = await sessions.readToolCall(sessionId, "turn-1-confirm_shipment");
+    assert.deepEqual(
+      [
+        waiting?.status,
+        waiting?.inputContinuation,
+        waiting?.inputQuestion,
+        waiting?.inputChoices,
+        waiting?.inputAllowsFreeText,
+        waiting?.inputAnswers,
+      ],
+      ["awaiting_answer", "continuation-turn-1-confirm_shipment", "Ship now?", ["yes", "no"], false, []],
+    );
+
+    assert.equal(await sessions.answerQuestion(sessionId, interrupt.interruptId, "maybe"), false);
+    assert.equal(await sessions.answerQuestion(sessionId, interrupt.interruptId, "yes"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal((await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "confirm_shipment -> shipped after yes");
+    assert.deepEqual(toolLog("confirm_shipment", sessionId), [
+      `${sessionId} turn-1-confirm_shipment attempt 1`,
+      `${sessionId} turn-1-confirm_shipment attempt 1`,
+    ]);
+    assert.deepEqual(toolLog("confirm_shipment-answers", sessionId), [
+      `${sessionId} turn-1-confirm_shipment-input-1=yes (Ship now?) continuation continuation-turn-1-confirm_shipment`,
+    ]);
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "CallSingleAttemptTool",
+      // The first AwaitQuestionAnswer raises the question under the lock; the second takes the answer.
+      "AwaitQuestionAnswer",
+      "AwaitQuestionAnswer",
+      "CallSingleAttemptTool",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+  });
+
+  test("two tools that ask at once raise two questions, and a sibling approval resolved meanwhile stays resolved", async () => {
+    new FileGate(markerDirectory, "confirm_shipment").release();
+    const sessionId = newSessionId("two-tool-questions");
+    await sessions.startSession(sessionId, "call confirm_shipment and confirm_return");
+    const waiting = await sessions.waitForAgentSnapshot(
+      sessionId,
+      (snapshot) => snapshot.pendingInterrupts.length === 2,
+      "two pending tool questions",
+    );
+    assert.deepEqual(
+      waiting.pendingInterrupts.map((interrupt) => [interrupt.interruptId, interrupt.kind, interrupt.question]).sort(),
+      [
+        ["turn-1-confirm_return-input-1", "question", "Return now?"],
+        ["turn-1-confirm_shipment-input-1", "question", "Ship now?"],
+      ],
+    );
+    assert.deepEqual(
+      waiting.toolCalls.map((toolCall) => [toolCall.toolName, toolCall.status]),
+      [
+        ["confirm_shipment", "awaiting_answer"],
+        ["confirm_return", "awaiting_answer"],
+      ],
+    );
+    assert.equal(await sessions.answerQuestion(sessionId, "turn-1-confirm_return-input-1", "no"), true);
+    assert.deepEqual(
+      (await sessions.readPendingInterrupts(sessionId)).map((interrupt) => interrupt.interruptId),
+      ["turn-1-confirm_shipment-input-1"],
+    );
+    assert.equal(await sessions.answerQuestion(sessionId, "turn-1-confirm_shipment-input-1", "yes"), true);
+    assert.equal(await sessions.answerQuestion(sessionId, "turn-1-confirm_shipment-input-1", "no"), false);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "confirm_shipment -> shipped after yes | confirm_return -> confirm_return confirmed: no",
+    );
+
+    const raceSessionId = newSessionId("approval-while-tool-runs");
+    await sessions.startSession(raceSessionId, "call send_email and gated_confirm");
+    const approval = await sessions.waitForPendingInterrupt(raceSessionId, "send_email");
+    const gate = new FileGate(markerDirectory, "gated_confirm");
+    await gate.waitUntilReached();
+    // The tool Step loaded PendingInterrupts with this approval still pending.
+    assert.equal(await sessions.resolveInterrupt(raceSessionId, approval.interruptId, true), true);
+    gate.release();
+    await sessions.waitForPendingInterrupt(raceSessionId, "gated_confirm");
+    assert.deepEqual(
+      (await sessions.readPendingInterrupts(raceSessionId)).map((interrupt) => interrupt.interruptId),
+      ["turn-1-gated_confirm-input-1"],
+    );
+    assert.equal(await sessions.answerQuestion(raceSessionId, "turn-1-gated_confirm-input-1", "yes"), true);
+    await sessions.waitForCompletedTurns(raceSessionId, 1);
+    assert.deepEqual((await sessions.getAgentSnapshot(raceSessionId)).pendingInterrupts, []);
+    assert.deepEqual(toolLog("send_email", raceSessionId), [`${raceSessionId} turn-1-send_email attempt 1`]);
+    assert.deepEqual(toolLog("gated_confirm", raceSessionId), [
+      `${raceSessionId} turn-1-gated_confirm attempt 1`,
+      `${raceSessionId} turn-1-gated_confirm attempt 1`,
+    ]);
+  });
+
+  test("a framework runner that exposes ask_user gets the answer as the tool result", async () => {
+    const sessionId = newSessionId("adapter-ask-user");
+    await askUserSessions.startSession(sessionId, "call ask_user");
+    const question = await askUserSessions.waitForPendingInterrupt(sessionId, "ask_user");
+    assert.deepEqual(
+      [question.interruptId, question.kind, question.question, question.choices, question.allowsFreeText],
+      ["turn-1-ask_user", "question", "Proceed?", ["yes", "no"], true],
+    );
+    assert.equal(await askUserSessions.answerQuestion(sessionId, question.interruptId, "yes"), true);
+    await askUserSessions.waitForCompletedTurns(sessionId, 1);
+    assert.equal(
+      (await askUserSessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      'ask_user -> {"status":"answered","answer":"yes"}',
+    );
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "AwaitQuestionAnswer",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+  });
+
+  test("a question declined with an empty message gives the model the default decline text", async () => {
+    for (const [label, rejectionMessage, expected] of [
+      ["empty", "", "The user declined to answer."],
+      ["none", null, "The user declined to answer."],
+      ["text", "not now", "not now"],
+    ] as const) {
+      const sessionId = newSessionId(`ask-user-decline-${label}`);
+      await askUserSessions.startSession(sessionId, "call ask_user");
+      const question = await askUserSessions.waitForPendingInterrupt(sessionId, "ask_user");
+      assert.equal(
+        await askUserSessions.resolveInterrupt(sessionId, question.interruptId, false, rejectionMessage),
+        true,
+      );
+      await askUserSessions.waitForCompletedTurns(sessionId, 1);
+      assert.equal(
+        (await askUserSessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+        `ask_user -> ${expected}`,
+        label,
+      );
+    }
+  });
+
+  test("a tool question whose interrupt ID is another call's ID fails the asking call clearly", async () => {
+    const sessionId = newSessionId("interrupt-collision");
+    // The second call's ID, turn-1-confirm_shipment-input-1, is the first call's question ID.
+    await sessions.startSession(sessionId, "call confirm_shipment and confirm_shipment-input-1");
+    const approval = await sessions.waitForPendingInterrupt(sessionId, "confirm_shipment-input-1");
+    assert.equal(approval.interruptId, "turn-1-confirm_shipment-input-1");
+    const failed = await sessions.waitForToolCall(sessionId, "turn-1-confirm_shipment", (toolCall) =>
+      toolCall.status === "failed",
+    );
+    assert.equal(
+      failed.error,
+      "the tool's question cannot use interrupt ID turn-1-confirm_shipment-input-1, which another tool call of this turn uses",
+    );
+    assert.deepEqual(
+      (await sessions.readPendingInterrupts(sessionId)).map((interrupt) => [interrupt.interruptId, interrupt.kind]),
+      [["turn-1-confirm_shipment-input-1", "tool_approval"]],
+    );
+    assert.equal(await sessions.resolveInterrupt(sessionId, approval.interruptId, false, "not this one"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "confirm_shipment -> The tool call failed: the tool's question cannot use interrupt ID " +
+        "turn-1-confirm_shipment-input-1, which another tool call of this turn uses | " +
+        "confirm_shipment-input-1 -> not this one",
+    );
+    assert.deepEqual(toolLog("confirm_shipment", sessionId), [`${sessionId} turn-1-confirm_shipment attempt 1`]);
+  });
+
+  test("a malformed unfinished-turn result never blocks RecordTurnFailure, which stores the note", async () => {
+    const sessionId = newSessionId("malformed-builder");
+    await malformedBuilderSessions.startSession(sessionId, "call refund_order then fail");
+    const state = await malformedBuilderSessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.match(state.lastTurnError ?? "", /scripted failure after the tool calls of turn-1/);
+    const snapshot = await malformedBuilderSessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      snapshot.messages.map((message) => [message.sequence, message.role]),
+      [
+        [1, "user"],
+        [2, "user"],
+      ],
+    );
+    assert.match(snapshot.messages[1]?.text ?? "", /^\[Dex\] The previous turn failed after these tool calls ran:/);
+  });
+
+  test("new messages without a builder fail the turn after one model call", async () => {
+    const sessionId = newSessionId("missing-builder");
+    await missingBuilderSessions.startSession(sessionId, "store as you go");
+    const state = await missingBuilderSessions.waitForCompletedTurns(sessionId, 1);
+    const expectedError =
+      "a runner that sets ToolCallsRequested.newMessages must implement buildUnfinishedTurnMessages";
+    assert.equal(state.lastTurnError, expectedError);
+    assert.deepEqual(
+      new InvocationLog(join(markerDirectory, "incremental-model-calls.log")).names().filter((line) => line === sessionId),
+      [sessionId],
+    );
+    const snapshot = await missingBuilderSessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.usage.modelCalls, 1);
+    assert.deepEqual(snapshot.messages.map((message) => message.role), ["user"]);
+    assert.deepEqual(snapshot.toolCalls, []);
+    assert.deepEqual(await executedStepTypes(sessionId), ["StartAgentSession", "RunModel"]);
+    const failed = (await missingBuilderSessions.listAgentEvents(sessionId)).find((event) => event.type === "turn_failed");
+    assert.deepEqual(JSON.parse(failed?.payload ?? "null"), { error: expectedError });
   });
 
   /** Final attempts of every completed AwaitToolApproval WaitFor; 1 means no WaitFor failure was retried. */
@@ -574,6 +868,315 @@ describe("agent session turns with an in-process Worker", () => {
     return (await readStepHistory(engine.serverAddress, sessionId))
       .filter((entry) => entry.eventType === waitForCompletedEvent && entry.stepType === "AwaitToolApproval")
       .map((entry) => entry.finalAttempt);
+  }
+
+  test("a started task is polled on a Timer until it finishes", async () => {
+    const sessionId = newSessionId("tool-task");
+    await sessions.startSession(sessionId, "call report_task");
+    const waiting = await sessions.waitForToolCall(sessionId, "turn-1-report_task", (toolCall) =>
+      toolCall.status === "waiting_for_task",
+    );
+    assert.equal(waiting.effect, "read");
+    assert.match(waiting.taskId ?? "", /^task-/);
+    assert.equal(waiting.taskPollIntervalSeconds, 1);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal((await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "report_task -> report ready");
+    assert.deepEqual(toolLog("report_task", sessionId), [`${sessionId} turn-1-report_task attempt 1`]);
+    assert.deepEqual(toolLog("task-runs", sessionId), [
+      `${sessionId} create turn-1-report_task`,
+      ...Array<string>(3).fill(`${sessionId} poll turn-1-report_task attempt 1 pending none`),
+    ]);
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "CallTool",
+      "PollToolTask",
+      "PollToolTask",
+      "PollToolTask",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.deepEqual(
+      events.filter((event) => event.type === "tool_task_started").map((event) => JSON.parse(event.payload)),
+      [{ task_id: waiting.taskId, tool_call_id: "turn-1-report_task", tool_name: "report_task" }],
+    );
+    assert.equal(events.filter((event) => event.type === "tool_call_started").length, 1);
+    assert.deepEqual(finishedStatuses(events), ["succeeded"]);
+  });
+
+  test("a task that asks for input raises a question and the next poll delivers the answer once", async () => {
+    const sessionId = newSessionId("tool-task-question");
+    await sessions.startSession(sessionId, "call asking_report_task");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "asking_report_task");
+    assert.deepEqual(
+      [question.interruptId, question.kind, question.question, question.choices, question.allowsFreeText],
+      ["turn-1-asking_report_task-input-1", "question", "Which format?", ["pdf", "html"], false],
+    );
+    const waiting = await sessions.readToolCall(sessionId, "turn-1-asking_report_task");
+    assert.equal(waiting?.status, "awaiting_answer");
+    assert.notEqual(waiting?.taskId ?? null, null);
+
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "docx"), false);
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "pdf"), true);
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "html"), false);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "asking_report_task -> report ready as pdf",
+    );
+    // Only the first poll after the answer gets it as pendingAnswer.
+    assert.deepEqual(
+      toolLog("task-runs", sessionId).filter((line) => !line.includes(" create ")),
+      [
+        `${sessionId} poll turn-1-asking_report_task attempt 1 pending none`,
+        `${sessionId} poll turn-1-asking_report_task attempt 1 pending answered`,
+        `${sessionId} deliver turn-1-asking_report_task pdf`,
+        `${sessionId} poll turn-1-asking_report_task attempt 1 pending none`,
+      ],
+    );
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "CallTool",
+      "PollToolTask",
+      "AwaitQuestionAnswer",
+      "AwaitQuestionAnswer",
+      "PollToolTask",
+      "PollToolTask",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+  });
+
+  test("each poll reads the continuation the last pending poll returned", async () => {
+    const sessionId = newSessionId("tool-task-continuation");
+    await sessions.startSession(sessionId, "call continuing_report_task");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "continuing_report_task -> report ready",
+    );
+    // Odd polls return a continuation and even polls none, which clears it.
+    assert.deepEqual(
+      toolLog("task-runs", sessionId).filter((line) => line.includes(" continuation ")),
+      ["none", "pending-1", "none", "pending-3"].map(
+        (continuation) => `${sessionId} continuation turn-1-continuing_report_task ${continuation}`,
+      ),
+    );
+  });
+
+  for (const control of ["steer", "cancel_turn"] as const) {
+    test(`${control} waits for a started task and keeps its question`, async () => {
+      const sessionId = newSessionId(`tool-task-${control.replace("_", "-")}`);
+      await sessions.startSession(sessionId, "call asking_report_task");
+      const question = await sessions.waitForPendingInterrupt(sessionId, "asking_report_task");
+
+      if (control === "steer") {
+        assert.equal(await sessions.steerUserMessage(sessionId, "say steered"), true);
+      } else {
+        assert.equal(await sessions.cancelTurn(sessionId, "turn-1"), true);
+      }
+      // ResumeTurn takes the control wake and waits again; the task's question stays.
+      await pollUntil(async () => ((await executedStepTypes(sessionId)).includes("ResumeTurn") ? true : undefined), {
+        description: "ResumeTurn to take the control wake",
+      });
+      const steered = await sessions.getAgentSnapshot(sessionId);
+      assert.deepEqual(
+        steered.pendingInterrupts.map((interrupt) => interrupt.interruptId),
+        [question.interruptId],
+      );
+      assert.equal(steered.state?.activeTurnId, "turn-1");
+      assert.deepEqual(
+        steered.toolCalls.map((toolCall) => [toolCall.status, toolCall.cancellationReason ?? null]),
+        [["awaiting_answer", null]],
+      );
+      assert.notEqual(steered.toolCalls[0]?.taskId ?? null, null);
+
+      assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "pdf"), true);
+      await sessions.waitForCompletedTurns(sessionId, control === "steer" ? 2 : 1);
+
+      assert.deepEqual(
+        toolLog("task-runs", sessionId).filter((line) => line.includes(" deliver ") || line.includes(" create ")),
+        [`${sessionId} create turn-1-asking_report_task`, `${sessionId} deliver turn-1-asking_report_task pdf`],
+      );
+      const events = await sessions.listAgentEvents(sessionId);
+      assert.deepEqual(finishedStatuses(events), ["succeeded"]);
+      const finished = events.findIndex((event) => event.type === "tool_call_finished");
+      const ended = events.flatMap((event, index) =>
+        event.type === (control === "steer" ? "turn_steered" : "turn_cancelled") ? [index] : [],
+      );
+      assert.equal(ended.length, 1);
+      assert.ok((ended[0] ?? -1) > finished);
+      assert.equal(
+        events.some(
+          (event) =>
+            event.type === "interrupt_resolved" &&
+            (JSON.parse(event.payload) as { cancellation_reason?: unknown }).cancellation_reason != null,
+        ),
+        false,
+      );
+      // The turn never ran its model again: the steer or cancellation ended it after the result.
+      const texts = (await sessions.getAgentSnapshot(sessionId)).messages.map((message) => message.text);
+      assert.equal(texts.includes("asking_report_task -> report ready as pdf"), false);
+      if (control === "steer") {
+        assert.equal(texts.at(-1), "echo: say steered");
+      }
+    });
+  }
+
+  test("declining a started write task's question never claims the tool did not run", async () => {
+    const sessionId = newSessionId("tool-task-decline-write");
+    await sessions.startSession(sessionId, "call asking_publish_task");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "asking_publish_task");
+    assert.deepEqual(toolLog("task-runs", sessionId).filter((line) => line.includes(" create ")), [
+      `${sessionId} create turn-1-asking_publish_task`,
+    ]);
+    assert.equal(await sessions.resolveInterrupt(sessionId, question.interruptId, false), true);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    // The task started, so the call is not rejected; this task cannot take a decline, so the write is
+    // recorded by its effect, after a best-effort cancel in each poll attempt.
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      `asking_publish_task -> ${outcomeUnknownToolResult}`,
+    );
+    assert.deepEqual(finishedStatuses(await sessions.listAgentEvents(sessionId)), ["outcome_unknown"]);
+    assert.equal(toolLog("task-runs", sessionId).filter((line) => line.includes(" cancel ")).length, 3);
+    assert.ok((await executedStepTypes(sessionId)).includes("RecordToolOutcomeUnknown"));
+  });
+
+  test("a declined task question goes to the task, and the task's result ends the call", async () => {
+    const sessionId = newSessionId("tool-task-decline");
+    await sessions.startSession(sessionId, "call asking_summary_task");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "asking_summary_task");
+    assert.equal(await sessions.resolveInterrupt(sessionId, question.interruptId, false, "no format"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "asking_summary_task -> report ready without a format (declined)",
+    );
+    assert.deepEqual(toolLog("task-runs", sessionId).filter((line) => line.includes(" deliver ")), [
+      `${sessionId} deliver turn-1-asking_summary_task declined`,
+    ]);
+    assert.deepEqual(finishedStatuses(await sessions.listAgentEvents(sessionId)), ["succeeded"]);
+  });
+
+  test("an expired task question goes to the task as a passed deadline", async () => {
+    const sessionId = newSessionId("tool-task-deadline");
+    await deadlineSessions.startSession(sessionId, "call asking_summary_task");
+    const question = await deadlineSessions.waitForPendingInterrupt(sessionId, "asking_summary_task");
+    await deadlineSessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(
+      (await deadlineSessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "asking_summary_task -> report ready without a format (deadline_passed)",
+    );
+    assert.equal(await deadlineSessions.answerQuestion(sessionId, question.interruptId, "pdf"), false);
+    assert.deepEqual(toolLog("task-runs", sessionId).filter((line) => line.includes(" deliver ")), [
+      `${sessionId} deliver turn-1-asking_summary_task deadline_passed`,
+    ]);
+  });
+
+  test("an answer reaches the task without waiting a full poll interval", async () => {
+    const sessionId = newSessionId("tool-task-prompt-answer");
+    await sessions.startSession(sessionId, "call slow_asking_report_task");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "slow_asking_report_task", {
+      timeoutMs: 60_000,
+    });
+    const answeredAt = Date.now();
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "pdf"), true);
+    await pollUntil(
+      async () =>
+        toolLog("task-runs", sessionId).includes(`${sessionId} deliver turn-1-slow_asking_report_task pdf`)
+          ? true
+          : undefined,
+      { description: "the answer delivered", timeoutMs: 60_000 },
+    );
+    const delayMs = Date.now() - answeredAt;
+    assert.ok(delayMs < 5_000, `the answer waited ${delayMs} ms, the 12 s poll interval, to reach the task`);
+  });
+
+  test("racing answers to two parallel task questions each resolve once", async () => {
+    const sessionId = newSessionId("tool-task-race");
+    await sessions.startSession(sessionId, "call asking_report_task and asking_summary_task");
+    await sessions.waitForAgentSnapshot(
+      sessionId,
+      (snapshot) => snapshot.pendingInterrupts.length === 2,
+      "two pending task questions",
+    );
+    const first = "turn-1-asking_report_task-input-1";
+    const second = "turn-1-asking_summary_task-input-1";
+
+    const answered = await Promise.all([
+      sessions.answerQuestion(sessionId, first, "pdf"),
+      sessions.answerQuestion(sessionId, second, "html"),
+      sessions.answerQuestion(sessionId, first, "html"),
+      sessions.answerQuestion(sessionId, second, "pdf"),
+    ]);
+    assert.equal(answered.filter((isAnswered) => isAnswered).length, 2);
+    assert.notEqual(answered[0], answered[2]);
+    assert.notEqual(answered[1], answered[3]);
+    const firstAnswer = answered[0] === true ? "pdf" : "html";
+    const secondAnswer = answered[1] === true ? "html" : "pdf";
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `asking_report_task -> report ready as ${firstAnswer} | asking_summary_task -> report ready as ${secondAnswer}`,
+    );
+    const deliveries = toolLog("task-runs", sessionId).filter((line) => line.includes(" deliver "));
+    assert.deepEqual(deliveries.sort(), [
+      `${sessionId} deliver turn-1-asking_report_task ${firstAnswer}`,
+      `${sessionId} deliver turn-1-asking_summary_task ${secondAnswer}`,
+    ]);
+    assert.deepEqual(finishedStatuses(await sessions.listAgentEvents(sessionId)), ["succeeded", "succeeded"]);
+    assert.deepEqual(snapshot.pendingInterrupts, []);
+  });
+
+  test("a poll that keeps failing records the call by its effect, and a failed task reaches the model", async () => {
+    const sessionId = newSessionId("tool-task-failing");
+    await sessions.startSession(sessionId, "call failing_report_task and failing_publish_task and broken_report_task");
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    const [readResult, writeResult, brokenResult] = (
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text ?? ""
+    ).split(" | ");
+    assert.match(readResult ?? "", /^failing_report_task -> The tool call failed: .*the task server is unreachable/);
+    assert.equal(writeResult, `failing_publish_task -> ${outcomeUnknownToolResult}`);
+    assert.equal(brokenResult, "broken_report_task -> The tool call failed: the report failed");
+    for (const toolName of ["failing_report_task", "failing_publish_task"]) {
+      assert.deepEqual(
+        toolLog("task-runs", sessionId).filter((line) => line.includes(` poll turn-1-${toolName} `)),
+        [1, 2, 3].map((attempt) => `${sessionId} poll turn-1-${toolName} attempt ${attempt} pending none`),
+      );
+    }
+    const steps = await executedStepTypes(sessionId);
+    assert.ok(steps.includes("RecordToolFailure"));
+    assert.ok(steps.includes("RecordToolOutcomeUnknown"));
+  });
+
+  test("a task started for a runner that cannot poll is recorded by its effect", async () => {
+    const sessionId = newSessionId("tool-task-no-poller");
+    await withoutPollerSessions.startSession(sessionId, "call report_task and failing_publish_task");
+    await withoutPollerSessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(
+      (await withoutPollerSessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      `report_task -> The tool call failed: ${missingToolTaskPoller} | failing_publish_task -> ${outcomeUnknownToolResult}`,
+    );
+    assert.ok(!(await executedStepTypes(sessionId)).includes("PollToolTask"));
+  });
+
+  function finishedStatuses(events: readonly { readonly type: string; readonly payload: string }[]): unknown[] {
+    return events
+      .filter((event) => event.type === "tool_call_finished")
+      .map((event) => (JSON.parse(event.payload) as { status: unknown }).status);
   }
 
   async function executedStepTypes(sessionId: string): Promise<string[]> {
@@ -599,4 +1202,38 @@ function describeMessage(message: AgentMessage): string {
     message.text ??
     [item.kind, message.toolName, message.toolOutput].filter((part) => part !== null).join(" ");
   return `${message.sequence} ${message.turnId} ${message.role} ${detail}`;
+}
+
+/** Sets `newMessages` but lacks `buildUnfinishedTurnMessages`, a runner defect the session catches. */
+class IncrementalRunnerWithoutBuilder implements AgentFrameworkRunner {
+  public constructor(private readonly modelCallLogPath: string) {}
+
+  public buildUserMessage(text: string): FrameworkMessage {
+    return { role: "user", text, toolCallId: null, toolName: null, toolArguments: null, toolOutput: null,
+      frameworkItem: JSON.stringify({ text }) };
+  }
+
+  public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
+    new InvocationLog(this.modelCallLogPath).record(turn.flowId);
+    const toolCallMessage: FrameworkMessage = {
+      role: "assistant",
+      text: null,
+      toolCallId: "call-1",
+      toolName: "lookup",
+      toolArguments: "{}",
+      toolOutput: null,
+      frameworkItem: JSON.stringify({ call: "lookup" }),
+    };
+    return {
+      kind: "tool_calls_requested",
+      frameworkRunState: "{}",
+      newMessages: [toolCallMessage],
+      toolCalls: [{ toolCallId: "call-1", toolName: "lookup", arguments: "{}", policy: { effect: "read", requiresApproval: false } }],
+      usage: { ...emptyAgentUsage(), modelCalls: 1 },
+    };
+  }
+
+  public async executeDeferredToolCall(): Promise<ToolExecutionResult> {
+    return { output: "unreachable" };
+  }
 }

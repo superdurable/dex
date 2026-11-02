@@ -22,6 +22,8 @@ import {
   KillableWorkerProcess,
   PrivateDexEngine,
   pollUntil,
+  readStepHistory,
+  waitForCompletedEvent,
 } from "../../src/testing/index.js";
 import {
   createScriptedAgentFlow,
@@ -242,6 +244,133 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.equal(snapshot.messages.at(-1)?.text, "slow turn done");
   });
+
+  test("a single-attempt tool killed while it runs again after an answer records outcome_unknown once", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `tool-input-kill-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call confirm_shipment");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "confirm_shipment");
+    assert.equal(await sessions.answerQuestion(sessionId, interrupt.interruptId, "yes"), true);
+    const confirmGate = new FileGate(markerDirectory, "confirm_shipment");
+    await confirmGate.waitUntilReached();
+
+    await firstWorker.kill();
+    confirmGate.release();
+    await startWorker(markerDirectory);
+
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      `confirm_shipment -> ${outcomeUnknownToolResult}`,
+    );
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "confirm_shipment.log")).names(), [
+      `${sessionId} turn-1-confirm_shipment attempt 1`,
+      `${sessionId} turn-1-confirm_shipment attempt 1`,
+    ]);
+    assert.equal(confirmGate.reachedCount(), 1);
+  });
+
+  test("a Worker killed while a task waits for its next poll leaves the polling to the next Worker", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `task-wait-kill-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call gated_report_task");
+    const gate = new FileGate(markerDirectory, "gated_report_task");
+    await gate.waitUntilReached();
+    // The second PollToolTask waits on its 3 second Timer when the Worker dies.
+    await waitForStepMethods(sessionId, "PollToolTask", waitForCompletedEvent, 2);
+
+    await firstWorker.kill();
+    gate.release();
+    await startWorker(markerDirectory);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.equal((await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "gated_report_task -> report ready");
+    assert.deepEqual(taskRuns(markerDirectory, sessionId, " create "), [`${sessionId} create turn-1-gated_report_task`]);
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "gated_report_task.log")).names(), [
+      `${sessionId} turn-1-gated_report_task attempt 1`,
+    ]);
+    assert.deepEqual(await finishedStatuses(sessionId), ["succeeded"]);
+  });
+
+  test("a Worker killed during a poll polls again and never starts a second task", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `task-poll-kill-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call blocking_report_task");
+    const gate = new FileGate(markerDirectory, "blocking_report_task");
+    await gate.waitUntilReached();
+
+    await firstWorker.kill();
+    gate.release();
+    await startWorker(markerDirectory);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "blocking_report_task -> report ready",
+    );
+    assert.equal(gate.reachedCount(), 2);
+    assert.equal(taskRuns(markerDirectory, sessionId, " create ").length, 1);
+    assert.equal(new InvocationLog(join(markerDirectory, "blocking_report_task.log")).names().length, 1);
+    assert.deepEqual(await finishedStatuses(sessionId), ["succeeded"]);
+  });
+
+  test("a retried tool attempt resumes the task its first attempt started", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `task-start-kill-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call start_gated_report_task");
+    const gate = new FileGate(markerDirectory, "start_gated_report_task");
+    // The first attempt created the task and saved its ID as the heartbeat checkpoint.
+    await gate.waitUntilReached();
+
+    await firstWorker.kill();
+    gate.release();
+    await startWorker(markerDirectory);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "start_gated_report_task -> report ready",
+    );
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "start_gated_report_task.log")).names(), [
+      `${sessionId} turn-1-start_gated_report_task attempt 1`,
+      `${sessionId} turn-1-start_gated_report_task attempt 2`,
+    ]);
+    assert.equal(taskRuns(markerDirectory, sessionId, " create ").length, 1);
+    assert.deepEqual(
+      (await readStepHistory(engine.serverAddress, sessionId))
+        .filter((entry) => entry.stepType === "CallTool")
+        .map((entry) => entry.finalAttempt),
+      [2],
+    );
+  });
+
+  function taskRuns(markerDirectory: string, sessionId: string, kind: string): string[] {
+    return new InvocationLog(join(markerDirectory, "task-runs.log"))
+      .names()
+      .filter((line) => line.startsWith(`${sessionId} `) && line.includes(kind));
+  }
+
+  async function finishedStatuses(sessionId: string): Promise<unknown[]> {
+    return (await sessions.listAgentEvents(sessionId))
+      .filter((event) => event.type === "tool_call_finished")
+      .map((event) => (JSON.parse(event.payload) as { status: unknown }).status);
+  }
+
+  async function waitForStepMethods(sessionId: string, stepType: string, eventType: string, count: number) {
+    await pollUntil(
+      async () =>
+        (await readStepHistory(engine.serverAddress, sessionId)).filter(
+          (entry) => entry.stepType === stepType && entry.eventType === eventType,
+        ).length >= count
+          ? true
+          : undefined,
+      { description: `${count} ${stepType} ${eventType} in session ${sessionId}` },
+    );
+  }
 
   async function waitForEvent(sessionId: string, eventType: string): Promise<void> {
     await pollUntil(

@@ -20,6 +20,7 @@ import {
   type UIMessage,
 } from "ai";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../../src/index.js";
 import type { AgentSessionFlow } from "../../src/index.js";
 import {
   agentResumeTokenHeaderName,
@@ -49,7 +50,7 @@ export class AgentUIStreamTestServer {
     public readonly baseUrl: string,
   ) {}
 
-  public static async start(client: Client, flow: AgentSessionFlow): Promise<AgentUIStreamTestServer> {
+  public static async start(client: Client, flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>): Promise<AgentUIStreamTestServer> {
     const server = createServer((request, response) => {
       handleRequest(client, flow, request, response).catch((error: unknown) => {
         if (!response.headersSent) {
@@ -73,7 +74,7 @@ export class AgentUIStreamTestServer {
 
 async function handleRequest(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {

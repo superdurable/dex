@@ -11,12 +11,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.metadata
 import json
 import logging
+import math
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeAlias, cast
 
@@ -52,7 +55,9 @@ from dex_agents.mcp._tasks import (
     McpTaskIdParams,
     McpTasksClientExtension,
     McpTaskSnapshot,
+    McpTaskUpdateParams,
     PolledMcpTask,
+    UpdateMcpTaskRequest,
 )
 from dex_agents.mcp._tools import McpTool, mcp_tool_from_listing, render_tool_result_text
 from dex_agents.runner import (
@@ -61,8 +66,14 @@ from dex_agents.runner import (
     DeferredToolExecution,
     ToolExecutionError,
     ToolExecutionResult,
+    ToolInputRequested,
     ToolPolicy,
+    ToolTaskPending,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
+    ToolTaskStarted,
 )
+from dex_agents.values import AgentToolCall, QuestionAnswer, QuestionResolution
 
 #: ``_meta`` key that carries the session's idempotency key on every ``tools/call``.
 IDEMPOTENCY_KEY_META_KEY = "io.superdurable.dex/idempotencyKey"
@@ -76,7 +87,7 @@ MCP_TASK_STATUS_EVENT_TYPE = "mcp.task_status"
 #: Default bound on one MCP request, such as ``tools/call``.
 DEFAULT_MCP_REQUEST_TIMEOUT = timedelta(minutes=10)
 
-#: Default bound on polling one MCP task in one tool Step attempt.
+#: Default bound on polling one stdio server's MCP task in one tool Step attempt.
 DEFAULT_MCP_TASK_WAIT_TIMEOUT = timedelta(minutes=10)
 
 #: Default bound on connecting to a server and each handshake request.
@@ -86,7 +97,9 @@ DEFAULT_MCP_CONNECTION_TIMEOUT = timedelta(seconds=30)
 DEFAULT_MCP_CONNECTION_ATTEMPTS = 3
 
 #: Handler that runs one deferred tool call, as ``execute_deferred_tool_call`` does.
-DeferredToolHandler: TypeAlias = Callable[[DeferredToolExecution], Awaitable[ToolExecutionResult]]
+DeferredToolHandler: TypeAlias = Callable[
+    [DeferredToolExecution], Awaitable[ToolExecutionResult | ToolTaskStarted]
+]
 
 _LOGGER = logging.getLogger(__name__)
 _TOOL_LISTING_PAGE_LIMIT = 100
@@ -97,6 +110,14 @@ _DEFAULT_TASK_POLL_INTERVAL_SECONDS = 1.0
 _MINIMUM_TASK_POLL_INTERVAL_SECONDS = 0.05
 _MAXIMUM_TASK_POLL_INTERVAL_SECONDS = 30.0
 _TASK_CANCEL_TIMEOUT_SECONDS = 5.0
+# A durable poll is a Step: backing off to a minute bounds a long task's history.
+_DURABLE_TASK_POLL_BACKOFF_CAP_SECONDS = 60
+_MAXIMUM_DURABLE_TASK_POLL_INTERVAL_SECONDS = 3600
+# After tasks/update, the answered request may stay listed until the server takes it in. Polls
+# within this many seconds of the delivery, one second apart, wait for that; later, a listed
+# identical request counts as a new one, and the user is asked again.
+_TASK_ANSWER_GRACE_SECONDS = 10
+_YES_NO_CHOICES = ("yes", "no")
 # The SDK also reports HTTP error statuses and unreadable bodies with these codes, after the
 # server may have run the call, so they leave the outcome unknown.
 _NO_RESULT_ERROR_CODES = frozenset(
@@ -191,8 +212,34 @@ class _TaskLost:
     detail: str
 
 
+@dataclass(frozen=True)
+class _TaskStarted:
+    """A task that ``PollToolTask`` polls; the tool Step ends."""
+
+    task_id: str
+    poll_interval_seconds: int
+
+
+@dataclass(frozen=True)
+class _TaskPending:
+    poll_interval_seconds: int
+    continuation: str | None = None
+
+
+@dataclass(frozen=True)
+class _TaskAsked:
+    question: ToolInputRequested
+
+
 _ToolCallOutcome: TypeAlias = (
-    _ToolCallSucceeded | _ToolCallFailed | _ToolCallInterrupted | _ServerUnreachable | _TaskLost
+    _ToolCallSucceeded
+    | _ToolCallFailed
+    | _ToolCallInterrupted
+    | _ServerUnreachable
+    | _TaskLost
+    | _TaskStarted
+    | _TaskPending
+    | _TaskAsked
 )
 
 
@@ -246,11 +293,19 @@ class McpToolSource:
       it is re-issued.
     * A call that was never sent, because its server is not configured or
       cannot be reached, raises ``ToolExecutionError``.
-    * A task handle from the ``io.modelcontextprotocol/tasks`` extension is
-      polled with ``tasks/get`` inside the tool Step, with a heartbeat per
-      poll, for at most ``task_wait_timeout`` per attempt. For a Streamable
-      HTTP server the task ID is saved as the attempt's heartbeat checkpoint,
-      so a retried attempt polls the same task instead of calling again.
+    * A Streamable HTTP server's task handle from the
+      ``io.modelcontextprotocol/tasks`` extension becomes ``ToolTaskStarted``:
+      the tool Step ends, and ``PollToolTask`` calls ``poll_tool_task`` on a
+      Timer, so no Step or connection is held while the task runs. The task ID
+      is saved as the attempt's heartbeat checkpoint first, so once that
+      checkpoint reaches Dex, a retried attempt resumes the same task instead
+      of calling again. A task that needs one answer from the user becomes a
+      session question, and its answer, decline, or passed deadline goes back
+      with ``tasks/update``.
+    * A stdio server's task lives in its process, and a runner without
+      ``poll_tool_task`` cannot poll one, so then the tool Step polls the task
+      with ``tasks/get`` and a heartbeat per poll, for at most
+      ``task_wait_timeout`` per attempt.
 
     The source is safe to share between the parallel tool Steps of one
     Worker. Build one per Worker process at startup.
@@ -272,6 +327,9 @@ class McpToolSource:
         ...
         ...     async def execute_deferred_tool_call(self, call):
         ...         return await tools.execute_deferred_tool_call(call)
+        ...
+        ...     async def poll_tool_task(self, poll):
+        ...         return await tools.poll_tool_task(poll)
     """
 
     def __init__(
@@ -292,10 +350,12 @@ class McpToolSource:
                 request. A ``tools/call`` that times out raises
                 ``McpToolCallInterruptedError``. Defaults to 10 minutes. Keep
                 it below the tool Step's two-hour method timeout.
-            task_wait_timeout: Bound on polling one MCP task in one tool Step
-                attempt. When it passes, the source raises
-                ``McpToolCallInterruptedError`` and leaves the task running; a
-                retried attempt resumes polling it. Defaults to 10 minutes.
+            task_wait_timeout: Bound on polling one stdio server's MCP task
+                in one tool Step attempt, and any task that ``call_tool``
+                polls. When it passes, the source raises
+                ``McpToolCallInterruptedError`` and leaves the task running.
+                Defaults to 10 minutes. ``PollToolTask`` polls a Streamable
+                HTTP server's task without this bound.
             connection_timeout: Bound on connecting to a server and on each
                 handshake and ``tools/list`` request. Defaults to 30 seconds.
             connection_attempts: Connection attempts per request before the
@@ -475,19 +535,28 @@ class McpToolSource:
         """
         return {tool.name: self.execute_deferred_tool_call for tool in await self.list_tools()}
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(
+        self, call: DeferredToolExecution
+    ) -> ToolExecutionResult | ToolTaskStarted:
         """Run one deferred MCP tool call in its tool Step.
 
-        Call it from ``AgentFrameworkRunner.execute_deferred_tool_call``. A
-        call built by ``deferred_tool_call`` goes straight to the server named
-        on its record, without a listing. It passes the call's idempotency key,
+        Call it from ``AgentFrameworkRunner.execute_deferred_tool_call``, and
+        implement ``ToolTaskPoller`` with ``poll_tool_task``. A call built by
+        ``deferred_tool_call`` goes straight to the server named on its
+        record, without a listing. It passes the call's idempotency key,
         events, heartbeat, and heartbeat checkpoint on.
+
+        A Streamable HTTP server that answers with a task handle gets
+        ``ToolTaskStarted``. The source saves the task ID as the heartbeat
+        checkpoint first; a retried attempt that reads it returns the same
+        task without calling the tool again.
 
         Args:
             call: The approved call from the tool Step.
 
         Returns:
-            The tool output the model sees.
+            The tool output the model sees, or ``ToolTaskStarted`` for a
+            Streamable HTTP server's task.
 
         Raises:
             ToolExecutionError: The arguments are not a JSON object, the tool
@@ -497,9 +566,15 @@ class McpToolSource:
         """
         record = call.tool_call
         arguments = _parse_tool_arguments(record.arguments)
-        target = self._target_from_reference(record.tool_name, record.tool_source_reference)
-        if target is None:
-            target = await self._target_from_listing(record.tool_name)
+        target = await self._resolve_target(record)
+        # Without a poller, a task runs to its end inside the call, as for call_tool.
+        is_task_polled_by_session = call.supports_tool_tasks and isinstance(
+            target.server, McpStreamableHttpServerConfig
+        )
+        resumed_task_id = _task_id_from_checkpoint(call.heartbeat_checkpoint, target)
+        if is_task_polled_by_session and resumed_task_id is not None:
+            # An earlier attempt started this task; PollToolTask finds out how it went.
+            return ToolTaskStarted(task_id=resumed_task_id, poll_interval_seconds=1)
         return await self._call_target(
             target,
             arguments,
@@ -509,6 +584,76 @@ class McpToolSource:
             heartbeat=call.heartbeat,
             heartbeat_checkpoint=call.heartbeat_checkpoint,
             save_heartbeat_checkpoint=call.save_heartbeat_checkpoint,
+            is_task_polled_by_session=is_task_polled_by_session,
+        )
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        """Poll one MCP task that ``execute_deferred_tool_call`` started, once.
+
+        Call it from ``ToolTaskPoller.poll_tool_task``. It reads the task with
+        ``tasks/get`` and writes an ``mcp.task_status`` event when the status
+        changed. A completed task is the tool's result. A task in
+        ``input_required`` that asks one form elicitation with a single
+        string, ``enum``, or boolean field becomes ``ToolInputRequested``,
+        whose continuation names the request by key and fingerprint. A boolean
+        field offers ``yes`` and ``no``. The poll that gets
+        ``poll.pending_answer`` sends it with ``tasks/update`` on its first
+        attempt, after a heartbeat, only while the task still lists that
+        request: ``accept`` with the answer, ``decline``, or ``cancel`` for a
+        passed deadline. A retried attempt cannot tell whether an earlier one
+        sent it, so it asks the user again instead. For 10 seconds after the
+        send, polls a second apart read a still-listed answered request as
+        working; after that, or once the task left ``input_required``, an
+        identical request is a new question. A task that asks for anything
+        else is cancelled and fails.
+
+        Args:
+            poll: The call's record from ``PollToolTask``.
+
+        Returns:
+            The tool output; ``ToolTaskPending`` with the next poll interval,
+            which backs off from the server's ``pollIntervalMs`` to at most a
+            minute; or the task's question.
+
+        Raises:
+            ToolExecutionError: The task failed, was cancelled, returned an
+                ``isError`` result, or asked for input the session cannot give.
+            McpToolCallInterruptedError: The server could not be reached, no
+                longer knows the task, or answered a poll with an error. The
+                task may still run, so ``PollToolTask`` retries and then
+                records the call by its effect.
+        """
+        record = poll.tool_call
+        if record.task_id is None:
+            raise ValueError(f"tool call {record.tool_call_id} has no MCP task")
+        task_id = record.task_id
+        target = await self._resolve_target(record)
+        call = _McpToolCall(
+            source=self,
+            target=target,
+            arguments={},
+            meta={},
+            reporter=_McpToolCallReporter(target.tool_name, record.tool_call_id, poll.events),
+            heartbeat=poll.heartbeat,
+            save_heartbeat_checkpoint=None,
+        )
+        outcome = await call.with_connection(
+            lambda client: call.poll_task_once(client, task_id, record, poll)
+        )
+        if isinstance(outcome, _ToolCallSucceeded):
+            return ToolExecutionResult(output=outcome.output)
+        if isinstance(outcome, _ToolCallFailed):
+            raise ToolExecutionError(outcome.message)
+        if isinstance(outcome, _TaskPending):
+            return ToolTaskPending(
+                poll_interval_seconds=outcome.poll_interval_seconds,
+                continuation=outcome.continuation,
+            )
+        if isinstance(outcome, _TaskAsked):
+            return outcome.question
+        detail = getattr(outcome, "detail", f"unexpected {type(outcome).__name__}")
+        raise McpToolCallInterruptedError(
+            target.server.name, target.mcp_tool_name, f"polling MCP task {task_id}: {detail}"
         )
 
     async def call_tool(
@@ -546,14 +691,15 @@ class McpToolSource:
                 task survives a retry. ``None`` saves nothing.
 
         Returns:
-            The tool output the model sees.
+            The tool output the model sees. A task is polled inside the call,
+            for at most ``task_wait_timeout``.
 
         Raises:
             ToolExecutionError: The tool failed, the server answered with an
                 error or asked for input, or the call was never sent.
             McpToolCallInterruptedError: The call was sent and no result came back.
         """
-        return await self._call_target(
+        result = await self._call_target(
             await self._target_from_listing(tool_name),
             dict(arguments),
             idempotency_key=idempotency_key,
@@ -562,7 +708,11 @@ class McpToolSource:
             heartbeat=heartbeat,
             heartbeat_checkpoint=heartbeat_checkpoint,
             save_heartbeat_checkpoint=save_heartbeat_checkpoint,
+            is_task_polled_by_session=False,
         )
+        if not isinstance(result, ToolExecutionResult):
+            raise RuntimeError(f"MCP tool {tool_name} returned a task to call_tool")
+        return result
 
     async def _call_target(
         self,
@@ -575,7 +725,8 @@ class McpToolSource:
         heartbeat: Callable[[], Awaitable[None]] | None,
         heartbeat_checkpoint: str | None,
         save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None,
-    ) -> ToolExecutionResult:
+        is_task_polled_by_session: bool,
+    ) -> ToolExecutionResult | ToolTaskStarted:
         call = _McpToolCall(
             source=self,
             target=target,
@@ -584,21 +735,38 @@ class McpToolSource:
             reporter=_McpToolCallReporter(target.tool_name, tool_call_id, events),
             heartbeat=heartbeat,
             save_heartbeat_checkpoint=save_heartbeat_checkpoint,
+            is_task_polled_by_session=is_task_polled_by_session,
         )
         resumed_task_id = _task_id_from_checkpoint(heartbeat_checkpoint, target)
         outcome = await call.run(resumed_task_id)
         if isinstance(outcome, _ToolCallSucceeded):
             return ToolExecutionResult(output=outcome.output)
+        if isinstance(outcome, _TaskStarted):
+            return ToolTaskStarted(
+                task_id=outcome.task_id, poll_interval_seconds=outcome.poll_interval_seconds
+            )
         if isinstance(outcome, _ToolCallFailed):
             raise ToolExecutionError(outcome.message)
         if isinstance(outcome, _ToolCallInterrupted | _TaskLost):
             raise McpToolCallInterruptedError(
                 target.server.name, target.mcp_tool_name, outcome.detail
             )
-        raise ToolExecutionError(
-            f"could not connect to MCP server {target.server.name!r}, so "
-            f"{target.mcp_tool_name} did not run: {outcome.detail}"
+        if isinstance(outcome, _ServerUnreachable):
+            raise ToolExecutionError(
+                f"could not connect to MCP server {target.server.name!r}, so "
+                f"{target.mcp_tool_name} did not run: {outcome.detail}"
+            )
+        raise McpToolCallInterruptedError(
+            target.server.name,
+            target.mcp_tool_name,
+            f"the tool call ended with an unexpected {type(outcome).__name__}",
         )
+
+    async def _resolve_target(self, record: AgentToolCall) -> _McpToolTarget:
+        target = self._target_from_reference(record.tool_name, record.tool_source_reference)
+        if target is None:
+            target = await self._target_from_listing(record.tool_name)
+        return target
 
     def _target_from_reference(
         self, tool_name: str, tool_source_reference: str | None
@@ -708,6 +876,7 @@ class _McpToolCall:
         reporter: _McpToolCallReporter,
         heartbeat: Callable[[], Awaitable[None]] | None,
         save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None,
+        is_task_polled_by_session: bool = False,
     ) -> None:
         self._source = source
         self._target = target
@@ -716,10 +885,11 @@ class _McpToolCall:
         self._reporter = reporter
         self._heartbeat = heartbeat
         self._save_heartbeat_checkpoint = save_heartbeat_checkpoint
+        self._is_task_polled_by_session = is_task_polled_by_session
 
     async def run(self, resumed_task_id: str | None) -> _ToolCallOutcome:
         if resumed_task_id is not None:
-            outcome = await self._with_connection(
+            outcome = await self.with_connection(
                 lambda client: self._await_task(client, resumed_task_id, None)
             )
             if isinstance(outcome, _ServerUnreachable):
@@ -734,9 +904,9 @@ class _McpToolCall:
             _LOGGER.warning(
                 "calling MCP tool %s again: %s", self._target.mcp_tool_name, outcome.detail
             )
-        return await self._with_connection(self._send_tool_call)
+        return await self.with_connection(self._send_tool_call)
 
-    async def _with_connection(
+    async def with_connection(
         self, operation: Callable[[Client], Awaitable[_ToolCallOutcome]]
     ) -> _ToolCallOutcome:
         outcome: _ToolCallOutcome = _ServerUnreachable("no connection attempt")
@@ -802,6 +972,8 @@ class _McpToolCall:
                     await self._save_heartbeat_checkpoint(
                         _task_checkpoint(self._target, result.task_id)
                     )
+                if self._is_task_polled_by_session:
+                    return self._start_session_polling(result)
                 return await self._await_task(client, result.task_id, result)
             if isinstance(result, InputRequiredResult):
                 if result.input_requests:
@@ -817,6 +989,104 @@ class _McpToolCall:
             "the MCP server kept asking to repeat tools/call without finishing it"
         )
 
+    def _start_session_polling(self, created: CreatedMcpTask) -> _ToolCallOutcome:
+        self._reporter.write_task_status(created)
+        if created.status in TERMINAL_TASK_STATUSES:
+            return _outcome_from_terminal_task(created)
+        return _TaskStarted(created.task_id, _durable_task_poll_interval_seconds(created, None))
+
+    async def poll_task_once(
+        self, client: Client, task_id: str, record: AgentToolCall, poll: ToolTaskPoll
+    ) -> _ToolCallOutcome:
+        snapshot = await self._get_task(client, task_id)
+        if isinstance(snapshot, _ToolCallInterrupted):
+            return snapshot
+        answered_request = _answered_task_request(record.input_continuation, task_id)
+        if poll.pending_answer is not None and answered_request is not None:
+            # A retried attempt cannot tell whether an earlier one delivered the answer, and the
+            # task may have asked an identical request since; asking again never misdelivers.
+            if poll.attempt == 1 and _lists_request(snapshot, answered_request):
+                failure = await self._deliver_resolution(
+                    client, task_id, answered_request, poll.pending_answer
+                )
+                if failure is not None:
+                    return failure
+                answered_request = replace(answered_request, delivered_at=time.time())
+                snapshot = await self._get_task(client, task_id)
+                if isinstance(snapshot, _ToolCallInterrupted):
+                    return snapshot
+            else:
+                answered_request = None
+        # The task was input_required when this poll took the pending answer.
+        if poll.pending_answer is not None or snapshot.status != "working":
+            self._reporter.write_task_status(snapshot)
+        if (
+            poll.pending_answer is not None
+            and poll.pending_answer.resolution is not QuestionResolution.ANSWERED
+            and snapshot.status == "cancelled"
+        ):
+            # A cancelled task may have taken effect before it asked; record the call by effect.
+            return _ToolCallInterrupted(
+                f"MCP task {task_id} was cancelled after its question was declined"
+            )
+        if snapshot.status in TERMINAL_TASK_STATUSES:
+            return _outcome_from_terminal_task(snapshot)
+        interval = _durable_task_poll_interval_seconds(snapshot, record.task_poll_interval_seconds)
+        if snapshot.status != "input_required":
+            # The task left input_required, so a later identical request is a new question.
+            return _TaskPending(interval)
+        input_requests = snapshot.input_requests or {}
+        if answered_request is not None and answered_request.is_still_being_taken(input_requests):
+            # The server has not taken the answer in yet; asking now would repeat the question.
+            return _TaskPending(1, answered_request.continuation(task_id))
+        question = _task_question(task_id, input_requests)
+        if question is None:
+            await _cancel_task_quietly(client, task_id)
+            return _ToolCallFailed(_describe_input_requests(input_requests))
+        return _TaskAsked(question)
+
+    async def _get_task(self, client: Client, task_id: str) -> PolledMcpTask | _ToolCallInterrupted:
+        try:
+            return await client.session.send_request(
+                GetMcpTaskRequest(params=McpTaskIdParams(task_id=task_id)),
+                PolledMcpTask,
+                request_read_timeout_seconds=self._source._request_timeout_seconds,
+            )
+        except MCPError as error:
+            # The task may still run, so a failed poll leaves the outcome unknown.
+            return _ToolCallInterrupted(f"tasks/get for MCP task {task_id} failed: {error}")
+
+    async def _deliver_resolution(
+        self,
+        client: Client,
+        task_id: str,
+        answered_request: _AnsweredTaskRequest,
+        resolution: QuestionAnswer,
+    ) -> _ToolCallOutcome | None:
+        """Send a question's resolution with ``tasks/update``; return an outcome only on failure."""
+        if self._heartbeat is not None:
+            # Output before the send, so Dex retries a lost attempt instead of redelivering it.
+            await self._heartbeat()
+        try:
+            await client.session.send_request(
+                UpdateMcpTaskRequest(
+                    params=McpTaskUpdateParams(
+                        task_id=task_id,
+                        input_responses={
+                            answered_request.input_key: answered_request.input_response(resolution)
+                        },
+                    )
+                ),
+                Result,
+                request_read_timeout_seconds=self._source._request_timeout_seconds,
+            )
+        except MCPError as error:
+            if resolution.resolution is not QuestionResolution.ANSWERED:
+                # The task cannot take the decline; stop it, and let the call be recorded by effect.
+                await _cancel_task_quietly(client, task_id)
+            return _ToolCallInterrupted(f"tasks/update for MCP task {task_id} failed: {error}")
+        return None
+
     async def _await_task(
         self, client: Client, task_id: str, created: CreatedMcpTask | None
     ) -> _ToolCallOutcome:
@@ -824,9 +1094,12 @@ class _McpToolCall:
         task_wait_timeout = self._source._task_wait_timeout
         deadline = loop.time() + task_wait_timeout.total_seconds()
         snapshot: McpTaskSnapshot | None = created
+        reported_status: str | None = None
         while True:
             if snapshot is not None:
-                self._reporter.write_task_status(snapshot)
+                if snapshot.status != reported_status:
+                    self._reporter.write_task_status(snapshot)
+                    reported_status = snapshot.status
                 if snapshot.status in TERMINAL_TASK_STATUSES:
                     return _outcome_from_terminal_task(snapshot)
                 if snapshot.status == "input_required":
@@ -1003,6 +1276,152 @@ def _outcome_from_terminal_task(task: McpTaskSnapshot) -> _ToolCallOutcome:
         return _ToolCallFailed(f"MCP task {task.task_id} failed: {message}")
     reason = f": {task.status_message}" if task.status_message else ""
     return _ToolCallFailed(f"MCP task {task.task_id} was cancelled{reason}")
+
+
+def _durable_task_poll_interval_seconds(task: McpTaskSnapshot, previous_seconds: int | None) -> int:
+    hint_seconds = 1 if task.poll_interval_ms is None else math.ceil(task.poll_interval_ms / 1000)
+    backoff_seconds = (
+        1
+        if previous_seconds is None
+        else min(previous_seconds * 2, _DURABLE_TASK_POLL_BACKOFF_CAP_SECONDS)
+    )
+    return min(max(1, hint_seconds, backoff_seconds), _MAXIMUM_DURABLE_TASK_POLL_INTERVAL_SECONDS)
+
+
+@dataclass(frozen=True)
+class _AnsweredTaskRequest:
+    """The input request a task's question came from, read back from its continuation."""
+
+    input_key: str
+    fingerprint: str
+    field_name: str
+    field_type: str
+    delivered_at: float | None = None
+    """Worker clock seconds when ``tasks/update`` delivered its resolution, or ``None``."""
+
+    def is_listed_in(self, input_requests: Mapping[str, Any]) -> bool:
+        # The same key may carry a later request; only the same request counts.
+        request = input_requests.get(self.input_key)
+        return request is not None and _input_request_fingerprint(request) == self.fingerprint
+
+    def is_still_being_taken(self, input_requests: Mapping[str, Any]) -> bool:
+        """Report whether a listed identical request is most likely the one just answered."""
+        return (
+            self.delivered_at is not None
+            and time.time() - self.delivered_at < _TASK_ANSWER_GRACE_SECONDS
+            and self.is_listed_in(input_requests)
+        )
+
+    def continuation(self, task_id: str) -> str:
+        return json.dumps(
+            {
+                "mcp_task_id": task_id,
+                "mcp_input_key": self.input_key,
+                "mcp_input_fingerprint": self.fingerprint,
+                "mcp_input_field": self.field_name,
+                "mcp_input_type": self.field_type,
+                "mcp_delivered_at": self.delivered_at,
+            }
+        )
+
+    def input_response(self, resolution: QuestionAnswer) -> dict[str, Any]:
+        if resolution.resolution is QuestionResolution.DECLINED:
+            return {"action": "decline"}
+        if resolution.resolution is QuestionResolution.DEADLINE_PASSED:
+            return {"action": "cancel"}
+        value: str | bool = (
+            resolution.answer == "yes" if self.field_type == "boolean" else resolution.answer
+        )
+        return {"action": "accept", "content": {self.field_name: value}}
+
+
+def _task_question(task_id: str, input_requests: Mapping[str, Any]) -> ToolInputRequested | None:
+    """Return the question of one form elicitation with one string or boolean field, or ``None``."""
+    if len(input_requests) != 1:
+        return None
+    ((input_key, request),) = input_requests.items()
+    payload = (
+        request.model_dump(mode="json", by_alias=True)
+        if isinstance(request, BaseModel)
+        else request
+    )
+    if not isinstance(payload, Mapping) or payload.get("method") != "elicitation/create":
+        return None
+    params = payload.get("params")
+    if not isinstance(params, Mapping) or params.get("mode", "form") != "form":
+        return None
+    message = params.get("message")
+    schema = params.get("requestedSchema")
+    properties = schema.get("properties") if isinstance(schema, Mapping) else None
+    if not isinstance(message, str) or not message.strip() or not isinstance(properties, Mapping):
+        return None
+    if len(properties) != 1:
+        return None
+    ((field_name, field_schema),) = properties.items()
+    field_type = field_schema.get("type") if isinstance(field_schema, Mapping) else None
+    choices: list[str] = []
+    if field_type == "boolean":
+        choices = list(_YES_NO_CHOICES)
+    elif field_type == "string":
+        enum = field_schema.get("enum")
+        if isinstance(enum, list) and enum and all(isinstance(value, str) for value in enum):
+            choices = list(enum)
+    else:
+        return None
+    return ToolInputRequested(
+        question=message,
+        choices=choices,
+        allows_free_text=not choices,
+        continuation=json.dumps(
+            {
+                "mcp_task_id": task_id,
+                "mcp_input_key": input_key,
+                "mcp_input_fingerprint": _input_request_fingerprint(payload),
+                "mcp_input_field": field_name,
+                "mcp_input_type": field_type,
+            }
+        ),
+    )
+
+
+def _answered_task_request(continuation: str | None, task_id: str) -> _AnsweredTaskRequest | None:
+    """Return the request a continuation of this task names; another writer's text reads as none."""
+    if continuation is None:
+        return None
+    try:
+        saved = json.loads(continuation)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(saved, dict) or saved.get("mcp_task_id") != task_id:
+        return None
+    fields = [
+        saved.get(name)
+        for name in ("mcp_input_key", "mcp_input_fingerprint", "mcp_input_field", "mcp_input_type")
+    ]
+    if not all(isinstance(value, str) for value in fields):
+        return None
+    input_key, fingerprint, field_name, field_type = (str(value) for value in fields)
+    delivered_at = saved.get("mcp_delivered_at")
+    if isinstance(delivered_at, bool) or not isinstance(delivered_at, int | float):
+        delivered_at = None
+    return _AnsweredTaskRequest(input_key, fingerprint, field_name, field_type, delivered_at)
+
+
+def _lists_request(snapshot: PolledMcpTask, answered_request: _AnsweredTaskRequest) -> bool:
+    return snapshot.status == "input_required" and answered_request.is_listed_in(
+        snapshot.input_requests or {}
+    )
+
+
+def _input_request_fingerprint(request: Any) -> str:
+    """Return a digest of one input request, so a later request under the same key differs."""
+    payload = (
+        request.model_dump(mode="json", by_alias=True)
+        if isinstance(request, BaseModel)
+        else request
+    )
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _task_poll_interval_seconds(task: McpTaskSnapshot) -> float:

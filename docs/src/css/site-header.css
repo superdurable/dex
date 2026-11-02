@@ -1,0 +1,340 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* The shared Super Durable header, copied from the superdurable.io header specification. */
+
+@font-face {
+  font-family: 'Geist Fallback';
+  src: local(Arial);
+  ascent-override: 95.94%;
+  descent-override: 28.16%;
+  line-gap-override: 0%;
+  size-adjust: 104.76%;
+}
+
+:root {
+  --font-geist-sans: 'Geist', 'Geist Fallback';
+  --sd-bg: #ffffff;
+  --sd-bg-alt: #fafaf9;
+  --sd-text: #111111;
+  --sd-muted: #5f5f5f;
+  --sd-faint: #8a8a8a;
+  --sd-rule: #e7e5e4;
+  --sd-rule-strong: #d6d3d1;
+  --sd-accent: #008650;
+  --sd-accent-hover: #007546;
+  --sd-accent-soft: #e4f5ec;
+  --sd-on-accent: #ffffff;
+  --sd-width: 70rem;
+  --sd-gutter: clamp(20px, 4vw, 40px);
+}
+
+/* :root raises specificity so CSS minification cannot merge this above the light tokens. */
+:root[data-theme='dark'] {
+  --sd-bg: #070a08;
+  --sd-bg-alt: #0e120f;
+  --sd-text: #f2f4f7;
+  --sd-muted: #b4b8b5;
+  --sd-faint: #8f9193;
+  --sd-rule: #1d211e;
+  --sd-rule-strong: #303133;
+  --sd-accent: #70eea9;
+  --sd-accent-hover: #6ee3a2;
+  --sd-accent-soft: #0f2a1d;
+  --sd-on-accent: #070a08;
+}
+
+/* Anchors and focused elements scroll clear of the sticky header (64 px plus its 1 px rule). */
+html {
+  scroll-padding-top: calc(4rem + 1px);
+}
+
+/* Docusaurus headings add the navbar height again; keep only its small extra gap. */
+html .anchor {
+  scroll-margin-top: 0.5rem;
+}
+
+/* Base rules the header relies on, scoped so the docs body keeps its own styles. */
+.sd-header {
+  color: var(--sd-text);
+  font-family: var(--font-geist-sans), 'Helvetica Neue', Arial, sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+:where(.sd-header) a,
+:where(.sd-header) a:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
+.sd-header svg {
+  display: block;
+  vertical-align: middle;
+}
+
+.sd-header a:focus-visible,
+.sd-header summary:focus-visible,
+.sd-header button:focus-visible {
+  outline: 2px solid var(--sd-accent);
+  outline-offset: 3px;
+}
+
+/* Header rules */
+.sd-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid var(--sd-rule);
+  background: color-mix(in srgb, var(--sd-bg) 92%, transparent);
+  backdrop-filter: saturate(140%) blur(8px);
+}
+
+/* Undo Infima's .navbar box; the class stays for Docusaurus's TOC offset. */
+.sd-header.navbar {
+  display: block;
+  height: auto;
+  padding: 0;
+  background: color-mix(in srgb, var(--sd-bg) 92%, transparent);
+  box-shadow: none;
+}
+
+.sd-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 2.5rem;
+  width: min(var(--sd-width), 100% - 2 * var(--sd-gutter));
+  height: 4rem;
+  margin-inline: auto;
+}
+
+.sd-wordmark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--sd-text);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sd-wordmark .brand-symbol {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+.sd-nav {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.925rem;
+}
+
+.sd-nav a,
+.sd-quiet-link {
+  color: var(--sd-muted);
+  white-space: nowrap;
+  transition: color 120ms ease;
+}
+
+.sd-nav a:hover,
+.sd-quiet-link:hover {
+  color: var(--sd-text);
+}
+
+.sd-nav a[aria-current='page'] {
+  color: var(--sd-text);
+  font-weight: 500;
+}
+
+.sd-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin-left: auto;
+  font-size: 0.925rem;
+}
+
+.sd-mobile-menu {
+  display: none;
+  margin-left: auto;
+}
+
+.sd-mobile-menu summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--sd-text);
+  font-size: 0.925rem;
+}
+
+.sd-mobile-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.sd-mobile-menu nav {
+  position: absolute;
+  top: 4rem;
+  right: 0;
+  left: 0;
+  display: grid;
+  gap: 1rem;
+  max-height: calc(100dvh - 4rem);
+  overflow-y: auto;
+  padding: 1.25rem var(--sd-gutter) 1.5rem;
+  border-bottom: 1px solid var(--sd-rule);
+  background: var(--sd-bg);
+}
+
+.sd-mobile-menu nav a[aria-current='page'] {
+  color: var(--sd-accent);
+}
+
+/* The spec collapses at 1080 px; the docs locale switch needs about 80 px more. */
+@media (max-width: 1160px) {
+  .sd-nav,
+  .sd-header-actions {
+    display: none;
+  }
+
+  .sd-mobile-menu {
+    display: block;
+  }
+}
+
+/* Buttons (Sign up) */
+.sd-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0 1.15rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.sd-button-small {
+  min-height: 2.25rem;
+  padding: 0 0.9rem;
+  font-size: 0.875rem;
+}
+
+.sd-button-primary,
+.sd-button-primary:hover {
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
+}
+
+.sd-button-primary:hover {
+  background: var(--sd-accent-hover);
+}
+
+/* Locale switch (docs only) */
+.sd-locale {
+  position: relative;
+}
+
+.sd-locale summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.sd-locale summary::-webkit-details-marker {
+  display: none;
+}
+
+.sd-locale-menu {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  display: grid;
+  min-width: 9rem;
+  padding: 0.35rem;
+  border: 1px solid var(--sd-rule);
+  border-radius: 8px;
+  background: var(--sd-bg);
+}
+
+.sd-locale-menu a {
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  color: var(--sd-muted);
+}
+
+.sd-locale-menu a:hover {
+  background: var(--sd-bg-alt);
+  color: var(--sd-text);
+}
+
+.sd-locale-menu a[aria-current='true'] {
+  color: var(--sd-text);
+  font-weight: 500;
+}
+
+.sd-locale-row {
+  display: flex;
+  gap: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--sd-rule);
+}
+
+.sd-locale-row a {
+  color: var(--sd-muted);
+}
+
+.sd-locale-row a[aria-current='true'] {
+  color: var(--sd-text);
+}
+
+/* Docs sidebar on narrow screens: a bar below the header opens Docusaurus's drawer. */
+.sd-docs-sidebar-bar {
+  display: none;
+}
+
+@media (max-width: 996px) {
+  html.docs-wrapper .sd-docs-sidebar-bar {
+    display: block;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+.sd-docs-sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: min(var(--sd-width), 100% - 2 * var(--sd-gutter));
+  margin-inline: auto;
+  padding-block: 0.7rem;
+  color: var(--text);
+  font-size: 0.925rem;
+}
+
+.sd-docs-sidebar-drawer {
+  position: relative;
+  z-index: var(--ifm-z-index-fixed);
+}
+
+.sd-docs-sidebar-drawer-header {
+  justify-content: space-between;
+  padding-inline: 1rem;
+  font-weight: 600;
+}

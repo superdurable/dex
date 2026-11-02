@@ -27,6 +27,7 @@ from dex_agents import (
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
+    ModelCallMetadata,
     ToolCallsRequested,
     ToolExecutionError,
     ToolExecutionResult,
@@ -75,6 +76,31 @@ CompiledGraph: TypeAlias = Pregel[Any, Any, Any, Any]
 CompiledGraphSource: TypeAlias = (
     CompiledGraph | Callable[[], CompiledGraph] | Callable[[], Awaitable[CompiledGraph]]
 )
+
+
+# LangChain model_provider values whose provider has a well-known gen_ai.provider.name value.
+_GEN_AI_PROVIDER_NAMES = {
+    "anthropic": "anthropic",
+    "anthropic_bedrock": "aws.bedrock",
+    "azure": "azure.ai.openai",
+    "azure_openai": "azure.ai.openai",
+    "bedrock": "aws.bedrock",
+    "bedrock_converse": "aws.bedrock",
+    "bedrock_mantle_anthropic": "aws.bedrock",
+    "bedrock_mantle_openai": "aws.bedrock",
+    "cohere": "cohere",
+    "deepseek": "deepseek",
+    "google_anthropic_vertex": "gcp.vertex_ai",
+    # ChatGoogleGenerativeAI reports google_genai for both the Gemini API and Vertex AI.
+    "google_genai": "gcp.gen_ai",
+    "google_vertexai": "gcp.vertex_ai",
+    "groq": "groq",
+    "ibm": "ibm.watsonx.ai",
+    "mistralai": "mistral",
+    "openai": "openai",
+    "perplexity": "perplexity",
+    "xai": "x_ai",
+}
 
 
 class LangGraphAgentRunner(AgentFrameworkRunner):
@@ -248,14 +274,21 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
             )
         snapshot = await graph.aget_state(saver.latest_checkpoint_config(thread_id))
         usage = turn_callbacks.recorded_usage()
+        model_call_metadata = turn_callbacks.model_call_metadata()
         if snapshot.interrupts:
-            return await self._request_tool_calls(saver, thread_id, snapshot, usage)
+            return await self._request_tool_calls(
+                saver, thread_id, snapshot, usage, model_call_metadata
+            )
         if snapshot.next:
             raise RuntimeError(
                 f"the graph paused before {list(snapshot.next)} without a deferred tool call; "
                 "agent sessions do not support interrupt_before or interrupt_after"
             )
-        return TurnCompleted(new_messages=self._new_turn_messages(snapshot, history), usage=usage)
+        return TurnCompleted(
+            new_messages=self._new_turn_messages(snapshot, history),
+            usage=usage,
+            model_call_metadata=model_call_metadata,
+        )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
         """Run one tool call once, in its own Step, with the tool's own ``ainvoke``.
@@ -334,6 +367,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
         thread_id: str,
         snapshot: StateSnapshot,
         usage: AgentUsage,
+        model_call_metadata: ModelCallMetadata | None,
     ) -> ToolCallsRequested:
         requests: list[_DeferredToolCallRequest] = []
         pending_interrupts: list[PendingInterrupt] = []
@@ -370,6 +404,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
                 for _, request in ordered
             ],
             usage=usage,
+            model_call_metadata=model_call_metadata,
         )
 
     def _new_turn_messages(
@@ -394,6 +429,15 @@ class _LoadedGraph:
     tools_by_name: Mapping[str, BaseTool]
 
 
+@dataclass(frozen=True)
+class _RecordedModelCall:
+    request_model: str | None
+    response_model: str | None
+    provider_name: str | None
+    response_id: str | None
+    finish_reason: str | None
+
+
 class _TurnCallbackHandler(BaseCallbackHandler):
     # Synchronous inline handlers run before the tool body, and raise_error lets them stop it.
     run_inline = True
@@ -403,16 +447,46 @@ class _TurnCallbackHandler(BaseCallbackHandler):
         self._lock = threading.Lock()
         self._usage = AgentUsage()
         self._blocked_tool_names: list[str] = []
+        self._request_models_by_run_id: dict[UUID, str | None] = {}
+        self._model_calls: list[_RecordedModelCall] = []
+
+    def on_chat_model_start(
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[BaseMessage]],
+        *,
+        run_id: UUID,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        # LangChain puts the chat model's _get_ls_params, such as ls_model_name, in run metadata.
+        request_model = _metadata_text(metadata or {}, "ls_model_name")
+        with self._lock:
+            self._request_models_by_run_id[run_id] = request_model
 
     def on_llm_end(self, response: LLMResult, *, run_id: UUID, **kwargs: Any) -> None:
         recorded = AgentUsage(model_calls=1)
         generations = response.generations[0] if response.generations else []
         generation = generations[0] if generations else None
         message = getattr(generation, "message", None)
+        response_metadata: Mapping[str, Any] = {}
         if isinstance(message, AIMessage):
             recorded = _model_call_usage(message)
+            response_metadata = message.response_metadata
         with self._lock:
             self._usage = self._usage.combined_with(recorded)
+            self._model_calls.append(
+                _RecordedModelCall(
+                    request_model=self._request_models_by_run_id.pop(run_id, None),
+                    response_model=_metadata_text(response_metadata, "model_name"),
+                    provider_name=_gen_ai_provider_name(
+                        _metadata_text(response_metadata, "model_provider")
+                    ),
+                    response_id=_metadata_text(response_metadata, "id"),
+                    finish_reason=_metadata_text(response_metadata, "finish_reason")
+                    or _metadata_text(response_metadata, "stop_reason"),
+                )
+            )
 
     def on_tool_start(
         self,
@@ -436,6 +510,23 @@ class _TurnCallbackHandler(BaseCallbackHandler):
     def recorded_usage(self) -> AgentUsage:
         with self._lock:
             return self._usage
+
+    def model_call_metadata(self) -> ModelCallMetadata | None:
+        with self._lock:
+            calls = list(self._model_calls)
+        if not calls:
+            return None
+        # Response-specific values describe one response; several calls keep only shared values.
+        single_call = calls[0] if len(calls) == 1 else None
+        return ModelCallMetadata(
+            request_model=_value_shared_by_every_call([call.request_model for call in calls]),
+            response_model=_value_shared_by_every_call([call.response_model for call in calls]),
+            provider_name=_value_shared_by_every_call([call.provider_name for call in calls]),
+            response_id=None if single_call is None else single_call.response_id,
+            finish_reasons=()
+            if single_call is None or single_call.finish_reason is None
+            else (single_call.finish_reason,),
+        )
 
 
 def _inspect_compiled_graph(
@@ -564,6 +655,22 @@ def _model_call_usage(message: AIMessage) -> AgentUsage:
         cached_input_tokens=input_details.get("cache_read", 0),
         reasoning_tokens=output_details.get("reasoning", 0),
     )
+
+
+def _gen_ai_provider_name(model_provider: str | None) -> str | None:
+    # Unknown providers pass through unchanged.
+    if model_provider is None:
+        return None
+    return _GEN_AI_PROVIDER_NAMES.get(model_provider, model_provider)
+
+
+def _metadata_text(metadata: Mapping[str, Any], key: str) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _value_shared_by_every_call(values: Sequence[str | None]) -> str | None:
+    return values[0] if len(set(values)) == 1 else None
 
 
 def _foreign_interrupt_message(graph_interrupt: Interrupt) -> str:

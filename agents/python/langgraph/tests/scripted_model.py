@@ -19,6 +19,8 @@ The model reads commands from the last user message:
   the gate, and then streams the rest of the final answer.
 
 Every model call records ``model:<n>`` in the InvocationLog, ``n`` counting the turn's calls.
+Each reply's ``response_metadata`` names the response model, provider, response ID, and
+finish reason, as LangChain integrations do.
 """
 
 from __future__ import annotations
@@ -48,6 +50,9 @@ from langchain_core.tools import BaseTool
 
 MODEL_CALL_INVOCATION_PREFIX = "model:"
 MODEL_CALL_USAGE = UsageMetadata(input_tokens=10, output_tokens=5, total_tokens=15)
+SCRIPTED_REQUEST_MODEL = "scripted-chat-model"
+SCRIPTED_RESPONSE_MODEL = "scripted-chat-model-2026-11"
+SCRIPTED_MODEL_PROVIDER = "scripted"
 STALL_TEXT = "waiting;"
 
 
@@ -62,6 +67,8 @@ class ScriptedChatModel(BaseChatModel):
 
     invocation_log_path: str
     fresh_tool_call_ids: bool = False
+    # BaseChatModel._get_ls_params reports it as ls_model_name.
+    model: str = SCRIPTED_REQUEST_MODEL
 
     @property
     def _llm_type(self) -> str:
@@ -126,6 +133,25 @@ class ScriptedChatModel(BaseChatModel):
         InvocationLog(Path(self.invocation_log_path)).record(
             f"{MODEL_CALL_INVOCATION_PREFIX}{len(replies) + 1}"
         )
+        reply = self._plan_reply(messages, user_index, turn_messages, replies)
+        response_metadata = {
+            "model_name": SCRIPTED_RESPONSE_MODEL,
+            "model_provider": SCRIPTED_MODEL_PROVIDER,
+            "id": f"scripted-response-{user_index}-{len(replies)}",
+            "finish_reason": "tool_calls" if reply.message.tool_calls else "stop",
+        }
+        return ScriptedReply(
+            reply.message.model_copy(update={"response_metadata": response_metadata}),
+            reply.stall_gate,
+        )
+
+    def _plan_reply(
+        self,
+        messages: list[BaseMessage],
+        user_index: int,
+        turn_messages: Sequence[BaseMessage],
+        replies: Sequence[AIMessage],
+    ) -> ScriptedReply:
         command = messages[user_index].text
         if command.startswith("say "):
             return ScriptedReply(_answer(f"said: {command.removeprefix('say ')}"))
@@ -217,6 +243,7 @@ def _reply_chunks(reply: AIMessage) -> Iterator[ChatGenerationChunk]:
                 for index, tool_call in enumerate(reply.tool_calls)
             ],
             usage_metadata=reply.usage_metadata,
+            response_metadata=reply.response_metadata,
             chunk_position="last",
         )
     )

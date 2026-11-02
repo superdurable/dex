@@ -112,6 +112,7 @@ if venv not in Path(ui_stream.__file__).resolve().parents:
 PY
     )
     if [[ "$package" == "core" ]]; then
+      smoke_test_python_core_modules "$project_dir" "$release_version"
       smoke_test_python_mcp_extra "$project_dir" "$release_version"
     fi
   done
@@ -129,6 +130,29 @@ asyncio_default_fixture_loop_scope = session
 asyncio_default_test_loop_scope = session
 INI
   (cd "$session_dir" && .venv/bin/python -m pytest -p no:cacheprovider -v tests/test_completed_turns.py)
+}
+
+# Imports every dex_agents module; dex_agents.litellm must name its extra until the extra is installed.
+smoke_test_python_core_modules() {
+  local project_dir="$1" release_version="$2"
+  (cd "$project_dir" && .venv/bin/python - <<'PY'
+import importlib
+
+for module in ("dex_agents.stepwise", "dex_agents.testing"):
+    importlib.import_module(module)
+try:
+    importlib.import_module("dex_agents.litellm")
+except ImportError as error:
+    if "dex-agents[litellm]" not in str(error):
+        raise SystemExit(f"dex_agents.litellm failed without naming its extra: {error}")
+    print("dex_agents.litellm without the extra names dex-agents[litellm]")
+else:
+    raise SystemExit("dex_agents.litellm imported without the litellm extra")
+PY
+  )
+  uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
+    --constraint "$project_dir/constraints.txt" "dex-agents[litellm]==$release_version"
+  (cd "$project_dir" && .venv/bin/python -c 'import dex_agents.litellm; print("dex_agents.litellm imports with the litellm extra")')
 }
 
 # dex_agents.mcp must name the extra without the MCP SDK, and import with dex-agents[mcp].
@@ -175,6 +199,82 @@ for (const name of new Set(names)) {
 NODE
 }
 
+# Prints name@version from a package's lockfile for each named package.
+locked_package_specs() {
+  node --input-type=module - "$@" <<'NODE'
+import { readFileSync } from "node:fs";
+const [packageDir, ...names] = process.argv.slice(2);
+const lock = JSON.parse(readFileSync(`${packageDir}/package-lock.json`, "utf8"));
+for (const name of names) {
+  const locked = lock.packages[`node_modules/${name}`];
+  if (locked === undefined) throw new Error(`${packageDir}/package-lock.json does not lock ${name}`);
+  console.log(`${name}@${locked.version}`);
+}
+NODE
+}
+
+# Imports every core subpath without the optional peer ai, where ./ai-sdk must fail naming it, then with it.
+smoke_test_typescript_core_subpaths() {
+  local core_tarball="$1"
+  local project_dir="$work_dir/typescript-core-subpaths"
+  mkdir -p "$project_dir"
+  printf '{"name":"agents-smoke-core-subpaths","private":true,"type":"module"}\n' >"$project_dir/package.json"
+  local locked_specs=()
+  while IFS= read -r peer_spec; do
+    locked_specs+=("$peer_spec")
+  done < <(locked_peer_specs "$agents_dir/typescript/core")
+  local without_ai_specs=() ai_specs=()
+  local peer_spec
+  for peer_spec in "${locked_specs[@]}"; do
+    case "$peer_spec" in
+      ai@* | zod@*) ai_specs+=("$peer_spec") ;;
+      *) without_ai_specs+=("$peer_spec") ;;
+    esac
+  done
+  (
+    cd "$project_dir"
+    npm install --no-audit --no-fund "$core_tarball" "${without_ai_specs[@]}"
+    if [[ -d node_modules/ai ]]; then
+      echo "the optional peer ai was installed without being requested" >&2
+      exit 1
+    fi
+    printf '%s\n' \
+      'import * as core from "@superdurable/dex-agents";' \
+      'import * as stepwise from "@superdurable/dex-agents/stepwise";' \
+      'import * as testing from "@superdurable/dex-agents/testing";' \
+      'export const exportedNames: string[] = [...Object.keys(core), ...Object.keys(stepwise), ...Object.keys(testing)];' \
+      >consumer.ts
+    npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
+      --types node consumer.ts
+    node --input-type=module -e "
+      for (const subpath of ['', '/stepwise', '/testing']) {
+        const module = await import('@superdurable/dex-agents' + subpath);
+        if (Object.keys(module).length === 0) throw new Error('@superdurable/dex-agents' + subpath + ' exports nothing');
+        console.log('@superdurable/dex-agents' + subpath, 'exports', Object.keys(module).join(', '));
+      }
+      try {
+        await import('@superdurable/dex-agents/ai-sdk');
+        throw new Error('@superdurable/dex-agents/ai-sdk imported without the optional peer ai');
+      } catch (error) {
+        if (!String(error).includes(\"'ai'\")) throw error;
+        console.log('@superdurable/dex-agents/ai-sdk without ai fails with:', String(error).split('\\n')[0]);
+      }
+    "
+    npm install --no-audit --no-fund "${ai_specs[@]}"
+    printf '%s\n' \
+      'import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";' \
+      'export const modelClientFactory: typeof createAiSdkModelClient = createAiSdkModelClient;' \
+      >consumer-ai-sdk.ts
+    npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
+      --types node consumer-ai-sdk.ts
+    node --input-type=module -e "
+      const aiSdk = await import('@superdurable/dex-agents/ai-sdk');
+      if (typeof aiSdk.createAiSdkModelClient !== 'function') throw new Error('ai-sdk lacks createAiSdkModelClient');
+      console.log('@superdurable/dex-agents/ai-sdk exports', Object.keys(aiSdk).join(', '));
+    "
+  )
+}
+
 smoke_test_typescript() {
   local release_version
   release_version="$(node -p "require('$agents_dir/typescript/core/package.json').version")"
@@ -192,6 +292,7 @@ smoke_test_typescript() {
   node "$agents_dir/script/verify-built-npm-packages.mjs" "$dist_dir/typescript" "$release_version" "${typescript_packages[@]}"
 
   local core_tarball="$dist_dir/typescript/superdurable-dex-agents-$release_version.tgz"
+  smoke_test_typescript_core_subpaths "$core_tarball"
   for package in "${typescript_packages[@]}"; do
     [[ "$package" == "core" ]] && continue
     local project_dir="$work_dir/typescript-$package"
@@ -252,6 +353,8 @@ smoke_test_typescript() {
   echo "== TypeScript session: @superdurable/dex-agents-vercel-ai against dexcli dev --engine zd"
   local session_dir="$work_dir/typescript-vercel-ai"
   cp -R "$agents_dir/typescript/vercel-ai/test" "$session_dir/test"
+  # It tests a module the package does not export, so it cannot import it from the packed package.
+  rm "$session_dir/test/integ/gen-ai-provider-names.integration.test.ts"
   find "$session_dir/test" -name '*.ts' -exec \
     perl -pi -e 's#"\.\./\.\./src/index\.js"#"\@superdurable/dex-agents-vercel-ai"#g' {} +
   if grep -rq '\.\./\.\./src/' "$session_dir/test"; then
@@ -274,8 +377,14 @@ smoke_test_typescript() {
   "include": ["test/**/*.ts"]
 }
 JSON
+  # The copied tests read spans from an in-memory exporter, so they need the adapter's OpenTelemetry devDependencies.
+  local test_dependency_specs=()
+  while IFS= read -r test_dependency_spec; do
+    test_dependency_specs+=("$test_dependency_spec")
+  done < <(locked_package_specs "$agents_dir/typescript/vercel-ai" @opentelemetry/api @opentelemetry/sdk-trace-base)
   (
     cd "$session_dir"
+    npm install --no-audit --no-fund "${test_dependency_specs[@]}"
     npx tsc -p tsconfig.json
     node --test --test-concurrency=1 --test-timeout=240000 \
       --test-name-pattern "a read tool runs in CallTool between two RunModel Steps" \

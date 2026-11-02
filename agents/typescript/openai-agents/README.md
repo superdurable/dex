@@ -198,6 +198,23 @@ session Flow with an OpenAI Agents SDK runner. A turn with one read tool runs
 never persisted, so use it for process-local dependencies and values derived
 from the session ID, not for state.
 
+## Tracing
+
+With the session's `tracing` option, each `RunModel` returns
+`modelCallMetadata` with what the SDK exposes:
+
+| Field | Source |
+| --- | --- |
+| `requestModel` | The model name the `Runner` resolves: the agent's `model`, or `runConfig.model` when the agent has none. Set only for a model given by name and shared by every agent that made a model call in the `RunModel` |
+| `responseId` | `response.id` of the `response_done` stream event, when the `RunModel` made exactly one model call and the ID is not `FAKE_ID`, the placeholder the SDK's Chat Completions model reports when the provider sent none |
+| `responseModel`, `providerName`, `finishReasons` | Not set |
+
+The SDK's `ModelResponse` carries no model name, provider, or finish reason, and
+a `Model` instance does not expose its model name. An agent whose model is a
+`Model` instance, or that uses the provider's default model, therefore gets a
+`chat` span named `chat` without a model. A handoff's `RunModel` makes several
+model calls, so its span is `INTERNAL` and carries no response ID.
+
 ## Effects
 
 | Effect | Step | Retry | Crash mid-call | Default approval |
@@ -262,7 +279,9 @@ and cover:
   the next turn, and a later call that reuses a finished call ID;
 - SIGKILL during `RunModel`, which reruns only that model call, before and
   after streamed output, counted in the model's call log;
-- SIGKILL during `CallSingleAttemptTool`, which records `outcome_unknown`.
+- SIGKILL during `CallSingleAttemptTool`, which records `outcome_unknown`;
+- the model call metadata on each `chat` span, for a model given by name,
+  read from an in-memory OpenTelemetry exporter.
 
 The unit tests check construction errors, that a cancelled model call fails its
 attempt, and that invalid arguments, guardrail rejections, and tripwires record

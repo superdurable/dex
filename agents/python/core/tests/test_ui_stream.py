@@ -20,7 +20,28 @@ from typing import Any
 
 from dex import BlobCacheConfig, Client, ClientOptions, Registry, StreamMessage, open_blob_cache
 
-from dex_agents import AgentEvent, AgentEventType
+from dex_agents import (
+    AgentEvent,
+    AgentEventType,
+    AgentInterrupt,
+    AgentMessage,
+    AgentPlan,
+    AgentPlanTask,
+    AgentSessionStatus,
+    AgentSnapshot,
+    AgentState,
+    AgentToolCall,
+    AgentUsage,
+    ContextSummary,
+    InteractionMode,
+    InterruptKind,
+    MessageRole,
+    PlanStatus,
+    PlanTaskStatus,
+    QuestionAnswer,
+    ToolCallStatus,
+    ToolEffect,
+)
 from dex_agents.testing import AgentTestStack, wait_for_agent_snapshot, wait_until
 from dex_agents.testing.worker import TEST_BLOB_CACHE_BYTES
 from dex_agents.ui_stream import (
@@ -29,6 +50,7 @@ from dex_agents.ui_stream import (
     InvalidAgentEventResumeTokenError,
     _parse_turn_number,
     agent_event_to_json,
+    agent_snapshot_to_json,
     read_agent_event_stream_snapshot,
     read_agent_event_stream_snapshot_sync,
     stream_agent_event_frames,
@@ -38,6 +60,31 @@ from tests.conftest import CORE_DIR, WORKER_MODULE, ScriptedAgentHarness
 from tests.scripted_agent import STATE_DIR_ENVIRONMENT_VARIABLE, build_scripted_agent_flow
 
 POLL_TIMEOUT = timedelta(seconds=1)
+# The TypeScript core's snapshot JSON test expects exactly this text.
+BROWSER_SNAPSHOT_JSON = (
+    '{"state":{"status":"running_tools","turn_count":1,"active_turn_id":"turn-2",'
+    '"next_message_sequence":4,"last_turn_error":null,"interaction_mode":"executing",'
+    '"accepts_turn_control":false},'
+    '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",'
+    '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,'
+    '"created_at":"2026-11-01T12:00:00.000Z"}],'
+    '"pending_interrupts":[{"interrupt_id":"call-1-input-2","kind":"question",'
+    '"tool_call_id":"call-1","tool_name":"refund_order","arguments":"{\\"order_id\\":\\"42\\"}",'
+    '"created_at":"2026-11-01T12:00:01.000Z","deadline":null,"question":"Refund to the card?",'
+    '"choices":["yes","no"],"allows_free_text":false}],'
+    '"tool_calls":[{"tool_call_id":"call-1","turn_id":"turn-2","tool_name":"refund_order",'
+    '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,'
+    '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,'
+    '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",'
+    '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null,'
+    '"task_id":null,"task_poll_interval_seconds":null}],'
+    '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,'
+    '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",'
+    '"tasks":[{"content":"Refund the order","status":"in_progress"}],'
+    '"updated_at":"2026-11-01T12:00:02.000Z"},"queued_messages":[],"steered_messages":[],'
+    '"context_summary":{"generation":1,"first_sequence":1,"last_sequence":2,'
+    '"text":"The user asked to refund order 42.","created_at":"2026-11-01T12:00:03.000Z"}}'
+)
 
 
 @dataclass(frozen=True)
@@ -102,6 +149,58 @@ async def test_event_frames_resume_from_the_last_event_id_with_no_repeated_or_mi
     ]
     assert received[0].data["type"] == AgentEventType.TURN_STARTED
     assert received[0].data["turn_id"] == "turn-2"
+
+
+async def test_snapshot_json_and_event_frames_carry_a_tool_task_until_it_finishes(
+    task_harness: ScriptedAgentHarness,
+) -> None:
+    harness = task_harness
+    await harness.stack.start_worker()
+    client = harness.stack.client
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call report {"topic": "ui", "poll_gate": "ui-gate"}'
+    )
+    gate = harness.gate("ui-gate")
+    await gate.wait_until_reached()
+
+    opening_json = (
+        await read_agent_event_stream_snapshot(client, harness.flow, session_id)
+    ).to_json()
+    [tool_call] = opening_json["snapshot"]["tool_calls"]
+    assert (
+        tool_call["tool_name"],
+        tool_call["status"],
+        tool_call["task_poll_interval_seconds"],
+    ) == (
+        "report",
+        "waiting_for_task",
+        1,
+    )
+    assert tool_call["task_id"].startswith("task-")
+    assert opening_json["snapshot"]["pending_interrupts"] == []
+    assert opening_json["snapshot"]["state"]["status"] == "running_tools"
+    reading = asyncio.create_task(
+        _read_frames_until(
+            await stream_agent_event_frames(
+                client, harness.flow, session_id, poll_timeout=POLL_TIMEOUT
+            ),
+            lambda data: data["type"] == AgentEventType.TURN_COMPLETED,
+        )
+    )
+    gate.release()
+    events = await reading
+
+    types = [event.data["type"] for event in events]
+    assert types.index(AgentEventType.TOOL_TASK_STARTED) < types.index(
+        AgentEventType.TOOL_CALL_FINISHED
+    )
+    started = next(event for event in events if event.data["type"] == "tool_task_started")
+    assert json.loads(started.data["payload"]) == {
+        "tool_call_id": "turn-1-call-0",
+        "tool_name": "report",
+        "task_id": tool_call["task_id"],
+    }
 
 
 async def test_event_frames_show_the_new_attempt_after_a_worker_killed_during_run_model(
@@ -199,12 +298,22 @@ async def test_snapshot_json_and_event_frames_carry_an_approval_round_trip(
         in (AgentEventType.INTERRUPT_RESOLVED, AgentEventType.TOOL_CALL_FINISHED)
     }
     assert payloads[AgentEventType.INTERRUPT_RESOLVED] == {
+        "answered": False,
         "approved": True,
+        "cancellation_reason": None,
         "interrupt_id": interrupt.interrupt_id,
+        "kind": "tool_approval",
         "rejection_message": None,
     }
     assert payloads[AgentEventType.TOOL_CALL_FINISHED]["status"] == "succeeded"
     assert harness.invocations.count("publish") == 1
+    # turn_completed reaches the Stream before the turn's commit.
+    await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: snapshot.state is not None and snapshot.state.turn_count == 1,
+        description="the committed turn",
+    )
     closing = await read_agent_event_stream_snapshot(client, harness.flow, session_id)
     assert closing.to_json()["snapshot"]["messages"][-1]["text"] == "publish: published launch"
     assert closing.resume_token == rest[-1].id
@@ -338,6 +447,139 @@ async def test_snapshot_and_event_frames_work_with_the_stream_store_disabled(
             assert await anext(frames) == KEEP_ALIVE_FRAME
         finally:
             await frames.aclose()
+
+
+def test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use() -> None:
+    snapshot = AgentSnapshot(
+        state=AgentState(
+            status=AgentSessionStatus.RUNNING_TOOLS,
+            turn_count=1,
+            active_turn_id="turn-2",
+            next_message_sequence=4,
+            interaction_mode=InteractionMode.EXECUTING,
+        ),
+        messages=[
+            AgentMessage(
+                sequence=3,
+                turn_id="turn-2",
+                role=MessageRole.USER,
+                text="refund order 42",
+                framework_item='{"instructions":"Never refund more than $50."}',
+                created_at="2026-11-01T12:00:00.000Z",
+            )
+        ],
+        pending_interrupts=[
+            AgentInterrupt(
+                interrupt_id="call-1-input-2",
+                kind=InterruptKind.QUESTION,
+                tool_call_id="call-1",
+                tool_name="refund_order",
+                arguments='{"order_id":"42"}',
+                created_at="2026-11-01T12:00:01.000Z",
+                question="Refund to the card?",
+                choices=["yes", "no"],
+                allows_free_text=False,
+            )
+        ],
+        tool_calls=[
+            AgentToolCall(
+                tool_call_id="call-1",
+                turn_id="turn-2",
+                tool_name="refund_order",
+                arguments='{"order_id":"42"}',
+                effect=ToolEffect.IDEMPOTENT_WRITE,
+                requires_approval=False,
+                status=ToolCallStatus.AWAITING_ANSWER,
+                tool_source_reference='{"server":"payments","tool":"refund_order"}',
+                trace_context="00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+                input_continuation='{"refund_draft":"rf_1"}',
+                input_answers=[
+                    QuestionAnswer(
+                        interrupt_id="call-1-input-1", question="Which order?", answer="42"
+                    )
+                ],
+                input_question="Refund to the card?",
+                input_choices=["yes", "no"],
+                input_allows_free_text=False,
+            )
+        ],
+        usage=AgentUsage(model_calls=1, input_tokens=10, output_tokens=5),
+        plan=AgentPlan(
+            revision=2,
+            status=PlanStatus.ACTIVE,
+            tasks=[AgentPlanTask(content="Refund the order", status=PlanTaskStatus.IN_PROGRESS)],
+            updated_at="2026-11-01T12:00:02.000Z",
+        ),
+        context_summary=ContextSummary(
+            generation=1,
+            first_sequence=1,
+            last_sequence=2,
+            text="The user asked to refund order 42.",
+            created_at="2026-11-01T12:00:03.000Z",
+        ),
+    )
+
+    snapshot_json = agent_snapshot_to_json(snapshot)
+
+    assert json.dumps(snapshot_json, separators=(",", ":")) == BROWSER_SNAPSHOT_JSON
+
+
+async def test_snapshot_json_and_event_frames_carry_the_plan_through_an_executing_turn(
+    plan_harness: ScriptedAgentHarness,
+) -> None:
+    await plan_harness.stack.start_worker()
+    client = plan_harness.stack.client
+    session_id = plan_harness.new_session_id()
+    await plan_harness.sessions.start_session(session_id)
+    assert await plan_harness.sessions.send_user_message(
+        session_id, "plan stall ui-execution | finish up", plan_mode=True
+    )
+    await plan_harness.wait_for_turns(session_id, 1)
+    assert await plan_harness.sessions.execute_plan(session_id, 1)
+    gate = plan_harness.gate("ui-execution")
+    await gate.wait_until_reached()
+
+    opening = await read_agent_event_stream_snapshot(client, plan_harness.flow, session_id)
+    opening_json = opening.to_json()
+    assert json.loads(json.dumps(opening_json)) == opening_json
+    assert opening_json["snapshot"]["state"]["interaction_mode"] == "executing"
+    assert opening_json["snapshot"]["plan"] == {
+        "revision": 1,
+        "status": "active",
+        "tasks": [
+            {"content": "stall ui-execution", "status": "pending"},
+            {"content": "finish up", "status": "pending"},
+        ],
+        "updated_at": opening_json["snapshot"]["plan"]["updated_at"],
+    }
+    reading = asyncio.create_task(
+        _read_frames_until(
+            await stream_agent_event_frames(
+                client,
+                plan_harness.flow,
+                session_id,
+                resume_token=opening.resume_token,
+                poll_timeout=POLL_TIMEOUT,
+            ),
+            lambda data: data["type"] == AgentEventType.TURN_COMPLETED,
+        )
+    )
+    gate.release()
+    events = await reading
+
+    assert events[0].data["type"] == AgentEventType.TURN_STARTED
+    assert [
+        (event.data["type"], json.loads(event.data["payload"]))
+        for event in events
+        if event.data["type"].startswith("plan_")
+    ] == [
+        (AgentEventType.PLAN_EXECUTION_STARTED, {"revision": 1}),
+        (AgentEventType.PLAN_UPDATED, {"revision": 1, "status": "active", "task_count": 2}),
+        (AgentEventType.PLAN_UPDATED, {"revision": 2, "status": "completed", "task_count": 2}),
+    ]
+    assert AgentEventType.INTERRUPT_RAISED not in [event.data["type"] for event in events]
+    closing = await read_agent_event_stream_snapshot(client, plan_harness.flow, session_id)
+    assert closing.to_json()["snapshot"]["plan"]["status"] == "completed"
 
 
 def test_turn_numbers_accept_only_ascii_digits() -> None:

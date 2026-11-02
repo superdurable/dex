@@ -10,28 +10,49 @@ import {
   StepList,
   booleanCodec,
   rpc,
+  type Channel,
   type Context,
   type Flow,
   type PersistenceSchema,
   type RPCResult,
 } from "@superdurable/dex";
 
-import type { AgentFrameworkRunner, ToolPolicy } from "./agent-framework-runner.js";
+import { builtInToolNames, isBlankText, type BuiltInTool } from "./agent-built-in-tools.js";
+import {
+  isContextCompactionRunner,
+  resolveCompactionPolicy,
+  type CompactionPolicy,
+  type ResolvedCompactionPolicy,
+} from "./agent-context-compaction.js";
+import type {
+  AgentFrameworkRunner,
+  DeferredToolOutcome,
+  ToolPolicy,
+} from "./agent-framework-runner.js";
 import {
   agentMessagesPageCodec,
   agentSnapshotCodec,
   agentUserMessageCodec,
+  answerQuestionRequestCodec,
+  cancelTurnRequestCodec,
+  deleteQueuedMessageRequestCodec,
+  executePlanRequestCodec,
   listAgentMessagesInputCodec,
   resolveInterruptInputCodec,
+  steerUserMessageRequestCodec,
 } from "./agent-session-codecs.js";
 import {
   createAgentSessionPersistence,
   defaultAgentEventsCapacityBytes,
+  planExecutionKey,
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import {
+  ApplyTurnControlStep,
   AwaitToolApprovalStep,
   AwaitUserMessageStep,
+  CompactContextStep,
+  isExecutablePlanStatus,
   RecordTurnFailureStep,
   ResumeTurnStep,
   RunModelStep,
@@ -39,6 +60,8 @@ import {
   ToolCallFailureRecordingStep,
   ToolCallStep,
 } from "./agent-session-steps.js";
+import { AgentSessionTracer } from "./agent-session-tracer.js";
+import { AwaitQuestionAnswerStep, AwaitTimerStep, PollToolTaskStep } from "./agent-session-wait-steps.js";
 import {
   AgentSessionTransitions,
   agentSessionStepTypes,
@@ -49,12 +72,24 @@ import type {
   AgentSessionStartInput,
   AgentSnapshot,
   AgentUserMessage,
+  AnswerQuestionRequest,
+  CancelTurnRequest,
+  DeleteQueuedMessageRequest,
+  ExecutePlanRequest,
   ListAgentMessagesInput,
+  PendingUserMessage,
   ResolveInterruptInput,
+  SteerUserMessageRequest,
   ToolEffect,
 } from "./agent-session-values.js";
+import {
+  genAISemanticConventionsSchemaUrls,
+  type AgentTracingOptions,
+  type ResolvedAgentTracingOptions,
+} from "./agent-tracing-options.js";
 
 const snapshotMessageLimit = 200;
+const defaultMaxDurableWaitMs = 365 * 24 * 60 * 60 * 1_000;
 const messagePageLimit = 200;
 const toolEffects: readonly ToolEffect[] = [
   "read",
@@ -63,7 +98,10 @@ const toolEffects: readonly ToolEffect[] = [
   "unclassified",
 ];
 
-/** Tool policies, live events, and approval deadline of one agent, passed to {@link createAgentSessionFlow}. */
+/**
+ * Tool policies, built-in tools, live events, interrupt deadline, tracing, and compaction of one agent,
+ * passed to {@link createAgentSessionFlow}.
+ */
 export interface AgentSessionOptions {
   /**
    * Policies by tool name. A policy overrides framework metadata and {@link defaultToolEffect}.
@@ -81,10 +119,48 @@ export interface AgentSessionOptions {
    */
   readonly eventStreamCapacityBytes?: number;
   /**
-   * Milliseconds an approval may stay pending before `AwaitToolApproval` rejects it with
-   * `"approval deadline passed"`. Defaults to no deadline: approvals wait indefinitely.
+   * Milliseconds an approval or a question may stay pending before the session rejects it with
+   * `"approval deadline passed"` or `"question deadline passed"`. Defaults to no deadline: interrupts wait
+   * indefinitely.
    */
   readonly interruptDeadlineMs?: number;
+  /**
+   * OpenTelemetry GenAI span options. Defaults to spans through the global tracer provider when
+   * `@opentelemetry/api` is installed, and nothing otherwise. See {@link AgentTracingOptions}.
+   */
+  readonly tracing?: AgentTracingOptions;
+  /**
+   * Built-in tools the session handles, such as `["ask_user", "durable_wait"]`. Defaults to none.
+   *
+   * The runner offers the enabled ones to its model from {@link builtInToolDefinitions}; see
+   * {@link BuiltInTool}. An enabled built-in name is reserved: a tool policy for it is refused here, and
+   * the session routes every call with that name to the built-in tool. Enable a built-in tool only after
+   * every Worker of the Flow type runs a release that supports it.
+   */
+  readonly builtInTools?: readonly BuiltInTool[];
+  /**
+   * Longest `durable_wait` in milliseconds; a longer `duration_seconds` fails the call at once.
+   * Defaults to 365 days. It must be a positive multiple of 1,000, because Dex Timers take whole seconds.
+   * The Python core's `max_durable_wait` is a `timedelta`; this option is the same limit in milliseconds.
+   */
+  readonly maxDurableWaitMs?: number;
+  /**
+   * Whether `send_user_message` accepts a message with `planMode`, which starts a `planning` turn that drafts
+   * a plan for `execute_plan`. A `draft` plan makes every new turn a `planning` turn until it runs. Defaults
+   * to `false`.
+   *
+   * It requires `write_todos` in {@link builtInTools} and a runner whose
+   * {@link AgentFrameworkRunner.supportsPlanMode} is `true`, such as the Stepwise runner.
+   */
+  readonly planModeEnabled?: boolean;
+  /**
+   * When to summarize earlier messages so the model input stays under the context window. Defaults to no
+   * compaction. It needs a runner that implements {@link AgentFrameworkRunner.estimateInputTokens},
+   * {@link AgentFrameworkRunner.selectCompactionCutoff}, and {@link AgentFrameworkRunner.summarizeContext}.
+   * Messages stay in `AgentMessages`; only the model input changes. Enable it only after every Worker of
+   * the Flow type runs a release with the `CompactContext` Step. See {@link CompactionPolicy}.
+   */
+  readonly compaction?: CompactionPolicy;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -95,18 +171,39 @@ export interface ResolvedAgentSessionOptions {
   readonly defaultToolEffect: ToolEffect;
   /** Byte budget of the `AgentEvents` Stream. */
   readonly eventStreamCapacityBytes: number;
-  /** Approval deadline in milliseconds, or `undefined` for none. */
+  /** Approval and question deadline in milliseconds, or `undefined` for none. */
   readonly interruptDeadlineMs: number | undefined;
+  /**
+   * Tracing options. A Flow always sets this field; it is optional so that 0.1.0 code that builds these
+   * options keeps compiling.
+   */
+  readonly tracing?: ResolvedAgentTracingOptions;
+  /**
+   * Enabled built-in tools, in {@link builtInToolDefinitions} order. A Flow always sets this field and
+   * the one below; they are optional so that 0.1.0 code that builds these options keeps compiling.
+   */
+  readonly builtInTools?: readonly BuiltInTool[];
+  /** Longest `durable_wait` in milliseconds. */
+  readonly maxDurableWaitMs?: number;
+  /** Whether plan mode is enabled. A Flow always sets it; it is optional for the same reason. */
+  readonly planModeEnabled?: boolean;
+  /** The compaction policy with its defaults, or `undefined` when the session never compacts. */
+  readonly compaction?: ResolvedCompactionPolicy;
 }
 
 /**
  * Durable agent session Flow: one Flow execution is one agent session, and its Flow ID is the session ID.
  *
  * Create one per agent with {@link createAgentSessionFlow}, register it in the process `Registry`, and
- * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `resolve_interrupt`,
- * `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never
- * completes on its own: it waits for the next user message after every turn. Stop it with
- * `Client.stopFlow`.
+ * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `steer_user_message`,
+ * `delete_queued_message`, `cancel_turn`, `resolve_interrupt`, `answer_question`, `execute_plan`,
+ * `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never completes on its
+ * own: it waits for the next user message after every turn. Stop it with `Client.stopFlow`.
+ *
+ * `steer_user_message` and `cancel_turn` end the running turn at its next safe Step boundary. Neither interrupts a
+ * model call or a tool call that has already started. The calls that have not started record `rejected` with a
+ * `cancellationReason`, and `ApplyTurnControl` ends the turn. A steered turn is followed by a new turn with the
+ * steered messages.
  *
  * The Flow's persistence definitions are properties of the Flow; pass them to `Client.getAttributes`
  * or the Stream reads.
@@ -124,10 +221,14 @@ export interface ResolvedAgentSessionOptions {
  *     interruptId: interrupt.interruptId, approved: true, rejectionMessage: null });
  * }
  * ```
+ * @typeParam Runner - Type of {@link runner}. It defaults to {@link AgentFrameworkRunner}.
  */
-export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSessionPersistence {
+export interface AgentSessionFlow<
+  Runner extends AgentFrameworkRunner<DeferredToolOutcome> = AgentFrameworkRunner,
+> extends Flow<AgentSessionStartInput>,
+    AgentSessionPersistence {
   /** The framework runner passed to {@link createAgentSessionFlow}. */
-  readonly runner: AgentFrameworkRunner;
+  readonly runner: Runner;
   /** The options this Flow applies, with defaults filled in. */
   readonly options: ResolvedAgentSessionOptions;
   /**
@@ -138,23 +239,133 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
    *
    * @param context - RPC Context supplied by Dex.
    * @param message - Message to queue.
-   * @returns `true` when queued; `false` when the text is blank.
+   * @returns `true` when queued; `false` when the text is blank, or for a `planMode` message when
+   * {@link AgentSessionOptions.planModeEnabled} is not set.
    */
   sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean>;
   /**
-   * RPC `resolve_interrupt`: approves or rejects one pending interrupt.
+   * RPC `execute_plan`: approves one plan revision, so the session starts a turn that runs it.
+   *
+   * Call it after the user reviewed the `draft` plan that a `planMode` message drafted, or to run an `active`
+   * plan again. The next `AwaitUserMessage` starts an `executing` turn with every tool, whose user message is
+   * `[Dex] The user approved plan revision <n>. Execute it and keep the task statuses current with
+   * write_todos.`. A queued message that the session took first runs its turn first; when that turn changes
+   * the plan, the approval is stale and never runs.
+   *
+   * The RPC records the approval in `PendingPlanExecution` until the session starts the turn, so a revision
+   * runs once per approval. It locks `PendingPlanExecution`: a concurrent `execute_plan` can make it fail with
+   * `RpcLockConflictError`, which is safe to retry.
+   *
+   * @example
+   * ```ts
+   * const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+   * if (snapshot.plan?.status === "draft") {
+   *   await client.invokeRPC(flow.executePlan, sessionId, { revision: snapshot.plan.revision });
+   * }
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - The plan revision the user reviewed.
+   * @returns `true` when the execution is accepted; `false` unless the session waits for a user message, the
+   * plan has this revision and is `draft` or `active`, no execution of it is pending, and no queued or steered
+   * message or interrupt is pending.
+   */
+  executePlan(context: Context, input: ExecutePlanRequest): RPCResult<boolean>;
+  /**
+   * RPC `steer_user_message`: steers the running turn with new text or with a queued message.
+   *
+   * A steered message applies at the turn's next safe Step boundary. The session never interrupts a model call or
+   * a tool call that has started. It records the calls that have not started as `rejected` with
+   * `cancellationReason` `"steered"`, ends the turn, and starts a new turn whose user messages are every steered
+   * message, in order.
+   *
+   * While no turn is active, there is nothing to steer: new `text` is queued like `send_user_message`, so it
+   * starts the next turn at once, and a `messageId` that is still queued stays queued. A turn that a Worker
+   * without steering started or advanced cannot be steered; see {@link AgentState.acceptsTurnControl}.
+   *
+   * With `messageId`, the RPC moves that queued message: it deletes it from `QueuedUserMessages` and publishes it
+   * to `SteeredUserMessages` in one commit. It locks nothing. When another Step or RPC consumes the message
+   * between the RPC's read and its commit, the RPC fails with `ChannelMessageNotFoundError` and commits nothing;
+   * reload the snapshot and let the user choose again.
+   *
+   * @example
+   * ```ts
+   * const [queued] = (await client.invokeRPC(flow.getAgentSnapshot, sessionId)).queuedMessages ?? [];
+   * if (queued !== undefined) {
+   *   await client.invokeRPC(flow.steerUserMessage, sessionId, { messageId: queued.messageId, text: null });
+   * }
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - Exactly one of a queued message ID and new text.
+   * @returns `true` when the message is steered, or queued while no turn is active; `false` when both or neither
+   * field is set, the text is blank, the message is no longer queued, or the active turn does not accept steering.
+   */
+  steerUserMessage(context: Context, input: SteerUserMessageRequest): RPCResult<boolean>;
+  /**
+   * RPC `delete_queued_message`: deletes one queued user message before it starts a turn.
+   *
+   * It locks nothing. When the session consumes the message between the RPC's read and its commit, the RPC fails
+   * with `ChannelMessageNotFoundError` and commits nothing.
+   *
+   * @param context - RPC Context supplied by Dex.
+   * @param input - {@link PendingUserMessage.messageId} from `get_agent_snapshot`.
+   * @returns `true` when the message was deleted; `false` when it is no longer queued.
+   */
+  deleteQueuedMessage(context: Context, input: DeleteQueuedMessageRequest): RPCResult<boolean>;
+  /**
+   * RPC `cancel_turn`: stops the running turn at its next safe Step boundary, with no new turn.
+   *
+   * Cancellation works like steering without a steered message. A model call that is running finishes, and a
+   * final answer it returns completes the turn as usual. Tool calls that have started run to the end. The calls
+   * that have not started record `rejected` with `cancellationReason` `"turn_cancelled"`. Then the session waits
+   * for the next user message. The RPC locks only `TurnCancellationRequest`, which no Step locks, so it never
+   * waits for a running Step. Two calls at once can make one fail with `RpcLockConflictError`, which is safe to
+   * retry.
+   *
+   * @param context - RPC Context supplied by Dex.
+   * @param input - The turn to stop, or `turnId` `null` for the active turn.
+   * @returns `true` when the request is recorded, although the turn may still complete before it applies;
+   * `false` when no turn is active, `turnId` names another turn, or the active turn does not accept cancellation.
+   */
+  cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean>;
+  /**
+   * RPC `resolve_interrupt`: approves or rejects one pending tool approval, or declines one question.
    *
    * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
    * one call succeeds per interrupt. It locks `PendingInterrupts`, so a call that races
-   * `AwaitToolApproval` can fail with `RpcLockConflictError`, which is safe to retry. The
-   * rejection message is dropped when `approved` is `true`.
+   * `AwaitToolApproval` or `AwaitQuestionAnswer` can fail with `RpcLockConflictError`, which is safe to
+   * retry. The rejection message is dropped when `approved` is `true`. A question needs an answer, so
+   * `approved` `true` on a `question` interrupt is refused; answer it with {@link answerQuestion}.
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - Interrupt ID and decision.
    * @returns `true` when the interrupt was pending and is now resolved; `false` when it is unknown,
-   * already resolved, or past its deadline.
+   * already resolved, past its deadline, or a question with `approved` `true`.
    */
   resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean>;
+  /**
+   * RPC `answer_question`: answers one pending `question` interrupt.
+   *
+   * The answer becomes the result of the `ask_user` call, `{"status":"answered","answer":"<text>"}`, so
+   * the model continues the same turn. For a tool's question, the tool runs again with the answer. The
+   * RPC removes the interrupt and publishes the answer in one commit, so only one call succeeds per
+   * question. It locks `PendingInterrupts` and can fail with `RpcLockConflictError`, which is safe to
+   * retry. Decline a question with {@link resolveInterrupt} and `approved` `false`.
+   *
+   * @example
+   * ```ts
+   * const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+   * const question = snapshot.pendingInterrupts.find((interrupt) => interrupt.kind === "question");
+   * if (question !== undefined) {
+   *   await client.invokeRPC(flow.answerQuestion, sessionId, { interruptId: question.interruptId, answer: "blue" });
+   * }
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - Interrupt ID and answer.
+   * @returns `true` when the question was pending and is now answered; `false` when the interrupt is
+   * not pending, is not a question, or is past its deadline, and when the answer is blank or is not one
+   * of the choices while free text is not allowed.
+   */
+  answerQuestion(context: Context, input: AnswerQuestionRequest): RPCResult<boolean>;
   /**
    * RPC `get_agent_snapshot`: returns the durable session view a UI renders.
    *
@@ -162,9 +373,10 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
    * whole `AgentMessages` map.
    *
    * @param context - RPC Context supplied by Dex.
-   * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage,
-   * and the queued message count. Before `StartAgentSession` commits, `state` is `null` and the lists
-   * are empty.
+   * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued
+   * message count, the plan, the queued and steered messages with their Channel message IDs, and the context
+   * summary; summarized messages stay in `messages`. Before `StartAgentSession` commits, `state` is `null` and
+   * the lists are empty.
    */
   getAgentSnapshot(context: Context): RPCResult<AgentSnapshot>;
   /**
@@ -201,31 +413,47 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
  * const billing = createAgentSessionFlow(billingRunner, "BillingAgent");
  * const registry = new Registry([triage, billing]);
  * ```
+ * @typeParam Runner - Type of the runner, kept as the Flow's `runner` property type.
  * @param runner - Framework runner; the Flow owns no other dependency.
  * @param flowType - Flow type, unique within the Registry, such as `"TriageAgent"`. Keep it stable:
  * running sessions resume by it.
- * @param options - Tool policies, Stream capacity, and approval deadline. Defaults to all defaults.
+ * @param options - Tool policies, Stream capacity, approval deadline, and tracing. Defaults to all
+ * defaults.
  * @returns A new Flow to register in one Registry.
- * @throws {TypeError} When `flowType` is blank, the runner is incomplete, or an effect is unknown.
- * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive.
+ * @throws {TypeError} When `flowType` is blank, the runner is incomplete, an effect or built-in tool is
+ * unknown, a tool policy names an enabled built-in tool, a tracing option is invalid, `planModeEnabled`
+ * is set without `write_todos` or for a runner without {@link AgentFrameworkRunner.supportsPlanMode}, or
+ * `compaction` is set for a runner without the compaction methods.
+ * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive,
+ * `maxDurableWaitMs` is not a positive whole number of seconds, or the compaction policy is out of range.
  */
-export function createAgentSessionFlow(
-  runner: AgentFrameworkRunner,
+export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<DeferredToolOutcome>>(
+  runner: Runner,
   flowType: string,
   options: AgentSessionOptions = {},
-): AgentSessionFlow {
+): AgentSessionFlow<Runner> {
   const config = resolveAgentSessionConfig(runner, flowType, options);
   const persistence = createAgentSessionPersistence(config.eventStreamCapacityBytes);
-  const transitions = new AgentSessionTransitions(persistence, runner, config);
+  const transitions = new AgentSessionTransitions(
+    persistence,
+    runner,
+    config,
+    new AgentSessionTracer(config.tracing, persistence),
+  );
   const resolvedOptions: ResolvedAgentSessionOptions = Object.freeze({
     toolPolicies: config.toolPolicies,
     defaultToolEffect: config.defaultToolEffect,
     eventStreamCapacityBytes: config.eventStreamCapacityBytes,
     interruptDeadlineMs: config.interruptDeadlineMs,
+    tracing: config.tracing,
+    builtInTools: Object.freeze(builtInToolNames.filter((name) => config.builtInTools.has(name))),
+    maxDurableWaitMs: config.maxDurableWaitMs,
+    planModeEnabled: config.planModeEnabled,
+    ...(config.compaction === undefined ? {} : { compaction: config.compaction }),
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
-  class AgentSessionFlowDefinition implements AgentSessionFlow {
+  class AgentSessionFlowDefinition implements AgentSessionFlow<Runner> {
     public readonly runner = runner;
     public readonly options = resolvedOptions;
     public readonly agentState = persistence.agentState;
@@ -237,15 +465,28 @@ export function createAgentSessionFlow(
     public readonly queuedUserMessages = persistence.queuedUserMessages;
     public readonly interruptResolutions = persistence.interruptResolutions;
     public readonly toolCallResults = persistence.toolCallResults;
+    public readonly steeredUserMessages = persistence.steeredUserMessages;
+    public readonly turnControlRequests = persistence.turnControlRequests;
+    public readonly turnCancellationRequest = persistence.turnCancellationRequest;
+    public readonly toolCallCancellations = persistence.toolCallCancellations;
     public readonly agentEvents = persistence.agentEvents;
+    public readonly agentTraceContext = persistence.agentTraceContext;
+    public readonly agentPlan = persistence.agentPlan;
+    public readonly planExecutions = persistence.planExecutions;
+    public readonly pendingPlanExecution = persistence.pendingPlanExecution;
+    public readonly contextSummary = persistence.contextSummary;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
       new AwaitUserMessageStep(transitions),
       new RunModelStep(transitions),
+      new CompactContextStep(transitions),
       new AwaitToolApprovalStep(transitions),
+      new AwaitQuestionAnswerStep(transitions),
+      new AwaitTimerStep(transitions),
       new ToolCallStep(transitions, agentSessionStepTypes.callTool),
       new ToolCallStep(transitions, agentSessionStepTypes.callSingleAttemptTool),
+      new PollToolTaskStep(transitions),
       new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, true),
       new ToolCallFailureRecordingStep(
         transitions,
@@ -253,6 +494,7 @@ export function createAgentSessionFlow(
         false,
       ),
       new ResumeTurnStep(transitions),
+      new ApplyTurnControlStep(transitions),
       new RecordTurnFailureStep(transitions),
     );
 
@@ -264,6 +506,8 @@ export function createAgentSessionFlow(
       return this.steps;
     }
 
+    // AgentTraceContext and ContextSummary are always registered, so Workers with and without tracing or
+    // compaction serve one Flow type.
     public getPersistenceSchema(): PersistenceSchema {
       return {
         attributes: [
@@ -273,11 +517,20 @@ export function createAgentSessionFlow(
           persistence.agentToolCalls,
           persistence.pendingInterrupts,
           persistence.agentUsage,
+          persistence.turnCancellationRequest,
+          persistence.agentTraceContext,
+          persistence.agentPlan,
+          persistence.pendingPlanExecution,
+          persistence.contextSummary,
         ],
         channels: [
           persistence.queuedUserMessages,
           persistence.interruptResolutions,
           persistence.toolCallResults,
+          persistence.planExecutions,
+          persistence.steeredUserMessages,
+          persistence.turnControlRequests,
+          persistence.toolCallCancellations,
         ],
         streams: [persistence.agentEvents],
       };
@@ -289,10 +542,123 @@ export function createAgentSessionFlow(
       outputCodec: booleanCodec,
     })
     public sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean> {
-      if (message.text.trim() === "") {
+      const planMode = message.planMode ?? false;
+      if (isBlankText(message.text) || (planMode && !config.planModeEnabled)) {
         return { output: false };
       }
-      persistence.queuedUserMessages.publish(context, { text: message.text });
+      persistence.queuedUserMessages.publish(context, { text: message.text, planMode });
+      return { output: true };
+    }
+
+    @rpc<ExecutePlanRequest, boolean>({
+      name: "execute_plan",
+      inputCodec: executePlanRequestCodec,
+      outputCodec: booleanCodec,
+      lockAttributes: [persistence.pendingPlanExecution.lock()],
+    })
+    public executePlan(context: Context, input: ExecutePlanRequest): RPCResult<boolean> {
+      const state = transitions.readOptionalAgentState(context);
+      const plan = transitions.readOptionalAgentPlan(context);
+      const pending = persistence.pendingPlanExecution.get(context);
+      if (
+        state === null ||
+        state.status !== "waiting_for_user_message" ||
+        state.activeTurnId !== null ||
+        plan === null ||
+        plan.revision !== input.revision ||
+        !isExecutablePlanStatus(plan.status) ||
+        (pending !== undefined && pending.revision === plan.revision) ||
+        context.channelSize(persistence.queuedUserMessages) > 0 ||
+        context.channelSize(persistence.steeredUserMessages) > 0 ||
+        transitions.readPendingInterrupts(context).length > 0
+      ) {
+        return { output: false };
+      }
+      const request = { revision: plan.revision };
+      persistence.pendingPlanExecution.set(context, request);
+      persistence.planExecutions.publish(context, planExecutionKey(plan.revision), request);
+      return { output: true };
+    }
+
+    @rpc<SteerUserMessageRequest, boolean>({
+      name: "steer_user_message",
+      inputCodec: steerUserMessageRequestCodec,
+      outputCodec: booleanCodec,
+      isTransactional: true,
+      loadChannels: [persistence.queuedUserMessages],
+    })
+    public steerUserMessage(context: Context, input: SteerUserMessageRequest): RPCResult<boolean> {
+      if ((input.messageId === null) === (input.text === null)) {
+        return { output: false };
+      }
+      const state = transitions.readOptionalAgentState(context);
+      if (state?.activeTurnId == null) {
+        // Any Worker version waits for queued messages while idle; a steer might wait forever.
+        if (input.text === null) {
+          return { output: findQueuedMessage(context, persistence, input.messageId ?? "") !== undefined };
+        }
+        return this.sendUserMessage(context, { text: input.text });
+      }
+      if (state.acceptsTurnControl !== true) {
+        return { output: false };
+      }
+      let steered: AgentUserMessage;
+      if (input.text !== null) {
+        if (isBlankText(input.text)) {
+          return { output: false };
+        }
+        steered = { text: input.text };
+      } else {
+        const queued = findQueuedMessage(context, persistence, input.messageId ?? "");
+        if (queued === undefined) {
+          return { output: false };
+        }
+        persistence.queuedUserMessages.delete(context, queued.messageId);
+        steered = queued.message;
+      }
+      persistence.steeredUserMessages.publish(context, steered);
+      persistence.turnControlRequests.publish(context, { kind: "steer" });
+      return { output: true };
+    }
+
+    @rpc<DeleteQueuedMessageRequest, boolean>({
+      name: "delete_queued_message",
+      inputCodec: deleteQueuedMessageRequestCodec,
+      outputCodec: booleanCodec,
+      isTransactional: true,
+      loadChannels: [persistence.queuedUserMessages],
+    })
+    public deleteQueuedMessage(context: Context, input: DeleteQueuedMessageRequest): RPCResult<boolean> {
+      const queued = findQueuedMessage(context, persistence, input.messageId);
+      if (queued === undefined) {
+        return { output: false };
+      }
+      persistence.queuedUserMessages.delete(context, queued.messageId);
+      return { output: true };
+    }
+
+    // Only this RPC locks it: concurrent cancels apply in order, so a stale one cannot win.
+    @rpc<CancelTurnRequest, boolean>({
+      name: "cancel_turn",
+      inputCodec: cancelTurnRequestCodec,
+      outputCodec: booleanCodec,
+      lockAttributes: [persistence.turnCancellationRequest.lock()],
+    })
+    public cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean> {
+      const state = transitions.readOptionalAgentState(context);
+      const activeTurnId = state?.activeTurnId ?? null;
+      if (
+        activeTurnId === null ||
+        state?.acceptsTurnControl !== true ||
+        (input.turnId !== null && input.turnId !== activeTurnId)
+      ) {
+        return { output: false };
+      }
+      persistence.turnCancellationRequest.set(context, {
+        turnId: activeTurnId,
+        requestedAt: new Date().toISOString(),
+      });
+      persistence.turnControlRequests.publish(context, { kind: "cancel_turn" });
       return { output: true };
     }
 
@@ -308,7 +674,8 @@ export function createAgentSessionFlow(
       // After the deadline, AwaitToolApproval rejects the call; a late answer must not win.
       if (
         interrupt === undefined ||
-        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now())
+        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now()) ||
+        (interrupt.kind === "question" && input.approved)
       ) {
         return { output: false };
       }
@@ -319,6 +686,37 @@ export function createAgentSessionFlow(
       persistence.interruptResolutions.publish(context, input.interruptId, {
         approved: input.approved,
         rejectionMessage: input.approved ? null : input.rejectionMessage,
+        answer: null,
+      });
+      return { output: true };
+    }
+
+    @rpc<AnswerQuestionRequest, boolean>({
+      name: "answer_question",
+      inputCodec: answerQuestionRequestCodec,
+      outputCodec: booleanCodec,
+      lockAttributes: [persistence.pendingInterrupts.lock()],
+    })
+    public answerQuestion(context: Context, input: AnswerQuestionRequest): RPCResult<boolean> {
+      const pendingInterrupts = transitions.readPendingInterrupts(context);
+      const interrupt = pendingInterrupts.find((pending) => pending.interruptId === input.interruptId);
+      if (
+        interrupt === undefined ||
+        interrupt.kind !== "question" ||
+        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now()) ||
+        isBlankText(input.answer) ||
+        isAnswerOutsideChoices(interrupt.choices ?? [], interrupt.allowsFreeText ?? true, input.answer)
+      ) {
+        return { output: false };
+      }
+      persistence.pendingInterrupts.set(
+        context,
+        pendingInterrupts.filter((pending) => pending.interruptId !== input.interruptId),
+      );
+      persistence.interruptResolutions.publish(context, input.interruptId, {
+        approved: true,
+        rejectionMessage: null,
+        answer: input.answer,
       });
       return { output: true };
     }
@@ -327,6 +725,7 @@ export function createAgentSessionFlow(
       name: "get_agent_snapshot",
       outputCodec: agentSnapshotCodec,
       loadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
+      loadChannels: [persistence.queuedUserMessages, persistence.steeredUserMessages],
     })
     public getAgentSnapshot(context: Context): RPCResult<AgentSnapshot> {
       const state = transitions.readOptionalAgentState(context);
@@ -339,6 +738,10 @@ export function createAgentSessionFlow(
             toolCalls: [],
             usage: transitions.readAgentUsage(context),
             queuedMessageCount: 0,
+            plan: null,
+            queuedMessages: [],
+            steeredMessages: [],
+            contextSummary: null,
           },
         };
       }
@@ -351,6 +754,10 @@ export function createAgentSessionFlow(
           toolCalls: transitions.readTurnToolCalls(context, state.activeTurnId),
           usage: transitions.readAgentUsage(context),
           queuedMessageCount: context.channelSize(persistence.queuedUserMessages),
+          plan: transitions.readOptionalAgentPlan(context),
+          queuedMessages: readPendingUserMessages(context, persistence.queuedUserMessages),
+          steeredMessages: readPendingUserMessages(context, persistence.steeredUserMessages),
+          contextSummary: transitions.readContextSummary(context),
         },
       };
     }
@@ -388,7 +795,7 @@ export function createAgentSessionFlow(
 }
 
 function resolveAgentSessionConfig(
-  runner: AgentFrameworkRunner,
+  runner: AgentFrameworkRunner<DeferredToolOutcome>,
   flowType: string,
   options: AgentSessionOptions,
 ): AgentSessionConfig {
@@ -421,13 +828,92 @@ function resolveAgentSessionConfig(
   ) {
     throw new RangeError("interruptDeadlineMs must be positive");
   }
+  const builtInTools = new Set<BuiltInTool>();
+  for (const builtInTool of options.builtInTools ?? []) {
+    if (!(builtInToolNames as readonly string[]).includes(builtInTool)) {
+      throw new TypeError(`builtInTools has unknown built-in tool ${String(builtInTool)}`);
+    }
+    builtInTools.add(builtInTool);
+  }
+  for (const toolName of Object.keys(toolPolicies)) {
+    if (builtInTools.has(toolName as BuiltInTool)) {
+      throw new TypeError(`tool policy ${toolName} names an enabled built-in tool, whose policy is fixed`);
+    }
+  }
+  const planModeEnabled = options.planModeEnabled ?? false;
+  if (planModeEnabled && !builtInTools.has("write_todos")) {
+    throw new TypeError("planModeEnabled requires the write_todos built-in tool");
+  }
+  if (planModeEnabled && runner.supportsPlanMode !== true) {
+    throw new TypeError("planModeEnabled requires a runner that supports plan mode");
+  }
+  const maxDurableWaitMs = options.maxDurableWaitMs ?? defaultMaxDurableWaitMs;
+  if (!Number.isSafeInteger(maxDurableWaitMs) || maxDurableWaitMs < 1_000 || maxDurableWaitMs % 1_000 !== 0) {
+    throw new RangeError("maxDurableWaitMs must be a positive whole number of seconds, in milliseconds");
+  }
+  const compaction = options.compaction === undefined ? undefined : resolveCompactionPolicy(options.compaction);
+  if (compaction !== undefined && !isContextCompactionRunner(runner)) {
+    throw new TypeError(
+      "compaction needs a runner that implements estimateInputTokens, selectCompactionCutoff, and summarizeContext",
+    );
+  }
   return {
     flowType,
     toolPolicies: Object.freeze(toolPolicies),
     defaultToolEffect,
     eventStreamCapacityBytes,
     interruptDeadlineMs,
+    tracing: resolveAgentTracingOptions(flowType, options.tracing ?? {}),
+    builtInTools,
+    maxDurableWaitMs,
+    planModeEnabled,
+    compaction,
   };
+}
+
+function resolveAgentTracingOptions(
+  flowType: string,
+  tracing: AgentTracingOptions,
+): ResolvedAgentTracingOptions {
+  const agentName = tracing.agentName ?? flowType;
+  if (typeof agentName !== "string" || agentName.trim() === "") {
+    throw new TypeError("tracing.agentName must be a non-blank string");
+  }
+  const semanticConventionsVersion = tracing.semanticConventionsVersion ?? "1.42.0-dev";
+  if (!Object.hasOwn(genAISemanticConventionsSchemaUrls, semanticConventionsVersion)) {
+    throw new TypeError(`tracing.semanticConventionsVersion ${String(semanticConventionsVersion)} is unknown`);
+  }
+  const tracerProvider = tracing.tracerProvider;
+  if (tracerProvider !== undefined && typeof tracerProvider?.getTracer !== "function") {
+    throw new TypeError("tracing.tracerProvider must be an OpenTelemetry TracerProvider");
+  }
+  return Object.freeze({
+    isEnabled: tracing.isEnabled ?? true,
+    tracerProvider,
+    agentName,
+    shouldCaptureMessageContent: tracing.shouldCaptureMessageContent ?? false,
+    semanticConventionsVersion,
+  });
+}
+
+function readPendingUserMessages(context: Context, channel: Channel<AgentUserMessage>): PendingUserMessage[] {
+  return channel
+    .pendingMessages(context)
+    .map((pending) => ({ messageId: pending.messageId, message: pending.value }));
+}
+
+function findQueuedMessage(
+  context: Context,
+  persistence: AgentSessionPersistence,
+  messageId: string,
+): PendingUserMessage | undefined {
+  return readPendingUserMessages(context, persistence.queuedUserMessages).find(
+    (queued) => queued.messageId === messageId,
+  );
+}
+
+function isAnswerOutsideChoices(choices: readonly string[], allowsFreeText: boolean, answer: string): boolean {
+  return choices.length > 0 && !allowsFreeText && !choices.includes(answer);
 }
 
 function requireToolEffect(effect: ToolEffect, description: string): void {

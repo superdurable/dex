@@ -20,6 +20,7 @@ from dex_agents import (
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     AgentSessionFlow,
     AgentSessionOptions,
+    AgentTracingOptions,
     ToolEffect,
     ToolPolicy,
 )
@@ -40,6 +41,7 @@ def claude_agent_session_flow(
     interrupt_deadline: timedelta | None = None,
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     custom_tool_server_name: str = DEFAULT_CUSTOM_TOOL_SERVER_NAME,
+    tracing: AgentTracingOptions | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for one Claude Agent SDK agent.
 
@@ -109,6 +111,10 @@ def claude_agent_session_flow(
             ``AgentEvents`` Stream. Defaults to 10 MiB.
         custom_tool_server_name: Name of the in-process MCP server for custom
             tools. Defaults to ``"tools"``.
+        tracing: OpenTelemetry GenAI span options, such as the tracer provider
+            and agent name. ``None``, the default, uses ``AgentTracingOptions()``:
+            spans go to the global tracer provider when the OpenTelemetry API
+            is installed.
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``ClaudeAgentRunner``.
@@ -129,5 +135,6 @@ def claude_agent_session_flow(
             default_tool_effect=default_tool_effect,
             event_stream_capacity_bytes=event_stream_capacity_bytes,
             interrupt_deadline=interrupt_deadline,
+            tracing=AgentTracingOptions() if tracing is None else tracing,
         ),
     )

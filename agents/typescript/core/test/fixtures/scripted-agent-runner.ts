@@ -6,7 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   ToolExecutionError,
@@ -15,12 +18,16 @@ import {
   isFinalToolCallStatus,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
+  type AgentTracingOptions,
   type AgentTurnContext,
   type AgentTurnOutcome,
   type DeferredToolCall,
   type DeferredToolExecution,
+  type BuiltInTool,
+  type DeferredToolOutcome,
   type FrameworkMessage,
-  type ToolExecutionResult,
+  type ToolTaskPoll,
+  type ToolTaskPollOutcome,
 } from "../../src/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
 
@@ -79,10 +86,37 @@ interface ScriptedRunState {
  *
  * Tools record `<flowId> <toolCallId> attempt <n>` in the `<tool>.log` InvocationLog on every real
  * run, and `<flowId> <toolName>` in `tool-runs.log` in run order. `charge_card`, `transfer_funds`,
- * `lookup_a`, and `lookup_b` then wait at a FileGate: their own, or `lookups` for the two lookups.
+ * `retry_payout`, `lookup_a`, and `lookup_b` then wait at a FileGate: their own, or `lookups` for the two
+ * lookups. `retry_payout` then fails its first attempt.
+ * `confirm_shipment` asks the user `Ship now?` through `ToolInputRequested`, then, once answered, logs
+ * the answers in `confirm_shipment-answers.log` and waits at its FileGate. `confirm_return` asks
+ * `Return now?` the same way without a gate, and `gated_confirm` waits at its FileGate before it asks.
+ *
+ * Task tools start a remote task, stored as a JSON file, and return `ToolTaskStarted`; `pollToolTask`
+ * polls it. `task-runs.log` records `<flowId> create <toolCallId>` for every new task and
+ * `<flowId> poll <toolCallId> attempt <n> pending <resolution|none>` for every poll. A retried attempt returns
+ * the task its heartbeat checkpoint names. `report_task` finishes on its third poll as `report ready`.
+ * `gated_report_task` polls every 3 seconds, marks its FileGate on every poll, and finishes once it is
+ * released. `blocking_report_task` waits at its FileGate in every poll and finishes on the first that
+ * passes. `start_gated_report_task` saves the checkpoint, repeats it in heartbeats for 2 seconds, waits at
+ * its FileGate, and finishes on its second poll. `asking_report_task`, `asking_summary_task`, `asking_publish_task` (a single-attempt
+ * write), and `slow_asking_report_task` (polled every 12 seconds) ask `Which format?` with the choices `pdf`
+ * and `html` in their first poll, record `<flowId> deliver <toolCallId> <answer>` in the poll after the
+ * answer, and finish on their third poll as `report ready as <answer>`. A declined or expired question
+ * records `<flowId> cancel <toolCallId>` and the poll throws, because the task cannot take a decline, except
+ * for `asking_summary_task`, which records `<flowId> deliver <toolCallId> <resolution>` and finishes as
+ * `report ready without a format (<resolution>)`. Every poll of `failing_report_task` and `failing_publish_task`
+ * throws, and `broken_report_task` fails with `the report failed`. `continuing_report_task` records
+ * `<flowId> continuation <toolCallId> <text|none>` for the `inputContinuation` every poll reads, returns the
+ * continuation `pending-<poll>` from each odd-numbered poll that does not finish, and finishes on its fourth.
+ *
+ * `buildUnfinishedTurnMessages` always throws, so the failure tests prove the note is still stored.
  */
-export class ScriptedAgentRunner implements AgentFrameworkRunner {
-  public constructor(private readonly markerDirectory: string) {}
+export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
+  public constructor(
+    private readonly markerDirectory: string,
+    private readonly unfinishedTurnMessages: "throw" | "malformed" = "throw",
+  ) {}
 
   public buildUserMessage(text: string): FrameworkMessage {
     return toFrameworkMessage({ kind: "user", text });
@@ -131,7 +165,14 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
       return { kind: "completed", newMessages: turnItems.map(toFrameworkMessage), usage };
     }
     const toolCalls: DeferredToolCall[] = action.toolCalls.map(({ toolCallId, toolName }) => {
-      const toolArguments = JSON.stringify({ requested_by: userText });
+      // An adapter exposes an enabled built-in tool like any tool; its call carries the built-in's arguments.
+      const isAskUserCall = toolName === "ask_user" && turn.enabledBuiltInTools?.has("ask_user") === true;
+      const isWriteTodosCall = toolName === "write_todos" && turn.enabledBuiltInTools?.has("write_todos") === true;
+      const toolArguments = isAskUserCall
+        ? JSON.stringify({ question: "Proceed?", choices: ["yes", "no"] })
+        : isWriteTodosCall
+          ? JSON.stringify({ todos: [{ content: "Ship it", status: "pending" }] })
+          : JSON.stringify({ requested_by: userText });
       turnItems.push({ kind: "tool_call", toolCallId, toolName, arguments: toolArguments });
       return { toolCallId, toolName, arguments: toolArguments, policy: turn.resolveToolPolicy(toolName) };
     });
@@ -142,7 +183,14 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
     return { kind: "tool_calls_requested", frameworkRunState: JSON.stringify(runState), toolCalls, usage };
   }
 
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+  public buildUnfinishedTurnMessages(): readonly FrameworkMessage[] {
+    if (this.unfinishedTurnMessages === "malformed") {
+      return [{ role: "narrator" } as unknown as FrameworkMessage];
+    }
+    throw new Error("the scripted runner stores no messages before a turn ends");
+  }
+
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const toolCall = call.toolCall;
     this.invocationLog(toolCall.toolName).record(
       `${call.flowId} ${toolCall.toolCallId} attempt ${call.attempt}`,
@@ -168,6 +216,45 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
       }
       case "refund_order":
         return { output: "refund issued" };
+      case "confirm_shipment": {
+        const answers = call.inputAnswers ?? [];
+        if (answers.length === 0) {
+          return {
+            kind: "tool_input_requested",
+            question: "Ship now?",
+            choices: ["yes", "no"],
+            allowsFreeText: false,
+            continuation: `continuation-${toolCall.toolCallId}`,
+          };
+        }
+        this.invocationLog("confirm_shipment-answers").record(
+          `${call.flowId} ${answers.map((answer) => `${answer.interruptId}=${answer.answer} (${answer.question})`).join(", ")} ` +
+            `continuation ${toolCall.inputContinuation}`,
+        );
+        const gate = new FileGate(this.markerDirectory, "confirm_shipment");
+        gate.markReached();
+        await gate.waitForRelease(call.cancellationSignal);
+        return { output: `shipped after ${answers.at(-1)?.answer}` };
+      }
+      case "confirm_return":
+      case "gated_confirm": {
+        const answer = call.inputAnswers?.at(-1)?.answer;
+        if (answer !== undefined) {
+          return { output: `${toolCall.toolName} confirmed: ${answer}` };
+        }
+        if (toolCall.toolName === "gated_confirm") {
+          const gate = new FileGate(this.markerDirectory, "gated_confirm");
+          gate.markReached();
+          await gate.waitForRelease(call.cancellationSignal);
+        }
+        return {
+          kind: "tool_input_requested",
+          question: toolCall.toolName === "confirm_return" ? "Return now?" : "Go ahead?",
+          choices: ["yes", "no"],
+          allowsFreeText: false,
+          continuation: null,
+        };
+      }
       case "transfer_funds": {
         this.invocationLog("transfer_funds-keys").record(`${call.idempotencyKey} attempt ${call.attempt}`);
         const gate = new FileGate(this.markerDirectory, "transfer_funds");
@@ -175,6 +262,28 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
         await gate.waitForRelease(call.cancellationSignal);
         return { output: "funds transferred" };
       }
+      case "retry_payout": {
+        const gate = new FileGate(this.markerDirectory, "retry_payout");
+        gate.markReached();
+        await gate.waitForRelease(call.cancellationSignal);
+        if (call.attempt === 1) {
+          throw new Error("payout service connection lost");
+        }
+        return { output: "payout sent" };
+      }
+      case "report_task":
+      case "gated_report_task":
+      case "blocking_report_task":
+      case "start_gated_report_task":
+      case "asking_report_task":
+      case "asking_summary_task":
+      case "asking_publish_task":
+      case "slow_asking_report_task":
+      case "failing_report_task":
+      case "failing_publish_task":
+      case "broken_report_task":
+      case "continuing_report_task":
+        return this.startReportTask(call);
       case "sync_inventory":
         throw new Error("inventory service unavailable");
       case "check_stock":
@@ -186,29 +295,206 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
     }
   }
 
+  public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    const toolCall = poll.toolCall;
+    const taskId = toolCall.taskId ?? null;
+    if (taskId === null) {
+      throw new Error(`tool call ${toolCall.toolCallId} has no task`);
+    }
+    const pending = poll.pendingAnswer;
+    this.invocationLog("task-runs").record(
+      `${poll.flowId} poll ${toolCall.toolCallId} attempt ${poll.attempt} pending ${pending?.resolution ?? "none"}`,
+    );
+    const task = this.readReportTask(taskId);
+    if (toolCall.toolName === "continuing_report_task") {
+      this.invocationLog("task-runs").record(
+        `${poll.flowId} continuation ${toolCall.toolCallId} ${toolCall.inputContinuation ?? "none"}`,
+      );
+    }
+    switch (toolCall.toolName) {
+      case "blocking_report_task": {
+        const gate = new FileGate(this.markerDirectory, "blocking_report_task");
+        gate.markReached();
+        await gate.waitForRelease(poll.cancellationSignal);
+        break;
+      }
+      case "failing_report_task":
+      case "failing_publish_task":
+        throw new Error("the task server is unreachable");
+      case "broken_report_task":
+        throw new ToolExecutionError("the report failed");
+    }
+    task.polls += 1;
+    if (pending !== null && (pending.resolution ?? "answered") === "answered") {
+      this.invocationLog("task-runs").record(`${poll.flowId} deliver ${toolCall.toolCallId} ${pending.answer}`);
+      task.answer = pending.answer;
+    } else if (pending !== null) {
+      if (toolCall.toolName !== "asking_summary_task") {
+        this.invocationLog("task-runs").record(`${poll.flowId} cancel ${toolCall.toolCallId}`);
+        throw new Error("the report task cannot take a declined question");
+      }
+      this.invocationLog("task-runs").record(`${poll.flowId} deliver ${toolCall.toolCallId} ${pending.resolution}`);
+      task.declined = pending.resolution ?? null;
+    }
+    this.writeReportTask(taskId, task);
+    if (task.declined !== undefined && task.declined !== null) {
+      return { output: `report ready without a format (${task.declined})` };
+    }
+    if (toolCall.toolName.includes("asking_") && task.answer === null) {
+      return {
+        kind: "tool_input_requested",
+        question: "Which format?",
+        choices: ["pdf", "html"],
+        allowsFreeText: false,
+        continuation: JSON.stringify({ report_task_id: taskId }),
+      };
+    }
+    let isFinished = task.polls >= finishingPollOfReportTask(toolCall.toolName);
+    if (toolCall.toolName === "gated_report_task") {
+      const gate = new FileGate(this.markerDirectory, "gated_report_task");
+      gate.markReached();
+      isFinished = gate.isReleased();
+    }
+    if (!isFinished) {
+      const continuation =
+        toolCall.toolName === "continuing_report_task" && task.polls % 2 === 1 ? `pending-${task.polls}` : null;
+      return {
+        kind: "tool_task_pending",
+        pollIntervalSeconds: reportTaskPollIntervalSeconds(toolCall.toolName),
+        continuation,
+      };
+    }
+    return { output: task.answer === null ? "report ready" : `report ready as ${task.answer}` };
+  }
+
+  private async startReportTask(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+    const toolCall = call.toolCall;
+    const pollIntervalSeconds = reportTaskPollIntervalSeconds(toolCall.toolName);
+    const savedTaskId = readReportTaskCheckpoint(call.heartbeatCheckpoint);
+    if (savedTaskId !== undefined) {
+      // An earlier attempt started the task; never start a second one.
+      return { kind: "tool_task_started", taskId: savedTaskId, pollIntervalSeconds };
+    }
+    const taskId = `task-${randomUUID()}`;
+    this.writeReportTask(taskId, { polls: 0, answer: null });
+    this.invocationLog("task-runs").record(`${call.flowId} create ${toolCall.toolCallId}`);
+    await call.saveHeartbeatCheckpoint?.(JSON.stringify({ report_task_id: taskId }));
+    if (toolCall.toolName === "start_gated_report_task") {
+      // Dex batches heartbeat checkpoints; repeating it lets it land before the test kills the Worker.
+      for (let heartbeat = 0; heartbeat < 8; heartbeat += 1) {
+        await call.heartbeat();
+        await delay(250);
+      }
+      const gate = new FileGate(this.markerDirectory, "start_gated_report_task");
+      gate.markReached();
+      await gate.waitForRelease(call.cancellationSignal);
+    }
+    return { kind: "tool_task_started", taskId, pollIntervalSeconds };
+  }
+
+  private readReportTask(taskId: string): ReportTask {
+    return JSON.parse(readFileSync(join(this.markerDirectory, "tasks", `${taskId}.json`), "utf8")) as ReportTask;
+  }
+
+  private writeReportTask(taskId: string, task: ReportTask): void {
+    mkdirSync(join(this.markerDirectory, "tasks"), { recursive: true });
+    writeFileSync(join(this.markerDirectory, "tasks", `${taskId}.json`), JSON.stringify(task));
+  }
+
   private invocationLog(name: string): InvocationLog {
     return new InvocationLog(join(this.markerDirectory, `${name}.log`));
+  }
+}
+
+/** State of one scripted remote task. */
+interface ReportTask {
+  polls: number;
+  answer: string | null;
+  declined?: string | null;
+}
+
+function reportTaskPollIntervalSeconds(toolName: string): number {
+  switch (toolName) {
+    case "gated_report_task":
+      return 3;
+    case "slow_asking_report_task":
+      return 12;
+    default:
+      return 1;
+  }
+}
+
+function finishingPollOfReportTask(toolName: string): number {
+  switch (toolName) {
+    case "blocking_report_task":
+      return 1;
+    case "start_gated_report_task":
+      return 2;
+    case "continuing_report_task":
+      return 4;
+    default:
+      return 3;
+  }
+}
+
+/** Reads the task ID this runner saved; a checkpoint another writer saved reads as none. */
+function readReportTaskCheckpoint(checkpoint: string | undefined): string | undefined {
+  if (checkpoint === undefined) {
+    return undefined;
+  }
+  try {
+    const taskId = (JSON.parse(checkpoint) as { readonly report_task_id?: unknown }).report_task_id;
+    return typeof taskId === "string" ? taskId : undefined;
+  } catch {
+    return undefined;
   }
 }
 
 /** Creates the scripted agent Flow; tests and the Worker child build it identically. */
 export function createScriptedAgentFlow(
   markerDirectory: string,
-  flowOptions: { readonly flowType?: string; readonly interruptDeadlineMs?: number } = {},
-): AgentSessionFlow {
-  return createAgentSessionFlow(new ScriptedAgentRunner(markerDirectory), flowOptions.flowType ?? scriptedAgentFlowType, {
+  flowOptions: {
+    readonly flowType?: string;
+    readonly interruptDeadlineMs?: number;
+    readonly tracing?: AgentTracingOptions;
+    readonly runner?: AgentFrameworkRunner<DeferredToolOutcome>;
+    readonly builtInTools?: readonly BuiltInTool[];
+    readonly unfinishedTurnMessages?: "throw" | "malformed";
+  } = {},
+): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> {
+  const runner =
+    flowOptions.runner ?? new ScriptedAgentRunner(markerDirectory, flowOptions.unfinishedTurnMessages ?? "throw");
+  return createAgentSessionFlow(runner, flowOptions.flowType ?? scriptedAgentFlowType, {
+    ...(flowOptions.builtInTools === undefined ? {} : { builtInTools: flowOptions.builtInTools }),
     ...(flowOptions.interruptDeadlineMs === undefined
       ? {}
       : { interruptDeadlineMs: flowOptions.interruptDeadlineMs }),
+    ...(flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing }),
     toolPolicies: {
       get_weather: { effect: "read" },
       lookup_a: { effect: "read" },
       lookup_b: { effect: "read" },
       check_stock: { effect: "read" },
       charge_card: { effect: "non_idempotent_write" },
+      confirm_shipment: { effect: "non_idempotent_write", requiresApproval: false },
+      confirm_return: { effect: "non_idempotent_write", requiresApproval: false },
+      gated_confirm: { effect: "non_idempotent_write", requiresApproval: false },
       refund_order: { effect: "idempotent_write" },
       transfer_funds: { effect: "idempotent_write" },
+      retry_payout: { effect: "idempotent_write", requiresApproval: true },
       sync_inventory: { effect: "idempotent_write" },
+      report_task: { effect: "read" },
+      gated_report_task: { effect: "read" },
+      blocking_report_task: { effect: "read" },
+      start_gated_report_task: { effect: "read" },
+      asking_report_task: { effect: "read" },
+      asking_summary_task: { effect: "read" },
+      asking_publish_task: { effect: "non_idempotent_write", requiresApproval: false },
+      slow_asking_report_task: { effect: "read" },
+      failing_report_task: { effect: "read" },
+      failing_publish_task: { effect: "non_idempotent_write", requiresApproval: false },
+      broken_report_task: { effect: "read" },
+      continuing_report_task: { effect: "read" },
     },
   });
 }

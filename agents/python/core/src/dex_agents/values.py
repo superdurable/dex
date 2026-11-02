@@ -31,11 +31,15 @@ class AgentSessionStatus(StrEnum):
         RUNNING_MODEL: ``RunModel`` makes one model call of the active turn.
         RUNNING_TOOLS: The tool call Steps of the active turn run, or wait for
             approval, in parallel; ``ResumeTurn`` waits for their results.
+        COMPACTING_CONTEXT: ``CompactContext`` summarizes earlier messages
+            before the turn's next model call. Only a session with
+            ``AgentSessionOptions.compaction`` reaches it.
     """
 
     WAITING_FOR_USER_MESSAGE = "waiting_for_user_message"
     RUNNING_MODEL = "running_model"
     RUNNING_TOOLS = "running_tools"
+    COMPACTING_CONTEXT = "compacting_context"
 
 
 class MessageRole(StrEnum):
@@ -83,11 +87,21 @@ class ToolCallStatus(StrEnum):
 
     ``SUCCEEDED``, ``FAILED``, ``REJECTED``, and ``OUTCOME_UNKNOWN`` are final.
     A runner resuming a turn reads final records and returns their results to
-    the model instead of running the tools again.
+    the model instead of running the tools again. Every other status is
+    non-final, and runners never see a non-final record. The set of final
+    statuses never grows, so an exhaustive mapping of final statuses stays
+    complete.
 
     Attributes:
         AWAITING_APPROVAL: The call waits for ``resolve_interrupt``.
         APPROVED: The call may run; its tool Step has not finished yet.
+        AWAITING_ANSWER: The call waits for ``answer_question``. It is an
+            ``ask_user`` call, or a tool call that returned ``ToolInputRequested``.
+        WAITING_FOR_TIMER: A ``durable_wait`` call waits for its Timer until
+            ``AgentToolCall.wait_until``.
+        WAITING_FOR_TASK: The tool started remote work and returned
+            ``ToolTaskStarted``. ``PollToolTask`` polls the task in
+            ``AgentToolCall.task_id`` every ``task_poll_interval_seconds``.
         REJECTED: The user or an expired deadline rejected the call. It never ran.
         SUCCEEDED: The tool ran and returned ``output``.
         FAILED: The tool raised ``ToolExecutionError``; ``error`` holds the
@@ -99,6 +113,9 @@ class ToolCallStatus(StrEnum):
 
     AWAITING_APPROVAL = "awaiting_approval"
     APPROVED = "approved"
+    AWAITING_ANSWER = "awaiting_answer"
+    WAITING_FOR_TIMER = "waiting_for_timer"
+    WAITING_FOR_TASK = "waiting_for_task"
     REJECTED = "rejected"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -112,17 +129,108 @@ class ToolCallStatus(StrEnum):
             ``True`` for ``REJECTED``, ``SUCCEEDED``, ``FAILED``, and
             ``OUTCOME_UNKNOWN``; ``False`` while the call waits or may still run.
         """
-        return self not in (ToolCallStatus.AWAITING_APPROVAL, ToolCallStatus.APPROVED)
+        return self in (
+            ToolCallStatus.REJECTED,
+            ToolCallStatus.SUCCEEDED,
+            ToolCallStatus.FAILED,
+            ToolCallStatus.OUTCOME_UNKNOWN,
+        )
 
 
 class InterruptKind(StrEnum):
     """Name why a turn paused for a person.
 
     Attributes:
-        TOOL_APPROVAL: A tool call needs approval before it runs.
+        TOOL_APPROVAL: A tool call needs approval before it runs. Answer it
+            with ``resolve_interrupt``.
+        QUESTION: The model or a tool asked the user a question. Answer it with
+            ``answer_question``, or decline it with ``resolve_interrupt`` and
+            ``approved=False``.
     """
 
     TOOL_APPROVAL = "tool_approval"
+    QUESTION = "question"
+
+
+class InteractionMode(StrEnum):
+    """Name what kind of turn the session runs, for the runner to choose the tools it offers.
+
+    The session sets ``AgentState.interaction_mode`` when a turn starts, and the
+    runner reads it from ``AgentTurnContext.interaction_mode``. Plan mode needs
+    ``AgentSessionOptions.plan_mode_enabled``; without it every turn is ``CHAT``.
+
+    Attributes:
+        CHAT: An ordinary turn. The runner offers every tool.
+        PLANNING: A turn that only plans. A message of the turn has
+            ``plan_mode``, or a ``DRAFT`` plan waits for review. The runner
+            offers only ``write_todos``, and ``RunModel`` rejects any other call.
+        EXECUTING: A turn that ``execute_plan`` started. The runner offers every tool.
+    """
+
+    CHAT = "chat"
+    PLANNING = "planning"
+    EXECUTING = "executing"
+
+
+class PlanStatus(StrEnum):
+    """Name where an ``AgentPlan`` stands.
+
+    Attributes:
+        DRAFT: A planning turn wrote the plan, and it waits for ``execute_plan``.
+        ACTIVE: The plan runs, or ``write_todos`` wrote it outside a planning
+            turn with a task not completed.
+        COMPLETED: Every task is completed.
+        CLEARED: ``write_todos`` replaced the plan with no tasks.
+    """
+
+    DRAFT = "draft"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    CLEARED = "cleared"
+
+
+class PlanTaskStatus(StrEnum):
+    """Name where one task of an ``AgentPlan`` stands.
+
+    Attributes:
+        PENDING: The task has not started.
+        IN_PROGRESS: The model works on the task.
+        COMPLETED: The task is done.
+    """
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
+class ToolCallCancellationReason(StrEnum):
+    """Name why steering or cancellation abandoned a tool call before it started.
+
+    A ``REJECTED`` record that steering or ``cancel_turn`` abandoned carries
+    one in ``AgentToolCall.cancellation_reason``. Its ``rejection_message`` is
+    the structured result the model sees, such as
+    ``{"status":"cancelled","reason":"superseded_by_steered_user_message"}``.
+    The values are JSON strings on the wire.
+
+    Attributes:
+        STEERED: ``steer_user_message`` superseded the turn.
+        TURN_CANCELLED: ``cancel_turn`` stopped the turn.
+    """
+
+    STEERED = "steered"
+    TURN_CANCELLED = "turn_cancelled"
+
+
+class TurnControlKind(StrEnum):
+    """Name the RPC that published one ``TurnControlRequest``.
+
+    Attributes:
+        STEER: ``steer_user_message`` published a steered message.
+        CANCEL_TURN: ``cancel_turn`` recorded a ``TurnCancellationRequest``.
+    """
+
+    STEER = "steer"
+    CANCEL_TURN = "cancel_turn"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -160,6 +268,15 @@ class AgentState:
             Sequences start at 1 and have no gaps.
         last_turn_error: Recovery error text of the last finished turn when it
             failed, or ``None`` when it completed.
+        interaction_mode: Kind of the active turn, or of the last turn between
+            turns. The session sets it when a turn starts. Defaults to
+            ``CHAT``; ``None``, as an explicit JSON ``null`` decodes, also
+            becomes ``CHAT``, so a read value is never ``None``.
+        accepts_turn_control: Whether ``steer_user_message`` and
+            ``cancel_turn`` may end the active turn. A Worker that applies
+            them sets it when a turn starts and clears it when the turn ends.
+            An earlier Worker drops it whenever it writes ``AgentState``, so
+            the RPCs refuse a turn that such a Worker started or advanced.
     """
 
     status: AgentSessionStatus
@@ -167,6 +284,12 @@ class AgentState:
     active_turn_id: str | None = None
     next_message_sequence: int = 1
     last_turn_error: str | None = None
+    interaction_mode: InteractionMode | None = InteractionMode.CHAT
+    accepts_turn_control: bool = False
+
+    def __post_init__(self) -> None:
+        if self.interaction_mode is None:
+            object.__setattr__(self, "interaction_mode", InteractionMode.CHAT)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -203,6 +326,55 @@ class AgentMessage:
     created_at: str
 
 
+class QuestionResolution(StrEnum):
+    """Name how a question that a tool or its task asked was resolved.
+
+    A tool's own question is only ever answered: a decline or a passed
+    deadline ends the call with ``rejected``. A question that a started task
+    asked through ``poll_tool_task`` goes back to the task in every case, so
+    the task, not the session, decides what a decline means.
+
+    Attributes:
+        ANSWERED: The user answered with ``answer_question``.
+        DECLINED: The user declined with ``resolve_interrupt`` and
+            ``approved=False``.
+        DEADLINE_PASSED: ``interrupt_deadline`` passed first.
+    """
+
+    ANSWERED = "answered"
+    DECLINED = "declined"
+    DEADLINE_PASSED = "deadline_passed"
+
+
+@dataclass(frozen=True, kw_only=True)
+class QuestionAnswer:
+    """Record how one question that a tool asked through ``ToolInputRequested`` was resolved.
+
+    ``AwaitQuestionAnswer`` appends one to ``AgentToolCall.input_answers`` when
+    the user answers, and the tool receives them in
+    ``DeferredToolExecution.input_answers`` when it runs again. For a question
+    that a started task asked, it also appends one when the user declines or
+    the deadline passes, and ``PollToolTask`` hands it to the task as
+    ``ToolTaskPoll.pending_answer``.
+
+    Attributes:
+        interrupt_id: ``"<tool_call_id>-input-<n>"`` of the resolved question,
+            where ``n`` counts the call's questions from 1.
+        question: The question text the tool asked.
+        answer: The user's answer, exactly as sent to ``answer_question``. For
+            a declined question, the user's rejection message or
+            ``"The user declined to answer."``; for a passed deadline,
+            ``"question deadline passed"``.
+        resolution: How the question was resolved. Defaults to ``ANSWERED``,
+            the only resolution of a tool's own question.
+    """
+
+    interrupt_id: str
+    question: str
+    answer: str
+    resolution: QuestionResolution = QuestionResolution.ANSWERED
+
+
 @dataclass(frozen=True, kw_only=True)
 class AgentToolCall:
     """Record one tool call that a turn deferred to a Dex Step.
@@ -230,6 +402,41 @@ class AgentToolCall:
             contract so the order survives storage in an AttributeMap.
         tool_source_reference: ``DeferredToolCall.tool_source_reference``,
             opaque text the tool's source stored with the call, or ``None``.
+        trace_context: W3C ``traceparent`` of the activation root that the
+            call's ``execute_tool`` spans join, or ``None``. The session sets it
+            when ``RunModel`` defers the call and again when an approval starts
+            a new activation, so parallel activations never swap tool spans.
+        wait_until: RFC 3339 time when a ``durable_wait`` call's Timer ends,
+            or ``None`` for every other call.
+        input_continuation: Opaque text from the tool's last
+            ``ToolInputRequested``, returned to the tool when it runs again
+            after the answer. For a call waiting for a task, the continuation
+            of the task's last question until the next poll, and then what the
+            last ``ToolTaskPending`` returned. ``None`` when there is none.
+        input_answers: Answers to the questions the tool asked through
+            ``ToolInputRequested``, oldest first. Empty for other calls.
+        input_question: Question text of the tool's pending
+            ``ToolInputRequested`` while the record is ``AWAITING_ANSWER``, or
+            ``None``. It is ``None`` for an ``ask_user`` call, whose question
+            is in ``arguments``. ``AwaitQuestionAnswer`` raises the question
+            interrupt from it under the ``PendingInterrupts`` lock.
+        input_choices: Choices of that pending ``ToolInputRequested``; empty
+            for free text only or when no tool question is pending.
+        input_allows_free_text: Whether that pending ``ToolInputRequested``
+            accepts free text. ``True`` when no tool question is pending.
+        cancellation_reason: Why steering or ``cancel_turn`` abandoned the
+            call before it started, on a ``REJECTED`` record, or ``None``.
+        task_id: The remote task ID from the tool's ``ToolTaskStarted``, or
+            ``None`` for a call that started no task. It stays on the record
+            after the task finishes.
+        task_poll_interval_seconds: Whole seconds ``PollToolTask`` waits
+            before the next poll, at least 1, from ``ToolTaskStarted`` or the
+            last ``ToolTaskPending``. ``None`` for a call that started no task.
+        task_answer_pending: Whether the last entry of ``input_answers``, the
+            resolution of the task's last question, has not reached the task
+            yet. ``AwaitQuestionAnswer`` sets it, ``PollToolTask`` then polls at
+            once and hands that entry to the runner, and the poll's commit
+            clears it.
     """
 
     tool_call_id: str
@@ -244,25 +451,45 @@ class AgentToolCall:
     rejection_message: str | None = None
     deferral_order: int = 0
     tool_source_reference: str | None = None
+    trace_context: str | None = None
+    wait_until: str | None = None
+    input_continuation: str | None = None
+    input_answers: list[QuestionAnswer] = field(default_factory=list)
+    input_question: str | None = None
+    input_choices: list[str] = field(default_factory=list)
+    input_allows_free_text: bool = True
+    cancellation_reason: ToolCallCancellationReason | None = None
+    task_id: str | None = None
+    task_poll_interval_seconds: int | None = None
+    task_answer_pending: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
 class AgentInterrupt:
-    """Describe one question the session waits for a person to answer.
+    """Describe one decision the session waits for a person to make.
 
     The ``PendingInterrupts`` Attribute holds the list of unresolved
-    interrupts. A UI shows them and answers each with ``resolve_interrupt``.
+    interrupts. A UI shows them. It answers a ``TOOL_APPROVAL`` interrupt with
+    ``resolve_interrupt`` and a ``QUESTION`` interrupt with ``answer_question``.
 
     Attributes:
-        interrupt_id: ID passed to ``resolve_interrupt``. It equals the tool
-            call ID for a tool approval.
+        interrupt_id: ID passed to ``resolve_interrupt`` or ``answer_question``.
+            It equals the tool call ID for a tool approval and an ``ask_user``
+            question, and is ``"<tool_call_id>-input-<n>"`` for the ``n``-th
+            question a tool asked through ``ToolInputRequested``.
         kind: Why the turn paused.
-        tool_call_id: Tool call that waits for approval.
-        tool_name: Name of that tool.
+        tool_call_id: Tool call that waits.
+        tool_name: Name of that tool, ``"ask_user"`` for an ``ask_user`` question.
         arguments: Tool arguments as JSON text.
         created_at: RFC 3339 time when the interrupt was raised.
         deadline: RFC 3339 time after which the session rejects the call with
-            ``"approval deadline passed"``, or ``None`` for no deadline.
+            ``"approval deadline passed"`` or ``"question deadline passed"``,
+            or ``None`` for no deadline.
+        question: Question text of a ``QUESTION`` interrupt, or ``None``.
+        choices: Answers to offer for a ``QUESTION`` interrupt. Empty means
+            free text only.
+        allows_free_text: Whether ``answer_question`` accepts an answer that
+            is not one of ``choices``. Always ``True`` when ``choices`` is empty.
     """
 
     interrupt_id: str
@@ -272,22 +499,29 @@ class AgentInterrupt:
     arguments: str
     created_at: str
     deadline: str | None = None
+    question: str | None = None
+    choices: list[str] = field(default_factory=list)
+    allows_free_text: bool = True
 
 
 @dataclass(frozen=True, kw_only=True)
 class AgentInterruptResolution:
     """Carry one answer to an interrupt through ``InterruptResolutions``.
 
-    ``resolve_interrupt`` publishes it to the ChannelMap instance named by the
-    interrupt ID. ``AwaitToolApproval`` consumes it.
+    ``resolve_interrupt`` and ``answer_question`` publish it to the ChannelMap
+    instance named by the interrupt ID. ``AwaitToolApproval`` or
+    ``AwaitQuestionAnswer`` consumes it.
 
     Attributes:
-        approved: Whether the tool call may run.
+        approved: Whether the tool call may run, or, for a question, whether
+            the user answered it.
         rejection_message: Message the model sees after a rejection, or ``None``.
+        answer: The answer to a ``QUESTION`` interrupt, or ``None``.
     """
 
     approved: bool
     rejection_message: str | None = None
+    answer: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -296,7 +530,8 @@ class ResolveInterruptRequest:
 
     Attributes:
         interrupt_id: ``AgentInterrupt.interrupt_id`` of a pending interrupt.
-        approved: ``True`` to run the tool call; ``False`` to reject it.
+        approved: ``True`` to run the tool call; ``False`` to reject it or to
+            decline a question.
         rejection_message: Message the model sees after a rejection. ``None``
             makes the model see a generic rejection.
     """
@@ -304,6 +539,22 @@ class ResolveInterruptRequest:
     interrupt_id: str
     approved: bool
     rejection_message: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AnswerQuestionRequest:
+    """Answer one pending question through the ``answer_question`` RPC.
+
+    Attributes:
+        interrupt_id: ``AgentInterrupt.interrupt_id`` of a pending ``QUESTION``
+            interrupt.
+        answer: The answer. It must not be blank. When the interrupt has
+            ``choices`` and ``allows_free_text`` is ``False``, it must equal
+            one of the choices exactly.
+    """
+
+    interrupt_id: str
+    answer: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -352,13 +603,86 @@ class AgentUserMessage:
 
     The RPC queues the message in the ``QueuedUserMessages`` Channel. The
     session consumes queued messages in order, one per turn, after the current
-    turn ends.
+    turn ends. ``steer_user_message`` publishes it to ``SteeredUserMessages``
+    instead, which ends the running turn at its next safe Step boundary.
 
     Attributes:
         text: Message text. Whitespace-only text is rejected.
+        plan_mode: Whether the message starts a ``PLANNING`` turn, which drafts
+            a plan for review instead of doing the work. ``send_user_message``
+            rejects it unless ``AgentSessionOptions.plan_mode_enabled`` is set.
+            Defaults to ``False``; ``None``, as an explicit JSON ``null``
+            decodes, also becomes ``False``.
     """
 
     text: str
+    plan_mode: bool | None = False
+
+    def __post_init__(self) -> None:
+        if self.plan_mode is None:
+            object.__setattr__(self, "plan_mode", False)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentPlanTask:
+    """Describe one task of an ``AgentPlan``.
+
+    Attributes:
+        content: What the task does, as the model wrote it. Never blank.
+        status: Where the task stands.
+    """
+
+    content: str
+    status: PlanTaskStatus
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentPlan:
+    """Hold the session's plan: a short task list the model replaces as a whole.
+
+    The ``AgentPlan`` Attribute holds one value. ``write_todos`` replaces it
+    with the next revision, and ``execute_plan`` names the revision the user
+    approves. Compaction never summarizes it.
+
+    Attributes:
+        revision: Revision of the plan, starting at 1. Every ``write_todos``
+            call that succeeds adds 1, an empty list included.
+        status: Where the plan stands.
+        tasks: Every task in order; empty when ``CLEARED``.
+        updated_at: RFC 3339 time of the last change.
+    """
+
+    revision: int
+    status: PlanStatus
+    tasks: list[AgentPlanTask] = field(default_factory=list)
+    updated_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ExecutePlanRequest:
+    """Approve one plan revision through the ``execute_plan`` RPC.
+
+    Attributes:
+        revision: ``AgentPlan.revision`` the user reviewed. A stale revision is
+            refused, so the session never runs a plan the user did not see.
+    """
+
+    revision: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlanExecutionRequest:
+    """Carry one approved plan execution through the ``PlanExecutions`` ChannelMap.
+
+    ``execute_plan`` publishes it to the instance named by the revision, and
+    ``AwaitUserMessage`` consumes it to start an ``EXECUTING`` turn. The
+    ``PendingPlanExecution`` Attribute holds it from acceptance until then.
+
+    Attributes:
+        revision: The approved ``AgentPlan.revision``.
+    """
+
+    revision: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -377,6 +701,113 @@ class ToolCallCompleted:
 
 
 @dataclass(frozen=True, kw_only=True)
+class PendingUserMessage:
+    """Show one user message that waits in ``QueuedUserMessages`` or ``SteeredUserMessages``.
+
+    ``get_agent_snapshot`` lists them, so a UI can delete or steer a queued
+    message by its ID.
+
+    Attributes:
+        message_id: Channel message ID that Dex assigned when the message was
+            published.
+        message: The user message.
+    """
+
+    message_id: str
+    message: AgentUserMessage
+
+
+@dataclass(frozen=True, kw_only=True)
+class SteerUserMessageRequest:
+    """Steer the running turn through the ``steer_user_message`` RPC.
+
+    Set exactly one field. ``message_id`` moves a queued message, and
+    ``text`` sends a new one.
+
+    Example:
+        >>> SteerUserMessageRequest(text="Use the staging account instead")
+        >>> SteerUserMessageRequest(message_id=snapshot.queued_messages[0].message_id)
+
+    Attributes:
+        message_id: ``PendingUserMessage.message_id`` of a queued message, or ``None``.
+        text: Text of a new steered message, or ``None``.
+    """
+
+    message_id: str | None = None
+    text: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeleteQueuedMessageRequest:
+    """Delete one queued user message through the ``delete_queued_message`` RPC.
+
+    Attributes:
+        message_id: ``PendingUserMessage.message_id`` of a queued message.
+    """
+
+    message_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class CancelTurnRequest:
+    """Stop the running turn through the ``cancel_turn`` RPC.
+
+    Attributes:
+        turn_id: The turn to stop, or ``None`` for whichever turn is active.
+            A turn ID that is not the active turn makes the RPC return ``False``.
+    """
+
+    turn_id: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnControlRequest:
+    """Wake a waiting session Step through the internal ``TurnControlRequests`` Channel.
+
+    ``steer_user_message`` and ``cancel_turn`` publish one. The message only
+    wakes ``ResumeTurn`` or ``AwaitUserMessage``; the session decides from
+    ``SteeredUserMessages`` and ``TurnCancellationRequest``.
+
+    Attributes:
+        kind: The RPC that published it.
+    """
+
+    kind: TurnControlKind
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnCancellationRequest:
+    """Record that ``cancel_turn`` asked to stop one turn.
+
+    The ``TurnCancellationRequest`` Attribute holds the latest request. A turn
+    is cancelled while ``turn_id`` equals ``AgentState.active_turn_id``. Turn
+    IDs never repeat, so a request for an earlier turn never matches.
+
+    Attributes:
+        turn_id: The turn to stop.
+        requested_at: RFC 3339 time of the request.
+    """
+
+    turn_id: str
+    requested_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolCallCancellation:
+    """Wake the Step that waits on one tool call through ``ToolCallCancellations``.
+
+    ``ResumeTurn`` publishes one to the instance named by the tool call ID
+    when the turn is steered or cancelled. The waiting Step decides from the
+    session's flags, not from this message.
+
+    Attributes:
+        reason: Why the turn ends.
+    """
+
+    reason: ToolCallCancellationReason
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentEvent:
     """Carry one live update on the ``AgentEvents`` Stream.
 
@@ -387,8 +818,9 @@ class AgentEvent:
     ``step_execution_id``, keep only the events of the highest ``attempt``
     seen, and drop the partial text of lower attempts. Different
     ``step_execution_id`` values of one turn are separate model call and tool
-    call Steps, and each keeps its own events. After ``turn_completed`` or
-    ``turn_failed``, replace the turn's live text with the stored messages.
+    call Steps, and each keeps its own events. After ``turn_completed``,
+    ``turn_failed``, ``turn_steered``, or ``turn_cancelled``, replace the
+    turn's live text with the stored messages.
 
     Attributes:
         type: One of the ``AgentEventType`` values.
@@ -408,6 +840,54 @@ class AgentEvent:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ContextSummary:
+    """Hold the summary that replaces a session's earlier messages in the model input.
+
+    The ``ContextSummary`` Attribute holds one value, and only ``CompactContext``
+    writes it. A session with ``AgentSessionOptions.compaction`` folds its
+    earlier messages into this text when the next model input would cross the
+    threshold. Each new summary folds in the previous one, so it always covers
+    the messages from ``first_sequence`` through ``last_sequence``. The
+    messages stay in ``AgentMessages``: ``list_agent_messages`` and
+    ``get_agent_snapshot`` return them as before. Only the model input changes.
+
+    Example:
+        >>> snapshot = await sessions.get_agent_snapshot("session-42")
+        >>> if snapshot.context_summary is not None:
+        ...     print(snapshot.context_summary.last_sequence)
+
+    Attributes:
+        generation: Count of summaries the session has written, starting at 1.
+        first_sequence: Sequence of the first summarized message. Always 1.
+        last_sequence: Sequence of the last summarized message. A runner with
+            the compaction capability receives only the messages after it.
+        text: Summary text from the runner's ``summarize_context``.
+        created_at: RFC 3339 time when ``CompactContext`` wrote the summary.
+    """
+
+    generation: int
+    first_sequence: int
+    last_sequence: int
+    text: str
+    created_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class CompactContextInput:
+    """Name the messages that one ``CompactContext`` Step summarizes.
+
+    ``RunModel`` moves to ``CompactContext`` with this input when the next
+    model input would cross the compaction threshold.
+
+    Attributes:
+        through_sequence: Sequence of the last message to summarize. It is
+            after the current summary's ``last_sequence``.
+    """
+
+    through_sequence: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentSnapshot:
     """Return everything a UI needs to render one agent session.
 
@@ -423,6 +903,15 @@ class AgentSnapshot:
             ``deferral_order``.
         usage: Model usage of the whole session.
         queued_message_count: User messages queued for later turns.
+        plan: The ``AgentPlan``, or ``None`` before ``write_todos`` first succeeded.
+        queued_messages: Those queued messages with their Channel message
+            IDs, oldest first. Pass an ID to ``delete_queued_message`` or
+            ``steer_user_message``.
+        steered_messages: Steered messages that the session has not applied
+            yet, oldest first.
+        context_summary: The current ``ContextSummary``, or ``None`` when the
+            session never compacted. ``messages`` still holds the summarized
+            messages.
     """
 
     state: AgentState | None
@@ -431,6 +920,10 @@ class AgentSnapshot:
     tool_calls: list[AgentToolCall] = field(default_factory=list)
     usage: AgentUsage = field(default_factory=AgentUsage)
     queued_message_count: int = 0
+    plan: AgentPlan | None = None
+    queued_messages: list[PendingUserMessage] = field(default_factory=list)
+    steered_messages: list[PendingUserMessage] = field(default_factory=list)
+    context_summary: ContextSummary | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

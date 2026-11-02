@@ -21,6 +21,7 @@ from dex_agents import (
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     AgentSessionFlow,
     AgentSessionOptions,
+    AgentTracingOptions,
     ToolEffect,
     ToolPolicy,
 )
@@ -35,6 +36,7 @@ def openai_agents_session_flow(
     default_tool_effect: ToolEffect = ToolEffect.UNCLASSIFIED,
     interrupt_deadline: timedelta | None = None,
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    tracing: AgentTracingOptions | None = None,
     context: Any = None,
     run_config: RunConfig | None = None,
     max_turns: int | None = DEFAULT_MAX_TURNS,
@@ -90,6 +92,9 @@ def openai_agents_session_flow(
             session rejects the call. ``None``, the default, waits indefinitely.
         event_stream_capacity_bytes: Byte budget of the ``AgentEvents`` Stream,
             shared by all sessions of the Flow type. Defaults to 10 MiB.
+        tracing: OpenTelemetry GenAI span options. ``None``, the default,
+            uses ``AgentTracingOptions()``, which emits spans through the global
+            tracer provider when the OpenTelemetry API is installed.
         context: The SDK run context for every run and tool call. See
             ``OpenAIAgentsRunner``. Defaults to ``None``.
         run_config: SDK run settings for every run. ``None`` uses the SDK defaults.
@@ -115,6 +120,7 @@ def openai_agents_session_flow(
         tool_policies=dict(tool_policies or {}),
         default_tool_effect=default_tool_effect,
         event_stream_capacity_bytes=event_stream_capacity_bytes,
+        tracing=AgentTracingOptions() if tracing is None else tracing,
         interrupt_deadline=interrupt_deadline,
     )
     runner = OpenAIAgentsRunner(

@@ -31,6 +31,13 @@ class AgentEventType(StrEnum):
         TURN_COMPLETED: The turn produced its final answer. Payload
             ``{"message_count"}``, the number of messages the turn appended.
         TURN_FAILED: ``RecordTurnFailure`` ended the turn. Payload ``{"error"}``.
+        TURN_STEERED: Steering ended the turn before its final answer. Payload
+            ``{"steered_message_count", "message_count"}``: the steered
+            messages that start the next turn, and the messages the ended turn
+            appended. Treat it like ``TURN_COMPLETED``.
+        TURN_CANCELLED: ``cancel_turn`` ended the turn before its final
+            answer. Payload ``{"message_count"}``. Treat it like
+            ``TURN_COMPLETED``.
         TEXT_DELTA: Visible model text. Payload ``{"text"}``.
         REASONING_DELTA: A provider-authored reasoning summary. Payload ``{"text"}``.
         TOOL_CALL_STARTED: A tool started. Payload ``{"tool_call_id", "tool_name"}``.
@@ -38,17 +45,41 @@ class AgentEventType(StrEnum):
             rejection. Payload ``{"tool_call_id", "tool_name", "status"}``.
         TOOL_CALL_DEFERRED: The model asked for a tool call, which runs in its own Step.
             Payload ``{"tool_call_id", "tool_name", "effect", "requires_approval"}``.
-        INTERRUPT_RAISED: A tool call waits for approval. Payload
-            ``{"interrupt_id", "tool_call_id", "tool_name", "deadline"}``.
-        INTERRUPT_RESOLVED: An interrupt was answered or expired. Payload
-            ``{"interrupt_id", "approved", "rejection_message"}``.
+        INTERRUPT_RAISED: A tool call waits for approval, or a question waits
+            for an answer. Payload ``{"interrupt_id", "tool_call_id",
+            "tool_name", "deadline", "kind", "question", "choices",
+            "allows_free_text"}``. ``question`` is ``null`` and ``choices``
+            empty for a tool approval.
+        INTERRUPT_RESOLVED: An interrupt was answered, declined, or expired.
+            Payload ``{"interrupt_id", "approved", "rejection_message",
+            "kind", "answered", "cancellation_reason"}``. ``answered`` is
+            ``true`` only for an answered question. ``cancellation_reason`` is
+            ``"steered"`` or ``"turn_cancelled"`` when steering or
+            ``cancel_turn`` abandoned the call, and ``null`` otherwise.
         USAGE_RECORDED: The session added one model call's usage. Payload
             ``{"recorded", "session"}``, each an ``AgentUsage`` object.
+        TIMER_STARTED: A ``durable_wait`` call started its Timer. Payload
+            ``{"tool_call_id", "wait_until", "reason"}``; ``wait_until`` is
+            RFC 3339.
+        PLAN_UPDATED: ``write_todos`` replaced the plan, or an approval
+            marked a draft ``active``. Payload ``{"revision", "status",
+            "task_count"}``.
+        PLAN_EXECUTION_STARTED: An approved plan revision started an
+            ``executing`` turn, after its ``turn_started``. Payload ``{"revision"}``.
+        TOOL_TASK_STARTED: A tool started remote work that ``PollToolTask``
+            polls. Payload ``{"tool_call_id", "tool_name", "task_id"}``.
+        COMPACTION_STARTED: ``CompactContext`` started summarizing the
+            messages through a sequence. Payload ``{"through_sequence"}``. A
+            retried attempt writes it again.
+        COMPACTION_FINISHED: ``CompactContext`` wrote a ``ContextSummary``.
+            Payload ``{"generation", "through_sequence"}``.
     """
 
     TURN_STARTED = "turn_started"
     TURN_COMPLETED = "turn_completed"
     TURN_FAILED = "turn_failed"
+    TURN_STEERED = "turn_steered"
+    TURN_CANCELLED = "turn_cancelled"
     TEXT_DELTA = "text_delta"
     REASONING_DELTA = "reasoning_delta"
     TOOL_CALL_STARTED = "tool_call_started"
@@ -57,6 +88,12 @@ class AgentEventType(StrEnum):
     INTERRUPT_RAISED = "interrupt_raised"
     INTERRUPT_RESOLVED = "interrupt_resolved"
     USAGE_RECORDED = "usage_recorded"
+    TIMER_STARTED = "timer_started"
+    PLAN_UPDATED = "plan_updated"
+    PLAN_EXECUTION_STARTED = "plan_execution_started"
+    TOOL_TASK_STARTED = "tool_task_started"
+    COMPACTION_STARTED = "compaction_started"
+    COMPACTION_FINISHED = "compaction_finished"
 
 
 class AgentEventWriter:

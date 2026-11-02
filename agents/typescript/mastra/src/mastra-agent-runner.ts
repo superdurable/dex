@@ -9,7 +9,7 @@
 import type { Agent } from "@mastra/core/agent";
 import type { AIV5Type, MessageListInput } from "@mastra/core/agent/message-list";
 import { MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY, RequestContext } from "@mastra/core/request-context";
-import type { MastraModelOutput } from "@mastra/core/stream";
+import type { LLMStepResult, MastraModelOutput, StepStartPayload } from "@mastra/core/stream";
 import {
   describeToolCallOutcome,
   isFinalToolCallStatus,
@@ -21,10 +21,12 @@ import {
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
+  type ModelCallMetadata,
   type ToolExecutionResult,
   type ToolPolicy,
 } from "@superdurable/dex-agents";
 
+import { toGenAIProviderName } from "./gen-ai-provider-names.js";
 import { executeMastraDeferredToolCall } from "./mastra-deferred-tool-execution.js";
 import {
   assignIncreasingCreatedAt,
@@ -195,14 +197,15 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       abortSignal: turn.cancellationSignal,
       ...(this.maxSteps === undefined ? {} : { maxSteps: this.maxSteps }),
     });
-    const suspendedToolNames = await forwardMastraStreamEvents(output, turn.events, toolPlan);
+    const streamReport = await forwardMastraStreamEvents(output, turn.events, toolPlan);
     const usage = await readMastraModelStepUsage(output, turn);
-    if (suspendedToolNames.length > 0) {
+    if (streamReport.suspendedToolNames.length > 0) {
       throw new Error(
-        `Mastra suspended tool ${suspendedToolNames.join(", ")} inside RunModel; ` +
+        `Mastra suspended tool ${streamReport.suspendedToolNames.join(", ")} inside RunModel; ` +
           "only the session's approval can pause a tool call",
       );
     }
+    const modelCallMetadata = createModelCallMetadata(streamReport.stepStarts, await output.steps);
     const historyMessageIds = new Set(history.map((message) => message.id));
     const turnMessages = output.messageList.get.all
       .db()
@@ -212,7 +215,12 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       if (turnMessages.length === 0) {
         throw new Error(`Mastra produced no message for turn ${turn.turnId}`);
       }
-      return { kind: "completed", newMessages: turnMessages.map(projectMastraMessage), usage };
+      return {
+        kind: "completed",
+        newMessages: turnMessages.map(projectMastraMessage),
+        usage,
+        ...modelCallMetadata,
+      };
     }
     const toolCalls = pendingInvocations.map((invocation): DeferredToolCall => {
       const policy = toolPlan.clientToolPolicies.get(invocation.toolName);
@@ -234,6 +242,7 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       }),
       toolCalls,
       usage,
+      ...modelCallMetadata,
     };
   }
 
@@ -306,16 +315,28 @@ function buildRecordedToolResultMessages(
   });
 }
 
-/** Writes live events and returns the tools Mastra suspended natively, which the runner cannot resume. */
+interface MastraStreamReport {
+  readonly suspendedToolNames: readonly string[];
+  readonly stepStarts: readonly StepStartPayload[];
+}
+
+/**
+ * Writes live events and returns the tools Mastra suspended natively, which the runner cannot resume, and the
+ * `step-start` payloads, which name each step's model.
+ */
 async function forwardMastraStreamEvents(
   output: MastraModelOutput<unknown>,
   events: AgentEventWriter,
   toolPlan: MastraModelStepToolPlan,
-): Promise<string[]> {
+): Promise<MastraStreamReport> {
   const suspendedToolNames: string[] = [];
+  const stepStarts: StepStartPayload[] = [];
   const isRunInsideTurn = (toolName: string): boolean => toolPlan.mastraRunToolNames.has(toolName);
   for await (const chunk of output.fullStream) {
     switch (chunk.type) {
+      case "step-start":
+        stepStarts.push(chunk.payload);
+        break;
       case "text-delta":
         events.writeTextDelta(chunk.payload.text);
         break;
@@ -348,7 +369,51 @@ async function forwardMastraStreamEvents(
         break;
     }
   }
-  return suspendedToolNames;
+  return { suspendedToolNames, stepStarts };
+}
+
+/**
+ * Reads `modelCallMetadata` from the `step-start` chunks and the step results of one `RunModel`. It reports no
+ * response ID: Mastra generates one when the provider sends none, and its public API does not say which it is.
+ */
+function createModelCallMetadata(
+  stepStarts: readonly StepStartPayload[],
+  steps: readonly LLMStepResult<unknown>[],
+): { readonly modelCallMetadata?: ModelCallMetadata } {
+  if (steps.length === 0) {
+    return {};
+  }
+  const requestModel = readValueSharedByEvery(stepStarts.map((stepStart) => stepStart.modelId));
+  const providerName = readValueSharedByEvery(
+    stepStarts.map((stepStart) =>
+      stepStart.provider === undefined ? undefined : toGenAIProviderName(stepStart.provider),
+    ),
+  );
+  // Mastra fills a missing response model with the requested one, or leaves it empty; neither is the provider's.
+  const requestedModelIds = new Set(stepStarts.map((stepStart) => stepStart.modelId));
+  const responseModel = readValueSharedByEvery(
+    steps.map((step) => {
+      const responseModelId = step.response.modelId;
+      return responseModelId === undefined || responseModelId === "" || requestedModelIds.has(responseModelId)
+        ? undefined
+        : responseModelId;
+    }),
+  );
+  // A finish reason describes one response, so several model calls report none.
+  const finishReason = steps.length === 1 ? steps[0]?.finishReason : undefined;
+  return {
+    modelCallMetadata: {
+      ...(requestModel === undefined ? {} : { requestModel }),
+      ...(providerName === undefined ? {} : { providerName }),
+      ...(responseModel === undefined ? {} : { responseModel }),
+      ...(finishReason === undefined ? {} : { finishReasons: [finishReason] }),
+    },
+  };
+}
+
+function readValueSharedByEvery(values: readonly (string | undefined)[]): string | undefined {
+  const distinctValues = new Set(values);
+  return distinctValues.size === 1 ? [...distinctValues][0] : undefined;
 }
 
 async function readMastraModelStepUsage(

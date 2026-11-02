@@ -20,6 +20,7 @@ import {
   currentDeferredToolExecution,
   type ClaudeAgentOptionsContext,
   type ClaudeAgentQueryOptions,
+  type ClaudeAgentSessionOptions,
   type ClaudeCustomTool,
 } from "../../src/index.js";
 import {
@@ -38,6 +39,8 @@ const fakeClaudeCliPath = fileURLToPath(new URL("./fake-claude-cli.js", import.m
 const testToolPolicies: Readonly<Record<string, ToolPolicy>> = {
   publish: { effect: "non_idempotent_write" },
   slow_write: { effect: "non_idempotent_write", requiresApproval: false },
+  // The fake CLI's subagent tool, which then runs inside the turn.
+  Agent: { effect: "read" },
 };
 
 /** The test agent's CLI: the fake when `executablePath` is unset, else `environment` is the whole environment. */
@@ -50,7 +53,11 @@ export interface ClaudeTestAgentCli {
 }
 
 /** Creates the Claude agent Flow; tests and the Worker child build it identically. */
-export function createClaudeTestAgentFlow(stateDirectory: string, cli?: ClaudeTestAgentCli): AgentSessionFlow {
+export function createClaudeTestAgentFlow(
+  stateDirectory: string,
+  cli?: ClaudeTestAgentCli,
+  sessionOptions: ClaudeAgentSessionOptions = {},
+): AgentSessionFlow {
   mkdirSync(join(stateDirectory, "workspace"), { recursive: true });
   mkdirSync(join(stateDirectory, "claude-config"), { recursive: true });
   const environment =
@@ -71,6 +78,7 @@ export function createClaudeTestAgentFlow(stateDirectory: string, cli?: ClaudeTe
   return createClaudeAgentSessionFlow(
     { options: buildOptions, customTools: createTestCustomTools(stateDirectory), toolPolicies: testToolPolicies },
     cli?.flowType ?? claudeTestAgentFlowType,
+    sessionOptions,
   );
 }
 

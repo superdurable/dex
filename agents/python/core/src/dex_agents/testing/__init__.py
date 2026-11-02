@@ -20,6 +20,8 @@ Every adapter package tests against a real Dex Server with these tools:
 * ``wait_until`` and ``wait_for_agent_snapshot`` poll with a deadline.
 * ``read_step_history`` lists the completed Steps of a session, so a test can
   assert the Step shape of a turn.
+* ``ScriptedModelClient`` answers Stepwise model calls from a script, so a
+  test needs no model key.
 
 The tools read ``DEXCLI`` for the ``dexcli`` executable and expect
 ``dex-server-zd`` in the same directory, or ``DEX_SERVER_ZD_BINARY``.
@@ -50,6 +52,14 @@ from dex_agents.testing.processes import (
     resolve_dexcli_path,
     resolve_server_zd_path,
 )
+from dex_agents.testing.scripted_model import (
+    SCRIPTED_MODEL_API,
+    SCRIPTED_MODEL_PROVIDER,
+    ScriptedModelClient,
+    ScriptedModelReply,
+    ScriptedModelResponder,
+    ScriptedToolCall,
+)
 from dex_agents.testing.stack import AgentTestStack
 from dex_agents.testing.worker import (
     BLOB_CACHE_DIR_ENVIRONMENT_VARIABLE,
@@ -67,6 +77,8 @@ __all__ = [
     "DEX_SERVER_ZD_ENVIRONMENT_VARIABLE",
     "ENGINE_READY_LINE",
     "EXECUTE_COMPLETED_EVENT",
+    "SCRIPTED_MODEL_API",
+    "SCRIPTED_MODEL_PROVIDER",
     "SERVER_ADDRESS_ENVIRONMENT_VARIABLE",
     "WAIT_FOR_COMPLETED_EVENT",
     "WORKER_READY_LINE",
@@ -76,6 +88,10 @@ __all__ = [
     "InvocationLog",
     "KillableProcess",
     "PrivateDexEngine",
+    "ScriptedModelClient",
+    "ScriptedModelReply",
+    "ScriptedModelResponder",
+    "ScriptedToolCall",
     "StepHistoryEntry",
     "find_free_port",
     "find_free_ports",

@@ -15,6 +15,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
 
+import { Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -24,6 +25,7 @@ import {
   type UIMessageChunk,
 } from "ai";
 
+import type { AgentFrameworkRunner, AgentSnapshot, DeferredToolOutcome } from "../../src/index.js";
 import type { AgentSessionFlow } from "../../src/index.js";
 import {
   AgentSessionTestClient,
@@ -37,6 +39,7 @@ import {
 import {
   agentResumeTokenHeaderName,
   convertAgentEventToJson,
+  convertAgentSnapshotToJson,
   maximumAgentUIStreamResumeTokenLength,
   readAgentToolApprovalResponses,
   resolveAgentToolApprovalsWithUIMessageStream,
@@ -71,7 +74,7 @@ const workerEntryModulePath = fileURLToPath(
 );
 
 interface ScriptedAgentUIStack {
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   readonly markerDirectory: string;
   readonly sessions: AgentSessionTestClient;
   readonly server: AgentUIStreamTestServer;
@@ -85,7 +88,7 @@ describe("agent UI streams with an in-process Worker", () => {
   before(async () => {
     engine = await PrivateDexEngine.start();
     // Each test gets its own Flow type, so its FileGates are its own.
-    const flowsByName = new Map<string, { flow: AgentSessionFlow; markerDirectory: string }>();
+    const flowsByName = new Map<string, { flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>; markerDirectory: string }>();
     for (const name of [
       "Chat",
       "Reconnect",
@@ -95,10 +98,15 @@ describe("agent UI streams with an in-process Worker", () => {
       "ApprovedReplay",
       "Reload",
       "Events",
+      "Question",
+      "Task",
     ]) {
       const markerDirectory = mkdtempSync(join(engine.stateDirectory, `markers-${name}-`));
       flowsByName.set(name, {
-        flow: createScriptedAgentFlow(markerDirectory, { flowType: `UIStream${name}Agent` }),
+        flow: createScriptedAgentFlow(markerDirectory, {
+          flowType: `UIStream${name}Agent`,
+          ...(name === "Question" ? { builtInTools: ["ask_user"] as const } : {}),
+        }),
         markerDirectory,
       });
     }
@@ -293,6 +301,82 @@ describe("agent UI streams with an in-process Worker", () => {
       ]);
     });
   }
+
+  test("a question interrupt streams as event data, not as an approval request, and its answer ends the turn", async () => {
+    const { flow, sessions } = stack("Question");
+    const sessionId = newSessionId("question");
+    await sessions.startSession(sessionId, "call ask_user");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "ask_user");
+    // The stream replays the turn from its first event; a question must not pause it like an approval.
+    const streaming = collectChunks(
+      streamAgentUIMessageChunks({ client: environment.client, flow, flowId: sessionId, pollTimeoutMs: 1_000 }),
+    );
+    await delay(2_000);
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "yes"), true);
+    const chunks = await streaming;
+
+    assert.deepEqual(chunks.filter((chunk) => chunk.type === "tool-approval-request"), []);
+    const interruptEvents = chunks.flatMap((chunk) => {
+      const data = (chunk as { type: string; data?: { type?: string; payload?: string } }).data;
+      return chunk.type === "data-agent-event" && data?.type?.startsWith("interrupt_") === true
+        ? [[data.type, (JSON.parse(data.payload ?? "{}") as { kind?: string }).kind]]
+        : [];
+    });
+    assert.deepEqual(interruptEvents, [
+      ["interrupt_raised", "question"],
+      ["interrupt_resolved", "question"],
+    ]);
+    assert.deepEqual(
+      chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "error"),
+      [{ type: "finish", finishReason: "stop" }],
+    );
+  });
+
+  test("a tool task streams as event data and neither pauses nor ends the stream while it runs", async () => {
+    const { flow, sessions, markerDirectory } = stack("Task");
+    const sessionId = newSessionId("task");
+    await sessions.startSession(sessionId, "call gated_report_task");
+    const gate = new FileGate(markerDirectory, "gated_report_task");
+    // The stream replays the active turn from its first event.
+    await gate.waitUntilReached();
+    const chunks: AgentUIMessageChunk[] = [];
+    let isStreamEnded = false;
+    const streaming = (async () => {
+      for await (const chunk of streamAgentUIMessageChunks({
+        client: environment.client,
+        flow,
+        flowId: sessionId,
+        pollTimeoutMs: 1_000,
+      })) {
+        chunks.push(chunk);
+      }
+      isStreamEnded = true;
+    })();
+    await gate.waitUntilReached(2);
+    await delay(2_000);
+
+    // A waiting task is a running tool, not an approval: the stream stays open.
+    assert.equal(isStreamEnded, false);
+    assert.deepEqual(chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "tool-approval-request"), []);
+    gate.release();
+    await streaming;
+
+    const taskEvents = chunks.flatMap((chunk) => {
+      const data = (chunk as { type: string; data?: { type?: string } }).data;
+      return chunk.type === "data-agent-event" && data?.type === "tool_task_started" ? [data.type] : [];
+    });
+    assert.deepEqual(taskEvents, ["tool_task_started"]);
+    assert.ok(chunks.some((chunk) => chunk.type === "tool-output-available"));
+    assert.deepEqual(
+      chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "error"),
+      [{ type: "finish", finishReason: "stop" }],
+    );
+    const stored = await fetchStoredMessages(stack("Task").server, sessionId);
+    assert.deepEqual(describeUIMessageParts(stored.messages[1]).slice(0, 2), [
+      "step-start",
+      'tool gated_report_task output-available {"requested_by":"call gated_report_task"} -> report ready',
+    ]);
+  });
 
   test("a reconnect after an approval, while the approved write runs, does not ask for approval again", async () => {
     const { markerDirectory, server, sessions } = stack("ApprovedReplay");
@@ -719,7 +803,7 @@ describe("agent UI streams with an in-process Worker", () => {
 describe("agent UI streams with a Worker killed with SIGKILL", () => {
   let engine: PrivateDexEngine;
   let environment: AgentTestEnvironment;
-  let flow: AgentSessionFlow;
+  let flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   let sessions: AgentSessionTestClient;
   const workers: KillableWorkerProcess[] = [];
 
@@ -845,6 +929,193 @@ describe("agent UI streams with the Stream Store disabled", () => {
     assert.equal((await fetch(`${server.baseUrl}/api/chat/${sessionId}/stream`)).status, 204);
     const snapshotResponse = await fetch(`${server.baseUrl}/api/sessions/${sessionId}/snapshot`);
     assert.equal(((await snapshotResponse.json()) as { resume_token: string }).resume_token, "");
+  });
+});
+
+describe("agent UI streams with a Worker whose only Step slot is busy", () => {
+  let engine: PrivateDexEngine;
+  let environment: AgentTestEnvironment;
+  let workerBlobCache: BlobCache;
+  let worker: Worker;
+  let flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let markerDirectory: string;
+  let sessions: AgentSessionTestClient;
+
+  before(async () => {
+    engine = await PrivateDexEngine.start();
+    markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
+    flow = createScriptedAgentFlow(markerDirectory, { flowType: "UIStreamBusyWorkerAgent" });
+    environment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [flow],
+      isWorkerInProcess: false,
+    });
+    sessions = new AgentSessionTestClient(environment.client, flow);
+    workerBlobCache = openBlobCache({
+      directory: mkdtempSync(join(engine.stateDirectory, "worker-cache-")),
+      maxBytes: 64 * 1024 * 1024,
+    });
+    // One Step slot, plus one reserved for RPCs, so resolve_interrupt runs while a Step holds the other.
+    worker = new Worker(environment.registry, workerBlobCache, {
+      serverAddress: engine.serverAddress,
+      pull: { appWorkerID: `busy-worker-${randomUUID()}`, maxConcurrentTasks: 2, reservedRpcTasks: 1 },
+    });
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+  });
+
+  after(async () => {
+    await worker?.close();
+    workerBlobCache?.close();
+    await environment?.close();
+    await engine?.stop();
+  });
+
+  test("a reconnect after resolve_interrupt, before the approval Step commits, keeps reading instead of pausing", async () => {
+    const sessionId = newSessionId("held-approval");
+    await sessions.startSession(sessionId, "call send_email");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    // A slow model call of another session holds the only Step slot, so the approval Step cannot run.
+    const turnGate = new FileGate(markerDirectory, "turn");
+    await sessions.startSession(newSessionId("slot-holder"), "slow");
+    await turnGate.waitUntilReached();
+    try {
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      assert.deepEqual(await sessions.readPendingInterrupts(sessionId), []);
+      assert.equal((await sessions.readToolCall(sessionId, interrupt.toolCallId))?.status, "awaiting_approval");
+
+      const streaming = collectChunks(
+        streamAgentUIMessageChunks({ client: environment.client, flow, flowId: sessionId, pollTimeoutMs: 1_000 }),
+      );
+      const streamEndedWhileHeld = await Promise.race([
+        streaming.then(() => true),
+        delay(3_000).then(() => false),
+      ]);
+
+      assert.equal(streamEndedWhileHeld, false, "the stream paused on an approval that resolve_interrupt removed");
+      assert.equal((await sessions.readToolCall(sessionId, interrupt.toolCallId))?.status, "awaiting_approval");
+      turnGate.release();
+      const chunks = await streaming;
+      assert.deepEqual(
+        protocolChunkTypes(chunks).filter((type) => type.startsWith("tool-")),
+        ["tool-input-available", "tool-approval-request", "tool-approval-response", "tool-output-available"],
+      );
+      assert.deepEqual(chunks.at(-1), { type: "finish", finishReason: "stop" });
+    } finally {
+      turnGate.release();
+    }
+  });
+});
+
+describe("agent snapshot JSON for browsers", () => {
+  test("leaves out the fields only the session's Steps use, with the same text as the Python core", () => {
+    const snapshot: AgentSnapshot = {
+      state: {
+        status: "running_tools",
+        turnCount: 1,
+        activeTurnId: "turn-2",
+        nextMessageSequence: 4,
+        lastTurnError: null,
+        interactionMode: "executing",
+      },
+      messages: [
+        {
+          sequence: 3,
+          turnId: "turn-2",
+          role: "user",
+          text: "refund order 42",
+          toolCallId: null,
+          toolName: null,
+          toolArguments: null,
+          toolOutput: null,
+          frameworkItem: '{"instructions":"Never refund more than $50."}',
+          createdAt: "2026-11-01T12:00:00.000Z",
+        },
+      ],
+      pendingInterrupts: [
+        {
+          interruptId: "call-1-input-2",
+          kind: "question",
+          toolCallId: "call-1",
+          toolName: "refund_order",
+          arguments: '{"order_id":"42"}',
+          createdAt: "2026-11-01T12:00:01.000Z",
+          deadline: null,
+          question: "Refund to the card?",
+          choices: ["yes", "no"],
+          allowsFreeText: false,
+        },
+      ],
+      toolCalls: [
+        {
+          toolCallId: "call-1",
+          turnId: "turn-2",
+          toolName: "refund_order",
+          arguments: '{"order_id":"42"}',
+          effect: "idempotent_write",
+          requiresApproval: false,
+          status: "awaiting_answer",
+          output: null,
+          error: null,
+          rejectionMessage: null,
+          deferralOrder: 0,
+          toolSourceReference: '{"server":"payments","tool":"refund_order"}',
+          traceContext: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+          waitUntil: null,
+          inputContinuation: '{"refund_draft":"rf_1"}',
+          inputAnswers: [{ interruptId: "call-1-input-1", question: "Which order?", answer: "42" }],
+          inputQuestion: "Refund to the card?",
+          inputChoices: ["yes", "no"],
+          inputAllowsFreeText: false,
+          cancellationReason: null,
+          taskId: null,
+          taskPollIntervalSeconds: null,
+          taskAnswerPending: false,
+        },
+      ],
+      usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, cachedInputTokens: 0, reasoningTokens: 0 },
+      queuedMessageCount: 0,
+      plan: {
+        revision: 2,
+        status: "active",
+        tasks: [{ content: "Refund the order", status: "in_progress" }],
+        updatedAt: "2026-11-01T12:00:02.000Z",
+      },
+      contextSummary: {
+        generation: 1,
+        firstSequence: 1,
+        lastSequence: 2,
+        text: "The user asked to refund order 42.",
+        createdAt: "2026-11-01T12:00:03.000Z",
+      },
+    };
+
+    // The Python core's test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use expects this text.
+    assert.equal(
+      JSON.stringify(convertAgentSnapshotToJson(snapshot)),
+      '{"state":{"status":"running_tools","turn_count":1,"active_turn_id":"turn-2",' +
+        '"next_message_sequence":4,"last_turn_error":null,"interaction_mode":"executing",' +
+        '"accepts_turn_control":false},' +
+        '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",' +
+        '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,' +
+        '"created_at":"2026-11-01T12:00:00.000Z"}],' +
+        '"pending_interrupts":[{"interrupt_id":"call-1-input-2","kind":"question",' +
+        '"tool_call_id":"call-1","tool_name":"refund_order","arguments":"{\\"order_id\\":\\"42\\"}",' +
+        '"created_at":"2026-11-01T12:00:01.000Z","deadline":null,"question":"Refund to the card?",' +
+        '"choices":["yes","no"],"allows_free_text":false}],' +
+        '"tool_calls":[{"tool_call_id":"call-1","turn_id":"turn-2","tool_name":"refund_order",' +
+        '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,' +
+        '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,' +
+        '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",' +
+        '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null,' +
+        '"task_id":null,"task_poll_interval_seconds":null}],' +
+        '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,' +
+        '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",' +
+        '"tasks":[{"content":"Refund the order","status":"in_progress"}],' +
+        '"updated_at":"2026-11-01T12:00:02.000Z"},"queued_messages":[],"steered_messages":[],' +
+        '"context_summary":{"generation":1,"first_sequence":1,"last_sequence":2,' +
+        '"text":"The user asked to refund order 42.","created_at":"2026-11-01T12:00:03.000Z"}}',
+    );
   });
 });
 

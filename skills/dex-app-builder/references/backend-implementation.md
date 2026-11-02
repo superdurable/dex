@@ -138,7 +138,7 @@ Every Go SDK v1.25.0 Worker is a [pull Worker](../../dex-sdk/references/core/pul
 For connectors:
 
 1. fetch the canonical published catalog at
-   `https://superdurable.github.io/dex-connectors-library/catalog.yaml` before
+   `https://connectors.superdurable.io/catalog.yaml` before
    selecting a connector or writing provider integration code;
 2. match every required Trigger, Query, Mutation, and UI capability by exact
    kind and name; a provider or connector name alone is not a match;

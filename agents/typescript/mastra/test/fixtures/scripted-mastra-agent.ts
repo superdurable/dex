@@ -16,6 +16,7 @@ import {
   createAgentSessionFlow,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
+  type AgentTracingOptions,
   type AgentTurnContext,
   type AgentTurnOutcome,
   type DeferredToolExecution,
@@ -62,6 +63,7 @@ export interface ScriptedMastraAgentFlowOptions {
   readonly isMemoryThreadSelected?: boolean;
   /** Moves the `createdAt` of every completed turn's messages this far ahead, like a fast Worker clock. */
   readonly clockSkewMs?: number;
+  readonly tracing?: AgentTracingOptions;
 }
 
 /**
@@ -103,8 +105,10 @@ export function createScriptedMastraAgentFlow(
   };
   const agent = createScriptedMastraAgent(markerDirectory, flowOptions);
   const flowType = flowOptions.flowType ?? scriptedMastraAgentFlowType;
-  const sessionOptions =
-    flowOptions.interruptDeadlineMs === undefined ? {} : { interruptDeadlineMs: flowOptions.interruptDeadlineMs };
+  const sessionOptions = {
+    ...(flowOptions.interruptDeadlineMs === undefined ? {} : { interruptDeadlineMs: flowOptions.interruptDeadlineMs }),
+    ...(flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing }),
+  };
   if (flowOptions.clockSkewMs === undefined) {
     return createMastraAgentSessionFlow(agent, flowType, { ...runnerOptions, ...sessionOptions });
   }

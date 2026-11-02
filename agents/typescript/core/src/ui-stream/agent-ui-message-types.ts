@@ -61,7 +61,8 @@ export interface AgentEventJson {
  * - `stop`: the turn completed.
  * - `tool-calls`: the turn waits only for tool approvals; the stream ends so `useChat` can send them.
  * - `error`: the turn failed; an `error` part with the failure text comes first.
- * - `other`: the turn ended without its end event on the Stream, or the session Flow closed.
+ * - `other`: the turn ended through steering or `cancel_turn`, or without its end event on the Stream, or the
+ *   session Flow closed.
  */
 export type AgentUIMessageFinishReason = "stop" | "tool-calls" | "error" | "other";
 

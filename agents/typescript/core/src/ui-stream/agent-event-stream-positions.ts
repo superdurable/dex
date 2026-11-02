@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { DexServiceError, LongPollTimeoutError, type Client, type StreamMessage } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type { AgentEvent } from "../agent-session-values.js";
 
@@ -40,7 +41,7 @@ export function requireAgentEventPollTimeoutMs(pollTimeoutMs: number | undefined
  */
 export async function readNextAgentEvent(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   eventResumeToken: string,
   pollTimeoutMs: number,
@@ -77,7 +78,7 @@ export type AgentEventResumeTokenProbe =
 /** Reads once with a short long poll to learn whether Dex accepts a resume token. */
 export async function probeAgentEventResumeToken(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   eventResumeToken: string,
 ): Promise<AgentEventResumeTokenProbe> {
@@ -101,7 +102,7 @@ export async function probeAgentEventResumeToken(
 /** Returns the resume token of the newest retained event, or `""` when the Stream holds none. */
 export async function readAgentEventsTailResumeToken(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
 ): Promise<string> {
   try {
@@ -124,7 +125,7 @@ export async function readAgentEventsTailResumeToken(
  */
 export async function findAgentEventResumeTokenBeforeTurn(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   turnId: string,
 ): Promise<string | undefined> {
@@ -140,7 +141,7 @@ export async function findAgentEventResumeTokenBeforeTurn(
 
 async function searchAgentEventResumeTokenBeforeTurn(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   turnId: string,
 ): Promise<string | undefined> {
@@ -193,7 +194,7 @@ export function readStepType(stepExecutionId: string): string {
 
 async function readResumeTokenOlderThanPage(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   nextPageToken: string,
 ): Promise<string> {
