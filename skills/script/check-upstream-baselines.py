@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.15"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.16"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -266,6 +266,23 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "`AdminService` holds operator RPCs: `DescribeActiveNode` and `StepDownActiveNode`.",
         "A server that does not serve `AdminService` answers UNIMPLEMENTED.",
     )),
+    ("server-zd/v0.1.16", "docs/content/production/server-zd-operations.mdx", (
+        "Calls still open at the release answer\n**UNAVAILABLE** at once, so clients retry them on the new active process.",
+        "Calls that finish before\nthe release keep their answers.",
+        "process takes over in that time, it takes the lease back.",
+        "the process then exits 1 without taking the lease.",
+    )),
+    ("server-zd/v0.1.16", "server-zd/README.md", (
+        'UNAVAILABLE ("the server process stopped serving during the call")',
+        "calls that finish before it keep their answers.",
+        "up to 60 s for the old store to close.",
+        "unless\nanother process has already taken over, the process answers the step down with `Internal`. Either\nway it then exits 1 without competing for the lease",
+        "The old instance\nstops accepting connections, so new ones reach the new standby gRPC instance",
+    )),
+    ("server-zd/v0.1.16", "server-zd/crates/dexzd-server/src/server_node/grpc_server.rs", (
+        '"the server process stopped serving during the call; retry it";',
+        'const STARTING_MESSAGE: &str = "the node is starting";',
+    )),
 )
 # Core operations statements for the server-zd v0.1.14 search projection.
 SEARCH_PROJECTION_REFERENCES = (
@@ -294,7 +311,7 @@ SEARCH_PROJECTION_REFERENCES = (
         "point the server at a new database or schema; the server loads it from committed state automatically.",
         "After restoring the object storage prefix, configure a new `search.paradeDbSchema` or `search.postgresSchema`, "
         "or a new database, before restarting the node.",
-        "server-zd/v0.1.15 for CLI v1.33.0",
+        "server-zd/v0.1.16 for CLI v1.34.0",
         "server-zd v0.1.15 changes these operator-visible behaviors.",
         "Upgrade the binary on every process before you add a `standby` section to any configuration",
         "`standby.mode: hot` runs extra processes with the same node ID.",
@@ -303,7 +320,14 @@ SEARCH_PROJECTION_REFERENCES = (
         "static tokens and API key exchange never authorize them.",
         "A process whose node lease expired",
         "Every FlowService and WorkerTaskService call, Worker task dispatch, and the readiness health name now check the lease validity deadline.",
-        "(#1174)",
+        "server-zd v0.1.16 changes these operator-visible behaviors.",
+        "A process that steps down and then takes its own lease back now serves instead of exiting. This fixes #1174.",
+        "A step down ends public calls that are still running after the lease release with UNAVAILABLE",
+        "These calls are safe to retry. Calls that finish before the release keep their answers.",
+        "waits up to 60 seconds for its old local store to close",
+        "exits with status 1 without taking the lease",
+        "Only the newest gRPC server instance accepts new connections.",
+        "(#1210)",
     )),
     ("core/read-after-write.md", (
         "| Any indexed Attribute write | `SearchFlows`, CLI search, or Dex Web work discovery | **Eventual.**",
@@ -596,7 +620,7 @@ REFERENCE_1_24_STATEMENTS = (
         "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.15.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.16.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.64.0 - 2026-11-02
+
+- Document server-zd v0.1.16 in Core operations. A process that steps down and then takes its own lease back now serves instead of exiting, which fixes #1174. A step down ends public calls that are still running after the lease release with UNAVAILABLE, and these calls are safe to retry; calls that finish before the release keep their answers. The stepped-down process waits up to 60 seconds for its old local store to close, and exits with status 1 without taking the lease if a stuck task still holds it. Only the newest gRPC server instance accepts new connections, so a client no longer sees "the node is starting" after readiness reports SERVING, or an h2 GoAway error on its first call. Record known issue #1210: after a take-back, readiness can report SERVING for up to about 250 ms on the old stepped-down instance. Correct the v0.1.15 note on #1174 to say that v0.1.16 fixes it.
+- Advance `DEX_SERVER_BASELINE` to server-zd/v0.1.16 and `DEX_CLI_BASELINE` to cli-v1.34.0 (which bundles it), and refresh the pinned CLI and server-zd source links. cli-v1.34.0 changes only the CLI, so the SDK baselines stay at v1.32.0 (Rust at sdk-rust/v1.31.0) and `DEX_WEB_BASELINE` stays at web/v1.32.0. Synchronize the bundle and plugin manifests at 0.64.0.
+- Check the v0.1.16 step down, take-back, stopped-serving, store close, and gRPC server statements against the tag in `check-upstream-baselines.py`, replace the #1174 known-issue statement with the v0.1.16 statements, and check the latest server-zd release at server-zd/v0.1.16. Add mutation tests.
+
 ## 0.63.0 - 2026-11-02
 
 - The official Connector catalog moved to https://connectors.superdurable.io/, and the old `https://superdurable.github.io/dex-connectors-library/` URL redirects there. Synchronize the bundle and plugin manifests at 0.63.0.
