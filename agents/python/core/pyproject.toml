@@ -18,6 +18,13 @@ dependencies = [
     "dex-python-sdk==1.30.0",
 ]
 
+[project.optional-dependencies]
+# dex_agents.mcp: MCP servers' tools as agent tools.
+mcp = [
+    "httpx2>=2.10,<3",
+    "mcp>=2.3,<3",
+]
+
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/core"
 Repository = "https://github.com/superdurable/dex"

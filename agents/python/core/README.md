@@ -25,7 +25,10 @@ pip install dex-agents
 ```
 
 `dex_agents.testing` ships in the same wheel, so an adapter's integration
-tests can start a private engine and Worker processes.
+tests can start a private engine and Worker processes. `dex_agents.mcp` offers
+the tools of MCP servers as agent tools; install it with
+`pip install "dex-agents[mcp]"`, which adds the MCP SDK (`mcp>=2.3,<3`). See
+[MCP tools](#mcp-tools-dex_agentsmcp).
 
 Develop the package inside this repository with uv 0.12.2. The adapters in
 this repository resolve it from `../core` by path through
@@ -160,9 +163,19 @@ Do not repeat these tool calls unless the user asks again.
 
 `DeferredToolExecution` carries `flow_id`, the approved `tool_call` record,
 `idempotency_key` (`"<flow_id>/<turn_id>/<tool_call_id>"`, the same on every
-attempt), `attempt`, `events`, and `heartbeat`. Run the real tool once and
-return `ToolExecutionResult(output)`. Tool calls of one model response run in
+attempt), `attempt`, `events`, `heartbeat`, `heartbeat_checkpoint`, and
+`save_heartbeat_checkpoint`. Run the real tool once and return
+`ToolExecutionResult(output)`. Tool calls of one model response run in
 parallel Steps, so this method may run concurrently with itself.
+
+`save_heartbeat_checkpoint(text)` records a heartbeat that carries `text`, and
+every later heartbeat of the attempt, the session's background heartbeats
+included, carries it too. A retried attempt reads it as `heartbeat_checkpoint`
+and can resume work the earlier attempt started, such as polling a job,
+instead of starting it again. A `DeferredToolCall` may also carry
+`tool_source_reference`, opaque text stored on the call's `AgentToolCall`
+record (wire field `tool_source_reference`), so the tool's source can resolve
+the tool in the tool Step without listing it again.
 
 Raise `ToolExecutionError(message)` for a failure the model should see; the
 session records `failed` with that message and does not retry. Any other
@@ -275,6 +288,171 @@ call and tool call Steps, and each keeps its text. After `turn_completed` or
 `turn_failed`, replace the turn's live text with the stored messages. Streams
 are best effort; rebuild from `get_agent_snapshot`.
 
+## MCP tools (`dex_agents.mcp`)
+
+`dex_agents.mcp` turns the tools of MCP servers into tools of an agent
+session. Every MCP tool call runs in its own tool Step, with an effect class
+from the tool's annotations, so a crash never repeats a write silently.
+Install the MCP SDK with the `mcp` extra; the core itself never imports it:
+
+```bash
+pip install "dex-agents[mcp]"
+```
+
+Configure the servers on the Worker, never from Flow input, a user message, or
+a browser: a stdio server's command runs with the Worker's privileges.
+
+```python
+from dex_agents.mcp import McpStdioServerConfig, McpStreamableHttpServerConfig, McpToolSource
+
+tools = McpToolSource([
+    McpStdioServerConfig(name="files", command="mcp-server-files", args=["/srv/reports"]),
+    McpStreamableHttpServerConfig(
+        name="tickets",
+        url="https://tickets.example.com/mcp",
+        headers={"Authorization": f"Bearer {os.environ['TICKETS_TOKEN']}"},
+    ),
+])
+```
+
+A runner offers the tools and defers every call; the tool Step runs it:
+
+```python
+class MyRunner:
+    async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        offered = await tools.list_tools()  # McpTool: name, description, input_schema
+        response = await call_my_model(turn.messages, offered)
+        if not response.tool_calls:
+            return TurnCompleted(new_messages=..., usage=...)
+        return ToolCallsRequested(
+            framework_run_state=serialize(response),
+            tool_calls=[
+                tools.deferred_tool_call(
+                    turn, tool_call_id=call.id, tool_name=call.name, arguments=call.arguments
+                )
+                for call in response.tool_calls
+            ],
+            usage=...,
+        )
+
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+        handlers = {**self._local_handlers, **await tools.deferred_tool_handlers()}
+        return await handlers[call.tool_call.tool_name](call)
+```
+
+`list_tools` lists each server on first use and caches its tools on their
+own; `list_tools(refresh=True)` lists every server again. A server that cannot
+be listed is left out with a warning log and tried again on the next call, so
+one bad server never hides the others' tools. `deferred_tool_call` stores the
+server and the tool's MCP name on the call's record, so the tool Step calls
+that server directly, without a listing; `call_tool` finds the server through
+the listing. Tool names are `<server>__<tool>`, with characters other than
+letters, digits, `_`, and `-` replaced by `_` and names over 64 characters
+shortened with a hash. When two tools get the same name, the first in server
+order is offered and the other is left out with a warning log. Key
+`ToolPolicy` entries by that name.
+
+### Effects
+
+| MCP annotations | Effect | Tool Step | Approval by default |
+| --- | --- | --- | --- |
+| `readOnlyHint: true` | `read` | `CallTool` | No |
+| `idempotentHint: true` | `idempotent_write` | `CallTool` | No |
+| anything else, or none | `default_tool_effect`, `unclassified` by default | `CallSingleAttemptTool` | Yes |
+
+`idempotentHint` makes a tool `idempotent_write` whatever `destructiveHint`
+says, in both cores. A `ToolPolicy` in `AgentSessionOptions.tool_policies` wins
+over the annotations. `trusts_tool_annotations` defaults to `True`, so a server
+with a wrong `readOnlyHint` on a write gets that write run without approval and
+retried up to three times. Set `trusts_tool_annotations=False` on a server
+whose hints you do not trust; its tools then keep the session default unless a
+policy names them.
+
+### What a call does
+
+Every request opens a new connection: a new process for a stdio server, a new
+HTTP connection for a Streamable HTTP server. Connecting and each handshake
+request are bounded by `connection_timeout` (30 seconds by default), and a
+`tools/call` by `request_timeout` (10 minutes). The source speaks MCP 2026-07-28,
+which has no protocol session, and falls back to the `initialize` handshake for
+older servers, so a server restart between listing and calling is harmless.
+Every `tools/call` carries the session's idempotency key,
+`<flowId>/<turnId>/<toolCallId>`, in `_meta` under
+`IDEMPOTENCY_KEY_META_KEY` (`io.superdurable.dex/idempotencyKey`). The MCP SDK
+adds `traceparent` to `_meta` when OpenTelemetry has an active trace.
+
+| What happens | Recorded | Re-issued? |
+| --- | --- | --- |
+| A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
+| The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
+| The stream broke, the server exited, or the request timed out after it was sent; an internal error (`-32603`), an HTTP error status, or a body that is not JSON-RPC (`-32700`), which a gateway can return after the server ran the call; a server that keeps asking to repeat the call | `McpToolCallInterruptedError`, a Step failure | `read` and `idempotent_write`: `CallTool` sends a new request, same idempotency key, up to 3 attempts. Other effects: `outcome_unknown`, never sent again |
+| The Worker dies during the call | as for any tool Step | Same as above |
+
+MCP 2026-07-28 removed stream resumption, so a broken stream is never resumed;
+the effect class alone decides whether the call is sent again.
+
+`notifications/progress` become `mcp.tool_progress` events on `AgentEvents`
+(`{"tool_call_id", "tool_name", "progress", "total", "message"}`).
+
+### Long-running MCP tasks
+
+The source declares the tasks extension, `io.modelcontextprotocol/tasks`, on
+every request. A server may then answer `tools/call` with a task handle. The
+tool Step polls `tasks/get` at the server's `pollIntervalMs`, writes an
+`mcp.task_status` event per observed status, and heartbeats between polls,
+for at most `task_wait_timeout` (10 minutes by default) per attempt. A
+completed task is the tool's result; a failed or cancelled task records
+`failed`. MCP 2026-07-28 has no protocol session and lets the server choose
+the task TTL, so any connection can poll the task. For a Streamable HTTP
+server, the tool Step saves the task ID as its
+heartbeat checkpoint before the first poll. When the wait passes, or the Worker
+dies while polling, the task keeps running: `CallTool` retries a `read` or
+`idempotent_write` call, and the retry polls the same task instead of calling
+the tool again; if the server no longer knows the task, the retry sends the
+call again. Other effects record `outcome_unknown`. A stdio task lives in its
+server process, so it is polled on the call's own connection and a retry calls
+the tool again.
+
+Polling inside the tool Step holds a Worker slot for the whole wait. The
+follow-up design keeps no connection open: the tool Step stores the task ID in
+the call's record and moves to a `PollMcpTask` Step that waits on a Timer at
+`pollIntervalMs`, polls once per execution, and records the result, so a task
+can run for days and a Worker restart only delays the next poll.
+
+### Input requests
+
+An `input_required` answer, or a task in `input_required`, records `failed`
+with `the MCP server asked for input that this agent session cannot provide
+yet (...)`, naming each request, such as `an answer to 'Which account?'`; a
+waiting task is cancelled. The follow-up maps each input request to a session
+question interrupt: the tool Step raises it, the answer RPC resumes the call,
+and the call is retried with `inputResponses` and the echoed `requestState`.
+A state-only `input_required` answer, which only asks for the same request
+again, is retried at once.
+
+### With a framework adapter
+
+The runner above is the core's runner-agnostic path. A framework adapter uses
+the source when it accepts tools defined by a JSON Schema: wrap each `McpTool`
+as a framework tool whose function calls `tools.call_tool(name, arguments,
+idempotency_key=...)` with the key from the adapter's tool context, and pass
+`{**tools.tool_policies(), **your_policies}` as the adapter's `tool_policies`.
+No adapter package changes for this.
+
+| Adapter | Schema-only tool | Key inside the tool |
+| --- | --- | --- |
+| `dex-agents-openai-agents` | `FunctionTool(params_json_schema=..., on_invoke_tool=...)` | `get_current_deferred_tool_execution()`, the whole call |
+| `dex-agents-pydantic-ai` | `Tool.from_schema(...)` | `deferred_tool_idempotency_key(ctx)` |
+| `dex-agents-langgraph` | `StructuredTool` with a JSON Schema `args_schema` | `get_tool_call_idempotency_key(config)` |
+| `dex-agents-google-adk` | a `BaseTool` with its own `FunctionDeclaration` | `idempotency_key_for_tool_call(tool_context)` |
+| `dex-agents-claude-agent-sdk` | `claude_agent_sdk.tool(name, description, schema)` | `current_deferred_tool_execution()`; write calls only, reads run inside the harness |
+
+Pydantic AI, LangGraph, and Google ADK also defer their own MCP client tools
+into tool Steps; use the source there for the shared idempotency key and
+annotation handling. The OpenAI Agents SDK runs its own MCP servers inline in
+`RunModel`, so a wrapper is its only path to tool Steps.
+
 ## Testing an adapter
 
 `dex_agents.testing` runs integration tests against a private `dexcli dev
@@ -383,3 +561,15 @@ The plan records each of these decisions too.
 - Whether turn records cleared at turn end still count against the Server's
   `limits.maxFlowStateBytes` run budget is an open question in the parent
   design.
+- `dex_agents.mcp` polls an MCP task inside its tool Step for at most
+  `task_wait_timeout`, holding a Worker slot; Timer-driven polling is a
+  follow-up.
+- An MCP `input_required` answer records `failed`; mapping it to a session
+  question interrupt is a follow-up.
+- `dex_agents.mcp` starts a new stdio process, or opens a new HTTP connection,
+  for every request. An unreachable server is tried again, with its connection
+  attempts, on every `list_tools` call until it answers.
+- MCP annotations are hints from the server and are trusted by default. A
+  wrong `readOnlyHint` on a write makes that write run without approval and
+  retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
+  do not control.

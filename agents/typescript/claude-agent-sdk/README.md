@@ -170,8 +170,8 @@ or project settings can approve a tool before the adapter is asked, and the adap
 `ToolPolicy` and `defaultToolEffect` work as in the [core](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md#effects). Policies use a
 custom tool's own name (`create_refund`, not `mcp__tools__create_refund`), a built-in name (`Bash`),
 or `mcp__<server>__<tool>` for a tool of an external MCP server. Without a policy, a custom tool's MCP
-annotations classify it: `readOnlyHint` is `read`, and `idempotentHint` without `destructiveHint` is
-`idempotent_write`. A custom tool whose name is a Claude Code tool name, such as `Bash`, `Write`, or
+annotations classify it: `readOnlyHint` is `read`, and otherwise `idempotentHint` is
+`idempotent_write`, whatever `destructiveHint` says. A custom tool whose name is a Claude Code tool name, such as `Bash`, `Write`, or
 `Task`, or starts with `mcp__`, is rejected, because policies and records name custom tools bare.
 
 | Effect | Custom tool | Tool inside the CLI | Default approval |

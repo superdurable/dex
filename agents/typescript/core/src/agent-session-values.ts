@@ -140,6 +140,11 @@ export interface AgentToolCall {
    * It extends the planned contract, as in the Python core. Wire field: `deferral_order`.
    */
   readonly deferralOrder: number;
+  /**
+   * {@link DeferredToolCall.toolSourceReference}: opaque text the tool's source stored with the call,
+   * absent when it stored none. Wire field: `tool_source_reference`, `null` when absent.
+   */
+  readonly toolSourceReference?: string;
 }
 
 /** One pending approval request, stored in the `PendingInterrupts` Attribute. */

@@ -109,7 +109,7 @@ export interface VercelAiAgentDefinition<TOOLS extends ToolSet = ToolSet> {
   /**
    * Whether MCP tool annotations classify tools that have no {@link ToolPolicy}. Defaults to `false`.
    * When `true`, a tool whose `metadata.annotations` (as `@ai-sdk/mcp` sets them) has `readOnlyHint`
-   * is `read`, and one with `idempotentHint` and no `destructiveHint` is `idempotent_write`. Enable it
+   * is `read`, and otherwise one with `idempotentHint` is `idempotent_write`. Enable it
    * only for MCP servers the application trusts; annotations are hints from the server.
    */
   readonly shouldTrustMcpToolAnnotations?: boolean;

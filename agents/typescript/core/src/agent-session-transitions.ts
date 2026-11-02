@@ -223,10 +223,11 @@ export class AgentSessionTransitions {
   public async runWithHeartbeats<Result>(
     context: AsyncContext,
     operation: () => Promise<Result>,
+    recordHeartbeat: () => Promise<void> = () => this.recordHeartbeat(context),
   ): Promise<Result> {
     const heartbeatTimer = setInterval(() => {
       // A rejected heartbeat means the attempt already ended; the operation result decides the outcome.
-      this.recordHeartbeat(context).catch(() => undefined);
+      recordHeartbeat().catch(() => undefined);
     }, heartbeatIntervalMs);
     try {
       return await operation();
@@ -237,6 +238,31 @@ export class AgentSessionTransitions {
 
   public recordHeartbeat(context: AsyncContext): Promise<void> {
     return context.recordHeartbeat(context.stepExecutionId, stringCodec);
+  }
+}
+
+/**
+ * Heartbeats of one tool Step attempt. Each carries the latest checkpoint, else the Step execution ID,
+ * which every attempt shares and so never reads as a checkpoint.
+ */
+export class ToolStepHeartbeats {
+  public readonly previousCheckpoint: string | undefined;
+  private checkpoint: string | undefined;
+
+  public constructor(private readonly context: AsyncContext) {
+    const previous = context.hasLastHeartbeatValue() ? context.getLastHeartbeatValue(stringCodec) : undefined;
+    this.previousCheckpoint = previous === undefined || previous === context.stepExecutionId ? undefined : previous;
+    // Every heartbeat replaces the saved value, so carry the earlier attempt's checkpoint forward.
+    this.checkpoint = this.previousCheckpoint;
+  }
+
+  public record(): Promise<void> {
+    return this.context.recordHeartbeat(this.checkpoint ?? this.context.stepExecutionId, stringCodec);
+  }
+
+  public saveCheckpoint(checkpoint: string): Promise<void> {
+    this.checkpoint = checkpoint;
+    return this.record();
   }
 }
 
