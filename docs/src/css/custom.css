@@ -8,7 +8,22 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+/* Self-hosted from the geist npm package 1.9.0 (SIL OFL 1.1, see src/fonts/geist/OFL.txt). */
+@font-face {
+  font-family: 'Geist';
+  src: url('../fonts/geist/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../fonts/geist/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   color-scheme: light;
@@ -47,7 +62,7 @@
   --ifm-background-color: var(--ink);
   --ifm-background-surface-color: var(--surface-solid);
   --ifm-navbar-background-color: var(--header-surface);
-  --ifm-navbar-height: 82px;
+  --ifm-navbar-height: calc(4rem + 1px);
   --ifm-footer-background-color: transparent;
   --ifm-font-family-base: 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --ifm-font-family-monospace: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -133,14 +148,6 @@ summary:focus-visible {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.18em;
-}
-
-.navbar {
-  position: relative;
-  padding: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--header-surface);
-  box-shadow: none;
 }
 
 .brand-navbar-inner {
@@ -926,7 +933,6 @@ code {
   }
 
   .navbar-sidebar__brand {
-    min-height: 82px;
     border-bottom: 1px solid var(--line);
     background: var(--header-surface);
   }
@@ -1017,12 +1023,7 @@ code {
 }
 
 @media (max-width: 700px) {
-  :root {
-    --ifm-navbar-height: 72px;
-  }
-
-  .brand-navbar-inner,
-  .navbar-sidebar__brand {
+  .brand-navbar-inner {
     min-height: 72px;
   }
 
@@ -1863,10 +1864,6 @@ code {
   margin: 1.5rem auto;
 }
 
-.navbar {
-  padding-inline: clamp(16px, 2vw, 32px);
-}
-
 .navbar__brand {
   gap: 10px;
   margin-right: 24px;
@@ -1875,32 +1872,6 @@ code {
 .navbar__title {
   font-size: 1rem;
   letter-spacing: -0.02em;
-}
-
-.navbar__link {
-  color: var(--muted-strong);
-  font-size: 0.875rem;
-}
-
-.navbar__link--active,
-.navbar__link:hover {
-  color: var(--ifm-color-primary);
-}
-
-.header-signup-link {
-  padding: 9px 16px;
-  border-radius: 6px;
-  background: var(--ifm-color-primary);
-  color: #ffffff;
-}
-
-.header-signup-link:hover {
-  background: var(--ifm-color-primary-dark);
-  color: #ffffff;
-}
-
-[data-theme='dark'] .header-signup-link {
-  color: #0b0b0c;
 }
 
 .footer {
@@ -1918,11 +1889,6 @@ code {
 
 .navbar-sidebar {
   box-shadow: none;
-}
-
-@media (max-width: 1100px) and (min-width: 997px) {
-  .navbar__brand { margin-right: 12px; }
-  .navbar__item { padding-inline: 8px; }
 }
 
 .navbar a svg[class*='iconExternalLink'],
