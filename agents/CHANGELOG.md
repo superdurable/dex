@@ -136,6 +136,14 @@ model-visible text. Everything is inert until an application enables it.
   `2026-11-01T12:00:00.123Z`. Every reader in both cores, 0.1.0 included,
   accepts the earlier `+00:00` form too.
 
+### Fixes
+
+- TypeScript: `send_user_message`, the `AwaitUserMessage` Step that takes its
+  messages, and `StartAgentSession`'s initial message check for blank text with
+  Python's `str.strip()` whitespace, as the Python core does. Text made only of
+  U+001C to U+001F or U+0085 is now blank, and text made only of U+FEFF is now
+  a message. 0.1.0 used `String.trim()`.
+
 ### Compatibility
 
 - Enable the new options and call the new RPCs only after every Worker of the

@@ -106,7 +106,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
     persistence.agentUsage.set(context, emptyAgentUsage());
     persistence.pendingInterrupts.set(context, []);
     const initialMessage = input.initialMessage;
-    if (initialMessage === null || initialMessage.trim() === "") {
+    if (initialMessage === null || isBlankText(initialMessage)) {
       return this.transitions.goToAwaitUserMessage();
     }
     return this.transitions.beginTurn(context, state, initialMessage, this.getStepType());
@@ -132,7 +132,7 @@ export class AwaitUserMessageStep implements Step<void> {
 
   public execute(context: Context): StepDecision {
     const [message] = context.channelResults(this.transitions.persistence.queuedUserMessages);
-    if (message === undefined || message.text.trim() === "") {
+    if (message === undefined || isBlankText(message.text)) {
       return this.transitions.goToAwaitUserMessage();
     }
     return this.transitions.beginTurn(

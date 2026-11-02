@@ -496,7 +496,7 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 
 | RPC | Input | Output |
 | --- | --- | --- |
-| `send_user_message` | `{ text }` | `false` for blank text; a message sent during a turn starts the next turn |
+| `send_user_message` | `{ text }` | `false` for blank text, using the whitespace of Python's `str.strip()`; a message sent during a turn starts the next turn |
 | `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | `false` when not pending, past its deadline, or a question with `approved` `true`; `approved` `false` declines a question; may throw `RpcLockConflictError`, which is safe to retry |
 | `answer_question` | `{ interrupt_id, answer }` | `false` when not pending, not a question, past its deadline, blank, or outside `choices` while free text is not allowed; locks `PendingInterrupts` like `resolve_interrupt` |
 | `get_agent_snapshot` | none | `{ state, messages, pending_interrupts, tool_calls, usage, queued_message_count }`; `state` is `null` before the session starts |
