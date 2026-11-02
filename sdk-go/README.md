@@ -42,6 +42,19 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+### RPC names
+
+An RPC's protocol name is its Go method name. Set `RPCOptions.Name` when a Flow
+type that another language defines names the RPC, so a Go Worker serves it and
+a Go Client invokes it. Go code still passes the bound method:
+
+```go
+dex.DefineRPC(flow.SendUserMessage, &dex.RPCOptions{Name: "send_user_message"})
+
+var queued bool
+err := client.InvokeRPC(ctx, flowID, flow.SendUserMessage, message, &queued)
+```
+
 ### Invocation-time map instances
 
 `RPCOptions` remains the registration-time contract for timeout, transactionality,

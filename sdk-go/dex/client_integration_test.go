@@ -91,6 +91,7 @@ func (clientTestFlow) GetSteps() []StepDef {
 func (flow clientTestFlow) GetRPCs() []RPCDef {
 	return []RPCDef{
 		DefineRPC(flow.NoOutput, nil),
+		DefineRPC(flow.RenameStatus, &RPCOptions{Name: "rename_status"}),
 		DefineRPC(flow.Update, &RPCOptions{
 			Timeout: 30 * time.Second,
 			LockAttributes: []AttributeLock{
@@ -118,6 +119,13 @@ func (clientTestFlow) GetPersistenceSchema() PersistenceSchema {
 }
 
 func (clientTestFlow) Update(
+	Context,
+	clientTestRPCInput,
+) (*RPCResult[clientTestRPCOutput], error) {
+	return &RPCResult[clientTestRPCOutput]{Output: clientTestRPCOutput{}}, nil
+}
+
+func (clientTestFlow) RenameStatus(
 	Context,
 	clientTestRPCInput,
 ) (*RPCResult[clientTestRPCOutput], error) {
@@ -747,6 +755,16 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		nil,
 	))
 	require.Equal(t, "Update", service.invokeRequest.RpcName)
+	var renamedOutput clientTestRPCOutput
+	require.NoError(t, client.InvokeRPC(
+		ctx,
+		"renamed",
+		clientTestFlow{}.RenameStatus,
+		clientTestRPCInput{Status: "renamed"},
+		&renamedOutput,
+	))
+	require.Equal(t, "rename_status", service.invokeRequest.RpcName, "the Client sends RPCOptions.Name")
+	require.Equal(t, "updated", renamedOutput.Status)
 
 	var output clientTestRPCOutput
 	err := client.InvokeRPC(

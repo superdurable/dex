@@ -352,6 +352,20 @@ type AlreadyStartedOptions struct {
 // Return these options with DefineRPC from Flow.GetRPCs. The Client applies the same immutable
 // settings to every invocation. Its context may still impose a shorter caller-side deadline.
 type RPCOptions struct {
+	// Name is the protocol RPC name that Clients invoke and Workers serve. Empty uses the Go
+	// method name, such as "GetStatus".
+	//
+	// Set it when a Flow implemented in another language names the RPC, so a Go Worker serves the
+	// same RPC and a Go Client invokes it. For example, a Python Flow's send_user_message method:
+	//
+	//	dex.DefineRPC(flow.SendUserMessage, &dex.RPCOptions{Name: "send_user_message"})
+	//
+	// Go code still refers to the RPC by its bound method, such as Client.InvokeRPC with
+	// flow.SendUserMessage. The name may contain only ASCII letters, digits, '_', and '-'. It must
+	// differ from every other RPC name of the Flow, and from the Go method name of every other RPC
+	// of the Flow, so a name never points at another method. Registry construction rejects any
+	// other name. Keep it stable: running Flows and their callers use it.
+	Name string
 	// Action declares this RPC as a state-dependent Action with one required permission.
 	// Nil leaves the RPC outside Work Queue permission projection. The projection identifies
 	// candidate Runs only; the RPC gateway must independently authorize every invocation.

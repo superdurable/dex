@@ -40,6 +40,22 @@ func (rpc *registeredRPC) invoke(
 	return rpc.handler.invoke(ctx, input)
 }
 
+// rpcDurableName returns RPCOptions.Name when set, or the Go method name.
+func rpcDurableName(methodName string, options *RPCOptions) (string, error) {
+	if options == nil || options.Name == "" {
+		return methodName, nil
+	}
+	for _, character := range options.Name {
+		isAllowed := (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '_' || character == '-'
+		if !isAllowed {
+			return "", fmt.Errorf(
+				"RPC %q name %q may contain only ASCII letters, digits, '_', and '-'", methodName, options.Name)
+		}
+	}
+	return options.Name, nil
+}
+
 func rpcMethodName(rpc any) (string, error) {
 	canonical, err := rpcMethodIdentity(rpc)
 	if err != nil {

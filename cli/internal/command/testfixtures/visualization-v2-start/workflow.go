@@ -31,11 +31,14 @@ func (*StartSchemaFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(startSchemaStep{})}
 }
 
+// submitScanRPCName is a constant, so the analyzer must evaluate it rather than read a literal.
+const submitScanRPCName = "submit_scan"
+
 func (flow *StartSchemaFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
-		dex.DefineRPC(flow.SubmitScan, &dex.RPCOptions{Action: dex.DefineAction(
+		dex.DefineRPC(flow.SubmitScan, &dex.RPCOptions{Name: submitScanRPCName, Action: dex.DefineAction(
 			"Submit scan",
 			dex.WhenAttributeMatches(scanState, dex.AttributeMatchEqual("open")),
 			dex.ActionRequiresPermission("scan.submit"),

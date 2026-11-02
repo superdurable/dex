@@ -1486,3 +1486,96 @@ func packageRegistrationRPC(
 ) (*RPCResult[registrationOutput], error) {
 	return &RPCResult[registrationOutput]{}, nil
 }
+
+func TestRPCOptionsNameSetsTheProtocolRPCName(t *testing.T) {
+	flow := &registrationFlow{flowType: "named-rpc-flow"}
+	flow.rpcs = []RPCDef{
+		DefineRPC(flow.Update, &RPCOptions{Name: "update-value_2"}),
+		DefineRPC(flow.Query, nil),
+	}
+	assembled, err := NewRegistry([]Flow{flow})
+	require.NoError(t, err)
+
+	registered, found := assembled.lookupFlow("named-rpc-flow")
+	require.True(t, found)
+	update, found := registered.lookupRPC("update-value_2")
+	require.True(t, found)
+	require.Equal(t, "update-value_2", update.durableName)
+	_, found = registered.lookupRPC("Update")
+	require.False(t, found, "the Go method name must not serve a renamed RPC")
+	_, found = registered.lookupRPC("Query")
+	require.True(t, found)
+
+	resolvedFlow, resolved, err := assembled.resolveRPC(flow.Update)
+	require.NoError(t, err)
+	require.Same(t, registered, resolvedFlow)
+	require.Same(t, update, resolved)
+}
+
+func TestRegistryRejectsInvalidRPCNames(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		rpcs        func(flow *registrationFlow) []RPCDef
+		expectedErr string
+	}{
+		{
+			name: "whitespace only",
+			rpcs: func(flow *registrationFlow) []RPCDef {
+				return []RPCDef{DefineRPC(flow.Update, &RPCOptions{Name: "  "})}
+			},
+			expectedErr: "may contain only ASCII letters, digits, '_', and '-'",
+		},
+		{
+			name: "surrounding whitespace",
+			rpcs: func(flow *registrationFlow) []RPCDef {
+				return []RPCDef{DefineRPC(flow.Update, &RPCOptions{Name: " update_value"})}
+			},
+			expectedErr: "may contain only ASCII letters, digits, '_', and '-'",
+		},
+		{
+			name: "slash and a letter outside ASCII",
+			rpcs: func(flow *registrationFlow) []RPCDef {
+				return []RPCDef{DefineRPC(flow.Update, &RPCOptions{Name: "a/b-é"})}
+			},
+			expectedErr: "may contain only ASCII letters, digits, '_', and '-'",
+		},
+		{
+			name: "two RPCs swap their method names",
+			rpcs: func(flow *registrationFlow) []RPCDef {
+				return []RPCDef{
+					DefineRPC(flow.Update, &RPCOptions{Name: "Query"}),
+					DefineRPC(flow.Query, &RPCOptions{Name: "Update"}),
+				}
+			},
+			expectedErr: "is the Go method name of another RPC",
+		},
+		{
+			name: "another RPC's method name",
+			rpcs: func(flow *registrationFlow) []RPCDef {
+				return []RPCDef{
+					DefineRPC(flow.Query, nil),
+					DefineRPC(flow.Update, &RPCOptions{Name: "Query"}),
+				}
+			},
+			expectedErr: `duplicate RPC "Query"`,
+		},
+		{
+			name: "same method twice under two names",
+			rpcs: func(flow *registrationFlow) []RPCDef {
+				return []RPCDef{
+					DefineRPC(flow.Update, &RPCOptions{Name: "update_value"}),
+					DefineRPC(flow.Update, &RPCOptions{Name: "update_other_value"}),
+				}
+			},
+			expectedErr: `duplicate RPC method "Update"`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			flow := &registrationFlow{flowType: "invalid-rpc-name-flow"}
+			flow.rpcs = testCase.rpcs(flow)
+			assembled, err := NewRegistry([]Flow{flow})
+			require.Nil(t, assembled)
+			require.ErrorContains(t, err, testCase.expectedErr)
+		})
+	}
+}

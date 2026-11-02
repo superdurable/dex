@@ -39,6 +39,7 @@ type registeredFlow struct {
 	startingStep   *registeredStep
 	steps          map[string]*registeredStep
 	rpcs           map[string]*registeredRPC
+	rpcsByMethod   map[string]*registeredRPC
 	actions        []*registeredAction
 	attributes     map[string]registeredAttribute
 	channels       map[string]registeredChannel
@@ -156,6 +157,7 @@ func (registry *Registry) registerFlow(
 		flowType:       flowType,
 		steps:          make(map[string]*registeredStep),
 		rpcs:           make(map[string]*registeredRPC),
+		rpcsByMethod:   make(map[string]*registeredRPC),
 		attributes:     make(map[string]registeredAttribute),
 		channels:       make(map[string]registeredChannel),
 		streams:        make(map[string]registeredStream),
@@ -355,6 +357,12 @@ func (flow *registeredFlow) registerRPCs(definitions []RPCDef) error {
 			return err
 		}
 	}
+	// A name that is another RPC's Go method name would mislead every reader that maps one to the other.
+	for durableName, registered := range flow.rpcs {
+		if other, found := flow.rpcsByMethod[durableName]; found && other != registered {
+			return fmt.Errorf("RPC name %q is the Go method name of another RPC", durableName)
+		}
+	}
 	return nil
 }
 
@@ -363,24 +371,31 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		return fmt.Errorf("RPC at index %d is nil", index)
 	}
 	handler := definition.rpcHandler()
-	durableName, err := rpcMethodName(handler)
+	methodName, err := rpcMethodName(handler)
 	if err != nil {
 		return fmt.Errorf("RPC at index %d: %w", index, err)
 	}
 	identity, err := rpcMethodIdentity(handler)
 	if err != nil {
-		return fmt.Errorf("RPC %q: %w", durableName, err)
+		return fmt.Errorf("RPC %q: %w", methodName, err)
 	}
-	flowMethod, found := reflect.TypeOf(flow.flow).MethodByName(durableName)
+	flowMethod, found := reflect.TypeOf(flow.flow).MethodByName(methodName)
 	if !found || runtime.FuncForPC(flowMethod.Func.Pointer()).Name() != identity {
 		return fmt.Errorf(
 			"RPC %q must be a direct bound method on Flow %q",
-			durableName,
+			methodName,
 			flow.flowType,
 		)
 	}
+	durableName, err := rpcDurableName(methodName, definition.rpcOptions())
+	if err != nil {
+		return err
+	}
 	if _, found := flow.rpcs[durableName]; found {
 		return fmt.Errorf("duplicate RPC %q", durableName)
+	}
+	if _, found := flow.rpcsByMethod[methodName]; found {
+		return fmt.Errorf("duplicate RPC method %q", methodName)
 	}
 	if err := flow.validateRPCOptions(definition.rpcOptions()); err != nil {
 		return fmt.Errorf("RPC %q options: %w", durableName, err)
@@ -393,7 +408,7 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		}
 		flow.actions = append(flow.actions, action)
 	}
-	flow.rpcs[durableName] = &registeredRPC{
+	registered := &registeredRPC{
 		handler:     definition,
 		durableName: durableName,
 		identity:    identity,
@@ -402,6 +417,8 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		options:     definition.rpcOptions(),
 		action:      action,
 	}
+	flow.rpcs[durableName] = registered
+	flow.rpcsByMethod[methodName] = registered
 	return nil
 }
 
@@ -840,7 +857,7 @@ func (registry *Registry) resolveRPC(reference any) (*registeredFlow, *registere
 		return nil, nil, err
 	}
 	for _, flow := range registry.flows {
-		registered, found := flow.lookupRPC(rpcName)
+		registered, found := flow.rpcsByMethod[rpcName]
 		if found && registered.identity == identity &&
 			registered.input == inputType && registered.output == outputType {
 			return flow, registered, nil
