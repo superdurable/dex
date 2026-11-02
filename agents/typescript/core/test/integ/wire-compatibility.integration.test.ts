@@ -12,10 +12,14 @@ import { describe, test } from "node:test";
 import {
   decodeAgentInterrupt,
   decodeAgentInterruptResolution,
+  decodeAgentState,
   decodeAgentToolCall,
+  decodeAgentUserMessage,
   encodeAgentInterrupt,
   encodeAgentInterruptResolution,
+  encodeAgentState,
   encodeAgentToolCall,
+  encodeAgentUserMessage,
 } from "../../src/agent-session-codecs.js";
 
 // Wire values exactly as @superdurable/dex-agents 0.1.0 encodes them.
@@ -42,6 +46,14 @@ const interruptOf010 = {
   deadline: null,
 };
 const resolutionOf010 = { approved: false, rejection_message: "not today" };
+const stateOf010 = {
+  status: "waiting_for_user_message",
+  turn_count: 2,
+  active_turn_id: null,
+  next_message_sequence: 5,
+  last_turn_error: null,
+};
+const userMessageOf010 = { text: "hello" };
 
 describe("wire compatibility between 0.1.0 and 0.2.0", () => {
   test("values a 0.1.0 Worker wrote decode in 0.2.0 with the new fields at their defaults", () => {
@@ -76,6 +88,18 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       choices: [],
       allowsFreeText: true,
     });
+    assert.deepEqual(decodeAgentState(stateOf010), {
+      status: "waiting_for_user_message",
+      turnCount: 2,
+      activeTurnId: null,
+      nextMessageSequence: 5,
+      lastTurnError: null,
+    });
+    assert.deepEqual(decodeAgentUserMessage(userMessageOf010), { text: "hello" });
+    // An explicit null reads as the default, as in the Python core.
+    assert.deepEqual(decodeAgentUserMessage({ ...userMessageOf010, plan_mode: null }), { text: "hello" });
+    assert.deepEqual(decodeAgentUserMessage({ ...userMessageOf010, plan_mode: true }), { text: "hello", planMode: true });
+    assert.deepEqual(decodeAgentState({ ...stateOf010, interaction_mode: null }), decodeAgentState(stateOf010));
     assert.deepEqual(decodeAgentInterruptResolution(resolutionOf010), {
       approved: false,
       rejectionMessage: "not today",
@@ -91,6 +115,8 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
         resolutionOf010,
         encodeAgentInterruptResolution(decodeAgentInterruptResolution(resolutionOf010)) as Record<string, unknown>,
       ],
+      [stateOf010, encodeAgentState(decodeAgentState(stateOf010)) as Record<string, unknown>],
+      [userMessageOf010, encodeAgentUserMessage(decodeAgentUserMessage(userMessageOf010)) as Record<string, unknown>],
     ];
     for (const [valueOf010, valueOf020] of pairs) {
       // A 0.1.0 decoder reads only its own fields, so the 0.2.0 value must repeat each one unchanged.

@@ -9,10 +9,12 @@
 import type { BuiltInTool } from "./agent-built-in-tools.js";
 import type {
   AgentMessage,
+  AgentPlan,
   AgentToolCall,
   AgentToolCallStatus,
   AgentUsage,
   FrameworkMessage,
+  InteractionMode,
   QuestionAnswer,
   ToolEffect,
 } from "./agent-session-values.js";
@@ -201,6 +203,17 @@ export interface AgentTurnContext {
    * metadata. Optional for the same reason as {@link enabledBuiltInTools}.
    */
   readonly defaultToolEffect?: ToolEffect;
+  /**
+   * The turn's {@link AgentState.interactionMode}. A runner with {@link AgentFrameworkRunner.supportsPlanMode}
+   * offers only `write_todos` in a `planning` turn. The session always sets it; treat `undefined` as `chat`.
+   */
+  readonly interactionMode?: InteractionMode;
+  /**
+   * The {@link AgentPlan} as committed before this model call, or `null` before `write_todos` first
+   * succeeded. Show it to the model with {@link buildPlanNote}. The session always sets it; treat
+   * `undefined` as `null`.
+   */
+  readonly plan?: AgentPlan | null;
   /**
    * Returns the effective policy of a tool; see {@link resolveToolPolicy} for the precedence.
    * Pass it unchanged in {@link DeferredToolCall.policy}.
@@ -559,6 +572,19 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * @returns The messages to append, in order, possibly none.
    */
   buildUnfinishedTurnMessages?(turn: AgentTurnContext): readonly FrameworkMessage[];
+  /**
+   * Whether the runner honors plan mode. Optional; {@link AgentSessionOptions.planModeEnabled} needs `true`,
+   * and `createAgentSessionFlow` throws otherwise.
+   *
+   * Such a runner reads {@link AgentTurnContext.interactionMode} in every `runModelStep`. In a `planning`
+   * turn it offers only the `write_todos` definition from {@link builtInToolDefinitions}. It may force
+   * `write_todos` on the turn's first model call while the plan is not a draft yet, where the model accepts a
+   * forced tool choice; Stepwise does with `planningToolChoice: "required"`. In every
+   * turn it shows the plan with {@link buildPlanNote} as user text before the turn's messages. The Stepwise
+   * runner implements it; a framework adapter that cannot change the tools it offers between turns leaves
+   * plan mode off.
+   */
+  readonly supportsPlanMode?: boolean;
 }
 
 /** MCP tool annotations that classify a tool's side effects. */

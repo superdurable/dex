@@ -11,7 +11,7 @@
 ``AgentSessionFlow`` runs one agent session per Flow execution. A framework
 adapter implements ``AgentFrameworkRunner`` and passes it to the Flow; the
 Flow runs every model call and every tool call as its own Step, and owns the
-conversation, tool approvals, questions, durable waits, and live events. See
+conversation, tool approvals, questions, durable waits, plans, and live events. See
 the package README for the full contract.
 
 ``dex_agents.stepwise`` adds a built-in agent loop for agents defined in Dex
@@ -26,6 +26,7 @@ from dex_agents.built_in_tools import (
     DEFAULT_MAX_DURABLE_WAIT,
     QUESTION_DEADLINE_PASSED,
     QUESTION_DECLINED_TOOL_RESULT,
+    WRITE_TODOS_CALLED_MORE_THAN_ONCE,
     BuiltInTool,
     BuiltInToolDefinition,
 )
@@ -33,6 +34,7 @@ from dex_agents.client import AgentSessionClient
 from dex_agents.events import AgentEventType, AgentEventWriter
 from dex_agents.persistence import (
     AGENT_MESSAGES,
+    AGENT_PLAN,
     AGENT_STATE,
     AGENT_TOOL_CALLS,
     AGENT_TRACE_CONTEXT,
@@ -41,9 +43,20 @@ from dex_agents.persistence import (
     FRAMEWORK_RUN_STATE,
     INTERRUPT_RESOLUTIONS,
     PENDING_INTERRUPTS,
+    PENDING_PLAN_EXECUTION,
+    PLAN_EXECUTIONS,
     QUEUED_USER_MESSAGES,
     TOOL_CALL_RESULTS,
     message_sequence_key,
+    plan_execution_key,
+)
+from dex_agents.plans import (
+    NO_PLAN_NOTE,
+    PLANNING_TURN_INSTRUCTION,
+    PLANNING_TURN_TOOL_REJECTION,
+    build_plan_execution_message,
+    build_plan_note,
+    plan_status_after_write,
 )
 from dex_agents.runner import (
     APPROVAL_DEADLINE_PASSED,
@@ -59,6 +72,7 @@ from dex_agents.runner import (
     DeferredToolOutcome,
     FrameworkMessage,
     ModelCallMetadata,
+    PlanModeRunner,
     ToolCallsRequested,
     ToolExecutionError,
     ToolExecutionResult,
@@ -78,6 +92,8 @@ from dex_agents.values import (
     AgentInterruptResolution,
     AgentMessage,
     AgentMessagesPage,
+    AgentPlan,
+    AgentPlanTask,
     AgentSessionStartInput,
     AgentSessionStatus,
     AgentSnapshot,
@@ -86,9 +102,14 @@ from dex_agents.values import (
     AgentUsage,
     AgentUserMessage,
     AnswerQuestionRequest,
+    ExecutePlanRequest,
+    InteractionMode,
     InterruptKind,
     ListAgentMessagesRequest,
     MessageRole,
+    PlanExecutionRequest,
+    PlanStatus,
+    PlanTaskStatus,
     QuestionAnswer,
     ResolveInterruptRequest,
     ToolCallCompleted,
@@ -98,6 +119,7 @@ from dex_agents.values import (
 
 __all__ = [
     "AGENT_MESSAGES",
+    "AGENT_PLAN",
     "AGENT_STATE",
     "AGENT_TOOL_CALLS",
     "AGENT_TRACE_CONTEXT",
@@ -109,14 +131,20 @@ __all__ = [
     "DEFAULT_REJECTION_TOOL_RESULT",
     "FRAMEWORK_RUN_STATE",
     "INTERRUPT_RESOLUTIONS",
+    "NO_PLAN_NOTE",
     "OUTCOME_UNKNOWN_TOOL_RESULT",
     "PENDING_INTERRUPTS",
+    "PENDING_PLAN_EXECUTION",
+    "PLANNING_TURN_INSTRUCTION",
+    "PLANNING_TURN_TOOL_REJECTION",
+    "PLAN_EXECUTIONS",
     "QUESTION_DEADLINE_PASSED",
     "QUESTION_DECLINED_TOOL_RESULT",
     "QUEUED_USER_MESSAGES",
     "TOOL_CALL_RESULTS",
     "TURN_FAILURE_NOTE_FOOTER",
     "TURN_FAILURE_NOTE_HEADER",
+    "WRITE_TODOS_CALLED_MORE_THAN_ONCE",
     "AgentEvent",
     "AgentEventType",
     "AgentEventWriter",
@@ -125,6 +153,8 @@ __all__ = [
     "AgentInterruptResolution",
     "AgentMessage",
     "AgentMessagesPage",
+    "AgentPlan",
+    "AgentPlanTask",
     "AgentSessionClient",
     "AgentSessionFlow",
     "AgentSessionOptions",
@@ -144,12 +174,18 @@ __all__ = [
     "DeferredToolCall",
     "DeferredToolExecution",
     "DeferredToolOutcome",
+    "ExecutePlanRequest",
     "FrameworkMessage",
     "GenAISemanticConventionsVersion",
+    "InteractionMode",
     "InterruptKind",
     "ListAgentMessagesRequest",
     "MessageRole",
     "ModelCallMetadata",
+    "PlanExecutionRequest",
+    "PlanModeRunner",
+    "PlanStatus",
+    "PlanTaskStatus",
     "QuestionAnswer",
     "ResolveInterruptRequest",
     "ToolCallCompleted",
@@ -162,8 +198,12 @@ __all__ = [
     "ToolPolicy",
     "TurnCompleted",
     "UnfinishedTurnMessageBuilder",
+    "build_plan_execution_message",
+    "build_plan_note",
     "build_turn_failure_note",
     "describe_tool_call_outcome",
     "message_sequence_key",
+    "plan_execution_key",
+    "plan_status_after_write",
     "resolve_tool_policy",
 ]

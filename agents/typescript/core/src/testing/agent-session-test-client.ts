@@ -80,10 +80,21 @@ export class AgentSessionTestClient {
    * Calls `send_user_message`.
    * @param sessionId - Session Flow ID.
    * @param text - Message text.
-   * @returns The RPC result: `false` for blank text.
+   * @param planMode - Whether the message starts a planning turn. Defaults to `false`.
+   * @returns The RPC result: `false` for blank text, or for a `planMode` message when plan mode is off.
    */
-  public sendUserMessage(sessionId: string, text: string): Promise<boolean> {
-    return this.client.invokeRPC(this.flow.sendUserMessage, sessionId, { text });
+  public sendUserMessage(sessionId: string, text: string, planMode = false): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.sendUserMessage, sessionId, { text, planMode });
+  }
+
+  /**
+   * Calls `execute_plan`, retrying an `RpcLockConflictError` for up to 30 seconds.
+   * @param sessionId - Session Flow ID.
+   * @param revision - Plan revision to execute.
+   * @returns The RPC result: `false` when the revision is stale, already pending, or the session is busy.
+   */
+  public executePlan(sessionId: string, revision: number): Promise<boolean> {
+    return retryLockConflicts(() => this.client.invokeRPC(this.flow.executePlan, sessionId, { revision }));
   }
 
   /**

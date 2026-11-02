@@ -24,6 +24,7 @@ from dex_agents.values import (
     AgentSnapshot,
     AgentUserMessage,
     AnswerQuestionRequest,
+    ExecutePlanRequest,
     ListAgentMessagesRequest,
     ResolveInterruptRequest,
 )
@@ -61,9 +62,9 @@ class AgentSessionClient:
             client: An open ``AsyncClient`` whose Registry contains ``flow``.
                 The caller keeps ownership and closes it.
             flow: The registered ``AgentSessionFlow`` instance.
-            lock_conflict_retry_timeout: How long ``resolve_interrupt`` and
-                ``answer_question`` retry an ``RpcLockConflictError``. Defaults
-                to five seconds.
+            lock_conflict_retry_timeout: How long ``resolve_interrupt``,
+                ``answer_question``, and ``execute_plan`` retry an
+                ``RpcLockConflictError``. Defaults to five seconds.
         """
         self._client = client
         self._flow = flow
@@ -105,21 +106,58 @@ class AgentSessionClient:
             options or StartFlowOptions(),
         )
 
-    async def send_user_message(self, session_id: str, text: str) -> bool:
+    async def send_user_message(
+        self, session_id: str, text: str, *, plan_mode: bool = False
+    ) -> bool:
         """Queue one user message.
 
         Args:
             session_id: Running session.
             text: Message text.
+            plan_mode: ``True`` to start a planning turn that drafts a plan for
+                ``execute_plan``. It needs ``AgentSessionOptions.plan_mode_enabled``.
 
         Returns:
-            ``True`` when queued; ``False`` for whitespace-only text.
+            ``True`` when queued; ``False`` for whitespace-only text, or for a
+            ``plan_mode`` message when plan mode is not enabled.
 
         Raises:
             FlowNotActiveOrNotFoundError: If the session is not running.
         """
         return await self._client.invoke_rpc(
-            self._flow.send_user_message, session_id, AgentUserMessage(text=text)
+            self._flow.send_user_message,
+            session_id,
+            AgentUserMessage(text=text, plan_mode=plan_mode),
+        )
+
+    async def execute_plan(self, session_id: str, revision: int) -> bool:
+        """Approve one plan revision, so the session starts a turn that runs it.
+
+        The call retries ``RpcLockConflictError`` until
+        ``lock_conflict_retry_timeout`` passes. A retry is safe because a
+        conflicting call makes no change.
+
+        Example:
+            >>> snapshot = await sessions.get_agent_snapshot("session-42")
+            >>> if snapshot.plan is not None and snapshot.plan.status is PlanStatus.DRAFT:
+            ...     await sessions.execute_plan("session-42", snapshot.plan.revision)
+
+        Args:
+            session_id: Running session.
+            revision: ``AgentPlan.revision`` the user reviewed.
+
+        Returns:
+            ``True`` when accepted; ``False`` when the revision is not the
+            current ``draft`` or ``active`` plan, an execution of it is already
+            pending, or the session is not idle with nothing queued or pending.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        request = ExecutePlanRequest(revision=revision)
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.execute_plan, session_id, request)
         )
 
     async def resolve_interrupt(

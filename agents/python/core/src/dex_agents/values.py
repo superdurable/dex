@@ -144,6 +144,57 @@ class InterruptKind(StrEnum):
     QUESTION = "question"
 
 
+class InteractionMode(StrEnum):
+    """Name what kind of turn the session runs, for the runner to choose the tools it offers.
+
+    The session sets ``AgentState.interaction_mode`` when a turn starts, and the
+    runner reads it from ``AgentTurnContext.interaction_mode``. Plan mode needs
+    ``AgentSessionOptions.plan_mode_enabled``; without it every turn is ``CHAT``.
+
+    Attributes:
+        CHAT: An ordinary turn. The runner offers every tool.
+        PLANNING: A turn that only plans. A message of the turn has
+            ``plan_mode``, or a ``DRAFT`` plan waits for review. The runner
+            offers only ``write_todos``, and ``RunModel`` rejects any other call.
+        EXECUTING: A turn that ``execute_plan`` started. The runner offers every tool.
+    """
+
+    CHAT = "chat"
+    PLANNING = "planning"
+    EXECUTING = "executing"
+
+
+class PlanStatus(StrEnum):
+    """Name where an ``AgentPlan`` stands.
+
+    Attributes:
+        DRAFT: A planning turn wrote the plan, and it waits for ``execute_plan``.
+        ACTIVE: The plan runs, or ``write_todos`` wrote it outside a planning
+            turn with a task not completed.
+        COMPLETED: Every task is completed.
+        CLEARED: ``write_todos`` replaced the plan with no tasks.
+    """
+
+    DRAFT = "draft"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    CLEARED = "cleared"
+
+
+class PlanTaskStatus(StrEnum):
+    """Name where one task of an ``AgentPlan`` stands.
+
+    Attributes:
+        PENDING: The task has not started.
+        IN_PROGRESS: The model works on the task.
+        COMPLETED: The task is done.
+    """
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 @dataclass(frozen=True, kw_only=True)
 class AgentSessionStartInput:
     """Start one agent session Flow, optionally with its first user message.
@@ -179,6 +230,10 @@ class AgentState:
             Sequences start at 1 and have no gaps.
         last_turn_error: Recovery error text of the last finished turn when it
             failed, or ``None`` when it completed.
+        interaction_mode: Kind of the active turn, or of the last turn between
+            turns. The session sets it when a turn starts. Defaults to
+            ``CHAT``; ``None``, as an explicit JSON ``null`` decodes, also
+            becomes ``CHAT``, so a read value is never ``None``.
     """
 
     status: AgentSessionStatus
@@ -186,6 +241,11 @@ class AgentState:
     active_turn_id: str | None = None
     next_message_sequence: int = 1
     last_turn_error: str | None = None
+    interaction_mode: InteractionMode | None = InteractionMode.CHAT
+
+    def __post_init__(self) -> None:
+        if self.interaction_mode is None:
+            object.__setattr__(self, "interaction_mode", InteractionMode.CHAT)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -455,9 +515,81 @@ class AgentUserMessage:
 
     Attributes:
         text: Message text. Whitespace-only text is rejected.
+        plan_mode: Whether the message starts a ``PLANNING`` turn, which drafts
+            a plan for review instead of doing the work. ``send_user_message``
+            rejects it unless ``AgentSessionOptions.plan_mode_enabled`` is set.
+            Defaults to ``False``; ``None``, as an explicit JSON ``null``
+            decodes, also becomes ``False``.
     """
 
     text: str
+    plan_mode: bool | None = False
+
+    def __post_init__(self) -> None:
+        if self.plan_mode is None:
+            object.__setattr__(self, "plan_mode", False)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentPlanTask:
+    """Describe one task of an ``AgentPlan``.
+
+    Attributes:
+        content: What the task does, as the model wrote it. Never blank.
+        status: Where the task stands.
+    """
+
+    content: str
+    status: PlanTaskStatus
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentPlan:
+    """Hold the session's plan: a short task list the model replaces as a whole.
+
+    The ``AgentPlan`` Attribute holds one value. ``write_todos`` replaces it
+    with the next revision, and ``execute_plan`` names the revision the user
+    approves. Compaction never summarizes it.
+
+    Attributes:
+        revision: Revision of the plan, starting at 1. Every ``write_todos``
+            call that succeeds adds 1, an empty list included.
+        status: Where the plan stands.
+        tasks: Every task in order; empty when ``CLEARED``.
+        updated_at: RFC 3339 time of the last change.
+    """
+
+    revision: int
+    status: PlanStatus
+    tasks: list[AgentPlanTask] = field(default_factory=list)
+    updated_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ExecutePlanRequest:
+    """Approve one plan revision through the ``execute_plan`` RPC.
+
+    Attributes:
+        revision: ``AgentPlan.revision`` the user reviewed. A stale revision is
+            refused, so the session never runs a plan the user did not see.
+    """
+
+    revision: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlanExecutionRequest:
+    """Carry one approved plan execution through the ``PlanExecutions`` ChannelMap.
+
+    ``execute_plan`` publishes it to the instance named by the revision, and
+    ``AwaitUserMessage`` consumes it to start an ``EXECUTING`` turn. The
+    ``PendingPlanExecution`` Attribute holds it from acceptance until then.
+
+    Attributes:
+        revision: The approved ``AgentPlan.revision``.
+    """
+
+    revision: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -522,6 +654,7 @@ class AgentSnapshot:
             ``deferral_order``.
         usage: Model usage of the whole session.
         queued_message_count: User messages queued for later turns.
+        plan: The ``AgentPlan``, or ``None`` before ``write_todos`` first succeeded.
     """
 
     state: AgentState | None
@@ -530,6 +663,7 @@ class AgentSnapshot:
     tool_calls: list[AgentToolCall] = field(default_factory=list)
     usage: AgentUsage = field(default_factory=AgentUsage)
     queued_message_count: int = 0
+    plan: AgentPlan | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -18,17 +18,30 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from litellm.exceptions import UnsupportedParamsError
 
+from dex_agents import (
+    AgentMessage,
+    AgentTurnContext,
+    BuiltInTool,
+    InteractionMode,
+    MessageRole,
+    ToolEffect,
+    TurnCompleted,
+)
 from dex_agents.litellm import CHAT_COMPLETIONS_API, RESPONSES_API, LiteLLMModelClient
 from dex_agents.stepwise import (
+    AgentDefinition,
     ModelInputItem,
     ModelOutputItem,
     ModelRequest,
     ModelRequestMetadata,
     ModelSettings,
     ModelToolDefinition,
+    StepwiseAgentRunner,
     ToolResultItem,
     UserTextItem,
+    encode_stepwise_message,
 )
 
 ENCRYPTED_REASONING = "gAAAAABo-Opaque+/=encrypted" + chr(0x2028) + "reasoning\\content"
@@ -256,6 +269,123 @@ async def test_a_failed_request_is_not_retried_by_the_client(
         await client.call_model(_request([UserTextItem(text="hi")]), RecordedOutput())
 
     assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize("model", ["anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5"])
+async def test_the_first_call_of_a_planning_turn_reaches_a_model_that_refuses_forcing(
+    model: str,
+) -> None:
+    # A closed local port: a request that is built and sent fails to connect.
+    client = LiteLLMModelClient(model, api_base="http://127.0.0.1:9", api_key_provider=lambda: "k")
+    runner = StepwiseAgentRunner(_planning_definition(client))
+
+    with pytest.raises(Exception) as raised:
+        await runner.run_model_step(_planning_turn())
+
+    assert not isinstance(raised.value, UnsupportedParamsError), str(raised.value)[:200]
+
+
+async def test_a_planning_turn_offers_write_todos_without_forcing_and_a_text_answer_ends_it(
+    transport: FakeProviderTransport,
+) -> None:
+    client = LiteLLMModelClient(
+        "anthropic/claude-opus-5-5", api_base=transport.base_url, api_key_provider=lambda: "sk"
+    )
+    transport.responses.append((200, _anthropic_text_stream("Which database do you use?")))
+
+    outcome = await StepwiseAgentRunner(_planning_definition(client)).run_model_step(
+        _planning_turn()
+    )
+
+    assert isinstance(outcome, TurnCompleted)
+    _, sent = transport.requests[0]
+    assert [tool["name"] for tool in sent["tools"]] == ["write_todos"]
+    assert sent.get("tool_choice", {"type": "auto"})["type"] == "auto"
+
+
+def test_a_required_planning_tool_choice_is_refused_for_a_model_that_cannot_be_forced() -> None:
+    for refusing in (
+        LiteLLMModelClient("anthropic/claude-opus-5-5"),
+        LiteLLMModelClient("bedrock/us.anthropic.claude-sonnet-5-5"),
+        LiteLLMModelClient(
+            "anthropic/claude-sonnet-4-5",
+            request_options={"thinking": {"type": "enabled", "budget_tokens": 2048}},
+        ),
+    ):
+        with pytest.raises(ValueError, match="planning_tool_choice='required' needs a model"):
+            _planning_definition(refusing, planning_tool_choice="required")
+    with pytest.raises(ValueError, match="planning_tool_choice='required' needs a model"):
+        AgentDefinition(
+            name="planner",
+            instructions="Help.",
+            model=LiteLLMModelClient("anthropic/claude-sonnet-4-5"),
+            model_settings=ModelSettings(provider_options={"thinking": {"type": "adaptive"}}),
+            built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),
+            planning_tool_choice="required",
+        )
+    with pytest.raises(ValueError, match="must be 'auto' or 'required'"):
+        _planning_definition(LiteLLMModelClient("openai/gpt-5-mini"), planning_tool_choice="none")
+    assert (
+        _planning_definition(
+            LiteLLMModelClient("openai/gpt-5-mini"), planning_tool_choice="required"
+        ).planning_tool_choice
+        == "required"
+    )
+
+
+def _planning_definition(
+    client: LiteLLMModelClient, *, planning_tool_choice: Any = "auto"
+) -> AgentDefinition:
+    return AgentDefinition(
+        name="planner",
+        instructions="Help.",
+        model=client,
+        built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),
+        plan_mode_enabled=True,
+        planning_tool_choice=planning_tool_choice,
+    )
+
+
+def _planning_turn() -> AgentTurnContext:
+    user_message = encode_stepwise_message(UserTextItem(text="Plan the migration"))
+    return AgentTurnContext(
+        flow_id="session-1",
+        turn_id="turn-1",
+        attempt=1,
+        messages=[
+            AgentMessage(
+                sequence=1,
+                turn_id="turn-1",
+                role=MessageRole.USER,
+                text="Plan the migration",
+                framework_item=user_message.framework_item,
+                created_at="2026-11-01T12:00:00.000Z",
+            )
+        ],
+        framework_run_state=None,
+        tool_calls={},
+        tool_policies={},
+        default_tool_effect=ToolEffect.UNCLASSIFIED,
+        events=_SilentEvents(),  # type: ignore[arg-type]
+        heartbeat=_no_heartbeat,
+        enabled_built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),
+        interaction_mode=InteractionMode.PLANNING,
+        plan=None,
+    )
+
+
+class _SilentEvents:
+    step_execution_id = "RunModel-1"
+
+    def write_text_delta(self, text: str) -> None:
+        pass
+
+    def write_reasoning_delta(self, text: str) -> None:
+        pass
+
+
+async def _no_heartbeat() -> None:
+    pass
 
 
 def _request(items: Sequence[ModelInputItem]) -> ModelRequest:

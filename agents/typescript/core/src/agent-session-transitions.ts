@@ -34,12 +34,15 @@ import {
   type AgentInterrupt,
   type AgentInterruptKind,
   type AgentMessage,
+  type AgentPlan,
   type AgentState,
   type AgentToolCall,
   type AgentToolCallRecord,
   type AgentToolCallStatus,
   type AgentUsage,
+  type AgentUserMessage,
   type FrameworkMessage,
+  type InteractionMode,
   type ToolEffect,
 } from "./agent-session-values.js";
 import type { ResolvedAgentTracingOptions } from "./agent-tracing-options.js";
@@ -80,6 +83,7 @@ export interface AgentSessionConfig {
   readonly tracing: ResolvedAgentTracingOptions;
   readonly builtInTools: ReadonlySet<BuiltInTool>;
   readonly maxDurableWaitMs: number;
+  readonly planModeEnabled: boolean;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
@@ -109,6 +113,10 @@ export class AgentSessionTransitions {
 
   public readPendingInterrupts(context: Context): readonly AgentInterrupt[] {
     return (this.persistence.pendingInterrupts.get(context) as readonly AgentInterrupt[] | undefined) ?? [];
+  }
+
+  public readOptionalAgentPlan(context: Context): AgentPlan | null {
+    return (this.persistence.agentPlan.get(context) as AgentPlan | undefined) ?? null;
   }
 
   public readAgentUsage(context: Context): AgentUsage {
@@ -231,6 +239,8 @@ export class AgentSessionTransitions {
       cancellationSignal: context.cancellationSignal,
       deadline: context.deadline,
       enabledBuiltInTools: this.config.builtInTools,
+      interactionMode: state.interactionMode ?? "chat",
+      plan: this.readOptionalAgentPlan(context),
       toolPolicies: this.config.toolPolicies,
       defaultToolEffect: this.config.defaultToolEffect,
       resolveToolPolicy: (toolName, frameworkEffect) => this.resolveToolPolicy(toolName, frameworkEffect),
@@ -274,7 +284,15 @@ export class AgentSessionTransitions {
   }
 
   /** Appends the user message, opens the next turn, and moves to RunModel. */
-  public beginTurn(context: Context, state: AgentState, text: string, stepType: string): StepDecision {
+  public beginTurn(
+    context: Context,
+    state: AgentState,
+    text: string,
+    stepType: string,
+    interactionMode: InteractionMode = "chat",
+    executedPlan?: AgentPlan,
+    wasPlanDraft = false,
+  ): StepDecision {
     const turnId = `turn-${state.turnCount + 1}`;
     const sequence = state.nextMessageSequence;
     return this.tracer.traceUserMessageActivation(
@@ -289,11 +307,36 @@ export class AgentSessionTransitions {
           throw new TypeError("buildUserMessage must return a message with role user");
         }
         const stateWithMessage = this.appendMessages(context, state, turnId, [userMessage]);
-        this.writeAgentState(context, { ...stateWithMessage, status: "running_model", activeTurnId: turnId });
-        this.writeEvents(context, turnId, (events) => events.writeEvent("turn_started", { sequence }));
+        this.writeAgentState(context, {
+          ...stateWithMessage,
+          status: "running_model",
+          activeTurnId: turnId,
+          interactionMode,
+        });
+        this.writeEvents(context, turnId, (events) => {
+          events.writeEvent("turn_started", { sequence });
+          if (executedPlan !== undefined) {
+            events.writeEvent("plan_execution_started", { revision: executedPlan.revision });
+            if (wasPlanDraft) {
+              writePlanUpdated(events, executedPlan);
+            }
+          }
+        });
         return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
       },
     );
+  }
+
+  /**
+   * Returns the mode of a turn that these user messages start: `planning` when plan mode is enabled and a
+   * message has `planMode` or a `draft` plan exists, else `chat`.
+   */
+  public decideInteractionMode(context: Context, messages: readonly AgentUserMessage[]): InteractionMode {
+    if (!this.config.planModeEnabled) {
+      return "chat";
+    }
+    const isPlanModeRequested = messages.some((message) => message.planMode === true);
+    return isPlanModeRequested || this.readOptionalAgentPlan(context)?.status === "draft" ? "planning" : "chat";
   }
 
   public goToAwaitUserMessage(): StepDecision {
@@ -408,6 +451,11 @@ export function readRecoveryDetail(context: Context): string {
     return "unknown failure";
   }
   return recoveryError.detail !== "" ? recoveryError.detail : recoveryError.errorType;
+}
+
+/** Writes `plan_updated` with the plan's revision, status, and task count. */
+export function writePlanUpdated(events: StreamAgentEventWriter, plan: AgentPlan): void {
+  events.writeEvent("plan_updated", { revision: plan.revision, status: plan.status, task_count: plan.tasks.length });
 }
 
 function usagePayload(usage: AgentUsage): Record<string, number> {

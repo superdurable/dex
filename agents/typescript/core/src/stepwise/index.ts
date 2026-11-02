@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-export { type AgentDefinition, type InstructionContext } from "./agent-definition.js";
+export { type AgentDefinition, type InstructionContext, type PlanningToolChoice } from "./agent-definition.js";
 export {
   functionTool,
   type FunctionTool,

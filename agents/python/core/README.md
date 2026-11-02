@@ -141,7 +141,8 @@ registry = Registry([flow], allow_async_handlers=True)
 `max_model_calls_per_turn` (100; after that many calls in one turn the next
 call offers no tools, and a tool call the model makes anyway gets the result
 `The tool call was not run: this turn reached its limit of <n> model calls.`
-while the turn ends), `interrupt_deadline`, and `event_stream_capacity_bytes`.
+while the turn ends), `interrupt_deadline`, `event_stream_capacity_bytes`, and
+`plan_mode_enabled` (see [Plans and plan mode](#plans-and-plan-mode)).
 A function tool may not share a name with an enabled built-in tool:
 `AgentDefinition` refuses it, and so does `run_model_step`, before any model
 request, when only the session options enable that built-in.
@@ -162,8 +163,9 @@ give `invalid arguments for <tool>: arguments are not valid JSON`. A `str` resul
 output; any other result is serialized as JSON.
 
 In `RunModel`, the runner builds the model input from committed state only:
-the instructions, every stored item, and the results of the previous model
-response from the final records. Every stored tool call is paired with a
+the instructions, every stored item, the plan note from `build_plan_note`
+before the turn's items when a plan exists or the turn plans, and the results
+of the previous model response from the final records. Every stored tool call is paired with a
 result; a missing one becomes the outcome-unknown text, so an orphaned call
 never reaches a provider. It stores items as they appear
 (`ToolCallsRequested.new_messages`), so `FrameworkRunState` holds only the
@@ -204,7 +206,8 @@ Built-in tools are session features, so they work under every runner. Enable
 them in `AgentSessionOptions.built_in_tools`. The runner offers the enabled
 definitions from `BUILT_IN_TOOL_DEFINITIONS` (filter by
 `turn.enabled_built_in_tools`) to its model, and `RunModel` routes their calls
-to their own Steps with no approval and the `read` effect. An enabled name is
+to their own Steps with no approval and the `read` effect. `write_todos` is
+described in [Plans and plan mode](#plans-and-plan-mode). An enabled name is
 reserved; a disabled one is an ordinary tool name. Invalid arguments record
 `failed` with `invalid <tool> arguments: <reason>` at once. `null` for an
 optional argument means the argument is absent, because providers in
@@ -235,6 +238,70 @@ the asking call records `failed` instead. After the
 answer, the session runs the same tool Step type again with `DeferredToolExecution.input_answers` and
 `tool_call.input_continuation`. A function tool returns it from the function
 and reads the answers from `ToolCallContext`.
+
+## Plans and plan mode
+
+The `write_todos` built-in replaces the session's plan, the `AgentPlan`
+Attribute, as a whole. Its arguments are `{todos: [{content, status}]}`, with
+a status of `pending`, `in_progress`, or `completed`. `RunModel` records the
+call in its own commit, publishes its result, and still moves to `ResumeTurn`;
+no tool Step runs. Each call that succeeds writes revision + 1: no tasks is
+`cleared`, a planning turn writes a `draft`, every task completed is
+`completed`, and anything else is `active`. The model sees
+`{"status":"updated","revision":<n>,"task_count":<k>}` or
+`{"status":"cleared","revision":<n>}`, and the session writes `plan_updated`,
+which it also writes when an approval marks a draft `active`.
+A response with more than one `write_todos` call fails each of them with
+`write_todos was called more than once in one response`; invalid arguments fail
+with `invalid todos: <reason>`.
+
+Plan mode reviews a plan before it runs. Enable it with
+`AgentSessionOptions(plan_mode_enabled=True)`, which needs `write_todos` and a
+runner that is a `PlanModeRunner` (`supports_plan_mode` is `True`). The
+Stepwise runner is one; `AgentDefinition(plan_mode_enabled=True)` sets the
+option. `AgentDefinition.planning_tool_choice` is `"auto"` by default: a
+planning turn offers only `write_todos`, the plan note tells the model to write
+the plan with it, and a turn that answers in text, such as with a clarifying
+question, ends without a draft. `"required"` forces `write_todos` on the first
+model call of a planning turn while no draft exists. Claude Opus 5.5, Claude
+Sonnet 5.5, and Anthropic extended thinking refuse a forced tool choice, so
+`AgentDefinition` raises `ValueError` for `"required"` when the model client's
+`supports_forced_tool_choice(settings)` returns `False`, as
+`LiteLLMModelClient`'s does for them.
+
+```python
+sessions = AgentSessionClient(client, flow)
+await sessions.send_user_message("session-42", "Plan the migration", plan_mode=True)
+snapshot = await sessions.get_agent_snapshot("session-42")
+if snapshot.plan is not None and snapshot.plan.status is PlanStatus.DRAFT:
+    await sessions.execute_plan("session-42", snapshot.plan.revision)
+```
+
+- A message with `plan_mode`, or any message while a `draft` plan exists,
+  starts a turn whose `AgentState.interaction_mode` is `planning`. The runner
+  reads it from `AgentTurnContext.interaction_mode` and offers only
+  `write_todos`.
+  `RunModel` rejects any other call of a planning turn with `The tool call was
+  not run: a planning turn can only call write_todos.`. Feedback on a draft is
+  an ordinary message that revises it.
+- `send_user_message` returns `False` for a `plan_mode` message when plan mode
+  is off.
+- `execute_plan(ExecutePlanRequest(revision))` returns `True` only while the
+  session waits for a user message, the plan has that revision and is `draft`
+  or `active`, no execution of it is pending, and nothing is queued or pending.
+  It records the approval in `PendingPlanExecution` and publishes it to the
+  `PlanExecutions` ChannelMap instance of that revision. It locks
+  `PendingPlanExecution`, so a concurrent call gets `RpcLockConflictError`
+  (`AgentSessionClient` retries it) and then `False`.
+- `AwaitUserMessage` waits on the approval of the current revision only, after
+  queued messages, so an approval of a revision that a later turn replaced
+  never runs. It marks the plan `active`, writes `plan_execution_started`, and
+  starts an `executing` turn with every tool, whose user message is `[Dex] The
+  user approved plan revision <n>. Execute it and keep the task statuses
+  current with write_todos.`.
+- `build_plan_note(plan, interaction_mode)` returns the note that shows the
+  model the plan. Stepwise adds it as user text before the turn's items in
+  every model call, so the model always sees the latest plan.
 
 ## The runner contract
 
@@ -384,7 +451,8 @@ queues the frame on the Worker; it does not wait for Dex to receive it.
 name; `None` uses the effect's default approval, which `is_approval_required`
 reports. `AgentSessionOptions` also sets `default_tool_effect` (default
 `unclassified`), the `AgentEvents` Stream capacity (default 10 MiB), and an
-optional `interrupt_deadline`, `built_in_tools`, and `max_durable_wait`. A tool
+optional `interrupt_deadline`, `built_in_tools`, `max_durable_wait`, and
+`plan_mode_enabled`. A tool
 whose policy requires approval runs only after `AwaitToolApproval` approves it.
 
 ## Flow shape
@@ -405,8 +473,8 @@ ResumeTurn -> RunModel
 | Step (input) | What it does | Next |
 | --- | --- | --- |
 | `StartAgentSession` (`AgentSessionStartInput`) | Start Step. Initializes state, usage, and interrupts. | `RunModel` with a non-blank `initial_message`, else `AwaitUserMessage` |
-| `AwaitUserMessage` (none) | Waits for `QueuedUserMessages.for_one()`, stores the user message, starts the turn. | `RunModel` |
-| `RunModel` (none) | Calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts. | `AwaitUserMessage`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
+| `AwaitUserMessage` (none) | Waits for any of `QueuedUserMessages.for_one()` and, while the plan is `draft` or `active`, `PlanExecutions.for_one(<revision>)`. A message: stores it and starts a `chat` or `planning` turn. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. | `RunModel`, or itself for a stale approval |
+| `RunModel` (none) | Calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts; records `write_todos` calls, and every call but `write_todos` of a planning turn, final in this commit. | `AwaitUserMessage`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
 | `AwaitToolApproval` (tool call ID) | Waits for `InterruptResolutions.for_one(id)`, plus a Timer at the deadline, rounded up to whole seconds, while the interrupt is pending. Approved: marks the record `approved`. Rejected or expired: records `rejected` and publishes `ToolCallResults`. A Timer that fires before the deadline waits again. | `CallTool` or `CallSingleAttemptTool`, or ends |
 | `AwaitQuestionAnswer` (tool call ID) | Waits for `InterruptResolutions.for_one(interrupt_id)`, plus a deadline Timer while the question is pending, or a zero Timer while a tool's question is not raised yet. Locks `PendingInterrupts` in Execute, where it raises a tool's question. Records the answer, decline, or deadline and publishes `ToolCallResults`, or returns a tool question's call to its tool Step. | Ends, the tool Step, or itself |
 | `AwaitTimer` (tool call ID) | Waits on a Timer for the whole seconds until `wait_until`. Records `succeeded` and publishes `ToolCallResults`. | Ends |
@@ -441,10 +509,14 @@ Persistence, shared by every agent Flow type and exported from `dex_agents`:
 | `InterruptResolutions` | ChannelMap `INTERRUPT_RESOLUTIONS`, key = interrupt ID | `AgentInterruptResolution` |
 | `ToolCallResults` | Channel `TOOL_CALL_RESULTS`, internal | `ToolCallCompleted` |
 | `AgentTraceContext` | Attribute `AGENT_TRACE_CONTEXT` | string, the W3C `traceparent` of the current activation's root span when its context is valid, sampled or not; deleted otherwise |
+| `AgentPlan` | Attribute `AGENT_PLAN` | `AgentPlan`, unset until `write_todos` first succeeds |
+| `PlanExecutions` | ChannelMap `PLAN_EXECUTIONS`, key `plan_execution_key(revision)` (decimal) | `PlanExecutionRequest` |
+| `PendingPlanExecution` | Attribute `PENDING_PLAN_EXECUTION` | `PlanExecutionRequest` that `execute_plan` accepted and `AwaitUserMessage` has not consumed |
 | `AgentEvents` | Stream `flow.agent_events`, one per Flow type | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`, or
-`running_tools`. An `AgentToolCall` record is `awaiting_approval`, `approved`,
+`running_tools`, and `AgentState.interaction_mode` is `chat`, `planning`, or
+`executing`. An `AgentToolCall` record is `awaiting_approval`, `approved`,
 `awaiting_answer`, or `waiting_for_timer` while it waits, and `rejected`,
 `succeeded`, `failed`, or `outcome_unknown` when final; runners only see final
 records.
@@ -453,10 +525,11 @@ RPCs:
 
 | RPC | Input | Output | Notes |
 | --- | --- | --- | --- |
-| `send_user_message` | `AgentUserMessage` | `bool` | Transactional; `False` for blank text. |
+| `send_user_message` | `AgentUserMessage` | `bool` | Transactional; `False` for blank text, and for a `plan_mode` message when plan mode is off. |
+| `execute_plan` | `ExecutePlanRequest` | `bool` | Locks `PendingPlanExecution`; `True` only while the session waits for a user message, the plan has this revision and is `draft` or `active`, no execution of it is pending, and nothing is queued or pending. `AgentSessionClient` retries lock conflicts. |
 | `resolve_interrupt` | `ResolveInterruptRequest` | `bool` | Locks `PendingInterrupts`; `False` when not pending or past its deadline; removes the interrupt and publishes the answer in one commit. On a question, `approved=False` declines it and `approved=True` returns `False`. A concurrent Step can raise `RpcLockConflictError`; `AgentSessionClient` retries it for 5 seconds. |
 | `answer_question` | `AnswerQuestionRequest` | `bool` | Locks `PendingInterrupts`; `False` when the interrupt is not a pending question, is past its deadline, or the answer is blank or not an allowed choice; removes it and publishes the answer in one commit. `AgentSessionClient.answer_question` retries lock conflicts like `resolve_interrupt`. |
-| `get_agent_snapshot` | none | `AgentSnapshot` | State, last 200 messages, pending interrupts, the active turn's tool calls, usage, queued message count. Serves retained closed sessions. |
+| `get_agent_snapshot` | none | `AgentSnapshot` | State, last 200 messages, pending interrupts, the active turn's tool calls, usage, queued message count, plan. Serves retained closed sessions. |
 | `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first; limit clamped to 1..200. |
 
 Events on `AgentEvents` (`AgentEventType`): `turn_started` `{"sequence"}`,
@@ -469,7 +542,10 @@ and `reasoning_delta` `{"text"}`, `tool_call_started` `{"tool_call_id",
 "kind", "question", "choices", "allows_free_text"}`, `interrupt_resolved`
 `{"interrupt_id", "approved", "rejection_message", "kind", "answered",
 "cancellation_reason"}`, `timer_started` `{"tool_call_id", "wait_until",
-"reason"}`, and `usage_recorded` `{"recorded", "session"}`.
+"reason"}`, `plan_updated` `{"revision", "status", "task_count"}` (after
+`write_todos`, or when an approval marks a draft `active`),
+`plan_execution_started` `{"revision"}`, and `usage_recorded` `{"recorded",
+"session"}`.
 
 Every event carries `turn_id`, `step_execution_id` (shared by all attempts of
 one Step execution), and the Step `attempt`. A UI groups live text by

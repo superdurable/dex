@@ -12,7 +12,8 @@ A built-in tool is a session feature, not a runner feature. The application
 enables it in ``AgentSessionOptions.built_in_tools``. The runner offers its
 definition to the model like any other tool and returns the model's call in
 ``ToolCallsRequested`` like any other ``DeferredToolCall``. ``RunModel`` then
-routes the call to the built-in's own Step instead of a tool Step.
+routes the call to the built-in's own Step instead of a tool Step, or, for
+``write_todos``, records its result in its own commit.
 """
 
 from __future__ import annotations
@@ -23,6 +24,10 @@ from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any
+
+from dex_agents.values import AgentPlanTask, PlanTaskStatus
+
+_PLAN_TASK_STATUSES = frozenset(str(status) for status in PlanTaskStatus)
 
 
 class BuiltInTool(StrEnum):
@@ -39,10 +44,13 @@ class BuiltInTool(StrEnum):
             the answer becomes the tool's result.
         DURABLE_WAIT: Suspend the turn on a Timer in ``AwaitTimer``. No model
             call, coroutine, or Worker holds the wait.
+        WRITE_TODOS: Replace the session's ``AgentPlan`` with a new revision.
+            ``RunModel`` records the call in its own commit; no tool Step runs.
     """
 
     ASK_USER = "ask_user"
     DURABLE_WAIT = "durable_wait"
+    WRITE_TODOS = "write_todos"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -147,6 +155,43 @@ BUILT_IN_TOOL_DEFINITIONS: tuple[BuiltInToolDefinition, ...] = (
             }
         ),
     ),
+    BuiltInToolDefinition(
+        name=BuiltInTool.WRITE_TODOS,
+        description=(
+            "Replace the plan with a complete, ordered list of tasks. Send every task each "
+            "time, with its status. An empty list clears the plan. Keep the statuses current: "
+            "mark a task in_progress when you start it and completed when it is done."
+        ),
+        parameters_json=_schema_text(
+            {
+                "type": "object",
+                "properties": {
+                    "todos": {
+                        "type": "array",
+                        "description": "Every task of the plan, in order.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "content": {
+                                    "type": "string",
+                                    "description": "What the task does, in one short sentence.",
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["pending", "in_progress", "completed"],
+                                    "description": "Where the task stands.",
+                                },
+                            },
+                            "required": ["content", "status"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["todos"],
+                "additionalProperties": False,
+            }
+        ),
+    ),
 )
 
 #: Model-visible rejection text for a question the user declined without a message.
@@ -157,6 +202,9 @@ QUESTION_DEADLINE_PASSED = "question deadline passed"
 
 #: Default ``AgentSessionOptions.max_durable_wait``: 365 days.
 DEFAULT_MAX_DURABLE_WAIT = timedelta(days=365)
+
+#: Error of every ``write_todos`` call of a model response that has more than one.
+WRITE_TODOS_CALLED_MORE_THAN_ONCE = "write_todos was called more than once in one response"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -277,6 +325,72 @@ def parse_durable_wait_arguments(
     return DurableWaitArguments(duration_seconds=int(duration), reason=reason)
 
 
+def parse_write_todos_arguments(arguments: str) -> list[AgentPlanTask]:
+    """Validate the JSON arguments of one ``write_todos`` call.
+
+    Args:
+        arguments: Tool arguments as JSON text.
+
+    Returns:
+        The tasks in order; empty to clear the plan.
+
+    Raises:
+        BuiltInToolArgumentsError: If the arguments break the ``write_todos``
+            schema. The message is ``invalid todos: <reason>``.
+    """
+    values = _load_json_arguments(arguments)
+    if not isinstance(values, dict):
+        raise _invalid_todos("arguments must be a JSON object")
+    unknown = sorted(set(values) - {"todos"})
+    if unknown:
+        raise _invalid_todos(f"unknown argument {unknown[0]}")
+    todos = values.get("todos")
+    if not isinstance(todos, list):
+        raise _invalid_todos("todos must be a list")
+    tasks: list[AgentPlanTask] = []
+    for index, todo in enumerate(todos):
+        if not isinstance(todo, dict):
+            raise _invalid_todos(f"todos[{index}] must be an object")
+        unknown_fields = sorted(set(todo) - {"content", "status"})
+        if unknown_fields:
+            raise _invalid_todos(f"todos[{index}] has unknown field {unknown_fields[0]}")
+        content = todo.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise _invalid_todos(f"todos[{index}].content must be a non-empty string")
+        status = todo.get("status")
+        if not isinstance(status, str) or status not in _PLAN_TASK_STATUSES:
+            raise _invalid_todos(
+                f"todos[{index}].status must be pending, in_progress, or completed"
+            )
+        tasks.append(AgentPlanTask(content=content, status=PlanTaskStatus(status)))
+    return tasks
+
+
+def build_plan_updated_output(revision: int, task_count: int) -> str:
+    """Return the tool output the model sees after ``write_todos`` wrote tasks.
+
+    Args:
+        revision: The new ``AgentPlan.revision``.
+        task_count: Number of tasks written.
+
+    Returns:
+        ``{"status":"updated","revision":<n>,"task_count":<k>}`` as compact JSON text.
+    """
+    return _compact_json({"status": "updated", "revision": revision, "task_count": task_count})
+
+
+def build_plan_cleared_output(revision: int) -> str:
+    """Return the tool output the model sees after ``write_todos`` cleared the plan.
+
+    Args:
+        revision: The new ``AgentPlan.revision``.
+
+    Returns:
+        ``{"status":"cleared","revision":<n>}`` as compact JSON text.
+    """
+    return _compact_json({"status": "cleared", "revision": revision})
+
+
 def build_question_answered_output(answer: str) -> str:
     """Return the tool output the model sees after the user answered ``ask_user``.
 
@@ -306,10 +420,7 @@ def build_durable_wait_completed_output(waited_seconds: int, reason: str) -> str
 
 
 def _parse_arguments_object(tool: BuiltInTool, arguments: str) -> dict[str, Any]:
-    try:
-        values = json.loads(arguments)
-    except json.JSONDecodeError:
-        raise _invalid(tool, "arguments must be a JSON object") from None
+    values = _load_json_arguments(arguments)
     if not isinstance(values, dict):
         raise _invalid(tool, "arguments must be a JSON object")
     allowed = set(json.loads(_definition(tool).parameters_json)["properties"])
@@ -319,12 +430,32 @@ def _parse_arguments_object(tool: BuiltInTool, arguments: str) -> dict[str, Any]
     return values
 
 
+def _load_json_arguments(arguments: str) -> Any:
+    """Return the parsed arguments, or ``None`` for text that is not strict JSON.
+
+    ``NaN`` and ``Infinity`` are not JSON, and JavaScript's parser rejects them,
+    so both cores report the same error for them.
+    """
+    try:
+        return json.loads(arguments, parse_constant=_reject_json_constant)
+    except ValueError:
+        return None
+
+
+def _reject_json_constant(constant: str) -> object:
+    raise ValueError(f"{constant} is not JSON")
+
+
 def _definition(tool: BuiltInTool) -> BuiltInToolDefinition:
     return next(definition for definition in BUILT_IN_TOOL_DEFINITIONS if definition.name is tool)
 
 
 def _invalid(tool: BuiltInTool, reason: str) -> BuiltInToolArgumentsError:
     return BuiltInToolArgumentsError(f"invalid {tool} arguments: {reason}")
+
+
+def _invalid_todos(reason: str) -> BuiltInToolArgumentsError:
+    return BuiltInToolArgumentsError(f"invalid todos: {reason}")
 
 
 def _compact_json(value: dict[str, object]) -> str:

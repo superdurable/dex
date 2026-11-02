@@ -34,6 +34,7 @@ from dex_agents.stepwise.model import (
     ModelOutputWriter,
     ModelRequest,
     ModelResponse,
+    ModelSettings,
     ModelToolCall,
     ModelToolDefinition,
     NamedToolChoice,
@@ -162,6 +163,30 @@ class LiteLLMModelClient:
         if self._api == RESPONSES_API:
             return await self._call_responses(request, output, options)
         return await self._call_chat_completions(request, output, options)
+
+    def supports_forced_tool_choice(self, settings: ModelSettings | None = None) -> bool:
+        """Report whether the model accepts a forced tool choice: ``"required"`` or a named tool.
+
+        ``AgentDefinition`` calls it to refuse ``planning_tool_choice="required"``
+        for a model that would reject every planning turn's first model call.
+        It reads LiteLLM's model map, which marks models such as Claude Opus 5.5
+        and Claude Sonnet 5.5 with ``supports_forced_tool_use: false``, and it
+        treats Anthropic extended thinking, a ``thinking`` request option that
+        is not disabled, as refusing too. A model the map does not describe
+        counts as accepting it.
+
+        Args:
+            settings: The agent's model settings, whose ``provider_options``
+                apply on top of ``request_options``. ``None`` uses none.
+
+        Returns:
+            ``False`` when the model or its options refuse a forced tool choice.
+        """
+        provider_options = settings.provider_options if settings is not None else {}
+        thinking = {**self._request_options, **provider_options}.get("thinking")
+        if isinstance(thinking, Mapping) and thinking.get("type") not in (None, "disabled"):
+            return False
+        return not _is_forced_tool_use_unsupported(self._model)
 
     def estimate_input_tokens(self, request: ModelRequest) -> int:
         """Estimate the input tokens of a request with ``litellm.token_counter``.
@@ -538,6 +563,23 @@ def _chat_usage(usage: Mapping[str, Any]) -> AgentUsage:
             (usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0
         ),
     )
+
+
+def _is_forced_tool_use_unsupported(model: str) -> bool:
+    try:
+        model_name, provider, _, _ = litellm.get_llm_provider(model)
+    except Exception:
+        model_name, provider = model, ""
+    for candidate in dict.fromkeys((model, model_name, f"{provider}/{model_name}")):
+        entry = litellm.model_cost.get(candidate)
+        if isinstance(entry, Mapping) and entry.get("supports_forced_tool_use") is False:
+            return True
+    try:
+        # LiteLLM's own lookup also strips Bedrock region prefixes and Vertex version suffixes.
+        from litellm.llms.anthropic.common_utils import AnthropicModelInfo
+    except ImportError:
+        return False
+    return bool(AnthropicModelInfo.forced_tool_use_unsupported(model_name))
 
 
 def _provider_name(model: str) -> str:

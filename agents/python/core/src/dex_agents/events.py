@@ -53,6 +53,11 @@ class AgentEventType(StrEnum):
         TIMER_STARTED: A ``durable_wait`` call started its Timer. Payload
             ``{"tool_call_id", "wait_until", "reason"}``; ``wait_until`` is
             RFC 3339.
+        PLAN_UPDATED: ``write_todos`` replaced the plan, or an approval
+            marked a draft ``active``. Payload ``{"revision", "status",
+            "task_count"}``.
+        PLAN_EXECUTION_STARTED: An approved plan revision started an
+            ``executing`` turn, after its ``turn_started``. Payload ``{"revision"}``.
     """
 
     TURN_STARTED = "turn_started"
@@ -67,6 +72,8 @@ class AgentEventType(StrEnum):
     INTERRUPT_RESOLVED = "interrupt_resolved"
     USAGE_RECORDED = "usage_recorded"
     TIMER_STARTED = "timer_started"
+    PLAN_UPDATED = "plan_updated"
+    PLAN_EXECUTION_STARTED = "plan_execution_started"
 
 
 class AgentEventWriter:

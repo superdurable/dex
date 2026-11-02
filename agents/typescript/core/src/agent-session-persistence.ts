@@ -13,10 +13,12 @@ import {
   agentInterruptListCodec,
   agentInterruptResolutionCodec,
   agentMessageCodec,
+  agentPlanCodec,
   agentStateCodec,
   agentToolCallCodec,
   agentUsageCodec,
   agentUserMessageCodec,
+  planExecutionRequestCodec,
   toolCallCompletedCodec,
 } from "./agent-session-codecs.js";
 import type {
@@ -24,10 +26,12 @@ import type {
   AgentInterrupt,
   AgentInterruptResolution,
   AgentMessage,
+  AgentPlan,
   AgentState,
   AgentToolCallRecord,
   AgentUsage,
   AgentUserMessage,
+  PlanExecutionRequest,
   ToolCallCompleted,
 } from "./agent-session-values.js";
 
@@ -78,6 +82,18 @@ export interface AgentSessionPersistence {
    * an OpenTelemetry SDK, deletes it. `RunModel` reads it to join the activation's trace.
    */
   readonly agentTraceContext: Attribute<string>;
+  /** The `AgentPlan` Attribute: the session's plan, unset until `write_todos` first succeeds. */
+  readonly agentPlan: Attribute<AgentPlan>;
+  /**
+   * The `PlanExecutions` ChannelMap, keyed by {@link planExecutionKey}: approved plan executions that
+   * `execute_plan` publishes and `AwaitUserMessage` consumes.
+   */
+  readonly planExecutions: ChannelMap<PlanExecutionRequest>;
+  /**
+   * The `PendingPlanExecution` Attribute: the execution `execute_plan` accepted and `AwaitUserMessage` has
+   * not consumed yet.
+   */
+  readonly pendingPlanExecution: Attribute<PlanExecutionRequest>;
 }
 
 export function createAgentSessionPersistence(
@@ -95,6 +111,9 @@ export function createAgentSessionPersistence(
     toolCallResults: new Channel("ToolCallResults", toolCallCompletedCodec),
     agentEvents: new Stream("AgentEvents", agentEventCodec, agentEventsCapacityBytes),
     agentTraceContext: new Attribute("AgentTraceContext", stringCodec),
+    agentPlan: new Attribute("AgentPlan", agentPlanCodec),
+    planExecutions: new ChannelMap("PlanExecutions", planExecutionRequestCodec),
+    pendingPlanExecution: new Attribute("PendingPlanExecution", planExecutionRequestCodec),
   };
 }
 
@@ -114,4 +133,18 @@ export function messageSequenceKey(sequence: number): string {
     throw new RangeError(`message sequence must be a positive integer: ${sequence}`);
   }
   return String(sequence).padStart(12, "0");
+}
+
+/**
+ * Returns the `PlanExecutions` map instance of a plan revision.
+ *
+ * @param revision - Positive {@link AgentPlan.revision}.
+ * @returns The revision as a decimal, such as `"3"`.
+ * @throws {RangeError} When `revision` is not a positive safe integer.
+ */
+export function planExecutionKey(revision: number): string {
+  if (!Number.isSafeInteger(revision) || revision <= 0) {
+    throw new RangeError(`plan revision must be a positive integer: ${revision}`);
+  }
+  return String(revision);
 }

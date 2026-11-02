@@ -963,7 +963,14 @@ describe("agent UI streams with a Worker whose only Step slot is busy", () => {
 describe("agent snapshot JSON for browsers", () => {
   test("leaves out the fields only the session's Steps use, with the same text as the Python core", () => {
     const snapshot: AgentSnapshot = {
-      state: { status: "running_tools", turnCount: 1, activeTurnId: "turn-2", nextMessageSequence: 4, lastTurnError: null },
+      state: {
+        status: "running_tools",
+        turnCount: 1,
+        activeTurnId: "turn-2",
+        nextMessageSequence: 4,
+        lastTurnError: null,
+        interactionMode: "executing",
+      },
       messages: [
         {
           sequence: 3,
@@ -1017,13 +1024,19 @@ describe("agent snapshot JSON for browsers", () => {
       ],
       usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, cachedInputTokens: 0, reasoningTokens: 0 },
       queuedMessageCount: 0,
+      plan: {
+        revision: 2,
+        status: "active",
+        tasks: [{ content: "Refund the order", status: "in_progress" }],
+        updatedAt: "2026-11-01T12:00:02.000Z",
+      },
     };
 
     // The Python core's test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use expects this text.
     assert.equal(
       JSON.stringify(convertAgentSnapshotToJson(snapshot)),
       '{"state":{"status":"running_tools","turn_count":1,"active_turn_id":"turn-2",' +
-        '"next_message_sequence":4,"last_turn_error":null},' +
+        '"next_message_sequence":4,"last_turn_error":null,"interaction_mode":"executing"},' +
         '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",' +
         '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,' +
         '"created_at":"2026-11-01T12:00:00.000Z"}],' +
@@ -1037,7 +1050,9 @@ describe("agent snapshot JSON for browsers", () => {
         '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",' +
         '"input_choices":["yes","no"],"input_allows_free_text":false}],' +
         '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,' +
-        '"reasoning_tokens":0},"queued_message_count":0}',
+        '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",' +
+        '"tasks":[{"content":"Refund the order","status":"in_progress"}],' +
+        '"updated_at":"2026-11-01T12:00:02.000Z"}}',
     );
   });
 });

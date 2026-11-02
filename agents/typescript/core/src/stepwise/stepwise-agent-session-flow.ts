@@ -14,7 +14,7 @@ import { StepwiseAgentRunner } from "./stepwise-agent-runner.js";
  * Creates the agent session Flow for an agent defined in Dex terms, run by the built-in Stepwise loop.
  *
  * It builds the session Flow with a {@link StepwiseAgentRunner} and derives the session options from
- * the definition, so tool policies, built-in tools, and the deadlines are declared once. The Flow is the
+ * the definition, so tool policies, built-in tools, plan mode, and the deadlines are declared once. The Flow is the
  * same session Flow every adapter uses, with the same Steps, RPCs, and events. Construct it once at
  * application startup and register the same object in the Worker and Client Registry.
  *
@@ -50,6 +50,7 @@ export function createStepwiseAgentSessionFlow(
     ...(definition.toolPolicies === undefined ? {} : { toolPolicies: definition.toolPolicies }),
     ...(definition.defaultToolEffect === undefined ? {} : { defaultToolEffect: definition.defaultToolEffect }),
     ...(definition.builtInTools === undefined ? {} : { builtInTools: definition.builtInTools }),
+    ...(definition.planModeEnabled === undefined ? {} : { planModeEnabled: definition.planModeEnabled }),
     ...(definition.interruptDeadlineMs === undefined ? {} : { interruptDeadlineMs: definition.interruptDeadlineMs }),
     ...(definition.eventStreamCapacityBytes === undefined
       ? {}

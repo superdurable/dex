@@ -27,17 +27,20 @@ import {
   agentSnapshotCodec,
   agentUserMessageCodec,
   answerQuestionRequestCodec,
+  executePlanRequestCodec,
   listAgentMessagesInputCodec,
   resolveInterruptInputCodec,
 } from "./agent-session-codecs.js";
 import {
   createAgentSessionPersistence,
   defaultAgentEventsCapacityBytes,
+  planExecutionKey,
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import {
   AwaitToolApprovalStep,
   AwaitUserMessageStep,
+  isExecutablePlanStatus,
   RecordTurnFailureStep,
   ResumeTurnStep,
   RunModelStep,
@@ -58,6 +61,7 @@ import type {
   AgentSnapshot,
   AgentUserMessage,
   AnswerQuestionRequest,
+  ExecutePlanRequest,
   ListAgentMessagesInput,
   ResolveInterruptInput,
   ToolEffect,
@@ -124,6 +128,15 @@ export interface AgentSessionOptions {
    * The Python core's `max_durable_wait` is a `timedelta`; this option is the same limit in milliseconds.
    */
   readonly maxDurableWaitMs?: number;
+  /**
+   * Whether `send_user_message` accepts a message with `planMode`, which starts a `planning` turn that drafts
+   * a plan for `execute_plan`. A `draft` plan makes every new turn a `planning` turn until it runs. Defaults
+   * to `false`.
+   *
+   * It requires `write_todos` in {@link builtInTools} and a runner whose
+   * {@link AgentFrameworkRunner.supportsPlanMode} is `true`, such as the Stepwise runner.
+   */
+  readonly planModeEnabled?: boolean;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -148,6 +161,8 @@ export interface ResolvedAgentSessionOptions {
   readonly builtInTools?: readonly BuiltInTool[];
   /** Longest `durable_wait` in milliseconds. */
   readonly maxDurableWaitMs?: number;
+  /** Whether plan mode is enabled. A Flow always sets it; it is optional for the same reason. */
+  readonly planModeEnabled?: boolean;
 }
 
 /**
@@ -155,7 +170,8 @@ export interface ResolvedAgentSessionOptions {
  *
  * Create one per agent with {@link createAgentSessionFlow}, register it in the process `Registry`, and
  * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `resolve_interrupt`,
- * `answer_question`, `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never
+ * `answer_question`, `execute_plan`, `get_agent_snapshot`, and `list_agent_messages`, the same as the Python
+ * core. The session never
  * completes on its own: it waits for the next user message after every turn. Stop it with
  * `Client.stopFlow`.
  *
@@ -193,9 +209,37 @@ export interface AgentSessionFlow<
    *
    * @param context - RPC Context supplied by Dex.
    * @param message - Message to queue.
-   * @returns `true` when queued; `false` when the text is blank.
+   * @returns `true` when queued; `false` when the text is blank, or for a `planMode` message when
+   * {@link AgentSessionOptions.planModeEnabled} is not set.
    */
   sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean>;
+  /**
+   * RPC `execute_plan`: approves one plan revision, so the session starts a turn that runs it.
+   *
+   * Call it after the user reviewed the `draft` plan that a `planMode` message drafted, or to run an `active`
+   * plan again. The next `AwaitUserMessage` starts an `executing` turn with every tool, whose user message is
+   * `[Dex] The user approved plan revision <n>. Execute it and keep the task statuses current with
+   * write_todos.`. A queued message that the session took first runs its turn first; when that turn changes
+   * the plan, the approval is stale and never runs.
+   *
+   * The RPC records the approval in `PendingPlanExecution` until the session starts the turn, so a revision
+   * runs once per approval. It locks `PendingPlanExecution`: a concurrent `execute_plan` can make it fail with
+   * `RpcLockConflictError`, which is safe to retry.
+   *
+   * @example
+   * ```ts
+   * const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+   * if (snapshot.plan?.status === "draft") {
+   *   await client.invokeRPC(flow.executePlan, sessionId, { revision: snapshot.plan.revision });
+   * }
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - The plan revision the user reviewed.
+   * @returns `true` when the execution is accepted; `false` unless the session waits for a user message, the
+   * plan has this revision and is `draft` or `active`, no execution of it is pending, and no queued message
+   * or interrupt is pending.
+   */
+  executePlan(context: Context, input: ExecutePlanRequest): RPCResult<boolean>;
   /**
    * RPC `resolve_interrupt`: approves or rejects one pending tool approval, or declines one question.
    *
@@ -243,8 +287,8 @@ export interface AgentSessionFlow<
    *
    * @param context - RPC Context supplied by Dex.
    * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage,
-   * and the queued message count. Before `StartAgentSession` commits, `state` is `null` and the lists
-   * are empty.
+   * the queued message count, and the plan. Before `StartAgentSession` commits, `state` is `null` and the
+   * lists are empty.
    */
   getAgentSnapshot(context: Context): RPCResult<AgentSnapshot>;
   /**
@@ -289,7 +333,8 @@ export interface AgentSessionFlow<
  * defaults.
  * @returns A new Flow to register in one Registry.
  * @throws {TypeError} When `flowType` is blank, the runner is incomplete, an effect or built-in tool is
- * unknown, a tool policy names an enabled built-in tool, or a tracing option is invalid.
+ * unknown, a tool policy names an enabled built-in tool, a tracing option is invalid, or `planModeEnabled`
+ * is set without `write_todos` or for a runner without {@link AgentFrameworkRunner.supportsPlanMode}.
  * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive, or
  * `maxDurableWaitMs` is not a positive whole number of seconds.
  */
@@ -314,6 +359,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     tracing: config.tracing,
     builtInTools: Object.freeze(builtInToolNames.filter((name) => config.builtInTools.has(name))),
     maxDurableWaitMs: config.maxDurableWaitMs,
+    planModeEnabled: config.planModeEnabled,
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -331,6 +377,9 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly toolCallResults = persistence.toolCallResults;
     public readonly agentEvents = persistence.agentEvents;
     public readonly agentTraceContext = persistence.agentTraceContext;
+    public readonly agentPlan = persistence.agentPlan;
+    public readonly planExecutions = persistence.planExecutions;
+    public readonly pendingPlanExecution = persistence.pendingPlanExecution;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
@@ -370,11 +419,14 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.pendingInterrupts,
           persistence.agentUsage,
           persistence.agentTraceContext,
+          persistence.agentPlan,
+          persistence.pendingPlanExecution,
         ],
         channels: [
           persistence.queuedUserMessages,
           persistence.interruptResolutions,
           persistence.toolCallResults,
+          persistence.planExecutions,
         ],
         streams: [persistence.agentEvents],
       };
@@ -386,10 +438,40 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       outputCodec: booleanCodec,
     })
     public sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean> {
-      if (isBlankText(message.text)) {
+      const planMode = message.planMode ?? false;
+      if (isBlankText(message.text) || (planMode && !config.planModeEnabled)) {
         return { output: false };
       }
-      persistence.queuedUserMessages.publish(context, { text: message.text });
+      persistence.queuedUserMessages.publish(context, { text: message.text, planMode });
+      return { output: true };
+    }
+
+    @rpc<ExecutePlanRequest, boolean>({
+      name: "execute_plan",
+      inputCodec: executePlanRequestCodec,
+      outputCodec: booleanCodec,
+      lockAttributes: [persistence.pendingPlanExecution.lock()],
+    })
+    public executePlan(context: Context, input: ExecutePlanRequest): RPCResult<boolean> {
+      const state = transitions.readOptionalAgentState(context);
+      const plan = transitions.readOptionalAgentPlan(context);
+      const pending = persistence.pendingPlanExecution.get(context);
+      if (
+        state === null ||
+        state.status !== "waiting_for_user_message" ||
+        state.activeTurnId !== null ||
+        plan === null ||
+        plan.revision !== input.revision ||
+        !isExecutablePlanStatus(plan.status) ||
+        (pending !== undefined && pending.revision === plan.revision) ||
+        context.channelSize(persistence.queuedUserMessages) > 0 ||
+        transitions.readPendingInterrupts(context).length > 0
+      ) {
+        return { output: false };
+      }
+      const request = { revision: plan.revision };
+      persistence.pendingPlanExecution.set(context, request);
+      persistence.planExecutions.publish(context, planExecutionKey(plan.revision), request);
       return { output: true };
     }
 
@@ -468,6 +550,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
             toolCalls: [],
             usage: transitions.readAgentUsage(context),
             queuedMessageCount: 0,
+            plan: null,
           },
         };
       }
@@ -480,6 +563,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           toolCalls: transitions.readTurnToolCalls(context, state.activeTurnId),
           usage: transitions.readAgentUsage(context),
           queuedMessageCount: context.channelSize(persistence.queuedUserMessages),
+          plan: transitions.readOptionalAgentPlan(context),
         },
       };
     }
@@ -562,6 +646,13 @@ function resolveAgentSessionConfig(
       throw new TypeError(`tool policy ${toolName} names an enabled built-in tool, whose policy is fixed`);
     }
   }
+  const planModeEnabled = options.planModeEnabled ?? false;
+  if (planModeEnabled && !builtInTools.has("write_todos")) {
+    throw new TypeError("planModeEnabled requires the write_todos built-in tool");
+  }
+  if (planModeEnabled && runner.supportsPlanMode !== true) {
+    throw new TypeError("planModeEnabled requires a runner that supports plan mode");
+  }
   const maxDurableWaitMs = options.maxDurableWaitMs ?? defaultMaxDurableWaitMs;
   if (!Number.isSafeInteger(maxDurableWaitMs) || maxDurableWaitMs < 1_000 || maxDurableWaitMs % 1_000 !== 0) {
     throw new RangeError("maxDurableWaitMs must be a positive whole number of seconds, in milliseconds");
@@ -575,6 +666,7 @@ function resolveAgentSessionConfig(
     tracing: resolveAgentTracingOptions(flowType, options.tracing ?? {}),
     builtInTools,
     maxDurableWaitMs,
+    planModeEnabled,
   };
 }
 
