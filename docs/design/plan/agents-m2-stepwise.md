@@ -482,10 +482,15 @@ Flow:
 **Questions raised by tools.** `execute_deferred_tool_call` may now return
 `ToolInputRequested(question, choices, allows_free_text, continuation)`
 instead of `ToolExecutionResult`. The MCP tool source uses it for an
-`input_required` result. The tool Step records `awaiting_answer`, stores
-`continuation` in the record's `input_continuation`, raises a question
-interrupt with ID `<tool_call_id>-input-<n>`, and moves to
-`AwaitQuestionAnswer`. After the answer, the record returns to `approved`,
+`input_required` result. The tool Step records `awaiting_answer` and stores
+`continuation`, `question`, `choices`, and `allows_free_text` on its own
+record (`input_continuation`, `input_question`, `input_choices`,
+`input_allows_free_text`), then moves to `AwaitQuestionAnswer`. Its Execute
+raises the question interrupt, with ID `<tool_call_id>-input-<n>`, under the
+`PendingInterrupts` lock, so a tool Step never writes shared session state
+while other tool Steps run in parallel. An interrupt ID that collides with an
+existing one fails the call. The three `input_` question fields are cleared
+after an answer or a decline. After the answer, the record returns to `approved`,
 and the same tool Step type runs again with
 `DeferredToolExecution.input_answers` and the continuation. The tool's later
 output, not the answer, is the result. A tool returns `ToolInputRequested`
@@ -519,8 +524,11 @@ durable_wait arguments: { duration_seconds: int, reason: str }
    before Channels, so a wait that ends as a steer arrives completes normally.
 3. Execute records `succeeded` with
    `{"status":"completed","waited_seconds":<n>,"reason":"<reason>"}`, or
-   `rejected` with the cancellation reason. A Timer that fires early moves the
-   Step back to itself.
+   `rejected` with the cancellation reason. The remaining seconds are rounded
+   up from `wait_until`, so the Timer does not fire before it. A fired Timer
+   ends the wait even if the Worker's clock reads earlier, so **SkipTimer**
+   from Dex Web or dexcli ends a long wait, and clock skew between Workers can
+   shorten a wait by at most that skew.
 
 A steered message interrupts the wait through A5. A queued message does not:
 it stays pending and starts its turn after this one. Existing Steps:
@@ -817,6 +825,9 @@ AgentToolCall +
     wait_until: str | null = null                 # RFC 3339
     input_continuation: str | null = null
     input_answers: list of QuestionAnswer = []
+    input_question: str | null = null              # pending tool question
+    input_choices: list of str = []
+    input_allows_free_text: bool = true
     task_id: str | null = null
     task_poll_interval_seconds: int | null = null }
 QuestionAnswer { interrupt_id: str, question: str, answer: str }
@@ -1136,8 +1147,15 @@ fences, as the operations page does.
 
 **Waits on owner approval**: the contract additions, PRs 2 to 7. They can be
 opened as drafts, but none merges before the owner approves Part 2. Each one
-changes both cores in the same PR, adds its integration scenarios in both
-languages, and updates `agent-framework-adapters.md`.
+changes both cores, adds its integration scenarios in both languages, and
+updates `agent-framework-adapters.md`.
+
+Phase 1 (PRs 2, 3, 8 and 9) is open as one PR per core: #1183 for Python
+and #1184 for TypeScript, each with A1 to A4 and Stepwise. They share one
+wire format, checked value by value, and merge together after approval.
+#1183 carries the shared `agent-framework-adapters.md` and
+`agents/CHANGELOG.md` changes for both cores, so neither PR conflicts with
+the other.
 
 **Proceeds now**: Stepwise on the existing contract (PRs 8 and 9), the
 surfaces (PRs 10 to 12), and the guide (PR 13). They wire in each contract
