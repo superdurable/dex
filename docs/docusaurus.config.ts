@@ -32,7 +32,6 @@ const companyHeaderNavigation = {
     {
       title: 'Products',
       items: [
-        {label: 'Dex Engine', href: 'https://superdurable.io/dex-engine/', target: '_self'},
         {label: 'Dex Cloud', href: 'https://superdurable.io/dex-cloud/', target: '_self'},
         {label: 'Dex Connectors', href: 'https://connectors.superdurable.io/', target: '_self'},
       ],
@@ -42,7 +41,7 @@ const companyHeaderNavigation = {
       items: [
         {label: 'Dex Docs', to: '/'},
         {label: 'Quick start', to: '/quick-start'},
-        {label: 'GitHub', href: 'https://github.com/superdurable', target: '_self'},
+        {label: 'GitHub', href: 'https://github.com/superdurable/dex', target: '_self'},
         {label: 'Compare engines', href: 'https://superdurable.io/#compare', target: '_self'},
       ],
     },
