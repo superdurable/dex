@@ -25,8 +25,12 @@ This plan specifies:
 4. **The Python AI Agent example rebuilt on the library**, and an **agent
    deployment guide**.
 
-The contract additions wait for owner approval before their implementation
-merges. Everything else can proceed.
+The contract additions add no engine, SDK, or server primitive, and each is
+inert until an application enables it. They merge after review and green CI
+in both cores. The owner's input on the decisions in
+[Open questions](#open-questions) is wanted before the `agents/v0.2.0`
+release, which is the checkpoint: nothing in this plan reaches PyPI or npm
+before then.
 
 ## Principles
 
@@ -1145,17 +1149,17 @@ fences, as the operations page does.
 
 ## Ordering and PR breakdown
 
-**Waits on owner approval**: the contract additions, PRs 2 to 7. They can be
-opened as drafts, but none merges before the owner approves Part 2. Each one
-changes both cores, adds its integration scenarios in both languages, and
-updates `agent-framework-adapters.md`.
+**Contract additions**: PRs 2 to 7. Each one changes both cores, adds its
+integration scenarios in both languages, and updates
+`agent-framework-adapters.md`. Each merges after a review pass and green CI;
+owner input on the open questions is wanted before the 0.2.0 release.
 
-Phase 1 (PRs 2, 3, 8 and 9) is open as one PR per core: #1183 for Python
-and #1184 for TypeScript, each with A1 to A4 and Stepwise. They share one
-wire format, checked value by value, and merge together after approval.
-#1183 carries the shared `agent-framework-adapters.md` and
-`agents/CHANGELOG.md` changes for both cores, so neither PR conflicts with
-the other.
+Phase 1 (PRs 2, 3, 8 and 9) landed as one PR per core: #1183 for Python and
+#1184 for TypeScript, each with A1 to A4 and Stepwise. They share one wire
+format, checked value by value against a real engine. #1183 carries the
+shared `agent-framework-adapters.md` and `agents/CHANGELOG.md` changes for
+both cores. Phase 2 (PRs 4 to 7, A5 to A8) follows, one PR per addition with
+both cores in it.
 
 **Proceeds now**: Stepwise on the existing contract (PRs 8 and 9), the
 surfaces (PRs 10 to 12), and the guide (PR 13). They wire in each contract
