@@ -52,6 +52,10 @@ import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWr
 import { agentSessionStartInputCodec } from "./agent-session-codecs.js";
 import {
   agentSessionStepTypes,
+  allPendingMessages,
+  cancelledToolCall,
+  countMessagesAfterUserMessages,
+  isCancellableByTurnControl,
   readRecoveryDetail,
   toRunnerToolCall,
   toolStepTypeForEffect,
@@ -67,11 +71,15 @@ import {
 import type { ToolCallSpan } from "./agent-session-tracer.js";
 import {
   approvalDeadlinePassed,
+  buildToolCallNote,
   buildTurnFailureNote,
   emptyAgentUsage,
   isFinalToolCallStatus,
+  turnCancelledNoteHeader,
+  turnSteeredNoteHeader,
   type AgentInterrupt,
   type AgentPlan,
+  type AgentInterruptKind,
   type AgentSessionStartInput,
   type AgentState,
   type AgentToolCallRecord,
@@ -79,6 +87,7 @@ import {
   type FrameworkMessage,
   type InteractionMode,
   type PlanStatus,
+  type ToolCallCancellationReason,
 } from "./agent-session-values.js";
 
 const minuteMs = 60_000;
@@ -115,6 +124,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
       activeTurnId: null,
       nextMessageSequence: 1,
       lastTurnError: null,
+      acceptsTurnControl: false,
     };
     this.transitions.writeAgentState(context, state);
     persistence.agentUsage.set(context, emptyAgentUsage());
@@ -123,7 +133,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
     if (initialMessage === null || isBlankText(initialMessage)) {
       return this.transitions.goToAwaitUserMessage();
     }
-    return this.transitions.beginTurn(context, state, initialMessage, this.getStepType());
+    return this.transitions.beginTurn(context, state, [{ text: initialMessage }], this.getStepType());
   }
 }
 
@@ -143,7 +153,11 @@ export class AwaitUserMessageStep implements Step<void> {
 
   public waitFor(context: Context): Wait {
     const persistence = this.transitions.persistence;
-    const conditions: Condition[] = [persistence.queuedUserMessages.forOne()];
+    // Dex selects Channel conditions in argument order: a steer, a queued message, a plan.
+    const conditions: Condition[] = [
+      persistence.turnControlRequests.range(1, allPendingMessages),
+      persistence.queuedUserMessages.forOne(),
+    ];
     const plan = this.transitions.readOptionalAgentPlan(context);
     // Keyed by revision, so an approval of an earlier revision never starts a turn.
     if (plan !== null && isExecutablePlanStatus(plan.status)) {
@@ -155,6 +169,9 @@ export class AwaitUserMessageStep implements Step<void> {
   public execute(context: Context): StepDecision {
     const transitions = this.transitions;
     const persistence = transitions.persistence;
+    if (context.channelResults(persistence.turnControlRequests).length > 0) {
+      return transitions.goToApplyTurnControl();
+    }
     const [message] = context.channelResults(persistence.queuedUserMessages);
     if (message !== undefined) {
       if (isBlankText(message.text)) {
@@ -184,7 +201,7 @@ export class AwaitUserMessageStep implements Step<void> {
     return transitions.beginTurn(
       context,
       transitions.readAgentState(context),
-      buildPlanExecutionMessage(plan.revision),
+      [{ text: buildPlanExecutionMessage(plan.revision) }],
       this.getStepType(),
       "executing",
       executedPlan,
@@ -197,7 +214,7 @@ export class AwaitUserMessageStep implements Step<void> {
     return transitions.beginTurn(
       context,
       transitions.readAgentState(context),
-      message.text,
+      [message],
       this.getStepType(),
       transitions.decideInteractionMode(context, [message]),
     );
@@ -243,6 +260,10 @@ export class RunModelStep implements Step<void> {
     if (openToolCall !== undefined) {
       throw new Error(`RunModel for ${turnId} started before tool call ${openToolCall.toolCallId} finished`);
     }
+    const decision = this.decideBeforeModelCall(context, turnId);
+    if (decision !== null) {
+      return decision;
+    }
     const events = transitions.createEventWriter(context, turnId);
     try {
       const turnContext = transitions.createTurnContext(context, state, turnId, toolCalls, events, () =>
@@ -259,7 +280,7 @@ export class RunModelStep implements Step<void> {
           switch (outcome?.kind) {
             case "completed": {
               modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages));
-              const storedTurnMessageCount = turnContext.messages.filter((message) => message.turnId === turnId).length;
+              const storedTurnMessageCount = countMessagesAfterUserMessages(turnContext.messages, turnId);
               return this.completeTurn(context, state, turnId, toolCalls, outcome, storedTurnMessageCount, events);
             }
             case "tool_calls_requested":
@@ -279,6 +300,15 @@ export class RunModelStep implements Step<void> {
     } finally {
       events.close();
     }
+  }
+
+  /** Returns RunModel's move instead of a model call, or `null` to call the model. */
+  private decideBeforeModelCall(context: Context, turnId: string): StepDecision | null {
+    // Execute state is fixed at the first attempt, so this is RunModel's only decision point.
+    if (this.transitions.readTurnControlReason(context, turnId) !== null) {
+      return this.transitions.goToApplyTurnControl();
+    }
+    return null;
   }
 
   private completeTurn(
@@ -304,9 +334,10 @@ export class RunModelStep implements Step<void> {
       turnCount: state.turnCount + 1,
       activeTurnId: null,
       lastTurnError: null,
+      acceptsTurnControl: false,
     });
-    // The turn's user message is stored but not counted; incremental runners stored more before now.
-    const messageCount = Math.max(0, storedTurnMessageCount - 1) + outcome.newMessages.length;
+    // The turn's user messages are stored but not counted; incremental runners stored more before now.
+    const messageCount = storedTurnMessageCount + outcome.newMessages.length;
     events.writeEvent("turn_completed", { message_count: messageCount });
     return transitions.goToAwaitUserMessage();
   }
@@ -549,7 +580,10 @@ export class AwaitToolApprovalStep implements Step<string> {
 
   public waitFor(context: Context, toolCallId: string): Wait {
     const transitions = this.transitions;
-    const conditions: Condition[] = [transitions.persistence.interruptResolutions.forOne(toolCallId)];
+    const conditions: Condition[] = [
+      transitions.persistence.toolCallCancellations.forOne(toolCallId),
+      transitions.persistence.interruptResolutions.forOne(toolCallId),
+    ];
     // A resolved interrupt left PendingInterrupts, so its deadline no longer applies.
     const interrupt = transitions
       .readPendingInterrupts(context)
@@ -568,6 +602,15 @@ export class AwaitToolApprovalStep implements Step<string> {
     const toolCall = transitions.readToolCall(context, toolCallId);
     if (toolCall.status !== "awaiting_approval") {
       return deadEnd();
+    }
+    if (context.channelResults(persistence.toolCallCancellations, toolCallId).length > 0) {
+      return cancelWaitingToolCall(
+        this.transitions,
+        context,
+        toolCall,
+        { interruptId: toolCallId, kind: "tool_approval" },
+        toolStepMovement(persistence, agentSessionStepTypes.awaitToolApproval, toolCallId),
+      );
     }
     const [resolution] = context.channelResults(persistence.interruptResolutions, toolCallId);
     if (resolution === undefined) {
@@ -676,6 +719,12 @@ export class ToolCallStep implements Step<string> {
     }
     if (toolCall.status !== "approved" || toolStepTypeForEffect(toolCall.effect) !== this.stepType) {
       throw new Error(`tool call ${toolCallId} cannot run in ${this.stepType}`);
+    }
+    // Retries reuse the first attempt's state, so a call that started is never abandoned.
+    const reason = transitions.readTurnControlReason(context, toolCall.turnId);
+    if (reason !== null) {
+      transitions.finishToolCall(context, cancelledToolCall(toolCall, reason));
+      return deadEnd();
     }
     const events = transitions.createEventWriter(context, toolCall.turnId);
     try {
@@ -803,7 +852,12 @@ export class ToolCallFailureRecordingStep implements Step<string> {
   }
 }
 
-/** Waits until every tool call of the batch has a final record, then makes the next model call. */
+/**
+ * Waits until every tool call of the batch has a final record, then makes the next model call.
+ *
+ * A steer or `cancel_turn` wakes it early: it cancels the turn's pending interrupts and Timers, waits again, and
+ * once every result is in moves to `ApplyTurnControl` instead of `RunModel`.
+ */
 export class ResumeTurnStep implements Step<number> {
   public readonly inputCodec = expectedResultCountCodec;
 
@@ -814,25 +868,198 @@ export class ResumeTurnStep implements Step<number> {
   }
 
   public getStepOptions(): StepOptions {
-    return { ...syncDurability, executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls] };
+    const persistence = this.transitions.persistence;
+    // A control wake rewrites PendingInterrupts, which the interrupt RPCs also write.
+    return {
+      ...syncDurability,
+      executeLoadAttributeMaps: [persistence.agentToolCalls],
+      executeLockAttributes: [persistence.pendingInterrupts.lock()],
+    };
   }
 
   public waitFor(_context: Context, expectedResultCount: number): Wait {
-    return Wait.until(this.transitions.persistence.toolCallResults.forN(expectedResultCount));
+    const persistence = this.transitions.persistence;
+    return Wait.anyOf(
+      persistence.toolCallResults.forN(expectedResultCount),
+      persistence.turnControlRequests.range(1, allPendingMessages),
+    );
   }
 
-  public execute(context: Context): StepDecision {
+  public execute(context: Context, expectedResultCount: number): StepDecision {
     const transitions = this.transitions;
     const state = transitions.readAgentState(context);
-    const unfinishedCount = transitions
-      .readTurnToolCalls(context, state.activeTurnId)
-      .filter((toolCall) => !isFinalToolCallStatus(toolCall.status)).length;
+    const turnId = state.activeTurnId;
+    const toolCalls = transitions.readTurnToolCalls(context, turnId);
+    const reason = transitions.readTurnControlReason(context, turnId);
+    if (context.channelResults(transitions.persistence.turnControlRequests).length > 0) {
+      if (reason !== null && turnId !== null) {
+        this.wakeWaitingToolCalls(context, turnId, toolCalls, reason);
+      }
+      // The results did not all arrive, so wait again for the same count.
+      return goTo(new StepRef(agentSessionStepTypes.resumeTurn), expectedResultCount);
+    }
+    const unfinishedCount = toolCalls.filter((toolCall) => !isFinalToolCallStatus(toolCall.status)).length;
     if (unfinishedCount > 0) {
       // A consumed result from an earlier turn must not resume this one early.
       return goTo(new StepRef(agentSessionStepTypes.resumeTurn), unfinishedCount);
     }
+    if (reason !== null) {
+      return transitions.goToApplyTurnControl();
+    }
     transitions.writeAgentState(context, { ...state, status: "running_model" });
     return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+  }
+
+  /** Cancels the turn's pending interrupts and wakes each Step waiting for a person or a Timer. */
+  private wakeWaitingToolCalls(
+    context: Context,
+    turnId: string,
+    toolCalls: readonly AgentToolCallRecord[],
+    reason: ToolCallCancellationReason,
+  ): void {
+    const transitions = this.transitions;
+    const persistence = transitions.persistence;
+    const interrupts = transitions.readPendingInterrupts(context);
+    const cancelledInterruptIds = new Set<string>();
+    for (const toolCall of toolCalls) {
+      if (!isCancellableByTurnControl(toolCall)) {
+        continue;
+      }
+      if (toolCall.status === "waiting_for_timer") {
+        // A later control wake finds the first message still pending and adds none.
+        if (context.channelSize(persistence.toolCallCancellations, toolCall.toolCallId) === 0) {
+          persistence.toolCallCancellations.publish(context, toolCall.toolCallId, { reason });
+        }
+        continue;
+      }
+      const isApproval = toolCall.status === "awaiting_approval";
+      const interruptId = isApproval ? toolCall.toolCallId : questionInterruptId(toolCall);
+      const kind: AgentInterruptKind = isApproval ? "tool_approval" : "question";
+      // An answered interrupt is gone, so its answer wins; an unraised question checks flags.
+      if (
+        interrupts.some(
+          (interrupt) => interrupt.interruptId === interruptId && interrupt.toolCallId === toolCall.toolCallId,
+        )
+      ) {
+        cancelledInterruptIds.add(interruptId);
+        transitions.writeInterruptCancelled(context, turnId, interruptId, kind, reason);
+        persistence.toolCallCancellations.publish(context, toolCall.toolCallId, { reason });
+      }
+    }
+    if (cancelledInterruptIds.size > 0) {
+      persistence.pendingInterrupts.set(
+        context,
+        interrupts.filter((interrupt) => !cancelledInterruptIds.has(interrupt.interruptId)),
+      );
+    }
+  }
+}
+
+/** Ends a steered or cancelled turn, then starts a turn with the steered messages. */
+export class ApplyTurnControlStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public constructor(private readonly transitions: AgentSessionTransitions) {}
+
+  public getStepType(): string {
+    return agentSessionStepTypes.applyTurnControl;
+  }
+
+  public getStepOptions(): StepOptions {
+    const persistence = this.transitions.persistence;
+    return {
+      ...syncDurability,
+      executeRetry: recoveryRetry,
+      executeLoadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
+    };
+  }
+
+  public waitFor(): Wait {
+    const persistence = this.transitions.persistence;
+    // Both conditions are non-blocking: the wait consumes every steered message and stale wake.
+    return Wait.allOf(
+      persistence.steeredUserMessages.atMost(allPendingMessages),
+      persistence.turnControlRequests.atMost(allPendingMessages),
+    );
+  }
+
+  public execute(context: Context): StepDecision {
+    const transitions = this.transitions;
+    let state = transitions.readAgentState(context);
+    const steeredMessages = context.channelResults(transitions.persistence.steeredUserMessages);
+    if (state.activeTurnId !== null) {
+      state = this.endControlledTurn(context, state, state.activeTurnId, steeredMessages.length);
+    }
+    if (steeredMessages.length === 0) {
+      return transitions.goToAwaitUserMessage();
+    }
+    // Any steered message with planMode, or a draft plan, makes it a planning turn.
+    return transitions.beginTurn(
+      context,
+      state,
+      steeredMessages,
+      this.getStepType(),
+      transitions.decideInteractionMode(context, steeredMessages),
+    );
+  }
+
+  /** Ends a steered or cancelled turn with its unfinished-turn messages, or with a note; returns the new state. */
+  private endControlledTurn(
+    context: Context,
+    initialState: AgentState,
+    turnId: string,
+    steeredMessageCount: number,
+  ): AgentState {
+    const transitions = this.transitions;
+    const persistence = transitions.persistence;
+    const toolCalls = transitions.readTurnToolCalls(context, turnId);
+    const openToolCall = toolCalls.find((toolCall) => !isFinalToolCallStatus(toolCall.status));
+    if (openToolCall !== undefined) {
+      throw new Error(`${turnId} ended before tool call ${openToolCall.toolCallId} finished`);
+    }
+    const isCancelled = transitions.readTurnControlReason(context, turnId) === "turn_cancelled";
+    const storedMessageCount = countMessagesAfterUserMessages(
+      transitions.readMessages(context, 1, initialState.nextMessageSequence),
+      turnId,
+    );
+    let messages = transitions.buildUnfinishedTurnMessages(context, initialState, turnId, toolCalls);
+    if (messages === null) {
+      messages = [];
+      if (toolCalls.length > 0) {
+        // The records are deleted below; the note keeps the next model from repeating them.
+        const note = transitions.runner.buildUserMessage(
+          buildToolCallNote(isCancelled ? turnCancelledNoteHeader : turnSteeredNoteHeader, toolCalls),
+        );
+        if (note.role !== "user") {
+          throw new TypeError("buildUserMessage must return a message with role user");
+        }
+        messages = [note];
+      }
+    }
+    const stateWithMessages = transitions.appendMessages(context, initialState, turnId, messages);
+    for (const toolCall of toolCalls) {
+      persistence.agentToolCalls.delete(context, toolCall.toolCallId);
+    }
+    persistence.frameworkRunState.delete(context);
+    const endedState: AgentState = {
+      ...stateWithMessages,
+      status: "waiting_for_user_message",
+      turnCount: stateWithMessages.turnCount + 1,
+      activeTurnId: null,
+      lastTurnError: null,
+      acceptsTurnControl: false,
+    };
+    transitions.writeAgentState(context, endedState);
+    const messageCount = storedMessageCount + messages.length;
+    transitions.writeEvents(context, turnId, (events) =>
+      isCancelled
+        ? events.writeEvent("turn_cancelled", { message_count: messageCount })
+        : events.writeEvent("turn_steered", {
+            steered_message_count: steeredMessageCount,
+            message_count: messageCount,
+          }),
+    );
+    return endedState;
   }
 }
 
@@ -862,38 +1089,18 @@ export class RecordTurnFailureStep implements Step<void> {
     const state = transitions.readAgentState(context);
     const toolCalls = transitions.readTurnToolCalls(context, state.activeTurnId);
     const finalToolCalls = toolCalls.filter((toolCall) => isFinalToolCallStatus(toolCall.status));
-    const unfinishedTurnMessages = this.buildUnfinishedTurnMessages(context, state, finalToolCalls);
-    return recordFailedTurn(transitions, context, state, toolCalls, unfinishedTurnMessages, readRecoveryDetail(context));
-  }
-
-  /** Returns the runner's unfinished-turn messages, or none when it has no such method or it throws. */
-  private buildUnfinishedTurnMessages(
-    context: Context,
-    state: AgentState,
-    finalToolCalls: readonly AgentToolCallRecord[],
-  ): readonly FrameworkMessage[] {
-    const transitions = this.transitions;
-    const turnId = state.activeTurnId;
-    if (transitions.runner.buildUnfinishedTurnMessages === undefined || turnId === null) {
-      return [];
-    }
-    const events = transitions.createEventWriter(context, turnId);
-    try {
-      const turnContext = transitions.createTurnContext(context, state, turnId, finalToolCalls, events, () =>
-        Promise.resolve(),
-      );
-      const messages: unknown = transitions.runner.buildUnfinishedTurnMessages(turnContext);
-      if (!Array.isArray(messages) || !messages.every(isFrameworkMessage)) {
-        throw new TypeError("buildUnfinishedTurnMessages must return an array of framework messages");
-      }
-      return messages;
-    } catch (error: unknown) {
-      // A runner defect must not block the failure route; the note below still tells the model.
-      console.warn(`dex-agents: RecordTurnFailure stores no unfinished-turn messages for ${turnId}:`, error);
-      return [];
-    } finally {
-      events.close();
-    }
+    const unfinishedTurnMessages =
+      state.activeTurnId === null
+        ? null
+        : transitions.buildUnfinishedTurnMessages(context, state, state.activeTurnId, finalToolCalls);
+    return recordFailedTurn(
+      transitions,
+      context,
+      state,
+      toolCalls,
+      unfinishedTurnMessages ?? [],
+      readRecoveryDetail(context),
+    );
   }
 }
 
@@ -935,6 +1142,7 @@ function recordFailedTurn(
     turnCount: state.turnCount + 1,
     activeTurnId: null,
     lastTurnError: turnError,
+    acceptsTurnControl: false,
   });
   transitions.writeEvents(context, turnId, (events) => events.writeEvent("turn_failed", { error: turnError }));
   return transitions.goToAwaitUserMessage();
@@ -1077,6 +1285,7 @@ function createToolCallRecord(
     inputContinuation: null,
     inputAnswers: [],
     ...noPendingToolQuestion,
+    cancellationReason: null,
   };
 }
 
@@ -1125,20 +1334,44 @@ export function questionInterruptId(toolCall: AgentToolCallRecord): string {
     : `${toolCall.toolCallId}-input-${toolCall.inputAnswers.length + 1}`;
 }
 
-function isFrameworkMessage(value: unknown): value is FrameworkMessage {
-  const message = value as Partial<Record<keyof FrameworkMessage, unknown>> | null;
-  const isNullableString = (field: unknown) => field === null || typeof field === "string";
-  return (
-    typeof message === "object" &&
-    message !== null &&
-    (message.role === "user" || message.role === "assistant" || message.role === "tool") &&
-    typeof message.frameworkItem === "string" &&
-    isNullableString(message.text) &&
-    isNullableString(message.toolCallId) &&
-    isNullableString(message.toolName) &&
-    isNullableString(message.toolArguments) &&
-    isNullableString(message.toolOutput)
-  );
+/** The interrupt a waiting tool call answers to: its ID and kind. */
+export interface WaitingToolCallInterrupt {
+  readonly interruptId: string;
+  readonly kind: AgentInterruptKind;
+}
+
+/**
+ * Records a call that `ToolCallCancellations` woke as cancelled, or waits again. Pass `interrupt` `null` for a
+ * durable wait.
+ */
+export function cancelWaitingToolCall(
+  transitions: AgentSessionTransitions,
+  context: Context,
+  toolCall: AgentToolCallRecord,
+  interrupt: WaitingToolCallInterrupt | null,
+  waitAgain: StepMovement<string>,
+): StepDecision {
+  const persistence = transitions.persistence;
+  // The flags decide; a wake-up left from an earlier turn's call ID changes nothing.
+  const reason = transitions.readTurnControlReason(context, toolCall.turnId);
+  if (reason === null || !isCancellableByTurnControl(toolCall)) {
+    return goToMany(waitAgain);
+  }
+  if (interrupt !== null) {
+    const pendingInterrupts = transitions.readPendingInterrupts(context);
+    if (pendingInterrupts.some((pending) => pending.interruptId === interrupt.interruptId)) {
+      persistence.pendingInterrupts.set(
+        context,
+        pendingInterrupts.filter((pending) => pending.interruptId !== interrupt.interruptId),
+      );
+      transitions.writeInterruptCancelled(context, toolCall.turnId, interrupt.interruptId, interrupt.kind, reason);
+    } else if (context.channelSize(persistence.interruptResolutions, interrupt.interruptId) > 0) {
+      // The answer committed first; the next wait consumes it.
+      return goToMany(waitAgain);
+    }
+  }
+  transitions.finishToolCall(context, cancelledToolCall(toolCall, reason));
+  return deadEnd();
 }
 
 function isToolInputRequested(outcome: DeferredToolOutcome): outcome is ToolInputRequested {

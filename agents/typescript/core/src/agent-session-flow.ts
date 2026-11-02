@@ -10,6 +10,7 @@ import {
   StepList,
   booleanCodec,
   rpc,
+  type Channel,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -27,9 +28,12 @@ import {
   agentSnapshotCodec,
   agentUserMessageCodec,
   answerQuestionRequestCodec,
+  cancelTurnRequestCodec,
+  deleteQueuedMessageRequestCodec,
   executePlanRequestCodec,
   listAgentMessagesInputCodec,
   resolveInterruptInputCodec,
+  steerUserMessageRequestCodec,
 } from "./agent-session-codecs.js";
 import {
   createAgentSessionPersistence,
@@ -38,6 +42,7 @@ import {
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import {
+  ApplyTurnControlStep,
   AwaitToolApprovalStep,
   AwaitUserMessageStep,
   isExecutablePlanStatus,
@@ -61,9 +66,13 @@ import type {
   AgentSnapshot,
   AgentUserMessage,
   AnswerQuestionRequest,
+  CancelTurnRequest,
+  DeleteQueuedMessageRequest,
   ExecutePlanRequest,
   ListAgentMessagesInput,
+  PendingUserMessage,
   ResolveInterruptInput,
+  SteerUserMessageRequest,
   ToolEffect,
 } from "./agent-session-values.js";
 import {
@@ -169,11 +178,15 @@ export interface ResolvedAgentSessionOptions {
  * Durable agent session Flow: one Flow execution is one agent session, and its Flow ID is the session ID.
  *
  * Create one per agent with {@link createAgentSessionFlow}, register it in the process `Registry`, and
- * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `resolve_interrupt`,
- * `answer_question`, `execute_plan`, `get_agent_snapshot`, and `list_agent_messages`, the same as the Python
- * core. The session never
- * completes on its own: it waits for the next user message after every turn. Stop it with
- * `Client.stopFlow`.
+ * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `steer_user_message`,
+ * `delete_queued_message`, `cancel_turn`, `resolve_interrupt`, `answer_question`, `execute_plan`,
+ * `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never completes on its
+ * own: it waits for the next user message after every turn. Stop it with `Client.stopFlow`.
+ *
+ * `steer_user_message` and `cancel_turn` end the running turn at its next safe Step boundary. Neither interrupts a
+ * model call or a tool call that has already started. The calls that have not started record `rejected` with a
+ * `cancellationReason`, and `ApplyTurnControl` ends the turn. A steered turn is followed by a new turn with the
+ * steered messages.
  *
  * The Flow's persistence definitions are properties of the Flow; pass them to `Client.getAttributes`
  * or the Stream reads.
@@ -236,10 +249,67 @@ export interface AgentSessionFlow<
    * @param context - RPC Context supplied by Dex.
    * @param input - The plan revision the user reviewed.
    * @returns `true` when the execution is accepted; `false` unless the session waits for a user message, the
-   * plan has this revision and is `draft` or `active`, no execution of it is pending, and no queued message
-   * or interrupt is pending.
+   * plan has this revision and is `draft` or `active`, no execution of it is pending, and no queued or steered
+   * message or interrupt is pending.
    */
   executePlan(context: Context, input: ExecutePlanRequest): RPCResult<boolean>;
+  /**
+   * RPC `steer_user_message`: steers the running turn with new text or with a queued message.
+   *
+   * A steered message applies at the turn's next safe Step boundary. The session never interrupts a model call or
+   * a tool call that has started. It records the calls that have not started as `rejected` with
+   * `cancellationReason` `"steered"`, ends the turn, and starts a new turn whose user messages are every steered
+   * message, in order.
+   *
+   * While no turn is active, there is nothing to steer: new `text` is queued like `send_user_message`, so it
+   * starts the next turn at once, and a `messageId` that is still queued stays queued. A turn that a Worker
+   * without steering started or advanced cannot be steered; see {@link AgentState.acceptsTurnControl}.
+   *
+   * With `messageId`, the RPC moves that queued message: it deletes it from `QueuedUserMessages` and publishes it
+   * to `SteeredUserMessages` in one commit. It locks nothing. When another Step or RPC consumes the message
+   * between the RPC's read and its commit, the RPC fails with `ChannelMessageNotFoundError` and commits nothing;
+   * reload the snapshot and let the user choose again.
+   *
+   * @example
+   * ```ts
+   * const [queued] = (await client.invokeRPC(flow.getAgentSnapshot, sessionId)).queuedMessages ?? [];
+   * if (queued !== undefined) {
+   *   await client.invokeRPC(flow.steerUserMessage, sessionId, { messageId: queued.messageId, text: null });
+   * }
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - Exactly one of a queued message ID and new text.
+   * @returns `true` when the message is steered, or queued while no turn is active; `false` when both or neither
+   * field is set, the text is blank, the message is no longer queued, or the active turn does not accept steering.
+   */
+  steerUserMessage(context: Context, input: SteerUserMessageRequest): RPCResult<boolean>;
+  /**
+   * RPC `delete_queued_message`: deletes one queued user message before it starts a turn.
+   *
+   * It locks nothing. When the session consumes the message between the RPC's read and its commit, the RPC fails
+   * with `ChannelMessageNotFoundError` and commits nothing.
+   *
+   * @param context - RPC Context supplied by Dex.
+   * @param input - {@link PendingUserMessage.messageId} from `get_agent_snapshot`.
+   * @returns `true` when the message was deleted; `false` when it is no longer queued.
+   */
+  deleteQueuedMessage(context: Context, input: DeleteQueuedMessageRequest): RPCResult<boolean>;
+  /**
+   * RPC `cancel_turn`: stops the running turn at its next safe Step boundary, with no new turn.
+   *
+   * Cancellation works like steering without a steered message. A model call that is running finishes, and a
+   * final answer it returns completes the turn as usual. Tool calls that have started run to the end. The calls
+   * that have not started record `rejected` with `cancellationReason` `"turn_cancelled"`. Then the session waits
+   * for the next user message. The RPC locks only `TurnCancellationRequest`, which no Step locks, so it never
+   * waits for a running Step. Two calls at once can make one fail with `RpcLockConflictError`, which is safe to
+   * retry.
+   *
+   * @param context - RPC Context supplied by Dex.
+   * @param input - The turn to stop, or `turnId` `null` for the active turn.
+   * @returns `true` when the request is recorded, although the turn may still complete before it applies;
+   * `false` when no turn is active, `turnId` names another turn, or the active turn does not accept cancellation.
+   */
+  cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean>;
   /**
    * RPC `resolve_interrupt`: approves or rejects one pending tool approval, or declines one question.
    *
@@ -286,9 +356,9 @@ export interface AgentSessionFlow<
    * whole `AgentMessages` map.
    *
    * @param context - RPC Context supplied by Dex.
-   * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage,
-   * the queued message count, and the plan. Before `StartAgentSession` commits, `state` is `null` and the
-   * lists are empty.
+   * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued
+   * message count, the plan, and the queued and steered messages with their Channel message IDs. Before
+   * `StartAgentSession` commits, `state` is `null` and the lists are empty.
    */
   getAgentSnapshot(context: Context): RPCResult<AgentSnapshot>;
   /**
@@ -375,6 +445,10 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly queuedUserMessages = persistence.queuedUserMessages;
     public readonly interruptResolutions = persistence.interruptResolutions;
     public readonly toolCallResults = persistence.toolCallResults;
+    public readonly steeredUserMessages = persistence.steeredUserMessages;
+    public readonly turnControlRequests = persistence.turnControlRequests;
+    public readonly turnCancellationRequest = persistence.turnCancellationRequest;
+    public readonly toolCallCancellations = persistence.toolCallCancellations;
     public readonly agentEvents = persistence.agentEvents;
     public readonly agentTraceContext = persistence.agentTraceContext;
     public readonly agentPlan = persistence.agentPlan;
@@ -397,6 +471,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
         false,
       ),
       new ResumeTurnStep(transitions),
+      new ApplyTurnControlStep(transitions),
       new RecordTurnFailureStep(transitions),
     );
 
@@ -418,6 +493,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.agentToolCalls,
           persistence.pendingInterrupts,
           persistence.agentUsage,
+          persistence.turnCancellationRequest,
           persistence.agentTraceContext,
           persistence.agentPlan,
           persistence.pendingPlanExecution,
@@ -427,6 +503,9 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.interruptResolutions,
           persistence.toolCallResults,
           persistence.planExecutions,
+          persistence.steeredUserMessages,
+          persistence.turnControlRequests,
+          persistence.toolCallCancellations,
         ],
         streams: [persistence.agentEvents],
       };
@@ -465,6 +544,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
         !isExecutablePlanStatus(plan.status) ||
         (pending !== undefined && pending.revision === plan.revision) ||
         context.channelSize(persistence.queuedUserMessages) > 0 ||
+        context.channelSize(persistence.steeredUserMessages) > 0 ||
         transitions.readPendingInterrupts(context).length > 0
       ) {
         return { output: false };
@@ -472,6 +552,88 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       const request = { revision: plan.revision };
       persistence.pendingPlanExecution.set(context, request);
       persistence.planExecutions.publish(context, planExecutionKey(plan.revision), request);
+      return { output: true };
+    }
+
+    @rpc<SteerUserMessageRequest, boolean>({
+      name: "steer_user_message",
+      inputCodec: steerUserMessageRequestCodec,
+      outputCodec: booleanCodec,
+      isTransactional: true,
+      loadChannels: [persistence.queuedUserMessages],
+    })
+    public steerUserMessage(context: Context, input: SteerUserMessageRequest): RPCResult<boolean> {
+      if ((input.messageId === null) === (input.text === null)) {
+        return { output: false };
+      }
+      const state = transitions.readOptionalAgentState(context);
+      if (state?.activeTurnId == null) {
+        // Any Worker version waits for queued messages while idle; a steer might wait forever.
+        if (input.text === null) {
+          return { output: findQueuedMessage(context, persistence, input.messageId ?? "") !== undefined };
+        }
+        return this.sendUserMessage(context, { text: input.text });
+      }
+      if (state.acceptsTurnControl !== true) {
+        return { output: false };
+      }
+      let steered: AgentUserMessage;
+      if (input.text !== null) {
+        if (isBlankText(input.text)) {
+          return { output: false };
+        }
+        steered = { text: input.text };
+      } else {
+        const queued = findQueuedMessage(context, persistence, input.messageId ?? "");
+        if (queued === undefined) {
+          return { output: false };
+        }
+        persistence.queuedUserMessages.delete(context, queued.messageId);
+        steered = queued.message;
+      }
+      persistence.steeredUserMessages.publish(context, steered);
+      persistence.turnControlRequests.publish(context, { kind: "steer" });
+      return { output: true };
+    }
+
+    @rpc<DeleteQueuedMessageRequest, boolean>({
+      name: "delete_queued_message",
+      inputCodec: deleteQueuedMessageRequestCodec,
+      outputCodec: booleanCodec,
+      isTransactional: true,
+      loadChannels: [persistence.queuedUserMessages],
+    })
+    public deleteQueuedMessage(context: Context, input: DeleteQueuedMessageRequest): RPCResult<boolean> {
+      const queued = findQueuedMessage(context, persistence, input.messageId);
+      if (queued === undefined) {
+        return { output: false };
+      }
+      persistence.queuedUserMessages.delete(context, queued.messageId);
+      return { output: true };
+    }
+
+    // Only this RPC locks it: concurrent cancels apply in order, so a stale one cannot win.
+    @rpc<CancelTurnRequest, boolean>({
+      name: "cancel_turn",
+      inputCodec: cancelTurnRequestCodec,
+      outputCodec: booleanCodec,
+      lockAttributes: [persistence.turnCancellationRequest.lock()],
+    })
+    public cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean> {
+      const state = transitions.readOptionalAgentState(context);
+      const activeTurnId = state?.activeTurnId ?? null;
+      if (
+        activeTurnId === null ||
+        state?.acceptsTurnControl !== true ||
+        (input.turnId !== null && input.turnId !== activeTurnId)
+      ) {
+        return { output: false };
+      }
+      persistence.turnCancellationRequest.set(context, {
+        turnId: activeTurnId,
+        requestedAt: new Date().toISOString(),
+      });
+      persistence.turnControlRequests.publish(context, { kind: "cancel_turn" });
       return { output: true };
     }
 
@@ -538,6 +700,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       name: "get_agent_snapshot",
       outputCodec: agentSnapshotCodec,
       loadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
+      loadChannels: [persistence.queuedUserMessages, persistence.steeredUserMessages],
     })
     public getAgentSnapshot(context: Context): RPCResult<AgentSnapshot> {
       const state = transitions.readOptionalAgentState(context);
@@ -551,6 +714,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
             usage: transitions.readAgentUsage(context),
             queuedMessageCount: 0,
             plan: null,
+            queuedMessages: [],
+            steeredMessages: [],
           },
         };
       }
@@ -564,6 +729,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           usage: transitions.readAgentUsage(context),
           queuedMessageCount: context.channelSize(persistence.queuedUserMessages),
           plan: transitions.readOptionalAgentPlan(context),
+          queuedMessages: readPendingUserMessages(context, persistence.queuedUserMessages),
+          steeredMessages: readPendingUserMessages(context, persistence.steeredUserMessages),
         },
       };
     }
@@ -693,6 +860,22 @@ function resolveAgentTracingOptions(
     shouldCaptureMessageContent: tracing.shouldCaptureMessageContent ?? false,
     semanticConventionsVersion,
   });
+}
+
+function readPendingUserMessages(context: Context, channel: Channel<AgentUserMessage>): PendingUserMessage[] {
+  return channel
+    .pendingMessages(context)
+    .map((pending) => ({ messageId: pending.messageId, message: pending.value }));
+}
+
+function findQueuedMessage(
+  context: Context,
+  persistence: AgentSessionPersistence,
+  messageId: string,
+): PendingUserMessage | undefined {
+  return readPendingUserMessages(context, persistence.queuedUserMessages).find(
+    (queued) => queued.messageId === messageId,
+  );
 }
 
 function isAnswerOutsideChoices(choices: readonly string[], allowsFreeText: boolean, answer: string): boolean {

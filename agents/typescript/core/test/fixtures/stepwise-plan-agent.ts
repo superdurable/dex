@@ -101,6 +101,7 @@ class GatedPlanRunner extends StepwiseAgentRunner {
  * - `revise <task> | ...` writes those tasks as a new draft; `discuss` answers with the plan's task count.
  * - `todos <json>` calls `write_todos` with that `todos` list; `todos-twice <json>` calls it twice in one
  *   response; `todos-raw <json>` sends the raw arguments.
+ * - `stall <gate>` waits at that gate, then answers `stalled at <gate>`.
  * - The approved plan's message makes the model look up the first task, then answer, or, when a task
  *   mentions `finish`, mark every task completed first. A first task `stall <gate>` waits at that gate.
  * Every model call is logged in `model-requests.log`, and every tool run in `invocations.log`.
@@ -157,6 +158,12 @@ export function createStepwisePlanAgentFlow(
       }
       case "todos-raw":
         return { toolCalls: [{ toolName: "write_todos", arguments: rest }] };
+      case "stall": {
+        const gate = new FileGate(markerDirectory, rest);
+        gate.markReached();
+        await gate.waitForRelease(request.cancellationSignal);
+        return { text: `stalled at ${rest}` };
+      }
       default:
         return { text: `said: ${command}` };
     }

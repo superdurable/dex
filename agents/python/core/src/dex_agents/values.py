@@ -195,6 +195,36 @@ class PlanTaskStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class ToolCallCancellationReason(StrEnum):
+    """Name why steering or cancellation abandoned a tool call before it started.
+
+    A ``REJECTED`` record that steering or ``cancel_turn`` abandoned carries
+    one in ``AgentToolCall.cancellation_reason``. Its ``rejection_message`` is
+    the structured result the model sees, such as
+    ``{"status":"cancelled","reason":"superseded_by_steered_user_message"}``.
+    The values are JSON strings on the wire.
+
+    Attributes:
+        STEERED: ``steer_user_message`` superseded the turn.
+        TURN_CANCELLED: ``cancel_turn`` stopped the turn.
+    """
+
+    STEERED = "steered"
+    TURN_CANCELLED = "turn_cancelled"
+
+
+class TurnControlKind(StrEnum):
+    """Name the RPC that published one ``TurnControlRequest``.
+
+    Attributes:
+        STEER: ``steer_user_message`` published a steered message.
+        CANCEL_TURN: ``cancel_turn`` recorded a ``TurnCancellationRequest``.
+    """
+
+    STEER = "steer"
+    CANCEL_TURN = "cancel_turn"
+
+
 @dataclass(frozen=True, kw_only=True)
 class AgentSessionStartInput:
     """Start one agent session Flow, optionally with its first user message.
@@ -234,6 +264,11 @@ class AgentState:
             turns. The session sets it when a turn starts. Defaults to
             ``CHAT``; ``None``, as an explicit JSON ``null`` decodes, also
             becomes ``CHAT``, so a read value is never ``None``.
+        accepts_turn_control: Whether ``steer_user_message`` and
+            ``cancel_turn`` may end the active turn. A Worker that applies
+            them sets it when a turn starts and clears it when the turn ends.
+            An earlier Worker drops it whenever it writes ``AgentState``, so
+            the RPCs refuse a turn that such a Worker started or advanced.
     """
 
     status: AgentSessionStatus
@@ -242,6 +277,7 @@ class AgentState:
     next_message_sequence: int = 1
     last_turn_error: str | None = None
     interaction_mode: InteractionMode | None = InteractionMode.CHAT
+    accepts_turn_control: bool = False
 
     def __post_init__(self) -> None:
         if self.interaction_mode is None:
@@ -349,6 +385,8 @@ class AgentToolCall:
             for free text only or when no tool question is pending.
         input_allows_free_text: Whether that pending ``ToolInputRequested``
             accepts free text. ``True`` when no tool question is pending.
+        cancellation_reason: Why steering or ``cancel_turn`` abandoned the
+            call before it started, on a ``REJECTED`` record, or ``None``.
     """
 
     tool_call_id: str
@@ -370,6 +408,7 @@ class AgentToolCall:
     input_question: str | None = None
     input_choices: list[str] = field(default_factory=list)
     input_allows_free_text: bool = True
+    cancellation_reason: ToolCallCancellationReason | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -511,7 +550,8 @@ class AgentUserMessage:
 
     The RPC queues the message in the ``QueuedUserMessages`` Channel. The
     session consumes queued messages in order, one per turn, after the current
-    turn ends.
+    turn ends. ``steer_user_message`` publishes it to ``SteeredUserMessages``
+    instead, which ends the running turn at its next safe Step boundary.
 
     Attributes:
         text: Message text. Whitespace-only text is rejected.
@@ -608,6 +648,113 @@ class ToolCallCompleted:
 
 
 @dataclass(frozen=True, kw_only=True)
+class PendingUserMessage:
+    """Show one user message that waits in ``QueuedUserMessages`` or ``SteeredUserMessages``.
+
+    ``get_agent_snapshot`` lists them, so a UI can delete or steer a queued
+    message by its ID.
+
+    Attributes:
+        message_id: Channel message ID that Dex assigned when the message was
+            published.
+        message: The user message.
+    """
+
+    message_id: str
+    message: AgentUserMessage
+
+
+@dataclass(frozen=True, kw_only=True)
+class SteerUserMessageRequest:
+    """Steer the running turn through the ``steer_user_message`` RPC.
+
+    Set exactly one field. ``message_id`` moves a queued message, and
+    ``text`` sends a new one.
+
+    Example:
+        >>> SteerUserMessageRequest(text="Use the staging account instead")
+        >>> SteerUserMessageRequest(message_id=snapshot.queued_messages[0].message_id)
+
+    Attributes:
+        message_id: ``PendingUserMessage.message_id`` of a queued message, or ``None``.
+        text: Text of a new steered message, or ``None``.
+    """
+
+    message_id: str | None = None
+    text: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeleteQueuedMessageRequest:
+    """Delete one queued user message through the ``delete_queued_message`` RPC.
+
+    Attributes:
+        message_id: ``PendingUserMessage.message_id`` of a queued message.
+    """
+
+    message_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class CancelTurnRequest:
+    """Stop the running turn through the ``cancel_turn`` RPC.
+
+    Attributes:
+        turn_id: The turn to stop, or ``None`` for whichever turn is active.
+            A turn ID that is not the active turn makes the RPC return ``False``.
+    """
+
+    turn_id: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnControlRequest:
+    """Wake a waiting session Step through the internal ``TurnControlRequests`` Channel.
+
+    ``steer_user_message`` and ``cancel_turn`` publish one. The message only
+    wakes ``ResumeTurn`` or ``AwaitUserMessage``; the session decides from
+    ``SteeredUserMessages`` and ``TurnCancellationRequest``.
+
+    Attributes:
+        kind: The RPC that published it.
+    """
+
+    kind: TurnControlKind
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnCancellationRequest:
+    """Record that ``cancel_turn`` asked to stop one turn.
+
+    The ``TurnCancellationRequest`` Attribute holds the latest request. A turn
+    is cancelled while ``turn_id`` equals ``AgentState.active_turn_id``. Turn
+    IDs never repeat, so a request for an earlier turn never matches.
+
+    Attributes:
+        turn_id: The turn to stop.
+        requested_at: RFC 3339 time of the request.
+    """
+
+    turn_id: str
+    requested_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolCallCancellation:
+    """Wake the Step that waits on one tool call through ``ToolCallCancellations``.
+
+    ``ResumeTurn`` publishes one to the instance named by the tool call ID
+    when the turn is steered or cancelled. The waiting Step decides from the
+    session's flags, not from this message.
+
+    Attributes:
+        reason: Why the turn ends.
+    """
+
+    reason: ToolCallCancellationReason
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentEvent:
     """Carry one live update on the ``AgentEvents`` Stream.
 
@@ -618,8 +765,9 @@ class AgentEvent:
     ``step_execution_id``, keep only the events of the highest ``attempt``
     seen, and drop the partial text of lower attempts. Different
     ``step_execution_id`` values of one turn are separate model call and tool
-    call Steps, and each keeps its own events. After ``turn_completed`` or
-    ``turn_failed``, replace the turn's live text with the stored messages.
+    call Steps, and each keeps its own events. After ``turn_completed``,
+    ``turn_failed``, ``turn_steered``, or ``turn_cancelled``, replace the
+    turn's live text with the stored messages.
 
     Attributes:
         type: One of the ``AgentEventType`` values.
@@ -655,6 +803,11 @@ class AgentSnapshot:
         usage: Model usage of the whole session.
         queued_message_count: User messages queued for later turns.
         plan: The ``AgentPlan``, or ``None`` before ``write_todos`` first succeeded.
+        queued_messages: Those queued messages with their Channel message
+            IDs, oldest first. Pass an ID to ``delete_queued_message`` or
+            ``steer_user_message``.
+        steered_messages: Steered messages that the session has not applied
+            yet, oldest first.
     """
 
     state: AgentState | None
@@ -664,6 +817,8 @@ class AgentSnapshot:
     usage: AgentUsage = field(default_factory=AgentUsage)
     queued_message_count: int = 0
     plan: AgentPlan | None = None
+    queued_messages: list[PendingUserMessage] = field(default_factory=list)
+    steered_messages: list[PendingUserMessage] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True)

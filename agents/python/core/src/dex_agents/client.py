@@ -24,9 +24,12 @@ from dex_agents.values import (
     AgentSnapshot,
     AgentUserMessage,
     AnswerQuestionRequest,
+    CancelTurnRequest,
+    DeleteQueuedMessageRequest,
     ExecutePlanRequest,
     ListAgentMessagesRequest,
     ResolveInterruptRequest,
+    SteerUserMessageRequest,
 )
 
 _LOCK_CONFLICT_RETRY_INTERVAL_SECONDS = 0.05
@@ -63,8 +66,8 @@ class AgentSessionClient:
                 The caller keeps ownership and closes it.
             flow: The registered ``AgentSessionFlow`` instance.
             lock_conflict_retry_timeout: How long ``resolve_interrupt``,
-                ``answer_question``, and ``execute_plan`` retry an
-                ``RpcLockConflictError``. Defaults to five seconds.
+                ``answer_question``, ``execute_plan``, and ``cancel_turn``
+                retry an ``RpcLockConflictError``. Defaults to five seconds.
         """
         self._client = client
         self._flow = flow
@@ -158,6 +161,99 @@ class AgentSessionClient:
         request = ExecutePlanRequest(revision=revision)
         return await self._retry_lock_conflicts(
             lambda: self._client.invoke_rpc(self._flow.execute_plan, session_id, request)
+        )
+
+    async def steer_user_message(
+        self,
+        session_id: str,
+        *,
+        text: str | None = None,
+        message_id: str | None = None,
+    ) -> bool:
+        """Steer the running turn with new text or with a queued message.
+
+        Pass exactly one of ``text`` and ``message_id``. The session applies
+        the steered message at the turn's next safe Step boundary: it lets a
+        running model call or tool call finish, abandons the tool calls that
+        have not started, and starts a new turn with the steered messages.
+
+        Example:
+            >>> await sessions.steer_user_message("session-42", text="Use staging instead")
+            >>> snapshot = await sessions.get_agent_snapshot("session-42")
+            >>> await sessions.steer_user_message(
+            ...     "session-42", message_id=snapshot.queued_messages[0].message_id)
+
+        Args:
+            session_id: Running session.
+            text: Text of a new steered message.
+            message_id: ``PendingUserMessage.message_id`` of a queued message.
+
+        While no turn is active, new ``text`` is queued like
+        ``send_user_message`` and starts the next turn at once.
+
+        Returns:
+            ``True`` when steered, or queued while no turn is active; ``False``
+            when both or neither argument is set, the text is blank, the
+            message is no longer queued, or the active turn began on a Worker
+            without steering.
+
+        Raises:
+            ChannelMessageNotFoundError: If the session consumed the queued
+                message while the call ran; nothing changed, so reload the
+                snapshot.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        return await self._client.invoke_rpc(
+            self._flow.steer_user_message,
+            session_id,
+            SteerUserMessageRequest(message_id=message_id, text=text),
+        )
+
+    async def delete_queued_message(self, session_id: str, message_id: str) -> bool:
+        """Delete one queued user message before it starts a turn.
+
+        Args:
+            session_id: Running session.
+            message_id: ``PendingUserMessage.message_id`` from ``get_agent_snapshot``.
+
+        Returns:
+            ``True`` when deleted; ``False`` when the message is no longer queued.
+
+        Raises:
+            ChannelMessageNotFoundError: If the session consumed the message
+                while the call ran; nothing changed.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        return await self._client.invoke_rpc(
+            self._flow.delete_queued_message,
+            session_id,
+            DeleteQueuedMessageRequest(message_id=message_id),
+        )
+
+    async def cancel_turn(self, session_id: str, turn_id: str | None = None) -> bool:
+        """Stop the running turn at its next safe Step boundary.
+
+        A running model call or tool call finishes first, so the turn may
+        still complete with an answer. The call retries
+        ``RpcLockConflictError``, which only another ``cancel_turn`` causes,
+        until ``lock_conflict_retry_timeout`` passes.
+
+        Args:
+            session_id: Running session.
+            turn_id: The turn to stop, or ``None`` for the active turn.
+
+        Returns:
+            ``True`` when the request is recorded; ``False`` when no turn is
+            active, ``turn_id`` names another turn, or the active turn began
+            on a Worker without steering.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        request = CancelTurnRequest(turn_id=turn_id)
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.cancel_turn, session_id, request)
         )
 
     async def resolve_interrupt(

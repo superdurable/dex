@@ -100,7 +100,8 @@ export interface AgentUIMessageStreamOptions {
  * The parts follow one turn. Without a resume token they replay the session's active turn from its start.
  * With one they replay the token's turn, or continue it exactly with `continueAfterResumeToken`. The
  * generator returns after the turn completes (`finish` with `stop`), fails (`error`, then `finish` with
- * `error`), or waits only for tool approvals (`finish` with `tool-calls`). It also returns when the turn
+ * `error`), ends through steering or `cancel_turn` (the `turn_steered` or `turn_cancelled` event data part, then
+ * `finish` with `other`), or waits only for tool approvals (`finish` with `tool-calls`). It also returns when the turn
  * ended without its end event on the Stream, or the session Flow closed (`finish` with `other`); the
  * session's committed state decides this, so the stream ends even when the Stream lost every event. On
  * `other`, reload the stored messages with {@link readAgentSessionUIMessages}.
@@ -119,8 +120,8 @@ export interface AgentUIMessageStreamOptions {
  * best effort: a part whose event the Stream lost or trimmed is missing until the stored messages replace
  * the streamed message.
  *
- * Stop in the browser only closes the HTTP response. The turn keeps running in Dex; a durable turn cancel
- * is not available yet.
+ * Stop in the browser only closes the HTTP response, and the turn keeps running in Dex. To stop the turn
+ * durably, the application's stop route calls the session's `cancel_turn` RPC.
  *
  * @example
  * ```ts
@@ -502,6 +503,14 @@ class AgentUIMessageChunkTranslator {
       case "turn_failed":
         if (await this.records.waitForTurnToEnd(this.requireTurnId())) {
           this.endStream("error", readPayloadString(payload, "error") ?? "the agent turn failed");
+        }
+        return;
+      case "turn_steered":
+      case "turn_cancelled":
+        // The turn ended without an answer; the browser reloads its stored messages on `other`.
+        this.pushAgentEventData(event);
+        if (await this.records.waitForTurnToEnd(this.requireTurnId())) {
+          this.endStream("other");
         }
         return;
       default:

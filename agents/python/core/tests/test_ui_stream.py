@@ -62,7 +62,8 @@ POLL_TIMEOUT = timedelta(seconds=1)
 # The TypeScript core's snapshot JSON test expects exactly this text.
 BROWSER_SNAPSHOT_JSON = (
     '{"state":{"status":"running_tools","turn_count":1,"active_turn_id":"turn-2",'
-    '"next_message_sequence":4,"last_turn_error":null,"interaction_mode":"executing"},'
+    '"next_message_sequence":4,"last_turn_error":null,"interaction_mode":"executing",'
+    '"accepts_turn_control":false},'
     '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",'
     '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,'
     '"created_at":"2026-11-01T12:00:00.000Z"}],'
@@ -74,11 +75,11 @@ BROWSER_SNAPSHOT_JSON = (
     '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,'
     '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,'
     '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",'
-    '"input_choices":["yes","no"],"input_allows_free_text":false}],'
+    '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null}],'
     '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,'
     '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",'
     '"tasks":[{"content":"Refund the order","status":"in_progress"}],'
-    '"updated_at":"2026-11-01T12:00:02.000Z"}}'
+    '"updated_at":"2026-11-01T12:00:02.000Z"},"queued_messages":[],"steered_messages":[]}'
 )
 
 

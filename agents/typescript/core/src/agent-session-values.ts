@@ -134,6 +134,14 @@ export interface AgentState {
    * carries it. Treat `undefined` as `chat`.
    */
   readonly interactionMode?: InteractionMode;
+  /**
+   * Whether `steer_user_message` and `cancel_turn` may end the active turn. A Worker that applies them sets it
+   * when a turn starts and clears it when the turn ends. An earlier Worker drops it whenever it writes
+   * `AgentState`, so the RPCs refuse a turn that such a Worker started or advanced. Wire field:
+   * `accepts_turn_control`. The decoder sets it only when it is `true`, so `undefined` means `false` and an idle
+   * state keeps its 0.1.0 shape.
+   */
+  readonly acceptsTurnControl?: boolean;
 }
 
 /** Author of one stored agent message. */
@@ -313,7 +321,24 @@ export interface AgentToolCall {
    * pending. Wire field: `input_allows_free_text`. Optional for the same reason as {@link waitUntil}.
    */
   readonly inputAllowsFreeText?: boolean;
+  /**
+   * Why steering or `cancel_turn` abandoned the call before it started, on a `rejected` record;
+   * otherwise `null`. Wire field: `cancellation_reason`. Optional for the same reason as
+   * {@link waitUntil}.
+   */
+  readonly cancellationReason?: ToolCallCancellationReason | null;
 }
+
+/**
+ * Why steering or cancellation abandoned a tool call before it started.
+ *
+ * - `steered`: `steer_user_message` superseded the turn.
+ * - `turn_cancelled`: `cancel_turn` stopped the turn.
+ *
+ * A `rejected` record carries one in {@link AgentToolCall.cancellationReason}; its `rejectionMessage` is
+ * {@link toolCallCancelledBySteeringResult} or {@link toolCallCancelledByTurnCancellationResult}.
+ */
+export type ToolCallCancellationReason = "steered" | "turn_cancelled";
 
 /**
  * A stored tool call record, as `get_agent_snapshot` and `Client.getAttributes` return it.
@@ -324,7 +349,14 @@ export interface AgentToolCall {
 export interface AgentToolCallRecord
   extends Omit<
     AgentToolCall,
-    "status" | "waitUntil" | "inputContinuation" | "inputAnswers" | "inputQuestion" | "inputChoices" | "inputAllowsFreeText"
+    | "status"
+    | "waitUntil"
+    | "inputContinuation"
+    | "inputAnswers"
+    | "inputQuestion"
+    | "inputChoices"
+    | "inputAllowsFreeText"
+    | "cancellationReason"
   > {
   /** Current status. Wire field: `status`. */
   readonly status: AgentToolCallRecordStatus;
@@ -340,6 +372,11 @@ export interface AgentToolCallRecord
   readonly inputChoices: readonly string[];
   /** See {@link AgentToolCall.inputAllowsFreeText}. Wire field: `input_allows_free_text`. */
   readonly inputAllowsFreeText: boolean;
+  /**
+   * See {@link AgentToolCall.cancellationReason}. Wire field: `cancellation_reason`. Records the session reads
+   * always carry it; it is optional so that code that builds records by hand keeps compiling.
+   */
+  readonly cancellationReason?: ToolCallCancellationReason | null;
 }
 
 /**
@@ -437,7 +474,10 @@ export interface ToolCallCompleted {
   readonly toolCallId: string;
 }
 
-/** One user message, the input of the `send_user_message` RPC and the `QueuedUserMessages` Channel value. */
+/**
+ * One user message, the input of the `send_user_message` RPC and the value of the `QueuedUserMessages` and
+ * `SteeredUserMessages` Channels.
+ */
 export interface AgentUserMessage {
   /** Message text. Blank text is rejected. Wire field: `text`. */
   readonly text: string;
@@ -450,12 +490,97 @@ export interface AgentUserMessage {
 }
 
 /**
+ * One user message that waits in `QueuedUserMessages` or `SteeredUserMessages`, as `get_agent_snapshot` lists it,
+ * so a UI can delete or steer a queued message by its ID.
+ */
+export interface PendingUserMessage {
+  /** Channel message ID that Dex assigned when the message was published. Wire field: `message_id`. */
+  readonly messageId: string;
+  /** The user message. Wire field: `message`. */
+  readonly message: AgentUserMessage;
+}
+
+/**
+ * Input of the `steer_user_message` RPC. Set exactly one field: `messageId` moves a queued message, and `text`
+ * sends a new one.
+ *
+ * @example
+ * ```ts
+ * await client.invokeRPC(flow.steerUserMessage, sessionId, { messageId: null, text: "Use staging instead" });
+ * const [queued] = (await client.invokeRPC(flow.getAgentSnapshot, sessionId)).queuedMessages ?? [];
+ * if (queued !== undefined) {
+ *   await client.invokeRPC(flow.steerUserMessage, sessionId, { messageId: queued.messageId, text: null });
+ * }
+ * ```
+ */
+export interface SteerUserMessageRequest {
+  /** {@link PendingUserMessage.messageId} of a queued message, or `null`. Wire field: `message_id`. */
+  readonly messageId: string | null;
+  /** Text of a new steered message, or `null`. Wire field: `text`. */
+  readonly text: string | null;
+}
+
+/** Input of the `delete_queued_message` RPC. */
+export interface DeleteQueuedMessageRequest {
+  /** {@link PendingUserMessage.messageId} of a queued message. Wire field: `message_id`. */
+  readonly messageId: string;
+}
+
+/** Input of the `cancel_turn` RPC. */
+export interface CancelTurnRequest {
+  /**
+   * The turn to stop, or `null` for whichever turn is active. A turn ID that is not the active turn makes the
+   * RPC return `false`. Wire field: `turn_id`.
+   */
+  readonly turnId: string | null;
+}
+
+/** Name of the RPC that published one {@link TurnControlRequest}. */
+export type TurnControlKind = "steer" | "cancel_turn";
+
+/**
+ * Wake-up of a waiting session Step, published to the internal `TurnControlRequests` Channel by
+ * `steer_user_message` and `cancel_turn`. The session decides from `SteeredUserMessages` and
+ * `TurnCancellationRequest`, not from this message.
+ */
+export interface TurnControlRequest {
+  /** The RPC that published it. Wire field: `kind`. */
+  readonly kind: TurnControlKind;
+}
+
+/**
+ * The latest `cancel_turn` request, stored in the `TurnCancellationRequest` Attribute. A turn is cancelled while
+ * `turnId` equals `AgentState.activeTurnId`. Turn IDs never repeat, so a request for an earlier turn never matches.
+ */
+export interface TurnCancellationRequest {
+  /** The turn to stop. Wire field: `turn_id`. */
+  readonly turnId: string;
+  /** RFC 3339 time of the request. Wire field: `requested_at`. */
+  readonly requestedAt: string;
+}
+
+/**
+ * Wake-up of the Step that waits on one tool call, published by `ResumeTurn` to the internal
+ * `ToolCallCancellations` ChannelMap instance named by the tool call ID. The waiting Step decides from the
+ * session's flags, not from this message.
+ */
+export interface ToolCallCancellation {
+  /** Why the turn ends. Wire field: `reason`. */
+  readonly reason: ToolCallCancellationReason;
+}
+
+/**
  * Standard type of one {@link AgentEvent}. Adapters may write other types with an adapter prefix.
  *
  * Payloads are JSON objects with snake_case keys, serialized with sorted keys:
  * - `turn_started`: `{"sequence"}`, the sequence of the user message that started the turn.
  * - `turn_completed`: `{"message_count"}`, the number of messages the turn appended.
  * - `turn_failed`: `{"error"}`.
+ * - `turn_steered`: `{"steered_message_count","message_count"}`, when steering ended the turn before its final
+ *   answer: the steered messages that start the next turn, and the messages the ended turn appended. Treat it
+ *   like `turn_completed`.
+ * - `turn_cancelled`: `{"message_count"}`, when `cancel_turn` ended the turn before its final answer. Treat it
+ *   like `turn_completed`.
  * - `text_delta` and `reasoning_delta`: `{"text"}`.
  * - `tool_call_started`: `{"tool_call_id","tool_name"}`.
  * - `tool_call_finished`: `{"tool_call_id","tool_name","status"}`, when a record becomes final,
@@ -467,7 +592,7 @@ export interface AgentUserMessage {
  *   `allows_free_text` is `true`.
  * - `interrupt_resolved`: `{"interrupt_id","kind","approved","answered","rejection_message",
  *   "cancellation_reason"}`. `answered` is `true` only for an answered question. `cancellation_reason`
- *   is always `null` in this release.
+ *   is `"steered"` or `"turn_cancelled"` when steering or `cancel_turn` abandoned the call, otherwise `null`.
  * - `timer_started`: `{"tool_call_id","wait_until","reason"}`, when a `durable_wait` call starts its Timer.
  * - `plan_updated`: `{"revision","status","task_count"}`, when `write_todos` replaced the plan or an
  *   approval marked a draft `active`.
@@ -479,6 +604,8 @@ export type AgentEventType =
   | "turn_started"
   | "turn_completed"
   | "turn_failed"
+  | "turn_steered"
+  | "turn_cancelled"
   | "text_delta"
   | "reasoning_delta"
   | "tool_call_started"
@@ -506,8 +633,8 @@ export interface AgentEvent {
    * Group live text by `(turnId, stepExecutionId, attempt)`. Within one `stepExecutionId`, keep only the
    * events of the highest `attempt` seen and drop the partial text of lower attempts. Different
    * `stepExecutionId` values of one turn are its model calls and tool Steps, and each keeps its
-   * own events. After `turn_completed` or `turn_failed`, replace the turn's live text with the stored
-   * messages.
+   * own events. After `turn_completed`, `turn_failed`, `turn_steered`, or `turn_cancelled`, replace the
+   * turn's live text with the stored messages.
    */
   readonly stepExecutionId: string;
   /** Event payload as JSON text. Wire field: `payload`. */
@@ -565,6 +692,14 @@ export interface AgentSnapshot {
    * there is none; a decoded snapshot omits it then, like the other fields plans added.
    */
   readonly plan?: AgentPlan | null;
+  /**
+   * Those queued messages with their Channel message IDs, oldest first; pass an ID to `delete_queued_message` or
+   * `steer_user_message`. Wire field: `queued_messages`. Snapshots the session returns always carry it and the
+   * field below; they are optional so that 0.1.0 code that builds snapshots keeps compiling.
+   */
+  readonly queuedMessages?: readonly PendingUserMessage[];
+  /** Steered messages the session has not applied yet, oldest first. Wire field: `steered_messages`. */
+  readonly steeredMessages?: readonly PendingUserMessage[];
 }
 
 /** Input of the `list_agent_messages` RPC. */
@@ -659,6 +794,19 @@ export const questionDeadlinePassed = "question deadline passed";
 /** Tool result text the model sees when the user declines a question without a message. */
 export const defaultQuestionDeclinedToolResult = "The user declined to answer.";
 
+/** First line of the note `ApplyTurnControl` stores after a steered turn ran tools. */
+export const turnSteeredNoteHeader = "[Dex] The user steered the conversation after these tool calls ran:";
+
+/** First line of the note `ApplyTurnControl` stores after a cancelled turn ran tools. */
+export const turnCancelledNoteHeader = "[Dex] The user stopped the previous turn after these tool calls ran:";
+
+/** Model-visible result of a tool call that steering abandoned before it started; the same text as the Python core. */
+export const toolCallCancelledBySteeringResult =
+  '{"status":"cancelled","reason":"superseded_by_steered_user_message"}';
+
+/** Model-visible result of a tool call that `cancel_turn` abandoned before it started. */
+export const toolCallCancelledByTurnCancellationResult = '{"status":"cancelled","reason":"turn_cancelled_by_user"}';
+
 /**
  * Returns the note text that tells the model what a failed turn already did.
  *
@@ -679,7 +827,15 @@ export const defaultQuestionDeclinedToolResult = "The user declined to answer.";
  * @throws {TypeError} When a record is not final.
  */
 export function buildTurnFailureNote(toolCalls: readonly (AgentToolCall | AgentToolCallRecord)[]): string {
-  const lines = [turnFailureNoteHeader];
+  return buildToolCallNote(turnFailureNoteHeader, toolCalls);
+}
+
+/** Returns a note in the turn-failure note's line format with another first line. */
+export function buildToolCallNote(
+  header: string,
+  toolCalls: readonly (AgentToolCall | AgentToolCallRecord)[],
+): string {
+  const lines = [header];
   for (const toolCall of [...toolCalls].sort((left, right) => left.deferralOrder - right.deferralOrder)) {
     const outcome = describeToolCallOutcome(toolCall);
     lines.push(`- ${toolCall.toolName} ${toolCall.arguments} -> ${toolCall.status}: ${outcome}`);

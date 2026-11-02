@@ -222,8 +222,9 @@ async def stream_agent_event_frames(
     The browser applies the event rules of the session contract. Within one
     ``step_execution_id`` it keeps only the highest ``attempt`` and drops the
     partial text of lower attempts, so a Step retried after a crash shows only
-    its new attempt. After ``turn_completed`` or ``turn_failed`` it replaces the
-    turn's live text with the stored messages. On every connection after a gap,
+    its new attempt. After ``turn_completed``, ``turn_failed``, ``turn_steered``,
+    or ``turn_cancelled`` it replaces the turn's live text with the stored
+    messages. On every connection after a gap,
     load ``read_agent_event_stream_snapshot`` first and open the stream from its
     ``resume_token``. The session ID usually comes from the browser, so the
     route must check that the caller may read that session.

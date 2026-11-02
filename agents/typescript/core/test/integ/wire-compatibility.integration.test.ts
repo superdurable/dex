@@ -75,6 +75,7 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       inputQuestion: null,
       inputChoices: [],
       inputAllowsFreeText: true,
+      cancellationReason: null,
     });
     assert.deepEqual(decodeAgentInterrupt(interruptOf010), {
       interruptId: "call-1",
