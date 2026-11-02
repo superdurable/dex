@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-import React, {type ReactNode} from 'react';
+import React, {type ReactNode, useEffect, useRef} from 'react';
 import clsx from 'clsx';
 import {ThemeClassNames} from '@docusaurus/theme-common';
 import {
@@ -25,35 +25,60 @@ const DOCS_SIDEBAR_DRAWER_ID = 'docs-sidebar-drawer';
 
 export default function NavbarLayout({children}: Props): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const drawerLabel = translate({
+    id: 'shell.docsSidebar.toggleLabel',
+    message: 'Docs menu',
+    description: 'The label of the button that opens the docs sidebar on narrow screens',
+  });
+
+  useEffect(() => {
+    if (!mobileSidebar.shown) {
+      return undefined;
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        mobileSidebar.toggle();
+        toggleRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [mobileSidebar]);
+
   return (
     <>
       {/* Keeps the navbar class: Docusaurus measures .navbar for the TOC highlight. */}
       <header className={clsx(ThemeClassNames.layout.navbar.container, 'navbar', 'sd-header')}>{children}</header>
       <div className="sd-docs-sidebar-bar">
         <button
+          ref={toggleRef}
           type="button"
           className="clean-btn sd-docs-sidebar-toggle"
           aria-controls={DOCS_SIDEBAR_DRAWER_ID}
           aria-expanded={mobileSidebar.shown}
           onClick={mobileSidebar.toggle}>
           <IconMenu width={20} height={20} aria-hidden="true" />
-          {translate({
-            id: 'shell.docsSidebar.toggleLabel',
-            message: 'Docs menu',
-            description: 'The label of the button that opens the docs sidebar on narrow screens',
-          })}
+          {drawerLabel}
         </button>
       </div>
       {/* Outside the header, whose backdrop-filter would clip fixed descendants. */}
       <div className={clsx('sd-docs-sidebar-drawer', {'navbar-sidebar--show': mobileSidebar.shown})}>
         <div role="presentation" className="navbar-sidebar__backdrop" onClick={mobileSidebar.toggle} />
-        <DocsSidebarDrawer />
+        <div
+          id={DOCS_SIDEBAR_DRAWER_ID}
+          role="dialog"
+          aria-modal="true"
+          aria-label={drawerLabel}
+          className={clsx(ThemeClassNames.layout.navbar.mobileSidebar.container, 'navbar-sidebar')}>
+          <DocsSidebarDrawerContent label={drawerLabel} />
+        </div>
       </div>
     </>
   );
 }
 
-function DocsSidebarDrawer(): ReactNode {
+function DocsSidebarDrawerContent({label}: {label: string}): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
   const secondaryMenu = useNavbarSecondaryMenu();
   useLockBodyScroll(mobileSidebar.shown);
@@ -61,17 +86,9 @@ function DocsSidebarDrawer(): ReactNode {
     return null;
   }
   return (
-    <div
-      id={DOCS_SIDEBAR_DRAWER_ID}
-      className={clsx(ThemeClassNames.layout.navbar.mobileSidebar.container, 'navbar-sidebar')}>
+    <>
       <div className="navbar-sidebar__brand sd-docs-sidebar-drawer-header">
-        <span>
-          {translate({
-            id: 'shell.docsSidebar.toggleLabel',
-            message: 'Docs menu',
-            description: 'The label of the button that opens the docs sidebar on narrow screens',
-          })}
-        </span>
+        <span>{label}</span>
         <button
           type="button"
           aria-label={translate({
@@ -89,6 +106,6 @@ function DocsSidebarDrawer(): ReactNode {
           {secondaryMenu.content}
         </div>
       </div>
-    </div>
+    </>
   );
 }

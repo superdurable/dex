@@ -32,20 +32,24 @@ export default function LocaleDropdownNavbarItem({mobile, queryString = ''}: Pro
   const currentLocaleLabel = localeConfigs[currentLocale]!.label;
 
   // Full page loads: each locale is a separate build.
-  const localeLinks = locales.map((locale) => (
-    <a
-      key={locale}
-      href={`${alternatePageUtils.createUrl({locale, fullyQualified: false})}${search}${hash}${queryString}`}
-      lang={localeConfigs[locale]!.htmlLang}
-      aria-current={locale === currentLocale ? 'true' : undefined}
-      onClick={() => {
-        if (isDocsLocale(locale)) {
-          persistDocsLocale(locale);
-        }
-      }}>
-      {localeConfigs[locale]!.label}
-    </a>
-  ));
+  const localeLinks = locales.map((locale) => {
+    const persistLocale = () => {
+      if (isDocsLocale(locale)) {
+        persistDocsLocale(locale);
+      }
+    };
+    return (
+      <a
+        key={locale}
+        href={`${alternatePageUtils.createUrl({locale, fullyQualified: false})}${search}${hash}${queryString}`}
+        lang={localeConfigs[locale]!.htmlLang}
+        aria-current={locale === currentLocale ? 'true' : undefined}
+        onClick={persistLocale}
+        onAuxClick={persistLocale}>
+        {localeConfigs[locale]!.label}
+      </a>
+    );
+  });
 
   if (mobile) {
     return (

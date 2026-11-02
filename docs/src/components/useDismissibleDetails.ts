@@ -10,7 +10,7 @@
 
 import {type RefObject, useEffect} from 'react';
 
-// Closes an open details element on Escape, refocusing its summary, and on an outside pointer press.
+// Closes an open details element on Escape (refocusing its summary), outside pointer presses, and focus leaving it.
 export function useDismissibleDetails(detailsRef: RefObject<HTMLDetailsElement | null>): void {
   useEffect(() => {
     const details = detailsRef.current;
@@ -29,11 +29,18 @@ export function useDismissibleDetails(detailsRef: RefObject<HTMLDetailsElement |
         details.open = false;
       }
     };
+    const closeOnFocusLeaving = (event: FocusEvent) => {
+      if (details.open && event.relatedTarget instanceof Node && !details.contains(event.relatedTarget)) {
+        details.open = false;
+      }
+    };
     document.addEventListener('keydown', closeOnEscape);
     document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    details.addEventListener('focusout', closeOnFocusLeaving);
     return () => {
       document.removeEventListener('keydown', closeOnEscape);
       document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
+      details.removeEventListener('focusout', closeOnFocusLeaving);
     };
   }, [detailsRef]);
 }
