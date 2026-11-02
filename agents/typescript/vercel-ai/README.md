@@ -274,7 +274,8 @@ becomes `openai`, `anthropic.messages` becomes `anthropic`,
 `mistral`, `cohere`, `groq`, `deepseek`, `perplexity`, `xai`, and `moonshotai`
 providers become `mistral`, `cohere`, `groq`, `deepseek`, `perplexity`, `x_ai`,
 and `moonshot_ai`. Any other ID, such as `gateway`, an OpenAI-compatible
-provider, or a custom provider name, passes through unchanged.
+provider, or a custom provider name, passes through without its API suffix:
+`togetherai.chat` becomes `togetherai`.
 
 When the provider sends no response ID or response model, the AI SDK fills in
 a generated ID and the requested model ID, and its public API does not say

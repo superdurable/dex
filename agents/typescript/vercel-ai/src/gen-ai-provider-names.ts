@@ -32,7 +32,8 @@ const genAIProviderNamesByProviderIdPrefix: ReadonlyMap<string, string> = new Ma
 
 /**
  * Maps a provider ID such as `openai.responses` to its well-known `gen_ai.provider.name`.
- * @returns The value for the provider ID's longest known dot-separated prefix, or the provider ID unchanged.
+ * @returns The value for the provider ID's longest known dot-separated prefix, or else the provider ID's
+ * first dot-separated segment, such as `togetherai` for `togetherai.chat`.
  */
 export function toGenAIProviderName(providerId: string): string {
   const segments = providerId.toLowerCase().split(".");
@@ -42,5 +43,6 @@ export function toGenAIProviderName(providerId: string): string {
       return genAIProviderName;
     }
   }
-  return providerId;
+  // The segments after the first name the provider's API, such as chat or responses.
+  return providerId.split(".")[0] ?? providerId;
 }

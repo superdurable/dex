@@ -99,10 +99,12 @@ Step: OpenTelemetry errors are logged and the span is skipped.
     finish reason. ADK keeps no response ID and names no provider.
   - Vercel AI SDK and Mastra: the model ID, the provider ID by its longest
     known prefix (`openai.responses` becomes `openai`, `google.vertex.chat`
-    becomes `gcp.vertex_ai`), the response model when it differs from the
-    requested one, and the finish reason. They report no response ID: when
-    the provider sends none, the AI SDK and Mastra fill in a generated ID and
-    the requested model, and their public APIs do not say which it is.
+    becomes `gcp.vertex_ai`; an unknown ID keeps its first segment, so
+    `togetherai.chat` becomes `togetherai`), the response model when it
+    differs from the requested one, and the finish reason. They report no
+    response ID: when the provider sends none, the AI SDK and Mastra fill in
+    a generated ID and the requested model, and their public APIs do not say
+    which it is.
   - Claude Agent SDK, Python and TypeScript: the model of the CLI's `init`
     message, the provider from the result's model usage (`firstParty`
     becomes `anthropic`, `bedrock` and `mantle` become `aws.bedrock`, `vertex`
@@ -221,6 +223,11 @@ model-visible text. Everything is inert until an application enables it.
   code that assigns them to `AgentToolCall` must widen the type.
   `AgentToolCallStatus`, which runners see, keeps its six values. Every other
   0.1.0 type still accepts 0.1.0 code: new fields are optional.
+- TypeScript Claude Agent SDK: `AgentUsage.modelCalls` counts a subagent's
+  model calls, as the Python adapter always did; 0.1.0 counted only the main
+  conversation. The `AgentUsage` Attribute is cumulative, so in a session that
+  started on 0.1.0 the total mixes both meanings: turns that ran on 0.1.0 count
+  main-conversation calls only, and later turns count subagent calls too.
 - The Python adapters' lockfiles record the core's new extras; adapter code is
   unchanged.
 
