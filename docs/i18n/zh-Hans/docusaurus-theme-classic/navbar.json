@@ -7,13 +7,25 @@
     "message": "Super Durable",
     "description": "The alt text of navbar logo"
   },
-  "item.label.Platform": {
-    "message": "平台",
-    "description": "Navbar item with label Platform"
+  "item.label.Dex Engine": {
+    "message": "Dex Engine",
+    "description": "Navbar item with label Dex Engine"
   },
-  "item.label.Engine": {
-    "message": "引擎",
-    "description": "Navbar item with label Engine"
+  "item.label.Dex Cloud": {
+    "message": "Dex Cloud",
+    "description": "Navbar item with label Dex Cloud"
+  },
+  "item.label.Dex Connectors": {
+    "message": "Dex Connectors",
+    "description": "Navbar item with label Dex Connectors"
+  },
+  "item.label.Dex Docs": {
+    "message": "Dex 文档",
+    "description": "Navbar item with label Dex Docs"
+  },
+  "item.label.Blog": {
+    "message": "博客",
+    "description": "Navbar item with label Blog"
   },
   "item.label.About": {
     "message": "关于",

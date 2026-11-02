@@ -14,21 +14,57 @@ import type {Config, LoadContext} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import redirects from './redirects.json';
 
-const companyProductNavigation = {
-  navbar: [
-    {label: 'Platform', href: 'https://superdurable.ai/dex-ai/', position: 'left', target: '_self'},
-    {label: 'Engine', href: 'https://superdurable.ai/dex-engine/', position: 'left', target: '_self', className: 'navbar__link--active', 'aria-current': 'page'},
+// src/theme/Navbar/Content renders left items as the site row and right items as the actions.
+const companyHeaderNavigation = {
+  sites: [
+    {label: 'Dex Engine', href: 'https://superdurable.io/dex-engine/', position: 'left'},
+    {label: 'Dex Cloud', href: 'https://superdurable.io/dex-cloud/', position: 'left'},
+    {label: 'Dex Connectors', href: 'https://connectors.superdurable.io/', position: 'left'},
+    {label: 'Dex Docs', href: 'https://docs.superdurable.io/', position: 'left', 'aria-current': 'page'},
+    {label: 'Blog', href: 'https://superdurable.io/blog/', position: 'left'},
+    {label: 'About', href: 'https://superdurable.io/about/', position: 'left'},
   ],
-  account: [{label: 'Log in', href: 'https://dex.superdurable.ai/login', position: 'right', target: '_self'}],
-  footer: [{
-    title: 'Products',
-    items: [
-      {label: 'Dex AI Platform', href: 'https://superdurable.ai/dex-ai/', target: '_self'},
-      {label: 'Managed Dex Engine', href: 'https://superdurable.ai/dex-engine/', target: '_self'},
-      {label: 'Dex (open source)', href: 'https://github.com/superdurable', target: '_self'},
-    ],
-  }],
-} satisfies {navbar: NonNullable<Preset.ThemeConfig['navbar']>['items']; account: NonNullable<Preset.ThemeConfig['navbar']>['items']; footer: NonNullable<Preset.ThemeConfig['footer']>['links']};
+  actions: [
+    {type: 'localeDropdown', position: 'right'},
+    {label: 'GitHub', href: 'https://github.com/superdurable', position: 'right'},
+    {label: 'Log in', href: 'https://dex.superdurable.io/login', position: 'right'},
+    {label: 'Sign up', href: 'https://dex.superdurable.io/register', position: 'right', className: 'sd-button sd-button-primary'},
+  ],
+  footer: [
+    {
+      title: 'Products',
+      items: [
+        {label: 'Dex Engine', href: 'https://superdurable.io/dex-engine/', target: '_self'},
+        {label: 'Dex Cloud', href: 'https://superdurable.io/dex-cloud/', target: '_self'},
+        {label: 'Dex Connectors', href: 'https://connectors.superdurable.io/', target: '_self'},
+      ],
+    },
+    {
+      title: 'Developers',
+      items: [
+        {label: 'Dex Docs', to: '/'},
+        {label: 'Quick start', to: '/quick-start'},
+        {label: 'GitHub', href: 'https://github.com/superdurable', target: '_self'},
+        {label: 'Compare engines', href: 'https://superdurable.io/#compare', target: '_self'},
+      ],
+    },
+    {
+      title: 'Company',
+      items: [
+        {label: 'About', href: 'https://superdurable.io/about/', target: '_self'},
+        {label: 'Blog', href: 'https://superdurable.io/blog/', target: '_self'},
+        {label: 'Contact', href: 'https://superdurable.io/about/#contact', target: '_self'},
+      ],
+    },
+    {
+      title: 'Legal',
+      items: [
+        {label: 'Terms of Service', href: 'https://superdurable.io/terms/', target: '_self'},
+        {label: 'Privacy Policy', href: 'https://superdurable.io/privacy/', target: '_self'},
+      ],
+    },
+  ],
+} satisfies {sites: NonNullable<Preset.ThemeConfig['navbar']>['items']; actions: NonNullable<Preset.ThemeConfig['navbar']>['items']; footer: NonNullable<Preset.ThemeConfig['footer']>['links']};
 
 const config: Config = {
   title: 'Super Durable Docs',
@@ -66,7 +102,22 @@ const config: Config = {
       innerHTML: `
 (function () {
   try {
-    window.localStorage.removeItem('theme');
+    var cookieMatch = document.cookie.match(/(?:^|; )superdurable-theme=(light|dark)(?:;|$)/);
+    var cookieTheme = cookieMatch ? cookieMatch[1] : null;
+    var storedTheme = window.localStorage.getItem('superdurable-theme');
+    var hasStoredTheme = storedTheme === 'dark' || storedTheme === 'light';
+    var chosenTheme = cookieTheme || (hasStoredTheme ? storedTheme : null);
+    // Docusaurus's color mode script reads 'theme'. Without a shared choice, follow the system.
+    if (chosenTheme) {
+      window.localStorage.setItem('theme', chosenTheme);
+    } else {
+      window.localStorage.removeItem('theme');
+    }
+    if (!cookieTheme && hasStoredTheme) {
+      var isSuperDurableDomain = location.hostname === 'superdurable.io' || location.hostname.endsWith('.superdurable.io');
+      document.cookie = 'superdurable-theme=' + storedTheme + '; Path=/; Max-Age=31536000; SameSite=Lax' +
+        (isSuperDurableDomain ? '; Domain=.superdurable.io; Secure' : '');
+    }
   } catch (_) {}
 })();
 (function () {
@@ -89,7 +140,7 @@ const config: Config = {
     locales: ['en', 'zh-Hans'],
     localeConfigs: {
       en: {label: 'English', htmlLang: 'en'},
-      'zh-Hans': {label: '中文', htmlLang: 'zh-Hans'},
+      'zh-Hans': {label: '简体中文', htmlLang: 'zh-Hans'},
     },
   },
 
@@ -105,7 +156,7 @@ const config: Config = {
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: ['./src/css/custom.css', './src/css/site-header.css'],
         },
         sitemap: {
           changefreq: 'daily',
@@ -169,7 +220,8 @@ const config: Config = {
     image: 'img/brand/dex-social.png',
     colorMode: {
       defaultMode: 'light',
-      disableSwitch: true,
+      // No toggle renders. disableSwitch would delete the shared theme choice and reset other tabs.
+      disableSwitch: false,
       respectPrefersColorScheme: true,
     },
     navbar: {
@@ -177,39 +229,14 @@ const config: Config = {
       logo: {
         alt: 'Super Durable',
         src: 'img/brand/dex-mark.svg',
-        href: 'https://superdurable.ai/',
+        href: 'https://superdurable.io/',
         target: '_self',
       },
-      items: [
-        ...companyProductNavigation.navbar,
-        {label: 'About', href: 'https://superdurable.ai/about/', position: 'left', target: '_self'},
-        {type: 'localeDropdown', position: 'right'},
-        {label: 'GitHub', href: 'https://github.com/superdurable', position: 'right', target: '_self'},
-        ...companyProductNavigation.account,
-        {label: 'Sign up', href: 'https://dex.superdurable.ai/register', position: 'right', className: 'header-signup-link', target: '_self'},
-      ],
+      items: [...companyHeaderNavigation.sites, ...companyHeaderNavigation.actions],
     },
     footer: {
       style: 'light',
-      links: [
-        ...companyProductNavigation.footer,
-        {
-          title: 'Developers',
-          items: [
-            {label: 'Docs', to: '/'},
-            {label: 'Quick start', to: '/quick-start'},
-            {label: 'GitHub', href: 'https://github.com/superdurable', target: '_self'},
-            {label: 'Compare engines', href: 'https://superdurable.ai/compare/', target: '_self'},
-          ],
-        },
-        {
-          title: 'Company',
-          items: [
-            {label: 'About', href: 'https://superdurable.ai/about/', target: '_self'},
-            {label: 'Contact', href: 'https://superdurable.ai/about/#contact', target: '_self'},
-          ],
-        },
-      ],
+      links: companyHeaderNavigation.footer,
       copyright: `© ${new Date().getFullYear()} Super Durable, Inc.`,
     },
     prism: {

@@ -1,0 +1,26 @@
+{
+  "shell.header.homeAriaLabel": {
+    "message": "Super Durable 首页",
+    "description": "The accessible name of the header wordmark link"
+  },
+  "shell.header.primaryNavigationAriaLabel": {
+    "message": "主导航",
+    "description": "The ARIA label of the header site links"
+  },
+  "shell.header.mobileNavigationAriaLabel": {
+    "message": "移动端导航",
+    "description": "The ARIA label of the header mobile menu links"
+  },
+  "shell.header.menu": {
+    "message": "菜单",
+    "description": "The visible label of the header mobile menu"
+  },
+  "shell.header.languageAriaLabel": {
+    "message": "语言",
+    "description": "The ARIA label of the header locale switch"
+  },
+  "shell.docsSidebar.toggleLabel": {
+    "message": "文档目录",
+    "description": "The label of the button that opens the docs sidebar on narrow screens"
+  }
+}
