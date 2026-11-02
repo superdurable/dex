@@ -15,10 +15,13 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
+import type { BuiltInTool } from "./agent-built-in-tools.js";
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
 import {
   resolveToolPolicy,
   type AgentFrameworkRunner,
+  type AgentTurnContext,
+  type DeferredToolOutcome,
   type ResolvedToolPolicy,
   type ToolPolicy,
 } from "./agent-framework-runner.js";
@@ -27,10 +30,14 @@ import type { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
   addAgentUsage,
   emptyAgentUsage,
+  isFinalToolCallStatus,
   type AgentInterrupt,
+  type AgentInterruptKind,
   type AgentMessage,
   type AgentState,
   type AgentToolCall,
+  type AgentToolCallRecord,
+  type AgentToolCallStatus,
   type AgentUsage,
   type FrameworkMessage,
   type ToolEffect,
@@ -42,6 +49,8 @@ export const agentSessionStepTypes = {
   awaitUserMessage: "AwaitUserMessage",
   runModel: "RunModel",
   awaitToolApproval: "AwaitToolApproval",
+  awaitQuestionAnswer: "AwaitQuestionAnswer",
+  awaitTimer: "AwaitTimer",
   callTool: "CallTool",
   callSingleAttemptTool: "CallSingleAttemptTool",
   recordToolFailure: "RecordToolFailure",
@@ -49,6 +58,15 @@ export const agentSessionStepTypes = {
   resumeTurn: "ResumeTurn",
   recordTurnFailure: "RecordTurnFailure",
 } as const;
+
+/** Fields of one `interrupt_resolved` event. */
+export interface InterruptResolvedEvent {
+  readonly interruptId: string;
+  readonly kind: AgentInterruptKind;
+  readonly isApproved: boolean;
+  readonly isAnswered: boolean;
+  readonly rejectionMessage: string | null;
+}
 
 // Keeps liveness well inside the shortest heartbeat timeout, one minute.
 const heartbeatIntervalMs = 20_000;
@@ -60,13 +78,15 @@ export interface AgentSessionConfig {
   readonly eventStreamCapacityBytes: number;
   readonly interruptDeadlineMs: number | undefined;
   readonly tracing: ResolvedAgentTracingOptions;
+  readonly builtInTools: ReadonlySet<BuiltInTool>;
+  readonly maxDurableWaitMs: number;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
 export class AgentSessionTransitions {
   public constructor(
     public readonly persistence: AgentSessionPersistence,
-    public readonly runner: AgentFrameworkRunner,
+    public readonly runner: AgentFrameworkRunner<DeferredToolOutcome>,
     public readonly config: AgentSessionConfig,
     public readonly tracer: AgentSessionTracer,
   ) {}
@@ -110,7 +130,7 @@ export class AgentSessionTransitions {
   }
 
   /** Returns the turn's tool call records in deferral order; requires the AgentToolCalls load. */
-  public readTurnToolCalls(context: Context, turnId: string | null): AgentToolCall[] {
+  public readTurnToolCalls(context: Context, turnId: string | null): AgentToolCallRecord[] {
     if (turnId === null) {
       return [];
     }
@@ -123,8 +143,8 @@ export class AgentSessionTransitions {
   }
 
   /** Returns one tool call record; requires the AgentToolCalls load. */
-  public readToolCall(context: Context, toolCallId: string): AgentToolCall {
-    const toolCall = this.persistence.agentToolCalls.get(context, toolCallId) as AgentToolCall | undefined;
+  public readToolCall(context: Context, toolCallId: string): AgentToolCallRecord {
+    const toolCall = this.persistence.agentToolCalls.get(context, toolCallId) as AgentToolCallRecord | undefined;
     if (toolCall === undefined) {
       throw new Error(`tool call ${toolCallId} has no record in session ${context.flowId}`);
     }
@@ -136,8 +156,91 @@ export class AgentSessionTransitions {
     this.persistence.toolCallResults.publish(context, { toolCallId });
   }
 
-  public writeToolCall(context: Context, toolCall: AgentToolCall): void {
+  public writeToolCall(context: Context, toolCall: AgentToolCallRecord): void {
     this.persistence.agentToolCalls.set(context, toolCall.toolCallId, toolCall);
+  }
+
+  /**
+   * Writes a final record, its `tool_call_finished` event, and its `ToolCallResults` notice in one commit.
+   * Pass the Step's open events writer, if it has one, so the event keeps its order.
+   */
+  public finishToolCall(context: Context, toolCall: AgentToolCallRecord, events?: StreamAgentEventWriter): void {
+    if (!isFinalToolCallStatus(toolCall.status)) {
+      throw new TypeError(`tool call ${toolCall.toolCallId} is not final: ${toolCall.status}`);
+    }
+    this.writeToolCall(context, toolCall);
+    const finalStatus = toolCall.status as AgentToolCallStatus;
+    if (events === undefined) {
+      this.writeEvents(context, toolCall.turnId, (writer) =>
+        writer.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, finalStatus),
+      );
+    } else {
+      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, finalStatus);
+    }
+    this.publishToolCallResult(context, toolCall.toolCallId);
+  }
+
+  public writeInterruptRaised(events: StreamAgentEventWriter, interrupt: AgentInterrupt): void {
+    events.writeEvent("interrupt_raised", {
+      interrupt_id: interrupt.interruptId,
+      kind: interrupt.kind,
+      tool_call_id: interrupt.toolCallId,
+      tool_name: interrupt.toolName,
+      deadline: interrupt.deadline,
+      question: interrupt.question ?? null,
+      choices: interrupt.choices ?? [],
+      allows_free_text: interrupt.allowsFreeText ?? true,
+    });
+  }
+
+  public writeInterruptResolved(context: Context, turnId: string, resolution: InterruptResolvedEvent): void {
+    this.writeEvents(context, turnId, (events) =>
+      events.writeEvent("interrupt_resolved", {
+        interrupt_id: resolution.interruptId,
+        kind: resolution.kind,
+        approved: resolution.isApproved,
+        answered: resolution.isAnswered,
+        rejection_message: resolution.rejectionMessage,
+        cancellation_reason: null,
+      }),
+    );
+  }
+
+  /** Builds the runner's view of a turn; every record must be final. */
+  public createTurnContext(
+    context: Context,
+    state: AgentState,
+    turnId: string,
+    toolCalls: readonly AgentToolCallRecord[],
+    events: StreamAgentEventWriter,
+    heartbeat: () => Promise<void>,
+  ): AgentTurnContext {
+    const runnerToolCalls = toolCalls.map(toRunnerToolCall);
+    const toolCallsById = new Map(runnerToolCalls.map((toolCall) => [toolCall.toolCallId, toolCall]));
+    const frameworkRunState = this.readFrameworkRunState(context);
+    return {
+      flowId: context.flowId,
+      turnId,
+      attempt: context.attempt,
+      stepExecutionId: context.stepExecutionId,
+      messages: this.readMessages(context, 1, state.nextMessageSequence),
+      frameworkRunState,
+      isResuming: frameworkRunState !== null,
+      toolCalls: runnerToolCalls,
+      events,
+      cancellationSignal: context.cancellationSignal,
+      deadline: context.deadline,
+      enabledBuiltInTools: this.config.builtInTools,
+      toolPolicies: this.config.toolPolicies,
+      defaultToolEffect: this.config.defaultToolEffect,
+      resolveToolPolicy: (toolName, frameworkEffect) => this.resolveToolPolicy(toolName, frameworkEffect),
+      recordedToolCall: (toolCallId) => toolCallsById.get(toolCallId),
+      heartbeat,
+    };
+  }
+
+  public isEnabledBuiltInTool(toolName: string): toolName is BuiltInTool {
+    return this.config.builtInTools.has(toolName as BuiltInTool);
   }
 
   /** Appends messages, writes the advanced AgentState, and returns it. */
@@ -277,6 +380,14 @@ export class ToolStepHeartbeats {
     this.checkpoint = checkpoint;
     return this.record();
   }
+}
+
+/** Returns a record as a runner sees it; only records that runners may see are accepted. */
+export function toRunnerToolCall(record: AgentToolCallRecord): AgentToolCall {
+  if (record.status === "awaiting_answer" || record.status === "waiting_for_timer") {
+    throw new TypeError(`tool call ${record.toolCallId} is still ${record.status}`);
+  }
+  return record as AgentToolCall;
 }
 
 export function toolStepTypeForEffect(effect: ToolEffect): string {

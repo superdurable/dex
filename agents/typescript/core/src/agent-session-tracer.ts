@@ -21,6 +21,7 @@ import {
   describeToolCallOutcome,
   type AgentMessage,
   type AgentToolCall,
+  type AgentToolCallRecord,
   type AgentUsage,
   type FrameworkMessage,
 } from "./agent-session-values.js";
@@ -48,7 +49,7 @@ export interface ModelCallSpan {
 
 /** Records the final record of one tool Step attempt on its `execute_tool` span. */
 export interface ToolCallSpan {
-  recordFinished(finishedToolCall: AgentToolCall): void;
+  recordFinished(finishedToolCall: AgentToolCall | AgentToolCallRecord): void;
 }
 
 const unrecordedActivation: ActivationSpan = Object.freeze({ traceparent: null });
@@ -167,7 +168,7 @@ export class AgentSessionTracer {
   public async traceToolCall<Result>(
     context: Context,
     stepType: string,
-    toolCall: AgentToolCall,
+    toolCall: AgentToolCall | AgentToolCallRecord,
     run: (toolCallSpan: ToolCallSpan) => Promise<Result>,
   ): Promise<Result> {
     const tracing = this.resolveTracing();
@@ -440,7 +441,7 @@ class RecordingToolCallSpan implements ToolCallSpan {
     private readonly shouldCaptureContent: boolean,
   ) {}
 
-  public recordFinished(finishedToolCall: AgentToolCall): void {
+  public recordFinished(finishedToolCall: AgentToolCall | AgentToolCallRecord): void {
     callSafely("record the tool call outcome", () => {
       const span = this.span;
       if (!span.isRecording()) {

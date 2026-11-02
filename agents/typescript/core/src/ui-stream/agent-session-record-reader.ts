@@ -10,9 +10,10 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { FlowNotFoundError, type AttributeRead, type Client } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import { messageSequenceKey } from "../agent-session-persistence.js";
-import type { AgentMessage, AgentState, AgentToolCall } from "../agent-session-values.js";
+import type { AgentMessage, AgentState, AgentToolCallRecord } from "../agent-session-values.js";
 import { parseTurnNumber } from "./agent-event-stream-positions.js";
 
 const committedRecordWaitMs = 3_000;
@@ -24,7 +25,7 @@ const recentStoredMessageCount = 200;
 export class AgentSessionRecordReader {
   public constructor(
     private readonly client: Client,
-    private readonly flow: AgentSessionFlow,
+    private readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
     private readonly flowId: string,
   ) {}
 
@@ -73,7 +74,7 @@ export class AgentSessionRecordReader {
   public async readToolCallDetails(
     turnId: string,
     toolCallId: string,
-    isReady: (toolCall: AgentToolCall) => boolean,
+    isReady: (toolCall: AgentToolCallRecord) => boolean,
   ): Promise<ToolCallDetails> {
     const record = await this.waitForToolCall(turnId, toolCallId, isReady);
     if (record !== undefined) {
@@ -91,8 +92,8 @@ export class AgentSessionRecordReader {
   private async waitForToolCall(
     turnId: string,
     toolCallId: string,
-    isReady: (toolCall: AgentToolCall) => boolean,
-  ): Promise<AgentToolCall | undefined> {
+    isReady: (toolCall: AgentToolCallRecord) => boolean,
+  ): Promise<AgentToolCallRecord | undefined> {
     const deadline = Date.now() + committedRecordWaitMs;
     for (;;) {
       const [record] = await this.client.getAttributes(
@@ -114,7 +115,7 @@ export class AgentSessionRecordReader {
    * Waits up to 3 seconds for a tool call record to be committed, because events precede their commit.
    * @returns The record, or `undefined` when it never appeared or the turn is no longer active.
    */
-  public async readCommittedToolCall(turnId: string, toolCallId: string): Promise<AgentToolCall | undefined> {
+  public async readCommittedToolCall(turnId: string, toolCallId: string): Promise<AgentToolCallRecord | undefined> {
     return this.waitForToolCall(turnId, toolCallId, () => true);
   }
 
@@ -122,7 +123,7 @@ export class AgentSessionRecordReader {
    * Reads one tool call record once, without waiting for a commit.
    * @returns The record when it exists and belongs to `turnId`, otherwise `undefined`.
    */
-  public async readToolCall(turnId: string, toolCallId: string): Promise<AgentToolCall | undefined> {
+  public async readToolCall(turnId: string, toolCallId: string): Promise<AgentToolCallRecord | undefined> {
     const [record] = await this.client.getAttributes(this.flowId, this.flow.agentToolCalls.instance(toolCallId));
     return record?.turnId === turnId ? record : undefined;
   }
@@ -203,7 +204,7 @@ export class AgentSessionRecordReader {
 
 /** What the session holds about one tool call; see {@link AgentSessionRecordReader.readToolCallDetails}. */
 export interface ToolCallDetails {
-  readonly record: AgentToolCall | undefined;
+  readonly record: AgentToolCallRecord | undefined;
   readonly toolName: string | undefined;
   readonly toolArguments: string | undefined;
   readonly storedToolOutput: string | undefined;

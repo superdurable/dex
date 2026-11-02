@@ -11,6 +11,7 @@ import { jsonCodec, type Codec } from "@superdurable/dex";
 import type {
   AgentEvent,
   AgentInterrupt,
+  AgentInterruptKind,
   AgentInterruptResolution,
   AgentMessage,
   AgentMessageRole,
@@ -19,11 +20,13 @@ import type {
   AgentSessionStatus,
   AgentSnapshot,
   AgentState,
-  AgentToolCall,
-  AgentToolCallStatus,
+  AgentToolCallRecord,
+  AgentToolCallRecordStatus,
   AgentUsage,
   AgentUserMessage,
+  AnswerQuestionRequest,
   ListAgentMessagesInput,
+  QuestionAnswer,
   ResolveInterruptInput,
   ToolCallCompleted,
   ToolEffect,
@@ -43,14 +46,17 @@ const toolEffects: readonly ToolEffect[] = [
   "non_idempotent_write",
   "unclassified",
 ];
-const agentToolCallStatuses: readonly AgentToolCallStatus[] = [
+const agentToolCallStatuses: readonly AgentToolCallRecordStatus[] = [
   "awaiting_approval",
   "approved",
+  "awaiting_answer",
+  "waiting_for_timer",
   "rejected",
   "succeeded",
   "failed",
   "outcome_unknown",
 ];
+const agentInterruptKinds: readonly AgentInterruptKind[] = ["tool_approval", "question"];
 
 class WireRecordReader {
   private readonly record: Readonly<Record<string, unknown>>;
@@ -103,6 +109,27 @@ class WireRecordReader {
       return null;
     }
     return this.readInteger(field);
+  }
+
+  public readBooleanOrDefault(field: string, defaultValue: boolean): boolean {
+    const value = this.record[field];
+    return value === undefined || value === null ? defaultValue : this.readBoolean(field);
+  }
+
+  public readStringArrayOrEmpty(field: string): readonly string[] {
+    const value = this.record[field];
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+      throw new TypeError(`${this.typeName}.${field} must be an array of strings`);
+    }
+    return value;
+  }
+
+  public readArrayOrEmpty(field: string): readonly unknown[] {
+    const value = this.record[field];
+    return value === undefined || value === null ? [] : this.readArray(field);
   }
 
   public readBoolean(field: string): boolean {
@@ -198,7 +225,7 @@ export function decodeAgentMessage(value: unknown): AgentMessage {
   };
 }
 
-export function encodeAgentToolCall(value: AgentToolCall): unknown {
+export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
   return {
     tool_call_id: value.toolCallId,
     turn_id: value.turnId,
@@ -213,13 +240,19 @@ export function encodeAgentToolCall(value: AgentToolCall): unknown {
     deferral_order: value.deferralOrder,
     tool_source_reference: value.toolSourceReference ?? null,
     trace_context: value.traceContext ?? null,
+    wait_until: value.waitUntil,
+    input_continuation: value.inputContinuation,
+    input_answers: value.inputAnswers.map(encodeQuestionAnswer),
+    input_question: value.inputQuestion,
+    input_choices: [...value.inputChoices],
+    input_allows_free_text: value.inputAllowsFreeText,
   };
 }
 
-export function decodeAgentToolCall(value: unknown): AgentToolCall {
+export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
   const reader = new WireRecordReader(value, "AgentToolCall");
   const traceContext = reader.readNullableString("trace_context");
-  const toolCall: AgentToolCall = {
+  const toolCall: AgentToolCallRecord = {
     toolCallId: reader.readString("tool_call_id"),
     turnId: reader.readString("turn_id"),
     toolName: reader.readString("tool_name"),
@@ -231,11 +264,32 @@ export function decodeAgentToolCall(value: unknown): AgentToolCall {
     error: reader.readNullableString("error"),
     rejectionMessage: reader.readNullableString("rejection_message"),
     deferralOrder: reader.readIntegerOrDefault("deferral_order", 0),
+    waitUntil: reader.readNullableString("wait_until"),
+    inputContinuation: reader.readNullableString("input_continuation"),
+    inputAnswers: reader.readArrayOrEmpty("input_answers").map(decodeQuestionAnswer),
+    inputQuestion: reader.readNullableString("input_question"),
+    inputChoices: reader.readStringArrayOrEmpty("input_choices"),
+    inputAllowsFreeText: reader.readBooleanOrDefault("input_allows_free_text", true),
     ...(traceContext === null ? {} : { traceContext }),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
   return toolSourceReference === null ? toolCall : { ...toolCall, toolSourceReference };
 }
+
+export function encodeQuestionAnswer(value: QuestionAnswer): unknown {
+  return { interrupt_id: value.interruptId, question: value.question, answer: value.answer };
+}
+
+export function decodeQuestionAnswer(value: unknown): QuestionAnswer {
+  const reader = new WireRecordReader(value, "QuestionAnswer");
+  return {
+    interruptId: reader.readString("interrupt_id"),
+    question: reader.readString("question"),
+    answer: reader.readString("answer"),
+  };
+}
+
+
 
 export function encodeAgentInterrupt(value: AgentInterrupt): unknown {
   return {
@@ -246,6 +300,9 @@ export function encodeAgentInterrupt(value: AgentInterrupt): unknown {
     arguments: value.arguments,
     created_at: value.createdAt,
     deadline: value.deadline,
+    question: value.question ?? null,
+    choices: [...(value.choices ?? [])],
+    allows_free_text: value.allowsFreeText ?? true,
   };
 }
 
@@ -253,17 +310,20 @@ export function decodeAgentInterrupt(value: unknown): AgentInterrupt {
   const reader = new WireRecordReader(value, "AgentInterrupt");
   return {
     interruptId: reader.readString("interrupt_id"),
-    kind: reader.readEnum("kind", ["tool_approval"] as const),
+    kind: reader.readEnum("kind", agentInterruptKinds),
     toolCallId: reader.readString("tool_call_id"),
     toolName: reader.readString("tool_name"),
     arguments: reader.readString("arguments"),
     createdAt: reader.readString("created_at"),
     deadline: reader.readNullableString("deadline"),
+    question: reader.readNullableString("question"),
+    choices: reader.readStringArrayOrEmpty("choices"),
+    allowsFreeText: reader.readBooleanOrDefault("allows_free_text", true),
   };
 }
 
 export function encodeAgentInterruptResolution(value: AgentInterruptResolution): unknown {
-  return { approved: value.approved, rejection_message: value.rejectionMessage };
+  return { approved: value.approved, rejection_message: value.rejectionMessage, answer: value.answer ?? null };
 }
 
 export function decodeAgentInterruptResolution(value: unknown): AgentInterruptResolution {
@@ -271,7 +331,17 @@ export function decodeAgentInterruptResolution(value: unknown): AgentInterruptRe
   return {
     approved: reader.readBoolean("approved"),
     rejectionMessage: reader.readNullableString("rejection_message"),
+    answer: reader.readNullableString("answer"),
   };
+}
+
+export function encodeAnswerQuestionRequest(value: AnswerQuestionRequest): unknown {
+  return { interrupt_id: value.interruptId, answer: value.answer };
+}
+
+export function decodeAnswerQuestionRequest(value: unknown): AnswerQuestionRequest {
+  const reader = new WireRecordReader(value, "AnswerQuestionRequest");
+  return { interruptId: reader.readString("interrupt_id"), answer: reader.readString("answer") };
 }
 
 export function encodeAgentUsage(value: AgentUsage): unknown {
@@ -456,6 +526,11 @@ export const resolveInterruptInputCodec = snakeCaseJsonCodec(
   "ResolveInterruptInput",
   encodeResolveInterruptInput,
   decodeResolveInterruptInput,
+);
+export const answerQuestionRequestCodec = snakeCaseJsonCodec(
+  "AnswerQuestionRequest",
+  encodeAnswerQuestionRequest,
+  decodeAnswerQuestionRequest,
 );
 export const agentSnapshotCodec = snakeCaseJsonCodec(
   "AgentSnapshot",

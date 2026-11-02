@@ -24,6 +24,7 @@ import {
   type UIMessageChunk,
 } from "ai";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../../src/index.js";
 import type { AgentSessionFlow } from "../../src/index.js";
 import {
   AgentSessionTestClient,
@@ -71,7 +72,7 @@ const workerEntryModulePath = fileURLToPath(
 );
 
 interface ScriptedAgentUIStack {
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   readonly markerDirectory: string;
   readonly sessions: AgentSessionTestClient;
   readonly server: AgentUIStreamTestServer;
@@ -85,7 +86,7 @@ describe("agent UI streams with an in-process Worker", () => {
   before(async () => {
     engine = await PrivateDexEngine.start();
     // Each test gets its own Flow type, so its FileGates are its own.
-    const flowsByName = new Map<string, { flow: AgentSessionFlow; markerDirectory: string }>();
+    const flowsByName = new Map<string, { flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>; markerDirectory: string }>();
     for (const name of [
       "Chat",
       "Reconnect",
@@ -95,10 +96,14 @@ describe("agent UI streams with an in-process Worker", () => {
       "ApprovedReplay",
       "Reload",
       "Events",
+      "Question",
     ]) {
       const markerDirectory = mkdtempSync(join(engine.stateDirectory, `markers-${name}-`));
       flowsByName.set(name, {
-        flow: createScriptedAgentFlow(markerDirectory, { flowType: `UIStream${name}Agent` }),
+        flow: createScriptedAgentFlow(markerDirectory, {
+          flowType: `UIStream${name}Agent`,
+          ...(name === "Question" ? { builtInTools: ["ask_user"] as const } : {}),
+        }),
         markerDirectory,
       });
     }
@@ -293,6 +298,36 @@ describe("agent UI streams with an in-process Worker", () => {
       ]);
     });
   }
+
+  test("a question interrupt streams as event data, not as an approval request, and its answer ends the turn", async () => {
+    const { flow, sessions } = stack("Question");
+    const sessionId = newSessionId("question");
+    await sessions.startSession(sessionId, "call ask_user");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "ask_user");
+    // The stream replays the turn from its first event; a question must not pause it like an approval.
+    const streaming = collectChunks(
+      streamAgentUIMessageChunks({ client: environment.client, flow, flowId: sessionId, pollTimeoutMs: 1_000 }),
+    );
+    await delay(2_000);
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "yes"), true);
+    const chunks = await streaming;
+
+    assert.deepEqual(chunks.filter((chunk) => chunk.type === "tool-approval-request"), []);
+    const interruptEvents = chunks.flatMap((chunk) => {
+      const data = (chunk as { type: string; data?: { type?: string; payload?: string } }).data;
+      return chunk.type === "data-agent-event" && data?.type?.startsWith("interrupt_") === true
+        ? [[data.type, (JSON.parse(data.payload ?? "{}") as { kind?: string }).kind]]
+        : [];
+    });
+    assert.deepEqual(interruptEvents, [
+      ["interrupt_raised", "question"],
+      ["interrupt_resolved", "question"],
+    ]);
+    assert.deepEqual(
+      chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "error"),
+      [{ type: "finish", finishReason: "stop" }],
+    );
+  });
 
   test("a reconnect after an approval, while the approved write runs, does not ask for approval again", async () => {
     const { markerDirectory, server, sessions } = stack("ApprovedReplay");
@@ -719,7 +754,7 @@ describe("agent UI streams with an in-process Worker", () => {
 describe("agent UI streams with a Worker killed with SIGKILL", () => {
   let engine: PrivateDexEngine;
   let environment: AgentTestEnvironment;
-  let flow: AgentSessionFlow;
+  let flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   let sessions: AgentSessionTestClient;
   const workers: KillableWorkerProcess[] = [];
 

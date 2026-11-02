@@ -16,11 +16,17 @@ import {
   type RPCResult,
 } from "@superdurable/dex";
 
-import type { AgentFrameworkRunner, ToolPolicy } from "./agent-framework-runner.js";
+import { builtInToolNames, isBlankText, type BuiltInTool } from "./agent-built-in-tools.js";
+import type {
+  AgentFrameworkRunner,
+  DeferredToolOutcome,
+  ToolPolicy,
+} from "./agent-framework-runner.js";
 import {
   agentMessagesPageCodec,
   agentSnapshotCodec,
   agentUserMessageCodec,
+  answerQuestionRequestCodec,
   listAgentMessagesInputCodec,
   resolveInterruptInputCodec,
 } from "./agent-session-codecs.js";
@@ -40,6 +46,7 @@ import {
   ToolCallStep,
 } from "./agent-session-steps.js";
 import { AgentSessionTracer } from "./agent-session-tracer.js";
+import { AwaitQuestionAnswerStep, AwaitTimerStep } from "./agent-session-wait-steps.js";
 import {
   AgentSessionTransitions,
   agentSessionStepTypes,
@@ -50,6 +57,7 @@ import type {
   AgentSessionStartInput,
   AgentSnapshot,
   AgentUserMessage,
+  AnswerQuestionRequest,
   ListAgentMessagesInput,
   ResolveInterruptInput,
   ToolEffect,
@@ -61,6 +69,7 @@ import {
 } from "./agent-tracing-options.js";
 
 const snapshotMessageLimit = 200;
+const defaultMaxDurableWaitMs = 365 * 24 * 60 * 60 * 1_000;
 const messagePageLimit = 200;
 const toolEffects: readonly ToolEffect[] = [
   "read",
@@ -70,7 +79,7 @@ const toolEffects: readonly ToolEffect[] = [
 ];
 
 /**
- * Tool policies, live events, approval deadline, and tracing of one agent, passed to
+ * Tool policies, built-in tools, live events, interrupt deadline, and tracing of one agent, passed to
  * {@link createAgentSessionFlow}.
  */
 export interface AgentSessionOptions {
@@ -90,8 +99,9 @@ export interface AgentSessionOptions {
    */
   readonly eventStreamCapacityBytes?: number;
   /**
-   * Milliseconds an approval may stay pending before `AwaitToolApproval` rejects it with
-   * `"approval deadline passed"`. Defaults to no deadline: approvals wait indefinitely.
+   * Milliseconds an approval or a question may stay pending before the session rejects it with
+   * `"approval deadline passed"` or `"question deadline passed"`. Defaults to no deadline: interrupts wait
+   * indefinitely.
    */
   readonly interruptDeadlineMs?: number;
   /**
@@ -99,6 +109,21 @@ export interface AgentSessionOptions {
    * `@opentelemetry/api` is installed, and nothing otherwise. See {@link AgentTracingOptions}.
    */
   readonly tracing?: AgentTracingOptions;
+  /**
+   * Built-in tools the session handles, such as `["ask_user", "durable_wait"]`. Defaults to none.
+   *
+   * The runner offers the enabled ones to its model from {@link builtInToolDefinitions}; see
+   * {@link BuiltInTool}. An enabled built-in name is reserved: a tool policy for it is refused here, and
+   * the session routes every call with that name to the built-in tool. Enable a built-in tool only after
+   * every Worker of the Flow type runs a release that supports it.
+   */
+  readonly builtInTools?: readonly BuiltInTool[];
+  /**
+   * Longest `durable_wait` in milliseconds; a longer `duration_seconds` fails the call at once.
+   * Defaults to 365 days. It must be a positive multiple of 1,000, because Dex Timers take whole seconds.
+   * The Python core's `max_durable_wait` is a `timedelta`; this option is the same limit in milliseconds.
+   */
+  readonly maxDurableWaitMs?: number;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -109,10 +134,20 @@ export interface ResolvedAgentSessionOptions {
   readonly defaultToolEffect: ToolEffect;
   /** Byte budget of the `AgentEvents` Stream. */
   readonly eventStreamCapacityBytes: number;
-  /** Approval deadline in milliseconds, or `undefined` for none. */
+  /** Approval and question deadline in milliseconds, or `undefined` for none. */
   readonly interruptDeadlineMs: number | undefined;
-  /** Tracing options. */
-  readonly tracing: ResolvedAgentTracingOptions;
+  /**
+   * Tracing options. A Flow always sets this field; it is optional so that 0.1.0 code that builds these
+   * options keeps compiling.
+   */
+  readonly tracing?: ResolvedAgentTracingOptions;
+  /**
+   * Enabled built-in tools, in {@link builtInToolDefinitions} order. A Flow always sets this field and
+   * the one below; they are optional so that 0.1.0 code that builds these options keeps compiling.
+   */
+  readonly builtInTools?: readonly BuiltInTool[];
+  /** Longest `durable_wait` in milliseconds. */
+  readonly maxDurableWaitMs?: number;
 }
 
 /**
@@ -120,7 +155,7 @@ export interface ResolvedAgentSessionOptions {
  *
  * Create one per agent with {@link createAgentSessionFlow}, register it in the process `Registry`, and
  * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `resolve_interrupt`,
- * `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never
+ * `answer_question`, `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never
  * completes on its own: it waits for the next user message after every turn. Stop it with
  * `Client.stopFlow`.
  *
@@ -140,10 +175,14 @@ export interface ResolvedAgentSessionOptions {
  *     interruptId: interrupt.interruptId, approved: true, rejectionMessage: null });
  * }
  * ```
+ * @typeParam Runner - Type of {@link runner}. It defaults to {@link AgentFrameworkRunner}.
  */
-export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSessionPersistence {
+export interface AgentSessionFlow<
+  Runner extends AgentFrameworkRunner<DeferredToolOutcome> = AgentFrameworkRunner,
+> extends Flow<AgentSessionStartInput>,
+    AgentSessionPersistence {
   /** The framework runner passed to {@link createAgentSessionFlow}. */
-  readonly runner: AgentFrameworkRunner;
+  readonly runner: Runner;
   /** The options this Flow applies, with defaults filled in. */
   readonly options: ResolvedAgentSessionOptions;
   /**
@@ -158,19 +197,44 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
    */
   sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean>;
   /**
-   * RPC `resolve_interrupt`: approves or rejects one pending interrupt.
+   * RPC `resolve_interrupt`: approves or rejects one pending tool approval, or declines one question.
    *
    * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
    * one call succeeds per interrupt. It locks `PendingInterrupts`, so a call that races
-   * `AwaitToolApproval` can fail with `RpcLockConflictError`, which is safe to retry. The
-   * rejection message is dropped when `approved` is `true`.
+   * `AwaitToolApproval` or `AwaitQuestionAnswer` can fail with `RpcLockConflictError`, which is safe to
+   * retry. The rejection message is dropped when `approved` is `true`. A question needs an answer, so
+   * `approved` `true` on a `question` interrupt is refused; answer it with {@link answerQuestion}.
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - Interrupt ID and decision.
    * @returns `true` when the interrupt was pending and is now resolved; `false` when it is unknown,
-   * already resolved, or past its deadline.
+   * already resolved, past its deadline, or a question with `approved` `true`.
    */
   resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean>;
+  /**
+   * RPC `answer_question`: answers one pending `question` interrupt.
+   *
+   * The answer becomes the result of the `ask_user` call, `{"status":"answered","answer":"<text>"}`, so
+   * the model continues the same turn. For a tool's question, the tool runs again with the answer. The
+   * RPC removes the interrupt and publishes the answer in one commit, so only one call succeeds per
+   * question. It locks `PendingInterrupts` and can fail with `RpcLockConflictError`, which is safe to
+   * retry. Decline a question with {@link resolveInterrupt} and `approved` `false`.
+   *
+   * @example
+   * ```ts
+   * const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+   * const question = snapshot.pendingInterrupts.find((interrupt) => interrupt.kind === "question");
+   * if (question !== undefined) {
+   *   await client.invokeRPC(flow.answerQuestion, sessionId, { interruptId: question.interruptId, answer: "blue" });
+   * }
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - Interrupt ID and answer.
+   * @returns `true` when the question was pending and is now answered; `false` when the interrupt is
+   * not pending, is not a question, or is past its deadline, and when the answer is blank or is not one
+   * of the choices while free text is not allowed.
+   */
+  answerQuestion(context: Context, input: AnswerQuestionRequest): RPCResult<boolean>;
   /**
    * RPC `get_agent_snapshot`: returns the durable session view a UI renders.
    *
@@ -217,21 +281,23 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
  * const billing = createAgentSessionFlow(billingRunner, "BillingAgent");
  * const registry = new Registry([triage, billing]);
  * ```
+ * @typeParam Runner - Type of the runner, kept as the Flow's `runner` property type.
  * @param runner - Framework runner; the Flow owns no other dependency.
  * @param flowType - Flow type, unique within the Registry, such as `"TriageAgent"`. Keep it stable:
  * running sessions resume by it.
  * @param options - Tool policies, Stream capacity, approval deadline, and tracing. Defaults to all
  * defaults.
  * @returns A new Flow to register in one Registry.
- * @throws {TypeError} When `flowType` is blank, the runner is incomplete, an effect is unknown, or a
- * tracing option is invalid.
- * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive.
+ * @throws {TypeError} When `flowType` is blank, the runner is incomplete, an effect or built-in tool is
+ * unknown, a tool policy names an enabled built-in tool, or a tracing option is invalid.
+ * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive, or
+ * `maxDurableWaitMs` is not a positive whole number of seconds.
  */
-export function createAgentSessionFlow(
-  runner: AgentFrameworkRunner,
+export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<DeferredToolOutcome>>(
+  runner: Runner,
   flowType: string,
   options: AgentSessionOptions = {},
-): AgentSessionFlow {
+): AgentSessionFlow<Runner> {
   const config = resolveAgentSessionConfig(runner, flowType, options);
   const persistence = createAgentSessionPersistence(config.eventStreamCapacityBytes);
   const transitions = new AgentSessionTransitions(
@@ -246,10 +312,12 @@ export function createAgentSessionFlow(
     eventStreamCapacityBytes: config.eventStreamCapacityBytes,
     interruptDeadlineMs: config.interruptDeadlineMs,
     tracing: config.tracing,
+    builtInTools: Object.freeze(builtInToolNames.filter((name) => config.builtInTools.has(name))),
+    maxDurableWaitMs: config.maxDurableWaitMs,
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
-  class AgentSessionFlowDefinition implements AgentSessionFlow {
+  class AgentSessionFlowDefinition implements AgentSessionFlow<Runner> {
     public readonly runner = runner;
     public readonly options = resolvedOptions;
     public readonly agentState = persistence.agentState;
@@ -269,6 +337,8 @@ export function createAgentSessionFlow(
       new AwaitUserMessageStep(transitions),
       new RunModelStep(transitions),
       new AwaitToolApprovalStep(transitions),
+      new AwaitQuestionAnswerStep(transitions),
+      new AwaitTimerStep(transitions),
       new ToolCallStep(transitions, agentSessionStepTypes.callTool),
       new ToolCallStep(transitions, agentSessionStepTypes.callSingleAttemptTool),
       new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, true),
@@ -335,7 +405,8 @@ export function createAgentSessionFlow(
       // After the deadline, AwaitToolApproval rejects the call; a late answer must not win.
       if (
         interrupt === undefined ||
-        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now())
+        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now()) ||
+        (interrupt.kind === "question" && input.approved)
       ) {
         return { output: false };
       }
@@ -346,6 +417,37 @@ export function createAgentSessionFlow(
       persistence.interruptResolutions.publish(context, input.interruptId, {
         approved: input.approved,
         rejectionMessage: input.approved ? null : input.rejectionMessage,
+        answer: null,
+      });
+      return { output: true };
+    }
+
+    @rpc<AnswerQuestionRequest, boolean>({
+      name: "answer_question",
+      inputCodec: answerQuestionRequestCodec,
+      outputCodec: booleanCodec,
+      lockAttributes: [persistence.pendingInterrupts.lock()],
+    })
+    public answerQuestion(context: Context, input: AnswerQuestionRequest): RPCResult<boolean> {
+      const pendingInterrupts = transitions.readPendingInterrupts(context);
+      const interrupt = pendingInterrupts.find((pending) => pending.interruptId === input.interruptId);
+      if (
+        interrupt === undefined ||
+        interrupt.kind !== "question" ||
+        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now()) ||
+        isBlankText(input.answer) ||
+        isAnswerOutsideChoices(interrupt.choices ?? [], interrupt.allowsFreeText ?? true, input.answer)
+      ) {
+        return { output: false };
+      }
+      persistence.pendingInterrupts.set(
+        context,
+        pendingInterrupts.filter((pending) => pending.interruptId !== input.interruptId),
+      );
+      persistence.interruptResolutions.publish(context, input.interruptId, {
+        approved: true,
+        rejectionMessage: null,
+        answer: input.answer,
       });
       return { output: true };
     }
@@ -415,7 +517,7 @@ export function createAgentSessionFlow(
 }
 
 function resolveAgentSessionConfig(
-  runner: AgentFrameworkRunner,
+  runner: AgentFrameworkRunner<DeferredToolOutcome>,
   flowType: string,
   options: AgentSessionOptions,
 ): AgentSessionConfig {
@@ -448,6 +550,22 @@ function resolveAgentSessionConfig(
   ) {
     throw new RangeError("interruptDeadlineMs must be positive");
   }
+  const builtInTools = new Set<BuiltInTool>();
+  for (const builtInTool of options.builtInTools ?? []) {
+    if (!(builtInToolNames as readonly string[]).includes(builtInTool)) {
+      throw new TypeError(`builtInTools has unknown built-in tool ${String(builtInTool)}`);
+    }
+    builtInTools.add(builtInTool);
+  }
+  for (const toolName of Object.keys(toolPolicies)) {
+    if (builtInTools.has(toolName as BuiltInTool)) {
+      throw new TypeError(`tool policy ${toolName} names an enabled built-in tool, whose policy is fixed`);
+    }
+  }
+  const maxDurableWaitMs = options.maxDurableWaitMs ?? defaultMaxDurableWaitMs;
+  if (!Number.isSafeInteger(maxDurableWaitMs) || maxDurableWaitMs < 1_000 || maxDurableWaitMs % 1_000 !== 0) {
+    throw new RangeError("maxDurableWaitMs must be a positive whole number of seconds, in milliseconds");
+  }
   return {
     flowType,
     toolPolicies: Object.freeze(toolPolicies),
@@ -455,6 +573,8 @@ function resolveAgentSessionConfig(
     eventStreamCapacityBytes,
     interruptDeadlineMs,
     tracing: resolveAgentTracingOptions(flowType, options.tracing ?? {}),
+    builtInTools,
+    maxDurableWaitMs,
   };
 }
 
@@ -481,6 +601,10 @@ function resolveAgentTracingOptions(
     shouldCaptureMessageContent: tracing.shouldCaptureMessageContent ?? false,
     semanticConventionsVersion,
   });
+}
+
+function isAnswerOutsideChoices(choices: readonly string[], allowsFreeText: boolean, answer: string): boolean {
+  return choices.length > 0 && !allowsFreeText && !choices.includes(answer);
 }
 
 function requireToolEffect(effect: ToolEffect, description: string): void {

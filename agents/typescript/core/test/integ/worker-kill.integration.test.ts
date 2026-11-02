@@ -243,6 +243,32 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     assert.equal(snapshot.messages.at(-1)?.text, "slow turn done");
   });
 
+  test("a single-attempt tool killed while it runs again after an answer records outcome_unknown once", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `tool-input-kill-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call confirm_shipment");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "confirm_shipment");
+    assert.equal(await sessions.answerQuestion(sessionId, interrupt.interruptId, "yes"), true);
+    const confirmGate = new FileGate(markerDirectory, "confirm_shipment");
+    await confirmGate.waitUntilReached();
+
+    await firstWorker.kill();
+    confirmGate.release();
+    await startWorker(markerDirectory);
+
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      `confirm_shipment -> ${outcomeUnknownToolResult}`,
+    );
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "confirm_shipment.log")).names(), [
+      `${sessionId} turn-1-confirm_shipment attempt 1`,
+      `${sessionId} turn-1-confirm_shipment attempt 1`,
+    ]);
+    assert.equal(confirmGate.reachedCount(), 1);
+  });
+
   async function waitForEvent(sessionId: string, eventType: string): Promise<void> {
     await pollUntil(
       async () =>

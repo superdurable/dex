@@ -20,8 +20,9 @@ import {
   type AgentTurnOutcome,
   type DeferredToolCall,
   type DeferredToolExecution,
+  type BuiltInTool,
+  type DeferredToolOutcome,
   type FrameworkMessage,
-  type ToolExecutionResult,
 } from "../../src/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
 
@@ -82,9 +83,17 @@ interface ScriptedRunState {
  * run, and `<flowId> <toolName>` in `tool-runs.log` in run order. `charge_card`, `transfer_funds`,
  * `retry_payout`, `lookup_a`, and `lookup_b` then wait at a FileGate: their own, or `lookups` for the two
  * lookups. `retry_payout` then fails its first attempt.
+ * `confirm_shipment` asks the user `Ship now?` through `ToolInputRequested`, then, once answered, logs
+ * the answers in `confirm_shipment-answers.log` and waits at its FileGate. `confirm_return` asks
+ * `Return now?` the same way without a gate, and `gated_confirm` waits at its FileGate before it asks.
+ *
+ * `buildUnfinishedTurnMessages` always throws, so the failure tests prove the note is still stored.
  */
-export class ScriptedAgentRunner implements AgentFrameworkRunner {
-  public constructor(private readonly markerDirectory: string) {}
+export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
+  public constructor(
+    private readonly markerDirectory: string,
+    private readonly unfinishedTurnMessages: "throw" | "malformed" = "throw",
+  ) {}
 
   public buildUserMessage(text: string): FrameworkMessage {
     return toFrameworkMessage({ kind: "user", text });
@@ -133,7 +142,11 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
       return { kind: "completed", newMessages: turnItems.map(toFrameworkMessage), usage };
     }
     const toolCalls: DeferredToolCall[] = action.toolCalls.map(({ toolCallId, toolName }) => {
-      const toolArguments = JSON.stringify({ requested_by: userText });
+      // An adapter exposes an enabled built-in tool like any tool; its call carries the built-in's arguments.
+      const isAskUserCall = toolName === "ask_user" && turn.enabledBuiltInTools?.has("ask_user") === true;
+      const toolArguments = isAskUserCall
+        ? JSON.stringify({ question: "Proceed?", choices: ["yes", "no"] })
+        : JSON.stringify({ requested_by: userText });
       turnItems.push({ kind: "tool_call", toolCallId, toolName, arguments: toolArguments });
       return { toolCallId, toolName, arguments: toolArguments, policy: turn.resolveToolPolicy(toolName) };
     });
@@ -144,7 +157,14 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
     return { kind: "tool_calls_requested", frameworkRunState: JSON.stringify(runState), toolCalls, usage };
   }
 
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+  public buildUnfinishedTurnMessages(): readonly FrameworkMessage[] {
+    if (this.unfinishedTurnMessages === "malformed") {
+      return [{ role: "narrator" } as unknown as FrameworkMessage];
+    }
+    throw new Error("the scripted runner stores no messages before a turn ends");
+  }
+
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const toolCall = call.toolCall;
     this.invocationLog(toolCall.toolName).record(
       `${call.flowId} ${toolCall.toolCallId} attempt ${call.attempt}`,
@@ -170,6 +190,45 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
       }
       case "refund_order":
         return { output: "refund issued" };
+      case "confirm_shipment": {
+        const answers = call.inputAnswers ?? [];
+        if (answers.length === 0) {
+          return {
+            kind: "tool_input_requested",
+            question: "Ship now?",
+            choices: ["yes", "no"],
+            allowsFreeText: false,
+            continuation: `continuation-${toolCall.toolCallId}`,
+          };
+        }
+        this.invocationLog("confirm_shipment-answers").record(
+          `${call.flowId} ${answers.map((answer) => `${answer.interruptId}=${answer.answer} (${answer.question})`).join(", ")} ` +
+            `continuation ${toolCall.inputContinuation}`,
+        );
+        const gate = new FileGate(this.markerDirectory, "confirm_shipment");
+        gate.markReached();
+        await gate.waitForRelease(call.cancellationSignal);
+        return { output: `shipped after ${answers.at(-1)?.answer}` };
+      }
+      case "confirm_return":
+      case "gated_confirm": {
+        const answer = call.inputAnswers?.at(-1)?.answer;
+        if (answer !== undefined) {
+          return { output: `${toolCall.toolName} confirmed: ${answer}` };
+        }
+        if (toolCall.toolName === "gated_confirm") {
+          const gate = new FileGate(this.markerDirectory, "gated_confirm");
+          gate.markReached();
+          await gate.waitForRelease(call.cancellationSignal);
+        }
+        return {
+          kind: "tool_input_requested",
+          question: toolCall.toolName === "confirm_return" ? "Return now?" : "Go ahead?",
+          choices: ["yes", "no"],
+          allowsFreeText: false,
+          continuation: null,
+        };
+      }
       case "transfer_funds": {
         this.invocationLog("transfer_funds-keys").record(`${call.idempotencyKey} attempt ${call.attempt}`);
         const gate = new FileGate(this.markerDirectory, "transfer_funds");
@@ -209,11 +268,15 @@ export function createScriptedAgentFlow(
     readonly flowType?: string;
     readonly interruptDeadlineMs?: number;
     readonly tracing?: AgentTracingOptions;
-    readonly runner?: AgentFrameworkRunner;
+    readonly runner?: AgentFrameworkRunner<DeferredToolOutcome>;
+    readonly builtInTools?: readonly BuiltInTool[];
+    readonly unfinishedTurnMessages?: "throw" | "malformed";
   } = {},
-): AgentSessionFlow {
-  const runner = flowOptions.runner ?? new ScriptedAgentRunner(markerDirectory);
+): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> {
+  const runner =
+    flowOptions.runner ?? new ScriptedAgentRunner(markerDirectory, flowOptions.unfinishedTurnMessages ?? "throw");
   return createAgentSessionFlow(runner, flowOptions.flowType ?? scriptedAgentFlowType, {
+    ...(flowOptions.builtInTools === undefined ? {} : { builtInTools: flowOptions.builtInTools }),
     ...(flowOptions.interruptDeadlineMs === undefined
       ? {}
       : { interruptDeadlineMs: flowOptions.interruptDeadlineMs }),
@@ -224,6 +287,9 @@ export function createScriptedAgentFlow(
       lookup_b: { effect: "read" },
       check_stock: { effect: "read" },
       charge_card: { effect: "non_idempotent_write" },
+      confirm_shipment: { effect: "non_idempotent_write", requiresApproval: false },
+      confirm_return: { effect: "non_idempotent_write", requiresApproval: false },
+      gated_confirm: { effect: "non_idempotent_write", requiresApproval: false },
       refund_order: { effect: "idempotent_write" },
       transfer_funds: { effect: "idempotent_write" },
       retry_payout: { effect: "idempotent_write", requiresApproval: true },

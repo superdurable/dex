@@ -175,6 +175,68 @@ for (const name of new Set(names)) {
 NODE
 }
 
+# Imports every core subpath without the optional peer ai, where ./ai-sdk must fail naming it, then with it.
+smoke_test_typescript_core_subpaths() {
+  local core_tarball="$1"
+  local project_dir="$work_dir/typescript-core-subpaths"
+  mkdir -p "$project_dir"
+  printf '{"name":"agents-smoke-core-subpaths","private":true,"type":"module"}\n' >"$project_dir/package.json"
+  local locked_specs=()
+  while IFS= read -r peer_spec; do
+    locked_specs+=("$peer_spec")
+  done < <(locked_peer_specs "$agents_dir/typescript/core")
+  local without_ai_specs=() ai_specs=()
+  local peer_spec
+  for peer_spec in "${locked_specs[@]}"; do
+    case "$peer_spec" in
+      ai@* | zod@*) ai_specs+=("$peer_spec") ;;
+      *) without_ai_specs+=("$peer_spec") ;;
+    esac
+  done
+  (
+    cd "$project_dir"
+    npm install --no-audit --no-fund "$core_tarball" "${without_ai_specs[@]}"
+    if [[ -d node_modules/ai ]]; then
+      echo "the optional peer ai was installed without being requested" >&2
+      exit 1
+    fi
+    printf '%s\n' \
+      'import * as core from "@superdurable/dex-agents";' \
+      'import * as stepwise from "@superdurable/dex-agents/stepwise";' \
+      'import * as testing from "@superdurable/dex-agents/testing";' \
+      'export const exportedNames: string[] = [...Object.keys(core), ...Object.keys(stepwise), ...Object.keys(testing)];' \
+      >consumer.ts
+    npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
+      --types node consumer.ts
+    node --input-type=module -e "
+      for (const subpath of ['', '/stepwise', '/testing']) {
+        const module = await import('@superdurable/dex-agents' + subpath);
+        if (Object.keys(module).length === 0) throw new Error('@superdurable/dex-agents' + subpath + ' exports nothing');
+        console.log('@superdurable/dex-agents' + subpath, 'exports', Object.keys(module).join(', '));
+      }
+      try {
+        await import('@superdurable/dex-agents/ai-sdk');
+        throw new Error('@superdurable/dex-agents/ai-sdk imported without the optional peer ai');
+      } catch (error) {
+        if (!String(error).includes(\"'ai'\")) throw error;
+        console.log('@superdurable/dex-agents/ai-sdk without ai fails with:', String(error).split('\\n')[0]);
+      }
+    "
+    npm install --no-audit --no-fund "${ai_specs[@]}"
+    printf '%s\n' \
+      'import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";' \
+      'export const modelClientFactory: typeof createAiSdkModelClient = createAiSdkModelClient;' \
+      >consumer-ai-sdk.ts
+    npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
+      --types node consumer-ai-sdk.ts
+    node --input-type=module -e "
+      const aiSdk = await import('@superdurable/dex-agents/ai-sdk');
+      if (typeof aiSdk.createAiSdkModelClient !== 'function') throw new Error('ai-sdk lacks createAiSdkModelClient');
+      console.log('@superdurable/dex-agents/ai-sdk exports', Object.keys(aiSdk).join(', '));
+    "
+  )
+}
+
 smoke_test_typescript() {
   local release_version
   release_version="$(node -p "require('$agents_dir/typescript/core/package.json').version")"
@@ -192,6 +254,7 @@ smoke_test_typescript() {
   node "$agents_dir/script/verify-built-npm-packages.mjs" "$dist_dir/typescript" "$release_version" "${typescript_packages[@]}"
 
   local core_tarball="$dist_dir/typescript/superdurable-dex-agents-$release_version.tgz"
+  smoke_test_typescript_core_subpaths "$core_tarball"
   for package in "${typescript_packages[@]}"; do
     [[ "$package" == "core" ]] && continue
     local project_dir="$work_dir/typescript-$package"

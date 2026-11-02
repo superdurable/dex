@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { RpcLockConflictError, type Client, type StartFlowOptions } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type {
   AgentEvent,
@@ -17,7 +18,7 @@ import type {
   AgentMessagesPage,
   AgentSnapshot,
   AgentState,
-  AgentToolCall,
+  AgentToolCallRecord,
 } from "../agent-session-values.js";
 import { pollUntil } from "./polling.js";
 
@@ -57,7 +58,7 @@ export class AgentSessionTestClient {
     /** Client used for every call. */
     public readonly client: Client,
     /** Flow whose sessions this helper drives. */
-    public readonly flow: AgentSessionFlow,
+    public readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   ) {}
 
   /**
@@ -93,27 +94,28 @@ export class AgentSessionTestClient {
    * @param rejectionMessage - Text shown to the model on rejection. Defaults to `null`.
    * @returns The RPC result: `false` when the interrupt was not pending.
    */
-  public async resolveInterrupt(
+  public resolveInterrupt(
     sessionId: string,
     interruptId: string,
     approved: boolean,
     rejectionMessage: string | null = null,
   ): Promise<boolean> {
-    const deadline = Date.now() + lockConflictRetryTimeoutMs;
-    for (;;) {
-      try {
-        return await this.client.invokeRPC(this.flow.resolveInterrupt, sessionId, {
-          interruptId,
-          approved,
-          rejectionMessage,
-        });
-      } catch (error: unknown) {
-        if (!(error instanceof RpcLockConflictError) || Date.now() >= deadline) {
-          throw error;
-        }
-      }
-      await delay(lockConflictRetryIntervalMs);
-    }
+    return retryLockConflicts(() =>
+      this.client.invokeRPC(this.flow.resolveInterrupt, sessionId, { interruptId, approved, rejectionMessage }),
+    );
+  }
+
+  /**
+   * Calls `answer_question`, retrying an `RpcLockConflictError` for up to 30 seconds.
+   * @param sessionId - Session Flow ID.
+   * @param interruptId - Pending `question` interrupt to answer.
+   * @param answer - The answer text.
+   * @returns The RPC result: `false` when the question was not pending or the answer was refused.
+   */
+  public answerQuestion(sessionId: string, interruptId: string, answer: string): Promise<boolean> {
+    return retryLockConflicts(() =>
+      this.client.invokeRPC(this.flow.answerQuestion, sessionId, { interruptId, answer }),
+    );
   }
 
   /**
@@ -156,7 +158,7 @@ export class AgentSessionTestClient {
    * @param toolCallId - Tool call ID.
    * @returns The record, or `undefined` when it does not exist or its turn completed.
    */
-  public async readToolCall(sessionId: string, toolCallId: string): Promise<AgentToolCall | undefined> {
+  public async readToolCall(sessionId: string, toolCallId: string): Promise<AgentToolCallRecord | undefined> {
     const [toolCall] = await this.client.getAttributes(
       sessionId,
       this.flow.agentToolCalls.instance(toolCallId),
@@ -277,9 +279,9 @@ export class AgentSessionTestClient {
   public waitForToolCall(
     sessionId: string,
     toolCallId: string,
-    predicate: (toolCall: AgentToolCall) => boolean,
+    predicate: (toolCall: AgentToolCallRecord) => boolean,
     options: AgentSessionWaitOptions = {},
-  ): Promise<AgentToolCall> {
+  ): Promise<AgentToolCallRecord> {
     return pollUntil(
       async () => {
         const toolCall = await this.readToolCall(sessionId, toolCallId);
@@ -308,5 +310,19 @@ export class AgentSessionTestClient {
       pageToken = page.nextPageToken;
     } while (pageToken !== "");
     return newestFirst.reverse();
+  }
+}
+
+async function retryLockConflicts(invoke: () => Promise<boolean>): Promise<boolean> {
+  const deadline = Date.now() + lockConflictRetryTimeoutMs;
+  for (;;) {
+    try {
+      return await invoke();
+    } catch (error: unknown) {
+      if (!(error instanceof RpcLockConflictError) || Date.now() >= deadline) {
+        throw error;
+      }
+    }
+    await delay(lockConflictRetryIntervalMs);
   }
 }

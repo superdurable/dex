@@ -8,12 +8,13 @@
 
 import type { Client } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import {
   describeToolCallOutcome,
   type AgentMessage,
   type AgentSnapshot,
-  type AgentToolCall,
+  type AgentToolCallRecord,
 } from "../agent-session-values.js";
 import { createTurnReplayCursor, parseToolArguments } from "./agent-ui-message-stream.js";
 import {
@@ -110,7 +111,7 @@ export function convertAgentSnapshotToUIMessages(snapshot: AgentSnapshot): Agent
  */
 export async function readAgentSessionUIMessages(options: {
   readonly client: Client;
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   readonly flowId: string;
 }): Promise<AgentSessionUIMessages> {
   const { client, flow, flowId } = options;
@@ -162,7 +163,7 @@ class AgentAssistantUIMessageBuilder {
     }
   }
 
-  public appendActiveToolCalls(toolCalls: readonly AgentToolCall[]): void {
+  public appendActiveToolCalls(toolCalls: readonly AgentToolCallRecord[]): void {
     const lastPart = this.message.parts.at(-1);
     if (lastPart?.type !== "step-start") {
       this.message.parts.push({ type: "step-start" });
@@ -195,7 +196,7 @@ class AgentAssistantUIMessageBuilder {
   }
 }
 
-function convertToolCallRecordToUIPart(toolCall: AgentToolCall): AgentDynamicToolUIPart {
+function convertToolCallRecordToUIPart(toolCall: AgentToolCallRecord): AgentDynamicToolUIPart {
   const toolPart = {
     type: "dynamic-tool",
     toolName: toolCall.toolName,
@@ -211,6 +212,12 @@ function convertToolCallRecordToUIPart(toolCall: AgentToolCall): AgentDynamicToo
     case "awaiting_approval":
       return { ...toolPart, state: "approval-requested", approval: { id: approvalId } };
     case "approved":
+      return toolCall.requiresApproval
+        ? { ...toolPart, state: "approval-responded", approval: { id: approvalId, approved: true } }
+        : { ...toolPart, state: "input-available" };
+    case "awaiting_answer":
+    case "waiting_for_timer":
+      // A question or a durable wait holds the call; the browser shows it running, as for an approved call.
       return toolCall.requiresApproval
         ? { ...toolPart, state: "approval-responded", approval: { id: approvalId, approved: true } }
         : { ...toolPart, state: "input-available" };

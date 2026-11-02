@@ -25,7 +25,7 @@ import type {
   AgentInterruptResolution,
   AgentMessage,
   AgentState,
-  AgentToolCall,
+  AgentToolCallRecord,
   AgentUsage,
   AgentUserMessage,
   ToolCallCompleted,
@@ -56,7 +56,7 @@ export interface AgentSessionPersistence {
   /** The `FrameworkRunState` Attribute: opaque framework JSON, set only while a turn is suspended. */
   readonly frameworkRunState: Attribute<string>;
   /** The `AgentToolCalls` AttributeMap, keyed by tool call ID; holds only the active turn's records. */
-  readonly agentToolCalls: AttributeMap<AgentToolCall>;
+  readonly agentToolCalls: AttributeMap<AgentToolCallRecord>;
   /** The `PendingInterrupts` Attribute: interrupts that `resolve_interrupt` still accepts. */
   readonly pendingInterrupts: Attribute<readonly AgentInterrupt[]>;
   /** The `AgentUsage` Attribute: cumulative usage of every turn. */

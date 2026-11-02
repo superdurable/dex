@@ -10,11 +10,12 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { RpcLockConflictError, type Client } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import {
   describeToolCallOutcome,
   isFinalToolCallStatus,
-  type AgentToolCall,
+  type AgentToolCallRecord,
 } from "../agent-session-values.js";
 import {
   findAgentEventResumeTokenBeforeTurn,
@@ -101,7 +102,7 @@ export interface AgentToolApprovalOptions {
   /** Client used for the RPC. */
   readonly client: Client;
   /** The agent session Flow. */
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   /** Session ID: the Flow ID of the agent session. */
   readonly flowId: string;
   /** The decision to send. */
@@ -458,7 +459,7 @@ function selectUniqueApprovals(approvals: readonly AgentToolApprovalResponse[]):
 async function readStaleApprovalOutcomes(
   records: AgentSessionRecordReader,
   activeTurnId: string | null,
-  activeTurnToolCalls: readonly AgentToolCall[],
+  activeTurnToolCalls: readonly AgentToolCallRecord[],
   staleApprovals: readonly AgentToolApprovalResponse[],
   cursor: AgentUIStreamCursor,
 ): Promise<AgentUIMessageChunk[]> {
@@ -510,11 +511,11 @@ async function readStaleApprovalOutcomes(
  */
 async function createActiveTurnContinuationCursor(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   tailResumeToken: string,
   activeTurnId: string | null,
-  toolCalls: readonly AgentToolCall[],
+  toolCalls: readonly AgentToolCallRecord[],
 ): Promise<AgentUIStreamCursor> {
   const cursor = createAgentUIStreamCursor(tailResumeToken, activeTurnId, true);
   if (activeTurnId === null) {
