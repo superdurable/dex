@@ -451,6 +451,11 @@ compaction policy.
   Python's `str.strip()` whitespace, as the Python core does. Text made only of
   U+001C to U+001F or U+0085 is now blank, and text made only of U+FEFF is now
   a message. 0.1.0 used `String.trim()`.
+- MCP server configurations no longer print secrets. In Python,
+  `repr` and `str` of `McpStdioServerConfig` and `McpStreamableHttpServerConfig`
+  show `env` and `headers` names with every value replaced by `***`. In
+  TypeScript, `util.inspect` and `console.log` of an `McpToolSource` show its
+  servers the same way. The values sent to the servers are unchanged.
 
 ### Compatibility
 
