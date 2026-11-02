@@ -323,7 +323,7 @@ mock backend or mock controls.
 
 Connector integrations reuse released dedicated connectors from
 `superdurable/dex-connectors-library`. Selection starts from the canonical
-published [`catalog.yaml`](https://superdurable.github.io/dex-connectors-library/catalog.yaml),
+published [`catalog.yaml`](https://connectors.superdurable.io/catalog.yaml),
 then verifies every exact Trigger, Query, Mutation, or UI capability against the
 selected component tag's immutable `connector.yaml`. If the catalog or release
 manifest cannot be verified, App Builder stops connector-dependent

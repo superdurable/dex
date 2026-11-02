@@ -21,7 +21,7 @@ A connector may expose five capabilities:
 Each connector declares its complete capabilities in a machine-readable
 `connector.yaml`. The repository's root `connectors.yaml` registers those
 manifests, and release automation generates the aggregate published catalog at
-`https://superdurable.github.io/dex-connectors-library/catalog.yaml`.
+`https://connectors.superdurable.io/catalog.yaml`.
 
 ## Released capability discovery
 
