@@ -1,6 +1,6 @@
 # Dex Agents for Go, Java, and Rust
 
-Status: Go in progress; Java and Rust deferred (2026-11-02). Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
+Status: Go core shipped at a reduced scope; Java and Rust deferred (2026-11-02). Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
 and [agent-framework-adapters.md](agent-framework-adapters.md).
 
 Dex Agents ships for Python and TypeScript. This addendum brings the same
@@ -134,3 +134,29 @@ so framework size alone does not set Go apart. Dex itself does:
 **When to revisit.** Revisit when users ask for agents in Java or Rust, for
 example a team building on Spring AI, LangChain4j, or Rig. The conformance
 suite and the Go core then make a new language a port, not a design.
+
+## Decision: Go stops at the session core
+
+Recorded 2026-11-02. Go gets the session core and nothing past it. Go PR 2
+(A2 to A8) and PR 3 (MCP, spans, SSE helpers) are dropped, so decisions 4
+and 6 no longer apply to Go.
+
+**What Go has (#1208):**
+- the session Flow, approvals and deadlines, single-attempt tools, and the
+  turn-failure note;
+- A1;
+- Stepwise with the OpenAI and Anthropic clients.
+
+It depends on `RPCOptions.Name` in the Go SDK (#1200).
+
+**What Go will not get:** questions, `durable_wait`, steering and
+cancellation, plans, compaction, tool tasks, MCP, spans, UI streams, or
+framework adapters.
+
+**What follows from that:**
+- A Flow type is served by Workers of one language only. A guard fails a
+  Go-served session cleanly if it ever holds state Go does not implement.
+- Clients still work across languages: a Python or TypeScript Client can
+  drive a Go-served session.
+- New contract features land in Python and TypeScript first. Go follows only
+  when users ask for it.
