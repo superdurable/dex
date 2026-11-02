@@ -1,0 +1,290 @@
+---
+title: 部署 Agent
+sidebar_label: Deploy agents
+---
+
+# 部署 Agent
+
+本页介绍如何在生产环境中运行 [agent framework](/agent-frameworks) 的 session。
+一次 Flow 执行就是一个 agent session。每次模型调用是一个 **RunModel** Step，每个
+tool call 是独立的 Step。本页中的服务器限制都是 server-zd 的默认值。其余配置见
+[server-zd 运维](/production/server-zd-operations) 和
+[拉取模式 Worker](/production/pull-workers)。
+
+## 安装包 {#install}
+
+连同 framework 一起安装 adapter。Python adapter 发布在 PyPI 上。每个 adapter 都会带上
+**dex-agents** 核心包和它支持的 Dex SDK。需要 Python 3.11 或更高版本。
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+pip install dex-agents-langgraph
+pip install dex-agents-openai-agents
+pip install dex-agents-google-adk
+pip install dex-agents-claude-agent-sdk
+```
+
+TypeScript adapter 发布在 npm 上。核心包和 Dex SDK 是 peer 依赖，所以应用只持有各自的
+一份副本。需要 Node 22 或 24。
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+```
+
+如果要自己编写 runner，只安装核心包：
+
+```bash
+pip install dex-agents
+npm i @superdurable/dex-agents @superdurable/dex@1.30.0
+```
+
+所有 agents 包共用一条版本线。Python adapter 要求同一版本的核心包，npm adapter 以
+peer 依赖的方式依赖它。每个版本都固定了它支持的 Dex SDK，以及测试过的 framework 版本范围，
+见[兼容性表](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility)。
+这些包还没到 1.0，minor 版本可能改变 API。在 lockfile 中固定确切版本，升级前先读
+[changelog](https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md)。
+
+在每个启动 session 或调用其 RPC 的进程中，构建同一个 session Flow。
+
+## 启用 Stream 后端 {#stream-backend}
+
+模型的实时文本、推理摘要、tool 进度和审批事件都写入 **AgentEvents**
+[Stream](/primitives/stream)。**streamStore.backend** 在生产环境的默认值是
+**disabled**。这时 Step 写入会被丢弃，但不会让 Step 失败；Client 写入和 Stream 读取则返回
+**FAILED_PRECONDITION**。**dexcli dev** 会设置 memory 后端，所以实时事件可能在本地正常，
+到了生产环境却消失。在服务器配置中启用 memory 后端：
+
+```yaml
+streamStore:
+  backend: memory
+```
+
+memory 后端把 Stream 保存在 active server-zd 进程的内存中。一个 server-zd 集群只有一个
+active 进程，所以单节点不需要额外配置。[standby](/production/server-zd-operations#hot-standby)
+不保存 Stream。进程每次成为 active 进程时，Stream 都从空开始：重启之后、standby 接管之后，
+以及[让位](/production/server-zd-operations#step-down)之后。standby 对 Stream 调用返回
+**UNAVAILABLE**，客户端会重新连接到 active 进程。
+
+丢失 Stream 数据不会丢失 session。对话、tool call 和待审批项都保存在 Attribute 中。
+错过事件的客户端用 **get_agent_snapshot** RPC 重新加载 session，然后从那里继续读取
+Stream。收到 **turn_completed** 或 **turn_failed** 后，客户端用已保存的消息替换这一轮的
+实时文本。不要把 Stream 当作事实记录。
+
+## 规划 AgentEvents 容量 {#size-agent-events}
+
+**AgentEvents** 的容量按 Flow type 和 Stream name 计算。同一个 agent 的所有 session
+共享这份容量，它不是每个 session 的预算。默认值是 10 MiB。在 Python 中用
+**AgentSessionOptions** 的 **event_stream_capacity_bytes** 设置，在 TypeScript 中用
+**createAgentSessionFlow** 选项的 **eventStreamCapacityBytes** 设置。
+
+服务器为每条消息计入序列化后的值、Flow ID 和 source，再加 512 字节。用量达到容量的
+90% 时，后台 trimmer 会删除所有 session 中最旧的消息，直到用量降到 80%。如果 trim
+跟不上，用量达到容量，写入会被拒绝。Step 会丢弃被拒绝的写入，但不会失败。容量应能装下
+每个有客户端在看的 session 的最新一轮：
+
+```text
+bytes per turn = messages per turn × (average message bytes + 512)
+capacity       ≥ concurrent sessions × bytes per turn ÷ 0.8
+```
+
+假设一轮写入 200 条消息，每条约 300 字节（含 Flow ID 和 source），那么每轮约 162 KB。
+500 个 session 同时输出时，实时事件约占 81 MB。除以 0.8 约为 102 MB，所以 128 MiB 的容量
+可以保留每个 session 的最新一轮。默认的 10 MiB 大约只能保留 50 个这样的轮次。
+
+固定的 512 字节在小文本增量中占大头。Python 核心包为 runner 写入的每个文本增量写一条
+Stream 消息。TypeScript 核心包会把连续的增量合并，最多合并 100 ms 或 1,024 个字符。
+Python adapter 每轮的消息数会更多。
+
+一条 Stream 消息最大 100 KiB，由 **streamStore.maxMessageBytes** 设置，更大的写入会被丢弃。
+memory 后端把所有 Stream 都放在服务器内存中，所以服务器内存要按所有 agent Flow type
+和其他 Stream 的容量之和来规划。
+
+## 规划 Worker 容量 {#size-workers}
+
+每个正在运行的模型调用、tool call 和 RPC handler 都占用一个 Worker task slot。等待用户
+消息、审批或 tool 结果的 session 不占用 slot，等待发生在 Dex Server 中。每个 Worker 池的
+容量应覆盖同时调用模型的轮次、同时运行的 tool call，以及 RPC 预留。
+
+同一次模型响应中的 tool call 作为并行 Step 运行。Worker 的 slot 至少要够模型一次发出的
+最大一批 tool call。默认的 task 上限是 CPU 数量。模型调用大部分时间在等网络，所以 agent
+Worker 通常需要更高的 **maxConcurrentTasks**。各 SDK 的选项名见
+[容量和关闭](/production/pull-workers#容量和关闭)。
+
+保留 [RPC 预留容量](/production/pull-workers#为-rpc-预留容量)。UI 以 RPC 的形式调用
+**get_agent_snapshot**、**send_user_message** 和 **resolve_interrupt**。没有预留时，这些
+调用要排在占满 Worker 的模型调用后面。不设置时，task 上限至少为 2 则预留一个 slot，否则为零。
+reserve-decline 计数持续上升，说明 Step 需要更多容量。
+
+server-zd 默认为每个 app Worker ID 允许 256 个 stream
+（**matching.maxConcurrentTasksCap**）。一个 Worker 的 task slot 和空闲 stream 都要落在
+这个范围内。需要更多时，运行更多 Worker 进程。
+
+留出余量。在 10 秒的分发等待内没有 Worker 有空闲 slot 时，Step 会消耗一次 attempt。
+**RunModel** 用完 3 次 attempt 后，这一轮失败。单次尝试的 tool 如果没能及时拿到 Worker，
+会记录 **outcome_unknown**，即使它根本没有运行。
+
+### 长时间模型调用和超时 {#timeouts}
+
+这些 Step 选项由包设置，**AgentSessionOptions** 不能修改。
+
+| Step | 方法超时 | Heartbeat 超时 | Attempt | 失败路由 |
+| --- | --- | --- | --- | --- |
+| **RunModel** | 15 分钟 | 2 分钟 | 30 分钟内 3 次 | **RecordTurnFailure** |
+| **CallTool** | 2 小时，Dex 默认值 | 1 分钟，Dex 默认值 | 3 | **RecordToolFailure** |
+| **CallSingleAttemptTool** | 2 小时，Dex 默认值 | 1 分钟，Dex 默认值 | 1 | **RecordToolOutcomeUnknown** |
+
+runner 工作时，**RunModel** 和两种 tool Step 每 20 秒发送一次 heartbeat。所以慢但没有输出
+的模型调用或 tool call 仍然在 heartbeat 超时之内。方法超时依然会结束卡住的调用。在 Python
+中，runner 和 tool 代码要保持非阻塞：在 event loop 上的阻塞调用也会让后台 heartbeat 停下来。
+
+一次模型调用必须在 15 分钟内完成。把 provider 或 framework 的请求超时设得比它短，这样慢
+调用会带着 provider 的错误失败，后续 attempt 也还能落在 30 分钟的重试窗口内。Claude Agent
+SDK session 在一个 **RunModel** 中运行整段轮次，所以这一段必须在 15 分钟内完成。Dex 如何
+发现丢失的 attempt，见 [Heartbeat](/primitives/step/step-options#heartbeat)。
+
+### 分开的 Worker 池 {#worker-pools}
+
+Dex 按 Flow type 路由工作。注册了某个 agent Flow type 的每个 Worker，都可能收到它的模型
+调用、tool call 和 RPC。包会一起注册 session 的所有 Step，所以同一个 agent 的模型调用和
+tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可以这样拆分：
+
+- 给每个 agent 独立的 Flow type 和独立的 Worker 部署，这样繁忙的 agent 不会占用其他 agent
+  的 slot。
+- 把重量级或特殊的 tool 工作，比如浏览器、沙箱或 GPU 任务，放到有自己主机和扩缩容的服务中。
+  tool 用这次调用的幂等键调用该服务。session Worker 只需要等待网络，服务可以独立扩缩容。
+
+## 长 session 的限制 {#limits}
+
+一个 session 可以持续几个月。以下 server-zd [限制](/production/server-zd-operations#limits)
+决定它能增长到多大。
+
+| Key | 默认值 | 限制对象 |
+| --- | --- | --- |
+| **limits.maxFlowStateBytes** | 64 MiB | 一个 session 的全部存储：当前状态、Attribute 和 Channel 值，以及为 time travel 保留的被替换值 |
+| **values.maxValueBytes** | 16 MiB | 单个值的上限，比如一条消息、一条 tool call 记录或一份 framework run state |
+| **history.windowSemanticEvents** | 约 10,000 个事件 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
+| **retention.closedFlowDuration** | 7 天 | 已停止的 session 还能读取多久 |
+
+每个 run 在启动时记录这些值。新值只对服务器带着新值重启之后启动的 session 生效。
+
+包这样保存状态：
+
+- **AgentMessages** 每条消息一个 AttributeMap 实例。每条消息只写一次，所以对话按自身大小
+  增长，而不是因重写而增长。但 **RunModel** 和 **get_agent_snapshot** 仍然加载整个 map，
+  每次模型调用也都把完整历史发给模型。
+- **FrameworkRunState** 在一轮等待 tool 结果时保存 framework 的状态。每次模型调用请求 tool
+  后，**RunModel** 都会重写它。它保存这一轮到目前为止的工作，包括 tool 输出。OpenAI Agents
+  SDK 的状态还包含这一轮的输入，Vercel AI SDK 的状态会把每个 tool 输出保存两次。之前的每个值
+  都会作为被替换值保留，只要 history 还保留它，就计入 run 预算。
+- **AgentToolCalls** 记录在一轮结束时删除。被删除的值同样会成为被替换值，在 history 窗口
+  裁剪掉它之前，仍计入 run 预算。
+
+服务器会对 Step heartbeat 和 Step 完成等写入检查 run 预算，并且只在写入增加存储时检查。
+session 超出预算后，这样的 Step 会失败且不重试。它的模型调用和 tool call 随之失败，所以
+它的轮次也会失败。事务型 RPC 的写入，比如 **send_user_message**，不做检查。规划时让 session
+远低于 64 MiB。
+
+Flow history 大约保留一个 session 最新的 10,000 个事件。读取对话用
+**get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
+[Time travel](/primitives/client/advanced#time-travel) 只能以
+[history 窗口](/production/server-zd-operations#history-window)内的时间点为目标。
+Time travel 到起点始终可用。
+
+session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 session 及其
+**get_agent_snapshot** RPC 在[保留期](/production/server-zd-operations#保留期)内仍可用，
+之后 Dex 会清除它。需要比 session 保存更久的对话记录，要在此之前用
+**list_agent_messages** 复制出来。
+
+包目前还不压缩历史。在此之前：
+
+- 新的、无关的工作开一个新 session，不要让一个 session 无限增长。
+- 让 tool 输出保持小。返回模型需要的内容，比如 ID、摘要或排名靠前的结果，而不是整份文档。
+  每个输出都会保存在它的 tool call 记录中、这一轮运行期间的 run state 中，以及消息中。
+- 把文件、图片和长文档等大型产物放到你自己的 blob 存储中，让 tool 返回它们的引用。
+
+## 审批和截止时间 {#approvals}
+
+需要审批的 tool call 在独立的 **AwaitToolApproval** Step 中等待。等待不占用 Worker slot，
+也不受 Worker 重启和部署影响。
+
+没有截止时间时，审批会一直等到有人回答，这一轮也跟着等待。新的用户消息会排队，直到这一轮
+结束。在 Python 的 **AgentSessionOptions** 中设置 **interrupt_deadline**，或在 TypeScript
+中设置 **interruptDeadlineMs**。到截止时间仍未处理的调用会被拒绝，消息是
+"approval deadline passed"，模型会看到这次拒绝。
+
+session 在模型请求调用时，用 Worker 的时钟计算截止时间。保持 Worker 时钟同步。修改截止时间
+选项后，只对之后产生的审批生效。Dex Timer 以整秒为单位，所以截止时间的 Timer 会向上取整，
+最多晚一秒触发。从截止时间起，**resolve_interrupt** 返回 false，所以迟到的回答不会生效。
+
+Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictError** 失败。重试是
+安全的。Python 的 **AgentSessionClient** 最多重试 5 秒。
+
+## Worker 被杀和重新部署 {#worker-failures}
+
+崩溃最多重跑当时正在运行的那一次调用。
+
+| Worker 停掉时正在运行 | 结果 |
+| --- | --- |
+| **RunModel** | 这次模型调用重新运行，30 分钟内最多 3 次 attempt，之后这一轮失败。如果 tool 已经运行过，history 中的一条说明会告诉下一轮的模型不要重复它们。 |
+| **CallTool**，读取或幂等写入 | 用同一个幂等键再次运行。最后一次 attempt 之后，读取记录 **failed**，写入记录 **outcome_unknown**。 |
+| **CallSingleAttemptTool** | 记录 **outcome_unknown**，不再运行。模型会看到结果未知。 |
+| 等待用户消息、审批或 tool 结果 | 不会重跑任何东西。等待发生在 Dex Server 中。 |
+| framework 无法推迟的 tool | tool 在 **RunModel** 内部运行，**RunModel** 重跑时它也会重复，属于至少一次。 |
+| Claude Agent SDK 的一段轮次 | 被推迟的自定义 tool 在各自的 **CallTool** 或 **CallSingleAttemptTool** Step 中运行，规则同上。模型调用、inline 读取 tool，以及 **Bash**、**Write**、**Edit**、**Task** 等 CLI tool 在 **RunModel** 内部运行，**RunModel** 重跑时会重复，属于至少一次。 |
+
+单次尝试的 tool 只有一种很窄的情况会运行两次。它的 Step 会在 tool 运行前先发送输出。如果
+Worker 在 Dex 收到这个输出之前停掉，Dex 可能把同一个 attempt 交给另一个 Worker。这个窗口
+通常远小于一秒。
+
+优雅停止 Worker 时，它会在 drain 超时内等待正在运行的 handler，默认 30 秒，然后取消它们。
+被取消的模型调用会重新运行，被取消的 **CallTool** 会重试。因取消而停止的单次尝试 tool 会记录
+**outcome_unknown**。把 drain 超时设得比通常的模型调用和 tool call 时间长，再把容器的终止
+宽限期设得比 drain 超时长。先等新 Worker [注册](/production/pull-workers#readiness)完成，
+再停止旧 Worker。
+
+## 在 session 等待时升级 agent 代码 {#upgrades}
+
+等待中的 session 运行的是接手它下一个 Step 的 Worker 上的代码。agent 循环不会重放，所以
+部署在下一次模型调用或 tool call 时生效，即使在一轮中间也一样。滚动部署期间，同一个
+session 的两个 Step 可能运行在不同版本上。
+
+- 保持每个 agent 的 Flow type 不变。运行中的 session 靠它恢复。
+- 只要运行中的轮次或待处理的审批还引用某个 tool，就保留这个 tool。
+- 已记录的 tool call 保留模型请求它时适用的 effect 和审批规则。修改后的 tool policy 对之后
+  的调用生效。
+- 修改后的 prompt 或模型在下一次模型调用时生效。修改后的 tool 在它下一次被调用时生效。
+- 在一轮的各个 Step 之间，**FrameworkRunState** 保存 framework 序列化的状态。新 Worker 上的
+  framework 版本必须能恢复它。保持在 adapter 固定的 framework 版本范围内，并且同时升级
+  adapter 和 framework。
+
+通用规则见 [Flow 代码版本控制](/production/application-operations#versioning-flow-code)。
+
+## 凭证 {#credentials}
+
+把模型 API key 和 tool 凭证放在 Worker 的环境中，或放在 Worker 调用时读取的 secret store
+中。每个 framework 都从环境中读取自己的模型 key，比如 **OPENAI_API_KEY**、
+**GOOGLE_API_KEY** 或 **ANTHROPIC_API_KEY**。adapter 本身不处理凭证。
+
+不要在 session 的启动输入、用户消息、tool 参数、tool 输出或 Attribute 中传递凭证。Dex 会把
+它们保存在 Flow history 和状态中。Dex Web 会显示它们，history 会为 time travel 保留被替换
+的值，已停止的 session 在保留期内仍可读取。任何获得授权的 Client 都能读取 **AgentEvents**。
+
+属于某个用户的凭证，让 tool 在调用时从 secret store 中查找，查找用的 key 不能是凭证本身。
+当你自己的 Flow 必须持有短期 secret 时，把它存放在
+[hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 中，Flow 不再需要时
+删除它。
+
+Worker 和 Client 使用 bearer 凭证向 Dex Server 认证。见
+[身份验证](/production/server-zd-operations#身份验证)。
+
+## 相关内容
+
+- [Agent Framework](/agent-frameworks)
+- [AI Agent](/use-cases/ai-agent)
+- [Stream](/primitives/stream)
+- [拉取模式 Worker](/production/pull-workers)
+- [server-zd 运维](/production/server-zd-operations)
+- [Agents 包 README](https://github.com/superdurable/dex/blob/main/agents/README.md)

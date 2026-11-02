@@ -1,0 +1,351 @@
+---
+title: Deploy agents
+sidebar_label: Deploy agents
+---
+
+# Deploy agents
+
+This page covers running [agent framework](/agent-frameworks) sessions in
+production. One Flow execution is one agent session. Every model call is a
+**RunModel** Step, and every tool call is its own Step. Server limits on this
+page are server-zd defaults. See [server-zd operation](/production/server-zd-operations)
+and [Pull Workers](/production/pull-workers) for the rest of the setup.
+
+## Install the packages {#install}
+
+Install an adapter with its framework. Python adapters are on PyPI. Each one
+brings in the **dex-agents** core and the Dex SDK it supports. They need Python
+3.11 or later.
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+pip install dex-agents-langgraph
+pip install dex-agents-openai-agents
+pip install dex-agents-google-adk
+pip install dex-agents-claude-agent-sdk
+```
+
+TypeScript adapters are on npm. The core and the Dex SDK are peer packages, so
+the application owns exactly one copy of each. They need Node 22 or 24.
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+```
+
+To write a runner of your own, install only the core:
+
+```bash
+pip install dex-agents
+npm i @superdurable/dex-agents @superdurable/dex@1.30.0
+```
+
+All agents packages share one version line. A Python adapter requires the core
+of the same version. An npm adapter peer-depends on it. Each release pins the
+Dex SDK it supports and the framework range it was tested with; see the
+[compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
+The packages are before 1.0, so a minor release may change their API. Pin exact
+versions in your lockfile and read the
+[changelog](https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md)
+before an upgrade.
+
+Build the same session Flow in every process that starts sessions or calls
+their RPCs.
+
+## Enable a Stream backend {#stream-backend}
+
+Live model text, reasoning summaries, tool progress, and approval events go to
+the **AgentEvents** [Stream](/primitives/stream). The production default for
+**streamStore.backend** is **disabled**. A Step write is then dropped without
+failing the Step. Client writes and Stream reads fail with
+**FAILED_PRECONDITION**.
+**dexcli dev** sets the memory backend, so live events can work locally and
+then vanish in production. Enable the memory backend in the server
+configuration:
+
+```yaml
+streamStore:
+  backend: memory
+```
+
+The memory backend keeps Streams in the memory of the active server-zd process.
+A server-zd cluster has one active process, so a single node needs nothing more.
+A [standby](/production/server-zd-operations#hot-standby) holds no Streams. A
+process starts with empty Streams whenever it becomes active: after a restart,
+a standby takeover, or a [step down](/production/server-zd-operations#step-down). A standby answers Stream calls with **UNAVAILABLE**, and clients
+reconnect to the active process.
+
+Losing Stream data never loses a session. The conversation, tool calls, and
+pending approvals live in Attributes. A client that misses events reloads the
+session with the **get_agent_snapshot** RPC and keeps reading the Stream from
+there. After **turn_completed** or **turn_failed**, a client replaces the turn's
+live text with the stored messages. Never treat the Stream as the record of
+what happened.
+
+## Size AgentEvents {#size-agent-events}
+
+**AgentEvents** has one capacity for each Flow type and Stream name. Every
+session of the agent shares it; it is not a per-session budget. The default is
+10 MiB. Set it with **event_stream_capacity_bytes** in the Python
+**AgentSessionOptions** or **eventStreamCapacityBytes** in the TypeScript
+**createAgentSessionFlow** options.
+
+The server charges each message its serialized value, Flow ID, and source, plus
+512 bytes. When usage reaches 90 percent of the capacity, a background trimmer
+removes the oldest messages of all sessions until usage is at 80 percent. If
+trimming falls behind and usage reaches the capacity, writes are rejected. A
+Step drops a rejected write without failing. Size the capacity so it holds the
+newest turn of every session that a client watches:
+
+```text
+bytes per turn = messages per turn × (average message bytes + 512)
+capacity       ≥ concurrent sessions × bytes per turn ÷ 0.8
+```
+
+Say a turn writes 200 messages of about 300 bytes each, counting the Flow ID
+and source. That is about 162 KB per turn. With 500 sessions streaming at once,
+live events take about 81 MB. Dividing by 0.8 gives about 102 MB, so a capacity
+of 128 MiB keeps the newest turn of every session. The default 10 MiB keeps
+about 50 such turns.
+
+The fixed 512 bytes dominate small text deltas. The Python core writes one
+Stream message for each text delta that a runner writes. The TypeScript core
+merges consecutive deltas for up to 100 ms or 1,024 characters. Expect more
+messages per turn from Python adapters.
+
+One Stream message is at most 100 KiB, set by **streamStore.maxMessageBytes**.
+A larger write is dropped. The memory backend keeps every Stream in server
+memory, so plan server memory for the sum of the capacities of every agent Flow
+type and other Stream.
+
+## Size Workers {#size-workers}
+
+Each running model call, tool call, and RPC handler holds one Worker task slot.
+A session that waits for a user message, an approval, or tool results holds
+none; the wait lives in Dex Server. Size each Worker pool for the turns that
+call the model at the same time, plus the tool calls that run at the same time,
+plus the RPC reserve.
+
+The tool calls of one model response run as parallel Steps. Give a Worker at
+least enough slots for the largest batch of tool calls that a model makes. The
+default task limit is the CPU count. Model calls mostly wait on the network, so
+agent Workers usually need a higher **maxConcurrentTasks**. See
+[capacity and shutdown](/production/pull-workers#capacity-and-shutdown) for the
+option names in each SDK.
+
+Keep the [RPC reserve](/production/pull-workers#reserved-rpc-capacity). A UI
+calls **get_agent_snapshot**, **send_user_message**, and **resolve_interrupt**
+as RPCs. Without a reserve, they wait behind model calls that fill the Worker.
+When you do not set it, the reserve is one slot if the task limit is at least
+two, otherwise zero. A rising reserve-decline counter means Steps need more
+capacity.
+
+server-zd allows 256 streams for each app Worker ID by default
+(**matching.maxConcurrentTasksCap**). A Worker's task slots and idle streams
+must fit within it. To grow past it, run more Worker processes.
+
+Keep headroom. When no Worker has a free slot within the 10-second dispatch
+wait, a Step consumes an attempt. **RunModel** fails the turn once its 3
+attempts are used. A single-attempt tool that cannot get a Worker in time
+records **outcome_unknown**, even though it never ran.
+
+### Long model calls and timeouts {#timeouts}
+
+The packages set these Step options. **AgentSessionOptions** does not change
+them.
+
+| Step | Method timeout | Heartbeat timeout | Attempts | Failure route |
+| --- | --- | --- | --- | --- |
+| **RunModel** | 15 minutes | 2 minutes | 3 within 30 minutes | **RecordTurnFailure** |
+| **CallTool** | 2 hours, the Dex default | 1 minute, the Dex default | 3 | **RecordToolFailure** |
+| **CallSingleAttemptTool** | 2 hours, the Dex default | 1 minute, the Dex default | 1 | **RecordToolOutcomeUnknown** |
+
+**RunModel** and both tool Steps send a heartbeat every 20 seconds while the
+runner works. A model or tool call that is slow but silent therefore stays
+within its heartbeat timeout. The method timeout still ends a hung call. In
+Python, keep runner and tool code non-blocking: a blocking call on the event
+loop also stops the background heartbeat.
+
+One model call must finish within 15 minutes. Set the provider or framework
+request timeout below that, so a slow call fails with the provider's error and
+later attempts still fit in the 30-minute retry window. A Claude Agent SDK
+session runs a whole turn segment in one **RunModel**, so that segment must
+finish within 15 minutes. See [Heartbeat](/primitives/step/step-options#heartbeat) for how Dex
+detects a lost attempt.
+
+### Separate Worker pools {#worker-pools}
+
+Dex routes work by Flow type. Every Worker that registers an agent's Flow type
+can receive its model calls, tool calls, and RPCs. The packages register every
+session Step together, so one agent's model calls and tool calls share a Worker
+pool. Split along these lines when one kind of work crowds out another:
+
+- Give each agent its own Flow type and its own Worker deployment, so a busy
+  agent cannot take the slots of another.
+- Run heavy or special tool work, such as a browser, a sandbox, or a GPU job,
+  in a service with its own hosts and scaling. The tool calls that service with
+  the call's idempotency key. The session Worker then only waits on the
+  network, and the service scales on its own.
+
+## Limits for long sessions {#limits}
+
+A session can stay open for months. These server-zd
+[limits](/production/server-zd-operations#limits) decide how far it grows.
+
+| Key | Default | What it bounds |
+| --- | --- | --- |
+| **limits.maxFlowStateBytes** | 64 MiB | All storage of one session: current state, Attribute and Channel values, and the superseded values kept for time travel |
+| **values.maxValueBytes** | 16 MiB | The largest single value, such as one message, one tool call record, or one framework run state |
+| **history.windowSemanticEvents** | About 10,000 events | The Flow history kept for each run. Older events are pruned. |
+| **retention.closedFlowDuration** | 7 days | How long a stopped session stays readable |
+
+Each run records these values when it starts. A new value applies only to
+sessions that start after the server restarts with it.
+
+The packages store state this way:
+
+- **AgentMessages** keeps one AttributeMap instance per message. Each message is
+  written once, so the conversation grows by its own size, not by rewrites.
+  **RunModel** and **get_agent_snapshot** still load the whole map, and every
+  model call sends the whole history to the model.
+- **FrameworkRunState** holds the framework's state while a turn waits for
+  tool results. **RunModel** rewrites it after every model call that asks for
+  tools. It holds the turn's work so far, tool outputs included. The OpenAI
+  Agents SDK state also holds the turn's input, and the Vercel AI SDK state
+  holds each tool output twice. Each earlier value stays as a superseded value
+  and counts toward the run budget while history keeps it.
+- **AgentToolCalls** records are deleted when the turn ends. A deleted value
+  also becomes a superseded value, so it still counts toward the run budget
+  until the history window prunes it.
+
+The server checks the run budget for Step heartbeats and Step completions,
+among other writes, and only when the write adds storage. Once a session is
+over the budget, such a Step fails without retry. Its model calls and tool
+calls then fail, so its turns fail. Transactional RPC writes, such as
+**send_user_message**, are not checked. Plan sessions to stay well below 64
+MiB.
+
+The Flow history keeps about the newest 10,000 events of a session. Read the
+conversation with **get_agent_snapshot** or **list_agent_messages**, not from
+Flow history. [Time travel](/primitives/client/advanced#time-travel) can target
+only a point inside the [history window](/production/server-zd-operations#history-window).
+Time travel to the beginning is always available.
+
+A session never completes by itself. Stop it with **StopFlow** when it is done.
+A stopped session, and its **get_agent_snapshot** RPC, stays available for the
+[retention](/production/server-zd-operations#retention) period. Then Dex purges
+it. Copy a transcript that must outlive the session with
+**list_agent_messages** before then.
+
+The packages do not compact history yet. Until they do:
+
+- Start a new session for new, unrelated work instead of growing one session
+  forever.
+- Keep tool outputs small. Return what the model needs, such as IDs, a summary,
+  or the top results, instead of whole documents. Each output is stored in its
+  tool call record, in the run state while the turn runs, and in the messages.
+- Move large artifacts, such as files, images, and long documents, to your own
+  blob storage. Have the tool return a reference to them.
+
+## Approvals and deadlines {#approvals}
+
+A tool call that needs approval waits in its own **AwaitToolApproval** Step.
+The wait holds no Worker slot. It survives Worker restarts and deploys.
+
+Without a deadline, an approval waits until someone answers, and the turn waits
+with it. New user messages queue until the turn ends. Set **interrupt_deadline**
+in the Python **AgentSessionOptions** or **interruptDeadlineMs** in TypeScript.
+A call still pending at the deadline is rejected with the message "approval
+deadline passed", and the model sees the rejection.
+
+The session computes the deadline when the model asks for the call, from the
+Worker clock. Keep Worker clocks synchronized. A changed deadline option applies
+only to approvals raised after the change. Dex Timers take whole seconds, so the
+deadline Timer is rounded up and can fire up to a second late.
+**resolve_interrupt** returns false from the deadline on, so a late answer never
+wins.
+
+**resolve_interrupt** can fail with **RpcLockConflictError** while a Step holds
+the same lock. A retry is safe. The Python **AgentSessionClient** retries for up
+to 5 seconds.
+
+## Worker kills and redeploys {#worker-failures}
+
+A crash repeats at most the one call that was running.
+
+| Running when the Worker dies | What happens |
+| --- | --- |
+| **RunModel** | That model call runs again, up to 3 attempts within 30 minutes. Then the turn fails. If tools already ran, a note in the history tells the next turn's model not to repeat them. |
+| **CallTool**, for a read or an idempotent write | The call runs again with the same idempotency key. After the last attempt, a read records **failed** and a write records **outcome_unknown**. |
+| **CallSingleAttemptTool** | The call records **outcome_unknown** and does not run again. The model sees that the outcome is unknown. |
+| A wait for a user message, an approval, or tool results | Nothing runs again. The wait lives in Dex Server. |
+| A tool the framework cannot defer | The tool runs inside **RunModel** and repeats when **RunModel** runs again. It is at-least-once. |
+| A Claude Agent SDK turn segment | Deferred custom tools run in their own **CallTool** or **CallSingleAttemptTool** Steps, as above. Model calls, inline read tools, and CLI tools such as **Bash**, **Write**, **Edit**, and **Task** run inside **RunModel** and repeat when it runs again. They are at-least-once. |
+
+A single-attempt tool can still run twice in one narrow case. Its Step sends
+output before the tool runs. If the Worker dies before Dex receives that output,
+Dex can deliver the same attempt to another Worker. The window is normally well
+under a second.
+
+A graceful Worker stop waits for active handlers for the drain timeout, 30
+seconds by default. Then it cancels them. A cancelled model call runs again, and
+a cancelled **CallTool** retries. A single-attempt tool that stops on
+cancellation records **outcome_unknown**. Set the drain timeout above your usual
+model and tool call times, and set the container's termination grace period
+above the drain timeout. Wait for the new Workers to
+[register](/production/pull-workers#readiness) before you stop the old ones.
+
+## Upgrade agent code while sessions wait {#upgrades}
+
+A waiting session runs the code of the Worker that takes its next Step. Nothing
+replays the agent loop, so a deploy takes effect at the next model call or tool
+call, even in the middle of a turn. During a rolling deploy, two Steps of one
+session can run on different versions.
+
+- Keep each agent's Flow type stable. Running sessions resume by it.
+- Keep a tool available while a running turn or a pending approval still
+  refers to it.
+- A recorded tool call keeps the effect and approval rule that applied when the
+  model asked for it. Changed tool policies apply to later calls.
+- A changed prompt or model takes effect at the next model call. A changed
+  tool takes effect at its next call.
+- Between the Steps of a turn, **FrameworkRunState** holds state that the
+  framework serialized. The framework version on the new Worker must restore
+  it. Stay within the framework range that the adapter pins, and upgrade the
+  adapter and the framework together.
+
+See [Versioning Flow code](/production/application-operations#versioning-flow-code)
+for the general rules.
+
+## Credentials {#credentials}
+
+Keep model API keys and tool credentials in the Worker's environment or in a
+secret store that the Worker reads when a call runs. Each framework reads its
+model key from the environment, such as **OPENAI_API_KEY**, **GOOGLE_API_KEY**,
+or **ANTHROPIC_API_KEY**. The adapters add no credential handling.
+
+Never pass a credential in the session's start input, a user message, a tool
+argument, a tool output, or an Attribute. Dex stores them in Flow history and
+state. Dex Web shows them, history keeps superseded values for time travel, and
+a stopped session stays readable for the retention period. Any authorized
+Client can read **AgentEvents**.
+
+For a credential that belongs to one user, let the tool look it up at call time
+from a secret store, with a key that is not the secret itself. When a Flow of
+your own must hold a short-lived secret, store it in a
+[hard-delete Attribute](/primitives/attribute#hard-delete-attributes) and
+delete it when the Flow no longer needs it.
+
+Workers and Clients authenticate to Dex Server with bearer credentials. See
+[authentication](/production/server-zd-operations#authentication).
+
+## Related
+
+- [Agent Frameworks](/agent-frameworks)
+- [AI Agent](/use-cases/ai-agent)
+- [Stream](/primitives/stream)
+- [Pull Workers](/production/pull-workers)
+- [server-zd operation](/production/server-zd-operations)
+- [Agents packages README](https://github.com/superdurable/dex/blob/main/agents/README.md)

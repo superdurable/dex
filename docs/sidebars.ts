@@ -155,6 +155,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'production/application-operations',
         'production/pull-workers',
+        'production/agents',
         'production/dex-web',
         'production/local-connector-setup',
         'production/server-zd-operations',
