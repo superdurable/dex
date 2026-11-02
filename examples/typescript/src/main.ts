@@ -54,6 +54,8 @@ import { createStreamRouter } from "./primitives/stream/controller.js";
 import { createSubflowRouter } from "./primitives/subflow/controller.js";
 import { createTimerRouter } from "./primitives/timer/controller.js";
 import { createWaitTypesRouter } from "./primitives/wait-types/controller.js";
+import { loadAiAgentSessionKey } from "./products/ai-agent/ai-agent-config.js";
+import { createAiAgentRouter } from "./products/ai-agent/controller.js";
 import { createEngagementRouter } from "./products/engagement/controller.js";
 import { createJobPostingRouter } from "./products/job-post/controller.js";
 import { createMicroserviceRouter } from "./products/microservices/controller.js";
@@ -62,6 +64,8 @@ import { createOrderProcessingRouter } from "./products/order-processing/control
 import { createSignupRouter } from "./products/signup/controller.js";
 import { createSubscriptionRouter } from "./products/subscription/controller.js";
 import {
+  aiAgentConfig,
+  aiAgentFlow,
   createExampleRegistry,
   orderProcessingFlow,
   pollingFlow,
@@ -98,6 +102,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/products/subscription", createSubscriptionRouter(client));
   app.use("/products/signup", createSignupRouter(client));
   app.use("/products/job-post", createJobPostingRouter(client));
+  app.use("/products/ai-agent", createAiAgentRouter(client, aiAgentFlow, loadAiAgentSessionKey(), aiAgentConfig.models));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
@@ -193,6 +198,11 @@ function allowCors(
   response: express.Response,
   next: express.NextFunction,
 ): void {
+  // The AI Agent page calls its routes from its own origin only.
+  if (request.path.startsWith("/products/ai-agent")) {
+    next();
+    return;
+  }
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader(
     "Access-Control-Allow-Methods",

@@ -5,9 +5,9 @@ sidebar_label: AI Agent
 
 # AI Agent
 
-这个 Python application 是一个长期运行的通用 AI Agent。它可以与用户聊天、调用受信任的 MCP tool、在修改外部系统前等待审批、向用户提问、通过 durable Timer 暂停，并在执行前先制定计划供用户审阅。
+这个 application 是一个长期运行的通用 AI Agent，有 Python 与 TypeScript 两个版本。它可以与用户聊天、调用受信任的 MCP tool、在修改外部系统前等待审批、向用户提问、通过 durable Timer 暂停，并在执行前先制定计划供用户审阅。
 
-它基于 Dex Agents，也就是 **dex-agents** package。这个 Agent 是一个 Stepwise agent：使用库内置的 agent loop，不依赖任何 agent framework。会话由 Dex 管理。每次模型调用都是一个 **RunModel** Step，并从 durable state 重新构造模型输入，因此 Agent 不依赖 LLM provider 的 conversation API。每次 tool call 都是独立的 Step，因此崩溃最多只会重复当时正在运行的那一次调用。
+它基于 Dex Agents：Python 版使用 **dex-agents** package，TypeScript 版使用 **@superdurable/dex-agents**。这个 Agent 是一个 Stepwise agent：使用库内置的 agent loop，不依赖任何 agent framework。会话由 Dex 管理。每次模型调用都是一个 **RunModel** Step，并从 durable state 重新构造模型输入，因此 Agent 不依赖 LLM provider 的 conversation API。每次 tool call 都是独立的 Step，因此崩溃最多只会重复当时正在运行的那一次调用。
 
 ## Agent framework {#agent-frameworks}
 
@@ -17,7 +17,11 @@ sidebar_label: AI Agent
 
 Application 用 Dex 的概念声明 Agent，并构建它的 Flow。Flow type 是 **AIAgentSession**。一次 Flow execution 就是一个 session，Flow ID 就是 session ID。
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py'}}>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py',
+    typescript: 'examples/typescript/src/products/ai-agent/ai-agent-flow.ts',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -40,6 +44,31 @@ def build_ai_agent_session_flow(
         compaction=CompactionPolicy(context_window_tokens=context_window_tokens),
     )
     return stepwise_agent_session_flow(definition, flow_type=AI_AGENT_SESSION_FLOW_TYPE)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createAiAgentFlow(config: AiAgentConfig): AiAgentFlow {
+  const clients = new Map(config.models.map((model) => [model, createModelClient(model)]));
+  const defaultClient = clients.get(config.models[0]!)!;
+  return createStepwiseAgentSessionFlow(
+    {
+      name: "ai-agent",
+      instructions: config.systemPrompt,
+      model: defaultClient,
+      // Settings hold only a model name; an unknown one gets the default, never a new client.
+      resolveModel: (settings) => clients.get(String(settings.model)) ?? defaultClient,
+      // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
+      toolSources: [new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true })],
+      builtInTools: ["ask_user", "durable_wait", "write_todos"],
+      planModeEnabled: true,
+      compaction: { contextWindowTokens: config.contextWindowTokens },
+    },
+    "AIAgentSession",
+  );
+}
 ```
 
 </SdkSnippet>
@@ -97,9 +126,13 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 
 ## 实时 event {#live-events}
 
-文本、reasoning summary、tool activity、approval 与 plan 更新会出现在 session 的 **AgentEvents** [Stream](/primitives/stream) 上。Example 使用库提供的 browser stream helper，把它以 Server-Sent Events 的形式提供给浏览器。
+文本、reasoning summary、tool activity、approval 与 plan 更新会出现在 session 的 **AgentEvents** [Stream](/primitives/stream) 上。Python example 使用库提供的 browser stream helper，把它以 Server-Sent Events 的形式提供给浏览器。TypeScript example 把它作为供 **useChat** 使用的 AI SDK UI message stream：一个 route 发送用户消息或 tool 审批，并把这一轮的内容流式写入浏览器中的 chat。
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/http_routes.py',
+    typescript: 'examples/typescript/src/products/ai-agent/controller.ts',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -123,6 +156,26 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/api/chat", async (request, response) => {
+    const body = requireBody(request);
+    const flowId = authorizeSession(request, requireString(body, "id"));
+    const lastMessage = Array.isArray(body.messages) ? (body.messages.at(-1) as JsonBody | undefined) : undefined;
+    const signal = abortSignalOf(response);
+    if (lastMessage?.role === "assistant") {
+      const approvals = readAgentToolApprovalResponses(lastMessage);
+      await sendFetchResponse(response, resolveAgentToolApprovalsWithUIMessageStream({ ...session, flowId, approvals, signal }));
+      return;
+    }
+    const parts = (Array.isArray(lastMessage?.parts) ? lastMessage.parts : []) as JsonBody[];
+    const text = parts.map((part) => (part.type === "text" ? String(part.text) : "")).join("");
+    await sendFetchResponse(response, sendAgentUserMessageWithUIMessageStream({ ...session, flowId, text, signal }));
+  });
+```
+
+</SdkSnippet>
 </SdkTabs>
 
 页面先加载 session snapshot，以及打开 Stream 所需的 resume token。重新连接的浏览器会从它看到的最后一个 event 继续。Stream delivery 是 best effort，因此页面会在每个 turn 结束后以及每八秒重新加载 snapshot。Conversation 始终来自 snapshot，其中包含最新的 200 条 message。**Load older messages** 会通过 **list_agent_messages** 向前翻页。
@@ -131,7 +184,11 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 
 Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 session 的 route 在调用 Dex 之前，都会先检查该 session 的 token。**POST /sessions** 会检查所请求的 model 是否在 Worker 允许的 model 之中，选择新的 session ID，并返回它的 token。Token 是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC-SHA256，因此 example 不存储任何 token，使用同一个 key 的每个进程都接受它。如果请求缺少 **X-Agent-Session-Token** header，或 header 不匹配，route 返回 403。
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/http_routes.py',
+    typescript: 'examples/typescript/src/products/ai-agent/controller.ts',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -159,9 +216,41 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  const issueSessionToken = (sessionId: string) => createHmac("sha256", sessionKey).update(sessionId).digest("hex");
+  const authorizeSession = (request: Request, sessionId: string): string => {
+    const expected = Buffer.from(issueSessionToken(sessionId));
+    const presented = Buffer.from(request.header(sessionTokenHeaderName) ?? "");
+    if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+      throw new HttpError(403, "this browser has no token for the AI Agent session");
+    }
+    return sessionId;
+  };
+  const sessionIdOf = (request: Request) => authorizeSession(request, String(request.params.id));
+  router.use("/", express.static(fileURLToPath(new URL("./ui/", import.meta.url))));
+
+  router.get("/settings", (_request, response) => {
+    response.json({ model: models[0], models });
+  });
+  router.post("/sessions", async (request, response) => {
+    const model = requireBody(request).model ?? models[0];
+    if (typeof model !== "string" || !models.includes(model)) {
+      throw new HttpError(400, "model must be one of the models in /settings");
+    }
+    // The server picks the session ID, and settings carry only the model name the Worker resolves.
+    const sessionId = `ai-agent-${randomUUID()}`;
+    const start = { initialMessage: null, sessionSettings: { model } };
+    await client.startFlow(flow, sessionId, start, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+```
+
+</SdkSnippet>
 </SdkTabs>
 
-浏览器把每个 token 保存在 local storage 中，并在每个请求中发送这个 header。它用 **fetch** 读取 event stream，而不是 **EventSource**，因为 EventSource 无法发送 header。AI Agent 的 route 不发送 CORS header，因此其他 origin 的页面无法调用它们。
+两个页面都把每个 token 按 session ID 保存在 local storage 中，页面 URL 中只放 session ID，因此复制的 URL 不会授予访问权限。两个页面都在每个请求中发送这个 header。Python 页面用 **fetch** 读取 event stream，而不是 **EventSource**，因为 EventSource 无法发送 header。TypeScript 页面把这个 header 交给 **useChat** transport，用于它的请求和重新连接。AI Agent 的 route 不发送 CORS header，因此其他 origin 的页面无法调用它们。
 
 如果没有设置 **DEX_AGENT_SESSION_KEY**，进程会在启动时选择一个随机 key，重启之后，之前启动的 session 就无法再访问。真实的应用会用自己的登录替换这个 token，并检查用户是否可以使用该 session。
 
@@ -170,6 +259,8 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent)。React UI、MCP 配置示例与运行说明位于 [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent)。
 
 第一页会显示 Worker 的 model、prompt、context window 与 MCP tool。启动表单从 Worker 允许的 model 中为 session 选择 model。要使用真实模型，把 **DEX_AGENT_MODEL** 设为 LiteLLM model 名称，在 **DEX_AGENT_MODELS** 中列出更多 model，把它们的 credential 加到 **examples/.env**，然后重启 Worker。默认的本地 demo model 不需要 credential，并支持 **/ask**、**/choose**、**/wait** 与 **/tool** 等斜杠命令，因此无需 key 就能体验所有功能。
+
+TypeScript example 的 Flow、route 与 React UI 位于 [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent)。它读取相同的 **DEX_AGENT_MODEL**、**DEX_AGENT_MODELS**、**DEX_AGENT_SYSTEM_PROMPT**、**DEX_AGENT_CONTEXT_TOKENS** 与 **DEX_AGENT_MCP_CONFIG** 设置，以及相同的 MCP 配置文件，它的启动表单也以同样的方式为 session 选择模型。真实模型是 AI SDK model，例如 **openai/gpt-5-mini**。默认的 **mock/dex** 与 **mock/dex-mini** demo model 支持相同的斜杠命令，**/model** 会说出 session 的模型。它的 route 在调用 Dex 之前会检查每个 session 的 token。
 
 ## 相关内容
 

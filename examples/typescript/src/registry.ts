@@ -63,6 +63,8 @@ import { streamFlow } from "./primitives/stream/stream-flow.js";
 import { subFlowChildFlow, subFlowParentFlow } from "./primitives/subflow/subflow-flow.js";
 import { timerFlow } from "./primitives/timer/timer-flow.js";
 import { waitTypesFlow } from "./primitives/wait-types/wait-types-flow.js";
+import { loadAiAgentConfig } from "./products/ai-agent/ai-agent-config.js";
+import { createAiAgentFlow } from "./products/ai-agent/ai-agent-flow.js";
 import { engagementFlow } from "./products/engagement/engagement-flow.js";
 import { dealDSLFlow } from "./products/deal-dsl/deal-dsl-flow.js";
 import { jobPostingFlow } from "./products/job-post/job-post-flow.js";
@@ -76,6 +78,8 @@ import { MyDependencyService } from "./shared/my-dependency-service.js";
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
+const aiAgentConfig = loadAiAgentConfig();
+const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
@@ -86,6 +90,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   userOnboardingFlow,
   jobPostingFlow,
   dealDSLFlow,
+  aiAgentFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
@@ -144,6 +149,8 @@ export {
   userOnboardingFlow,
   jobPostingFlow,
   dealDSLFlow,
+  aiAgentConfig,
+  aiAgentFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
