@@ -52,6 +52,7 @@ type v2AttributeDeclaration struct {
 
 type v2RPCRegistration struct {
 	name             string
+	protocolName     string
 	actionExpression ast.Expr
 }
 
@@ -70,7 +71,8 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 	registeredRPCs := analyzer.registeredV2RPCs(flowType)
 	registeredRPCNames := make(map[string]bool, len(registeredRPCs))
 	for _, rpc := range registeredRPCs {
-		registeredRPCNames[rpc.name] = true
+		// Dex Web invokes the view RPCs by protocol name, so a renamed one is not registered.
+		registeredRPCNames[rpc.protocolName] = true
 	}
 	indexedAttributes := analyzer.collectV2IndexedAttributes(attributes)
 	summary := analyzer.collectV2View(
@@ -553,7 +555,7 @@ func (analyzer *goAnalyzer) collectV2Actions(
 		if rpc.actionExpression == nil {
 			continue
 		}
-		action, actionOK := analyzer.v2ActionFromExpression(rpc.name, rpc.actionExpression, attributes)
+		action, actionOK := analyzer.v2ActionFromExpression(rpc.protocolName, rpc.actionExpression, attributes)
 		if !actionOK {
 			continue
 		}
@@ -850,9 +852,10 @@ func (analyzer *goAnalyzer) registeredV2RPCs(flowType string) []v2RPCRegistratio
 		}
 		selector, selectorOK := call.Args[0].(*ast.SelectorExpr)
 		if selectorOK {
-			registration := v2RPCRegistration{name: selector.Sel.Name}
+			registration := v2RPCRegistration{name: selector.Sel.Name, protocolName: selector.Sel.Name}
 			if len(call.Args) > 1 {
-				registration.actionExpression = analyzer.v2RPCActionExpression(call.Args[1])
+				registration.actionExpression = analyzer.v2RPCOption(call.Args[1], "Action")
+				registration.protocolName = analyzer.v2RPCProtocolName(selector.Sel.Name, call.Args[1])
 			}
 			registrations = append(registrations, registration)
 		}
@@ -861,7 +864,21 @@ func (analyzer *goAnalyzer) registeredV2RPCs(flowType string) []v2RPCRegistratio
 	return registrations
 }
 
-func (analyzer *goAnalyzer) v2RPCActionExpression(optionsExpression ast.Expr) ast.Expr {
+// v2RPCProtocolName returns RPCOptions.Name when it is set, or the Go method name.
+func (analyzer *goAnalyzer) v2RPCProtocolName(methodName string, optionsExpression ast.Expr) string {
+	nameExpression := analyzer.v2RPCOption(optionsExpression, "Name")
+	if nameExpression == nil {
+		return methodName
+	}
+	if name, isStatic := analyzer.staticString(nameExpression); isStatic && name != "" {
+		return name
+	}
+	analyzer.graph.AddDiagnostic("error", "v2_rpc_registration",
+		fmt.Sprintf("RPC %s Name must be a non-empty compile-time string", methodName), analyzer.span(nameExpression))
+	return methodName
+}
+
+func (analyzer *goAnalyzer) v2RPCOption(optionsExpression ast.Expr, optionName string) ast.Expr {
 	if unary, ok := optionsExpression.(*ast.UnaryExpr); ok && unary.Op == token.AND {
 		optionsExpression = unary.X
 	}
@@ -871,7 +888,7 @@ func (analyzer *goAnalyzer) v2RPCActionExpression(optionsExpression ast.Expr) as
 	}
 	for _, element := range options.Elts {
 		keyValue, keyValueOK := element.(*ast.KeyValueExpr)
-		if keyValueOK && analyzer.expressionString(keyValue.Key) == "Action" {
+		if keyValueOK && analyzer.expressionString(keyValue.Key) == optionName {
 			return keyValue.Value
 		}
 	}

@@ -153,6 +153,7 @@ func TestVisualizeV2BuildsRecursiveStartInputSchema(t *testing.T) {
 	require.Equal(t, int64(2), *fields["decisions"].Schema.FixedLength)
 	require.Equal(t, "18446744073709551615", fields["counters"].Schema.Values.Maximum)
 	require.Len(t, graph.V2.Actions, 1)
+	require.Equal(t, "submit_scan", graph.V2.Actions[0].RPCName, "Dex Web invokes the Action by its RPCOptions.Name")
 	require.Equal(t, "qr-code", graph.V2.Actions[0].Input.Fields[0].Capture)
 }
 

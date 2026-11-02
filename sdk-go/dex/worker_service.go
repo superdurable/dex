@@ -345,6 +345,16 @@ func (service *workerService) invokeWorkerRPC(
 			fmt.Errorf("dex: RPC %q is not registered in flow %q", request.RpcName, request.FlowType),
 		)
 	}
+	if request.Input == nil {
+		// The TypeScript SDK sends no input for an RPC that takes dex.None; Python and Go send null.
+		if rpc.input != noneType {
+			return nil, newWorkerFailure(
+				codes.InvalidArgument,
+				fmt.Errorf("dex: Worker RPC request for %q is missing its input", request.RpcName),
+			)
+		}
+		request.Input = newNullValue()
+	}
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
 	}
@@ -487,8 +497,8 @@ func validateRPCWorkerRequest(request *dexpb.InvokeWorkerRPCRequest) error {
 	if err := validateWorkerContext(request.Context, false); err != nil {
 		return err
 	}
-	if request.FlowType == "" || request.RpcName == "" || request.Input == nil {
-		return fmt.Errorf("dex: Worker RPC request is missing flow, RPC, or input")
+	if request.FlowType == "" || request.RpcName == "" {
+		return fmt.Errorf("dex: Worker RPC request is missing flow or RPC")
 	}
 	return nil
 }

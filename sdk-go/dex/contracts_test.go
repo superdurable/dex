@@ -157,7 +157,7 @@ func (contractFlow) GetSteps() []dex.StepDef {
 
 func (flow contractFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.Update, nil),
+		dex.DefineRPC(flow.Update, &dex.RPCOptions{Name: "update_contract"}),
 		dex.DefineRPC(flow.Describe, &dex.RPCOptions{
 			LockAttributes: []dex.AttributeLock{dex.LockAttribute(statusAttribute)},
 			Action: dex.DefineAction(

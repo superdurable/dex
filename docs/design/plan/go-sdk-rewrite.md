@@ -368,6 +368,16 @@ func(
 ) (*dex.RPCResult[OUT], error)
 ```
 
+The protocol RPC name is the Go method name unless `RPCOptions.Name` sets it.
+A Go Flow that serves a Flow type defined in another language uses it to match
+names such as `send_user_message`, which no exported Go method can have. Go
+code still refers to the RPC by its bound method: the Registry keeps one index
+by protocol name for the Worker and one by method for the Client. A name may
+contain only ASCII letters, digits, `_`, and `-`, and may not be another RPC's
+Go method name. A Worker reads a request without input for an RPC whose input
+is `dex.None`, as the TypeScript SDK sends one, as JSON null. A request without
+input for an RPC that takes one is still an `INVALID_ARGUMENT`.
+
 `Context` must be the SDK interface, the second result must be `error`, and the
 first result must be a pointer to a concrete `RPCResult[OUT]`. Value results and
 defined lookalike result types are not accepted. Exported helper methods and

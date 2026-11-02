@@ -2361,3 +2361,79 @@ func (client *workerDispatchTestClient) InvokeWorkerRPC(ctx context.Context, req
 	defer func() { err = finishWorkerCall(client.service.logger, recover(), err) }()
 	return client.service.invokeWorkerRPC(ctx, request)
 }
+
+type workerNoInputRPCFlow struct {
+	FlowDefaults
+}
+
+func (workerNoInputRPCFlow) GetFlowType() string {
+	return "no-input-rpc-flow"
+}
+
+func (workerNoInputRPCFlow) GetSteps() []StepDef {
+	return []StepDef{DefineStartStep(workerTestWait)}
+}
+
+func (flow workerNoInputRPCFlow) GetRPCs() []RPCDef {
+	return []RPCDef{
+		DefineRPC(flow.DescribeStatus, &RPCOptions{Name: "describe_status"}),
+		DefineRPC(flow.DescribeOrder, &RPCOptions{Name: "describe_order"}),
+	}
+}
+
+func (workerNoInputRPCFlow) GetPersistenceSchema() PersistenceSchema {
+	return PersistenceSchema{
+		Attributes: []AttributeDef{workerTestStatus, workerTestItems},
+		Channels:   []ChannelDef{workerTestCommands, workerTestByOrder},
+	}
+}
+
+func (workerNoInputRPCFlow) DescribeStatus(Context, None) (*RPCResult[string], error) {
+	return &RPCResult[string]{Output: "ready"}, nil
+}
+
+func (workerNoInputRPCFlow) DescribeOrder(_ Context, input workerTestInput) (*RPCResult[string], error) {
+	return &RPCResult[string]{Output: "order " + input.OrderID}, nil
+}
+
+// A TypeScript Client sends no input for an RPC without one; the Worker decodes it as null.
+func TestWorkerRPCWithoutInputDecodesNull(t *testing.T) {
+	client, closeService := newWorkerClientForFlows(t, []Flow{workerNoInputRPCFlow{}}, nil)
+	defer closeService()
+	for name, input := range map[string]*dexpb.Value{"absent": nil, "null": newNullValue()} {
+		response, err := client.InvokeWorkerRPC(context.Background(), &dexpb.InvokeWorkerRPCRequest{
+			Context:  workerRPCContext(),
+			FlowType: "no-input-rpc-flow",
+			RpcName:  "describe_status",
+			Input:    input,
+		})
+		require.NoError(t, err, name)
+		var output string
+		require.NoError(t, decodeValue(response.Output, &output), name)
+		require.Equal(t, "ready", output, name)
+	}
+}
+
+// An RPC that takes an input still rejects a request without one, so a caller's mistake never runs.
+func TestWorkerRPCWithAnInputRejectsAMissingInput(t *testing.T) {
+	client, closeService := newWorkerClientForFlows(t, []Flow{workerNoInputRPCFlow{}}, nil)
+	defer closeService()
+	_, err := client.InvokeWorkerRPC(context.Background(), &dexpb.InvokeWorkerRPCRequest{
+		Context:  workerRPCContext(),
+		FlowType: "no-input-rpc-flow",
+		RpcName:  "describe_order",
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(t, err, `"describe_order" is missing its input`)
+
+	response, err := client.InvokeWorkerRPC(context.Background(), &dexpb.InvokeWorkerRPCRequest{
+		Context:  workerRPCContext(),
+		FlowType: "no-input-rpc-flow",
+		RpcName:  "describe_order",
+		Input:    mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-7"}),
+	})
+	require.NoError(t, err)
+	var output string
+	require.NoError(t, decodeValue(response.Output, &output))
+	require.Equal(t, "order order-7", output)
+}
