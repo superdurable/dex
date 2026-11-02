@@ -17,7 +17,9 @@ tool runs in the built-in's own Step instead: ``AwaitQuestionAnswer`` for
 ``ask_user`` and ``AwaitTimer`` for ``durable_wait``. ``RunModel`` records a
 ``write_todos`` call in its own commit, and ``execute_plan`` starts a turn that
 runs an approved plan from ``AwaitUserMessage``. Steering and ``cancel_turn``
-end a turn at its next safe Step boundary through ``ApplyTurnControl``.
+end a turn at its next safe Step boundary through ``ApplyTurnControl``. A tool
+that starts remote work returns ``ToolTaskStarted``, and ``PollToolTask`` polls
+it on a Timer.
 """
 
 from __future__ import annotations
@@ -115,8 +117,14 @@ from dex_agents.runner import (
     PlanModeRunner,
     ToolCallsRequested,
     ToolExecutionError,
+    ToolExecutionResult,
     ToolInputRequested,
     ToolPolicy,
+    ToolTaskPending,
+    ToolTaskPoll,
+    ToolTaskPoller,
+    ToolTaskPollOutcome,
+    ToolTaskStarted,
     TurnCompleted,
     UnfinishedTurnMessageBuilder,
     build_tool_call_note,
@@ -149,6 +157,7 @@ from dex_agents.values import (
     PlanExecutionRequest,
     PlanStatus,
     QuestionAnswer,
+    QuestionResolution,
     ResolveInterruptRequest,
     SteerUserMessageRequest,
     ToolCallCancellation,
@@ -166,6 +175,16 @@ MISSING_UNFINISHED_TURN_MESSAGE_BUILDER = (
     "a runner that sets ToolCallsRequested.new_messages must implement "
     "build_unfinished_turn_messages"
 )
+#: Error recorded when a tool returns ``ToolTaskStarted`` to a runner that cannot poll it.
+MISSING_TOOL_TASK_POLLER = (
+    "the tool started a task, but the runner does not implement poll_tool_task"
+)
+#: Error recorded when ``ToolTaskStarted`` has a blank ``task_id``.
+BLANK_TOOL_TASK_ID = "the tool started a task without a task ID"
+#: Error recorded when a task's poll interval is not a number.
+INVALID_TOOL_TASK_POLL_INTERVAL = "the tool task's poll interval is not a number"
+# Longest wait between two polls of a tool task; a longer interval is shortened to it.
+_MAXIMUM_TOOL_TASK_POLL_INTERVAL_SECONDS = 86_400
 SNAPSHOT_MESSAGE_LIMIT = 200
 MESSAGE_PAGE_LIMIT = 200
 # Keeps liveness well inside the shortest heartbeat timeout, one minute.
@@ -396,6 +415,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self._await_timer = AwaitTimer(self)
         self._call_tool = CallTool(self)
         self._call_single_attempt_tool = CallSingleAttemptTool(self)
+        self._poll_tool_task = PollToolTask(self)
         self._record_tool_failure = RecordToolFailure(self)
         self._record_tool_outcome_unknown = RecordToolOutcomeUnknown(self)
         self._resume_turn = ResumeTurn(self)
@@ -442,6 +462,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             self._await_timer,
             self._call_tool,
             self._call_single_attempt_tool,
+            self._poll_tool_task,
             self._record_tool_failure,
             self._record_tool_outcome_unknown,
             self._resume_turn,
@@ -1355,14 +1376,20 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         events = self._event_writer(context, tool_call.turn_id)
         interrupt_id = _question_interrupt_id(tool_call)
         if _is_question_interrupt_id_taken(context, tool_call, interrupt_id):
-            failed = replace(
-                tool_call,
-                status=ToolCallStatus.FAILED,
-                error=(
-                    f"the tool's question cannot use interrupt ID {interrupt_id}, "
-                    "which another tool call of this turn uses"
-                ),
-                **_NO_PENDING_TOOL_QUESTION,
+            error = (
+                f"the tool's question cannot use interrupt ID {interrupt_id}, "
+                "which another tool call of this turn uses"
+            )
+            failed = (
+                # A started task may have taken effect, so its call is recorded by effect.
+                _record_tool_task_defect(tool_call, error)
+                if tool_call.task_id is not None
+                else replace(
+                    tool_call,
+                    status=ToolCallStatus.FAILED,
+                    error=error,
+                    **_NO_PENDING_TOOL_QUESTION,
+                )
             )
             return _finish_tool_call(context, failed, events)
         if TOOL_CALL_CANCELLATIONS.results(context, tool_call_id):
@@ -1396,6 +1423,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             interrupt_id,
             AgentInterruptResolution(approved=False, rejection_message=QUESTION_DEADLINE_PASSED),
             events,
+            is_deadline_passed=True,
         )
 
     def _raise_tool_question(
@@ -1428,8 +1456,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         interrupt_id: str,
         resolution: AgentInterruptResolution,
         events: AgentEventWriter,
+        *,
+        is_deadline_passed: bool = False,
     ) -> StepDecision:
         _write_interrupt_resolved(events, interrupt_id, InterruptKind.QUESTION, resolution)
+        if tool_call.task_id is not None and tool_call.input_question is not None:
+            return self._return_question_to_task(
+                context, tool_call, interrupt_id, resolution, is_deadline_passed
+            )
         if not resolution.approved or resolution.answer is None:
             rejected = replace(
                 tool_call,
@@ -1456,6 +1490,38 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         AGENT_TOOL_CALLS.set(context, approved.tool_call_id, approved)
         return go_to_many(self._tool_call_movement(approved))
+
+    def _return_question_to_task(
+        self,
+        context: AsyncContext,
+        tool_call: AgentToolCall,
+        interrupt_id: str,
+        resolution: AgentInterruptResolution,
+        is_deadline_passed: bool,
+    ) -> StepDecision:
+        """Hand a started task's question back; its result, not ``rejected``, ends the call."""
+        if resolution.approved and resolution.answer is not None:
+            answer, kind = resolution.answer, QuestionResolution.ANSWERED
+        elif is_deadline_passed:
+            answer, kind = QUESTION_DEADLINE_PASSED, QuestionResolution.DEADLINE_PASSED
+        else:
+            answer = resolution.rejection_message or QUESTION_DECLINED_TOOL_RESULT
+            kind = QuestionResolution.DECLINED
+        resolved = QuestionAnswer(
+            interrupt_id=interrupt_id,
+            question=tool_call.input_question or "",
+            answer=answer,
+            resolution=kind,
+        )
+        waiting = replace(
+            tool_call,
+            status=ToolCallStatus.WAITING_FOR_TASK,
+            input_answers=[*tool_call.input_answers, resolved],
+            task_answer_pending=True,
+            **_NO_PENDING_TOOL_QUESTION,
+        )
+        AGENT_TOOL_CALLS.set(context, waiting.tool_call_id, waiting)
+        return go_to_many(self._tool_task_poll_movement(waiting))
 
     def _wait_for_durable_wait_timer(self, context: Context, tool_call_id: str) -> Wait:
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
@@ -1548,6 +1614,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 heartbeat_checkpoint=heartbeats.previous_checkpoint,
                 save_heartbeat_checkpoint=heartbeats.save_checkpoint,
                 input_answers=tuple(tool_call.input_answers),
+                supports_tool_tasks=isinstance(self._runner, ToolTaskPoller),
             )
             async with _background_heartbeats(heartbeats.record):
                 try:
@@ -1564,9 +1631,105 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 # This Step runs unlocked; AwaitQuestionAnswer raises the interrupt under the lock.
                 AGENT_TOOL_CALLS.set(context, asked.tool_call_id, asked)
                 return go_to_many(self._question_answer_movement(asked))
+            if isinstance(result, ToolTaskStarted):
+                started = _record_tool_task_started(
+                    tool_call, result, has_poller=isinstance(self._runner, ToolTaskPoller)
+                )
+                tool_call_span.record_finished(started)
+                if started.status.is_final:
+                    return _finish_tool_call(context, started, events)
+                AGENT_TOOL_CALLS.set(context, started.tool_call_id, started)
+                events.write_event(
+                    AgentEventType.TOOL_TASK_STARTED,
+                    {
+                        "tool_call_id": started.tool_call_id,
+                        "tool_name": started.tool_name,
+                        "task_id": started.task_id,
+                    },
+                )
+                return go_to_many(self._tool_task_poll_movement(started))
             succeeded = replace(tool_call, status=ToolCallStatus.SUCCEEDED, output=result.output)
             tool_call_span.record_finished(succeeded)
             return _finish_tool_call(context, succeeded, events)
+
+    def _wait_for_tool_task_poll(self, context: Context, tool_call_id: str) -> Wait:
+        tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
+        # A resolved question reaches the task at once, not after a backed-off interval.
+        interval = 0 if tool_call.task_answer_pending else tool_call.task_poll_interval_seconds or 1
+        return Wait.until(Timer.by_duration(timedelta(seconds=interval)))
+
+    async def _poll_task_once(self, context: AsyncContext, tool_call_id: str) -> StepDecision:
+        tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
+        if tool_call.status.is_final:
+            return dead_end()
+        if tool_call.status is not ToolCallStatus.WAITING_FOR_TASK or tool_call.task_id is None:
+            raise RuntimeError(f"tool call {tool_call_id} is not waiting for a task")
+        events = self._event_writer(context, tool_call.turn_id)
+        if not isinstance(self._runner, ToolTaskPoller):
+            # A Worker whose runner lost the method; the task may still run.
+            return _finish_tool_call(
+                context, _record_tool_task_defect(tool_call, MISSING_TOOL_TASK_POLLER), events
+            )
+        poll = ToolTaskPoll(
+            flow_id=context.flow_id,
+            tool_call=tool_call,
+            idempotency_key=f"{context.flow_id}/{tool_call.turn_id}/{tool_call.tool_call_id}",
+            attempt=context.attempt,
+            input_answers=tuple(tool_call.input_answers),
+            events=events,
+            heartbeat=context.heartbeat,
+            pending_answer=(
+                tool_call.input_answers[-1]
+                if tool_call.task_answer_pending and tool_call.input_answers
+                else None
+            ),
+        )
+        step_type = self._poll_tool_task.get_step_type()
+        with self._session_tracer.trace_tool_call(context, step_type, tool_call) as poll_span:
+            async with _background_heartbeats(context.heartbeat):
+                try:
+                    outcome = await self._runner.poll_tool_task(poll)
+                except ToolExecutionError as error:
+                    failed = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
+                    poll_span.record_finished(failed)
+                    return _finish_tool_call(context, failed, events)
+            polled = self._record_tool_task_poll(tool_call, outcome)
+            poll_span.record_finished(polled)
+        if polled.status.is_final:
+            return _finish_tool_call(context, polled, events)
+        if polled.status is ToolCallStatus.AWAITING_ANSWER:
+            # This Step runs unlocked; AwaitQuestionAnswer raises the interrupt under the lock.
+            AGENT_TOOL_CALLS.set(context, polled.tool_call_id, polled)
+            return go_to_many(self._question_answer_movement(polled))
+        if polled != tool_call:
+            AGENT_TOOL_CALLS.set(context, polled.tool_call_id, polled)
+        return go_to_many(self._tool_task_poll_movement(polled))
+
+    def _record_tool_task_poll(
+        self, tool_call: AgentToolCall, outcome: ToolTaskPollOutcome
+    ) -> AgentToolCall:
+        """Return the record after one poll: final, awaiting an answer, or still waiting."""
+        polled = replace(tool_call, task_answer_pending=False)
+        if isinstance(outcome, ToolTaskPending):
+            interval = _tool_task_poll_interval(outcome.poll_interval_seconds)
+            if interval is None:
+                return _record_tool_task_defect(tool_call, INVALID_TOOL_TASK_POLL_INTERVAL)
+            # The runner decides what the next poll needs to know, such as an answer not taken yet.
+            return replace(
+                polled,
+                task_poll_interval_seconds=interval,
+                input_continuation=outcome.continuation,
+            )
+        if isinstance(outcome, ToolInputRequested):
+            asked = _record_tool_input_request(polled, outcome)
+            if asked.status.is_final:
+                return _record_tool_task_defect(tool_call, asked.error or "")
+            return asked
+        if isinstance(outcome, ToolExecutionResult):
+            return replace(polled, status=ToolCallStatus.SUCCEEDED, output=outcome.output)
+        raise TypeError(
+            "poll_tool_task must return ToolExecutionResult, ToolInputRequested, or ToolTaskPending"
+        )
 
     def _record_tool_recovery(
         self,
@@ -1801,6 +1964,24 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             execute_load_attribute_map_instances=(record_load,),
         ).on_execute_failure_proceed_to(recovery_step, recovery_options)
         return StepMovement.of(step, tool_call.tool_call_id, options=options)
+
+    def _tool_task_poll_movement(self, tool_call: AgentToolCall) -> StepMovement[str]:
+        # A failed poll leaves the task running, so its outcome is recorded by effect.
+        record_load = AGENT_TOOL_CALLS.load(tool_call.tool_call_id)
+        recovery_step: RecordToolFailure | RecordToolOutcomeUnknown = (
+            self._record_tool_failure
+            if tool_call.effect in MULTI_ATTEMPT_TOOL_EFFECTS
+            else self._record_tool_outcome_unknown
+        )
+        recovery_options = replace(
+            recovery_step.get_step_options(),
+            execute_load_attribute_maps=(),
+            execute_load_attribute_map_instances=(record_load,),
+        )
+        options = _with_record_loads(
+            self._poll_tool_task.get_step_options(), tool_call.tool_call_id
+        ).on_execute_failure_proceed_to(recovery_step, recovery_options)
+        return StepMovement.of(self._poll_tool_task, tool_call.tool_call_id, options=options)
 
     def _tool_approval_movement(self, tool_call_id: str) -> StepMovement[str]:
         options = replace(
@@ -2038,6 +2219,33 @@ class CallSingleAttemptTool(Step[str]):
         input: str,
     ) -> StepDecision:
         return await self._session._run_tool_call(context, input, self.get_step_type())
+
+
+class PollToolTask(Step[str]):
+    """Poll one tool's remote task after its poll interval, until the task finishes."""
+
+    def __init__(self, session: AgentSessionFlow) -> None:
+        self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        # No lock and no ToolCallCancellations: this Step owns the record; a started task runs on.
+        return StepOptions(
+            wait_for_durability=StepDurability.SYNC,
+            execute_durability=StepDurability.SYNC,
+            execute_retry=RetryPolicy(maximum_attempts=3),
+            wait_for_load_attribute_maps=(AGENT_TOOL_CALLS,),
+            execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
+        ).on_execute_failure_proceed_to(self._session._record_tool_failure)
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        return self._session._wait_for_tool_task_poll(context, input)
+
+    async def execute(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: str,
+    ) -> StepDecision:
+        return await self._session._poll_task_once(context, input)
 
 
 class RecordToolFailure(Step[str]):
@@ -2317,12 +2525,12 @@ def _turn_control_reason(
 
 def _is_cancellable_by_turn_control(tool_call: AgentToolCall) -> bool:
     """Report whether steering or cancel_turn may abandon a call that waits in a session Step."""
-    # Each of these waits for a person or a Timer; the call has taken no effect.
+    # Each of these waits for a person or a Timer; the call has taken no effect. A task's question
+    # waits for a person too, but its task has started; a WAITING_FOR_TASK record is never listed.
     return tool_call.status in (
         ToolCallStatus.AWAITING_APPROVAL,
-        ToolCallStatus.AWAITING_ANSWER,
         ToolCallStatus.WAITING_FOR_TIMER,
-    )
+    ) or (tool_call.status is ToolCallStatus.AWAITING_ANSWER and tool_call.task_id is None)
 
 
 def _cancelled_tool_call(
@@ -2396,6 +2604,48 @@ def _record_tool_input_request(
         input_choices=choices,
         input_allows_free_text=request.allows_free_text or not choices,
     )
+
+
+def _record_tool_task_started(
+    tool_call: AgentToolCall, started: ToolTaskStarted, *, has_poller: bool
+) -> AgentToolCall:
+    """Return the record of a started task: waiting for it, or final when it cannot be polled."""
+    if not has_poller:
+        return _record_tool_task_defect(tool_call, MISSING_TOOL_TASK_POLLER)
+    if not isinstance(started.task_id, str) or not started.task_id.strip():
+        return _record_tool_task_defect(tool_call, BLANK_TOOL_TASK_ID)
+    interval = _tool_task_poll_interval(started.poll_interval_seconds)
+    if interval is None:
+        return _record_tool_task_defect(tool_call, INVALID_TOOL_TASK_POLL_INTERVAL)
+    # The tool consumed any continuation of its own questions when it ran again.
+    return replace(
+        tool_call,
+        status=ToolCallStatus.WAITING_FOR_TASK,
+        task_id=started.task_id,
+        task_poll_interval_seconds=interval,
+        input_continuation=None,
+        **_NO_PENDING_TOOL_QUESTION,
+    )
+
+
+def _record_tool_task_defect(tool_call: AgentToolCall, error: str) -> AgentToolCall:
+    """Return a final record for a task that cannot be polled; the task may still take effect."""
+    status = (
+        ToolCallStatus.FAILED
+        if tool_call.effect is ToolEffect.READ
+        else ToolCallStatus.OUTCOME_UNKNOWN
+    )
+    return replace(tool_call, status=status, error=error, **_NO_PENDING_TOOL_QUESTION)
+
+
+def _tool_task_poll_interval(seconds: object) -> int | None:
+    """Return a poll interval in whole seconds, 1 to a day, or ``None`` if it is not a number."""
+    if isinstance(seconds, bool) or not isinstance(seconds, int | float):
+        return None
+    if not math.isfinite(seconds):
+        return None
+    # Dex Timers take whole seconds, and a zero interval would poll without a pause.
+    return min(max(1, math.ceil(seconds)), _MAXIMUM_TOOL_TASK_POLL_INTERVAL_SECONDS)
 
 
 def _question_interrupt_id(tool_call: AgentToolCall) -> str:

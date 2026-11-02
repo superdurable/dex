@@ -10,7 +10,8 @@
 
 The model reads ``call <tool> <json>`` from the user message, joined with
 `` && call `` for parallel calls, and asks for those MCP tools. The second
-model call answers ``<tool>: <result>`` per call, joined with ``; ``. The
+model call answers ``<tool>: <result>`` per call, joined with ``; ``. MCP
+tasks of the HTTP servers are polled through ``poll_tool_task``. The
 ``local`` server runs ``tests.fake_mcp_server`` over stdio and the ``remote``
 server is the Streamable HTTP URL in ``$MCP_AGENT_HTTP_URL``. When
 ``$MCP_AGENT_GATEWAY_URL`` is set, a ``gateway`` server is configured too.
@@ -31,12 +32,14 @@ from dex_agents import (
     AgentTurnOutcome,
     AgentUsage,
     DeferredToolExecution,
+    DeferredToolOutcome,
     FrameworkMessage,
     MessageRole,
     ToolCallsRequested,
     ToolEffect,
-    ToolExecutionResult,
     ToolPolicy,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
     TurnCompleted,
     describe_tool_call_outcome,
 )
@@ -57,7 +60,7 @@ TOOL_POLICIES = {"local__audit_lookup": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRI
 _MODEL_CALL_USAGE = AgentUsage(model_calls=1, input_tokens=10, output_tokens=5)
 
 
-class McpScriptedRunner(AgentFrameworkRunner):
+class McpScriptedRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     def __init__(self, tools: McpToolSource) -> None:
         self._tools = tools
 
@@ -92,9 +95,12 @@ class McpScriptedRunner(AgentFrameworkRunner):
             usage=_MODEL_CALL_USAGE,
         )
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         handlers = await self._tools.deferred_tool_handlers()
         return await handlers[call.tool_call.tool_name](call)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        return await self._tools.poll_tool_task(poll)
 
     def _answer_with_results(
         self, turn: AgentTurnContext, calls: list[list[str]]

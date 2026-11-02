@@ -67,7 +67,13 @@ KEEP_ALIVE_FRAME = ": keep-alive\n\n"
 # Replay, routing, tracing, and tool resume state that only the session's Steps read.
 _WORKER_ONLY_MESSAGE_FIELD_NAMES = frozenset({"framework_item"})
 _WORKER_ONLY_TOOL_CALL_FIELD_NAMES = frozenset(
-    {"tool_source_reference", "trace_context", "input_continuation", "input_answers"}
+    {
+        "tool_source_reference",
+        "trace_context",
+        "input_continuation",
+        "input_answers",
+        "task_answer_pending",
+    }
 )
 
 _RESUME_TOKEN_PROBE_TIMEOUT = timedelta(seconds=1)
@@ -153,8 +159,8 @@ def agent_snapshot_to_json(snapshot: AgentSnapshot) -> dict[str, Any]:
     format without the fields only the session's Steps use, the same JSON as
     the TypeScript core. Messages leave out ``framework_item``, the framework's
     replay data, which can hold the agent's instructions. Tool calls leave out
-    ``tool_source_reference``, ``trace_context``, ``input_continuation``, and
-    ``input_answers``.
+    ``tool_source_reference``, ``trace_context``, ``input_continuation``,
+    ``input_answers``, and ``task_answer_pending``.
 
     Args:
         snapshot: The ``get_agent_snapshot`` result.

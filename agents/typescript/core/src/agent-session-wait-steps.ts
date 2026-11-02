@@ -12,6 +12,7 @@ import {
   deadEnd,
   goToMany,
   stringCodec,
+  type AsyncContext,
   type Condition,
   type Context,
   type Step,
@@ -20,12 +21,23 @@ import {
 } from "@superdurable/dex";
 
 import {
+  ToolExecutionError,
+  type ToolTaskPending,
+  type ToolTaskPoll,
+  type ToolTaskPollOutcome,
+} from "./agent-framework-runner.js";
+import {
   cancelWaitingToolCall,
+  isToolInputRequested,
   noPendingToolQuestion,
   questionAnswerMovement,
   questionInterruptId,
+  recordToolInputRequest,
+  recordToolTaskDefect,
   toolStepMovement,
   toolStepOptions,
+  toolTaskPollIntervalSeconds,
+  toolTaskPollMovement,
 } from "./agent-session-steps.js";
 import {
   agentSessionStepTypes,
@@ -36,10 +48,14 @@ import {
 } from "./agent-session-transitions.js";
 import {
   defaultQuestionDeclinedToolResult,
+  invalidToolTaskPollInterval,
+  isFinalToolCallStatus,
+  missingToolTaskPoller,
   questionDeadlinePassed,
   type AgentInterrupt,
   type AgentInterruptResolution,
   type AgentToolCallRecord,
+  type QuestionAnswer,
 } from "./agent-session-values.js";
 
 /**
@@ -97,12 +113,14 @@ export class AwaitQuestionAnswerStep implements Step<string> {
     }
     const interruptId = questionInterruptId(toolCall);
     if (this.isInterruptIdOwnedByAnotherCall(context, toolCall, interruptId)) {
-      transitions.finishToolCall(context, {
-        ...toolCall,
-        status: "failed",
-        error: `the tool's question cannot use interrupt ID ${interruptId}, which another tool call of this turn uses`,
-        ...noPendingToolQuestion,
-      });
+      const error = `the tool's question cannot use interrupt ID ${interruptId}, which another tool call of this turn uses`;
+      transitions.finishToolCall(
+        context,
+        // A started task may have taken effect, so its call is recorded by effect.
+        (toolCall.taskId ?? null) !== null
+          ? recordToolTaskDefect(toolCall, error)
+          : { ...toolCall, status: "failed", error, ...noPendingToolQuestion },
+      );
       return deadEnd();
     }
     if (context.channelResults(persistence.toolCallCancellations, toolCallId).length > 0) {
@@ -141,11 +159,13 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       context,
       pendingInterrupts.filter((pending) => pending.interruptId !== interruptId),
     );
-    return this.resolveQuestion(context, toolCall, interruptId, {
-      approved: false,
-      rejectionMessage: questionDeadlinePassed,
-      answer: null,
-    });
+    return this.resolveQuestion(
+      context,
+      toolCall,
+      interruptId,
+      { approved: false, rejectionMessage: questionDeadlinePassed, answer: null },
+      true,
+    );
   }
 
   /**
@@ -204,6 +224,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
     toolCall: AgentToolCallRecord,
     interruptId: string,
     resolution: AgentInterruptResolution,
+    isDeadlinePassed = false,
   ): StepDecision {
     const transitions = this.transitions;
     const answer = resolution.answer ?? null;
@@ -215,11 +236,14 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       isAnswered,
       rejectionMessage: resolution.rejectionMessage,
     });
+    if ((toolCall.taskId ?? null) !== null && toolCall.inputQuestion !== null) {
+      return this.returnQuestionToTask(context, toolCall, interruptId, resolution, isDeadlinePassed);
+    }
     if (!isAnswered || answer === null) {
       transitions.finishToolCall(context, {
         ...toolCall,
         status: "rejected",
-        rejectionMessage: resolution.rejectionMessage ?? defaultQuestionDeclinedToolResult,
+        rejectionMessage: declineText(resolution.rejectionMessage),
         ...noPendingToolQuestion,
       });
       return deadEnd();
@@ -237,7 +261,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       status: "approved",
       inputAnswers: [
         ...toolCall.inputAnswers,
-        { interruptId, question: toolCall.inputQuestion, answer },
+        { interruptId, question: toolCall.inputQuestion, answer, resolution: "answered" },
       ],
       ...noPendingToolQuestion,
     });
@@ -245,6 +269,160 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       toolStepMovement(transitions.persistence, toolStepTypeForEffect(toolCall.effect), toolCall.toolCallId),
     );
   }
+
+  /** Hands a started task's question back to it; its result, not `rejected`, ends the call. */
+  private returnQuestionToTask(
+    context: Context,
+    toolCall: AgentToolCallRecord,
+    interruptId: string,
+    resolution: AgentInterruptResolution,
+    isDeadlinePassed: boolean,
+  ): StepDecision {
+    const answer = resolution.answer ?? null;
+    const resolved: QuestionAnswer =
+      resolution.approved && answer !== null
+        ? { interruptId, question: toolCall.inputQuestion ?? "", answer, resolution: "answered" }
+        : isDeadlinePassed
+          ? { interruptId, question: toolCall.inputQuestion ?? "", answer: questionDeadlinePassed, resolution: "deadline_passed" }
+          : {
+              interruptId,
+              question: toolCall.inputQuestion ?? "",
+              answer: declineText(resolution.rejectionMessage),
+              resolution: "declined",
+            };
+    const waiting: AgentToolCallRecord = {
+      ...toolCall,
+      status: "waiting_for_task",
+      inputAnswers: [...toolCall.inputAnswers, resolved],
+      taskAnswerPending: true,
+      ...noPendingToolQuestion,
+    };
+    this.transitions.writeToolCall(context, waiting);
+    return goToMany(toolTaskPollMovement(this.transitions.persistence, waiting));
+  }
+}
+
+/**
+ * Polls one tool's remote task after its poll interval, until the task finishes.
+ *
+ * A tool Step that received {@link ToolTaskStarted} moves here. Each execution waits on a Timer, calls
+ * the runner's `pollToolTask` once, and records the result, asks the task's question, or moves to itself.
+ */
+export class PollToolTaskStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public constructor(private readonly transitions: AgentSessionTransitions) {}
+
+  public getStepType(): string {
+    return agentSessionStepTypes.pollToolTask;
+  }
+
+  public getStepOptions(): StepOptions {
+    return toolStepOptions(this.transitions.persistence, agentSessionStepTypes.pollToolTask);
+  }
+
+  public waitFor(context: Context, toolCallId: string): Wait {
+    const toolCall = this.transitions.readToolCall(context, toolCallId);
+    // A resolved question reaches the task at once, not after a backed-off interval.
+    const intervalSeconds = toolCall.taskAnswerPending ? 0 : (toolCall.taskPollIntervalSeconds ?? 1);
+    return Wait.until(Timer.byDuration(intervalSeconds * 1_000));
+  }
+
+  public async execute(context: AsyncContext, toolCallId: string): Promise<StepDecision> {
+    const transitions = this.transitions;
+    const toolCall = transitions.readToolCall(context, toolCallId);
+    if (isFinalToolCallStatus(toolCall.status)) {
+      return deadEnd();
+    }
+    if (toolCall.status !== "waiting_for_task" || (toolCall.taskId ?? null) === null) {
+      throw new Error(`tool call ${toolCallId} is not waiting for a task`);
+    }
+    const pollToolTask = transitions.runner.pollToolTask;
+    const events = transitions.createEventWriter(context, toolCall.turnId);
+    try {
+      if (pollToolTask === undefined) {
+        // A Worker whose runner lost the method; the task may still run.
+        transitions.finishToolCall(context, recordToolTaskDefect(toolCall, missingToolTaskPoller), events);
+        return deadEnd();
+      }
+      const poll: ToolTaskPoll = {
+        flowId: context.flowId,
+        toolCall,
+        idempotencyKey: `${context.flowId}/${toolCall.turnId}/${toolCall.toolCallId}`,
+        attempt: context.attempt,
+        inputAnswers: toolCall.inputAnswers,
+        pendingAnswer: toolCall.taskAnswerPending ? (toolCall.inputAnswers.at(-1) ?? null) : null,
+        events,
+        cancellationSignal: context.cancellationSignal,
+        deadline: context.deadline,
+        heartbeat: () => transitions.recordHeartbeat(context),
+      };
+      const polled = await transitions.tracer.traceToolCall(context, this.getStepType(), toolCall, async (pollSpan) => {
+        let outcome: ToolTaskPollOutcome;
+        try {
+          outcome = await transitions.runWithHeartbeats(context, () => pollToolTask.call(transitions.runner, poll));
+        } catch (error: unknown) {
+          if (!(error instanceof ToolExecutionError)) {
+            throw error;
+          }
+          const failed: AgentToolCallRecord = { ...toolCall, status: "failed", error: error.message };
+          pollSpan.recordFinished(failed);
+          return failed;
+        }
+        const record = recordToolTaskPoll(toolCall, outcome);
+        pollSpan.recordFinished(record);
+        return record;
+      });
+      if (isFinalToolCallStatus(polled.status)) {
+        transitions.finishToolCall(context, polled, events);
+        return deadEnd();
+      }
+      if (polled.status === "awaiting_answer") {
+        // This Step runs unlocked, so it leaves PendingInterrupts to AwaitQuestionAnswer.
+        transitions.writeToolCall(context, polled);
+        return goToMany(questionAnswerMovement(transitions.persistence, polled));
+      }
+      if (
+        polled.taskPollIntervalSeconds !== toolCall.taskPollIntervalSeconds ||
+        polled.taskAnswerPending !== (toolCall.taskAnswerPending ?? false) ||
+        polled.inputContinuation !== toolCall.inputContinuation
+      ) {
+        transitions.writeToolCall(context, polled);
+      }
+      return goToMany(toolTaskPollMovement(transitions.persistence, polled));
+    } finally {
+      events.close();
+    }
+  }
+}
+
+/** Returns the record after one poll: final, awaiting an answer, or still waiting. */
+function recordToolTaskPoll(toolCall: AgentToolCallRecord, outcome: ToolTaskPollOutcome): AgentToolCallRecord {
+  const polled: AgentToolCallRecord = { ...toolCall, taskAnswerPending: false };
+  if (isToolTaskPending(outcome)) {
+    const pollIntervalSeconds = toolTaskPollIntervalSeconds(outcome.pollIntervalSeconds);
+    // The runner decides what the next poll needs to know, such as an answer not taken yet.
+    return pollIntervalSeconds === null
+      ? recordToolTaskDefect(toolCall, invalidToolTaskPollInterval)
+      : { ...polled, taskPollIntervalSeconds: pollIntervalSeconds, inputContinuation: outcome.continuation ?? null };
+  }
+  if (isToolInputRequested(outcome)) {
+    const asked = recordToolInputRequest(polled, outcome);
+    return isFinalToolCallStatus(asked.status) ? recordToolTaskDefect(toolCall, asked.error ?? "") : asked;
+  }
+  if (typeof outcome?.output !== "string") {
+    throw new TypeError("pollToolTask must return a ToolExecutionResult, a ToolInputRequested, or a ToolTaskPending");
+  }
+  return { ...polled, status: "succeeded", output: outcome.output };
+}
+
+/** Returns the text the model sees for a declined question; an empty message reads as none, as in Python. */
+function declineText(rejectionMessage: string | null): string {
+  return rejectionMessage === null || rejectionMessage === "" ? defaultQuestionDeclinedToolResult : rejectionMessage;
+}
+
+function isToolTaskPending(outcome: ToolTaskPollOutcome): outcome is ToolTaskPending {
+  return (outcome as { readonly kind?: unknown } | undefined)?.kind === "tool_task_pending";
 }
 
 /** Waits on a Dex Timer for one `durable_wait` call, then records its result. */

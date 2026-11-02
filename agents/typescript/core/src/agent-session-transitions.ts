@@ -60,6 +60,7 @@ export const agentSessionStepTypes = {
   awaitTimer: "AwaitTimer",
   callTool: "CallTool",
   callSingleAttemptTool: "CallSingleAttemptTool",
+  pollToolTask: "PollToolTask",
   recordToolFailure: "RecordToolFailure",
   recordToolOutcomeUnknown: "RecordToolOutcomeUnknown",
   resumeTurn: "ResumeTurn",
@@ -513,7 +514,7 @@ export class ToolStepHeartbeats {
 
 /** Returns a record as a runner sees it; only records that runners may see are accepted. */
 export function toRunnerToolCall(record: AgentToolCallRecord): AgentToolCall {
-  if (record.status === "awaiting_answer" || record.status === "waiting_for_timer") {
+  if (record.status === "awaiting_answer" || record.status === "waiting_for_timer" || record.status === "waiting_for_task") {
     throw new TypeError(`tool call ${record.toolCallId} is still ${record.status}`);
   }
   return record as AgentToolCall;
@@ -537,10 +538,11 @@ function isFrameworkMessage(value: unknown): value is FrameworkMessage {
 
 /** Reports whether steering or `cancel_turn` may abandon a call that waits in a session Step. */
 export function isCancellableByTurnControl(toolCall: AgentToolCallRecord): boolean {
-  // Each of these waits for a person or a Timer; the call has taken no effect.
+  // Each of these waits for a person or a Timer; the call has taken no effect. A task's question
+  // waits for a person too, but its task has started, and a waiting_for_task record is never listed.
   return (
     toolCall.status === "awaiting_approval" ||
-    toolCall.status === "awaiting_answer" ||
+    (toolCall.status === "awaiting_answer" && (toolCall.taskId ?? null) === null) ||
     toolCall.status === "waiting_for_timer"
   );
 }

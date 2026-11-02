@@ -19,8 +19,9 @@ own Dex Step. It calls the runner from those Steps:
 * ``execute_deferred_tool_call`` runs one tool call in its own Step.
 
 A runner may also implement ``UnfinishedTurnMessageBuilder`` when it stores a
-turn's items incrementally through ``ToolCallsRequested.new_messages``, and
-``PlanModeRunner`` when it honors plan mode.
+turn's items incrementally through ``ToolCallsRequested.new_messages``,
+``PlanModeRunner`` when it honors plan mode, and ``ToolTaskPoller`` when its
+tools start remote tasks with ``ToolTaskStarted``.
 """
 
 from __future__ import annotations
@@ -513,6 +514,10 @@ class DeferredToolExecution:
             ``ToolInputRequested``, oldest first. Empty on the first run. The
             continuation of the last question is
             ``tool_call.input_continuation``.
+        supports_tool_tasks: Whether the runner implements ``ToolTaskPoller``,
+            so the tool may return ``ToolTaskStarted``. When it is ``False``,
+            run remote work to its end inside the call instead. Defaults to
+            ``False``.
     """
 
     flow_id: str
@@ -524,6 +529,7 @@ class DeferredToolExecution:
     heartbeat_checkpoint: str | None = None
     save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None = None
     input_answers: Sequence[QuestionAnswer] = ()
+    supports_tool_tasks: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -579,8 +585,123 @@ class ToolInputRequested:
     continuation: str | None = None
 
 
+@dataclass(frozen=True, kw_only=True)
+class ToolTaskStarted:
+    """Report that a tool started remote work and returned a handle to poll.
+
+    Return it from ``execute_deferred_tool_call`` when the tool's work runs
+    elsewhere and outlives the call, such as an MCP task. The tool Step records
+    ``waiting_for_task`` with ``task_id`` and the poll interval, writes
+    ``tool_task_started``, and ends. ``PollToolTask`` then waits on a Timer for
+    the interval and calls ``ToolTaskPoller.poll_tool_task`` once per
+    execution, so no Step or connection is held while the work runs, and a
+    Worker restart only delays the next poll. The runner must implement
+    ``ToolTaskPoller``; without it the session records the call ``failed`` for
+    a ``READ`` tool and ``outcome_unknown`` otherwise.
+
+    The tool Step commits the handle with its result. A ``CallTool`` attempt
+    that dies after the remote work started runs again, so save the handle with
+    ``DeferredToolExecution.save_heartbeat_checkpoint`` before you return it,
+    and return the saved handle when ``heartbeat_checkpoint`` holds one. Once
+    the checkpoint has reached Dex, a retried attempt resumes the same work.
+    Dex may drop a heartbeat checkpoint, though, so an attempt that dies before
+    its checkpoint is saved and before the tool Step commits can still start
+    the work a second time on a ``CallTool`` retry; pass the idempotency key to
+    the remote system so it can drop the duplicate. Steering and turn
+    cancellation never abandon a started task: the session waits for it.
+
+    Example:
+        >>> async def execute_deferred_tool_call(self, call):
+        ...     if call.heartbeat_checkpoint is not None:
+        ...         return ToolTaskStarted(task_id=call.heartbeat_checkpoint,
+        ...                                poll_interval_seconds=5)
+        ...     job_id = await reports.start(call.idempotency_key)
+        ...     await call.save_heartbeat_checkpoint(job_id)
+        ...     return ToolTaskStarted(task_id=job_id, poll_interval_seconds=5)
+
+    Attributes:
+        task_id: Handle of the remote work. It must not be blank. The session
+            stores it as ``AgentToolCall.task_id``.
+        poll_interval_seconds: Seconds to wait before the first poll. The
+            session rounds it up to whole seconds, at least 1, because Dex
+            Timers take whole seconds, and shortens it to at most a day.
+    """
+
+    task_id: str
+    poll_interval_seconds: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolTaskPending:
+    """Report that a polled task is still running.
+
+    Return it from ``ToolTaskPoller.poll_tool_task``. ``PollToolTask`` stores
+    the interval and the continuation, and polls again after the interval.
+
+    Attributes:
+        poll_interval_seconds: Seconds to wait before the next poll. The
+            session rounds it up to whole seconds, from 1 to a day.
+        continuation: Text the next poll reads as
+            ``tool_call.input_continuation``, such as which question the task
+            took an answer to and when. ``None``, the default, clears it: keep
+            what the next poll needs, and drop a question's continuation once
+            the task took its answer, so an identical later question reads as
+            new.
+    """
+
+    poll_interval_seconds: int
+    continuation: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolTaskPoll:
+    """Give ``poll_tool_task`` one task to poll.
+
+    Attributes:
+        flow_id: Session ID, which is the Flow ID.
+        tool_call: The call's record, ``WAITING_FOR_TASK``, with ``task_id``,
+            ``task_poll_interval_seconds``, and ``tool_source_reference``.
+        idempotency_key: ``"<flow_id>/<turn_id>/<tool_call_id>"``, the key the
+            tool Step passed when it started the task.
+        attempt: One-based ``PollToolTask`` attempt. Each poll gets up to three
+            attempts.
+        input_answers: How the questions this call asked were resolved,
+            oldest first, whether its tool or its task asked them.
+        events: Writer for live events, bound to the turn and attempt.
+        heartbeat: Coroutine function that records Step liveness. The session
+            already heartbeats in the background.
+        pending_answer: The resolution of the task's last question, which has
+            not reached the task yet, or ``None``. It is set only on the first
+            poll after ``AwaitQuestionAnswer`` resolved the question, which runs
+            at once. Deliver it to the task: the answer when ``resolution`` is
+            ``ANSWERED``, a decline when it is ``DECLINED``, and a cancelled
+            request when it is ``DEADLINE_PASSED``. ``tool_call.input_continuation``
+            holds the question's continuation, so recognize the request it
+            answers and deliver only to that request. Later polls read the
+            continuation the last ``ToolTaskPending`` returned. A retried attempt
+            gets it again; when it cannot tell whether an earlier attempt
+            delivered it, return the task's question as ``ToolInputRequested``
+            again rather than send it to what may be a later question. When the
+            task cannot take the resolution, cancel the task best-effort and
+            raise an exception other than ``ToolExecutionError``, so the session
+            records the call by its effect.
+    """
+
+    flow_id: str
+    tool_call: AgentToolCall
+    idempotency_key: str
+    attempt: int
+    input_answers: Sequence[QuestionAnswer]
+    events: AgentEventWriter
+    heartbeat: Callable[[], Awaitable[None]]
+    pending_answer: QuestionAnswer | None = None
+
+
 #: The result of one ``execute_deferred_tool_call`` call.
-DeferredToolOutcome: TypeAlias = ToolExecutionResult | ToolInputRequested
+DeferredToolOutcome: TypeAlias = ToolExecutionResult | ToolInputRequested | ToolTaskStarted
+
+#: The result of one ``poll_tool_task`` call.
+ToolTaskPollOutcome: TypeAlias = ToolExecutionResult | ToolInputRequested | ToolTaskPending
 
 if TYPE_CHECKING:
     # Type checkers read the default; Python 3.11 has no TypeVar defaults at runtime.
@@ -625,7 +746,8 @@ class AgentFrameworkRunner(Protocol[ToolOutcomeT_co]):
     The type parameter is what ``execute_deferred_tool_call`` returns. It
     defaults to ``ToolExecutionResult``, so a bare ``AgentFrameworkRunner``
     means the same as in 0.1.0. A runner whose tools can ask the user a
-    question implements ``AgentFrameworkRunner[DeferredToolOutcome]``.
+    question or start a remote task implements
+    ``AgentFrameworkRunner[DeferredToolOutcome]``.
 
     Example:
         >>> class EchoRunner:
@@ -694,8 +816,10 @@ class AgentFrameworkRunner(Protocol[ToolOutcomeT_co]):
             call: The approved record and its idempotency key.
 
         Returns:
-            The tool output the model sees, or ``ToolInputRequested`` when the
-            tool needs an answer from the user before it takes any effect.
+            The tool output the model sees; ``ToolInputRequested`` when the
+            tool needs an answer from the user before it takes any effect; or
+            ``ToolTaskStarted`` when the tool started remote work that
+            ``ToolTaskPoller.poll_tool_task`` polls.
 
         Raises:
             ToolExecutionError: The tool failed in a way the model should see.
@@ -778,5 +902,51 @@ class PlanModeRunner(Protocol):
 
         Returns:
             ``True`` when the runner implements plan mode as described above.
+        """
+        ...
+
+
+@runtime_checkable
+class ToolTaskPoller(Protocol):
+    """Let a runner whose tools return ``ToolTaskStarted`` poll their tasks.
+
+    Implement it next to ``AgentFrameworkRunner``. ``PollToolTask`` calls
+    ``poll_tool_task`` once per execution, after a Timer for the call's poll
+    interval, until it returns a result. The session checks for the method at
+    runtime; a runner without it never starts a task.
+
+    Example:
+        >>> class MyRunner:
+        ...     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        ...         job = await reports.get(poll.tool_call.task_id)
+        ...         if job.done:
+        ...             return ToolExecutionResult(output=job.summary)
+        ...         return ToolTaskPending(poll_interval_seconds=10)
+    """
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        """Poll one remote task once.
+
+        Polling must only read the task, and deliver ``poll.pending_answer``
+        when it is set, because the session may poll again after a crash.
+        Steering and cancellation never stop a poll.
+
+        Args:
+            poll: The call's record and its idempotency key.
+
+        Returns:
+            ``ToolExecutionResult`` when the task finished, which the model
+            sees; ``ToolTaskPending`` while it runs; or ``ToolInputRequested``
+            when it needs the user's answer. The session asks the question
+            through ``AwaitQuestionAnswer`` and polls again at once with its
+            resolution, answered, declined, or past its deadline, as
+            ``pending_answer``. The task's later result is the call's result.
+
+        Raises:
+            ToolExecutionError: The task failed in a way the model should see.
+                The session records ``FAILED``.
+            Exception: Any other exception fails the poll attempt. After three
+                attempts the record becomes ``FAILED`` for a ``READ`` call and
+                ``OUTCOME_UNKNOWN`` otherwise, because the task may still run.
         """
         ...

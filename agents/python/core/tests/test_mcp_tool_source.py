@@ -16,10 +16,12 @@ import json
 import os
 import sys
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -42,15 +44,22 @@ from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentEvent,
     AgentEventType,
+    AgentEventWriter,
     AgentInterrupt,
     AgentSessionClient,
     AgentSessionFlow,
     AgentSessionOptions,
     AgentSnapshot,
+    AgentToolCall,
     AgentTracingOptions,
+    DeferredToolExecution,
+    QuestionAnswer,
+    ToolCallStatus,
     ToolEffect,
     ToolExecutionError,
+    ToolExecutionResult,
     ToolPolicy,
+    ToolTaskStarted,
     resolve_tool_policy,
 )
 from dex_agents.mcp import (
@@ -61,6 +70,14 @@ from dex_agents.mcp import (
     McpToolAnnotations,
     McpToolCallInterruptedError,
     McpToolSource,
+)
+from dex_agents.mcp._tasks import GetMcpTaskRequest, PolledMcpTask, UpdateMcpTaskRequest
+from dex_agents.mcp._tool_source import (
+    _McpToolCall,
+    _McpToolCallReporter,
+    _task_question,
+    _TaskAsked,
+    _TaskPending,
 )
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
@@ -451,7 +468,9 @@ async def test_policy_overrides_annotations_and_annotations_pick_the_step(
     assert "CallSingleAttemptTool" not in steps
 
 
-async def test_task_handle_is_polled_inside_the_tool_step(mcp_harness: McpAgentHarness) -> None:
+async def test_an_http_task_is_polled_by_poll_tool_task_on_a_timer(
+    mcp_harness: McpAgentHarness,
+) -> None:
     await mcp_harness.stack.start_worker()
     session_id = mcp_harness.new_session_id()
     await mcp_harness.sessions.start_session(session_id, 'call remote__long_report {"topic": "q3"}')
@@ -459,13 +478,209 @@ async def test_task_handle_is_polled_inside_the_tool_step(mcp_harness: McpAgentH
 
     assert snapshot.messages[-1].text == "remote__long_report: report on q3"
     assert mcp_harness.tool_runs("long_report") == [f"{session_id}/turn-1/turn-1-call-0"]
+    events = await _agent_events(mcp_harness, session_id)
     statuses = [
         json.loads(event.payload)["status"]
-        for event in await _agent_events(mcp_harness, session_id)
+        for event in events
         if event.type == MCP_TASK_STATUS_EVENT_TYPE
     ]
-    assert statuses == ["working", "working", "completed"]
-    assert (await mcp_harness.executed_step_types(session_id)).count("CallTool") == 1
+    # A status that did not change since the last poll writes no event.
+    assert statuses == ["working", "completed"]
+    started = [
+        json.loads(event.payload)
+        for event in events
+        if event.type == AgentEventType.TOOL_TASK_STARTED
+    ]
+    assert [payload["tool_name"] for payload in started] == ["remote__long_report"]
+    assert await mcp_harness.executed_step_types(session_id) == [
+        "StartAgentSession",
+        "RunModel",
+        "CallTool",
+        "PollToolTask",
+        "PollToolTask",
+        "ResumeTurn",
+        "RunModel",
+    ]
+
+
+async def test_a_stdio_task_is_polled_inside_its_tool_step(mcp_harness: McpAgentHarness) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(session_id, 'call local__long_report {"topic": "q6"}')
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    # The stdio server's task lives in the process that the tool Step holds.
+    assert snapshot.messages[-1].text == "local__long_report: report on q6"
+    steps = await mcp_harness.executed_step_types(session_id)
+    assert steps.count("CallTool") == 1
+    assert "PollToolTask" not in steps
+
+
+async def test_a_task_that_asks_for_input_gets_the_answer_through_tasks_update(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, 'call remote__long_report {"topic": "q7", "ask": true}'
+    )
+    question = await mcp_harness.wait_for_interrupt(session_id)
+    assert (question.interrupt_id, question.question, question.choices) == (
+        "turn-1-call-0-input-1",
+        "Which format?",
+        ["pdf", "html"],
+    )
+    assert question.allows_free_text is False
+
+    assert await mcp_harness.sessions.answer_question(session_id, question.interrupt_id, "html")
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "remote__long_report: report on q7 as html"
+    assert mcp_harness.tool_runs("long_report") == [f"{session_id}/turn-1/turn-1-call-0"]
+    updates = [
+        name
+        for name in InvocationLog(mcp_harness.state_dir / INVOCATION_LOG_NAME).names()
+        if name.startswith("update ")
+    ]
+    assert len(updates) == 1
+    assert updates[0].endswith(" html")
+    steps = await mcp_harness.executed_step_types(session_id)
+    assert steps[2:6] == ["CallTool", "PollToolTask", "AwaitQuestionAnswer", "AwaitQuestionAnswer"]
+    assert "PollToolTask" in steps[6:]
+
+
+async def test_worker_killed_after_the_task_took_an_answer_asks_its_next_identical_question(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    worker = await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id,
+        'call remote__long_report {"topic": "q15", "ask": true, "batches": 2, '
+        '"update_gate": "update-gate"}',
+    )
+    first = await mcp_harness.wait_for_interrupt(session_id)
+    assert await mcp_harness.sessions.answer_question(session_id, first.interrupt_id, "pdf")
+    gate = mcp_harness.gate("update-gate")
+    # The server stored "pdf" and asks the identical request for its second batch; the poll that
+    # sent it never commits.
+    await gate.wait_until_reached()
+    await asyncio.sleep(1)
+    worker.kill()
+    gate.release()
+    await mcp_harness.stack.start_worker()
+
+    second = await wait_for_agent_snapshot(
+        mcp_harness.sessions,
+        session_id,
+        lambda snapshot: next(
+            (
+                interrupt
+                for interrupt in snapshot.pending_interrupts
+                if interrupt.interrupt_id == "turn-1-call-0-input-2"
+            ),
+            None,
+        ),
+        description="the second batch's question",
+    )
+    assert second.question == "Which format?"
+    log = InvocationLog(mcp_harness.state_dir / INVOCATION_LOG_NAME)
+    assert [name.split()[-1] for name in log.names() if name.startswith("update ")] == ["pdf"]
+    assert await mcp_harness.sessions.answer_question(session_id, second.interrupt_id, "html")
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "remote__long_report: report on q15 as pdf, html"
+    assert [name.split()[-1] for name in log.names() if name.startswith("update ")] == [
+        "pdf",
+        "html",
+    ]
+    assert mcp_harness.tool_runs("long_report") == [f"{session_id}/turn-1/turn-1-call-0"]
+    history = await mcp_harness.stack.read_step_history(session_id)
+    assert 2 in [entry.final_attempt for entry in history if entry.step_type == "PollToolTask"]
+
+
+async def test_a_declined_task_question_is_sent_to_the_task_as_a_decline(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, 'call remote__long_report {"topic": "q13", "ask": true}'
+    )
+    question = await mcp_harness.wait_for_interrupt(session_id)
+    assert await mcp_harness.sessions.resolve_interrupt(
+        session_id, question.interrupt_id, approved=False
+    )
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    # The task decides what a decline means; its result, not "rejected", ends the call.
+    assert snapshot.messages[-1].text == (
+        "remote__long_report: report on q13 without a format (decline)"
+    )
+    updates = [
+        name
+        for name in InvocationLog(mcp_harness.state_dir / INVOCATION_LOG_NAME).names()
+        if name.startswith("update ")
+    ]
+    assert len(updates) == 1
+    assert updates[0].endswith(" decline")
+
+
+async def test_without_a_poller_the_tool_step_polls_the_task_to_its_end(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
+
+    result = await tools.execute_deferred_tool_call(
+        _deferred_execution(
+            "remote__long_report",
+            '{"topic": "q14"}',
+            "remote",
+            "long_report",
+            supports_tool_tasks=False,
+        )
+    )
+
+    assert result == ToolExecutionResult(output="report on q14")
+
+
+async def test_a_retried_attempt_resumes_its_task_without_calling_the_tool_again(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
+    saved_checkpoints: list[str] = []
+
+    async def save_heartbeat_checkpoint(checkpoint: str) -> None:
+        saved_checkpoints.append(checkpoint)
+
+    first = await tools.execute_deferred_tool_call(
+        _deferred_execution(
+            "remote__long_report",
+            '{"topic": "q8"}',
+            "remote",
+            "long_report",
+            save_heartbeat_checkpoint=save_heartbeat_checkpoint,
+        )
+    )
+    assert isinstance(first, ToolTaskStarted)
+    assert len(saved_checkpoints) == 1
+    retried = await tools.execute_deferred_tool_call(
+        _deferred_execution(
+            "remote__long_report",
+            '{"topic": "q8"}',
+            "remote",
+            "long_report",
+            heartbeat_checkpoint=saved_checkpoints[0],
+        )
+    )
+
+    assert retried == ToolTaskStarted(task_id=first.task_id, poll_interval_seconds=1)
+    long_report_runs = [
+        name
+        for name in InvocationLog(mcp_harness.state_dir / INVOCATION_LOG_NAME).names()
+        if name.startswith("long_report ")
+    ]
+    assert len(long_report_runs) == 1
 
 
 async def test_input_required_and_tool_errors_reach_the_model_as_failures(
@@ -534,7 +749,7 @@ async def test_worker_killed_while_polling_a_task_resumes_the_same_task(
         session_id, 'call remote__long_report {"topic": "q4", "gate": "report-gate"}'
     )
     gate = mcp_harness.gate("report-gate")
-    # Two polls: the attempt saved the task ID as its heartbeat checkpoint before the first.
+    # Two polls by PollToolTask, after the tool Step ended.
     await gate.wait_until_reached(2)
 
     worker.kill()
@@ -545,7 +760,8 @@ async def test_worker_killed_while_polling_a_task_resumes_the_same_task(
     assert snapshot.messages[-1].text == "remote__long_report: report on q4"
     assert mcp_harness.tool_runs("long_report") == [f"{session_id}/turn-1/turn-1-call-0"]
     history = await mcp_harness.stack.read_step_history(session_id)
-    assert [entry.final_attempt for entry in history if entry.step_type == "CallTool"] == [2]
+    assert [entry.final_attempt for entry in history if entry.step_type == "CallTool"] == [1]
+    assert gate.reached_count() >= 3
 
 
 async def test_an_unreachable_server_leaves_the_other_servers_tools_working(
@@ -616,6 +832,222 @@ async def test_a_server_that_never_answers_the_handshake_is_bounded(
     assert time.monotonic() - started < 15
 
 
+async def test_a_server_slower_than_one_poll_gets_the_same_question_asked_again() -> None:
+    continuation = _question_continuation(_FORMAT_REQUEST)
+    answer = _format_answer()
+    # Poll 1 after the answer: tasks/get, tasks/update, tasks/get (server has not consumed it yet).
+    session = _ScriptedTaskSession([_input_required(_FORMAT_REQUEST)] * 3)
+    client = SimpleNamespace(session=session)
+    first = await _scripted_call().poll_task_once(
+        client,  # type: ignore[arg-type]
+        "t1",
+        _answered_record(continuation, is_answer_pending=True),
+        _scripted_poll(answer),  # type: ignore[arg-type]
+    )
+    assert isinstance(first, _TaskPending)
+    assert first.poll_interval_seconds == 1
+    assert len(session.updates) == 1
+    # The poll's commit took the pending answer and stored the continuation it returned; the
+    # server still lists the answered request.
+    second = await _scripted_call().poll_task_once(
+        client,  # type: ignore[arg-type]
+        "t1",
+        _answered_record(first.continuation, is_answer_pending=False),
+        _scripted_poll(None),  # type: ignore[arg-type]
+    )
+    assert not isinstance(
+        second, _TaskAsked
+    ), "the user is asked the question they already answered"
+    assert len(session.updates) == 1
+
+
+async def test_an_identical_follow_up_question_is_asked_after_the_task_took_the_answer() -> None:
+    """A server asks the same request again under the same key, e.g. "Proceed?" once per batch."""
+    continuation = _question_continuation(_FORMAT_REQUEST)
+    # Poll 1 (answer pending): get -> input_required; tasks/update; get -> working (answer taken).
+    session = _ScriptedTaskSession([_input_required(_FORMAT_REQUEST), _working()])
+    client = SimpleNamespace(session=session)
+    first = await _scripted_call().poll_task_once(
+        client,  # type: ignore[arg-type]
+        "t1",
+        _answered_record(continuation, is_answer_pending=True),
+        _scripted_poll(_format_answer()),  # type: ignore[arg-type]
+    )
+    assert isinstance(first, _TaskPending) and len(session.updates) == 1
+    assert first.continuation is None, "the task left input_required, so nothing stays answered"
+    # Polls 2..N: the task asks the identical request for its next batch and waits for the user.
+    outcomes = []
+    for _ in range(5):
+        session.add_snapshot(_input_required(_FORMAT_REQUEST))
+        outcomes.append(
+            await _scripted_call().poll_task_once(
+                client,  # type: ignore[arg-type]
+                "t1",
+                _answered_record(continuation, is_answer_pending=False),
+                _scripted_poll(None),  # type: ignore[arg-type]
+            )
+        )
+    assert any(
+        isinstance(outcome, _TaskAsked) for outcome in outcomes
+    ), "the task waits for input forever: every poll treats its new question as the answered one"
+    assert len(session.updates) == 1
+
+
+async def test_a_listed_answered_request_is_asked_again_once_the_grace_period_passed() -> None:
+    first_poll_session = _ScriptedTaskSession([_input_required(_FORMAT_REQUEST)] * 2)
+    first = await _scripted_call().poll_task_once(
+        SimpleNamespace(session=first_poll_session),  # type: ignore[arg-type]
+        "t1",
+        _answered_record(_question_continuation(_FORMAT_REQUEST), is_answer_pending=True),
+        _scripted_poll(_format_answer()),  # type: ignore[arg-type]
+    )
+    assert isinstance(first, _TaskPending) and first.continuation is not None
+    saved = json.loads(first.continuation)
+    saved["mcp_delivered_at"] -= 11
+    session = _ScriptedTaskSession([_input_required(_FORMAT_REQUEST)])
+    later = await _scripted_call().poll_task_once(
+        SimpleNamespace(session=session),  # type: ignore[arg-type]
+        "t1",
+        _answered_record(json.dumps(saved), is_answer_pending=False),
+        _scripted_poll(None),  # type: ignore[arg-type]
+    )
+    assert isinstance(later, _TaskAsked)
+    assert later.question.question == "Which format?"
+    assert session.updates == []
+
+
+async def test_a_retried_poll_asks_again_instead_of_delivering_an_answer_it_may_have_sent() -> None:
+    # Attempt 1 may have delivered "pdf" before the Worker died, and the task may have asked the
+    # identical request again since; attempt 2 cannot tell, so the user is asked again.
+    session = _ScriptedTaskSession([_input_required(_FORMAT_REQUEST)])
+    outcome = await _scripted_call().poll_task_once(
+        SimpleNamespace(session=session),  # type: ignore[arg-type]
+        "t1",
+        _answered_record(_question_continuation(_FORMAT_REQUEST), is_answer_pending=True),
+        _scripted_poll(_format_answer(), attempt=2),  # type: ignore[arg-type]
+    )
+    assert session.updates == []
+    assert isinstance(outcome, _TaskAsked)
+    assert outcome.question.question == "Which format?"
+
+
+async def test_a_retried_poll_never_delivers_an_old_answer_to_a_new_question() -> None:
+    # Attempt 1 delivered "pdf" and the Worker died before the commit. Meanwhile the server took
+    # the answer and asked its NEXT question under the same input key. Attempt 2 reruns with the
+    # same record.
+    session = _ScriptedTaskSession([_input_required(_CONFIRM_DELETE_REQUEST)] * 2)
+    client = SimpleNamespace(session=session)
+    outcome = await _scripted_call().poll_task_once(
+        client,  # type: ignore[arg-type]
+        "t1",
+        _answered_record(_question_continuation(_FORMAT_REQUEST), is_answer_pending=True),
+        _scripted_poll(_format_answer()),  # type: ignore[arg-type]
+    )
+    assert (
+        session.updates == []
+    ), "the answer to 'Which format?' was sent to 'Delete the production table too?'"
+    assert isinstance(outcome, _TaskAsked)
+    assert outcome.question.question == "Delete the production table too?"
+
+
+_FORMAT_REQUEST: dict[str, Any] = {
+    "method": "elicitation/create",
+    "params": {
+        "mode": "form",
+        "message": "Which format?",
+        "requestedSchema": {
+            "type": "object",
+            "properties": {"format": {"type": "string", "enum": ["pdf", "html"]}},
+        },
+    },
+}
+_CONFIRM_DELETE_REQUEST: dict[str, Any] = {
+    "method": "elicitation/create",
+    "params": {
+        "mode": "form",
+        "message": "Delete the production table too?",
+        "requestedSchema": {
+            "type": "object",
+            "properties": {"format": {"type": "string", "enum": ["pdf", "html"]}},
+        },
+    },
+}
+
+
+class _ScriptedTaskSession:
+    """An MCP client session that answers tasks/get from a script and records tasks/update."""
+
+    def __init__(self, task_snapshots: list[dict[str, Any]]) -> None:
+        self._snapshots = list(task_snapshots)
+        self.updates: list[dict[str, Any]] = []
+
+    def add_snapshot(self, task_snapshot: dict[str, Any]) -> None:
+        self._snapshots.append(task_snapshot)
+
+    async def send_request(self, request: Any, result_type: Any, **_: Any) -> Any:
+        if isinstance(request, GetMcpTaskRequest):
+            return PolledMcpTask.model_validate(self._snapshots.pop(0))
+        if isinstance(request, UpdateMcpTaskRequest):
+            self.updates.append(request.params.input_responses)
+            return result_type.model_validate({})
+        raise AssertionError(f"unexpected {request}")
+
+
+def _input_required(request: dict[str, Any]) -> dict[str, Any]:
+    return {"taskId": "t1", "status": "input_required", "inputRequests": {"format": request}}
+
+
+def _working() -> dict[str, Any]:
+    return {"taskId": "t1", "status": "working"}
+
+
+def _scripted_call() -> _McpToolCall:
+    return _McpToolCall(
+        source=SimpleNamespace(_request_timeout_seconds=5.0),  # type: ignore[arg-type]
+        target=SimpleNamespace(tool_name="srv__report", mcp_tool_name="report"),  # type: ignore[arg-type]
+        arguments={},
+        meta={},
+        reporter=_McpToolCallReporter("srv__report", "turn-1-call-0", None),
+        heartbeat=None,
+        save_heartbeat_checkpoint=None,
+    )
+
+
+def _question_continuation(request: dict[str, Any]) -> str:
+    question = _task_question("t1", {"format": request})
+    assert question is not None and question.continuation is not None
+    return question.continuation
+
+
+def _format_answer() -> QuestionAnswer:
+    return QuestionAnswer(
+        interrupt_id="turn-1-call-0-input-1", question="Which format?", answer="pdf"
+    )
+
+
+def _answered_record(continuation: str | None, *, is_answer_pending: bool) -> AgentToolCall:
+    return AgentToolCall(
+        tool_call_id="turn-1-call-0",
+        turn_id="turn-1",
+        tool_name="srv__report",
+        arguments="{}",
+        effect=ToolEffect.READ,
+        requires_approval=False,
+        status=ToolCallStatus.WAITING_FOR_TASK,
+        task_id="t1",
+        task_poll_interval_seconds=2,
+        input_continuation=continuation,
+        input_answers=[_format_answer()],
+        task_answer_pending=is_answer_pending,
+    )
+
+
+def _scripted_poll(pending_answer: QuestionAnswer | None, *, attempt: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        input_answers=[_format_answer()], pending_answer=pending_answer, attempt=attempt
+    )
+
+
 @contextlib.asynccontextmanager
 async def _in_process_sessions(
     server_address: str, flow: AgentSessionFlow, blob_cache_dir: Path
@@ -642,6 +1074,45 @@ async def _in_process_sessions(
         with contextlib.suppress(asyncio.CancelledError):
             await serving
         blob_cache.close()
+
+
+def _deferred_execution(
+    tool_name: str,
+    arguments: str,
+    server_name: str,
+    mcp_tool_name: str,
+    *,
+    heartbeat_checkpoint: str | None = None,
+    save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None = None,
+    supports_tool_tasks: bool = True,
+) -> DeferredToolExecution:
+    """Builds the execution a tool Step passes for one approved MCP call."""
+
+    async def heartbeat() -> None:
+        return None
+
+    return DeferredToolExecution(
+        flow_id="session-direct",
+        tool_call=AgentToolCall(
+            tool_call_id="call-1",
+            turn_id="turn-1",
+            tool_name=tool_name,
+            arguments=arguments,
+            effect=ToolEffect.READ,
+            requires_approval=False,
+            status=ToolCallStatus.APPROVED,
+            tool_source_reference=json.dumps(
+                {"mcp_server": server_name, "mcp_tool": mcp_tool_name}
+            ),
+        ),
+        idempotency_key="session-direct/turn-1/call-1",
+        attempt=1 if heartbeat_checkpoint is None else 2,
+        events=AgentEventWriter(lambda event: None, "turn-1", 1),
+        heartbeat=heartbeat,
+        heartbeat_checkpoint=heartbeat_checkpoint,
+        save_heartbeat_checkpoint=save_heartbeat_checkpoint,
+        supports_tool_tasks=supports_tool_tasks,
+    )
 
 
 async def _agent_events(harness: McpAgentHarness, session_id: str) -> list[AgentEvent]:

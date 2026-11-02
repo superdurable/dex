@@ -343,7 +343,8 @@ await client.invokeRPC(flow.cancelTurn, sessionId, { turnId: snapshot.state?.act
 A steered or cancelled turn ends at its next safe Step boundary. The session
 never interrupts a model call or a tool call that has started: a running model
 call finishes, and a final answer it returns completes the turn as usual; a
-tool that has started runs to the end. A call that has not started records
+tool that has started runs to the end, and so does a tool task it started,
+questions included. A call that has not started records
 `rejected` with `cancellationReason` `"steered"` or `"turn_cancelled"`, and the
 model later sees `toolCallCancelledBySteeringResult` or
 `toolCallCancelledByTurnCancellationResult` as its result. That includes
@@ -529,6 +530,8 @@ so the tool's source can resolve the tool without listing it again.
   `AgentFrameworkRunner<DeferredToolOutcome>`; the default type
   parameter keeps `executeDeferredToolCall` returning `ToolExecutionResult`,
   so code that calls a runner through `AgentFrameworkRunner` compiles as before.
+- Return `ToolTaskStarted` when the tool started remote work that the session
+  polls; see [Tool tasks](#tool-tasks).
 - Throw `ToolExecutionError(message)` for a failure the model should see. The
   call is recorded as `failed` and not retried.
 - Throw anything else for an unexpected failure. `CallTool` retries it up to 3
@@ -536,6 +539,98 @@ so the tool's source can resolve the tool without listing it again.
   or on a crash or timeout, the call is recorded as `failed` for a `read` tool
   and `outcome_unknown` for a write. The model then sees
   `outcomeUnknownToolResult`, because the write may have taken effect.
+
+### Tool tasks
+
+Some tools start remote work and get a handle back, such as an MCP task. A
+tool Step must not hold a connection while that work runs, so
+`executeDeferredToolCall` returns `ToolTaskStarted { kind: "tool_task_started",
+taskId, pollIntervalSeconds }`, and the runner implements the optional
+`pollToolTask(poll)`:
+
+```ts
+class ReportRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
+  // buildUserMessage and runModelStep omitted
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+    if (call.heartbeatCheckpoint !== undefined) {
+      // An earlier attempt started the job.
+      return { kind: "tool_task_started", taskId: call.heartbeatCheckpoint, pollIntervalSeconds: 5 };
+    }
+    const jobId = await reports.start(call.idempotencyKey);
+    await call.saveHeartbeatCheckpoint?.(jobId);
+    return { kind: "tool_task_started", taskId: jobId, pollIntervalSeconds: 5 };
+  }
+
+  public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    let job = await reports.get(poll.toolCall.taskId!);
+    const answered = poll.toolCall.inputContinuation; // ID of the question answered last
+    const resolved = poll.pendingAnswer; // its resolution, on the poll right after it
+    if (resolved !== null && job.questionId === answered) {
+      // Keyed by the question ID, so a retried poll never answers a later question.
+      job = resolved.resolution === "answered"
+        ? await reports.answer(job.id, answered, resolved.answer)
+        : await reports.skip(job.id, answered); // declined, or the deadline passed
+    }
+    if (job.questionId !== null && job.questionId !== answered) {
+      return { kind: "tool_input_requested", question: job.question, choices: job.choices,
+        continuation: job.questionId };
+    }
+    if (job.done) {
+      return { output: job.summary };
+    }
+    // Keep the answered ID only while the job still shows that question.
+    const kept = job.questionId === answered ? answered : null;
+    return { kind: "tool_task_pending", pollIntervalSeconds: 10, continuation: kept };
+  }
+}
+```
+
+The tool Step records `waiting_for_task` with `taskId` and
+`taskPollIntervalSeconds`, writes `tool_task_started`, and ends.
+`PollToolTask` waits on a Timer for the interval, rounded up to whole seconds
+from 1 to a day, and calls `pollToolTask` once per execution:
+
+- `{ output }` records `succeeded`, and `ToolExecutionError` records `failed`.
+- `ToolTaskPending { kind: "tool_task_pending", pollIntervalSeconds,
+  continuation? }` stores the next interval, stores `continuation` as
+  `inputContinuation`, and polls again; omitted or `null` clears it.
+- `ToolInputRequested` asks the user through `AwaitQuestionAnswer`, with the
+  interrupt ID `<toolCallId>-input-<n>`. The task has started, so the question
+  never ends the call: an answer, a decline, and a passed deadline each go back
+  to the task as a `QuestionAnswer` whose `resolution` is `answered`,
+  `declined`, or `deadline_passed`. `PollToolTask` polls at once and hands it
+  over as `poll.pendingAnswer`, only on that first poll; a retried attempt of
+  it gets it again. That poll reads the question's continuation in
+  `toolCall.inputContinuation`, and later polls read what the last
+  `ToolTaskPending` returned. Keep the answered question's continuation only
+  while the task may still show that question, so that a later identical
+  question reads as new. Deliver idempotently, keyed by a question ID when the
+  task has one. When a retried attempt cannot tell whether an earlier one
+  delivered, return the question again instead: the user answers twice rather
+  than a stale answer reaching a later question. When the task cannot take a
+  decline, cancel it best-effort and throw an error other than
+  `ToolExecutionError`; the call is then recorded by effect.
+- Any other error fails the poll attempt. A poll gets three attempts; then
+  `RecordToolFailure` records `failed` for a `read` call and `outcome_unknown`
+  for a write, and `RecordToolOutcomeUnknown` records `outcome_unknown` for a
+  single-attempt call, because the task may still run.
+
+No Step holds a connection while the work runs, and a Worker restart only
+delays the next poll. A crash during a poll repeats only that poll, so a poll
+must only read the task, or deliver an answer idempotently. A `CallTool`
+attempt that dies after the remote work started runs again: save the handle
+with `saveHeartbeatCheckpoint` before you return it, and return the saved
+handle when `heartbeatCheckpoint` holds one. Dex may drop a heartbeat
+checkpoint, so an attempt that dies before its checkpoint is saved and before
+the tool Step commits can still start the work twice; pass the idempotency key
+on so the remote system can drop the duplicate. `PollToolTask` owns the record
+until it is final, takes no lock, and is never cancelled: steering and turn
+cancellation wait for a started task, its questions included, and a call with
+`taskId` is never recorded `rejected`. `DeferredToolExecution.supportsToolTasks`
+tells a tool whether the runner polls tasks. A runner without `pollToolTask`
+that returns `ToolTaskStarted` anyway gets `failed` for a `read` call and
+`outcome_unknown` otherwise, with `missingToolTaskPoller`. Each poll is a Step
+in the session's history, so poll at the slowest interval the task allows.
 
 ### Events
 
@@ -564,6 +659,10 @@ AwaitQuestionAnswer(id) -> dead end (ask_user answered, declined, or past its de
                          | CallTool(id) | CallSingleAttemptTool(id) (a tool's question answered)
 AwaitTimer(id)    -> dead end, after publishing to ToolCallResults
 CallTool(id), CallSingleAttemptTool(id) -> AwaitQuestionAnswer(id) (ToolInputRequested)
+                                        | PollToolTask(id) (ToolTaskStarted)
+PollToolTask(id)  -> itself (ToolTaskPending) | AwaitQuestionAnswer(id) (the task's question)
+                   | dead end, after publishing to ToolCallResults (a result, or a failure route)
+AwaitQuestionAnswer(id) -> PollToolTask(id) (a task's question answered)
 CallTool(id), CallSingleAttemptTool(id), RecordToolFailure(id), RecordToolOutcomeUnknown(id)
                   -> dead end, after publishing to ToolCallResults
 ResumeTurn(n)     -> RunModel | ApplyTurnControl (steered or cancelled) | ResumeTurn(n) (control wake)
@@ -579,13 +678,14 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | `AwaitUserMessage` | none | Waits for any of, in this order, a `TurnControlRequests` message, one queued message, or, while the plan is `draft` or `active`, an approval in `PlanExecutions[<revision>]`. A steer or cancellation: moves to `ApplyTurnControl`. A message: appends it and starts a `chat` or `planning` `turn-<n>`. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn | |
 | `RunModel` | none | Moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled. Otherwise calls `runModelStep`. On `TurnCompleted`, appends the messages and clears the turn. On `ToolCallsRequested`, stores the run state, records, and interrupts, then moves to one Step per call plus `ResumeTurn`. A `write_todos` call, and every call but `write_todos` of a planning turn, is final in this commit | 15 min method timeout, 2 min heartbeat timeout, 3 attempts within 30 min, failure route `RecordTurnFailure` |
 | `AwaitToolApproval` | tool call ID | Waits for the call's `ToolCallCancellations` instance, its `InterruptResolutions` instance, or its deadline Timer. A cancellation records `rejected` with its reason. Approved: moves to the call's tool Step. Rejected or expired: records `rejected` | Locks `PendingInterrupts` in Execute |
-| `AwaitQuestionAnswer` | tool call ID | Waits for the call's `ToolCallCancellations` instance, the question's `InterruptResolutions` instance, or its deadline Timer. A tool's unraised question waits on a zero Timer, and Execute raises it and waits again. Records the answer, the decline, or the passed deadline; a tool's answered question returns the record to `approved` and moves to its tool Step | Locks `PendingInterrupts` in Execute |
+| `AwaitQuestionAnswer` | tool call ID | Waits for the call's `ToolCallCancellations` instance, the question's `InterruptResolutions` instance, or its deadline Timer. A tool's unraised question waits on a zero Timer, and Execute raises it and waits again. Records the answer, the decline, or the passed deadline; a tool's answered question returns the record to `approved` and moves to its tool Step, and a task's answered question returns it to `waiting_for_task` and moves to `PollToolTask`. Steering and `cancel_turn` never cancel a task's question | Locks `PendingInterrupts` in Execute |
 | `AwaitTimer` | tool call ID | Waits on a Timer until the record's `wait_until`, or the call's `ToolCallCancellations` instance, then records `succeeded` or, when cancelled, `rejected` | |
 | `CallTool` | tool call ID | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started` | 3 attempts, failure route `RecordToolFailure` |
 | `CallSingleAttemptTool` | tool call ID | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, failure route `RecordToolOutcomeUnknown` |
+| `PollToolTask` | tool call ID | Waits on a Timer for `taskPollIntervalSeconds`, or a zero Timer while `taskAnswerPending`, then calls `pollToolTask`; records the result, stores the next interval and continuation, or records the task's question. Steering and `cancel_turn` wait for the task's result | 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls, else `RecordToolOutcomeUnknown`; no lock, no cancellation |
 | `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text | Retry backoff capped at 5 s |
 | `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text | Retry backoff capped at 5 s |
-| `ResumeTurn` | expected result count | Waits for that many `ToolCallResults` messages or a `TurnControlRequests` message. A steer or cancellation wake cancels the turn's pending interrupts, wakes each waiting approval, question, and durable wait through `ToolCallCancellations`, and waits again. With every result in, moves to `RunModel`, or to `ApplyTurnControl` when steered or cancelled | Locks `PendingInterrupts` in Execute |
+| `ResumeTurn` | expected result count | Waits for that many `ToolCallResults` messages or a `TurnControlRequests` message. A steer or cancellation wake cancels the pending interrupts of the turn's approvals and of questions no task asked, wakes each such approval, question, and durable wait through `ToolCallCancellations`, and waits again. With every result in, moves to `RunModel`, or to `ApplyTurnControl` when steered or cancelled | Locks `PendingInterrupts` in Execute |
 | `ApplyTurnControl` | none | Consumes every steered message and stale wake. Ends an active steered or cancelled turn with the runner's unfinished-turn messages or a note, and writes `turn_steered` or `turn_cancelled`; then starts a turn with the steered messages | Retry backoff capped at 5 s |
 | `RecordTurnFailure` | none | Records `last_turn_error` and clears the turn; first appends the runner's unfinished-turn messages, when it has the method, and the turn failure note when the turn has final tool call records | Retry backoff capped at 5 s |
 
@@ -632,13 +732,15 @@ Do not repeat these tool calls unless the user asks again.
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`, or
 `running_tools`, and `AgentState.interactionMode` is `chat`, `planning`, or
-`executing`. A stored record's status can also be `awaiting_answer` or
-`waiting_for_timer`; these non-final statuses appear only in
-`AgentToolCallRecord`, which snapshots and `client.getAttributes` return.
-Runners receive `AgentToolCall`, whose `AgentToolCallStatus` keeps its six
-values, because a runner never sees a waiting record. The record gains
-`wait_until`, `input_continuation`, `input_answers`, `input_question`,
-`input_choices`, `input_allows_free_text`, and `cancellation_reason`. Wire values are snake_case JSON; TypeScript values are the
+`executing`. A stored record's status can also be `awaiting_answer`,
+`waiting_for_timer`, or `waiting_for_task`; these non-final statuses appear
+only in `AgentToolCallRecord`, which snapshots, `client.getAttributes`, and
+`ToolTaskPoll.toolCall` carry. Runners receive `AgentToolCall`, whose
+`AgentToolCallStatus` keeps its six values, because a runner never sees a
+waiting record outside `pollToolTask`. The record gains `wait_until`,
+`input_continuation`, `input_answers`, `input_question`, `input_choices`,
+`input_allows_free_text`, `cancellation_reason`, `task_id`,
+`task_poll_interval_seconds`, and `task_answer_pending`. Wire values are snake_case JSON; TypeScript values are the
 same fields in camelCase. Message sequences start at 1 and have no gaps. Turn
 IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 
@@ -670,6 +772,7 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 | `timer_started` | `{"tool_call_id","wait_until","reason"}` for a `durable_wait` call |
 | `plan_updated` | `{"revision","status","task_count"}` after `write_todos` replaced the plan, or when an approval marks a draft `active` |
 | `plan_execution_started` | `{"revision"}`, after the `turn_started` of an `executing` turn |
+| `tool_task_started` | `{"tool_call_id","tool_name","task_id"}`; the tool started remote work that `PollToolTask` polls |
 | `usage_recorded` | `{"recorded","session"}`, each an `AgentUsage` object |
 
 Every event carries `turn_id`, the Step `attempt`, and `step_execution_id`.
@@ -800,30 +903,55 @@ signal aborts the request.
 ### Long-running MCP tasks
 
 A tool whose `execution.taskSupport` is `required` is called as a task, the
-2025-11-25 experimental tasks of the SDK. The tool Step polls `tasks/get`,
-writes an `mcp.task_status` event per observed status, and heartbeats between
-polls, for at most `taskWaitTimeoutMs` (10 minutes by default) per attempt;
-then it fetches the result with `tasks/result`. A failed or cancelled task
-records `failed`. The source requests a task TTL of four times
-`taskWaitTimeoutMs`, so the task outlives every attempt's wait. For a
-Streamable HTTP server, the tool Step saves the task ID as its heartbeat
-checkpoint. When the wait passes, or the Worker dies while polling, the task
-keeps running: `CallTool` retries a `read` or `idempotent_write` call, and the
-retry polls the same task instead of calling the tool again. A server that
-binds tasks to its protocol session, as the SDK's task store does for a
-stateful Streamable HTTP server, cannot show the task to the retry's new
-session, so the retry calls the tool again. Other effects record
-`outcome_unknown`. The follow-up design,
-shared with the Python core, moves polling to a Timer-driven `PollMcpTask` Step
-so no Step holds a connection while the task runs.
+2025-11-25 experimental tasks of the SDK. For a Streamable HTTP server, the
+tool Step saves the task ID as its heartbeat checkpoint before anything else,
+so a `CallTool` attempt that dies after `tools/call` returned the task resumes
+the same task on its retry instead of calling the tool again, once the
+checkpoint reached Dex; a lost checkpoint leaves only the idempotency key to
+drop a second task. A runner without `pollToolTask` gets every task polled
+inside the tool Step, as described below for stdio servers.
+
+A Streamable HTTP server without protocol sessions keeps its tasks in a store
+that any connection can read, so its task becomes a [tool task](#tool-tasks):
+the tool Step returns `ToolTaskStarted` and ends, and `PollToolTask` calls
+`pollToolTask` on a Timer. Each poll sends `tasks/get` once, writes an
+`mcp.task_status` event when the status changed, and fetches a completed
+task's result with
+`tasks/result`. The next interval is the server's `pollInterval`, rounded up to
+whole seconds, or, when that is shorter, double the previous interval, up to a
+minute. No Step holds a connection while the task runs, and a Worker restart
+only delays the next poll. A server that no longer knows the task, or cannot be
+reached for three poll attempts, records `failed` for a `read` tool and
+`outcome_unknown` otherwise.
+
+The source requests such a task's TTL as `taskTtlMs`, 24 hours by default. The
+TTL starts when the server creates the task, and the poll may span Worker
+restarts, so it must cover the task's run time plus the longest time no Worker
+serves the session. A task whose TTL passes before the session reads its result
+is lost and recorded by effect, as above. The server may grant a shorter TTL.
+
+A stdio server's task lives in its process, and a server that keeps protocol
+sessions, as the SDK's task store does for a stateful Streamable HTTP server,
+binds its tasks to the session that the request ends. Neither can be polled
+from another Step. The tool Step polls such a task with `tasks/get`, with a
+heartbeat per poll, for at most `taskWaitTimeoutMs` (10 minutes by default)
+per attempt, holding a Worker slot, and requests a TTL of four times
+`taskWaitTimeoutMs`, so the task outlives every attempt's wait. When the wait
+passes, or the Worker dies, `CallTool` retries a `read` or `idempotent_write`
+call; a session-bound task is invisible to the retry's new session, so the
+retry calls the tool again. Other effects record `outcome_unknown`.
+`callTool`, the framework adapter path, polls every task inside the call.
 
 ### Input requests
 
 A task in `input_required` is cancelled and records `failed` with `the MCP
-server asked for input that this agent session cannot provide yet (...)`. The
-source declares no elicitation, sampling, or roots capability, so a server
-cannot send those requests directly. The follow-up maps input requests to a
-session question interrupt.
+server asked for input that this agent session cannot provide yet (...)`. In
+the 2025-11-25 tasks, the server sends its input requests as requests of its
+own during `tasks/result` and must get the answer on that live connection, so
+no durable question can carry them; the Python core, on 2026-07-28, turns a
+task's input request into a session question. The source declares no
+elicitation, sampling, or roots capability, so a server cannot send those
+requests directly.
 
 ### With a framework adapter
 
@@ -1070,8 +1198,8 @@ the same as the Python core's `dex_agents.ui_stream`.
 The snapshot JSON is the `get_agent_snapshot` wire format without the fields
 only the session's Steps use. Messages leave out `framework_item`, the
 framework's replay data, which can hold the agent's instructions. Tool calls
-leave out `tool_source_reference`, `trace_context`, `input_continuation`, and
-`input_answers`. Read them with `getAgentSnapshot` on the server when needed.
+leave out `tool_source_reference`, `trace_context`, `input_continuation`,
+`input_answers`, and `task_answer_pending`. Read them with `getAgentSnapshot` on the server when needed.
 
 ### UI stream limits
 
@@ -1139,8 +1267,8 @@ for the full attribute table. In short:
   `ApplyTurnControl` consumes a user message, or `AwaitToolApproval` an
   interrupt answer or an expired deadline. That Step's attempt emits the root, `invoke_agent {agent
   name}`, with a span link to the previous activation's root. Each `RunModel`
-  attempt emits a `chat` span when it ends, and each `CallTool` and
-  `CallSingleAttemptTool` attempt an `execute_tool {tool name}` span. A turn
+  attempt emits a `chat` span when it ends, and each `CallTool`,
+  `CallSingleAttemptTool`, and `PollToolTask` attempt an `execute_tool {tool name}` span. A turn
   without approvals is one trace; each approval answer and each new turn
   starts another.
 - **A near-zero root.** Every span ends inside its Step attempt, so none stays
@@ -1387,7 +1515,7 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 - **Two record types.** The wire status gains non-final values, but
   `AgentToolCallStatus` keeps its six, so exhaustive mappings in adapters still
   compile. Stored records use `AgentToolCallRecord`, whose status also allows
-  `awaiting_answer` and `waiting_for_timer`.
+  `awaiting_answer`, `waiting_for_timer`, and `waiting_for_task`.
 - **One `streamText` step.** The AI SDK client uses only the public `ai` API.
   `streamText` with `stopWhen: stepCountIs(1)`, `maxRetries: 0`, and tools
   without `execute` makes exactly one model call. It accepts every
@@ -1421,8 +1549,9 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   adapter documents them as at-least-once.
 - Queued user messages are consumed one per turn, and a queued message does
   not end a `durable_wait`; a steered one does. Steering and `cancel_turn`
-  never stop a model call or a tool call that has started. Plans, compaction,
-  and tool tasks are not implemented yet.
+  never stop a model call or a tool call that has started, or a tool task it
+  started. Compaction is not implemented yet.
+- Each `PollToolTask` poll is a Step in the session's history.
 - A failed turn keeps its user message in history without an assistant reply;
   only the turn failure note records what its tools did.
 - Deadlines use the Worker clock when the Timer is computed.
@@ -1434,9 +1563,10 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   `io.modelcontextprotocol/tasks` extension, no `input_required` results, and no
   `traceparent` in `_meta`. It calls only `taskSupport: required` tools as
   tasks. The Python core speaks 2026-07-28.
-- An MCP task is polled inside its tool Step, holding a Worker slot; a task in
-  `input_required` records `failed`. Timer-driven polling and question
-  interrupts are follow-ups.
+- A stdio server's MCP task, and a task of a server that keeps protocol
+  sessions, is polled inside its tool Step, holding a Worker slot. A task in
+  `input_required` records `failed`, because 2025-11-25 input requests need a
+  live connection.
 - Every MCP request opens a new connection and runs the `initialize`
   handshake. An unreachable server is tried again, with its connection
   attempts, on every `listTools` call until it answers. A server that binds

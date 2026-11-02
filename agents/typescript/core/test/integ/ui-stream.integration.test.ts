@@ -99,6 +99,7 @@ describe("agent UI streams with an in-process Worker", () => {
       "Reload",
       "Events",
       "Question",
+      "Task",
     ]) {
       const markerDirectory = mkdtempSync(join(engine.stateDirectory, `markers-${name}-`));
       flowsByName.set(name, {
@@ -329,6 +330,52 @@ describe("agent UI streams with an in-process Worker", () => {
       chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "error"),
       [{ type: "finish", finishReason: "stop" }],
     );
+  });
+
+  test("a tool task streams as event data and neither pauses nor ends the stream while it runs", async () => {
+    const { flow, sessions, markerDirectory } = stack("Task");
+    const sessionId = newSessionId("task");
+    await sessions.startSession(sessionId, "call gated_report_task");
+    const gate = new FileGate(markerDirectory, "gated_report_task");
+    // The stream replays the active turn from its first event.
+    await gate.waitUntilReached();
+    const chunks: AgentUIMessageChunk[] = [];
+    let isStreamEnded = false;
+    const streaming = (async () => {
+      for await (const chunk of streamAgentUIMessageChunks({
+        client: environment.client,
+        flow,
+        flowId: sessionId,
+        pollTimeoutMs: 1_000,
+      })) {
+        chunks.push(chunk);
+      }
+      isStreamEnded = true;
+    })();
+    await gate.waitUntilReached(2);
+    await delay(2_000);
+
+    // A waiting task is a running tool, not an approval: the stream stays open.
+    assert.equal(isStreamEnded, false);
+    assert.deepEqual(chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "tool-approval-request"), []);
+    gate.release();
+    await streaming;
+
+    const taskEvents = chunks.flatMap((chunk) => {
+      const data = (chunk as { type: string; data?: { type?: string } }).data;
+      return chunk.type === "data-agent-event" && data?.type === "tool_task_started" ? [data.type] : [];
+    });
+    assert.deepEqual(taskEvents, ["tool_task_started"]);
+    assert.ok(chunks.some((chunk) => chunk.type === "tool-output-available"));
+    assert.deepEqual(
+      chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "error"),
+      [{ type: "finish", finishReason: "stop" }],
+    );
+    const stored = await fetchStoredMessages(stack("Task").server, sessionId);
+    assert.deepEqual(describeUIMessageParts(stored.messages[1]).slice(0, 2), [
+      "step-start",
+      'tool gated_report_task output-available {"requested_by":"call gated_report_task"} -> report ready',
+    ]);
   });
 
   test("a reconnect after an approval, while the approved write runs, does not ask for approval again", async () => {
@@ -1021,6 +1068,9 @@ describe("agent snapshot JSON for browsers", () => {
           inputChoices: ["yes", "no"],
           inputAllowsFreeText: false,
           cancellationReason: null,
+          taskId: null,
+          taskPollIntervalSeconds: null,
+          taskAnswerPending: false,
         },
       ],
       usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, cachedInputTokens: 0, reasoningTokens: 0 },
@@ -1050,7 +1100,8 @@ describe("agent snapshot JSON for browsers", () => {
         '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,' +
         '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,' +
         '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",' +
-        '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null}],' +
+        '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null,' +
+        '"task_id":null,"task_poll_interval_seconds":null}],' +
         '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,' +
         '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",' +
         '"tasks":[{"content":"Refund the order","status":"in_progress"}],' +

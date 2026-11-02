@@ -18,6 +18,7 @@ export {
   defaultMcpConnectionAttempts,
   defaultMcpConnectionTimeoutMs,
   defaultMcpRequestTimeoutMs,
+  defaultMcpTaskTtlMs,
   defaultMcpTaskWaitTimeoutMs,
   mcpIdempotencyKeyMetaKey,
   mcpTaskStatusEventType,

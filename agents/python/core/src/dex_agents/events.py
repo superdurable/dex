@@ -66,6 +66,8 @@ class AgentEventType(StrEnum):
             "task_count"}``.
         PLAN_EXECUTION_STARTED: An approved plan revision started an
             ``executing`` turn, after its ``turn_started``. Payload ``{"revision"}``.
+        TOOL_TASK_STARTED: A tool started remote work that ``PollToolTask``
+            polls. Payload ``{"tool_call_id", "tool_name", "task_id"}``.
     """
 
     TURN_STARTED = "turn_started"
@@ -84,6 +86,7 @@ class AgentEventType(StrEnum):
     TIMER_STARTED = "timer_started"
     PLAN_UPDATED = "plan_updated"
     PLAN_EXECUTION_STARTED = "plan_execution_started"
+    TOOL_TASK_STARTED = "tool_task_started"
 
 
 class AgentEventWriter:

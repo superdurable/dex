@@ -9,7 +9,8 @@
 """Wire types of the MCP tasks extension, io.modelcontextprotocol/tasks (SEP-2663).
 
 The MCP SDK 2.3 has no client for the extension, so the tool source declares
-it, claims the ``"task"`` result type, and polls ``tasks/get`` itself.
+it, claims the ``"task"`` result type, polls ``tasks/get``, and answers an
+``input_required`` task with ``tasks/update`` itself.
 """
 
 from __future__ import annotations
@@ -59,6 +60,18 @@ class GetMcpTaskRequest(Request[McpTaskIdParams, Literal["tasks/get"]]):
 
 class CancelMcpTaskRequest(Request[McpTaskIdParams, Literal["tasks/cancel"]]):
     method: Literal["tasks/cancel"] = "tasks/cancel"
+    name_param = "taskId"
+
+
+class McpTaskUpdateParams(RequestParams):
+    task_id: str
+    input_responses: dict[str, Any]
+
+
+class UpdateMcpTaskRequest(Request[McpTaskUpdateParams, Literal["tasks/update"]]):
+    """``tasks/update``: answers the ``inputRequests`` of an ``input_required`` task."""
+
+    method: Literal["tasks/update"] = "tasks/update"
     name_param = "taskId"
 
 

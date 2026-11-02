@@ -20,9 +20,11 @@ import {
   createAgentSessionFlow,
   outcomeUnknownToolResult,
   resolveToolPolicy,
+  type DeferredToolExecution,
 } from "../../src/index.js";
 import {
   McpToolSource,
+  defaultMcpTaskTtlMs,
   defaultMcpTaskWaitTimeoutMs,
   mcpTaskStatusEventType,
   mcpToolProgressEventType,
@@ -155,6 +157,13 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     return (await sessions.listAgentEvents(sessionId))
       .filter((event) => event.type === type)
       .map((event) => JSON.parse(event.payload) as Record<string, unknown>);
+  }
+
+  function requestedTaskTtls(): number[] {
+    return new InvocationLog(join(stateDirectory, fakeMcpInvocationLogName))
+      .names()
+      .filter((line) => line.startsWith("long_report-ttl "))
+      .map((line) => Number(line.split(" ")[1]));
   }
 
   async function lastMessageText(sessionId: string): Promise<string | null | undefined> {
@@ -358,12 +367,13 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     assert.ok(!steps.includes("CallSingleAttemptTool"));
   });
 
-  test("a task-required tool is polled inside its tool Step, and a task needing input fails clearly", async () => {
+  test("a task-required tool of a stateless server is polled by PollToolTask, and a task needing input fails clearly", async () => {
     await startWorker();
     const sessionId = `mcp-task-${randomUUID()}`;
     await sessions.startSession(sessionId, 'call remote__long_report {"topic": "q3"} && call remote__ask_account {}');
     await sessions.waitForCompletedTurns(sessionId, 1);
 
+    // The 2025-11-25 tasks deliver input requests on a live connection, which no durable question can hold.
     assert.equal(
       await lastMessageText(sessionId),
       "remote__long_report: report on q3; remote__ask_account: The tool call failed: the MCP server asked for " +
@@ -375,7 +385,56 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
       .map((payload) => payload["status"]);
     assert.equal(statuses[0], "working");
     assert.equal(statuses.at(-1), "completed");
-    assert.equal((await executedStepTypes(sessionId)).filter((step) => step === "CallTool").length, 2);
+    assert.deepEqual(
+      (await eventPayloads(sessionId, "tool_task_started")).map((payload) => payload["tool_name"]).sort(),
+      ["remote__ask_account", "remote__long_report"],
+    );
+    const steps = await executedStepTypes(sessionId);
+    assert.equal(steps.filter((step) => step === "CallTool").length, 2);
+    assert.ok(steps.filter((step) => step === "PollToolTask").length >= 2);
+  });
+
+  test("a stdio server's task is polled inside its tool Step", async () => {
+    await startWorker();
+    const sessionId = `mcp-stdio-task-${randomUUID()}`;
+    await sessions.startSession(sessionId, 'call local__long_report {"topic": "q6"}');
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    // The stdio server's task lives in the process that the tool Step holds.
+    assert.equal(await lastMessageText(sessionId), "local__long_report: report on q6");
+    const steps = await executedStepTypes(sessionId);
+    assert.equal(steps.filter((step) => step === "CallTool").length, 1);
+    assert.ok(!steps.includes("PollToolTask"));
+  });
+
+  test("a retried attempt resumes its task without calling the tool again", async () => {
+    const tools = createMcpToolSource(stateDirectory, httpUrl);
+    const savedCheckpoints: string[] = [];
+    const first = await tools.executeDeferredToolCall(
+      deferredExecution('{"topic": "q8"}', undefined, async (checkpoint) => {
+        savedCheckpoints.push(checkpoint);
+      }),
+    );
+    assert.equal("kind" in first ? first.kind : undefined, "tool_task_started");
+    assert.equal(savedCheckpoints.length, 1);
+    const retried = await tools.executeDeferredToolCall(deferredExecution('{"topic": "q8"}', savedCheckpoints[0]));
+
+    assert.deepEqual(retried, {
+      kind: "tool_task_started",
+      taskId: "kind" in first ? first.taskId : undefined,
+      pollIntervalSeconds: 1,
+    });
+    assert.deepEqual(toolRuns("long_report", "direct-session"), ["direct-session/turn-1/call-1"]);
+  });
+
+  test("without a poller the tool Step polls the task to its end", async () => {
+    const tools = createMcpToolSource(stateDirectory, httpUrl);
+
+    const result = await tools.executeDeferredToolCall(
+      deferredExecution('{"topic": "q14"}', undefined, undefined, false, "direct-session-no-poller"),
+    );
+
+    assert.deepEqual(result, { output: "report on q14" });
   });
   for (const gatewayMode of ["502", "internal-error"] as const) {
     test(`a gateway ${gatewayMode} after the server ran a write records outcome_unknown`, async () => {
@@ -408,6 +467,7 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     // Two polls: the attempt saved the task ID as its heartbeat checkpoint before the first.
     await gate.waitUntilReached(2);
 
+    const ttlLinesBefore = requestedTaskTtls().length;
     await firstWorker.kill();
     await startWorker();
     gate.release();
@@ -415,18 +475,21 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
 
     assert.equal(await lastMessageText(sessionId), "remote__long_report: report on q4");
     assert.deepEqual(toolRuns("long_report", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
-    const callTool = (await readStepHistory(engine.serverAddress, sessionId)).filter((entry) => entry.stepType === "CallTool");
+    const history = await readStepHistory(engine.serverAddress, sessionId);
+    // The tool Step ended once it had the task; PollToolTask polled it across the Worker kill.
     assert.deepEqual(
-      callTool.map((entry) => entry.finalAttempt),
-      [2],
+      history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
+      [1],
     );
-    // The requested TTL outlasts every attempt's bounded wait.
-    const requestedTtls = new InvocationLog(join(stateDirectory, fakeMcpInvocationLogName))
-      .names()
-      .filter((line) => line.startsWith("long_report-ttl "))
-      .map((line) => Number(line.split(" ")[1]));
-    assert.ok(requestedTtls.length > 0);
-    assert.ok(requestedTtls.every((ttl) => ttl >= 3 * defaultMcpTaskWaitTimeoutMs));
+    assert.ok(gate.reachedCount() >= 3);
+    // Polls that saw the task still working wrote no event; only status changes do.
+    assert.deepEqual(
+      (await eventPayloads(sessionId, mcpTaskStatusEventType)).map((payload) => payload["status"]),
+      ["working", "completed"],
+    );
+    // The durable poll may span Worker restarts, so the task's TTL is the long one, not a multiple of a wait.
+    assert.equal(requestedTaskTtls().length, ttlLinesBefore);
+    assert.equal(requestedTaskTtls().at(-1), defaultMcpTaskTtlMs);
   });
 
   test("a server that binds tasks to its protocol session gets the call again after a Worker kill", async () => {
@@ -452,6 +515,9 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     assert.equal(await lastMessageText(sessionId), "sessions__long_report: report on q5");
     const key = `${sessionId}/turn-1/turn-1-call-0`;
     assert.deepEqual(toolRuns("long_report", sessionId), [key, key]);
+    // The session-bound task is polled inside the tool Step, with a TTL that outlasts its bounded waits.
+    assert.ok(!(await executedStepTypes(sessionId)).includes("PollToolTask"));
+    assert.equal(requestedTaskTtls().at(-1), 4 * defaultMcpTaskWaitTimeoutMs);
   });
 
   test("an unreachable server leaves the other servers' tools working", async () => {
@@ -539,3 +605,48 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     );
   });
 });
+
+/** Builds the execution a tool Step passes for one approved `remote__long_report` call. */
+function deferredExecution(
+  toolArguments: string,
+  heartbeatCheckpoint?: string,
+  saveHeartbeatCheckpoint?: (checkpoint: string) => Promise<void>,
+  supportsToolTasks = true,
+  flowId = "direct-session",
+): DeferredToolExecution {
+  const events = {
+    turnId: "turn-1",
+    attempt: 1,
+    writeEvent: () => undefined,
+    writeTextDelta: () => undefined,
+    writeReasoningDelta: () => undefined,
+    writeToolCallStarted: () => undefined,
+    writeToolCallFinished: () => undefined,
+  };
+  return {
+    flowId,
+    toolCall: {
+      toolCallId: "call-1",
+      turnId: "turn-1",
+      toolName: "remote__long_report",
+      arguments: toolArguments,
+      effect: "read",
+      requiresApproval: false,
+      status: "approved",
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+      toolSourceReference: JSON.stringify({ mcp_server: "remote", mcp_tool: "long_report", task_support: "required" }),
+    },
+    idempotencyKey: `${flowId}/turn-1/call-1`,
+    attempt: heartbeatCheckpoint === undefined ? 1 : 2,
+    events,
+    cancellationSignal: new AbortController().signal,
+    deadline: undefined,
+    heartbeat: () => Promise.resolve(),
+    supportsToolTasks,
+    ...(heartbeatCheckpoint === undefined ? {} : { heartbeatCheckpoint }),
+    ...(saveHeartbeatCheckpoint === undefined ? {} : { saveHeartbeatCheckpoint }),
+  };
+}

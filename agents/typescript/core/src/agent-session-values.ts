@@ -218,29 +218,56 @@ export type AgentToolCallStatus =
  *   call, or a tool call whose tool returned {@link ToolInputRequested}.
  * - `waiting_for_timer`: `AwaitTimer` waits until {@link AgentToolCallRecord.waitUntil} for a
  *   `durable_wait` call.
+ * - `waiting_for_task`: the tool returned {@link ToolTaskStarted}, and `PollToolTask` polls the task in
+ *   {@link AgentToolCallRecord.taskId} every {@link AgentToolCallRecord.taskPollIntervalSeconds}.
  *
  * These statuses appear in {@link AgentSnapshot.toolCalls} and in records read with
  * `Client.getAttributes`. A runner never receives a record with one of them: `RunModel` runs only after
  * every record of the turn is final, and a tool Step runs only an `approved` record.
  */
-export type AgentToolCallWaitingStatus = "awaiting_answer" | "waiting_for_timer";
+export type AgentToolCallWaitingStatus = "awaiting_answer" | "waiting_for_timer" | "waiting_for_task";
 
 /** Status of a stored tool call record: an {@link AgentToolCallStatus} or an {@link AgentToolCallWaitingStatus}. */
 export type AgentToolCallRecordStatus = AgentToolCallStatus | AgentToolCallWaitingStatus;
 
 /**
- * One answer to a question that a tool asked by returning {@link ToolInputRequested}.
+ * How a question that a tool or its task asked was resolved.
+ *
+ * - `answered`: the user answered with `answer_question`.
+ * - `declined`: the user declined with `resolve_interrupt` and `approved` `false`.
+ * - `deadline_passed`: `interruptDeadlineMs` passed first.
+ *
+ * A tool's own question is only ever answered: a decline or a passed deadline ends the call with
+ * `rejected`. A question that a started task asked through {@link AgentFrameworkRunner.pollToolTask}
+ * goes back to the task in every case, so the task, not the session, decides what a decline means.
+ */
+export type QuestionResolution = "answered" | "declined" | "deadline_passed";
+
+/**
+ * How one question that a tool asked by returning {@link ToolInputRequested} was resolved.
  *
  * `AwaitQuestionAnswer` appends one to the call's `inputAnswers` when the user answers. The tool then
- * runs again and receives every answer in {@link DeferredToolExecution.inputAnswers}.
+ * runs again and receives every answer in {@link DeferredToolExecution.inputAnswers}. For a question that
+ * a started task asked, it also appends one when the user declines or the deadline passes, and
+ * `PollToolTask` hands it to the task as {@link ToolTaskPoll.pendingAnswer}.
  */
 export interface QuestionAnswer {
-  /** Interrupt ID of the answered question, `<toolCallId>-input-<n>`. Wire field: `interrupt_id`. */
+  /** Interrupt ID of the resolved question, `<toolCallId>-input-<n>`. Wire field: `interrupt_id`. */
   readonly interruptId: string;
   /** Question text the tool asked. Wire field: `question`. */
   readonly question: string;
-  /** The user's answer, exactly as sent to `answer_question`. Wire field: `answer`. */
+  /**
+   * The user's answer, exactly as sent to `answer_question`. For a declined question, the user's rejection
+   * message or {@link defaultQuestionDeclinedToolResult}; for a passed deadline, {@link questionDeadlinePassed}.
+   * Wire field: `answer`.
+   */
   readonly answer: string;
+  /**
+   * How the question was resolved; `answered` when absent, the only resolution of a tool's own question.
+   * Answers the session reads always carry it; it is optional so that code that builds answers by hand keeps
+   * compiling. Wire field: `resolution`.
+   */
+  readonly resolution?: QuestionResolution;
 }
 
 /** Durable record of one deferred tool call, as a runner sees it; stored in `AgentToolCalls` under its tool call ID. */
@@ -294,8 +321,9 @@ export interface AgentToolCall {
   readonly waitUntil?: string | null;
   /**
    * Opaque text from the tool's last {@link ToolInputRequested}, returned to the tool when it runs
-   * again after the answer; `null` when the tool gave none. Wire field: `input_continuation`.
-   * Optional for the same reason as {@link waitUntil}.
+   * again after the answer. For a call waiting for a task, the continuation of the task's last question
+   * until the next poll, and then what the last {@link ToolTaskPending} returned. `null` when there is none.
+   * Wire field: `input_continuation`. Optional for the same reason as {@link waitUntil}.
    */
   readonly inputContinuation?: string | null;
   /**
@@ -327,6 +355,25 @@ export interface AgentToolCall {
    * {@link waitUntil}.
    */
   readonly cancellationReason?: ToolCallCancellationReason | null;
+  /**
+   * The remote task ID from the tool's {@link ToolTaskStarted}, or `null` for a call that started no
+   * task. It stays on the record after the task finishes. Wire field: `task_id`. Optional for the same
+   * reason as {@link waitUntil}.
+   */
+  readonly taskId?: string | null;
+  /**
+   * Whole seconds `PollToolTask` waits before the next poll, at least 1, from {@link ToolTaskStarted} or
+   * the last {@link ToolTaskPending}; `null` for a call that started no task. Wire field:
+   * `task_poll_interval_seconds`. Optional for the same reason as {@link waitUntil}.
+   */
+  readonly taskPollIntervalSeconds?: number | null;
+  /**
+   * Whether the last entry of {@link inputAnswers}, the resolution of the task's last question, has not
+   * reached the task yet. `AwaitQuestionAnswer` sets it, `PollToolTask` then polls at once and hands that
+   * entry to the runner, and the poll's commit clears it. Wire field: `task_answer_pending`. Optional for
+   * the same reason as {@link waitUntil}.
+   */
+  readonly taskAnswerPending?: boolean;
 }
 
 /**
@@ -357,6 +404,9 @@ export interface AgentToolCallRecord
     | "inputChoices"
     | "inputAllowsFreeText"
     | "cancellationReason"
+    | "taskId"
+    | "taskPollIntervalSeconds"
+    | "taskAnswerPending"
   > {
   /** Current status. Wire field: `status`. */
   readonly status: AgentToolCallRecordStatus;
@@ -377,6 +427,21 @@ export interface AgentToolCallRecord
    * always carry it; it is optional so that code that builds records by hand keeps compiling.
    */
   readonly cancellationReason?: ToolCallCancellationReason | null;
+  /**
+   * See {@link AgentToolCall.taskId}. Wire field: `task_id`. Records the session reads always carry it; it is
+   * optional so that code that builds records by hand keeps compiling, and a missing value means `null`.
+   */
+  readonly taskId?: string | null;
+  /**
+   * See {@link AgentToolCall.taskPollIntervalSeconds}. Wire field: `task_poll_interval_seconds`. Optional for
+   * the same reason as {@link taskId}; a missing value means `null`.
+   */
+  readonly taskPollIntervalSeconds?: number | null;
+  /**
+   * See {@link AgentToolCall.taskAnswerPending}. Wire field: `task_answer_pending`. Optional for the same
+   * reason as {@link taskId}; a missing value means `false`.
+   */
+  readonly taskAnswerPending?: boolean;
 }
 
 /**
@@ -597,6 +662,8 @@ export interface ToolCallCancellation {
  * - `plan_updated`: `{"revision","status","task_count"}`, when `write_todos` replaced the plan or an
  *   approval marked a draft `active`.
  * - `plan_execution_started`: `{"revision"}`, after the `turn_started` of an `executing` turn.
+ * - `tool_task_started`: `{"tool_call_id","tool_name","task_id"}`, when a tool starts remote work that
+ *   `PollToolTask` polls.
  * - `usage_recorded`: `{"recorded","session"}`: one model call's and the cumulative usage, each with
  *   {@link AgentUsage} wire fields.
  */
@@ -616,6 +683,7 @@ export type AgentEventType =
   | "timer_started"
   | "plan_updated"
   | "plan_execution_started"
+  | "tool_task_started"
   | "usage_recorded";
 
 /** One best-effort live event, written to the `AgentEvents` Stream. */
@@ -791,7 +859,7 @@ export const approvalDeadlinePassed = "approval deadline passed";
 /** Rejection message recorded when a question's deadline passes. */
 export const questionDeadlinePassed = "question deadline passed";
 
-/** Tool result text the model sees when the user declines a question without a message. */
+/** Tool result text the model sees when the user declines a question without a message, or with an empty one. */
 export const defaultQuestionDeclinedToolResult = "The user declined to answer.";
 
 /** First line of the note `ApplyTurnControl` stores after a steered turn ran tools. */
@@ -806,6 +874,18 @@ export const toolCallCancelledBySteeringResult =
 
 /** Model-visible result of a tool call that `cancel_turn` abandoned before it started. */
 export const toolCallCancelledByTurnCancellationResult = '{"status":"cancelled","reason":"turn_cancelled_by_user"}';
+
+/**
+ * Error recorded when a tool returns {@link ToolTaskStarted} to a runner without
+ * {@link AgentFrameworkRunner.pollToolTask}. The Python core names its method `poll_tool_task`.
+ */
+export const missingToolTaskPoller = "the tool started a task, but the runner does not implement pollToolTask";
+
+/** Error recorded when a {@link ToolTaskStarted} has a blank `taskId`; the same text as the Python core. */
+export const blankToolTaskId = "the tool started a task without a task ID";
+
+/** Error recorded when a task's poll interval is not a number; the same text as the Python core. */
+export const invalidToolTaskPollInterval = "the tool task's poll interval is not a number";
 
 /**
  * Returns the note text that tells the model what a failed turn already did.
@@ -878,6 +958,7 @@ export function describeToolCallOutcome(toolCall: AgentToolCall | AgentToolCallR
     case "approved":
     case "awaiting_answer":
     case "waiting_for_timer":
+    case "waiting_for_task":
       throw new TypeError(`tool call ${toolCall.toolCallId} has no final outcome yet`);
   }
 }
