@@ -276,6 +276,7 @@ class PrivateDexEngine:
         *,
         dexcli: Path | None = None,
         server_zd: Path | None = None,
+        server_zd_config: Path | None = None,
     ) -> None:
         """Choose ports and executables without starting the engine.
 
@@ -284,6 +285,9 @@ class PrivateDexEngine:
             dexcli: ``dexcli`` executable; ``None`` uses ``resolve_dexcli_path()``.
             server_zd: ``dex-server-zd`` executable; ``None`` uses
                 ``resolve_server_zd_path``.
+            server_zd_config: ``dex-server-zd`` YAML file with configuration
+                overrides, passed as ``dexcli dev -zd-config``, such as
+                ``streamStore: {backend: disabled}``. ``None`` uses none.
 
         Raises:
             FileNotFoundError: If an executable cannot be found.
@@ -291,6 +295,7 @@ class PrivateDexEngine:
         self._state_dir = state_dir
         self._dexcli = dexcli or resolve_dexcli_path()
         self._server_zd = server_zd or resolve_server_zd_path(self._dexcli)
+        self._server_zd_config = server_zd_config
         self.dex_port, self.web_port = find_free_ports(2)
         self._process = KillableProcess("dexcli dev", state_dir / "dexcli.log")
 
@@ -322,6 +327,9 @@ class PrivateDexEngine:
             RuntimeError: If the engine exits or misses the timeout.
         """
         self._state_dir.mkdir(parents=True, exist_ok=True)
+        config_arguments = (
+            [] if self._server_zd_config is None else ["-zd-config", str(self._server_zd_config)]
+        )
         await self._process.start(
             [
                 str(self._dexcli),
@@ -341,6 +349,7 @@ class PrivateDexEngine:
                 "-web-port",
                 str(self.web_port),
                 "-open=false",
+                *config_arguments,
             ],
             ENGINE_READY_LINE,
             ready_timeout=ready_timeout,

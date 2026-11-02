@@ -106,6 +106,9 @@ for name, module in dict([("dex-agents", "dex_agents"), (distribution, module_na
         raise SystemExit(f"{module} imported from {imported.__file__}, not the installed wheel")
     installed = importlib.metadata.version(name)
     print(f"{name} {installed} imports from {Path(imported.__file__).parent}")
+ui_stream = importlib.import_module("dex_agents.ui_stream")
+if venv not in Path(ui_stream.__file__).resolve().parents:
+    raise SystemExit(f"dex_agents.ui_stream imported from {ui_stream.__file__}, not the installed wheel")
 PY
     )
     if [[ "$package" == "core" ]]; then
@@ -210,13 +213,17 @@ smoke_test_typescript() {
         echo "expected one installed @superdurable/dex-agents, found $copies" >&2
         exit 1
       fi
-      printf 'import * as adapter from "%s";\nexport const adapterExports: string[] = Object.keys(adapter);\n' "$package_name" >consumer.ts
+      printf 'import * as adapter from "%s";\nimport * as uiStream from "@superdurable/dex-agents/ui-stream";\nexport const adapterExports: string[] = [...Object.keys(adapter), ...Object.keys(uiStream)];\n' "$package_name" >consumer.ts
       npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
         --types node consumer.ts
       node --input-type=module -e "
         const adapter = await import('$package_name');
         if (Object.keys(adapter).length === 0) throw new Error('$package_name exports nothing');
         console.log('$package_name exports', Object.keys(adapter).join(', '));
+        const uiStream = await import('@superdurable/dex-agents/ui-stream');
+        if (typeof uiStream.createAgentUIMessageStreamResponse !== 'function') {
+          throw new Error('@superdurable/dex-agents/ui-stream lacks createAgentUIMessageStreamResponse');
+        }
       "
     )
   done

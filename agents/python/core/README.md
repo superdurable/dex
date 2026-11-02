@@ -25,10 +25,11 @@ pip install dex-agents
 ```
 
 `dex_agents.testing` ships in the same wheel, so an adapter's integration
-tests can start a private engine and Worker processes. `dex_agents.mcp` offers
-the tools of MCP servers as agent tools; install it with
-`pip install "dex-agents[mcp]"`, which adds the MCP SDK (`mcp>=2.3,<3`). See
-[MCP tools](#mcp-tools-dex_agentsmcp).
+tests can start a private engine and Worker processes. So does
+`dex_agents.ui_stream`, the [browser streams](#browser-streams).
+`dex_agents.mcp` offers the tools of MCP servers as agent tools; install it
+with `pip install "dex-agents[mcp]"`, which adds the MCP SDK (`mcp>=2.3,<3`).
+See [MCP tools](#mcp-tools-dex_agentsmcp).
 
 Develop the package inside this repository with uv 0.12.2. The adapters in
 this repository resolve it from `../core` by path through
@@ -452,6 +453,178 @@ Pydantic AI, LangGraph, and Google ADK also defer their own MCP client tools
 into tool Steps; use the source there for the shared idempotency key and
 annotation handling. The OpenAI Agents SDK runs its own MCP servers inline in
 `RunModel`, so a wrapper is its only path to tool Steps.
+
+## Browser streams
+
+`dex_agents.ui_stream` lets a browser render a live session from its
+`AgentEvents` Stream and recover after a reconnect. It needs no store besides
+Dex and no web framework. An application mounts two endpoints:
+
+- **Snapshot.** `read_agent_event_stream_snapshot(client, flow, session_id)`
+  returns the `get_agent_snapshot` result plus the Dex resume token to open the
+  event stream from. Serve its `to_json()`: `{"snapshot": ..., "resume_token":
+  ...}` in the wire format. While a turn is active, the token replays that
+  turn's events, so the browser can rebuild its live text.
+- **Events.** `await stream_agent_event_frames(client, flow, session_id,
+  resume_token=...)` checks the token with one short read, then returns a
+  generator of Server-Sent Event frames. Each frame's `id` is the event's Dex
+  resume token and its `data` is the `AgentEvent` wire JSON, with `payload` as
+  JSON text. A reconnecting `EventSource` sends the last `id` as
+  `Last-Event-ID`; pass it as `resume_token` and the stream continues with the
+  next event, with no repeated or missing event while the Stream retains them.
+  After each empty long poll it yields `KEEP_ALIVE_FRAME`, an SSE comment. A
+  token that Dex rejects, such as one of another session, raises
+  `InvalidAgentEventResumeTokenError` before the response starts; answer 400,
+  which stops the `EventSource`, and let the browser load the snapshot again.
+
+The `_sync` variants, `read_agent_event_stream_snapshot_sync` and
+`stream_agent_event_frames_sync`, take a synchronous `Client` for WSGI
+servers. Send `AGENT_EVENT_STREAM_HEADERS` with the event response. The JSON
+matches the TypeScript core's `@superdurable/dex-agents/ui-stream`, which also
+offers an AI SDK UI message stream for `useChat`.
+
+**Authorize every route.** The session ID and the resume token come from the
+browser, so each route must check that the caller may read the session it
+names before it calls a helper.
+
+FastAPI or Starlette, with an `AsyncClient`:
+
+```python
+from typing import Any
+
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import StreamingResponse
+
+from dex_agents.ui_stream import (
+    AGENT_EVENT_STREAM_HEADERS,
+    InvalidAgentEventResumeTokenError,
+    read_agent_event_stream_snapshot,
+    stream_agent_event_frames,
+)
+
+app = FastAPI()
+
+
+@app.get("/sessions/{session_id}/snapshot")
+async def get_session_snapshot(session_id: str, request: Request) -> dict[str, Any]:
+    await authorize_session(request, session_id)
+    return (await read_agent_event_stream_snapshot(client, flow, session_id)).to_json()
+
+
+@app.get("/sessions/{session_id}/events")
+async def get_session_events(session_id: str, request: Request) -> Response:
+    await authorize_session(request, session_id)
+    resume_token = request.headers.get("last-event-id") or request.query_params.get(
+        "resume_token", ""
+    )
+    try:
+        frames = await stream_agent_event_frames(
+            client, flow, session_id, resume_token=resume_token
+        )
+    except InvalidAgentEventResumeTokenError:
+        return Response(status_code=400)
+    return StreamingResponse(frames, headers=dict(AGENT_EVENT_STREAM_HEADERS))
+```
+
+Starlette without FastAPI uses the same calls in `Route` handlers, returning
+`JSONResponse(value.to_json())` and `StreamingResponse(frames, headers=...)`.
+
+Quart, with an `AsyncClient`. Turn off the response timeout, because the
+stream stays open:
+
+```python
+from quart import Quart, make_response, request
+
+app = Quart(__name__)
+
+
+@app.get("/sessions/<session_id>/snapshot")
+async def get_session_snapshot(session_id: str):
+    await authorize_session(request, session_id)
+    return (await read_agent_event_stream_snapshot(client, flow, session_id)).to_json()
+
+
+@app.get("/sessions/<session_id>/events")
+async def get_session_events(session_id: str):
+    await authorize_session(request, session_id)
+    resume_token = request.headers.get("Last-Event-ID") or request.args.get("resume_token", "")
+    try:
+        frames = await stream_agent_event_frames(
+            client, flow, session_id, resume_token=resume_token
+        )
+    except InvalidAgentEventResumeTokenError:
+        return "", 400
+    response = await make_response(frames, dict(AGENT_EVENT_STREAM_HEADERS))
+    response.timeout = None
+    return response
+```
+
+Flask, with a synchronous `Client`. Each open stream holds one worker thread,
+so serve it from a threaded or greenlet server:
+
+```python
+from flask import Flask, Response, request
+
+from dex_agents.ui_stream import (
+    AGENT_EVENT_STREAM_HEADERS,
+    InvalidAgentEventResumeTokenError,
+    read_agent_event_stream_snapshot_sync,
+    stream_agent_event_frames_sync,
+)
+
+app = Flask(__name__)
+
+
+@app.get("/sessions/<session_id>/snapshot")
+def get_session_snapshot(session_id: str):
+    authorize_session(request, session_id)
+    return read_agent_event_stream_snapshot_sync(sync_client, flow, session_id).to_json()
+
+
+@app.get("/sessions/<session_id>/events")
+def get_session_events(session_id: str) -> Response:
+    authorize_session(request, session_id)
+    resume_token = request.headers.get("Last-Event-ID") or request.args.get("resume_token", "")
+    try:
+        frames = stream_agent_event_frames_sync(
+            sync_client, flow, session_id, resume_token=resume_token
+        )
+    except InvalidAgentEventResumeTokenError:
+        return Response(status=400)
+    return Response(frames, headers=dict(AGENT_EVENT_STREAM_HEADERS))
+```
+
+In the browser, load the snapshot, then open the event stream from its token:
+
+```js
+const { snapshot, resume_token } = await (await fetch(`/sessions/${sessionId}/snapshot`)).json();
+render(snapshot);
+const events = new EventSource(
+  `/sessions/${sessionId}/events?resume_token=${encodeURIComponent(resume_token)}`,
+);
+events.onmessage = (message) => applyAgentEvent(JSON.parse(message.data));
+```
+
+On a reconnect the browser repeats the URL and adds `Last-Event-ID`, which the
+routes above prefer to the query parameter. The browser applies the event
+rules in [Flow shape](#flow-shape): within one `step_execution_id` it keeps
+only the highest `attempt`, so a `RunModel` retried after a crash shows only
+its new attempt's text. After `turn_completed` or `turn_failed`, and after any
+long gap, it reloads the snapshot. Approve or reject a pending interrupt from
+the snapshot with `AgentSessionClient.resolve_interrupt`.
+
+Limits:
+
+- A production Dex Server drops Stream writes until a Stream backend is
+  enabled (`streamStore.backend`), and trimming can remove old events. With the
+  Stream Store disabled, the snapshot still works, with an empty token, and the
+  event stream yields only keep-alive comments; poll the snapshot instead.
+- The event stream never ends by itself; the web framework closes it when the
+  browser disconnects. An async generator stops when the framework cancels
+  it; a synchronous one first finishes its current long poll, up to
+  `poll_timeout`.
+- Stopping in the browser only closes the response; a durable turn cancel is
+  not in the session contract yet.
 
 ## Testing an adapter
 

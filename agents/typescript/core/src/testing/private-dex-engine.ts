@@ -35,6 +35,12 @@ export interface PrivateDexEngineOptions {
   readonly stateDirectory?: string;
   /** Milliseconds to wait for the engine to report readiness. Defaults to 60,000. */
   readonly readyTimeoutMs?: number;
+  /**
+   * Path of a `dex-server-zd` YAML file with configuration overrides, passed as `dexcli dev -zd-config`.
+   * Use it to test server settings, such as `streamStore: { backend: disabled }`, the production
+   * default that drops Stream writes. Defaults to none.
+   */
+  readonly serverZdConfigPath?: string;
 }
 
 /**
@@ -110,6 +116,9 @@ export class PrivateDexEngine {
       ];
       if (serverZdPath !== undefined) {
         commandArguments.push("-zd-binary", serverZdPath);
+      }
+      if (options.serverZdConfigPath !== undefined) {
+        commandArguments.push("-zd-config", options.serverZdConfigPath);
       }
       try {
         const processGroup = await ChildProcessGroup.start({
