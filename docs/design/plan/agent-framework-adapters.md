@@ -126,6 +126,36 @@ The idempotency key passed to `execute_deferred_tool_call` is
 be non-empty, contain no `/`, and be unique within one turn; they may repeat
 across turns.
 
+### Known limits
+
+The table promises that a `CallSingleAttemptTool` call runs at most once and
+records `outcome_unknown` when it may have run. Two cases break that promise.
+Both are documented for operators in the
+[deployment guide](../../content/production/agents.mdx#tool-call-limits), and
+their fix is deferred until after M2.
+
+- **A single-attempt call can run twice.** The tool Step heartbeats before it
+  calls the tool, so that Dex sees output before any effect. Dex redelivers an
+  attempt at the same attempt number when its Worker's stream ends with no
+  output. The heartbeat is not acknowledged: at SDK 1.30.0 both SDKs queue it
+  and return at once, and the pull protocol has no acknowledgement frame. A
+  Worker that dies, or loses its stream, after the tool starts but before the
+  heartbeat frame reaches the server therefore runs the tool again on another
+  Worker. The window lasts from the tool's start until that frame arrives. It
+  is about one network hop when the tool awaits I/O. It covers the whole
+  blocking section when tool code blocks the event loop. A heartbeat checkpoint
+  cannot serve as a "started" marker either: server-zd batches checkpoints and
+  treats a lost one as harmless, so a later attempt may not see it.
+- **A call that never ran records `outcome_unknown`.** When no Worker accepts
+  the tool Step within the dispatch wait, because every Worker is at its task
+  limit or none is running, the attempt fails without running and still
+  consumes an attempt. `CallSingleAttemptTool` has one attempt, so
+  `RecordToolOutcomeUnknown` records `outcome_unknown`. `RecordToolFailure`
+  does the same for an `idempotent_write` whose last attempt fails this way.
+  The failure route cannot tell this apart from a Worker that disconnected
+  after the tool started: both reach it with the recovery error type
+  `FLOW_ERROR_TYPE_WORKER_API_FAIL`, and only the detail text differs.
+
 ## MCP tool source
 
 Parent design: C4, MCP as a tool source. Both cores ship an MCP client as an
