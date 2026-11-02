@@ -93,9 +93,15 @@ class McpTool:
         name: Agent tool name, ``"<server_name>__<mcp_tool_name>"``. Characters
             other than letters, digits, ``_``, and ``-`` become ``_``. A name
             longer than 64 characters is cut to 55 and ends with ``_`` and 8 hex
-            digits of its SHA-256. Key ``ToolPolicy`` entries by this name.
-        server_name: Name of the configured server that offers the tool.
-        mcp_tool_name: The tool's name on its MCP server.
+            digits of its SHA-256. Key ``ToolPolicy`` entries by this name. The
+            resource and prompt tools have the fixed names
+            ``mcp_list_resources_and_prompts``, ``mcp_read_resource``, and
+            ``mcp_get_prompt``.
+        server_name: Name of the configured server that offers the tool, or
+            ``""`` for a resource and prompt tool, which takes the server as
+            its ``server`` argument.
+        mcp_tool_name: The tool's name on its MCP server, or ``""`` for a
+            resource and prompt tool.
         description: Tool description for the model.
         input_schema: JSON Schema of the tool's arguments object.
         annotations: The server's behavior hints, or ``None`` when it sent none.

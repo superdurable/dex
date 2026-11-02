@@ -12,6 +12,7 @@ import type { ToolPolicy } from "../agent-framework-runner.js";
 import type { AgentPlan, InteractionMode, ToolEffect } from "../agent-session-values.js";
 import type { FunctionTool } from "./function-tool.js";
 import type { ModelClient, ModelSettings } from "./model-client.js";
+import type { ToolSource } from "./tool-source.js";
 
 /**
  * How the first model call of a planning turn without a draft uses `write_todos`, as
@@ -76,6 +77,21 @@ export interface AgentDefinition {
   readonly modelSettings?: ModelSettings;
   /** Function tools from {@link functionTool}. Defaults to none. */
   readonly tools?: readonly FunctionTool[];
+  /**
+   * Tool sources, such as `McpToolSource`, whose tools the runner lists in every `RunModel` of a chat or
+   * executing turn and offers after the function tools. Each call of a source tool runs in its own tool Step
+   * through the source, with the source's policy, effect, idempotency key, and tool tasks. A listed name that
+   * repeats a function tool, an enabled built-in tool, or another source's tool fails that `RunModel` attempt
+   * with a `TypeError`; a source's `declaredToolNames` are checked when the runner is constructed. A source whose
+   * listing fails or takes longer than {@link toolSourceListingTimeoutMs} offers no tools in that model call. See
+   * {@link ToolSource}. Defaults to none.
+   */
+  readonly toolSources?: readonly ToolSource[];
+  /**
+   * Milliseconds one model call waits for each tool source's `listTools`. A source that takes longer offers no tools
+   * in that call, and its listing may finish in the background. Defaults to 10 seconds.
+   */
+  readonly toolSourceListingTimeoutMs?: number;
   /** Policies by tool name; a policy overrides a function tool's own effect and approval. Defaults to none. */
   readonly toolPolicies?: Readonly<Record<string, ToolPolicy>>;
   /** Effect of a tool that declares none. Defaults to `"unclassified"`. */

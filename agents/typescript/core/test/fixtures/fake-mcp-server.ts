@@ -14,7 +14,8 @@
 // and destructiveHint), send_message (no annotations; gate waits at a FileGate, crash exits),
 // long_report (readOnlyHint, taskSupport required; honors the requested TTL and logs it; completes
 // after 200 ms, or with gate once every poll marked the gate and it is released), and ask_account (readOnlyHint, taskSupport required; its
-// task needs input).
+// task needs input). It also offers the resource memo://greeting and the prompt summarize, with one topic
+// argument.
 
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
@@ -83,6 +84,20 @@ function createFakeMcpServer(): McpServer {
   const server = new McpServer(
     { name: "fake-mcp", version: "1.0.0" },
     { capabilities: { tasks: { requests: { tools: { call: {} } }, cancel: {} } }, taskStore },
+  );
+  server.registerResource(
+    "greeting",
+    "memo://greeting",
+    { description: "A greeting memo.", mimeType: "text/plain", annotations: { priority: 1 } },
+    (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/plain", text: "hello from the memo" }] }),
+  );
+  server.registerPrompt(
+    "summarize",
+    { description: "Summarize a topic.", argsSchema: { topic: z.string() } },
+    ({ topic }) => ({
+      description: "Summarize a topic.",
+      messages: [{ role: "user", content: { type: "text", text: `Summarize ${topic} in one line.` } }],
+    }),
   );
   server.registerTool(
     "lookup",

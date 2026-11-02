@@ -27,6 +27,11 @@ if importlib.util.find_spec("mcp") is None:
         name="mcp",
     )
 
+from dex_agents.mcp._resource_and_prompt_tools import (
+    MCP_GET_PROMPT_TOOL_NAME,
+    MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME,
+    MCP_READ_RESOURCE_TOOL_NAME,
+)
 from dex_agents.mcp._servers import (
     McpServerConfig,
     McpStdioServerConfig,
@@ -36,7 +41,10 @@ from dex_agents.mcp._tasks import TASKS_EXTENSION_IDENTIFIER
 from dex_agents.mcp._tool_source import (
     DEFAULT_MCP_CONNECTION_ATTEMPTS,
     DEFAULT_MCP_CONNECTION_TIMEOUT,
+    DEFAULT_MCP_LISTING_FAILURE_BACKOFF,
+    DEFAULT_MCP_LISTING_TTL,
     DEFAULT_MCP_REQUEST_TIMEOUT,
+    DEFAULT_MCP_SOURCE_NAME,
     DEFAULT_MCP_TASK_WAIT_TIMEOUT,
     IDEMPOTENCY_KEY_META_KEY,
     MCP_TASK_STATUS_EVENT_TYPE,
@@ -51,9 +59,15 @@ from dex_agents.mcp._tools import McpTool, McpToolAnnotations, tool_effect_from_
 __all__ = [
     "DEFAULT_MCP_CONNECTION_ATTEMPTS",
     "DEFAULT_MCP_CONNECTION_TIMEOUT",
+    "DEFAULT_MCP_LISTING_FAILURE_BACKOFF",
+    "DEFAULT_MCP_LISTING_TTL",
     "DEFAULT_MCP_REQUEST_TIMEOUT",
+    "DEFAULT_MCP_SOURCE_NAME",
     "DEFAULT_MCP_TASK_WAIT_TIMEOUT",
     "IDEMPOTENCY_KEY_META_KEY",
+    "MCP_GET_PROMPT_TOOL_NAME",
+    "MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME",
+    "MCP_READ_RESOURCE_TOOL_NAME",
     "MCP_TASK_STATUS_EVENT_TYPE",
     "MCP_TOOL_PROGRESS_EVENT_TYPE",
     "TASKS_EXTENSION_IDENTIFIER",

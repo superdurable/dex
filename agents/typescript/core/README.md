@@ -49,11 +49,11 @@ the published core. It is for tests only; it needs `DEXCLI` and
 | Subpath | Contents | Extra dependency |
 | --- | --- | --- |
 | `@superdurable/dex-agents` | Session Flow, runner contract, built-in tool definitions | none |
-| `@superdurable/dex-agents/stepwise` | Stepwise mode: `createStepwiseAgentSessionFlow`, `functionTool`, `ModelClient` | none |
+| `@superdurable/dex-agents/stepwise` | Stepwise mode: `createStepwiseAgentSessionFlow`, `functionTool`, `ToolSource`, `ModelClient`, `ScriptedModelClient` | none |
 | `@superdurable/dex-agents/ai-sdk` | `createAiSdkModelClient` for any AI SDK `LanguageModel` | optional peer `ai@^7.0.159`, the Vercel AI SDK adapter's range |
 | `@superdurable/dex-agents/mcp` | MCP servers' tools as agent tools; see [MCP tools](#mcp-tools-superdurabledex-agentsmcp) | optional peer `@modelcontextprotocol/sdk@^1.32.2` |
 | `@superdurable/dex-agents/ui-stream` | Browser streams of live sessions; see [UI streams](#ui-streams) | none |
-| `@superdurable/dex-agents/testing` | Test engine, Worker processes, waits, and `ScriptedModelClient` | none |
+| `@superdurable/dex-agents/testing` | Test engine, Worker processes, waits, and `ScriptedModelClient` (the same class as the stepwise entry point's) | none |
 
 Install `ai` and a provider package only for `./ai-sdk`; importing that
 subpath without `ai` fails with `Cannot find package 'ai'`.
@@ -169,6 +169,7 @@ export const supportAgentFlow = createStepwiseAgentSessionFlow(
 | `model` | required | A `ModelClient`, such as `createAiSdkModelClient(model)` |
 | `modelSettings` | none | `temperature`, `maxOutputTokens`, `reasoningEffort`, and `providerOptions`, passed through unchanged |
 | `tools` | `[]` | Function tools from `functionTool` |
+| `toolSources` | `[]` | Tool sources such as `McpToolSource`, listed in every `RunModel`; see [Tool sources](#tool-sources) |
 | `toolPolicies` | `{}` | `ToolPolicy` by tool name; overrides a function tool's own effect and approval |
 | `defaultToolEffect` | `"unclassified"` | Effect of a tool that declares none |
 | `builtInTools` | `[]` | Built-in tools the model sees |
@@ -216,9 +217,92 @@ SDK returned them. It is replayed unchanged to a model of the same provider;
 any other provider gets its text and tool calls only, so a session can change
 model between turns.
 
-Test a Stepwise agent without a model key with `ScriptedModelClient` from
-`@superdurable/dex-agents/testing`, which mirrors the Python core's: a function
-from the `ModelRequest` to a reply of text, reasoning, and tool calls.
+### Tool sources
+
+`toolSources` takes tools that are listed at run time, such as an MCP server's
+tools. Any object with a `sourceName` and `listTools`, `deferredToolCall`,
+`executeDeferredToolCall`, and `pollToolTask` is a `ToolSource`;
+`McpToolSource` is one:
+
+```ts
+import { McpToolSource } from "@superdurable/dex-agents/mcp";
+
+const files = new McpToolSource(
+  [{ transport: "stdio", name: "files", command: "mcp-server-files", args: ["/srv/reports"] }],
+  { resourceAndPromptToolsEnabled: true },
+);
+export const reportsAgentFlow = createStepwiseAgentSessionFlow(
+  {
+    name: "reports",
+    instructions: "You manage reports.",
+    model: createAiSdkModelClient(openai("gpt-5-mini")),
+    tools: [lookupOrder],
+    toolSources: [files],
+    builtInTools: ["ask_user"],
+  },
+  "ReportsAgent",
+);
+```
+
+In every `RunModel` of a chat or executing turn, the runner awaits each
+source's `listTools`, for at most `toolSourceListingTimeoutMs` (10 seconds),
+and offers the tools after the function tools and before the built-in tools. A
+source whose listing throws or takes longer offers no tools in that model
+call, with a warning, so a down server never fails a turn. A planning turn,
+and a call after the model call limit, list nothing.
+
+A call of a listed tool becomes the source's `deferredToolCall`, so the
+source's policy, effect, and `toolSourceReference` apply: approvals, `CallTool`
+or `CallSingleAttemptTool`, the idempotency key, and tool tasks work as for any
+tool. The runner passes the definition it offered as `listedTool`, so a
+listing refreshed during the model call cannot change it. It stores the
+source's reference as `{"stepwise_tool_source": <sourceName>, "reference":
+...}`, so the tool Step and `PollToolTask` reach the source that built the
+call, with its own reference, on any Worker, without a listing, and whatever
+the order of `toolSources`. Source names must be unique and stable across
+deploys: `McpToolSource` defaults its `sourceName` to `"mcp"`, which adding or
+removing a server keeps, and takes a `sourceName` option. Two `McpToolSource`s
+in one agent must therefore name at least one of them. A stored call whose source name this Worker does not have throws a
+`RangeError`, so its effect decides the outcome. A name that no listing
+offered, such as a tool of a server that was down, fails as `unknown tool
+<name>` without an approval (`unclassified`, no approval): it never reaches a
+source.
+
+A listed name that repeats a function tool, an enabled built-in tool, or
+another source's tool fails the `RunModel` attempt with a `TypeError` before
+any model request: `tool <name> uses the name of an enabled built-in tool`,
+`tool <name> of a tool source uses the name of a function tool`, or `two tool
+sources list a tool named <name>`, as in the Python core. A source may define
+`declaredToolNames()`, names it always lists, which the runner checks when it
+is constructed; two `McpToolSource`s with the resource and prompt tools are
+refused there. A source may also define `cachedTools()`, its last listing
+without I/O, which `estimateInputTokens` counts; otherwise it counts the
+runner's last listing of that source, as the Python core does.
+
+### Demo model without a key
+
+`ScriptedModelClient` from `@superdurable/dex-agents/stepwise` answers each
+call from a function of the `ModelRequest`, so an agent runs without a model
+key: a local demo mode, a tutorial, or a test. The function returns text,
+reasoning, and tool calls, sync or async; `ScriptedModelClient.userTexts` and
+`ScriptedModelClient.toolResults` read the request. `requests` keeps the
+latest `maxRecordedRequests` requests, 100 by default. It mirrors the Python
+core's. Keep the script deterministic, because a crashed `RunModel` reruns
+it. `@superdurable/dex-agents/testing` exports the same class.
+
+```ts
+import { ScriptedModelClient, type ModelRequest, type ScriptedModelReply } from "@superdurable/dex-agents/stepwise";
+
+function replyAsDemoModel(request: ModelRequest): ScriptedModelReply {
+  const results = ScriptedModelClient.toolResults(request);
+  if (results.length > 0) {
+    return { text: results.map((result) => result.output).join("; ") };
+  }
+  return { text: `Demo reply: ${ScriptedModelClient.userTexts(request).at(-1) ?? ""}` };
+}
+
+const model = isDemo ? new ScriptedModelClient(replyAsDemoModel) : createAiSdkModelClient(openai("gpt-5-mini"));
+```
 
 The stored `framework_item` of a Stepwise message is one of
 `{"type":"user_text","text"}`,
@@ -877,7 +961,9 @@ const tools = new McpToolSource([
 ]);
 ```
 
-A runner offers the tools and defers every call; the tool Step runs it:
+A Stepwise agent takes the source in `toolSources`; see
+[Tool sources](#tool-sources). Another runner offers the tools and defers every
+call; the tool Step runs it:
 
 ```ts
 class MyRunner implements AgentFrameworkRunner {
@@ -901,10 +987,14 @@ class MyRunner implements AgentFrameworkRunner {
 }
 ```
 
-`listTools()` lists each server on first use and caches its tools on their
-own; `listTools({ refresh: true })` lists every server again. A server that
-cannot be listed is left out with a warning and tried again on the next call,
-so one bad server never hides the others' tools. `deferredToolCall` stores the
+`listTools()` lists each server on its own and caches its tools per Worker.
+The first listing of a server is awaited; after `listingTtlMs` (5 minutes) a
+server is listed again in the background while its earlier tools are
+returned. A server that cannot be listed is left out with a warning and is not
+tried again for `listingFailureBackoffMs` (30 seconds), then in the
+background, so one bad server never hides the others' tools or slows every
+model call. One listing per server runs at a time. `listTools({ refresh: true
+})` lists every server again now. `deferredToolCall` stores the
 server, the tool's MCP name, and its task support on the call's record, so the
 tool Step calls that server directly, without a listing; `callTool` finds the
 server through the listing. Tool names are `<server>__<tool>`, with characters
@@ -912,6 +1002,33 @@ other than letters, digits, `_`, and `-` replaced by `_` and names over 64
 characters shortened with a hash. When two tools get the same name, the first
 in server order is offered and the other is left out with a warning. Key tool
 policies by that name.
+
+### Resources and prompts
+
+With `resourceAndPromptToolsEnabled: true`, `listTools` also offers three
+`read` tools after the servers' tools, when at least one server is configured.
+Each takes a configured server's name as `server`, an `enum` of the names, and
+opens a new connection to that server with the source's transport, headers,
+and `connectionTimeoutMs`:
+
+| Tool | Arguments | Output |
+| --- | --- | --- |
+| `mcp_list_resources_and_prompts` | `server` | `{"prompts": [...], "resource_templates": [...], "resources": [...]}`, every page |
+| `mcp_read_resource` | `server`, `uri` | `{"contents": [...]}` |
+| `mcp_get_prompt` | `server`, `name`, optional `arguments` (strings by name) | `{"description": ..., "messages": [...]}` |
+
+The names, descriptions, argument schemas, and output text match the Python
+core: outputs are the server's items in JSON with sorted keys and Python's
+separators, and whole numbers such as a `priority` of 1 are written alike. A
+server that does not offer resources or prompts lists none. A connection
+failure is retried `connectionAttempts` times. An MCP error answer, a server
+that stays unreachable, and an unconfigured server throw `ToolExecutionError`.
+Enable the tools on one source of an agent only. Every
+request these tools send is in `@modelcontextprotocol/sdk` 1.32.2, so this core
+has no gap against the Python core. Neither core follows resource subscriptions
+or list-change notifications. The names are exported as
+`mcpListResourcesAndPromptsToolName`, `mcpReadResourceToolName`, and
+`mcpGetPromptToolName`; key a tool policy by them to require approval.
 
 ### Effects
 
@@ -1411,7 +1528,7 @@ real Dex Server with no model key:
 | `AgentSessionTestClient` | Typed RPC calls (`resolveInterrupt` retries lock conflicts) and Worker-free waits on committed Attributes |
 | `readStepHistory(serverAddress, flowId)` | Completed Step methods from `dexcli flow history`, to assert a turn's Step shape |
 | `FileGate`, `InvocationLog` | Pause Worker code at an exact point; count real tool runs across processes |
-| `ScriptedModelClient` | Stepwise `ModelClient` that answers from a script, like the Python core's; see Stepwise mode |
+| `ScriptedModelClient` | Stepwise `ModelClient` that answers from a script, like the Python core's; the same class as `@superdurable/dex-agents/stepwise` exports. See [Demo model without a key](#demo-model-without-a-key) |
 | `pollUntil(probe, options)` | Deadline polling where the Client has no direct wait |
 | `findFreeLoopbackPorts(count)` | Distinct free loopback ports, chosen with every listener held open until all are picked |
 

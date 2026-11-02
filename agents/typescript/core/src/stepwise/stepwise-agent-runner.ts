@@ -17,9 +17,15 @@ import {
   type DeferredToolExecution,
   type DeferredToolOutcome,
   type ResolvedToolPolicy,
+  type ToolTaskPoll,
+  type ToolTaskPollOutcome,
 } from "../agent-framework-runner.js";
 import { buildPlanNote } from "../agent-plans.js";
-import { describeToolCallOutcome, type ContextSummary, type FrameworkMessage } from "../agent-session-values.js";
+import {
+  describeToolCallOutcome,
+  type ContextSummary,
+  type FrameworkMessage,
+} from "../agent-session-values.js";
 import type { AgentDefinition } from "./agent-definition.js";
 import type { FunctionTool, ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
@@ -39,6 +45,23 @@ import {
   readStoredModelInputItem,
   toStepwiseFrameworkMessage,
 } from "./stepwise-input-items.js";
+import type { SourceToolDefinition, ToolSource } from "./tool-source.js";
+
+interface ListedSourceTool {
+  readonly index: number;
+  readonly source: ToolSource;
+  readonly tool: SourceToolDefinition;
+}
+type ListedSourceTools = ReadonlyMap<string, ListedSourceTool>;
+const toolSourceMethods = ["listTools", "deferredToolCall", "executeDeferredToolCall", "pollToolTask"] as const;
+// The runner's envelope around a source's toolSourceReference: the building source's name.
+const toolSourceNameKey = "stepwise_tool_source";
+// An unlisted name never reaches a source, so it fails without asking anyone to approve it.
+const unlistedSourceToolPolicy: ResolvedToolPolicy = { effect: "unclassified", requiresApproval: false };
+const toolSourceReferenceKey = "reference";
+
+/** Default {@link AgentDefinition.toolSourceListingTimeoutMs}: 10 seconds. */
+export const defaultToolSourceListingTimeoutMs = 10_000;
 
 const defaultMaxModelCallsPerTurn = 100;
 
@@ -93,7 +116,9 @@ const discardedModelOutput: ModelOutputWriter = {
  * stores the turn's transcript as it goes through {@link ToolCallsRequested.newMessages}, so a long turn
  * never rewrites a growing run state. It supports plan mode: a `planning` turn offers only `write_todos`, and
  * every model call shows the plan with {@link buildPlanNote} before the turn's messages. It implements the
- * compaction methods, so a session with a compaction policy starts the model input with the summary.
+ * compaction methods, so a session with a compaction policy starts the model input with the summary. Its
+ * {@link pollToolTask} passes a tool task to the {@link ToolSource} that started it; function tools start no
+ * tasks.
  *
  * @example
  * ```ts
@@ -107,14 +132,20 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
   /** The runner honors {@link AgentTurnContext.interactionMode}, so plan mode can be enabled. */
   public readonly supportsPlanMode = true;
   private readonly functionToolsByName: ReadonlyMap<string, FunctionTool>;
+  private readonly toolSources: readonly ToolSource[];
+  private readonly toolSourcesByName: ReadonlyMap<string, ToolSource>;
   private readonly maxModelCallsPerTurn: number;
+  private readonly toolSourceListingTimeoutMs: number;
+  /** The last listing of each source, so estimates count its tools without listing again. */
+  private readonly lastListings = new Map<number, readonly SourceToolDefinition[]>();
 
   /**
    * Creates the runner and checks the definition.
    * @param definition - The agent definition.
    * @throws {TypeError} When the name, instructions, model, or tools are invalid, two tools share a
    * name, a function tool uses the name of an enabled built-in tool, `planModeEnabled` is set without
-   * `write_todos`, or `planningToolChoice` is neither `auto` nor `required`.
+   * `write_todos`, `planningToolChoice` is neither `auto` nor `required`, or a tool source lacks a
+   * {@link ToolSource} method.
    * @throws {RangeError} When `maxModelCallsPerTurn` is not a positive integer.
    */
   public constructor(definition: AgentDefinition) {
@@ -141,6 +172,30 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       }
       functionToolsByName.set(tool.name, tool);
     }
+    const toolSources = [...(definition.toolSources ?? [])];
+    for (const source of toolSources) {
+      const missing = toolSourceMethods.find(
+        (method) => typeof (source as unknown as Record<string, unknown> | null)?.[method] !== "function",
+      );
+      if (missing !== undefined) {
+        throw new TypeError(`tool source ${String(source)} has no ${missing} method`);
+      }
+    }
+    const toolSourcesByName = new Map<string, ToolSource>();
+    for (const source of toolSources) {
+      if (typeof source.sourceName !== "string" || source.sourceName.trim() === "") {
+        throw new TypeError(`tool source ${String(source)} needs a non-blank sourceName`);
+      }
+      if (toolSourcesByName.has(source.sourceName)) {
+        throw new TypeError(`two tool sources are named ${source.sourceName}`);
+      }
+      toolSourcesByName.set(source.sourceName, source);
+    }
+    refuseDeclaredToolNameCollisions(toolSources, new Set(functionToolsByName.keys()), enabledBuiltInTools);
+    const toolSourceListingTimeoutMs = definition.toolSourceListingTimeoutMs ?? defaultToolSourceListingTimeoutMs;
+    if (!(toolSourceListingTimeoutMs > 0)) {
+      throw new RangeError("AgentDefinition.toolSourceListingTimeoutMs must be positive");
+    }
     if (definition.planModeEnabled === true && !enabledBuiltInTools.has("write_todos")) {
       throw new TypeError("planModeEnabled requires the write_todos built-in tool");
     }
@@ -154,6 +209,9 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     }
     this.definition = Object.freeze({ ...definition });
     this.functionToolsByName = functionToolsByName;
+    this.toolSources = toolSources;
+    this.toolSourcesByName = toolSourcesByName;
+    this.toolSourceListingTimeoutMs = toolSourceListingTimeoutMs;
     this.maxModelCallsPerTurn = maxModelCallsPerTurn;
   }
 
@@ -171,14 +229,25 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * @param turn - The turn context.
    * @returns {@link TurnCompleted} with the results and final answer not stored yet, or
    * {@link ToolCallsRequested} with the previous results, this response, and its tool calls.
-   * @throws Any error of the model call, which retries the `RunModel` attempt.
+   * @throws {TypeError} When a function tool uses the name of an enabled built-in tool, or a tool source lists a
+   * name that repeats a function tool, an enabled built-in tool, or another source's tool. No model request is
+   * made.
+   * @throws Any error of the model call or of a tool source's `listTools`, which retries the `RunModel` attempt.
    */
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     this.requireNoBuiltInToolNameClash(turn);
     const modelCallCount = readModelCallCount(turn.frameworkRunState);
     const unstoredToolResults = buildUnstoredToolResults(turn);
     const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
-    const request = await this.buildModelRequest(turn, unstoredToolResults, modelCallCount, isToolBudgetSpent);
+    const sourceTools: ListedSourceTools =
+      isToolBudgetSpent || turn.interactionMode === "planning" ? new Map() : await this.listSourceTools(turn);
+    const request = await this.buildModelRequest(
+      turn,
+      unstoredToolResults,
+      modelCallCount,
+      isToolBudgetSpent,
+      sourceTools,
+    );
     const response = await this.definition.model.callModel(request, turn.events);
     requireModelResponse(response);
     const usage = { ...response.usage, modelCalls: 1 };
@@ -206,31 +275,51 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       kind: "tool_calls_requested",
       frameworkRunState: serializeJsonWithSpacedSeparators({ model_calls: modelCallCount + 1 }),
       newMessages,
-      toolCalls: response.toolCalls.map(
-        (toolCall): DeferredToolCall => ({
+      toolCalls: response.toolCalls.map((toolCall): DeferredToolCall => {
+        const listed = sourceTools.get(toolCall.toolName);
+        if (listed !== undefined) {
+          const built = listed.source.deferredToolCall(turn, { ...toolCall, listedTool: listed.tool });
+          return {
+            ...built,
+            toolSourceReference: JSON.stringify({
+              [toolSourceNameKey]: listed.source.sourceName,
+              [toolSourceReferenceKey]: built.toolSourceReference ?? null,
+            }),
+          };
+        }
+        return {
           toolCallId: toolCall.toolCallId,
           toolName: toolCall.toolName,
           arguments: toolCall.arguments,
           policy: this.resolveModelToolPolicy(turn, toolCall.toolName),
-        }),
-      ),
+        };
+      }),
       usage,
     };
   }
 
   /**
-   * Runs one function tool call after checking its arguments against the tool's schema.
+   * Runs one function tool call after checking its arguments against the tool's schema, or passes a call that a
+   * tool source built in `runModelStep` to that source, with the source's own `toolSourceReference` and without a
+   * listing. Any other name is an unknown tool and never reaches a source.
    * @param call - The deferred call.
-   * @returns The output: a `string` result unchanged, any other result as JSON; or the tool's
-   * {@link ToolInputRequested}.
+   * @returns The output: a `string` result unchanged, any other result as JSON; the tool's
+   * {@link ToolInputRequested}; or a source's outcome, such as {@link ToolTaskStarted}.
    * @throws {ToolExecutionError} For an unknown tool, arguments that are not a JSON object or break the
-   * schema, or a `ToolExecutionError` from the tool.
+   * schema, or a `ToolExecutionError` from the tool or its source.
+   * @throws {RangeError} When a source built the call but the definition no longer has it, so the effect decides
+   * the outcome.
+   * @throws Any other error of the tool source.
    */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const toolCall = call.toolCall;
     const tool = this.functionToolsByName.get(toolCall.toolName);
     if (tool === undefined) {
-      throw new ToolExecutionError(`unknown tool ${toolCall.toolName}`);
+      const routed = this.routeToToolSource(toolCall);
+      if (routed === undefined) {
+        throw new ToolExecutionError(`unknown tool ${toolCall.toolName}`);
+      }
+      return routed.source.executeDeferredToolCall({ ...call, toolCall: withToolSourceReference(toolCall, routed.reference) });
     }
     const toolArguments = parseToolArguments(tool.name, toolCall.arguments);
     const violation = findJsonSchemaViolation(toolArguments, tool.parameters, "arguments");
@@ -261,6 +350,22 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
   }
 
   /**
+   * Polls a tool source's task once, through the source that built the call.
+   * @param poll - The call's record from `PollToolTask`.
+   * @returns The source's `pollToolTask` outcome.
+   * @throws {RangeError} When no tool source built the call. The task may still run, so `PollToolTask` retries
+   * and then records the call by its effect.
+   * @throws Any error of the source.
+   */
+  public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    const routed = this.routeToToolSource(poll.toolCall);
+    if (routed === undefined) {
+      throw new RangeError(`no tool source built the call of tool ${poll.toolCall.toolName}`);
+    }
+    return routed.source.pollToolTask({ ...poll, toolCall: withToolSourceReference(poll.toolCall, routed.reference) });
+  }
+
+  /**
    * Returns the results of the turn's tool calls that are not stored yet.
    * @param turn - The ended turn, with every record final.
    * @returns One `tool_result` message per unstored result, in deferral order.
@@ -273,12 +378,19 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * Estimates the model input of the next `runModelStep` with the model client.
    * @param turn - The context of the next model call.
    * @returns `ModelClient.estimateInputTokens` of the request `runModelStep` would send: instructions,
-   * summary, messages, unstored tool results, and tools.
+   * summary, messages, unstored tool results, and tools. Tool source tools come from each source's `cachedTools`
+   * when it has one, else from the runner's last listing, as in the Python core.
    */
   public async estimateInputTokens(turn: AgentTurnContext): Promise<number> {
     const modelCallCount = readModelCallCount(turn.frameworkRunState);
     const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
-    const request = await this.buildModelRequest(turn, buildUnstoredToolResults(turn), modelCallCount, isToolBudgetSpent);
+    const request = await this.buildModelRequest(
+      turn,
+      buildUnstoredToolResults(turn),
+      modelCallCount,
+      isToolBudgetSpent,
+      this.readCachedSourceTools(),
+    );
     return this.definition.model.estimateInputTokens(request);
   }
 
@@ -400,6 +512,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     unstoredToolResults: readonly ModelToolResultItem[],
     modelCallCount: number,
     isToolBudgetSpent: boolean,
+    sourceTools: ListedSourceTools,
   ): Promise<ModelRequest> {
     const contextSummary = turn.contextSummary ?? null;
     const summaryItems: ModelInputItem[] =
@@ -416,7 +529,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
         ...readStoredInputItemsWithPlanNote(turn),
         ...unstoredToolResults,
       ]),
-      tools: isToolBudgetSpent ? [] : this.listOfferedTools(turn),
+      tools: isToolBudgetSpent ? [] : this.listOfferedTools(turn, sourceTools),
       toolChoice,
       settings: this.definition.modelSettings ?? {},
       metadata: modelRequestMetadata(turn),
@@ -448,7 +561,82 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     }
   }
 
-  private listOfferedTools(turn: AgentTurnContext): ModelToolDefinition[] {
+  private async listSourceTools(turn: AgentTurnContext): Promise<ListedSourceTools> {
+    const enabledBuiltInTools: ReadonlySet<string> = turn.enabledBuiltInTools ?? new Set<string>();
+    const functionToolNames = new Set(this.functionToolsByName.keys());
+    const listed = new Map<string, ListedSourceTool>();
+    for (const [index, source] of this.toolSources.entries()) {
+      for (const tool of await this.listOneSource(index, source)) {
+        refuseSourceToolName(tool.name, functionToolNames, enabledBuiltInTools, listed);
+        listed.set(tool.name, { index, source, tool });
+      }
+    }
+    return listed;
+  }
+
+  private async listOneSource(index: number, source: ToolSource): Promise<readonly SourceToolDefinition[]> {
+    const listing = source.listTools();
+    // A listing that outlives this call keeps running; nobody else reads its error.
+    listing.catch(() => undefined);
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<"timed_out">((resolve) => {
+      timer = setTimeout(() => resolve("timed_out"), this.toolSourceListingTimeoutMs);
+    });
+    try {
+      const tools = await Promise.race([listing, timedOut]);
+      if (tools === "timed_out") {
+        console.warn(`tool source ${index} listed nothing within ${this.toolSourceListingTimeoutMs} ms`);
+        return [];
+      }
+      this.lastListings.set(index, tools);
+      return tools;
+    } catch (error: unknown) {
+      console.warn(`tool source ${index} could not list its tools: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private readCachedSourceTools(): ListedSourceTools {
+    const cached = new Map<string, ListedSourceTool>();
+    for (const [index, source] of this.toolSources.entries()) {
+      const tools = source.cachedTools?.() ?? this.lastListings.get(index) ?? [];
+      for (const tool of tools) {
+        if (!cached.has(tool.name)) {
+          cached.set(tool.name, { index, source, tool });
+        }
+      }
+    }
+    return cached;
+  }
+
+  private routeToToolSource(
+    toolCall: ToolSourceRoutedCall,
+  ): { readonly source: ToolSource; readonly reference: string | undefined } | undefined {
+    const envelope = readToolSourceEnvelope(toolCall.toolSourceReference);
+    if (envelope !== undefined) {
+      const source = this.toolSourcesByName.get(envelope.sourceName);
+      if (source === undefined) {
+        throw new RangeError(
+          `tool source ${envelope.sourceName}, which built the call of tool ${toolCall.toolName}, is not configured on this Worker`,
+        );
+      }
+      return { source, reference: envelope.reference };
+    }
+    const reference = toolCall.toolSourceReference ?? undefined;
+    if (reference === undefined || this.toolSources.length === 0) {
+      return undefined;
+    }
+    const onlySource = this.toolSources.length === 1 ? this.toolSources[0] : undefined;
+    if (onlySource !== undefined) {
+      // A reference the source built itself, such as in a runner subclass.
+      return { source: onlySource, reference };
+    }
+    throw new RangeError(`cannot tell which tool source built the call of ${toolCall.toolName}`);
+  }
+
+  private listOfferedTools(turn: AgentTurnContext, sourceTools: ListedSourceTools): ModelToolDefinition[] {
     const isPlanning = turn.interactionMode === "planning";
     const enabledBuiltInTools = turn.enabledBuiltInTools ?? new Set<BuiltInTool>();
     const builtInTools = builtInToolDefinitions
@@ -467,16 +655,25 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       description: tool.description,
       parameters: tool.parameters,
     }));
-    return [...functionTools, ...builtInTools];
+    const offeredSourceTools = [...sourceTools.values()].map(({ tool }) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    }));
+    return [...functionTools, ...offeredSourceTools, ...builtInTools];
   }
 
   /** A session policy wins; otherwise a function tool's own effect and approval apply, as in the Python core. */
   private resolveModelToolPolicy(turn: AgentTurnContext, toolName: string): ResolvedToolPolicy {
+    const tool = this.functionToolsByName.get(toolName);
+    const isBuiltIn = (turn.enabledBuiltInTools as ReadonlySet<string> | undefined)?.has(toolName) === true;
+    if (tool === undefined && this.toolSources.length > 0 && !isBuiltIn) {
+      return unlistedSourceToolPolicy;
+    }
     const sessionPolicies = turn.toolPolicies ?? this.definition.toolPolicies ?? {};
     if (Object.hasOwn(sessionPolicies, toolName)) {
       return turn.resolveToolPolicy(toolName);
     }
-    const tool = this.functionToolsByName.get(toolName);
     if (tool === undefined) {
       // The session fixes a built-in call's policy; an unknown tool fails fast in CallTool, so the model sees why.
       return { effect: "read", requiresApproval: false };
@@ -630,4 +827,75 @@ function modelRequestMetadata(turn: AgentTurnContext): ModelRequestMetadata {
     stepExecutionId: turn.stepExecutionId ?? "",
     attempt: turn.attempt,
   };
+}
+
+function refuseSourceToolName(
+  toolName: string,
+  functionToolNames: ReadonlySet<string>,
+  builtInTools: ReadonlySet<string>,
+  otherSourceTools: ReadonlyMap<string, unknown>,
+): void {
+  if (builtInTools.has(toolName)) {
+    throw new TypeError(`tool ${toolName} uses the name of an enabled built-in tool`);
+  }
+  if (functionToolNames.has(toolName)) {
+    throw new TypeError(`tool ${toolName} of a tool source uses the name of a function tool`);
+  }
+  if (otherSourceTools.has(toolName)) {
+    throw new TypeError(`two tool sources list a tool named ${toolName}`);
+  }
+}
+
+function refuseDeclaredToolNameCollisions(
+  toolSources: readonly ToolSource[],
+  functionToolNames: ReadonlySet<string>,
+  builtInTools: ReadonlySet<string>,
+): void {
+  const declared = new Map<string, ToolSource>();
+  for (const source of toolSources) {
+    const names = [...(source.declaredToolNames?.() ?? [])].sort();
+    for (const toolName of names) {
+      refuseSourceToolName(toolName, functionToolNames, builtInTools, declared);
+    }
+    for (const toolName of names) {
+      declared.set(toolName, source);
+    }
+  }
+}
+
+function readToolSourceEnvelope(
+  toolSourceReference: string | undefined,
+): { readonly sourceName: string; readonly reference: string | undefined } | undefined {
+  if (toolSourceReference === undefined || toolSourceReference === null) {
+    return undefined;
+  }
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(toolSourceReference);
+  } catch {
+    return undefined;
+  }
+  if (typeof envelope !== "object" || envelope === null || Array.isArray(envelope)) {
+    return undefined;
+  }
+  const sourceName = (envelope as Record<string, unknown>)[toolSourceNameKey];
+  const reference = (envelope as Record<string, unknown>)[toolSourceReferenceKey];
+  if (typeof sourceName !== "string") {
+    return undefined;
+  }
+  if (reference !== null && reference !== undefined && typeof reference !== "string") {
+    return undefined;
+  }
+  return { sourceName, reference: reference ?? undefined };
+}
+
+interface ToolSourceRoutedCall {
+  readonly toolName: string;
+  readonly toolSourceReference?: string;
+}
+
+/** The record as the source built it: its own reference instead of the runner's envelope. */
+function withToolSourceReference<Call extends ToolSourceRoutedCall>(toolCall: Call, reference: string | undefined): Call {
+  const { toolSourceReference: _envelope, ...rest } = toolCall;
+  return (reference === undefined ? rest : { ...rest, toolSourceReference: reference }) as Call;
 }

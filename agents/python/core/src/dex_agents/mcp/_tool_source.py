@@ -42,6 +42,12 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 
 from dex_agents.events import AgentEventWriter
+from dex_agents.mcp._resource_and_prompt_tools import (
+    RESOURCE_AND_PROMPT_TOOL_NAMES,
+    build_resource_and_prompt_tools,
+    read_server_name,
+    run_resource_and_prompt_tool,
+)
 from dex_agents.mcp._servers import (
     McpServerConfig,
     McpStdioServerConfig,
@@ -73,6 +79,7 @@ from dex_agents.runner import (
     ToolTaskPollOutcome,
     ToolTaskStarted,
 )
+from dex_agents.stepwise.tool_sources import SourceToolDefinition
 from dex_agents.values import AgentToolCall, QuestionAnswer, QuestionResolution
 
 #: ``_meta`` key that carries the session's idempotency key on every ``tools/call``.
@@ -95,6 +102,15 @@ DEFAULT_MCP_CONNECTION_TIMEOUT = timedelta(seconds=30)
 
 #: Default number of connection attempts before a request reports the server unreachable.
 DEFAULT_MCP_CONNECTION_ATTEMPTS = 3
+
+#: Default ``McpToolSource.source_name``, which stored Stepwise calls are routed by.
+DEFAULT_MCP_SOURCE_NAME = "mcp"
+
+#: Default age after which ``list_tools`` lists a server again, in the background.
+DEFAULT_MCP_LISTING_TTL = timedelta(minutes=5)
+
+#: Default wait after a failed listing before ``list_tools`` tries that server again.
+DEFAULT_MCP_LISTING_FAILURE_BACKOFF = timedelta(seconds=30)
 
 #: Handler that runs one deferred tool call, as ``execute_deferred_tool_call`` does.
 DeferredToolHandler: TypeAlias = Callable[
@@ -243,6 +259,17 @@ _ToolCallOutcome: TypeAlias = (
 )
 
 
+@dataclass
+class _ServerListing:
+    """One server's listing state: the last good tools, the last failure, and a running listing."""
+
+    tools: tuple[McpTool, ...] | None = None
+    listed_at: float = 0.0
+    failure: McpToolListingError | None = None
+    failed_until: float = 0.0
+    task: asyncio.Task[None] | None = None
+
+
 @dataclass(frozen=True)
 class _McpToolTarget:
     """Where one call goes: the configured server and the tool's name there."""
@@ -307,6 +334,19 @@ class McpToolSource:
       with ``tasks/get`` and a heartbeat per poll, for at most
       ``task_wait_timeout`` per attempt.
 
+    With ``resource_and_prompt_tools_enabled``, the listing also offers three
+    ``READ`` tools for the servers' resources and prompts:
+    ``mcp_list_resources_and_prompts`` lists a server's resources, resource
+    templates, and prompts; ``mcp_read_resource`` reads one resource by URI;
+    and ``mcp_get_prompt`` gets one prompt with its arguments. Each takes the
+    configured server's name as its ``server`` argument and opens a new
+    connection to that server with the same transport and headers as a tool
+    call. Its output is the server's answer as JSON with sorted keys:
+    ``{"resources", "resource_templates", "prompts"}``, ``{"contents"}``, or
+    ``{"messages", "description"}``. A server that does not offer resources
+    or prompts lists none of them. An MCP error answer raises
+    ``ToolExecutionError``.
+
     The source is safe to share between the parallel tool Steps of one
     Worker. Build one per Worker process at startup.
 
@@ -341,6 +381,10 @@ class McpToolSource:
         connection_timeout: timedelta = DEFAULT_MCP_CONNECTION_TIMEOUT,
         connection_attempts: int = DEFAULT_MCP_CONNECTION_ATTEMPTS,
         client_name: str = "dex-agents",
+        resource_and_prompt_tools_enabled: bool = False,
+        listing_ttl: timedelta = DEFAULT_MCP_LISTING_TTL,
+        listing_failure_backoff: timedelta = DEFAULT_MCP_LISTING_FAILURE_BACKOFF,
+        source_name: str | None = None,
     ) -> None:
         """Describe the servers without connecting to them.
 
@@ -361,9 +405,29 @@ class McpToolSource:
             connection_attempts: Connection attempts per request before the
                 server counts as unreachable. Defaults to 3.
             client_name: ``clientInfo.name`` sent to the servers.
+            resource_and_prompt_tools_enabled: Whether ``list_tools`` also
+                offers ``mcp_list_resources_and_prompts``,
+                ``mcp_read_resource``, and ``mcp_get_prompt``, after the
+                servers' tools, when at least one server is configured. Their
+                requests are bounded by ``connection_timeout``. Defaults to
+                ``False``. Enable it on one source of an agent only: two
+                sources with it list the same names, which
+                ``AgentDefinition`` refuses.
+            listing_ttl: Age after which ``list_tools`` lists a server again.
+                The refresh runs in the background, and the earlier listing
+                is returned meanwhile. Defaults to 5 minutes.
+            listing_failure_backoff: How long ``list_tools`` leaves a server
+                that failed to list alone before it tries again, in the
+                background. Defaults to 30 seconds.
+            source_name: The source's stable name in
+                ``AgentDefinition.tool_sources``, which stored calls are
+                routed by. ``None``, the default, uses ``"mcp"``, so adding or
+                removing a server keeps it. An agent with two ``McpToolSource``
+                instances must name at least one, because names must be unique.
 
         Raises:
-            ValueError: If server names repeat, a timeout is not positive, or
+            ValueError: If server names repeat, a timeout, ``listing_ttl``, or
+                ``listing_failure_backoff`` is not positive, or
                 ``connection_attempts`` is less than 1.
         """
         self._servers: dict[str, McpServerConfig] = {}
@@ -378,58 +442,128 @@ class McpToolSource:
             )
         if connection_attempts < 1:
             raise ValueError("connection_attempts must be at least 1")
+        if listing_ttl <= timedelta(0) or listing_failure_backoff <= timedelta(0):
+            raise ValueError("listing_ttl and listing_failure_backoff must be positive")
+        self._listing_ttl_seconds = listing_ttl.total_seconds()
+        self._listing_failure_backoff_seconds = listing_failure_backoff.total_seconds()
         self._request_timeout_seconds = request_timeout.total_seconds()
         self._task_wait_timeout = task_wait_timeout
         self._connection_timeout_seconds = connection_timeout.total_seconds()
         self._connection_attempts = connection_attempts
         self._client_info = Implementation(name=client_name, version=_dex_agents_version())
-        self._tools_by_server: dict[str, tuple[McpTool, ...]] = {}
+        self._listings = {name: _ServerListing() for name in self._servers}
+        self._source_name = source_name if source_name is not None else DEFAULT_MCP_SOURCE_NAME
         self._tools: dict[str, McpTool] | None = None
-        self._listing_lock = asyncio.Lock()
+        self._resource_and_prompt_tools = (
+            build_resource_and_prompt_tools(list(self._servers))
+            if resource_and_prompt_tools_enabled and self._servers
+            else ()
+        )
 
     async def list_tools(self, *, refresh: bool = False) -> tuple[McpTool, ...]:
         """Return the tools of every reachable configured server.
 
-        Each server is listed on first use and cached on its own; ``refresh``
-        lists every server again. A server that cannot be listed is left out
-        with a warning log and tried again on the next call; when a refresh
-        fails, its earlier listing stays. When two tools map to the same agent
-        tool name, the first one in server order wins and the other is left out
-        with a warning log. Call it from ``run_model_step`` to offer the tools,
-        or at Worker startup.
+        Each server is listed on its own and cached per Worker process. The
+        first listing of a server is awaited. After that, a listing older
+        than ``listing_ttl`` is refreshed in the background while the earlier
+        one is returned. A server that cannot be listed is left out with a
+        warning log and is not tried again until ``listing_failure_backoff``
+        has passed; then it is listed in the background. One listing per
+        server runs at a time, however many sessions call this. ``refresh``
+        lists every server again now and waits for it. When two tools map to
+        the same agent tool name, the first one in server order wins and the
+        other is left out with a warning log. Call it from ``run_model_step``
+        to offer the tools, or at Worker startup to warm the cache.
 
         Args:
-            refresh: Whether to list every server again instead of using the
-                cached definitions.
+            refresh: Whether to list every server again now, ignoring the
+                cache and the failure backoff.
 
         Returns:
-            Every offered tool, in server order and then in each server's order.
+            Every offered tool, in server order and then in each server's order,
+            then the resource and prompt tools when enabled.
 
         Raises:
-            McpToolListingError: If no server could be listed and none has an
-                earlier listing.
+            McpToolListingError: If servers are configured and none has a
+                listing, because every one failed.
         """
-        async with self._listing_lock:
-            failure: McpToolListingError | None = None
-            has_changed = self._tools is None
-            for server in self._servers.values():
-                if not refresh and server.name in self._tools_by_server:
-                    continue
-                try:
-                    self._tools_by_server[server.name] = tuple(
-                        await self._list_server_tools(server)
-                    )
-                    has_changed = True
-                except McpToolListingError as error:
-                    failure = error
-                    _LOGGER.warning(
-                        "left MCP server %r out of the tool listing: %s", server.name, error
-                    )
-            if not self._tools_by_server and failure is not None:
-                raise failure
-            if has_changed or self._tools is None:
-                self._tools = self._combine_server_tools()
-            return tuple(self._tools.values())
+        now = time.monotonic()
+        running_loop = asyncio.get_running_loop()
+        waits: list[asyncio.Task[None]] = []
+        for server in self._servers.values():
+            listing = self._listings[server.name]
+            if listing.task is not None and listing.task.get_loop() is not running_loop:
+                listing.task = None
+            if listing.task is None:
+                is_stale = (
+                    listing.tools is None or now - listing.listed_at >= self._listing_ttl_seconds
+                )
+                if refresh or (is_stale and now >= listing.failed_until):
+                    listing.task = running_loop.create_task(self._refresh_listing(server, listing))
+            is_first_listing = listing.tools is None and listing.failure is None
+            if listing.task is not None and (refresh or is_first_listing):
+                waits.append(listing.task)
+        if waits:
+            await asyncio.wait(waits)
+        if self._servers and all(listing.tools is None for listing in self._listings.values()):
+            failures = [listing.failure for listing in self._listings.values() if listing.failure]
+            if failures:
+                raise failures[-1]
+            raise McpToolListingError(next(iter(self._servers)), "no listing finished yet")
+        if self._tools is None:
+            self._tools = self._combine_server_tools()
+        return tuple(self._tools.values())
+
+    @property
+    def source_name(self) -> str:
+        """Return the name ``AgentDefinition.tool_sources`` routes stored calls by.
+
+        Returns:
+            ``source_name`` as passed, or ``DEFAULT_MCP_SOURCE_NAME``, ``"mcp"``.
+        """
+        return self._source_name
+
+    def cached_tools(self) -> tuple[McpTool, ...]:
+        """Return the tools of the last listings without listing, for estimates.
+
+        Returns:
+            The cached tools, as ``list_tools`` would return them, or none
+            before any listing finished.
+        """
+        return () if self._tools is None else tuple(self._tools.values())
+
+    def declared_tool_names(self) -> frozenset[str]:
+        """Return the tool names this source lists whatever its servers offer.
+
+        ``AgentDefinition`` reads it to refuse a name collision when it is
+        built, instead of on every model call.
+
+        Returns:
+            The resource and prompt tool names when they are enabled, else none.
+        """
+        return frozenset(tool.name for tool in self._resource_and_prompt_tools)
+
+    async def _refresh_listing(self, server: McpServerConfig, listing: _ServerListing) -> None:
+        try:
+            tools = tuple(await self._list_server_tools(server))
+        except Exception as error:
+            # A background listing must never fail: nobody may be waiting for it.
+            failure = (
+                error
+                if isinstance(error, McpToolListingError)
+                else McpToolListingError(server.name, _describe_exception(error))
+            )
+            listing.failure = failure
+            listing.failed_until = time.monotonic() + self._listing_failure_backoff_seconds
+            _LOGGER.warning("left MCP server %r out of the tool listing: %s", server.name, failure)
+        else:
+            listing.tools = tools
+            listing.listed_at = time.monotonic()
+            listing.failure = None
+            listing.failed_until = 0.0
+            self._tools = self._combine_server_tools()
+        finally:
+            listing.task = None
 
     def tool(self, tool_name: str) -> McpTool:
         """Return one listed tool by its agent tool name.
@@ -484,6 +618,7 @@ class McpToolSource:
         tool_call_id: str,
         tool_name: str,
         arguments: str,
+        listed_tool: SourceToolDefinition | None = None,
     ) -> DeferredToolCall:
         """Build the ``DeferredToolCall`` for one model call of a listed MCP tool.
 
@@ -496,22 +631,31 @@ class McpToolSource:
             tool_call_id: Framework tool call ID.
             tool_name: ``McpTool.name`` the model called.
             arguments: Tool arguments as JSON text.
+            listed_tool: The ``McpTool`` that the listing offered for this
+                model call, as the Stepwise runner passes it, so a refresh
+                that finished meanwhile cannot change or remove it. ``None``,
+                the default, looks the tool up in the current listing.
 
         Returns:
             The call to put in ``ToolCallsRequested.tool_calls``.
 
         Raises:
-            LookupError: If ``list_tools`` has not run or the tool is unknown.
+            LookupError: If no ``listed_tool`` is given and ``list_tools`` has
+                not run or the tool is unknown.
         """
-        tool = self.tool(tool_name)
+        tool = (
+            listed_tool
+            if isinstance(listed_tool, McpTool) and listed_tool.name == tool_name
+            else self.tool(tool_name)
+        )
         return DeferredToolCall(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             arguments=arguments,
             policy=turn.resolve_tool_policy(tool_name, tool.framework_effect),
-            tool_source_reference=json.dumps(
-                {"mcp_server": tool.server_name, "mcp_tool": tool.mcp_tool_name}
-            ),
+            tool_source_reference=None
+            if self._is_resource_and_prompt_tool(tool_name)
+            else json.dumps({"mcp_server": tool.server_name, "mcp_tool": tool.mcp_tool_name}),
         )
 
     async def deferred_tool_handlers(self) -> dict[str, DeferredToolHandler]:
@@ -566,6 +710,8 @@ class McpToolSource:
         """
         record = call.tool_call
         arguments = _parse_tool_arguments(record.arguments)
+        if self._is_resource_and_prompt_tool(record.tool_name):
+            return await self._run_resource_and_prompt_tool(record.tool_name, arguments)
         target = await self._resolve_target(record)
         # Without a poller, a task runs to its end inside the call, as for call_tool.
         is_task_polled_by_session = call.supports_tool_tasks and isinstance(
@@ -699,6 +845,8 @@ class McpToolSource:
                 error or asked for input, or the call was never sent.
             McpToolCallInterruptedError: The call was sent and no result came back.
         """
+        if self._is_resource_and_prompt_tool(tool_name):
+            return await self._run_resource_and_prompt_tool(tool_name, arguments)
         result = await self._call_target(
             await self._target_from_listing(tool_name),
             dict(arguments),
@@ -762,6 +910,40 @@ class McpToolSource:
             f"the tool call ended with an unexpected {type(outcome).__name__}",
         )
 
+    def _is_resource_and_prompt_tool(self, tool_name: str) -> bool:
+        return bool(self._resource_and_prompt_tools) and tool_name in RESOURCE_AND_PROMPT_TOOL_NAMES
+
+    async def _run_resource_and_prompt_tool(
+        self, tool_name: str, arguments: Mapping[str, Any]
+    ) -> ToolExecutionResult:
+        server_name = read_server_name(arguments)
+        server = self._servers.get(server_name)
+        if server is None:
+            raise ToolExecutionError(f"MCP server {server_name} is not configured")
+        detail = "no connection attempt"
+        for connection_attempt in range(1, self._connection_attempts + 1):
+            outcome: str | ToolExecutionError | None = None
+            try:
+                async with self._new_client(server) as client:
+                    try:
+                        outcome = await run_resource_and_prompt_tool(client, tool_name, arguments)
+                    except ToolExecutionError as error:
+                        outcome = error
+            except Exception as error:
+                # Only closing the connection failed when the outcome is already known.
+                if outcome is None:
+                    detail = _describe_exception(error)
+            if isinstance(outcome, ToolExecutionError):
+                raise outcome
+            if outcome is not None:
+                return ToolExecutionResult(output=outcome)
+            if connection_attempt < self._connection_attempts:
+                await asyncio.sleep(_CONNECTION_RETRY_DELAY_SECONDS * connection_attempt)
+        raise ToolExecutionError(
+            f"could not read from MCP server {server_name}, so {tool_name} did not finish: "
+            f"{detail}"
+        )
+
     async def _resolve_target(self, record: AgentToolCall) -> _McpToolTarget:
         target = self._target_from_reference(record.tool_name, record.tool_source_reference)
         if target is None:
@@ -798,7 +980,7 @@ class McpToolSource:
     def _combine_server_tools(self) -> dict[str, McpTool]:
         tools: dict[str, McpTool] = {}
         for server_name in self._servers:
-            for tool in self._tools_by_server.get(server_name, ()):
+            for tool in self._listings[server_name].tools or ():
                 existing = tools.get(tool.name)
                 if existing is not None:
                     _LOGGER.warning(
@@ -811,6 +993,8 @@ class McpToolSource:
                     )
                     continue
                 tools[tool.name] = tool
+        for tool in self._resource_and_prompt_tools:
+            tools[tool.name] = tool
         return tools
 
     async def _list_server_tools(self, server: McpServerConfig) -> list[McpTool]:
