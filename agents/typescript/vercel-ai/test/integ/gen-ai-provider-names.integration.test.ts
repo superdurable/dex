@@ -39,7 +39,15 @@ const genAIProviderNamesByProviderId: readonly (readonly [string, string])[] = [
   ["moonshotai-cn", "moonshot_ai"],
 ];
 
-const unknownProviderIds = ["gateway", "openai-compatible", "openai-compatible.chat", "my-proxy.chat", "dex-test"];
+// Provider IDs without a well-known value keep their first segment, without the API suffix.
+const passedThroughProviderNamesByProviderId: readonly (readonly [string, string])[] = [
+  ["togetherai.chat", "togetherai"],
+  ["openai-compatible.chat", "openai-compatible"],
+  ["my-proxy.responses", "my-proxy"],
+  ["openai-compatible", "openai-compatible"],
+  ["gateway", "gateway"],
+  ["dex-test", "dex-test"],
+];
 
 describe("gen_ai.provider.name of an AI SDK provider ID", () => {
   for (const [providerId, genAIProviderName] of genAIProviderNamesByProviderId) {
@@ -48,7 +56,9 @@ describe("gen_ai.provider.name of an AI SDK provider ID", () => {
     });
   }
 
-  test("a provider ID without a well-known value passes through unchanged", () => {
-    assert.deepEqual(unknownProviderIds.map(toGenAIProviderName), unknownProviderIds);
-  });
+  for (const [providerId, providerName] of passedThroughProviderNamesByProviderId) {
+    test(`${providerId} has no well-known value and passes through as ${providerName}`, () => {
+      assert.equal(toGenAIProviderName(providerId), providerName);
+    });
+  }
 });

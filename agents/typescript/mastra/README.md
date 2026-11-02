@@ -308,7 +308,8 @@ router, by its longest known dot-separated prefix to a value of the pinned
 GenAI semantic conventions, as the Vercel AI SDK adapter does: for example,
 `openai.chat` becomes `openai`, `google.generative-ai` and the router's
 `google` become `gcp.gemini`, and `xai.responses` becomes `x_ai`. Any other
-ID, such as `openai-compatible`, passes through unchanged.
+ID passes through without its API suffix: `openai-compatible.chat` becomes
+`openai-compatible`.
 
 When the provider sends no response ID or response model, Mastra fills in a
 generated ID and the requested model ID, and its public API does not say which
