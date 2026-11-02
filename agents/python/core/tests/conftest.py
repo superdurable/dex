@@ -31,9 +31,14 @@ from tests.scripted_agent import (
     STATE_DIR_ENVIRONMENT_VARIABLE,
     build_scripted_agent_flow,
 )
+from tests.stepwise_agent import (
+    STATE_DIR_ENVIRONMENT_VARIABLE as STEPWISE_STATE_DIR_ENVIRONMENT_VARIABLE,
+)
+from tests.stepwise_agent import build_stepwise_agent_flow
 
 CORE_DIR = Path(__file__).resolve().parents[1]
 WORKER_MODULE = "tests.scripted_worker"
+STEPWISE_WORKER_MODULE = "tests.stepwise_worker"
 
 
 @dataclass
@@ -90,5 +95,21 @@ async def harness(tmp_path: Path) -> AsyncIterator[ScriptedAgentHarness]:
         WORKER_MODULE,
         worker_cwd=CORE_DIR,
         worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+    ) as stack:
+        yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)
+
+
+@pytest_asyncio.fixture
+async def stepwise_harness(tmp_path: Path) -> AsyncIterator[ScriptedAgentHarness]:
+    """Starts a private engine for the Stepwise scripted agent."""
+    state_dir = tmp_path / "agent-state"
+    state_dir.mkdir()
+    flow = build_stepwise_agent_flow(state_dir)
+    async with AgentTestStack(
+        tmp_path,
+        [flow],
+        STEPWISE_WORKER_MODULE,
+        worker_cwd=CORE_DIR,
+        worker_env={STEPWISE_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)

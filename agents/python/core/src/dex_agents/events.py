@@ -38,12 +38,21 @@ class AgentEventType(StrEnum):
             rejection. Payload ``{"tool_call_id", "tool_name", "status"}``.
         TOOL_CALL_DEFERRED: The model asked for a tool call, which runs in its own Step.
             Payload ``{"tool_call_id", "tool_name", "effect", "requires_approval"}``.
-        INTERRUPT_RAISED: A tool call waits for approval. Payload
-            ``{"interrupt_id", "tool_call_id", "tool_name", "deadline"}``.
-        INTERRUPT_RESOLVED: An interrupt was answered or expired. Payload
-            ``{"interrupt_id", "approved", "rejection_message"}``.
+        INTERRUPT_RAISED: A tool call waits for approval, or a question waits
+            for an answer. Payload ``{"interrupt_id", "tool_call_id",
+            "tool_name", "deadline", "kind", "question", "choices",
+            "allows_free_text"}``. ``question`` is ``null`` and ``choices``
+            empty for a tool approval.
+        INTERRUPT_RESOLVED: An interrupt was answered, declined, or expired.
+            Payload ``{"interrupt_id", "approved", "rejection_message",
+            "kind", "answered", "cancellation_reason"}``. ``answered`` is
+            ``true`` only for an answered question. ``cancellation_reason`` is
+            reserved for turn cancellation and is ``null`` today.
         USAGE_RECORDED: The session added one model call's usage. Payload
             ``{"recorded", "session"}``, each an ``AgentUsage`` object.
+        TIMER_STARTED: A ``durable_wait`` call started its Timer. Payload
+            ``{"tool_call_id", "wait_until", "reason"}``; ``wait_until`` is
+            RFC 3339.
     """
 
     TURN_STARTED = "turn_started"
@@ -57,6 +66,7 @@ class AgentEventType(StrEnum):
     INTERRUPT_RAISED = "interrupt_raised"
     INTERRUPT_RESOLVED = "interrupt_resolved"
     USAGE_RECORDED = "usage_recorded"
+    TIMER_STARTED = "timer_started"
 
 
 class AgentEventWriter:

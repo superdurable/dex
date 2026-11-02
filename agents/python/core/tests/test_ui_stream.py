@@ -199,8 +199,11 @@ async def test_snapshot_json_and_event_frames_carry_an_approval_round_trip(
         in (AgentEventType.INTERRUPT_RESOLVED, AgentEventType.TOOL_CALL_FINISHED)
     }
     assert payloads[AgentEventType.INTERRUPT_RESOLVED] == {
+        "answered": False,
         "approved": True,
+        "cancellation_reason": None,
         "interrupt_id": interrupt.interrupt_id,
+        "kind": "tool_approval",
         "rejection_message": None,
     }
     assert payloads[AgentEventType.TOOL_CALL_FINISHED]["status"] == "succeeded"

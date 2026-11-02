@@ -83,11 +83,18 @@ class ToolCallStatus(StrEnum):
 
     ``SUCCEEDED``, ``FAILED``, ``REJECTED``, and ``OUTCOME_UNKNOWN`` are final.
     A runner resuming a turn reads final records and returns their results to
-    the model instead of running the tools again.
+    the model instead of running the tools again. Every other status is
+    non-final, and runners never see a non-final record. The set of final
+    statuses never grows, so an exhaustive mapping of final statuses stays
+    complete.
 
     Attributes:
         AWAITING_APPROVAL: The call waits for ``resolve_interrupt``.
         APPROVED: The call may run; its tool Step has not finished yet.
+        AWAITING_ANSWER: The call waits for ``answer_question``. It is an
+            ``ask_user`` call, or a tool call that returned ``ToolInputRequested``.
+        WAITING_FOR_TIMER: A ``durable_wait`` call waits for its Timer until
+            ``AgentToolCall.wait_until``.
         REJECTED: The user or an expired deadline rejected the call. It never ran.
         SUCCEEDED: The tool ran and returned ``output``.
         FAILED: The tool raised ``ToolExecutionError``; ``error`` holds the
@@ -99,6 +106,8 @@ class ToolCallStatus(StrEnum):
 
     AWAITING_APPROVAL = "awaiting_approval"
     APPROVED = "approved"
+    AWAITING_ANSWER = "awaiting_answer"
+    WAITING_FOR_TIMER = "waiting_for_timer"
     REJECTED = "rejected"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -112,17 +121,27 @@ class ToolCallStatus(StrEnum):
             ``True`` for ``REJECTED``, ``SUCCEEDED``, ``FAILED``, and
             ``OUTCOME_UNKNOWN``; ``False`` while the call waits or may still run.
         """
-        return self not in (ToolCallStatus.AWAITING_APPROVAL, ToolCallStatus.APPROVED)
+        return self in (
+            ToolCallStatus.REJECTED,
+            ToolCallStatus.SUCCEEDED,
+            ToolCallStatus.FAILED,
+            ToolCallStatus.OUTCOME_UNKNOWN,
+        )
 
 
 class InterruptKind(StrEnum):
     """Name why a turn paused for a person.
 
     Attributes:
-        TOOL_APPROVAL: A tool call needs approval before it runs.
+        TOOL_APPROVAL: A tool call needs approval before it runs. Answer it
+            with ``resolve_interrupt``.
+        QUESTION: The model or a tool asked the user a question. Answer it with
+            ``answer_question``, or decline it with ``resolve_interrupt`` and
+            ``approved=False``.
     """
 
     TOOL_APPROVAL = "tool_approval"
+    QUESTION = "question"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -204,6 +223,26 @@ class AgentMessage:
 
 
 @dataclass(frozen=True, kw_only=True)
+class QuestionAnswer:
+    """Record one answer to a question that a tool asked through ``ToolInputRequested``.
+
+    ``AwaitQuestionAnswer`` appends one to ``AgentToolCall.input_answers`` when
+    the user answers, and the tool receives them in
+    ``DeferredToolExecution.input_answers`` when it runs again.
+
+    Attributes:
+        interrupt_id: ``"<tool_call_id>-input-<n>"`` of the answered question,
+            where ``n`` counts the tool's questions from 1.
+        question: The question text the tool asked.
+        answer: The user's answer, exactly as sent to ``answer_question``.
+    """
+
+    interrupt_id: str
+    question: str
+    answer: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentToolCall:
     """Record one tool call that a turn deferred to a Dex Step.
 
@@ -234,6 +273,22 @@ class AgentToolCall:
             call's ``execute_tool`` spans join, or ``None``. The session sets it
             when ``RunModel`` defers the call and again when an approval starts
             a new activation, so parallel activations never swap tool spans.
+        wait_until: RFC 3339 time when a ``durable_wait`` call's Timer ends,
+            or ``None`` for every other call.
+        input_continuation: Opaque text from the tool's last
+            ``ToolInputRequested``, returned to the tool when it runs again
+            after the answer. ``None`` when the tool gave none.
+        input_answers: Answers to the questions the tool asked through
+            ``ToolInputRequested``, oldest first. Empty for other calls.
+        input_question: Question text of the tool's pending
+            ``ToolInputRequested`` while the record is ``AWAITING_ANSWER``, or
+            ``None``. It is ``None`` for an ``ask_user`` call, whose question
+            is in ``arguments``. ``AwaitQuestionAnswer`` raises the question
+            interrupt from it under the ``PendingInterrupts`` lock.
+        input_choices: Choices of that pending ``ToolInputRequested``; empty
+            for free text only or when no tool question is pending.
+        input_allows_free_text: Whether that pending ``ToolInputRequested``
+            accepts free text. ``True`` when no tool question is pending.
     """
 
     tool_call_id: str
@@ -249,25 +304,40 @@ class AgentToolCall:
     deferral_order: int = 0
     tool_source_reference: str | None = None
     trace_context: str | None = None
+    wait_until: str | None = None
+    input_continuation: str | None = None
+    input_answers: list[QuestionAnswer] = field(default_factory=list)
+    input_question: str | None = None
+    input_choices: list[str] = field(default_factory=list)
+    input_allows_free_text: bool = True
 
 
 @dataclass(frozen=True, kw_only=True)
 class AgentInterrupt:
-    """Describe one question the session waits for a person to answer.
+    """Describe one decision the session waits for a person to make.
 
     The ``PendingInterrupts`` Attribute holds the list of unresolved
-    interrupts. A UI shows them and answers each with ``resolve_interrupt``.
+    interrupts. A UI shows them. It answers a ``TOOL_APPROVAL`` interrupt with
+    ``resolve_interrupt`` and a ``QUESTION`` interrupt with ``answer_question``.
 
     Attributes:
-        interrupt_id: ID passed to ``resolve_interrupt``. It equals the tool
-            call ID for a tool approval.
+        interrupt_id: ID passed to ``resolve_interrupt`` or ``answer_question``.
+            It equals the tool call ID for a tool approval and an ``ask_user``
+            question, and is ``"<tool_call_id>-input-<n>"`` for the ``n``-th
+            question a tool asked through ``ToolInputRequested``.
         kind: Why the turn paused.
-        tool_call_id: Tool call that waits for approval.
-        tool_name: Name of that tool.
+        tool_call_id: Tool call that waits.
+        tool_name: Name of that tool, ``"ask_user"`` for an ``ask_user`` question.
         arguments: Tool arguments as JSON text.
         created_at: RFC 3339 time when the interrupt was raised.
         deadline: RFC 3339 time after which the session rejects the call with
-            ``"approval deadline passed"``, or ``None`` for no deadline.
+            ``"approval deadline passed"`` or ``"question deadline passed"``,
+            or ``None`` for no deadline.
+        question: Question text of a ``QUESTION`` interrupt, or ``None``.
+        choices: Answers to offer for a ``QUESTION`` interrupt. Empty means
+            free text only.
+        allows_free_text: Whether ``answer_question`` accepts an answer that
+            is not one of ``choices``. Always ``True`` when ``choices`` is empty.
     """
 
     interrupt_id: str
@@ -277,22 +347,29 @@ class AgentInterrupt:
     arguments: str
     created_at: str
     deadline: str | None = None
+    question: str | None = None
+    choices: list[str] = field(default_factory=list)
+    allows_free_text: bool = True
 
 
 @dataclass(frozen=True, kw_only=True)
 class AgentInterruptResolution:
     """Carry one answer to an interrupt through ``InterruptResolutions``.
 
-    ``resolve_interrupt`` publishes it to the ChannelMap instance named by the
-    interrupt ID. ``AwaitToolApproval`` consumes it.
+    ``resolve_interrupt`` and ``answer_question`` publish it to the ChannelMap
+    instance named by the interrupt ID. ``AwaitToolApproval`` or
+    ``AwaitQuestionAnswer`` consumes it.
 
     Attributes:
-        approved: Whether the tool call may run.
+        approved: Whether the tool call may run, or, for a question, whether
+            the user answered it.
         rejection_message: Message the model sees after a rejection, or ``None``.
+        answer: The answer to a ``QUESTION`` interrupt, or ``None``.
     """
 
     approved: bool
     rejection_message: str | None = None
+    answer: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -301,7 +378,8 @@ class ResolveInterruptRequest:
 
     Attributes:
         interrupt_id: ``AgentInterrupt.interrupt_id`` of a pending interrupt.
-        approved: ``True`` to run the tool call; ``False`` to reject it.
+        approved: ``True`` to run the tool call; ``False`` to reject it or to
+            decline a question.
         rejection_message: Message the model sees after a rejection. ``None``
             makes the model see a generic rejection.
     """
@@ -309,6 +387,22 @@ class ResolveInterruptRequest:
     interrupt_id: str
     approved: bool
     rejection_message: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AnswerQuestionRequest:
+    """Answer one pending question through the ``answer_question`` RPC.
+
+    Attributes:
+        interrupt_id: ``AgentInterrupt.interrupt_id`` of a pending ``QUESTION``
+            interrupt.
+        answer: The answer. It must not be blank. When the interrupt has
+            ``choices`` and ``allows_free_text`` is ``False``, it must equal
+            one of the choices exactly.
+    """
+
+    interrupt_id: str
+    answer: str
 
 
 @dataclass(frozen=True, kw_only=True)

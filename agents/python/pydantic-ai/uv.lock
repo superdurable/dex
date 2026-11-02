@@ -50,10 +50,11 @@ dependencies = [
 requires-dist = [
     { name = "dex-python-sdk", specifier = "==1.30.0" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
+    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.104,<1.106" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20,<2" },
 ]
-provides-extras = ["mcp", "otel"]
+provides-extras = ["mcp", "otel", "litellm"]
 
 [package.metadata.requires-dev]
 dev = [

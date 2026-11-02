@@ -112,6 +112,7 @@ if venv not in Path(ui_stream.__file__).resolve().parents:
 PY
     )
     if [[ "$package" == "core" ]]; then
+      smoke_test_python_core_modules "$project_dir" "$release_version"
       smoke_test_python_mcp_extra "$project_dir" "$release_version"
     fi
   done
@@ -129,6 +130,29 @@ asyncio_default_fixture_loop_scope = session
 asyncio_default_test_loop_scope = session
 INI
   (cd "$session_dir" && .venv/bin/python -m pytest -p no:cacheprovider -v tests/test_completed_turns.py)
+}
+
+# Imports every dex_agents module; dex_agents.litellm must name its extra until the extra is installed.
+smoke_test_python_core_modules() {
+  local project_dir="$1" release_version="$2"
+  (cd "$project_dir" && .venv/bin/python - <<'PY'
+import importlib
+
+for module in ("dex_agents.stepwise", "dex_agents.testing"):
+    importlib.import_module(module)
+try:
+    importlib.import_module("dex_agents.litellm")
+except ImportError as error:
+    if "dex-agents[litellm]" not in str(error):
+        raise SystemExit(f"dex_agents.litellm failed without naming its extra: {error}")
+    print("dex_agents.litellm without the extra names dex-agents[litellm]")
+else:
+    raise SystemExit("dex_agents.litellm imported without the litellm extra")
+PY
+  )
+  uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
+    --constraint "$project_dir/constraints.txt" "dex-agents[litellm]==$release_version"
+  (cd "$project_dir" && .venv/bin/python -c 'import dex_agents.litellm; print("dex_agents.litellm imports with the litellm extra")')
 }
 
 # dex_agents.mcp must name the extra without the MCP SDK, and import with dex-agents[mcp].

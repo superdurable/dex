@@ -28,6 +28,11 @@ mcp = [
 otel = [
     "opentelemetry-api>=1.20,<2",
 ]
+# dex_agents.litellm: the Stepwise model client on LiteLLM.
+# LiteLLM 1.106 makes every Responses API call import the undeclared mcp package.
+litellm = [
+    "litellm>=1.104,<1.106",
+]
 
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/core"

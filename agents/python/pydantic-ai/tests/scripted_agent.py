@@ -27,6 +27,9 @@ every tool records its name, in the invocation log. Tools take an optional
 runs a booking sub-agent that reserves a room and then fails its own output
 validation, so the tool body raises ``UnexpectedModelBehavior`` after a write.
 
+With ``SCRIPTED_AGENT_BUILT_IN_TOOLS=ask_user``, the agent also offers the
+session's ``ask_user`` built-in as an external tool, and the session enables it.
+
 The Flow serves the agent through a ``WrapperAgent``. The agent has an output
 validator, so its ``output_type`` lists ``DeferredToolRequests``. It also has
 an outermost capability that turns any exception around ``publish`` into a
@@ -65,13 +68,25 @@ from pydantic_ai.capabilities import AbstractCapability, CapabilityOrdering, Wra
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 from pydantic_ai.toolsets import ExternalToolset
 
-from dex_agents import AgentSessionFlow, ToolEffect, ToolPolicy
+from dex_agents import (
+    BUILT_IN_TOOL_DEFINITIONS,
+    AgentSessionFlow,
+    AgentSessionOptions,
+    BuiltInTool,
+    ToolEffect,
+    ToolPolicy,
+)
 from dex_agents.testing import FileGate, InvocationLog
-from dex_agents_pydantic_ai import deferred_tool_idempotency_key, pydantic_ai_session_flow
+from dex_agents_pydantic_ai import (
+    PydanticAIRunner,
+    deferred_tool_idempotency_key,
+    pydantic_ai_session_flow,
+)
 
 SCRIPTED_AGENT_FLOW_TYPE = "ScriptedPydanticAIAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SECONDS"
+BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
 INVOCATION_LOG_NAME = "invocations.log"
 SYSTEM_PROMPT = "You are the Dex test agent."
 CONNECTION_LOST_AMOUNT = 999
@@ -134,7 +149,9 @@ class ScriptedResponse:
     stall_gate: str | None = None
 
 
-def build_scripted_agent(state_dir: Path) -> Agent[str, Any]:
+def build_scripted_agent(
+    state_dir: Path, built_in_tools: frozenset[BuiltInTool] = frozenset()
+) -> Agent[str, Any]:
     invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
 
     async def wait_at_gate(gate_name: str | None) -> None:
@@ -174,7 +191,22 @@ def build_scripted_agent(state_dir: Path) -> Agent[str, Any]:
         system_prompt=SYSTEM_PROMPT,
         instructions="Answer tersely.",
         name="scripted",
-        toolsets=[ExternalToolset([ToolDefinition(name="ask_browser")])],
+        toolsets=[
+            ExternalToolset(
+                [
+                    ToolDefinition(name="ask_browser"),
+                    *(
+                        ToolDefinition(
+                            name=definition.name,
+                            description=definition.description,
+                            parameters_json_schema=definition.parameters,
+                        )
+                        for definition in BUILT_IN_TOOL_DEFINITIONS
+                        if definition.name in built_in_tools
+                    ),
+                ]
+            )
+        ],
         capabilities=[ExceptionSwallowingAudit(invocations)],
     )
 
@@ -292,7 +324,21 @@ def build_booking_agent(invocations: InvocationLog) -> Agent[None, Booking]:
 def build_scripted_agent_flow(
     state_dir: Path,
     interrupt_deadline: timedelta | None = None,
+    built_in_tools: frozenset[BuiltInTool] = frozenset(),
 ) -> AgentSessionFlow:
+    if built_in_tools:
+        return AgentSessionFlow(
+            PydanticAIRunner(
+                WrapperAgent(build_scripted_agent(state_dir, built_in_tools)),
+                deps_factory=lambda session_id: f"deps-{session_id}",
+            ),
+            flow_type=SCRIPTED_AGENT_FLOW_TYPE,
+            options=AgentSessionOptions(
+                tool_policies=TOOL_POLICIES,
+                interrupt_deadline=interrupt_deadline,
+                built_in_tools=built_in_tools,
+            ),
+        )
     return pydantic_ai_session_flow(
         WrapperAgent(build_scripted_agent(state_dir)),
         flow_type=SCRIPTED_AGENT_FLOW_TYPE,
@@ -304,9 +350,11 @@ def build_scripted_agent_flow(
 
 def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
     deadline_seconds = os.environ.get(INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE)
+    built_in_tool_names = os.environ.get(BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE, "")
     return build_scripted_agent_flow(
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
+        frozenset(BuiltInTool(name) for name in built_in_tool_names.split(",") if name),
     )
 
 
