@@ -91,7 +91,7 @@ function HeaderLink({item, className}: {item: HeaderNavbarItem; className?: stri
   );
 }
 
-// Desktop shows quiet links and a small Sign up; the mobile menu shows plain links and a full-width one.
+// Desktop shows quiet links and small buttons; the mobile menu shows plain links and full-width buttons.
 function HeaderAction({item, isMobile}: {item: HeaderNavbarItem; isMobile: boolean}): ReactNode {
   if (item.type === 'localeDropdown') {
     return <NavbarItem {...(item as NavbarItemConfig)} mobile={isMobile} />;
