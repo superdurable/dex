@@ -79,6 +79,7 @@ from dex_agents.mcp._tasks import GetMcpTaskRequest, PolledMcpTask, UpdateMcpTas
 from dex_agents.mcp._tool_source import (
     _McpToolCall,
     _McpToolCallReporter,
+    _McpToolTarget,
     _task_question,
     _TaskAsked,
     _TaskPending,
@@ -1264,6 +1265,45 @@ async def test_a_stepwise_agent_reads_mcp_resources_and_prompts(
     # Read tools run in CallTool with no approval.
     assert steps.count("CallTool") == len(commands)
     assert "AwaitToolApproval" not in steps
+
+
+def test_server_config_repr_redacts_environment_and_header_values() -> None:
+    stdio = McpStdioServerConfig(
+        name="files",
+        command="npx",
+        args=["server"],
+        env={"API_KEY": "stdio-secret", "REGION": "eu-secret"},
+    )
+    http = McpStreamableHttpServerConfig(
+        name="tickets",
+        url="https://tickets.example.com/mcp",
+        headers={"Authorization": "Bearer http-secret", "X-Api-Key": "key-secret"},
+    )
+    target = _McpToolTarget(server=http, mcp_tool_name="search", tool_name="tickets__search")
+
+    assert repr(stdio) == (
+        "McpStdioServerConfig(name='files', command='npx', args=('server',), "
+        "env={'API_KEY': '***', 'REGION': '***'}, cwd=None, trusts_tool_annotations=True)"
+    )
+    assert repr(http) == (
+        "McpStreamableHttpServerConfig(name='tickets', url='https://tickets.example.com/mcp', "
+        "headers={'Authorization': '***', 'X-Api-Key': '***'}, trusts_tool_annotations=True)"
+    )
+    for text in (repr(stdio), str(stdio), repr(http), str(http), repr(target), f"{[stdio, http]}"):
+        assert "secret" not in text
+    assert "env=None" in repr(McpStdioServerConfig(name="bare", command="npx"))
+    assert "headers=None" in repr(
+        McpStreamableHttpServerConfig(name="bare", url="http://localhost")
+    )
+    # The values themselves are unchanged.
+    assert stdio.env == {"API_KEY": "stdio-secret", "REGION": "eu-secret"}
+    assert http.headers == {"Authorization": "Bearer http-secret", "X-Api-Key": "key-secret"}
+    assert stdio == McpStdioServerConfig(
+        name="files",
+        command="npx",
+        args=["server"],
+        env={"API_KEY": "stdio-secret", "REGION": "eu-secret"},
+    )
 
 
 async def _wait_for_stepwise_turns(

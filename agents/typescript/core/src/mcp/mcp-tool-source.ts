@@ -47,7 +47,7 @@ import {
   runResourceAndPromptTool,
 } from "./mcp-resource-and-prompt-tools.js";
 import type { SourceToolDefinition } from "../stepwise/tool-source.js";
-import { validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
+import { redactMcpServerConfigSecrets, validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
 
 /** `_meta` key that carries the session's idempotency key on every `tools/call`. */
 export const mcpIdempotencyKeyMetaKey = "io.superdurable.dex/idempotencyKey";
@@ -284,6 +284,8 @@ interface McpConnection {
   readonly transport: Transport;
 }
 
+const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
+
 /**
  * Offers the tools of configured MCP servers to an agent, one Dex Step per call.
  *
@@ -503,6 +505,23 @@ export class McpToolSource {
    */
   public get sourceName(): string {
     return this.configuredSourceName;
+  }
+
+  /**
+   * Shows the source in `console.log` and `util.inspect` output without secrets.
+   * @param depth - Remaining inspection depth.
+   * @param options - Node's inspection options.
+   * @param inspect - Node's `util.inspect`.
+   * @returns The source name and the server configurations, with environment and header values replaced by `***`.
+   */
+  public [nodeInspectSymbol](
+    depth: number,
+    options: { readonly depth?: number | null },
+    inspect: (value: unknown, options: object) => string,
+  ): string {
+    const servers = [...this.servers.values()].map(redactMcpServerConfigSecrets);
+    const childOptions = { ...options, depth: options.depth === null ? null : depth - 1 };
+    return `McpToolSource ${inspect({ sourceName: this.configuredSourceName, servers }, childOptions)}`;
   }
 
   /**

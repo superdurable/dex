@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TypeAlias
 
 _SERVER_NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class McpStdioServerConfig:
     """Launch one MCP server as a child process and talk to it over stdio.
 
@@ -43,7 +43,8 @@ class McpStdioServerConfig:
         args: Command-line arguments.
         env: Environment variables merged over the MCP SDK's safe default
             environment, which keeps only variables such as ``PATH`` and
-            ``HOME``. ``None`` passes only the default environment.
+            ``HOME``. ``None`` passes only the default environment. ``repr``
+            shows the variable names and replaces every value with ``***``.
         cwd: Working directory, or ``None`` for the Worker's.
         trusts_tool_annotations: Whether the server's ``readOnlyHint`` and
             ``idempotentHint`` annotations pick a tool's effect. Defaults to
@@ -73,8 +74,15 @@ class McpStdioServerConfig:
         if self.env is not None:
             object.__setattr__(self, "env", dict(self.env))
 
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}(name={self.name!r}, command={self.command!r}, "
+            f"args={self.args!r}, env={_redact_values(self.env)!r}, cwd={self.cwd!r}, "
+            f"trusts_tool_annotations={self.trusts_tool_annotations!r})"
+        )
 
-@dataclass(frozen=True, kw_only=True)
+
+@dataclass(frozen=True, kw_only=True, repr=False)
 class McpStreamableHttpServerConfig:
     """Connect to one MCP server over the Streamable HTTP transport.
 
@@ -96,7 +104,8 @@ class McpStreamableHttpServerConfig:
             and ``-``.
         url: The server's MCP endpoint URL.
         headers: HTTP headers sent with every request, such as
-            ``Authorization``. ``None`` sends none.
+            ``Authorization``. ``None`` sends none. ``repr`` shows the header
+            names and replaces every value with ``***``.
         trusts_tool_annotations: Whether the server's ``readOnlyHint`` and
             ``idempotentHint`` annotations pick a tool's effect. Defaults to
             ``True``; a wrong ``readOnlyHint`` on a write gets that write
@@ -109,7 +118,7 @@ class McpStreamableHttpServerConfig:
 
     name: str
     url: str
-    headers: Mapping[str, str] | None = field(default=None, repr=False)
+    headers: Mapping[str, str] | None = None
     trusts_tool_annotations: bool = True
 
     def __post_init__(self) -> None:
@@ -119,6 +128,13 @@ class McpStreamableHttpServerConfig:
         if self.headers is not None:
             object.__setattr__(self, "headers", dict(self.headers))
 
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}(name={self.name!r}, url={self.url!r}, "
+            f"headers={_redact_values(self.headers)!r}, "
+            f"trusts_tool_annotations={self.trusts_tool_annotations!r})"
+        )
+
 
 #: One MCP server configuration: stdio or Streamable HTTP.
 McpServerConfig: TypeAlias = McpStdioServerConfig | McpStreamableHttpServerConfig
@@ -127,3 +143,8 @@ McpServerConfig: TypeAlias = McpStdioServerConfig | McpStreamableHttpServerConfi
 def _validate_server_name(name: str) -> None:
     if not _SERVER_NAME_PATTERN.fullmatch(name):
         raise ValueError(f"MCP server name {name!r} must be non-empty letters, digits, '_', or '-'")
+
+
+def _redact_values(values: Mapping[str, str] | None) -> dict[str, str] | None:
+    # Environment values and headers often carry credentials, so repr keeps only the names.
+    return None if values is None else dict.fromkeys(values, "***")

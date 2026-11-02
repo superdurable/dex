@@ -37,7 +37,8 @@ export interface McpStdioServerConfig {
   readonly args?: readonly string[];
   /**
    * Environment variables merged over the MCP SDK's default environment, which keeps only variables
-   * such as `PATH` and `HOME`. Defaults to none.
+   * such as `PATH` and `HOME`. Defaults to none. An inspected {@link McpToolSource} shows the variable
+   * names with every value replaced by `***`.
    */
   readonly env?: Readonly<Record<string, string>>;
   /** Working directory. Defaults to the Worker's. */
@@ -78,7 +79,10 @@ export interface McpStreamableHttpServerConfig {
   readonly name: string;
   /** The server's MCP endpoint, an `http` or `https` URL. */
   readonly url: string;
-  /** HTTP headers sent with every request, such as `Authorization`. Defaults to none. */
+  /**
+   * HTTP headers sent with every request, such as `Authorization`. Defaults to none. An inspected
+   * {@link McpToolSource} shows the header names with every value replaced by `***`.
+   */
   readonly headers?: Readonly<Record<string, string>>;
   /** Whether the server's annotations pick a tool's effect. Defaults to `true`. */
   readonly trustsToolAnnotations?: boolean;
@@ -88,6 +92,18 @@ export interface McpStreamableHttpServerConfig {
 export type McpServerConfig = McpStdioServerConfig | McpStreamableHttpServerConfig;
 
 const serverNamePattern = /^[A-Za-z0-9_-]+$/;
+
+/** Returns a copy whose environment and header values are `***`, safe to print or log. */
+export function redactMcpServerConfigSecrets(server: McpServerConfig): McpServerConfig {
+  if (server.transport === "stdio") {
+    return server.env === undefined ? { ...server } : { ...server, env: redactValues(server.env) };
+  }
+  return server.headers === undefined ? { ...server } : { ...server, headers: redactValues(server.headers) };
+}
+
+function redactValues(values: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.keys(values).map((key) => [key, "***"]));
+}
 
 /** Throws a `TypeError` for an invalid configuration. */
 export function validateMcpServerConfig(server: McpServerConfig): void {

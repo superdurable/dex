@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { format, inspect } from "node:util";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
@@ -28,6 +29,8 @@ import {
   defaultMcpTaskWaitTimeoutMs,
   mcpTaskStatusEventType,
   mcpToolProgressEventType,
+  type McpStdioServerConfig,
+  type McpStreamableHttpServerConfig,
 } from "../../src/mcp/index.js";
 import {
   AgentSessionTestClient,
@@ -650,3 +653,31 @@ function deferredExecution(
     ...(saveHeartbeatCheckpoint === undefined ? {} : { saveHeartbeatCheckpoint }),
   };
 }
+
+test("inspecting an MCP tool source redacts environment and header values but keeps their names", () => {
+  const stdio: McpStdioServerConfig = {
+    transport: "stdio",
+    name: "files",
+    command: "npx",
+    env: { API_KEY: "stdio-secret", REGION: "eu-secret" },
+  };
+  const http: McpStreamableHttpServerConfig = {
+    transport: "streamable_http",
+    name: "tickets",
+    url: "https://tickets.example.com/mcp",
+    headers: { Authorization: "Bearer http-secret", "X-Api-Key": "key-secret" },
+  };
+  const source = new McpToolSource([stdio, http]);
+
+  const printed = [inspect(source, { depth: null }), inspect({ nested: source }, { depth: null }), format("%o", source)];
+  for (const text of printed) {
+    assert.doesNotMatch(text, /secret/);
+    assert.match(text, /^McpToolSource |McpToolSource \{/);
+    assert.match(text, /API_KEY: '\*\*\*'/);
+    assert.match(text, /REGION: '\*\*\*'/);
+    assert.match(text, /Authorization: '\*\*\*'/);
+    assert.match(text, /'X-Api-Key': '\*\*\*'/);
+  }
+  assert.deepEqual(stdio.env, { API_KEY: "stdio-secret", REGION: "eu-secret" });
+  assert.deepEqual(http.headers, { Authorization: "Bearer http-secret", "X-Api-Key": "key-secret" });
+});
