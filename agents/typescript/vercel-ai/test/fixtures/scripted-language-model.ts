@@ -31,6 +31,14 @@ export const scriptedModelCallUsage = {
   outputTokens: { total: 5, text: 4, reasoning: 1 },
 } as const;
 
+/** Response model ID the scripted model reports, as a provider reports a dated model version. */
+export const scriptedResponseModelId = "scripted-model-2026-11";
+
+/** Response ID the scripted model reports: unique within a session, the same on every attempt. */
+export function scriptedResponseId(turnNumber: number, prompt: LanguageModelPrompt): string {
+  return `scripted-response-${turnNumber}-${prompt.length}`;
+}
+
 /** Scripted AI SDK model that decides only from its prompt; the README's Development section lists its commands. */
 export function createScriptedLanguageModel(markerDirectory: string): MockLanguageModelV4 {
   return new MockLanguageModelV4({
@@ -59,6 +67,10 @@ async function* streamScriptedResponse(
   );
   const turnNumber = prompt.filter((message) => message.role === "user").length;
   yield { type: "stream-start", warnings: [] };
+  // A provider may send no response metadata; the AI SDK then fills in its own.
+  if (!userText.startsWith("unidentified ")) {
+    yield { type: "response-metadata", id: scriptedResponseId(turnNumber, prompt), modelId: scriptedResponseModelId };
+  }
   if (userText.startsWith("truncate ")) {
     const toolName = userText.slice("truncate ".length);
     yield toolCallPart(turnNumber, toolName, { requested_by: userText });

@@ -38,6 +38,7 @@ import {
   type DeferredToolExecution,
   type FrameworkMessage,
   type McpToolAnnotations,
+  type ModelCallMetadata,
   type ResolvedToolPolicy,
   type ToolEffect,
   type ToolExecutionResult,
@@ -45,6 +46,7 @@ import {
 } from "@superdurable/dex-agents";
 
 import { runInAgentToolExecutionScope } from "./agent-tool-execution-scope.js";
+import { toGenAIProviderName } from "./gen-ai-provider-names.js";
 import {
   appendToolResultParts,
   createRecordedToolResultPart,
@@ -161,17 +163,28 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     );
     turnMessages = [...turnMessages, ...modelCall.responseMessages];
     modelSteps = [...modelSteps, ...modelCall.steps.map((step) => recordModelStep(step, modelSteps.length))];
+    const modelCallMetadata = createModelCallMetadata(modelCall.steps);
     const finalStep = modelCall.steps.at(-1);
     const requestedToolCalls = finalStep === undefined ? [] : findUnansweredToolCalls(finalStep);
     if (requestedToolCalls.length === 0 || finalStep === undefined) {
-      return { kind: "completed", newMessages: turnMessages.map(toFrameworkMessage), usage: modelCall.usage };
+      return {
+        kind: "completed",
+        newMessages: turnMessages.map(toFrameworkMessage),
+        usage: modelCall.usage,
+        ...modelCallMetadata,
+      };
     }
     if (!toolExecutionFinishReasons.has(finalStep.finishReason)) {
       const notRunResults = requestedToolCalls.map((toolCall) =>
         createNotRunToolResult(toolCall, finalStep.finishReason),
       );
       turnMessages = appendToolResultParts(turnMessages, notRunResults);
-      return { kind: "completed", newMessages: turnMessages.map(toFrameworkMessage), usage: modelCall.usage };
+      return {
+        kind: "completed",
+        newMessages: turnMessages.map(toFrameworkMessage),
+        usage: modelCall.usage,
+        ...modelCallMetadata,
+      };
     }
     const runState: VercelAiFrameworkRunState = {
       version: frameworkRunStateVersion,
@@ -184,6 +197,7 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
       frameworkRunState: serializeJsonValue(runState),
       toolCalls: requestedToolCalls.map((toolCall) => this.createDeferredToolCall(turn, toolCall, modelCallTools)),
       usage: modelCall.usage,
+      ...modelCallMetadata,
     };
   }
 
@@ -491,6 +505,42 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 
 export function isProviderExecutedTool(tool: Tool): boolean {
   return tool.type === "provider" && tool.isProviderExecuted === true;
+}
+
+/**
+ * Reads `modelCallMetadata` from the AI SDK steps of one `RunModel`. It reports no response ID: the AI SDK
+ * generates one when the provider sends none, and its public API does not say which it is.
+ */
+function createModelCallMetadata(steps: readonly StepResult<ToolSet>[]): {
+  readonly modelCallMetadata?: ModelCallMetadata;
+} {
+  const [firstStep] = steps;
+  if (firstStep === undefined) {
+    return {};
+  }
+  const requestModel = readValueSharedByEveryStep(steps, (step) => step.model.modelId);
+  const providerName = readValueSharedByEveryStep(steps, (step) => toGenAIProviderName(step.model.provider));
+  // The AI SDK fills a missing response model with the requested one, so only a different one is the provider's.
+  const responseModel = readValueSharedByEveryStep(steps, (step) =>
+    step.response.modelId === step.model.modelId ? undefined : step.response.modelId,
+  );
+  return {
+    modelCallMetadata: {
+      ...(requestModel === undefined ? {} : { requestModel }),
+      ...(providerName === undefined ? {} : { providerName }),
+      ...(responseModel === undefined ? {} : { responseModel }),
+      // A finish reason describes one response, so several model calls report none.
+      ...(steps.length === 1 ? { finishReasons: [firstStep.finishReason] } : {}),
+    },
+  };
+}
+
+function readValueSharedByEveryStep(
+  steps: readonly StepResult<ToolSet>[],
+  readValue: (step: StepResult<ToolSet>) => string | undefined,
+): string | undefined {
+  const values = new Set(steps.map(readValue));
+  return values.size === 1 ? [...values][0] : undefined;
 }
 
 function toAgentUsage(usage: LanguageModelUsage): AgentUsage {

@@ -18,12 +18,15 @@ import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 
 import {
   fakeClaudeInvocationLogName,
+  fakeClaudeRequestModel,
+  fakeClaudeResponseModel,
   fakeClaudeResumeWithoutHooksVariable,
   fakeClaudeStateDirectoryVariable,
+  fakeClaudeSubagentResponseModel,
 } from "./fake-claude-cli-environment.js";
 
 const cliVersion = "2.1.316";
-const modelName = "claude-scripted";
+const modelProvider = "firstParty";
 const resumePrompt = "Continue from where you left off.";
 const callAloneMarker = "again by itself";
 const modelCallUsage = {
@@ -463,6 +466,7 @@ class FakeClaudeCli {
   private readonly invocations: InvocationLog;
   private preToolUseMatchers: readonly JsonObject[] = [];
   private modelCallCount = 0;
+  private subagentModelCallCount = 0;
   private transcript: FakeTranscript | undefined;
 
   // A test switch for the race a missing --await-initialize allows: hooks not yet registered.
@@ -517,6 +521,7 @@ class FakeClaudeCli {
 
   private async runTurn(turnBody: () => Promise<void>): Promise<void> {
     this.modelCallCount = 0;
+    this.subagentModelCallCount = 0;
     this.emitSystemInit();
     await turnBody();
   }
@@ -573,6 +578,7 @@ class FakeClaudeCli {
         );
         lastDeferred = (await this.runToolUse(assistantEntry, toolUse, true)) ?? lastDeferred;
       }
+      this.emitMessageDelta("tool_use");
       if (lastDeferred !== undefined) {
         this.emitDeferredResult(lastDeferred);
         return;
@@ -694,7 +700,33 @@ class FakeClaudeCli {
       this.invocations.record("Bash");
       return { text: `ran ${String(toolUse.toolInput["command"])}`, isError: false };
     }
+    if (toolUse.cliToolName === "Agent") {
+      return { text: this.runSubagent(toolUse), isError: false };
+    }
     return { text: `No such tool available: ${toolUse.cliToolName}`, isError: true };
+  }
+
+  /** Answers an `Agent` call with one subagent model call; its transcript stays separate. */
+  private runSubagent(toolUse: ToolUse): string {
+    this.subagentModelCallCount += 1;
+    const text = `subagent checked ${String(toolUse.toolInput["prompt"] ?? "")}`;
+    this.channel.emit({
+      type: "assistant",
+      message: {
+        id: `msg_${randomHex()}`,
+        type: "message",
+        role: "assistant",
+        model: fakeClaudeSubagentResponseModel,
+        content: [{ type: "text", text }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: modelCallUsage,
+      },
+      parent_tool_use_id: toolUse.toolUseId,
+      session_id: this.requireTranscript().sessionId,
+      uuid: randomUUID(),
+    });
+    return text;
   }
 
   private async pauseThenAnswer(gateName: string, streamedText: string, text: string): Promise<void> {
@@ -715,6 +747,7 @@ class FakeClaudeCli {
       }
     }
     this.emitAssistantMessage(this.startModelCall(), [{ type: "text", text }], "end_turn");
+    this.emitMessageDelta("end_turn");
     this.emitResult({ isError: false, resultText: text });
   }
 
@@ -733,7 +766,7 @@ class FakeClaudeCli {
         id: messageId,
         type: "message",
         role: "assistant",
-        model: modelName,
+        model: fakeClaudeResponseModel,
         content,
         stop_reason: stopReason,
         stop_sequence: null,
@@ -782,6 +815,20 @@ class FakeClaudeCli {
     });
   }
 
+  private emitMessageDelta(stopReason: string): void {
+    this.channel.emit({
+      type: "stream_event",
+      uuid: randomUUID(),
+      session_id: this.requireTranscript().sessionId,
+      event: {
+        type: "message_delta",
+        delta: { stop_reason: stopReason, stop_sequence: null },
+        usage: { output_tokens: modelCallUsage.output_tokens },
+      },
+      parent_tool_use_id: null,
+    });
+  }
+
   private emitSystemInit(): void {
     this.channel.emit({
       type: "system",
@@ -793,7 +840,7 @@ class FakeClaudeCli {
       cwd: process.cwd(),
       tools: ["Bash"],
       mcp_servers: [],
-      model: modelName,
+      model: fakeClaudeRequestModel,
       permissionMode: this.cliArguments.permissionMode,
       slash_commands: [],
       output_style: "default",
@@ -815,7 +862,10 @@ class FakeClaudeCli {
     readonly errors?: readonly string[];
   }): void {
     const usage = Object.fromEntries(
-      Object.entries(modelCallUsage).map(([key, value]) => [key, value * this.modelCallCount]),
+      Object.entries(modelCallUsage).map(([key, value]) => [
+        key,
+        value * (this.modelCallCount + this.subagentModelCallCount),
+      ]),
     );
     this.channel.emit({
       type: "result",
@@ -831,7 +881,12 @@ class FakeClaudeCli {
       stop_reason: fields.stopReason ?? "end_turn",
       total_cost_usd: 0,
       usage,
-      modelUsage: {},
+      modelUsage: {
+        [fakeClaudeRequestModel]: modelUsageEntry(this.modelCallCount),
+        ...(this.subagentModelCallCount === 0
+          ? {}
+          : { [fakeClaudeSubagentResponseModel]: modelUsageEntry(this.subagentModelCallCount) }),
+      },
       permission_denials: [],
       uuid: randomUUID(),
       ...(fields.deferredToolUse === undefined
@@ -882,6 +937,20 @@ function parseCliArguments(argumentList: readonly string[]): CliArguments {
     hasSessionMirror: flags.has("--session-mirror"),
     isAwaitingInitialize: flags.has("--await-initialize"),
     mcpServers,
+  };
+}
+
+function modelUsageEntry(modelCallCount: number): JsonObject {
+  return {
+    inputTokens: modelCallUsage.input_tokens * modelCallCount,
+    outputTokens: modelCallUsage.output_tokens * modelCallCount,
+    cacheReadInputTokens: modelCallUsage.cache_read_input_tokens * modelCallCount,
+    cacheCreationInputTokens: modelCallUsage.cache_creation_input_tokens * modelCallCount,
+    webSearchRequests: 0,
+    costUSD: 0,
+    contextWindow: 200_000,
+    maxOutputTokens: 32_000,
+    provider: modelProvider,
   };
 }
 

@@ -26,6 +26,11 @@ const scriptedCallUsage: LanguageModelV3Usage = {
   outputTokens: { total: 5, text: 4, reasoning: 1 },
 };
 
+/** Response model ID the scripted model reports, as a provider reports a dated model version. */
+export function scriptedResponseModelId(modelId: string): string {
+  return `${modelId}-2026-11`;
+}
+
 type ScriptedModelResponse =
   | { readonly kind: "answer"; readonly text: string; readonly partialText?: string }
   | { readonly kind: "call_tools"; readonly toolNames: readonly string[]; readonly userText: string };
@@ -45,7 +50,8 @@ type ScriptedModelResponse =
  * - `slow stream`: like `slow`, after streaming `partial text `.
  * - anything else: answers `echo: <text>`.
  *
- * Every call records `<modelId> <user text>` in `model-calls.log`, so tests count model calls.
+ * Every call records `<modelId> <user text>` in `model-calls.log`, so tests count model calls. Each response
+ * reports the ID `scripted-response-<prompt message count>` and the model {@link scriptedResponseModelId}.
  */
 export class ScriptedLanguageModel implements LanguageModelV3 {
   public readonly specificationVersion = "v3";
@@ -70,10 +76,16 @@ export class ScriptedLanguageModel implements LanguageModelV3 {
       userText === "slow stream" ||
       (userText.endsWith(" then pause") && response.kind === "answer");
     const markerDirectory = this.markerDirectory;
+    const responseId = `scripted-response-${options.prompt.length}`;
+    const responseModelId = scriptedResponseModelId(this.modelId);
     return {
       stream: new ReadableStream<LanguageModelV3StreamPart>({
         async start(controller) {
           controller.enqueue({ type: "stream-start", warnings: [] });
+          // A provider may send no response metadata; Mastra then fills in its own.
+          if (!userText.startsWith("unidentified ")) {
+            controller.enqueue({ type: "response-metadata", id: responseId, modelId: responseModelId });
+          }
           if (response.kind === "answer" && response.partialText !== undefined) {
             enqueueText(controller, "partial", response.partialText);
           }

@@ -235,11 +235,41 @@ which the CLI sends on every `tools/call`, so an application hook that rewrites 
 a recorded write look new. A call without a decision for that ID does not run.
 
 Usage comes from the result message of each segment: `inputTokens` include cache reads and cache
-writes, `cachedInputTokens` are cache reads, `modelCalls` counts distinct main-conversation assistant
-message IDs, and `reasoningTokens` stay 0 because the result does not report them. Text and thinking
+writes, `cachedInputTokens` are cache reads, `modelCalls` counts distinct assistant message IDs,
+subagents included, and `reasoningTokens` stay 0 because the result does not report them. Text and thinking
 deltas of the main conversation stream to `AgentEvents` as `text_delta` and `reasoning_delta`. Inline
 tool calls write `tool_call_started` and `tool_call_finished`; the session writes them for deferred
 calls. Group live text by `(turnId, stepExecutionId, attempt)` as the core README describes.
+
+## Tracing
+
+The session emits a `chat` span for every `RunModel` attempt, as the
+[core README](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md#tracing)
+describes. Here one span covers one turn segment. It is `CLIENT` with usage when `modelCalls` is 1,
+and `INTERNAL` without usage when the segment made several model calls, such as a call to an inline
+`read` tool and the answer after it. The runner returns `modelCallMetadata` with only what the CLI
+reports, and omits every other field:
+
+| Field | Source | Set when |
+| --- | --- | --- |
+| `requestModel` | `model` of the CLI's `system` `init` message: the model the CLI requests for the main conversation, after it resolves aliases and its default. The options' `model` when no `init` message arrived. | No subagent made a model call in the segment |
+| `responseModel` | `message.model` of the assistant messages | Every assistant message of the segment, subagents included, names the same model |
+| `providerName` | `provider` of `result.modelUsage[requestModel]`. `firstParty` becomes `anthropic`, `bedrock` and `mantle` become `aws.bedrock`, and `vertex` becomes `gcp.vertex_ai`. Other values, such as `foundry`, `anthropicAws`, and `anthropicGoogleCloud`, pass through unchanged, because no well-known value names them unambiguously. | `requestModel` is set and the CLI reports a provider other than `gateway` for it |
+| `responseId` | `message.id` of the assistant messages | The segment made exactly one model call, subagents included |
+| `finishReasons` | `delta.stop_reason` of the main conversation's `message_delta` stream event | The segment made exactly one model call, subagents included |
+
+- A subagent can request a different model, so a segment with subagent model calls has no
+  `requestModel` and no `providerName`. Its calls count in `modelCalls`, so the segment's span is
+  `INTERNAL`.
+- `gateway` means the CLI signed in to an enterprise gateway, which relays to a backend the CLI does
+  not name, so the span has no provider.
+- The result's `stop_reason` is not a finish reason: a deferred segment reports `tool_deferred`,
+  which is Claude Code's reason, not the model's.
+- When the CLI falls back to another model after an overload or a refusal, `requestModel` still
+  names the `init` model. `responseModel` names the model that answered, or is omitted when the
+  segment's answers came from different models.
+- The adapter never derives a provider from a model name, an environment variable, or a base URL.
+  Without a `provider` in `modelUsage`, the span has none.
 
 ## What the real CLI does
 
@@ -353,7 +383,7 @@ observed behavior and speaks this subset of the SDK's stream-json protocol, take
 | CLI to SDK | `control_request` `mcp_message` with JSON-RPC `tools/call` carrying `_meta["claudecode/toolUseId"]` (and `initialize`, `notifications/initialized`, `tools/list` when no manifest came); the SDK answers `{"mcp_response": ...}`. HTTP MCP servers from `--mcp-config` get the same JSON-RPC over POST |
 | CLI to SDK | `control_request` `hook_callback` with a PreToolUse input (`tool_name`, the original `tool_input`, `tool_use_id`); the SDK answers with `hookSpecificOutput.permissionDecision` and optionally `updatedInput`, which the CLI applies. Several decisions combine as deny over defer over ask over allow; a denial's tool result reads `PreToolUse:<tool> hook error: <reason>` |
 | CLI to SDK | `control_request` `can_use_tool` when no hook allowed, denied, or deferred the call; the SDK answers `behavior` `allow` or `deny` |
-| CLI to SDK | `system` `init` per turn, `stream_event` `content_block_delta` text deltas, one `assistant` message per content block, `user` tool results, and `result` with `usage`, or with `terminal_reason: "tool_deferred"` and the last deferred call in `deferred_tool_use`; an error result has `subtype: "error_during_execution"` and exit status 1 |
+| CLI to SDK | `system` `init` per turn naming the requested model, `stream_event` `content_block_delta` text deltas, one `assistant` message per content block naming a dated response model, a `stream_event` `message_delta` with the stop reason after each model call, `user` tool results, and `result` with `usage` and `modelUsage` keyed by the requested model with provider `firstParty`, or with `terminal_reason: "tool_deferred"` and the last deferred call in `deferred_tool_use`; an error result has `subtype: "error_during_execution"` and exit status 1 |
 | CLI to SDK | `transcript_mirror` frames `{filePath, entries}` for every transcript line |
 | Transcript | `user`, `assistant`, and `attachment` `hook_deferred_tool` entries with `uuid` and `parentUuid`. Every `defer` is honored. On `--resume`, the last deferral without a tool result runs at once, without user input, from the original `tool_use` input through every hook again. It reports `tool_deferred_unavailable` when its MCP server was not declared in `--mcp-config` (an SDK server, or an `alwaysLoad` HTTP server), runs without hooks when `--await-initialize` is missing or `FAKE_CLAUDE_RESUME_WITHOUT_HOOKS=1`, and then appends an `isMeta` "Continue from where you left off." entry |
 
@@ -366,6 +396,8 @@ block of the turn's last real prompt; the mock looks for them after `dex-script:
   alone is called again by itself. A trailing ` ;; pause <gate>` waits at a gate before answering;
   ` ;; fail` fails once every call has a result (fake CLI only).
 - `stall <gate>` calls `lookup`, streams text, and waits at a gate before answering (fake CLI only).
+- An `Agent` tool call runs a subagent: one assistant message whose `parent_tool_use_id` is the call,
+  answered by another model and kept out of the main transcript (fake CLI only).
 - `fail` ends the turn with an error result (fake CLI only).
 
 The fake-CLI suites cover the plan's matrix: a `read` tool and history replay through a resumed
@@ -377,6 +409,9 @@ input-rewriting application hook, a rewritten input that fails the tool's schema
 answered through `canUseTool` when the hooks are skipped, custom tool names that collide with Claude
 Code tools, SIGKILL during
 a resumed segment, a CLI error result, and a resumed turn that fails after a write and leaves a note
-for the next prompt. The real-CLI suite covers a `read` tool with a resumed second turn, an approved
+for the next prompt. `test/integ/tracing.integration.test.ts` runs an in-process Worker with an
+in-memory span exporter and checks the `chat` span metadata of a one-call answer, a two-call `read`
+tool turn, a deferred write and its resumed answer, and a segment with a subagent call, plus the
+provider name mapping. The real-CLI suite covers a `read` tool with a resumed second turn, an approved
 write resumed without a prompt with `permissionMode` unset and with `dontAsk`, a rejected write, two
 writes in one reply, an input-rewriting hook, and approved `Bash`.

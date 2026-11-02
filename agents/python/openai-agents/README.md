@@ -196,6 +196,18 @@ so the next turn's model sees which calls already ran.
   100 ms without a new event.
 - Usage: each `RunModel` reports its own model calls and tokens from the run's
   `Usage`.
+- Tracing: each `RunModel` returns `ModelCallMetadata` for its `chat` span.
+  `request_model` is the model name the SDK resolves: `RunConfig.model` when
+  it is a string, otherwise the calling agent's `Agent.model` when it is a
+  string. A `Model` instance names no model, and without a name the model
+  provider picks one, so the field stays unset then. `response_id` is the
+  `ModelResponse.response_id` of the call, unless it is missing or the SDK's
+  placeholder ID for Chat Completions. A `RunModel` with a handoff makes
+  several model calls, so its span is `INTERNAL`, carries no response ID, and
+  keeps `request_model` only when every agent of the graph resolves the same
+  name. `provider_name`, `response_model`, and `finish_reasons` stay unset:
+  `ModelResponse` carries no provider, response model, or finish reason, and a
+  Chat Completions model echoes its request name as the response's model.
 
 ## Limits
 

@@ -9,7 +9,7 @@
 import { join } from "node:path";
 
 import { Agent, handoff, tool, toolNamespace, type RunContext } from "@openai/agents";
-import type { AgentSessionFlow } from "@superdurable/dex-agents";
+import type { AgentSessionFlow, AgentTracingOptions } from "@superdurable/dex-agents";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 import { z } from "zod";
 
@@ -32,6 +32,14 @@ interface ScriptedAgentContext {
 
 type ToolCallDetails = { readonly toolCall?: { readonly callId: string }; readonly signal?: AbortSignal };
 
+/** Options of {@link createScriptedOpenAIAgentFlow}. */
+export interface ScriptedOpenAIAgentFlowOptions {
+  readonly flowType?: string;
+  /** Gives both agents this model name, which a model provider resolves to the scripted model. */
+  readonly requestedModelName?: string;
+  readonly tracing?: AgentTracingOptions;
+}
+
 /**
  * Creates the scripted OpenAI Agents SDK agent Flow; tests and the Worker child build it identically.
  *
@@ -41,7 +49,7 @@ type ToolCallDetails = { readonly toolCall?: { readonly callId: string }; readon
  */
 export function createScriptedOpenAIAgentFlow(
   markerDirectory: string,
-  flowOptions: { readonly flowType?: string } = {},
+  flowOptions: ScriptedOpenAIAgentFlowOptions = {},
 ): AgentSessionFlow {
   const invocationLog = (name: string): InvocationLog =>
     new InvocationLog(join(markerDirectory, `${name}.log`));
@@ -186,7 +194,8 @@ export function createScriptedOpenAIAgentFlow(
     ],
   });
 
-  const model = new ScriptedOpenAIModel(markerDirectory);
+  const scriptedModel = new ScriptedOpenAIModel(markerDirectory);
+  const model = flowOptions.requestedModelName ?? scriptedModel;
   const billingAgent = new Agent<ScriptedAgentContext>({
     name: "Billing agent",
     instructions: billingAgentInstructions,
@@ -227,7 +236,11 @@ export function createScriptedOpenAIAgentFlow(
       refund_order: { effect: "idempotent_write" },
       "crm.update_contact": { effect: "idempotent_write" },
     },
-    runConfig: { tracingDisabled: true },
+    runConfig: {
+      tracingDisabled: true,
+      ...(flowOptions.requestedModelName === undefined ? {} : { modelProvider: { getModel: () => scriptedModel } }),
+    },
     createContext: (flowId) => ({ flowId }),
+    ...(flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing }),
   });
 }

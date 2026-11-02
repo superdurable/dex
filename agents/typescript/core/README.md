@@ -1016,10 +1016,11 @@ for the full attribute table. In short:
   and `dex.flow.id`, plus `dex.run.id`, `dex.step.type`,
   `dex.step.execution_id`, `dex.step.attempt`, and `dex.agent.turn.id`.
 - **Model and usage.** The `chat` span is named `chat {requestModel}` when the
-  runner returns `modelCallMetadata.requestModel`, and `chat` otherwise. The
-  adapters in this repository do not return it yet, so their spans are named
-  `chat`. Usage attributes appear when the runner reports `modelCalls: 1` and
-  a non-zero input or output count. A runner that reports any other
+  runner returns `modelCallMetadata.requestModel`, and `chat` otherwise. Each
+  framework adapter in this repository returns `modelCallMetadata` with what
+  its framework reports for the call and leaves the rest unset; its README
+  lists the fields. Usage attributes appear when the runner reports
+  `modelCalls: 1` and a non-zero input or output count. A runner that reports any other
   `modelCalls`, such as a whole-turn harness, gets an `INTERNAL` `chat` span
   without usage, so provider instrumentation that traces each call does not
   count the tokens twice. A single model call can still be counted twice when
@@ -1284,6 +1285,6 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   store, cannot resume a task across attempts; the retry calls the tool again.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
-- The adapters in this repository do not return `modelCallMetadata` yet, so
-  their `chat` spans are named `chat` and carry no model or provider. Wiring
-  each adapter to report it is a follow-up.
+- The adapters report only the model information their framework exposes, so
+  some `chat` spans carry no provider, response ID, or finish reasons. Each
+  adapter's README lists what it sets.

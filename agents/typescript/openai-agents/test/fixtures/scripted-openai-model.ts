@@ -68,6 +68,8 @@ interface ScriptedModelReply {
  * - `history`: the answer lists every earlier user and assistant text it was replayed.
  * - `handoff <command>`: the starting agent hands off to the billing agent, which runs `<command>`.
  * - `think`: streams a reasoning summary before answering.
+ * - `unidentified <text>`: answers `echo: unidentified <text>` with the response ID `FAKE_ID`, the
+ *   placeholder the SDK's Chat Completions model reports when the provider sent no ID.
  * - `slow`: waits at the `turn` FileGate before answering.
  * - `slow stream`: like `slow`, after streaming partial text.
  * - anything else: the answer is `echo: <text>`.
@@ -81,7 +83,7 @@ export class ScriptedOpenAIModel implements Model {
     this.recordModelCall(request);
     const reply = decideScriptedReply(request);
     await this.waitAtTurnGate(reply, request.signal);
-    return { usage: new Usage(scriptedUsage), output: reply.output, responseId: "resp_scripted" };
+    return { usage: new Usage(scriptedUsage), output: reply.output, responseId: scriptedResponseId(request) };
   }
 
   public async *getStreamedResponse(request: ModelRequest): AsyncIterable<StreamEvent> {
@@ -109,7 +111,7 @@ export class ScriptedOpenAIModel implements Model {
     }
     yield {
       type: "response_done",
-      response: { id: "resp_scripted", usage: scriptedUsage, output: reply.output },
+      response: { id: scriptedResponseId(request), usage: scriptedUsage, output: reply.output },
     };
   }
 
@@ -126,6 +128,15 @@ export class ScriptedOpenAIModel implements Model {
     gate.markReached();
     await gate.waitForRelease(signal);
   }
+}
+
+/** Response ID the scripted model reports: unique within a session, the same on every attempt. */
+export function scriptedResponseId(request: ModelRequest): string {
+  const input = typeof request.input === "string" ? [userItem(request.input)] : request.input;
+  if (readText(input[findLastUserIndex(input)]).startsWith("unidentified ")) {
+    return "FAKE_ID";
+  }
+  return `resp_scripted_${input.length}`;
 }
 
 function decideScriptedReply(request: ModelRequest): ScriptedModelReply {

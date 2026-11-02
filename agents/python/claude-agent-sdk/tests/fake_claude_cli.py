@@ -15,7 +15,9 @@ concurrently with ``updatedInput`` applied before a decision, defer honored for
 every call (so one reply can defer several), a result naming the last deferred
 call, ``_meta["claudecode/toolUseId"]`` on every MCP ``tools/call``, and a
 ``--resume`` of a pending deferred call that continues without a prompt and
-records a hidden "Continue from where you left off." message. A hook denial
+records a hidden "Continue from where you left off." message. Each model call
+ends with a ``message_delta`` stream event, replies name a dated model, and the
+result keys ``modelUsage`` by the requested model with its provider. A hook denial
 reaches the model as ``PreToolUse:<tool> hook error: <reason>``. With
 ``RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE`` set, a resumed call skips the hooks
 and asks ``can_use_tool``, as the real CLI can when it starts the call early.
@@ -29,6 +31,9 @@ A scripted model reads commands from the last text block of the turn's prompt:
   called again by itself. ``;; pause <gate>`` waits at a gate before
   answering, and ``;; fail`` fails once every tool call has a result.
 * ``stall <gate>`` calls ``lookup``, streams text, and waits at a gate.
+* An ``Agent`` tool call runs a subagent: one assistant message, answered by
+  ``SUBAGENT_RESPONSE_MODEL_NAME``, with ``parent_tool_use_id`` set to the call
+  and no entry in the main transcript.
 * ``fail`` ends the turn with an error result.
 """
 
@@ -50,6 +55,10 @@ STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_STATE_DIR"
 RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_RESUME_SKIPS_HOOKS"
 INVOCATION_LOG_NAME = "invocations.log"
 MODEL_NAME = "claude-scripted"
+# Like the Messages API, replies name a dated model; the CLI keys usage by the requested one.
+RESPONSE_MODEL_NAME = "claude-scripted-20261101"
+SUBAGENT_RESPONSE_MODEL_NAME = "claude-scripted-subagent-20261101"
+MODEL_PROVIDER = "firstParty"
 MODEL_CALL_USAGE = {
     "input_tokens": 10,
     "output_tokens": 5,
@@ -440,6 +449,7 @@ class FakeClaudeCli:
         self._invocations = InvocationLog(self._state_dir / INVOCATION_LOG_NAME)
         self._pre_tool_use_matchers: list[dict[str, Any]] = []
         self._model_call_count = 0
+        self._subagent_model_call_count = 0
         self._transcript: FakeTranscript | None = None
         self._mcp: FakeMcpClient | None = None
 
@@ -674,6 +684,8 @@ class FakeClaudeCli:
         if tool_use.cli_tool_name == "Bash":
             self._invocations.record("Bash")
             return f"ran {tool_use.tool_input['command']}", False
+        if tool_use.cli_tool_name == "Agent":
+            return self._run_subagent(tool_use), False
         return f"No such tool available: {tool_use.cli_tool_name}", True
 
     async def _pause_then_answer(self, action: PauseThenAnswer) -> None:
@@ -685,6 +697,30 @@ class FakeClaudeCli:
         gate.mark_reached()
         await gate.wait_for_release()
         self._answer(action.text)
+
+    def _run_subagent(self, tool_use: ToolUse) -> str:
+        """Answer an ``Agent`` call with one subagent model call; its transcript stays separate."""
+        self._subagent_model_call_count += 1
+        text = f"subagent checked {tool_use.tool_input.get('prompt', '')}"
+        self._channel.emit(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": f"msg_{uuid.uuid4().hex[:16]}",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": SUBAGENT_RESPONSE_MODEL_NAME,
+                    "content": [{"type": "text", "text": text}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": MODEL_CALL_USAGE,
+                },
+                "parent_tool_use_id": tool_use.tool_use_id,
+                "session_id": self._require_transcript().session_id,
+                "uuid": str(uuid.uuid4()),
+            }
+        )
+        return text
 
     def _answer(self, text: str) -> None:
         half = len(text) // 2
@@ -713,7 +749,7 @@ class FakeClaudeCli:
                         "id": message_id,
                         "type": "message",
                         "role": "assistant",
-                        "model": MODEL_NAME,
+                        "model": RESPONSE_MODEL_NAME,
                         "content": [block],
                         "stop_reason": stop_reason,
                         "stop_sequence": None,
@@ -731,6 +767,7 @@ class FakeClaudeCli:
                 }
             )
             entries.append(entry)
+        self._emit_message_delta(stop_reason)
         return entries
 
     def _append_tool_result(
@@ -782,6 +819,21 @@ class FakeClaudeCli:
             }
         )
 
+    def _emit_message_delta(self, stop_reason: str) -> None:
+        self._channel.emit(
+            {
+                "type": "stream_event",
+                "uuid": str(uuid.uuid4()),
+                "session_id": self._require_transcript().session_id,
+                "event": {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+                    "usage": {"output_tokens": MODEL_CALL_USAGE["output_tokens"]},
+                },
+                "parent_tool_use_id": None,
+            }
+        )
+
     def _emit_system_init(self, sdk_servers: list[str]) -> None:
         self._channel.emit(
             {
@@ -823,7 +875,13 @@ class FakeClaudeCli:
         deferred_tool_use: dict[str, Any] | None = None,
         errors: list[str] | None = None,
     ) -> None:
-        usage = {key: value * self._model_call_count for key, value in MODEL_CALL_USAGE.items()}
+        model_call_count = self._model_call_count + self._subagent_model_call_count
+        usage = {key: value * model_call_count for key, value in MODEL_CALL_USAGE.items()}
+        model_usage = {MODEL_NAME: _model_usage_entry(self._model_call_count)}
+        if self._subagent_model_call_count:
+            model_usage[SUBAGENT_RESPONSE_MODEL_NAME] = _model_usage_entry(
+                self._subagent_model_call_count
+            )
         result: dict[str, Any] = {
             "type": "result",
             "subtype": "error_during_execution" if is_error else "success",
@@ -836,6 +894,7 @@ class FakeClaudeCli:
             "stop_reason": stop_reason,
             "total_cost_usd": 0.0,
             "usage": usage,
+            "modelUsage": model_usage,
             "uuid": str(uuid.uuid4()),
         }
         if deferred_tool_use is not None:
@@ -859,6 +918,21 @@ class FakeClaudeCli:
         if self._mcp is None:
             raise RuntimeError("the MCP servers are not connected yet")
         return self._mcp
+
+
+def _model_usage_entry(model_call_count: int) -> dict[str, Any]:
+    return {
+        "inputTokens": MODEL_CALL_USAGE["input_tokens"] * model_call_count,
+        "outputTokens": MODEL_CALL_USAGE["output_tokens"] * model_call_count,
+        "cacheReadInputTokens": MODEL_CALL_USAGE["cache_read_input_tokens"] * model_call_count,
+        "cacheCreationInputTokens": MODEL_CALL_USAGE["cache_creation_input_tokens"]
+        * model_call_count,
+        "webSearchRequests": 0,
+        "costUSD": 0.0,
+        "contextWindow": 200_000,
+        "maxOutputTokens": 32_000,
+        "provider": MODEL_PROVIDER,
+    }
 
 
 def _parse_tool_requests(script: str) -> list[ToolRequest]:

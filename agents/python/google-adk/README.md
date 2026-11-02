@@ -283,6 +283,25 @@ usage metadata: `input_tokens` counts prompt and tool-use prompt tokens,
 `output_tokens` counts candidate and thought tokens, and `model_calls` counts
 model requests.
 
+## Tracing
+
+With tracing on in `AgentSessionOptions.tracing`, each `RunModel` returns
+`ModelCallMetadata` for its `chat` span, taken from the plugin's model
+callbacks:
+
+| Field | Source |
+| --- | --- |
+| `request_model` | `LlmRequest.model`, when every model call of the `RunModel` requested the same model |
+| `response_model` | `LlmResponse.model_version` of the complete responses, for a single model call |
+| `finish_reasons` | The last reported `LlmResponse.finish_reason`, lowercased as ADK's telemetry does, for a single model call |
+| `provider_name` | Never set. ADK names no provider for a call; its telemetry guesses one from the model name, and a custom `BaseLlm` can serve any model |
+| `response_id` | Never set. `LlmResponse` does not carry the provider's response ID |
+
+A `RunModel` whose agents continue without tools makes several model calls,
+so its span is `INTERNAL` and carries only a shared request model. The
+responses of parallel branches interleave, so the adapter cannot tell which
+call each one answered.
+
 ## Testing
 
 `ci.sh` installs the locked dependencies, runs ruff, the format check, and

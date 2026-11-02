@@ -290,6 +290,34 @@ workflows durably, is a follow-up. Until then, model the workflow as a Dex Flow,
 or call it from a Mastra tool and give that tool a write effect so it runs once
 in its own Step.
 
+## Tracing
+
+With the session's `tracing` option, each `RunModel` returns
+`modelCallMetadata`, so its `chat` span is named `chat <modelId>`:
+
+| Field | Source |
+| --- | --- |
+| `requestModel` | `modelId` of the step's `step-start` chunk, the model Mastra resolved for the step |
+| `providerName` | `provider` of the same chunk, mapped to its well-known `gen_ai.provider.name` value |
+| `responseModel` | The step result's `response.modelId`, only when it differs from the requested model |
+| `responseId` | Never set |
+| `finishReasons` | `[finishReason]` of the step result, Mastra's value, such as `tool-calls` |
+
+`providerName` maps the AI SDK provider ID, or the provider ID of Mastra's model
+router, by its longest known dot-separated prefix to a value of the pinned
+GenAI semantic conventions, as the Vercel AI SDK adapter does: for example,
+`openai.chat` becomes `openai`, `google.generative-ai` and the router's
+`google` become `gcp.gemini`, and `xai.responses` becomes `x_ai`. Any other
+ID, such as `openai-compatible`, passes through unchanged.
+
+When the provider sends no response ID or response model, Mastra fills in a
+generated ID and the requested model ID, and its public API does not say which
+values the provider sent. So `responseId` is never set, and `responseModel` is
+set only when it differs from the requested model. When one `RunModel` makes
+several model calls, such as after a sub-agent tool Mastra runs itself, the
+model and provider fields are set only when every call shares them, and
+`finishReasons` is left out. A sub-agent's own model calls are not reported.
+
 ## Limits
 
 - Every model call replays the whole history to `agent.stream()` as input
@@ -351,7 +379,9 @@ cover:
   allowed, an agent tool a sub-agent tool would replace, a `RequestContext`
   that selects a Memory thread, and replay order under a Worker clock that runs
   ahead;
-- snapshots and message paging.
+- snapshots and message paging;
+- the model call metadata on each `chat` span, read from an in-memory
+  OpenTelemetry exporter.
 
 ## Design decisions
 
