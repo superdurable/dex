@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pytest
@@ -21,6 +21,7 @@ import pytest_asyncio
 from litellm.exceptions import UnsupportedParamsError
 
 from dex_agents import (
+    BUILT_IN_TOOL_DEFINITIONS,
     AgentMessage,
     AgentTurnContext,
     BuiltInTool,
@@ -38,6 +39,7 @@ from dex_agents.stepwise import (
     ModelRequestMetadata,
     ModelSettings,
     ModelToolDefinition,
+    NamedToolChoice,
     StepwiseAgentRunner,
     ToolResultItem,
     UserTextItem,
@@ -303,46 +305,193 @@ async def test_a_planning_turn_offers_write_todos_without_forcing_and_a_text_ans
     assert sent.get("tool_choice", {"type": "auto"})["type"] == "auto"
 
 
-def test_a_required_planning_tool_choice_is_refused_for_a_model_that_cannot_be_forced() -> None:
-    for refusing in (
-        LiteLLMModelClient("anthropic/claude-opus-5-5"),
-        LiteLLMModelClient("bedrock/us.anthropic.claude-sonnet-5-5"),
-        LiteLLMModelClient(
+@dataclass(frozen=True)
+class ForcedToolChoiceCase:
+    model: str
+    request_options: Mapping[str, Any] = field(default_factory=dict)
+    settings: ModelSettings = field(default_factory=ModelSettings)
+
+
+ANTHROPIC_THINKING = {"thinking": {"type": "enabled", "budget_tokens": 2048}}
+FORCED_TOOL_CHOICE_CASES: list[tuple[str, ForcedToolChoiceCase, bool]] = [
+    # The model map marks these models as refusing a forced tool choice.
+    ("Claude Opus 5.5", ForcedToolChoiceCase("anthropic/claude-opus-5-5"), False),
+    ("Claude Sonnet 5.5", ForcedToolChoiceCase("anthropic/claude-sonnet-5-5"), False),
+    ("bare Claude Fable 5.1", ForcedToolChoiceCase("claude-fable-5-1"), False),
+    ("Bedrock Claude 5.5", ForcedToolChoiceCase("bedrock/us.anthropic.claude-sonnet-5-5"), False),
+    (
+        "versioned Vertex Claude 5.5",
+        ForcedToolChoiceCase("vertex_ai/claude-opus-5-5@20261001"),
+        False,
+    ),
+    ("Claude Sonnet 4.5", ForcedToolChoiceCase("anthropic/claude-sonnet-4-5"), True),
+    ("OpenAI", ForcedToolChoiceCase("openai/gpt-5-mini"), True),
+    ("a model LiteLLM does not know", ForcedToolChoiceCase("made-up/model-x"), True),
+    # Anthropic extended thinking refuses a forced tool choice.
+    (
+        "thinking in request options",
+        ForcedToolChoiceCase("anthropic/claude-sonnet-4-5", ANTHROPIC_THINKING),
+        False,
+    ),
+    (
+        "adaptive thinking in provider options",
+        ForcedToolChoiceCase(
             "anthropic/claude-sonnet-4-5",
-            request_options={"thinking": {"type": "enabled", "budget_tokens": 2048}},
+            settings=ModelSettings(provider_options={"thinking": {"type": "adaptive"}}),
         ),
-    ):
-        with pytest.raises(ValueError, match="planning_tool_choice='required' needs a model"):
-            _planning_definition(refusing, planning_tool_choice="required")
-    with pytest.raises(ValueError, match="planning_tool_choice='required' needs a model"):
-        AgentDefinition(
-            name="planner",
-            instructions="Help.",
-            model=LiteLLMModelClient("anthropic/claude-sonnet-4-5"),
-            model_settings=ModelSettings(provider_options={"thinking": {"type": "adaptive"}}),
-            built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),
-            planning_tool_choice="required",
+        False,
+    ),
+    (
+        "disabled thinking",
+        ForcedToolChoiceCase("anthropic/claude-sonnet-4-5", {"thinking": {"type": "disabled"}}),
+        True,
+    ),
+    # LiteLLM turns reasoning_effort into thinking for models it routes to Anthropic.
+    (
+        "reasoning effort on Anthropic",
+        ForcedToolChoiceCase(
+            "anthropic/claude-sonnet-4-5", settings=ModelSettings(reasoning_effort="high")
+        ),
+        False,
+    ),
+    (
+        "reasoning effort on bare Claude",
+        ForcedToolChoiceCase("claude-sonnet-4-5", settings=ModelSettings(reasoning_effort="low")),
+        False,
+    ),
+    (
+        "reasoning effort on Bedrock Claude",
+        ForcedToolChoiceCase(
+            "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            settings=ModelSettings(reasoning_effort="medium"),
+        ),
+        False,
+    ),
+    (
+        "reasoning effort on Vertex Claude",
+        ForcedToolChoiceCase(
+            "vertex_ai/claude-sonnet-4-5", settings=ModelSettings(reasoning_effort="high")
+        ),
+        False,
+    ),
+    (
+        "reasoning effort in provider options",
+        ForcedToolChoiceCase(
+            "anthropic/claude-sonnet-4-5",
+            settings=ModelSettings(provider_options={"reasoning_effort": "high"}),
+        ),
+        False,
+    ),
+    (
+        "reasoning effort none",
+        ForcedToolChoiceCase(
+            "anthropic/claude-sonnet-4-5", settings=ModelSettings(reasoning_effort="none")
+        ),
+        True,
+    ),
+    # Other providers accept a forced tool choice with thinking or reasoning.
+    (
+        "reasoning effort on OpenAI",
+        ForcedToolChoiceCase("openai/gpt-5-mini", settings=ModelSettings(reasoning_effort="high")),
+        True,
+    ),
+    ("thinking on Gemini", ForcedToolChoiceCase("gemini/gemini-2.5-pro", ANTHROPIC_THINKING), True),
+    (
+        "reasoning effort on Gemini",
+        ForcedToolChoiceCase(
+            "gemini/gemini-2.5-pro", settings=ModelSettings(reasoning_effort="high")
+        ),
+        True,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("case", "is_accepted"),
+    [(case, is_accepted) for _, case, is_accepted in FORCED_TOOL_CHOICE_CASES],
+    ids=[name for name, _, _ in FORCED_TOOL_CHOICE_CASES],
+)
+def test_a_required_planning_tool_choice_is_accepted_only_where_forcing_works(
+    case: ForcedToolChoiceCase, is_accepted: bool
+) -> None:
+    client = LiteLLMModelClient(case.model, request_options=case.request_options)
+    assert client.supports_forced_tool_choice(case.settings) is is_accepted
+
+    if is_accepted:
+        definition = _planning_definition(
+            client, planning_tool_choice="required", model_settings=case.settings
         )
+        assert definition.planning_tool_choice == "required"
+    else:
+        with pytest.raises(ValueError, match="planning_tool_choice='required' needs a model"):
+            _planning_definition(
+                client, planning_tool_choice="required", model_settings=case.settings
+            )
+        # The default leaves the choice to the model, so every model can plan.
+        assert _planning_definition(client, model_settings=case.settings)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        ModelSettings(),
+        ModelSettings(reasoning_effort="high"),
+        ModelSettings(reasoning_effort="none"),
+        ModelSettings(provider_options={"thinking": {"type": "enabled", "budget_tokens": 2048}}),
+        ModelSettings(provider_options={"thinking": {"type": "disabled"}}),
+    ],
+    ids=["no thinking", "reasoning effort", "reasoning effort none", "thinking", "thinking off"],
+)
+async def test_forcing_is_reported_refused_exactly_when_litellm_sends_thinking_with_it(
+    transport: FakeProviderTransport, settings: ModelSettings
+) -> None:
+    client = LiteLLMModelClient(
+        "anthropic/claude-sonnet-4-5", api_base=transport.base_url, api_key_provider=lambda: "sk"
+    )
+    transport.responses.append((400, []))
+    request = replace(
+        _request([UserTextItem(text="Plan the migration")]),
+        tools=[_write_todos_definition()],
+        tool_choice=NamedToolChoice(tool_name="write_todos"),
+        settings=settings,
+    )
+
+    with pytest.raises(Exception):  # noqa: B017 - the fake provider answers 400
+        await client.call_model(request, RecordedOutput())
+
+    _, sent = transport.requests[0]
+    thinking = sent.get("thinking")
+    sends_thinking = isinstance(thinking, dict) and thinking.get("type") != "disabled"
+    assert sent["tool_choice"]["type"] == "tool"
+    assert client.supports_forced_tool_choice(settings) is not sends_thinking
+
+
+def test_an_unknown_planning_tool_choice_is_refused() -> None:
     with pytest.raises(ValueError, match="must be 'auto' or 'required'"):
         _planning_definition(LiteLLMModelClient("openai/gpt-5-mini"), planning_tool_choice="none")
-    assert (
-        _planning_definition(
-            LiteLLMModelClient("openai/gpt-5-mini"), planning_tool_choice="required"
-        ).planning_tool_choice
-        == "required"
-    )
 
 
 def _planning_definition(
-    client: LiteLLMModelClient, *, planning_tool_choice: Any = "auto"
+    client: LiteLLMModelClient,
+    *,
+    planning_tool_choice: Any = "auto",
+    model_settings: ModelSettings | None = None,
 ) -> AgentDefinition:
     return AgentDefinition(
         name="planner",
         instructions="Help.",
         model=client,
+        model_settings=model_settings or ModelSettings(),
         built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),
         plan_mode_enabled=True,
         planning_tool_choice=planning_tool_choice,
+    )
+
+
+def _write_todos_definition() -> ModelToolDefinition:
+    definition = next(item for item in BUILT_IN_TOOL_DEFINITIONS if item.name == "write_todos")
+    return ModelToolDefinition(
+        name=definition.name, description=definition.description, parameters=definition.parameters
     )
 
 

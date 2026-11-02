@@ -224,7 +224,9 @@ application enables it.
   `required` forces `write_todos` on the first call while no draft exists. In
   Python, `required` is refused for a model client whose
   `supports_forced_tool_choice` returns false, as `LiteLLMModelClient` does
-  for Claude Opus 5.5, Claude Sonnet 5.5, and extended thinking.
+  for Claude Opus 5.5, Claude Sonnet 5.5, and Anthropic extended thinking,
+  which on an Anthropic, Bedrock Claude, or Vertex AI Claude model is a
+  `thinking` option or any `reasoning_effort` but `"none"`.
   `InstructionContext` gains `interaction_mode` and `plan`.
 - Both cores reject `NaN` and `Infinity` in built-in tool arguments and report
   the first unknown argument by code point, so the errors the model sees are
