@@ -145,6 +145,13 @@ export interface AgentToolCall {
    * absent when it stored none. Wire field: `tool_source_reference`, `null` when absent.
    */
   readonly toolSourceReference?: string;
+  /**
+   * W3C `traceparent` of the activation root that the call's `execute_tool` spans join; absent when
+   * none recorded. The session sets it when `RunModel` defers the call and again when an approval
+   * starts a new activation, so parallel activations never swap tool spans. Wire field:
+   * `trace_context`, `null` when absent.
+   */
+  readonly traceContext?: string;
 }
 
 /** One pending approval request, stored in the `PendingInterrupts` Attribute. */

@@ -218,6 +218,44 @@ export interface DeferredToolCall {
   readonly toolSourceReference?: string;
 }
 
+/**
+ * Model and response of one model call, returned in {@link TurnCompleted} or {@link ToolCallsRequested}
+ * for tracing.
+ *
+ * The session never stores it: it only names the `chat` span and sets its GenAI attributes. Omit a
+ * field when the framework does not expose it.
+ *
+ * @example
+ * ```ts
+ * const modelCallMetadata: ModelCallMetadata = {
+ *   requestModel: "gpt-5",
+ *   responseModel: "gpt-5-2026-08-07",
+ *   providerName: "openai",
+ *   responseId: "resp_123",
+ *   finishReasons: ["tool_calls"],
+ * };
+ * return { kind: "tool_calls_requested", frameworkRunState, toolCalls, usage, modelCallMetadata };
+ * ```
+ */
+export interface ModelCallMetadata {
+  /**
+   * Model name the call requested, such as `"gpt-5"`. It becomes `gen_ai.request.model` and the span
+   * name `chat <requestModel>`.
+   */
+  readonly requestModel?: string;
+  /** Model name the provider reported. */
+  readonly responseModel?: string;
+  /**
+   * GenAI provider, such as `"openai"`, `"anthropic"`, or `"gcp.gemini"`. Use the well-known
+   * `gen_ai.provider.name` value when one applies.
+   */
+  readonly providerName?: string;
+  /** Provider response ID. */
+  readonly responseId?: string;
+  /** Provider finish reasons, one per returned choice. */
+  readonly finishReasons?: readonly string[];
+}
+
 /** Outcome of a model call that produced the turn's final answer. */
 export interface TurnCompleted {
   /** Discriminator. */
@@ -230,6 +268,8 @@ export interface TurnCompleted {
   readonly newMessages: readonly FrameworkMessage[];
   /** Usage of this model call only; the session adds it to the cumulative usage. */
   readonly usage: AgentUsage;
+  /** Model and response of this model call, for the `chat` span. When omitted, the span is named `chat`. */
+  readonly modelCallMetadata?: ModelCallMetadata;
 }
 
 /** Outcome of a model call that requested tool calls. */
@@ -250,6 +290,8 @@ export interface ToolCallsRequested {
   readonly toolCalls: readonly DeferredToolCall[];
   /** Usage of this model call only. */
   readonly usage: AgentUsage;
+  /** Model and response of this model call, for the `chat` span. When omitted, the span is named `chat`. */
+  readonly modelCallMetadata?: ModelCallMetadata;
 }
 
 /** Result of {@link AgentFrameworkRunner.runModelStep}. */

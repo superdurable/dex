@@ -12,6 +12,7 @@
 adapter implements ``AgentFrameworkRunner`` and passes it to the Flow; the
 Flow runs every model call and every tool call as its own Step, and owns the
 conversation, tool approvals, and live events. See the package README for the full contract.
+``AgentTracingOptions`` configures its optional OpenTelemetry GenAI spans.
 """
 
 from dex_agents.client import AgentSessionClient
@@ -20,6 +21,7 @@ from dex_agents.persistence import (
     AGENT_MESSAGES,
     AGENT_STATE,
     AGENT_TOOL_CALLS,
+    AGENT_TRACE_CONTEXT,
     AGENT_USAGE,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     FRAMEWORK_RUN_STATE,
@@ -41,6 +43,7 @@ from dex_agents.runner import (
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
+    ModelCallMetadata,
     ToolCallsRequested,
     ToolExecutionError,
     ToolExecutionResult,
@@ -51,6 +54,7 @@ from dex_agents.runner import (
     resolve_tool_policy,
 )
 from dex_agents.session_flow import AgentSessionFlow, AgentSessionOptions
+from dex_agents.tracing import AgentTracingOptions, GenAISemanticConventionsVersion
 from dex_agents.values import (
     AgentEvent,
     AgentInterrupt,
@@ -77,6 +81,7 @@ __all__ = [
     "AGENT_MESSAGES",
     "AGENT_STATE",
     "AGENT_TOOL_CALLS",
+    "AGENT_TRACE_CONTEXT",
     "AGENT_USAGE",
     "APPROVAL_DEADLINE_PASSED",
     "DEFAULT_AGENT_EVENTS_CAPACITY_BYTES",
@@ -105,6 +110,7 @@ __all__ = [
     "AgentSnapshot",
     "AgentState",
     "AgentToolCall",
+    "AgentTracingOptions",
     "AgentTurnContext",
     "AgentTurnOutcome",
     "AgentUsage",
@@ -112,9 +118,11 @@ __all__ = [
     "DeferredToolCall",
     "DeferredToolExecution",
     "FrameworkMessage",
+    "GenAISemanticConventionsVersion",
     "InterruptKind",
     "ListAgentMessagesRequest",
     "MessageRole",
+    "ModelCallMetadata",
     "ResolveInterruptRequest",
     "ToolCallCompleted",
     "ToolCallStatus",

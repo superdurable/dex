@@ -243,6 +243,43 @@ class DeferredToolCall:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ModelCallMetadata:
+    """Describe the model and response of one model call, for tracing.
+
+    Return it as ``model_call_metadata`` in ``TurnCompleted`` or
+    ``ToolCallsRequested``. The session never stores it: it only names the
+    ``chat`` span and sets its GenAI attributes. Leave a field ``None`` when the
+    framework does not expose it.
+
+    Example:
+        >>> ModelCallMetadata(
+        ...     request_model="gpt-5",
+        ...     response_model="gpt-5-2026-08-07",
+        ...     provider_name="openai",
+        ...     response_id="resp_123",
+        ...     finish_reasons=("tool_calls",),
+        ... )
+
+    Attributes:
+        request_model: Model name the call requested, such as ``"gpt-5"``. It
+            becomes ``gen_ai.request.model`` and the span name
+            ``chat <request_model>``.
+        response_model: Model name the provider reported, or ``None``.
+        provider_name: GenAI provider, such as ``"openai"``, ``"anthropic"``, or
+            ``"gcp.gemini"``. Use the well-known ``gen_ai.provider.name`` value
+            when one applies.
+        response_id: Provider response ID, or ``None``.
+        finish_reasons: Provider finish reasons, one per returned choice.
+    """
+
+    request_model: str | None = None
+    response_model: str | None = None
+    provider_name: str | None = None
+    response_id: str | None = None
+    finish_reasons: Sequence[str] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
 class TurnCompleted:
     """Report that the model call produced the turn's final answer.
 
@@ -252,10 +289,13 @@ class TurnCompleted:
             requests, tool results, and the final answer. The session appends
             them in one commit.
         usage: Usage of this model call only.
+        model_call_metadata: Model and response of this model call, for the
+            ``chat`` span. ``None``, the default, leaves the span named ``chat``.
     """
 
     new_messages: Sequence[FrameworkMessage]
     usage: AgentUsage = field(default_factory=AgentUsage)
+    model_call_metadata: ModelCallMetadata | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -273,11 +313,14 @@ class ToolCallsRequested:
             returns it unchanged as ``AgentTurnContext.framework_run_state``.
         tool_calls: At least one tool call, in the order the model made them.
         usage: Usage of this model call only.
+        model_call_metadata: Model and response of this model call, for the
+            ``chat`` span. ``None``, the default, leaves the span named ``chat``.
     """
 
     framework_run_state: str
     tool_calls: Sequence[DeferredToolCall]
     usage: AgentUsage = field(default_factory=AgentUsage)
+    model_call_metadata: ModelCallMetadata | None = None
 
 
 #: The result of one ``run_model_step`` call.

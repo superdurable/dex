@@ -48,11 +48,13 @@ from dex import (
 )
 from dex.condition import Condition
 
+from dex_agents._session_tracing import AgentSessionTracer
 from dex_agents.events import AgentEventType, AgentEventWriter
 from dex_agents.persistence import (
     AGENT_MESSAGES,
     AGENT_STATE,
     AGENT_TOOL_CALLS,
+    AGENT_TRACE_CONTEXT,
     AGENT_USAGE,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     FRAMEWORK_RUN_STATE,
@@ -74,6 +76,7 @@ from dex_agents.runner import (
     TurnCompleted,
     build_turn_failure_note,
 )
+from dex_agents.tracing import AgentTracingOptions
 from dex_agents.values import (
     AgentEvent,
     AgentInterrupt,
@@ -106,7 +109,7 @@ MULTI_ATTEMPT_TOOL_EFFECTS = (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE)
 
 @dataclass(frozen=True, kw_only=True)
 class AgentSessionOptions:
-    """Configure tool policies, live events, and approval deadlines for one agent.
+    """Configure tool policies, live events, approval deadlines, and tracing for one agent.
 
     Pass it to ``AgentSessionFlow``. Options are read when Steps run, so a
     change applies to running sessions after the Worker restarts.
@@ -116,6 +119,7 @@ class AgentSessionOptions:
         ...     tool_policies={"search": ToolPolicy(ToolEffect.READ)},
         ...     default_tool_effect=ToolEffect.UNCLASSIFIED,
         ...     interrupt_deadline=timedelta(hours=24),
+        ...     tracing=AgentTracingOptions(agent_name="Triage"),
         ... )
 
     Attributes:
@@ -130,6 +134,9 @@ class AgentSessionOptions:
         interrupt_deadline: How long an approval may stay pending before the
             session rejects it with ``"approval deadline passed"``. ``None``, the
             default, waits indefinitely.
+        tracing: OpenTelemetry GenAI span options. The default emits spans
+            through the global tracer provider when the OpenTelemetry API is
+            installed, and nothing otherwise.
 
     Raises:
         ValueError: If ``event_stream_capacity_bytes`` or ``interrupt_deadline``
@@ -140,6 +147,7 @@ class AgentSessionOptions:
     default_tool_effect: ToolEffect = ToolEffect.UNCLASSIFIED
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES
     interrupt_deadline: timedelta | None = None
+    tracing: AgentTracingOptions = field(default_factory=AgentTracingOptions)
 
     def __post_init__(self) -> None:
         if self.event_stream_capacity_bytes <= 0:
@@ -183,6 +191,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         queued_user_messages: The ``QueuedUserMessages`` Channel.
         interrupt_resolutions: The ``InterruptResolutions`` ChannelMap.
         tool_call_results: The internal ``ToolCallResults`` Channel.
+        agent_trace_context: The ``AgentTraceContext`` Attribute: the W3C
+            ``traceparent`` of the current activation's root span, set when
+            that span has a valid context, sampled or not.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -196,6 +207,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     queued_user_messages = QUEUED_USER_MESSAGES
     interrupt_resolutions = INTERRUPT_RESOLUTIONS
     tool_call_results = TOOL_CALL_RESULTS
+    agent_trace_context = AGENT_TRACE_CONTEXT
 
     def __init__(
         self,
@@ -213,8 +225,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             runner: The framework runner. The Flow owns no other dependency.
             flow_type: Protocol Flow type, unique within the Registry, such as
                 ``"TriageAgent"``. Keep it stable: running sessions resume by it.
-            options: Tool policies, Stream capacity, and approval deadline.
-                ``None`` uses ``AgentSessionOptions()``.
+            options: Tool policies, Stream capacity, approval deadline, and
+                tracing. ``None`` uses ``AgentSessionOptions()``.
 
         Raises:
             ValueError: If ``flow_type`` is empty or whitespace-only.
@@ -224,6 +236,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self._runner = runner
         self._flow_type = flow_type
         self._options = options or AgentSessionOptions()
+        self._session_tracer = AgentSessionTracer(self._options.tracing, flow_type)
         self.agent_events: Stream[AgentEvent] = Stream(
             "AgentEvents", AgentEvent, self._options.event_stream_capacity_bytes
         )
@@ -285,6 +298,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     def get_persistence_schema(self) -> PersistenceSchema:
         """Return the session Attributes, Channels, and ``AgentEvents`` Stream.
 
+        ``AgentTraceContext`` is always registered, so Workers with and without
+        tracing can serve the same Flow type.
+
         Returns:
             The persistence schema shared by every agent session Flow type.
         """
@@ -298,6 +314,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             QUEUED_USER_MESSAGES,
             INTERRUPT_RESOLUTIONS,
             TOOL_CALL_RESULTS,
+            AGENT_TRACE_CONTEXT,
             self.agent_events,
         )
 
@@ -425,21 +442,24 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             )
         )
 
-    def _begin_turn(self, context: AsyncContext, text: str) -> StepDecision:
+    def _begin_turn(self, context: AsyncContext, text: str, step_type: str) -> StepDecision:
         state = _require_agent_state(context)
         turn_id = f"turn-{state.turn_count + 1}"
-        user_message = self._runner.build_user_message(text)
-        if user_message.role is not MessageRole.USER:
-            raise ValueError("build_user_message must return a user message")
         sequence = state.next_message_sequence
-        state = _append_messages(context, state, turn_id, [user_message])
-        AGENT_STATE.set(
-            context,
-            replace(state, status=AgentSessionStatus.RUNNING_MODEL, active_turn_id=turn_id),
-        )
-        self._event_writer(context, turn_id).write_event(
-            AgentEventType.TURN_STARTED, {"sequence": sequence}
-        )
+        with self._session_tracer.trace_user_message_activation(
+            context, step_type, turn_id, message_sequence_key(sequence), text
+        ):
+            user_message = self._runner.build_user_message(text)
+            if user_message.role is not MessageRole.USER:
+                raise ValueError("build_user_message must return a user message")
+            state = _append_messages(context, state, turn_id, [user_message])
+            AGENT_STATE.set(
+                context,
+                replace(state, status=AgentSessionStatus.RUNNING_MODEL, active_turn_id=turn_id),
+            )
+            self._event_writer(context, turn_id).write_event(
+                AgentEventType.TURN_STARTED, {"sequence": sequence}
+            )
         return go_to(self._run_model, None)
 
     async def _run_model_step(self, context: AsyncContext) -> StepDecision:
@@ -461,13 +481,24 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             events=events,
             heartbeat=context.heartbeat,
         )
-        async with _background_heartbeats(context.heartbeat):
-            outcome = await self._runner.run_model_step(turn)
-        if isinstance(outcome, TurnCompleted):
-            return self._complete_turn(context, state, tool_calls, outcome, events)
-        if isinstance(outcome, ToolCallsRequested):
-            return self._start_tool_calls(context, state, tool_calls, outcome, events)
-        raise TypeError("run_model_step must return TurnCompleted or ToolCallsRequested")
+        with self._session_tracer.trace_model_call(
+            context, self._run_model.get_step_type(), turn
+        ) as model_call_span:
+            async with _background_heartbeats(context.heartbeat):
+                outcome = await self._runner.run_model_step(turn)
+            if isinstance(outcome, TurnCompleted):
+                model_call_span.record_outcome(
+                    outcome,
+                    [
+                        message_sequence_key(state.next_message_sequence + offset)
+                        for offset in range(len(outcome.new_messages))
+                    ],
+                )
+                return self._complete_turn(context, state, tool_calls, outcome, events)
+            if isinstance(outcome, ToolCallsRequested):
+                model_call_span.record_outcome(outcome, [])
+                return self._start_tool_calls(context, state, tool_calls, outcome, events)
+            raise TypeError("run_model_step must return TurnCompleted or ToolCallsRequested")
 
     def _complete_turn(
         self,
@@ -517,6 +548,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             else (now + self._options.interrupt_deadline).isoformat()
         )
         interrupts = _pending_interrupts(context)
+        trace_context = self._session_tracer.read_activation_traceparent(context)
         movements: list[StepMovement[str]] = []
         for index, requested in enumerate(outcome.tool_calls):
             requires_approval = requested.policy.is_approval_required
@@ -534,6 +566,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 ),
                 deferral_order=len(tool_calls) + index,
                 tool_source_reference=requested.tool_source_reference,
+                trace_context=trace_context,
             )
             AGENT_TOOL_CALLS.set(context, tool_call.tool_call_id, tool_call)
             events.write_event(
@@ -594,7 +627,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         events = self._event_writer(context, tool_call.turn_id)
         resolutions = INTERRUPT_RESOLUTIONS.results(context, tool_call_id)
         if resolutions:
-            return self._resolve_tool_approval(context, tool_call, resolutions[0], events)
+            return self._resolve_tool_approval(
+                context, tool_call, resolutions[0], events, is_deadline_passed=False
+            )
         if not context.has_timer_fired():
             raise RuntimeError(f"the approval wait for {tool_call_id} completed without an answer")
         interrupt = _pending_interrupt(context, tool_call_id)
@@ -616,6 +651,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             tool_call,
             AgentInterruptResolution(approved=False, rejection_message=APPROVAL_DEADLINE_PASSED),
             events,
+            is_deadline_passed=True,
         )
 
     def _resolve_tool_approval(
@@ -624,54 +660,77 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_call: AgentToolCall,
         resolution: AgentInterruptResolution,
         events: AgentEventWriter,
+        *,
+        is_deadline_passed: bool,
     ) -> StepDecision:
-        events.write_event(
-            AgentEventType.INTERRUPT_RESOLVED,
-            {
-                "interrupt_id": tool_call.tool_call_id,
-                "approved": resolution.approved,
-                "rejection_message": resolution.rejection_message,
-            },
-        )
-        if resolution.approved:
-            approved = replace(tool_call, status=ToolCallStatus.APPROVED)
-            AGENT_TOOL_CALLS.set(context, approved.tool_call_id, approved)
-            return go_to_many(self._tool_call_movement(approved))
-        rejected = replace(
-            tool_call,
-            status=ToolCallStatus.REJECTED,
-            rejection_message=resolution.rejection_message,
-        )
-        return _finish_tool_call(context, rejected, events)
+        with self._session_tracer.trace_interrupt_activation(
+            context,
+            self._await_tool_approval.get_step_type(),
+            tool_call.turn_id,
+            tool_call.tool_call_id,
+            resolution.approved,
+            is_deadline_passed,
+        ) as activation:
+            events.write_event(
+                AgentEventType.INTERRUPT_RESOLVED,
+                {
+                    "interrupt_id": tool_call.tool_call_id,
+                    "approved": resolution.approved,
+                    "rejection_message": resolution.rejection_message,
+                },
+            )
+            if resolution.approved:
+                approved = replace(
+                    tool_call,
+                    status=ToolCallStatus.APPROVED,
+                    trace_context=activation.traceparent,
+                )
+                AGENT_TOOL_CALLS.set(context, approved.tool_call_id, approved)
+                return go_to_many(self._tool_call_movement(approved))
+            rejected = replace(
+                tool_call,
+                status=ToolCallStatus.REJECTED,
+                rejection_message=resolution.rejection_message,
+            )
+            return _finish_tool_call(context, rejected, events)
 
-    async def _run_tool_call(self, context: AsyncContext, tool_call_id: str) -> StepDecision:
+    async def _run_tool_call(
+        self,
+        context: AsyncContext,
+        tool_call_id: str,
+        step_type: str,
+    ) -> StepDecision:
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         if tool_call.status.is_final:
             return dead_end()
         if tool_call.status is not ToolCallStatus.APPROVED:
             raise RuntimeError(f"tool call {tool_call_id} is not approved")
-        events = self._event_writer(context, tool_call.turn_id)
-        events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
-        heartbeats = _ToolStepHeartbeats(context)
-        # Dex may redeliver a task without output to another Worker, at the same attempt.
-        await heartbeats.record()
-        execution = DeferredToolExecution(
-            flow_id=context.flow_id,
-            tool_call=tool_call,
-            idempotency_key=f"{context.flow_id}/{tool_call.turn_id}/{tool_call.tool_call_id}",
-            attempt=context.attempt,
-            events=events,
-            heartbeat=heartbeats.record,
-            heartbeat_checkpoint=heartbeats.previous_checkpoint,
-            save_heartbeat_checkpoint=heartbeats.save_checkpoint,
-        )
-        async with _background_heartbeats(heartbeats.record):
-            try:
-                result = await self._runner.execute_deferred_tool_call(execution)
-                finished = replace(tool_call, status=ToolCallStatus.SUCCEEDED, output=result.output)
-            except ToolExecutionError as error:
-                finished = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
-        return _finish_tool_call(context, finished, events)
+        with self._session_tracer.trace_tool_call(context, step_type, tool_call) as tool_call_span:
+            events = self._event_writer(context, tool_call.turn_id)
+            events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
+            heartbeats = _ToolStepHeartbeats(context)
+            # Dex may redeliver a task without output to another Worker, at the same attempt.
+            await heartbeats.record()
+            execution = DeferredToolExecution(
+                flow_id=context.flow_id,
+                tool_call=tool_call,
+                idempotency_key=f"{context.flow_id}/{tool_call.turn_id}/{tool_call.tool_call_id}",
+                attempt=context.attempt,
+                events=events,
+                heartbeat=heartbeats.record,
+                heartbeat_checkpoint=heartbeats.previous_checkpoint,
+                save_heartbeat_checkpoint=heartbeats.save_checkpoint,
+            )
+            async with _background_heartbeats(heartbeats.record):
+                try:
+                    result = await self._runner.execute_deferred_tool_call(execution)
+                    finished = replace(
+                        tool_call, status=ToolCallStatus.SUCCEEDED, output=result.output
+                    )
+                except ToolExecutionError as error:
+                    finished = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
+            tool_call_span.record_finished(finished)
+            return _finish_tool_call(context, finished, events)
 
     def _record_tool_recovery(
         self,
@@ -782,7 +841,7 @@ class StartAgentSession(Step[AgentSessionStartInput]):
         PENDING_INTERRUPTS.set(context, [])
         if input.initial_message is None or not input.initial_message.strip():
             return go_to(self._session._await_user_message, None)
-        return self._session._begin_turn(context, input.initial_message)
+        return self._session._begin_turn(context, input.initial_message, self.get_step_type())
 
 
 class AwaitUserMessage(Step[None]):
@@ -808,7 +867,7 @@ class AwaitUserMessage(Step[None]):
         messages = QUEUED_USER_MESSAGES.results(context)
         if not messages:
             raise RuntimeError("the user message wait completed without a message")
-        return self._session._begin_turn(context, messages[0].text)
+        return self._session._begin_turn(context, messages[0].text, self.get_step_type())
 
 
 class RunModel(Step[None]):
@@ -878,7 +937,7 @@ class CallTool(Step[str]):
         context: AsyncContext,
         input: str,
     ) -> StepDecision:
-        return await self._session._run_tool_call(context, input)
+        return await self._session._run_tool_call(context, input, self.get_step_type())
 
 
 class CallSingleAttemptTool(Step[str]):
@@ -899,7 +958,7 @@ class CallSingleAttemptTool(Step[str]):
         context: AsyncContext,
         input: str,
     ) -> StepDecision:
-        return await self._session._run_tool_call(context, input)
+        return await self._session._run_tool_call(context, input, self.get_step_type())
 
 
 class RecordToolFailure(Step[str]):

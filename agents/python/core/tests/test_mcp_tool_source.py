@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -22,6 +24,19 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from dex import (
+    AsyncClient,
+    AsyncWorker,
+    BlobCacheConfig,
+    ClientOptions,
+    PullWorkerOptions,
+    Registry,
+    WorkerOptions,
+    open_blob_cache,
+)
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
@@ -30,7 +45,9 @@ from dex_agents import (
     AgentInterrupt,
     AgentSessionClient,
     AgentSessionFlow,
+    AgentSessionOptions,
     AgentSnapshot,
+    AgentTracingOptions,
     ToolEffect,
     ToolExecutionError,
     ToolPolicy,
@@ -60,6 +77,7 @@ from tests.mcp_agent import (
     GATEWAY_URL_ENVIRONMENT_VARIABLE,
     HTTP_URL_ENVIRONMENT_VARIABLE,
     TOOL_POLICIES,
+    McpScriptedRunner,
     build_mcp_agent_flow,
     build_mcp_tool_source,
 )
@@ -207,6 +225,72 @@ async def test_annotations_choose_effects_and_policies_win(
     assert untrusted["untrusted__lookup"].framework_effect is None
     assert untrusted["untrusted__lookup"].annotations == McpToolAnnotations(read_only_hint=True)
     assert untrusting.tool_policies() == {}
+
+
+async def test_mcp_tool_calls_emit_execute_tool_spans_in_their_activation(
+    mcp_harness: McpAgentHarness, tmp_path: Path
+) -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    flow = AgentSessionFlow(
+        McpScriptedRunner(build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)),
+        flow_type="TracedMcpScriptedAgent",
+        options=AgentSessionOptions(
+            tool_policies=TOOL_POLICIES, tracing=AgentTracingOptions(tracer_provider=provider)
+        ),
+    )
+    async with _in_process_sessions(
+        mcp_harness.stack.engine.address, flow, tmp_path / "traced-blob-cache"
+    ) as sessions:
+        session_id = mcp_harness.new_session_id()
+        await sessions.start_session(
+            session_id,
+            'call local__lookup {"query": "q"} && call remote__send_message {"text": "hi"}',
+        )
+        interrupt = await wait_for_agent_snapshot(
+            sessions,
+            session_id,
+            lambda snapshot: next(iter(snapshot.pending_interrupts), None),
+            description="a pending approval",
+        )
+        assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=True)
+        await wait_for_agent_snapshot(
+            sessions,
+            session_id,
+            lambda snapshot: snapshot
+            if snapshot.state is not None and snapshot.state.turn_count == 1
+            else None,
+            description="the finished turn",
+        )
+    provider.shutdown()
+
+    spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if (span.attributes or {}).get("gen_ai.conversation.id") == session_id
+    ]
+    roots = {
+        (span.attributes or {}).get("dex.agent.interrupt.id"): span
+        for span in spans
+        if span.name == "invoke_agent TracedMcpScriptedAgent"
+    }
+    for name, step_type, effect, root in (
+        ("execute_tool local__lookup", "CallTool", "read", roots[None]),
+        (
+            "execute_tool remote__send_message",
+            "CallSingleAttemptTool",
+            "unclassified",
+            roots[interrupt.interrupt_id],
+        ),
+    ):
+        (span,) = [candidate for candidate in spans if candidate.name == name]
+        assert span.parent is not None
+        assert span.parent.span_id == root.context.span_id, name
+        attributes = dict(span.attributes or {})
+        assert attributes["dex.step.type"] == step_type, name
+        assert attributes["dex.agent.tool.effect"] == effect, name
+        assert attributes["dex.agent.tool_call.status"] == "succeeded", name
 
 
 async def test_read_tool_reissues_a_call_whose_stream_broke(mcp_harness: McpAgentHarness) -> None:
@@ -530,6 +614,34 @@ async def test_a_server_that_never_answers_the_handshake_is_bounded(
     with pytest.raises(ToolExecutionError, match="did not run"):
         await tools.call_tool("silent__anything", {})
     assert time.monotonic() - started < 15
+
+
+@contextlib.asynccontextmanager
+async def _in_process_sessions(
+    server_address: str, flow: AgentSessionFlow, blob_cache_dir: Path
+) -> AsyncIterator[AgentSessionClient]:
+    """Serves one Flow from a Worker in the test process and yields its session Client."""
+    blob_cache = open_blob_cache(BlobCacheConfig(str(blob_cache_dir), 64 * 1024 * 1024))
+    registry = Registry([flow], allow_async_handlers=True)
+    worker = AsyncWorker(
+        registry,
+        blob_cache,
+        WorkerOptions(
+            server_address=server_address,
+            pull=PullWorkerOptions(max_concurrent_tasks=8, stop_drain_timeout=timedelta(seconds=5)),
+        ),
+    )
+    client = AsyncClient(registry, blob_cache, ClientOptions(server_address=server_address))
+    serving = asyncio.create_task(worker.start())
+    try:
+        await worker.wait_pull_registered(timeout=30)
+        yield AgentSessionClient(client, flow)
+    finally:
+        await client.close()
+        await worker.stop()
+        with contextlib.suppress(asyncio.CancelledError):
+            await serving
+        blob_cache.close()
 
 
 async def _agent_events(harness: McpAgentHarness, session_id: str) -> list[AgentEvent]:

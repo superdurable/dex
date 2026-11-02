@@ -423,12 +423,14 @@ requires-dist = [
     { name = "dex-python-sdk", specifier = "==1.30.0" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20,<2" },
 ]
-provides-extras = ["mcp"]
+provides-extras = ["mcp", "otel"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.15,<2" },
+    { name = "opentelemetry-sdk", specifier = ">=1.45,<2" },
     { name = "pytest", specifier = ">=8.3,<9" },
     { name = "pytest-asyncio", specifier = ">=0.26,<2" },
     { name = "ruff", specifier = ">=0.8,<0.9" },

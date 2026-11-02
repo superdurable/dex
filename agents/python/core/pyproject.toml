@@ -24,6 +24,10 @@ mcp = [
     "httpx2>=2.10,<3",
     "mcp>=2.3,<3",
 ]
+# The OpenTelemetry API only; the application brings the SDK and exporter.
+otel = [
+    "opentelemetry-api>=1.20,<2",
+]
 
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/core"
@@ -33,6 +37,7 @@ Changelog = "https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md"
 [dependency-groups]
 dev = [
     "mypy>=1.15,<2",
+    "opentelemetry-sdk>=1.45,<2",
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.26,<2",
     "ruff>=0.8,<0.9",

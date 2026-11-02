@@ -44,7 +44,7 @@ import {
   ToolStepHeartbeats,
   type AgentSessionTransitions,
 } from "./agent-session-transitions.js";
-import type { AgentSessionPersistence } from "./agent-session-persistence.js";
+import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
 import {
   approvalDeadlinePassed,
   buildTurnFailureNote,
@@ -98,7 +98,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
     if (initialMessage === null || initialMessage.trim() === "") {
       return this.transitions.goToAwaitUserMessage();
     }
-    return this.transitions.beginTurn(context, state, initialMessage);
+    return this.transitions.beginTurn(context, state, initialMessage, this.getStepType());
   }
 }
 
@@ -124,7 +124,12 @@ export class AwaitUserMessageStep implements Step<void> {
     if (message === undefined || message.text.trim() === "") {
       return this.transitions.goToAwaitUserMessage();
     }
-    return this.transitions.beginTurn(context, this.transitions.readAgentState(context), message.text);
+    return this.transitions.beginTurn(
+      context,
+      this.transitions.readAgentState(context),
+      message.text,
+      this.getStepType(),
+    );
   }
 }
 
@@ -182,17 +187,31 @@ export class RunModelStep implements Step<void> {
         recordedToolCall: (toolCallId) => toolCallsById.get(toolCallId),
         heartbeat: () => transitions.recordHeartbeat(context),
       };
-      const outcome = await transitions.runWithHeartbeats(context, () =>
-        transitions.runner.runModelStep(turnContext),
+      return await transitions.tracer.traceModelCall(
+        context,
+        this.getStepType(),
+        turnContext,
+        async (modelCallSpan) => {
+          const outcome = await transitions.runWithHeartbeats(context, () =>
+            transitions.runner.runModelStep(turnContext),
+          );
+          switch (outcome?.kind) {
+            case "completed":
+              modelCallSpan.recordOutcome(
+                outcome,
+                outcome.newMessages.map((_message, offset) =>
+                  messageSequenceKey(state.nextMessageSequence + offset),
+                ),
+              );
+              return this.completeTurn(context, state, turnId, toolCalls, outcome, events);
+            case "tool_calls_requested":
+              modelCallSpan.recordOutcome(outcome, []);
+              return this.requestToolCalls(context, state, turnId, toolCalls, outcome, events);
+            default:
+              throw new TypeError("runModelStep must return a TurnCompleted or ToolCallsRequested outcome");
+          }
+        },
       );
-      switch (outcome?.kind) {
-        case "completed":
-          return this.completeTurn(context, state, turnId, toolCalls, outcome, events);
-        case "tool_calls_requested":
-          return this.requestToolCalls(context, state, turnId, toolCalls, outcome, events);
-        default:
-          throw new TypeError("runModelStep must return a TurnCompleted or ToolCallsRequested outcome");
-      }
     } finally {
       events.close();
     }
@@ -242,6 +261,7 @@ export class RunModelStep implements Step<void> {
         ? null
         : new Date(createdAt.getTime() + transitions.config.interruptDeadlineMs).toISOString();
     const interrupts: AgentInterrupt[] = [];
+    const traceContext = transitions.tracer.readActivationTraceparent(context);
     // goToMany takes movements of mixed input types, which the SDK types as StepMovement<any>.
     const movements: StepMovement<any>[] = [];
     for (const [index, requestedToolCall] of outcome.toolCalls.entries()) {
@@ -262,6 +282,7 @@ export class RunModelStep implements Step<void> {
         ...(requestedToolCall.toolSourceReference === undefined
           ? {}
           : { toolSourceReference: requestedToolCall.toolSourceReference }),
+        ...(traceContext === null ? {} : { traceContext }),
       });
       events.writeEvent("tool_call_deferred", {
         tool_call_id: requestedToolCall.toolCallId,
@@ -356,14 +377,46 @@ export class AwaitToolApprovalStep implements Step<string> {
         context,
         pendingInterrupts.filter((interrupt) => interrupt.interruptId !== toolCallId),
       );
-      return this.rejectToolCall(context, toolCall, approvalDeadlinePassed);
+      return this.applyResolution(context, toolCall, false, approvalDeadlinePassed, true);
     }
-    if (!resolution.approved) {
-      return this.rejectToolCall(context, toolCall, resolution.rejectionMessage);
-    }
-    transitions.writeToolCall(context, { ...toolCall, status: "approved" });
-    this.writeInterruptResolved(context, toolCall, true, null);
-    return goToMany(toolStepMovement(persistence, toolStepTypeForEffect(toolCall.effect), toolCallId));
+    return this.applyResolution(context, toolCall, resolution.approved, resolution.rejectionMessage, false);
+  }
+
+  private applyResolution(
+    context: Context,
+    toolCall: AgentToolCall,
+    isApproved: boolean,
+    rejectionMessage: string | null,
+    isDeadlinePassed: boolean,
+  ): StepDecision {
+    return this.transitions.tracer.traceInterruptActivation(
+      context,
+      this.getStepType(),
+      toolCall.turnId,
+      toolCall.toolCallId,
+      isApproved,
+      isDeadlinePassed,
+      (activation) => {
+        if (!isApproved) {
+          return this.rejectToolCall(context, toolCall, rejectionMessage);
+        }
+        // The approval starts a new activation, so the tool's spans join its root, not the RunModel one.
+        const { traceContext: _deferredTraceContext, ...deferredToolCall } = toolCall;
+        this.transitions.writeToolCall(context, {
+          ...deferredToolCall,
+          status: "approved",
+          ...(activation.traceparent === null ? {} : { traceContext: activation.traceparent }),
+        });
+        this.writeInterruptResolved(context, toolCall, true, null);
+        return goToMany(
+          toolStepMovement(
+            this.transitions.persistence,
+            toolStepTypeForEffect(toolCall.effect),
+            toolCall.toolCallId,
+          ),
+        );
+      },
+    );
   }
 
   private rejectToolCall(
@@ -424,43 +477,46 @@ export class ToolCallStep implements Step<string> {
     }
     const events = transitions.createEventWriter(context, toolCall.turnId);
     try {
-      events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
-      const heartbeats = new ToolStepHeartbeats(context);
-      // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
-      await heartbeats.record();
-      const execution: DeferredToolExecution = {
-        flowId: context.flowId,
-        toolCall,
-        idempotencyKey: `${context.flowId}/${toolCall.turnId}/${toolCall.toolCallId}`,
-        attempt: context.attempt,
-        events,
-        cancellationSignal: context.cancellationSignal,
-        deadline: context.deadline,
-        heartbeat: () => heartbeats.record(),
-        ...(heartbeats.previousCheckpoint === undefined ? {} : { heartbeatCheckpoint: heartbeats.previousCheckpoint }),
-        saveHeartbeatCheckpoint: (checkpoint: string) => heartbeats.saveCheckpoint(checkpoint),
-      };
-      let finishedToolCall: AgentToolCall;
-      try {
-        const result = await transitions.runWithHeartbeats(
-          context,
-          () => transitions.runner.executeDeferredToolCall(execution),
-          () => heartbeats.record(),
-        );
-        if (typeof result?.output !== "string") {
-          throw new TypeError(`executeDeferredToolCall returned no output for ${toolCallId}`);
+      return await transitions.tracer.traceToolCall(context, this.stepType, toolCall, async (toolCallSpan) => {
+        events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
+        const heartbeats = new ToolStepHeartbeats(context);
+        // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
+        await heartbeats.record();
+        const execution: DeferredToolExecution = {
+          flowId: context.flowId,
+          toolCall,
+          idempotencyKey: `${context.flowId}/${toolCall.turnId}/${toolCall.toolCallId}`,
+          attempt: context.attempt,
+          events,
+          cancellationSignal: context.cancellationSignal,
+          deadline: context.deadline,
+          heartbeat: () => heartbeats.record(),
+          ...(heartbeats.previousCheckpoint === undefined ? {} : { heartbeatCheckpoint: heartbeats.previousCheckpoint }),
+          saveHeartbeatCheckpoint: (checkpoint: string) => heartbeats.saveCheckpoint(checkpoint),
+        };
+        let finishedToolCall: AgentToolCall;
+        try {
+          const result = await transitions.runWithHeartbeats(
+            context,
+            () => transitions.runner.executeDeferredToolCall(execution),
+            () => heartbeats.record(),
+          );
+          if (typeof result?.output !== "string") {
+            throw new TypeError(`executeDeferredToolCall returned no output for ${toolCallId}`);
+          }
+          finishedToolCall = { ...toolCall, status: "succeeded", output: result.output };
+        } catch (error: unknown) {
+          if (!(error instanceof ToolExecutionError)) {
+            throw error;
+          }
+          finishedToolCall = { ...toolCall, status: "failed", error: error.message };
         }
-        finishedToolCall = { ...toolCall, status: "succeeded", output: result.output };
-      } catch (error: unknown) {
-        if (!(error instanceof ToolExecutionError)) {
-          throw error;
-        }
-        finishedToolCall = { ...toolCall, status: "failed", error: error.message };
-      }
-      transitions.writeToolCall(context, finishedToolCall);
-      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, finishedToolCall.status);
-      transitions.publishToolCallResult(context, toolCallId);
-      return deadEnd();
+        toolCallSpan.recordFinished(finishedToolCall);
+        transitions.writeToolCall(context, finishedToolCall);
+        events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, finishedToolCall.status);
+        transitions.publishToolCallResult(context, toolCallId);
+        return deadEnd();
+      });
     } finally {
       events.close();
     }

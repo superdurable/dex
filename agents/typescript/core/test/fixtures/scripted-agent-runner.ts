@@ -15,6 +15,7 @@ import {
   isFinalToolCallStatus,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
+  type AgentTracingOptions,
   type AgentTurnContext,
   type AgentTurnOutcome,
   type DeferredToolCall,
@@ -79,7 +80,8 @@ interface ScriptedRunState {
  *
  * Tools record `<flowId> <toolCallId> attempt <n>` in the `<tool>.log` InvocationLog on every real
  * run, and `<flowId> <toolName>` in `tool-runs.log` in run order. `charge_card`, `transfer_funds`,
- * `lookup_a`, and `lookup_b` then wait at a FileGate: their own, or `lookups` for the two lookups.
+ * `retry_payout`, `lookup_a`, and `lookup_b` then wait at a FileGate: their own, or `lookups` for the two
+ * lookups. `retry_payout` then fails its first attempt.
  */
 export class ScriptedAgentRunner implements AgentFrameworkRunner {
   public constructor(private readonly markerDirectory: string) {}
@@ -175,6 +177,15 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
         await gate.waitForRelease(call.cancellationSignal);
         return { output: "funds transferred" };
       }
+      case "retry_payout": {
+        const gate = new FileGate(this.markerDirectory, "retry_payout");
+        gate.markReached();
+        await gate.waitForRelease(call.cancellationSignal);
+        if (call.attempt === 1) {
+          throw new Error("payout service connection lost");
+        }
+        return { output: "payout sent" };
+      }
       case "sync_inventory":
         throw new Error("inventory service unavailable");
       case "check_stock":
@@ -194,12 +205,19 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
 /** Creates the scripted agent Flow; tests and the Worker child build it identically. */
 export function createScriptedAgentFlow(
   markerDirectory: string,
-  flowOptions: { readonly flowType?: string; readonly interruptDeadlineMs?: number } = {},
+  flowOptions: {
+    readonly flowType?: string;
+    readonly interruptDeadlineMs?: number;
+    readonly tracing?: AgentTracingOptions;
+    readonly runner?: AgentFrameworkRunner;
+  } = {},
 ): AgentSessionFlow {
-  return createAgentSessionFlow(new ScriptedAgentRunner(markerDirectory), flowOptions.flowType ?? scriptedAgentFlowType, {
+  const runner = flowOptions.runner ?? new ScriptedAgentRunner(markerDirectory);
+  return createAgentSessionFlow(runner, flowOptions.flowType ?? scriptedAgentFlowType, {
     ...(flowOptions.interruptDeadlineMs === undefined
       ? {}
       : { interruptDeadlineMs: flowOptions.interruptDeadlineMs }),
+    ...(flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing }),
     toolPolicies: {
       get_weather: { effect: "read" },
       lookup_a: { effect: "read" },
@@ -208,6 +226,7 @@ export function createScriptedAgentFlow(
       charge_card: { effect: "non_idempotent_write" },
       refund_order: { effect: "idempotent_write" },
       transfer_funds: { effect: "idempotent_write" },
+      retry_payout: { effect: "idempotent_write", requiresApproval: true },
       sync_inventory: { effect: "idempotent_write" },
     },
   });

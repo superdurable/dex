@@ -13,7 +13,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { ToolExecutionError, outcomeUnknownToolResult, resolveToolPolicy } from "../../src/index.js";
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+
+import {
+  ToolExecutionError,
+  createAgentSessionFlow,
+  outcomeUnknownToolResult,
+  resolveToolPolicy,
+} from "../../src/index.js";
 import {
   McpToolSource,
   defaultMcpTaskWaitTimeoutMs,
@@ -40,6 +47,7 @@ import {
   fakeMcpStateDirectoryVariable,
 } from "../fixtures/fake-mcp-server-names.js";
 import {
+  McpScriptedAgentRunner,
   createMcpScriptedAgentFlow,
   createMcpToolSource,
   mcpAgentGatewayUrlVariable,
@@ -187,6 +195,58 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     const untrusted = new Map((await untrusting.listTools()).map((tool) => [tool.name, tool]));
     assert.equal(untrusted.get("untrusted__lookup")?.frameworkEffect, undefined);
     assert.deepEqual(untrusting.toolPolicies(), {});
+  });
+
+  test("MCP tool calls emit execute_tool spans in their activation's trace", async () => {
+    const exporter = new InMemorySpanExporter();
+    const tracerProvider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+    const tracedFlow = createAgentSessionFlow(
+      new McpScriptedAgentRunner(createMcpToolSource(stateDirectory, httpUrl)),
+      "TracedMcpScriptedAgent",
+      { toolPolicies: mcpAgentToolPolicies, tracing: { tracerProvider } },
+    );
+    const tracedEnvironment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [tracedFlow],
+      isWorkerInProcess: true,
+    });
+    try {
+      const tracedSessions = new AgentSessionTestClient(tracedEnvironment.client, tracedFlow);
+      const sessionId = `mcp-traced-${randomUUID()}`;
+      await tracedSessions.startSession(
+        sessionId,
+        // record_note, not lookup: lookup's crash_first counts runs across this file's tests.
+        'call remote__record_note {"note": "traced"} && call remote__send_message {"text": "hi"}',
+      );
+      const interrupt = await tracedSessions.waitForPendingInterrupt(sessionId, "remote__send_message");
+      assert.equal(await tracedSessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      await tracedSessions.waitForCompletedTurns(sessionId, 1);
+
+      const spans = exporter
+        .getFinishedSpans()
+        .filter((span) => span.attributes["gen_ai.conversation.id"] === sessionId);
+      const rootOf = (interruptId: string | undefined) =>
+        spans.find(
+          (span) =>
+            span.name === "invoke_agent TracedMcpScriptedAgent" &&
+            span.attributes["dex.agent.interrupt.id"] === interruptId,
+        );
+      const toolSpans = [
+        ["execute_tool remote__record_note", "CallTool", "idempotent_write", rootOf(undefined)],
+        ["execute_tool remote__send_message", "CallSingleAttemptTool", "unclassified", rootOf(interrupt.interruptId)],
+      ] as const;
+      for (const [name, stepType, effect, root] of toolSpans) {
+        const span = spans.find((candidate) => candidate.name === name);
+        assert.ok(span !== undefined && root !== undefined, name);
+        assert.equal(span.parentSpanContext?.spanId, root.spanContext().spanId, name);
+        assert.equal(span.attributes["dex.step.type"], stepType, name);
+        assert.equal(span.attributes["dex.agent.tool.effect"], effect, name);
+        assert.equal(span.attributes["dex.agent.tool_call.status"], "succeeded", name);
+      }
+    } finally {
+      await tracedEnvironment.close();
+      await tracerProvider.shutdown();
+    }
   });
 
   test("a read tool re-issues a call whose stream broke, in CallTool", async () => {

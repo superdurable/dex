@@ -28,6 +28,9 @@ RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
 for the same reason. Requirements: Node `^22.0.0 || ^24.0.0`.
 
+`@opentelemetry/api` (`^1.3.0`) is an optional peer dependency. Install it and
+an SDK for OpenTelemetry spans; see [Tracing](#tracing).
+
 The package also exports `@superdurable/dex-agents/ui-stream`, the
 [UI stream adapters](#ui-streams), and `@superdurable/dex-agents/testing`. The
 testing export starts a private `dexcli dev --engine zd` engine and Worker
@@ -176,7 +179,11 @@ The runner must:
    every message the turn produced after its user message, across all model
    calls, in order: model output, tool requests, tool results, and the answer.
 6. Report only this model call's usage. Use `emptyAgentUsage()` and
-   `addAgentUsage()` when a framework reports several usage parts.
+   `addAgentUsage()` when a framework reports several usage parts. Optionally
+   return `modelCallMetadata: { requestModel, responseModel, providerName,
+   responseId, finishReasons }` in either outcome. The session never stores it;
+   it names the `chat` span (see [Tracing](#tracing)). Omit a field the
+   framework does not expose.
 7. Throw for an unexpected failure. The model call reruns from the same
    committed state, up to 3 attempts within 30 minutes; then the turn fails.
 
@@ -288,6 +295,7 @@ Do not repeat these tool calls unless the user asks again.
 | `QueuedUserMessages` | Channel | `AgentUserMessage` |
 | `InterruptResolutions` | ChannelMap, key = interrupt ID | `AgentInterruptResolution` |
 | `ToolCallResults` | Channel, internal | `ToolCallCompleted { tool_call_id }` |
+| `AgentTraceContext` | Attribute | string, the W3C `traceparent` of the current activation's root span when its context is valid, sampled or not; deleted otherwise |
 | `AgentEvents` | Stream | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`, or
@@ -727,6 +735,128 @@ the same as the Python core's `dex_agents.ui_stream`.
   between a part and its token, which arrive in one write, still repeats that
   part.
 
+## Tracing
+
+The session emits OpenTelemetry GenAI spans through `@opentelemetry/api`, an
+optional peer dependency. The application brings the SDK and an exporter:
+
+```bash
+npm i @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-proto
+```
+
+Tracing is on by default and uses the global tracer provider, so an
+application that registers the SDK gets spans without further setup. Without
+`@opentelemetry/api`, the session never loads it. With the API but no SDK, the
+spans are no-ops and the session stores nothing extra. `tracing` in
+`AgentSessionOptions` changes the defaults:
+
+```ts
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import { BatchSpanProcessor, NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { createAgentSessionFlow } from "@superdurable/dex-agents";
+
+const tracerProvider = new NodeTracerProvider({
+  spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+});
+const flow = createAgentSessionFlow(new MyFrameworkRunner(agent), "TriageAgent", {
+  tracing: { tracerProvider, agentName: "Triage" },
+});
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `isEnabled` | `true` | `false` emits nothing and never loads `@opentelemetry/api`. |
+| `tracerProvider` | the global provider | The provider to emit with. Any `TracerProvider` fits `OpenTelemetryTracerProvider`. |
+| `agentName` | the Flow type | `gen_ai.agent.name` and the `invoke_agent` span name. |
+| `shouldCaptureMessageContent` | `false` | Put message text, tool arguments, and tool results on spans. |
+| `semanticConventionsVersion` | `"1.42.0-dev"` | The GenAI semantic conventions the spans follow. |
+
+The spans, attributes, and content are identical to the Python core's; see its
+[Tracing section](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#tracing)
+for the full attribute table. In short:
+
+- **One trace per activation.** An activation is a burst of Steps between
+  durable waits. It starts when `StartAgentSession` or `AwaitUserMessage`
+  consumes a user message, or `AwaitToolApproval` an interrupt answer or an
+  expired deadline. That Step's attempt emits the root, `invoke_agent {agent
+  name}`, with a span link to the previous activation's root. Each `RunModel`
+  attempt emits a `chat` span when it ends, and each `CallTool` and
+  `CallSingleAttemptTool` attempt an `execute_tool {tool name}` span. A turn
+  without approvals is one trace; each approval answer and each new turn
+  starts another.
+- **A near-zero root.** Every span ends inside its Step attempt, so none stays
+  open across a durable wait. The `invoke_agent` root ends with its own Step,
+  so its duration is near zero, and the activation's later spans start after
+  it ended. That is on purpose: a span must end in the process that started
+  it, and the OpenTelemetry API cannot give a span an ID before it starts, so a
+  root covering the whole activation would stay open across Steps, Workers,
+  and possibly days, and backends drop or hide such traces.
+- **Current span.** While a tool call runs, its `execute_tool` span is active.
+  While a model call runs, the activation's root is active, because the `chat`
+  span starts when the attempt ends. Framework and HTTP client instrumentation
+  nests under the activation when a context manager is registered.
+- **Across processes.** The root stores its `traceparent`, about 55 bytes, in
+  the `AgentTraceContext` Attribute in the same commit as its Step. `RunModel`
+  reads it for its `chat` span and copies it onto each tool call record it
+  creates, as `AgentToolCall.traceContext`; an approval replaces the copy with
+  its own root. Tool Steps parent their spans from the record, so overlapping
+  approvals never swap tool spans. The Attribute is written whenever the root
+  has a valid span context, sampled or not, so under a parent-based sampler a
+  sampled-out root's other spans are dropped with it. A root without a valid
+  context (tracing disabled, or no API or SDK) deletes the stored value, so
+  the activation's later spans start traces of their own instead of joining
+  the previous activation's trace.
+- **Retries.** Every attempt is its own span with `dex.step.attempt`, and the
+  attempts of one Step execution share `dex.step.execution_id`. A failed
+  attempt has status `ERROR` and `error.type` set to the error's `name`; a
+  `ToolExecutionError` sets `ToolExecutionError`. The recovery Steps and
+  `ResumeTurn` emit no span.
+- **Every span** carries the Flow ID as `gen_ai.conversation.id`, `session.id`,
+  and `dex.flow.id`, plus `dex.run.id`, `dex.step.type`,
+  `dex.step.execution_id`, `dex.step.attempt`, and `dex.agent.turn.id`.
+- **Model and usage.** The `chat` span is named `chat {requestModel}` when the
+  runner returns `modelCallMetadata.requestModel`, and `chat` otherwise. The
+  adapters in this repository do not return it yet, so their spans are named
+  `chat`. Usage attributes appear when the runner reports `modelCalls: 1` and
+  a non-zero input or output count. A runner that reports any other
+  `modelCalls`, such as a whole-turn harness, gets an `INTERNAL` `chat` span
+  without usage, so provider instrumentation that traces each call does not
+  count the tokens twice. A single model call can still be counted twice when
+  provider client instrumentation also traces it. Sum usage from one
+  instrumentation scope in the backend, or remove the session's usage
+  attributes, for example with an OpenTelemetry Collector transform processor:
+
+  ```yaml
+  processors:
+    transform/drop_dex_agents_usage:
+      trace_statements:
+        - context: span
+          statements:
+            - delete_matching_keys(attributes, "^gen_ai\\.usage\\.") where instrumentation_scope.name == "@superdurable/dex-agents"
+  ```
+- **Content by reference.** By default spans carry `AgentMessages` keys
+  (`dex.agent.input_messages.last_key`, and `dex.agent.output_messages.keys` for
+  what this call produced) and tool call IDs (`gen_ai.tool.call.id`,
+  `dex.agent.requested_tool_call.ids`), because the content is already durable
+  in Dex. With `shouldCaptureMessageContent: true`, they also carry
+  `gen_ai.input.messages`, `gen_ai.output.messages`,
+  `gen_ai.tool.call.arguments`, and `gen_ai.tool.call.result`, built from the
+  message projections. No `_ref` attributes are set: they take an absolute URI,
+  and Dex has no URI for an `AgentMessages` instance.
+- **Failures.** Tracing never fails or retries a Step. Every OpenTelemetry call
+  (spans, context, content serialization) is guarded; an error, such as one
+  thrown by a span processor, is logged with `console.warn` the first time and
+  `console.debug` after that, and that span is skipped.
+- **Version switch.** `"1.42.0-dev"` follows
+  [`open-telemetry/semantic-conventions-genai`](https://github.com/open-telemetry/semantic-conventions-genai)
+  at commit [`dc3571562603552dc555c667dfa327a638d94ab2`](https://github.com/open-telemetry/semantic-conventions-genai/tree/dc3571562603552dc555c667dfa327a638d94ab2)
+  (2026-11-01), whose schema URL names `1.42.0-dev`; the repository has no
+  release tag yet. `"1.36.0"` follows OpenTelemetry semantic conventions
+  1.36.0 for backends that still read the older names: `gen_ai.system` instead
+  of `gen_ai.provider.name`, no cache or reasoning token counts, and no
+  content. `genAISemanticConventionsSchemaUrls` lists the schema URL set on the
+  tracer.
+
 ## Testing export
 
 `@superdurable/dex-agents/testing` runs adapter integration tests against a
@@ -904,3 +1034,8 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
+- Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
+  Server and Worker internals do not appear in the traces.
+- The adapters in this repository do not return `modelCallMetadata` yet, so
+  their `chat` spans are named `chat` and carry no model or provider. Wiring
+  each adapter to report it is a follow-up.

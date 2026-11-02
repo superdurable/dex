@@ -230,6 +230,10 @@ class AgentToolCall:
             contract so the order survives storage in an AttributeMap.
         tool_source_reference: ``DeferredToolCall.tool_source_reference``,
             opaque text the tool's source stored with the call, or ``None``.
+        trace_context: W3C ``traceparent`` of the activation root that the
+            call's ``execute_tool`` spans join, or ``None``. The session sets it
+            when ``RunModel`` defers the call and again when an approval starts
+            a new activation, so parallel activations never swap tool spans.
     """
 
     tool_call_id: str
@@ -244,6 +248,7 @@ class AgentToolCall:
     rejection_message: str | None = None
     deferral_order: int = 0
     tool_source_reference: str | None = None
+    trace_context: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

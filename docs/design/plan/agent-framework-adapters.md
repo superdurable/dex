@@ -282,6 +282,7 @@ An expired approval deadline records `rejected` with `rejection_message`
 | `QueuedUserMessages` | Channel | `AgentUserMessage` |
 | `InterruptResolutions` | ChannelMap, key = interrupt ID | `AgentInterruptResolution` |
 | `ToolCallResults` | Channel, internal | `ToolCallCompleted` |
+| `AgentTraceContext` | Attribute | string, the W3C `traceparent` (`00-<trace id>-<span id>-<flags>`) of the current activation's root span while it has a valid context, sampled or not; an activation whose root has none deletes it |
 | `AgentEvents` | Stream, capacity 10 MiB by default, configurable | `AgentEvent` |
 
 Value types:
@@ -320,6 +321,7 @@ AgentToolCall {
   rejection_message: str | null
   deferral_order: int        # zero-based order of the call within its turn
   tool_source_reference: str | null  # opaque text from DeferredToolCall.tool_source_reference
+  trace_context: str | null  # traceparent of the activation root its tool spans join; set by RunModel and by an approval
 }
 AgentInterrupt {
   interrupt_id: str          # equals the tool call ID for tool approvals
@@ -395,6 +397,44 @@ replaces the turn's live text with the stored messages. Streams are best
 effort; clients rebuild from `get_agent_snapshot`. The event writer is safe to
 call from any thread.
 
+### Tracing
+
+The cores emit OpenTelemetry GenAI spans through the OpenTelemetry API, an
+optional dependency: the Python extra `dex-agents[otel]` (`opentelemetry-api`
+only) and the optional npm peer `@opentelemetry/api`. Without it, or with
+tracing disabled, a core never loads it and writes no `AgentTraceContext`.
+Parent design: C9 in [#1132](https://github.com/superdurable/dex/pull/1132).
+
+- An activation starts when a Step consumes an input from outside the
+  session: `StartAgentSession` or `AwaitUserMessage` with a user message, or
+  `AwaitToolApproval` with an interrupt answer or an expired deadline. That
+  Step's attempt emits the trace root `invoke_agent {agent name}`, linked to
+  the previous root. It stores its `traceparent` in `AgentTraceContext` when
+  its span context is valid, sampled or not, so the activation's spans share
+  its sampling decision, and deletes a stored value when it has none.
+- Each `RunModel` attempt emits a `chat` span when it ends, as a child of the
+  root in `AgentTraceContext`: `CLIENT` with usage when the runner reports one
+  model call, `INTERNAL` without usage otherwise. `RunModel` copies the root
+  onto each tool call record, and an approval replaces it with its own root.
+  Each `CallTool` and `CallSingleAttemptTool` attempt emits
+  `execute_tool {tool name}` under the record's root. Every span ends inside
+  its Step attempt, so none stays open across a durable wait, and the
+  `invoke_agent` root ends with its own Step.
+- Tracing never fails or retries a Step: OpenTelemetry errors are logged and
+  the span is skipped.
+- Every span carries the Flow ID as `gen_ai.conversation.id`, `session.id`, and
+  `dex.flow.id`, plus `dex.run.id`, `dex.step.type`, `dex.step.execution_id`,
+  `dex.step.attempt`, and `dex.agent.turn.id`.
+- Content is by reference by default: `AgentMessages` keys and tool call IDs.
+  Message content is opt-in.
+- The conventions version is pinned, with
+  `open-telemetry/semantic-conventions-genai` at commit `dc3571562603552dc555c667dfa327a638d94ab2` (schema
+  `1.42.0-dev`) as the default and OpenTelemetry semantic conventions `1.36.0`
+  as the compatibility value.
+
+The core READMEs list every attribute. The Dex SDKs emit no spans; SDK-level
+tracing is a separate design.
+
 ### Adapter interface
 
 ```python
@@ -411,7 +451,10 @@ event writer, a heartbeat function, the Flow ID, the turn ID, and the attempt.
 `AgentTurnOutcome` is either `TurnCompleted(new_messages, usage)` or
 `ToolCallsRequested(framework_run_state, tool_calls, usage)`, where each tool
 call is a `DeferredToolCall(tool_call_id, tool_name, arguments, policy,
-tool_source_reference=None)`.
+tool_source_reference=None)`. Both take an optional `model_call_metadata`, a
+`ModelCallMetadata(request_model, response_model, provider_name, response_id,
+finish_reasons)` that only names and annotates the `chat` span; the session
+never stores it.
 `run_model_step` makes at most one model call and runs no tool it can defer.
 `FrameworkMessage` is the `AgentMessage` projection plus `framework_item`.
 `execute_deferred_tool_call` runs the real tool once, possibly concurrently
