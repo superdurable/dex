@@ -24,6 +24,7 @@ mod search_outbox;
 mod standby_failover;
 mod standby_health;
 mod standby_takeover;
+mod startup_calls;
 
 use std::time::Duration;
 

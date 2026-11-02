@@ -22,8 +22,8 @@ use dexzd_protocol::dex::flow_service_server::FlowServiceServer;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
 use dexzd_worker_dispatch::WorkerTaskService;
 use http_body_util::BodyExt;
-use tokio::net::TcpListener;
-use tokio::sync::oneshot;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -41,6 +41,15 @@ const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 const ANSWER_TRANSPORT_GRACE: Duration = Duration::from_millis(250);
 /// The answer to a public call while the node lease is not valid, such as after a freeze.
 const LEASE_NOT_VALID_MESSAGE: &str = "the node lease is not valid";
+/// The answer to a public call that was still open when its serving period ended.
+const STOPPED_SERVING_MESSAGE: &str =
+    "the server process stopped serving during the call; retry it";
+/// The answer to a public call on a standby instance before any serving period started.
+const STARTING_MESSAGE: &str = "the node is starting";
+/// The answer to a public call that reaches a serving instance after its period stepped down.
+const STEPPED_DOWN_MESSAGE: &str = "this server process stepped down; retry the call";
+/// The answer to a public call on a standby instance that a serving instance replaced.
+const REPLACED_MESSAGE: &str = "this connection is closing; reconnect and retry the call";
 /// A standby instance closes each connection this soon, so its clients reconnect to the active.
 const STANDBY_CONNECTION_AGE: Duration = Duration::from_secs(3);
 /// How long an aged standby connection may finish its calls; AdminService answers at once.
@@ -59,6 +68,8 @@ pub(super) enum GrpcInstancePhase {
 pub(super) struct GrpcSettings {
     /// Bound once, so connections queue between instances instead of being refused.
     pub(super) listener: Arc<TcpListener>,
+    /// Connections that an instance accepted while it stopped accepting, for its successor.
+    pub(super) handed_over_connections: Arc<HandedOverConnections>,
     pub(super) max_message_bytes: usize,
     pub(super) api_requests: dexzd_metrics::ApiRequests,
     pub(super) api_latency: dexzd_metrics::ApiLatency,
@@ -73,26 +84,54 @@ pub(super) struct GrpcSettings {
     pub(super) lease_validity_deadline: LeaseValidityDeadline,
 }
 
+/// A serving period's public services, which its serving instance serves from the first call.
+pub(super) struct PublicServices {
+    pub(super) flow_service: FlowServiceServer<DexFlowService>,
+    pub(super) worker_task_service: WorkerTaskServiceServer<WorkerTaskService>,
+}
+
 /// A tonic server instance whose public services answer UNAVAILABLE until activated.
 pub(super) struct GrpcServer {
     pub(super) health: HealthStatus,
-    pub(super) flow_service_gate: StartupService<FlowServiceServer<DexFlowService>>,
-    pub(super) worker_task_service_gate: StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
-    pub(super) max_message_bytes: usize,
+    flow_service_gate: StartupService<FlowServiceServer<DexFlowService>>,
+    worker_task_service_gate: StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
+    /// Cancelled once a newer instance takes new connections; existing ones keep running.
+    stopped_accepting: CancellationToken,
     pub(super) stop: CancellationToken,
     pub(super) task: JoinHandle<Result<(), tonic::transport::Error>>,
 }
 
 impl GrpcServer {
-    /// Starts an instance on the shared listener; health and AdminService answer at once.
-    pub(super) fn start(settings: &GrpcSettings, phase: GrpcInstancePhase) -> Self {
-        let flow_service_gate = StartupService::<FlowServiceServer<DexFlowService>>::new(
-            settings.lease_validity_deadline.clone(),
-        );
-        let worker_task_service_gate =
-            StartupService::<WorkerTaskServiceServer<WorkerTaskService>>::new(
-                settings.lease_validity_deadline.clone(),
-            );
+    /// Starts a standby-phase instance on the shared listener; health and AdminService answer at once.
+    pub(super) fn start_standby(settings: &GrpcSettings) -> Self {
+        let (flow_service_gate, worker_task_service_gate) = new_gates(settings);
+        Self::start_with_gates(
+            settings,
+            GrpcInstancePhase::Standby,
+            flow_service_gate,
+            worker_task_service_gate,
+        )
+    }
+
+    /// Starts a serving instance whose public services serve `services` before it accepts a call.
+    pub(super) fn start_serving(settings: &GrpcSettings, services: PublicServices) -> Self {
+        let (flow_service_gate, worker_task_service_gate) = new_gates(settings);
+        flow_service_gate.activate(services.flow_service);
+        worker_task_service_gate.activate(services.worker_task_service);
+        Self::start_with_gates(
+            settings,
+            GrpcInstancePhase::Serving,
+            flow_service_gate,
+            worker_task_service_gate,
+        )
+    }
+
+    fn start_with_gates(
+        settings: &GrpcSettings,
+        phase: GrpcInstancePhase,
+        flow_service_gate: StartupService<FlowServiceServer<DexFlowService>>,
+        worker_task_service_gate: StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
+    ) -> Self {
         let administration = match phase {
             GrpcInstancePhase::Standby => settings.standby_instance_administration.clone(),
             GrpcInstancePhase::Serving => settings.serving_instance_administration.clone(),
@@ -101,7 +140,12 @@ impl GrpcServer {
             DexAdminService::authenticated_server(administration, settings.authenticator.clone());
         let stop = CancellationToken::new();
         let stopped = stop.clone();
-        let listener = settings.listener.clone();
+        let stopped_accepting = CancellationToken::new();
+        let instance_listener = InstanceListener {
+            listener: settings.listener.clone(),
+            handed_over_connections: settings.handed_over_connections.clone(),
+            stopped_accepting: stopped_accepting.clone(),
+        };
         let mut builder = tonic::transport::Server::builder()
             .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
             .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT));
@@ -130,16 +174,7 @@ impl GrpcServer {
                 ))
                 .add_service(admin_service)
                 .serve_with_incoming_shutdown(
-                    futures::stream::unfold(listener, |listener| async move {
-                        let accepted = listener.accept().await.map(|(stream, _)| {
-                            // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
-                            if let Err(error) = stream.set_nodelay(true) {
-                                tracing::warn!(%error, "failed to set TCP_NODELAY on a gRPC connection");
-                            }
-                            stream
-                        });
-                        Some((accepted, listener))
-                    }),
+                    futures::stream::unfold(instance_listener, InstanceListener::next_connection),
                     async move { stopped.cancelled().await },
                 ),
         );
@@ -147,16 +182,34 @@ impl GrpcServer {
             health: settings.health.clone(),
             flow_service_gate,
             worker_task_service_gate,
-            max_message_bytes: settings.max_message_bytes,
+            stopped_accepting,
             stop,
             task,
         }
     }
 
-    /// Makes FlowService and WorkerTaskService answer UNAVAILABLE again; AdminService keeps answering.
+    /// Leaves new connections to a newer instance; open connections and their calls keep running.
+    pub(super) fn stop_accepting(&self) {
+        self.stopped_accepting.cancel();
+    }
+
+    /// Makes FlowService and WorkerTaskService answer that this process stepped down; AdminService keeps answering.
     pub(super) fn deactivate_public_services(&self) {
-        self.flow_service_gate.deactivate();
-        self.worker_task_service_gate.deactivate();
+        self.flow_service_gate.set_state(GateState::SteppedDown);
+        self.worker_task_service_gate
+            .set_state(GateState::SteppedDown);
+    }
+
+    /// Makes this standby instance's public services ask callers to reconnect to its serving replacement.
+    pub(super) fn refuse_public_calls_as_replaced(&self) {
+        self.flow_service_gate.set_state(GateState::Replaced);
+        self.worker_task_service_gate.set_state(GateState::Replaced);
+    }
+
+    /// Ends public calls still in their handler with UNAVAILABLE; started response streams and AdminService calls continue.
+    pub(super) fn end_public_calls(&self) {
+        self.flow_service_gate.end_open_calls();
+        self.worker_task_service_gate.end_open_calls();
     }
 
     /// Returns a wait until every accepted public call, response body included, has ended.
@@ -172,10 +225,15 @@ impl GrpcServer {
     }
 
     /// Once `answered` resolves, sends GOAWAY and waits up to `budget` for open calls; then aborts.
-    pub(super) async fn retire_after(mut self, answered: oneshot::Receiver<()>, budget: Duration) {
+    pub(super) async fn retire_after(self, answered: oneshot::Receiver<()>, budget: Duration) {
         // A dropped sender also means the answer went out.
         drop(answered.await);
         tokio::time::sleep(ANSWER_TRANSPORT_GRACE).await;
+        self.retire_now(budget).await;
+    }
+
+    /// Sends GOAWAY now and waits up to `budget` for open calls; then aborts.
+    pub(super) async fn retire_now(mut self, budget: Duration) {
         self.stop.cancel();
         match tokio::time::timeout(budget, &mut self.task).await {
             Ok(Ok(Ok(()))) => {}
@@ -206,20 +264,116 @@ impl Drop for GrpcServer {
     }
 }
 
+/// Connections that an instance accepted while it stopped accepting, which its successor serves.
+pub(super) struct HandedOverConnections {
+    sender: mpsc::UnboundedSender<TcpStream>,
+    receiver: Mutex<mpsc::UnboundedReceiver<TcpStream>>,
+}
+
+impl HandedOverConnections {
+    pub(super) fn new() -> Self {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        Self {
+            sender,
+            receiver: Mutex::new(receiver),
+        }
+    }
+
+    fn hand_over(&self, stream: TcpStream) {
+        self.sender
+            .send(stream)
+            .expect("the receiver lives as long as the sender");
+    }
+
+    async fn take(&self) -> TcpStream {
+        self.receiver
+            .lock()
+            .await
+            .recv()
+            .await
+            .expect("the sender lives as long as the receiver")
+    }
+}
+
+/// The shared listener as one instance sees it: it accepts until a newer instance takes over.
+struct InstanceListener {
+    listener: Arc<TcpListener>,
+    handed_over_connections: Arc<HandedOverConnections>,
+    stopped_accepting: CancellationToken,
+}
+
+impl InstanceListener {
+    /// Returns the next connection for this instance; after it stopped accepting, none ever comes.
+    async fn next_connection(self) -> Option<(std::io::Result<TcpStream>, Self)> {
+        loop {
+            let accepted = tokio::select! {
+                biased;
+                () = self.stopped_accepting.cancelled() => {
+                    // An ended stream would make tonic send GOAWAY; that is the retirement's decision.
+                    return std::future::pending().await;
+                }
+                stream = self.handed_over_connections.take() => Ok(stream),
+                accepted = self.listener.accept() => accepted.map(|(stream, _)| stream),
+            };
+            let stream = match accepted {
+                // Accepted while this instance stopped accepting; a GOAWAY would meet its first call.
+                Ok(stream) if self.stopped_accepting.is_cancelled() => {
+                    self.handed_over_connections.hand_over(stream);
+                    continue;
+                }
+                Ok(stream) => stream,
+                Err(error) => return Some((Err(error), self)),
+            };
+            // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
+            if let Err(error) = stream.set_nodelay(true) {
+                tracing::warn!(%error, "failed to set TCP_NODELAY on a gRPC connection");
+            }
+            return Some((Ok(stream), self));
+        }
+    }
+}
+
+/// Returns new FlowService and WorkerTaskService gates, which answer that the node is starting.
+fn new_gates(
+    settings: &GrpcSettings,
+) -> (
+    StartupService<FlowServiceServer<DexFlowService>>,
+    StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
+) {
+    (
+        StartupService::new(settings.lease_validity_deadline.clone()),
+        StartupService::new(settings.lease_validity_deadline.clone()),
+    )
+}
+
+/// What a gate does with a public call: serve it, or refuse it with a retryable reason.
+enum GateState<S> {
+    /// No serving period has used this instance yet.
+    Starting,
+    Serving(S),
+    /// This instance's serving period stepped down.
+    SteppedDown,
+    /// A serving instance replaced this standby instance, which closes its connections.
+    Replaced,
+}
+
 #[derive(Clone)]
 pub(super) struct StartupService<S> {
-    serving: Arc<RwLock<Option<S>>>,
+    state: Arc<RwLock<GateState<S>>>,
     lease_validity_deadline: LeaseValidityDeadline,
     /// Every accepted call until its response body is dropped; a body can still read the store.
     calls: TaskTracker,
+    /// Ends this instance's open calls; every serving period runs on an instance of its own.
+    period_end: CancellationToken,
 }
 
 impl<S> StartupService<S> {
     fn new(lease_validity_deadline: LeaseValidityDeadline) -> Self {
         Self {
-            serving: Arc::new(RwLock::new(None)),
+            state: Arc::new(RwLock::new(GateState::Starting)),
             lease_validity_deadline,
             calls: TaskTracker::new(),
+            period_end: CancellationToken::new(),
         }
     }
 
@@ -228,18 +382,20 @@ impl<S> StartupService<S> {
         self.calls.wait().await;
     }
 
-    pub(super) fn activate(&self, service: S) {
-        *self
-            .serving
-            .write()
-            .expect("startup service lock is poisoned only if a holder panicked") = Some(service);
+    /// Answers UNAVAILABLE to calls whose handler still runs, dropping their service clones and store handles.
+    fn end_open_calls(&self) {
+        self.period_end.cancel();
     }
 
-    fn deactivate(&self) {
+    fn activate(&self, service: S) {
+        self.set_state(GateState::Serving(service));
+    }
+
+    fn set_state(&self, state: GateState<S>) {
         *self
-            .serving
+            .state
             .write()
-            .expect("startup service lock is poisoned only if a holder panicked") = None;
+            .expect("startup service lock is poisoned only if a holder panicked") = state;
     }
 }
 
@@ -265,22 +421,39 @@ where
     }
 
     fn call(&mut self, request: http::Request<Body>) -> Self::Future {
-        let serving = self
-            .serving
+        let serving = match &*self
+            .state
             .read()
             .expect("startup service lock is poisoned only if a holder panicked")
-            .clone();
+        {
+            GateState::Serving(service) => Ok(service.clone()),
+            GateState::Starting => Err(STARTING_MESSAGE),
+            GateState::SteppedDown => Err(STEPPED_DOWN_MESSAGE),
+            GateState::Replaced => Err(REPLACED_MESSAGE),
+        };
         let lease_validity_deadline = self.lease_validity_deadline.clone();
+        let period_end = self.period_end.clone();
         // Taken with the service clone, so a drain that starts after it waits for this call.
         let call = self.calls.token();
         Box::pin(async move {
-            let Some(mut service) = serving else {
-                return Ok(Status::unavailable("the node is starting").into_http());
+            let mut service = match serving {
+                Ok(service) => service,
+                Err(refusal) => return Ok(Status::unavailable(refusal).into_http()),
             };
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
             }
-            let response = service.call(request).await?;
+            let response = tokio::select! {
+                biased;
+                () = period_end.cancelled() => {
+                    return Ok(Status::unavailable(STOPPED_SERVING_MESSAGE).into_http());
+                }
+                response = service.call(request) => response?,
+            };
+            // A later period may hold a valid lease again; this period's answer must not pass it.
+            if period_end.is_cancelled() {
+                return Ok(Status::unavailable(STOPPED_SERVING_MESSAGE).into_http());
+            }
             // A freeze during the call can outlast the lease, so the answer may already be stale.
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
