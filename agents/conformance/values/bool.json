@@ -1,0 +1,19 @@
+{
+  "type": "bool",
+  "wire_kind": "bool",
+  "description": "Output of the boolean RPCs.",
+  "cases": [
+    {
+      "name": "true",
+      "description": "Accepted.",
+      "wire": "true",
+      "canonical": "true"
+    },
+    {
+      "name": "false",
+      "description": "Refused.",
+      "wire": "false",
+      "canonical": "false"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "type": "ResolveInterruptRequest",
+  "wire_kind": "json",
+  "description": "Input of the resolve_interrupt RPC.",
+  "cases": [
+    {
+      "name": "approve",
+      "description": "An approval.",
+      "wire": "{\"approved\":true,\"interrupt_id\":\"call-2\",\"rejection_message\":null}",
+      "canonical": "{\"approved\":true,\"interrupt_id\":\"call-2\",\"rejection_message\":null}"
+    },
+    {
+      "name": "reject",
+      "description": "A rejection with a message.",
+      "wire": "{\"approved\":false,\"interrupt_id\":\"call-2\",\"rejection_message\":\"not today\"}",
+      "canonical": "{\"approved\":false,\"interrupt_id\":\"call-2\",\"rejection_message\":\"not today\"}"
+    }
+  ]
+}

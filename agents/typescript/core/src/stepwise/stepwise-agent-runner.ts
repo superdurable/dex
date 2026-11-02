@@ -63,7 +63,7 @@ const toolSourceReferenceKey = "reference";
 /** Default {@link AgentDefinition.toolSourceListingTimeoutMs}: 10 seconds. */
 export const defaultToolSourceListingTimeoutMs = 10_000;
 
-const defaultMaxModelCallsPerTurn = 100;
+export const defaultMaxModelCallsPerTurn = 100;
 
 /** First line of the user text that carries the {@link ContextSummary} into the model input. */
 export const contextSummaryNoteHeader = "[Dex] Summary of the earlier conversation:";
@@ -77,6 +77,11 @@ export const contextSummaryInstructions =
 
 /** Last user text of the model call that writes a {@link ContextSummary}. */
 export const contextSummaryRequest = "[Dex] Summarize the conversation above. Reply with the summary only.";
+
+/** Result of a tool call the model made after the turn's model call limit; the same text as the Python core. */
+export function buildToolCallLimitReachedResult(maxModelCallsPerTurn: number): string {
+  return `The tool call was not run: this turn reached its limit of ${maxModelCallsPerTurn} model calls.`;
+}
 
 /**
  * Returns the user text that says how many of the oldest messages a summary request left out.
@@ -262,7 +267,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
           type: "tool_result",
           toolCallId: toolCall.toolCallId,
           toolName: toolCall.toolName,
-          output: `The tool call was not run: this turn reached its limit of ${this.maxModelCallsPerTurn} model calls.`,
+          output: buildToolCallLimitReachedResult(this.maxModelCallsPerTurn),
         }),
       );
       return {
@@ -281,10 +286,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
           const built = listed.source.deferredToolCall(turn, { ...toolCall, listedTool: listed.tool });
           return {
             ...built,
-            toolSourceReference: JSON.stringify({
-              [toolSourceNameKey]: listed.source.sourceName,
-              [toolSourceReferenceKey]: built.toolSourceReference ?? null,
-            }),
+            toolSourceReference: writeToolSourceEnvelope(listed.source.sourceName, built.toolSourceReference),
           };
         }
         return {
@@ -317,7 +319,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     if (tool === undefined) {
       const routed = this.routeToToolSource(toolCall);
       if (routed === undefined) {
-        throw new ToolExecutionError(`unknown tool ${toolCall.toolName}`);
+        throw new ToolExecutionError(buildUnknownToolError(toolCall.toolName));
       }
       return routed.source.executeDeferredToolCall({ ...call, toolCall: withToolSourceReference(toolCall, routed.reference) });
     }
@@ -863,7 +865,17 @@ function refuseDeclaredToolNameCollisions(
   }
 }
 
-function readToolSourceEnvelope(
+/** Error of a call to a tool that no function tool or source listing offers; the same text as the Python core. */
+export function buildUnknownToolError(toolName: string): string {
+  return `unknown tool ${toolName}`;
+}
+
+/** The runner's `toolSourceReference`: the source's name and its own reference, as JSON text. */
+export function writeToolSourceEnvelope(sourceName: string, reference: string | undefined): string {
+  return JSON.stringify({ [toolSourceNameKey]: sourceName, [toolSourceReferenceKey]: reference ?? null });
+}
+
+export function readToolSourceEnvelope(
   toolSourceReference: string | undefined,
 ): { readonly sourceName: string; readonly reference: string | undefined } | undefined {
   if (toolSourceReference === undefined || toolSourceReference === null) {

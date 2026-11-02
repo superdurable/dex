@@ -1,0 +1,19 @@
+{
+  "type": "SteerUserMessageRequest",
+  "wire_kind": "json",
+  "description": "Input of the steer_user_message RPC.",
+  "cases": [
+    {
+      "name": "by-text",
+      "description": "A new steered message.",
+      "wire": "{\"message_id\":null,\"text\":\"stop and summarize\"}",
+      "canonical": "{\"message_id\":null,\"text\":\"stop and summarize\"}"
+    },
+    {
+      "name": "by-message-id",
+      "description": "Steer a queued message.",
+      "wire": "{\"message_id\":\"msg-3\",\"text\":null}",
+      "canonical": "{\"message_id\":\"msg-3\",\"text\":null}"
+    }
+  ]
+}

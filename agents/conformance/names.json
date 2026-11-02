@@ -1,0 +1,473 @@
+{
+  "description": "Every name a session Flow registers or writes. Flow types are chosen by the application; the other names are fixed.",
+  "step_types": [
+    {
+      "name": "StartAgentSession",
+      "input": "AgentSessionStartInput",
+      "is_start_step": true
+    },
+    {
+      "name": "AwaitUserMessage",
+      "input": "null",
+      "is_start_step": false
+    },
+    {
+      "name": "RunModel",
+      "input": "null",
+      "is_start_step": false
+    },
+    {
+      "name": "CompactContext",
+      "input": "TurnFailureRouteInput",
+      "is_start_step": false
+    },
+    {
+      "name": "AwaitToolApproval",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "AwaitQuestionAnswer",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "AwaitTimer",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "CallTool",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "CallSingleAttemptTool",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "PollToolTask",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "RecordToolFailure",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "RecordToolOutcomeUnknown",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "ResumeTurn",
+      "input": "int64",
+      "is_start_step": false
+    },
+    {
+      "name": "ApplyTurnControl",
+      "input": "null",
+      "is_start_step": false
+    },
+    {
+      "name": "RecordTurnFailure",
+      "input": "TurnFailureRouteInput",
+      "is_start_step": false
+    }
+  ],
+  "rpcs": [
+    {
+      "name": "answer_question",
+      "input": "AnswerQuestionRequest",
+      "output": "bool",
+      "is_transactional": false,
+      "locks": [
+        "PendingInterrupts"
+      ],
+      "load_attribute_maps": [],
+      "load_channels": []
+    },
+    {
+      "name": "cancel_turn",
+      "input": "CancelTurnRequest",
+      "output": "bool",
+      "is_transactional": false,
+      "locks": [
+        "TurnCancellationRequest"
+      ],
+      "load_attribute_maps": [],
+      "load_channels": []
+    },
+    {
+      "name": "delete_queued_message",
+      "input": "DeleteQueuedMessageRequest",
+      "output": "bool",
+      "is_transactional": true,
+      "locks": [],
+      "load_attribute_maps": [],
+      "load_channels": [
+        "QueuedUserMessages"
+      ]
+    },
+    {
+      "name": "execute_plan",
+      "input": "ExecutePlanRequest",
+      "output": "bool",
+      "is_transactional": false,
+      "locks": [
+        "PendingPlanExecution"
+      ],
+      "load_attribute_maps": [],
+      "load_channels": []
+    },
+    {
+      "name": "get_agent_snapshot",
+      "input": null,
+      "output": "AgentSnapshot",
+      "is_transactional": false,
+      "locks": [],
+      "load_attribute_maps": [
+        "AgentMessages",
+        "AgentToolCalls"
+      ],
+      "load_channels": [
+        "QueuedUserMessages",
+        "SteeredUserMessages"
+      ]
+    },
+    {
+      "name": "list_agent_messages",
+      "input": "ListAgentMessagesRequest",
+      "output": "AgentMessagesPage",
+      "is_transactional": false,
+      "locks": [],
+      "load_attribute_maps": [
+        "AgentMessages"
+      ],
+      "load_channels": []
+    },
+    {
+      "name": "resolve_interrupt",
+      "input": "ResolveInterruptRequest",
+      "output": "bool",
+      "is_transactional": false,
+      "locks": [
+        "PendingInterrupts"
+      ],
+      "load_attribute_maps": [],
+      "load_channels": []
+    },
+    {
+      "name": "send_user_message",
+      "input": "AgentUserMessage",
+      "output": "bool",
+      "is_transactional": true,
+      "locks": [],
+      "load_attribute_maps": [],
+      "load_channels": []
+    },
+    {
+      "name": "steer_user_message",
+      "input": "SteerUserMessageRequest",
+      "output": "bool",
+      "is_transactional": true,
+      "locks": [],
+      "load_attribute_maps": [],
+      "load_channels": [
+        "QueuedUserMessages"
+      ]
+    }
+  ],
+  "persistence": [
+    {
+      "name": "AgentEvents",
+      "kind": "stream",
+      "value_type": "AgentEvent"
+    },
+    {
+      "name": "AgentMessages",
+      "kind": "attribute_map",
+      "value_type": "AgentMessage"
+    },
+    {
+      "name": "AgentPlan",
+      "kind": "attribute",
+      "value_type": "AgentPlan"
+    },
+    {
+      "name": "AgentState",
+      "kind": "attribute",
+      "value_type": "AgentState"
+    },
+    {
+      "name": "AgentToolCalls",
+      "kind": "attribute_map",
+      "value_type": "AgentToolCall"
+    },
+    {
+      "name": "AgentTraceContext",
+      "kind": "attribute",
+      "value_type": "string"
+    },
+    {
+      "name": "AgentUsage",
+      "kind": "attribute",
+      "value_type": "AgentUsage"
+    },
+    {
+      "name": "ContextSummary",
+      "kind": "attribute",
+      "value_type": "ContextSummary"
+    },
+    {
+      "name": "FrameworkRunState",
+      "kind": "attribute",
+      "value_type": "string"
+    },
+    {
+      "name": "InterruptResolutions",
+      "kind": "channel_map",
+      "value_type": "AgentInterruptResolution"
+    },
+    {
+      "name": "PendingInterrupts",
+      "kind": "attribute",
+      "value_type": "AgentInterruptList"
+    },
+    {
+      "name": "PendingPlanExecution",
+      "kind": "attribute",
+      "value_type": "PlanExecutionRequest"
+    },
+    {
+      "name": "PlanExecutions",
+      "kind": "channel_map",
+      "value_type": "PlanExecutionRequest"
+    },
+    {
+      "name": "QueuedUserMessages",
+      "kind": "channel",
+      "value_type": "AgentUserMessage"
+    },
+    {
+      "name": "SteeredUserMessages",
+      "kind": "channel",
+      "value_type": "AgentUserMessage"
+    },
+    {
+      "name": "ToolCallCancellations",
+      "kind": "channel_map",
+      "value_type": "ToolCallCancellation"
+    },
+    {
+      "name": "ToolCallResults",
+      "kind": "channel",
+      "value_type": "ToolCallCompleted"
+    },
+    {
+      "name": "TurnCancellationRequest",
+      "kind": "attribute",
+      "value_type": "TurnCancellationRequest"
+    },
+    {
+      "name": "TurnControlRequests",
+      "kind": "channel",
+      "value_type": "TurnControlRequest"
+    }
+  ],
+  "agent_events_default_capacity_bytes": 10485760,
+  "event_types": [
+    "turn_started",
+    "turn_completed",
+    "turn_failed",
+    "turn_steered",
+    "turn_cancelled",
+    "text_delta",
+    "reasoning_delta",
+    "tool_call_started",
+    "tool_call_finished",
+    "tool_call_deferred",
+    "interrupt_raised",
+    "interrupt_resolved",
+    "usage_recorded",
+    "timer_started",
+    "plan_updated",
+    "plan_execution_started",
+    "tool_task_started",
+    "compaction_started",
+    "compaction_finished"
+  ],
+  "enums": {
+    "AgentSessionStatus": [
+      "waiting_for_user_message",
+      "running_model",
+      "running_tools",
+      "compacting_context"
+    ],
+    "MessageRole": [
+      "user",
+      "assistant",
+      "tool"
+    ],
+    "ToolEffect": [
+      "read",
+      "idempotent_write",
+      "non_idempotent_write",
+      "unclassified"
+    ],
+    "ToolCallStatus": [
+      "awaiting_approval",
+      "approved",
+      "awaiting_answer",
+      "waiting_for_timer",
+      "waiting_for_task",
+      "rejected",
+      "succeeded",
+      "failed",
+      "outcome_unknown"
+    ],
+    "InterruptKind": [
+      "tool_approval",
+      "question"
+    ],
+    "InteractionMode": [
+      "chat",
+      "planning",
+      "executing"
+    ],
+    "PlanStatus": [
+      "draft",
+      "active",
+      "completed",
+      "cleared"
+    ],
+    "PlanTaskStatus": [
+      "pending",
+      "in_progress",
+      "completed"
+    ],
+    "QuestionResolution": [
+      "answered",
+      "declined",
+      "deadline_passed"
+    ],
+    "ToolCallCancellationReason": [
+      "steered",
+      "turn_cancelled"
+    ],
+    "TurnControlKind": [
+      "steer",
+      "cancel_turn"
+    ],
+    "BuiltInTool": [
+      "ask_user",
+      "durable_wait",
+      "write_todos"
+    ]
+  },
+  "final_tool_call_statuses": [
+    "rejected",
+    "succeeded",
+    "failed",
+    "outcome_unknown"
+  ],
+  "keys": {
+    "AgentMessages": {
+      "format": "the message sequence as a 12-digit zero-padded decimal",
+      "examples": {
+        "1": "000000000001",
+        "7": "000000000007",
+        "123456": "000000123456"
+      }
+    },
+    "PlanExecutions": {
+      "format": "the plan revision as a decimal",
+      "examples": {
+        "1": "1",
+        "12": "12"
+      }
+    },
+    "AgentToolCalls": {
+      "format": "the tool call ID"
+    },
+    "InterruptResolutions": {
+      "format": "the interrupt ID"
+    },
+    "ToolCallCancellations": {
+      "format": "the tool call ID"
+    }
+  },
+  "ids": {
+    "turn_id": {
+      "format": "turn-<n>, where n is turn_count + 1 when the turn starts"
+    },
+    "tool_approval_interrupt_id": {
+      "format": "<tool_call_id>"
+    },
+    "ask_user_interrupt_id": {
+      "format": "<tool_call_id>"
+    },
+    "tool_question_interrupt_id": {
+      "format": "<tool_call_id>-input-<n>, where n is len(input_answers) + 1",
+      "examples": {
+        "call-7 with 0 answers": "call-7-input-1",
+        "call-7 with 2 answers": "call-7-input-3"
+      }
+    }
+  },
+  "timestamps": {
+    "format": "RFC 3339 in UTC with milliseconds and Z, such as 2026-11-02T09:30:00.000Z",
+    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+    "fields": [
+      "AgentMessage.created_at",
+      "AgentInterrupt.created_at",
+      "AgentInterrupt.deadline",
+      "AgentToolCall.wait_until",
+      "AgentPlan.updated_at",
+      "ContextSummary.created_at",
+      "TurnCancellationRequest.requested_at"
+    ]
+  },
+  "mcp_resource_and_prompt_tool_names": [
+    "mcp_list_resources_and_prompts",
+    "mcp_read_resource",
+    "mcp_get_prompt"
+  ],
+  "stepwise_tool_source_reference": {
+    "description": "AgentToolCall.tool_source_reference of a call that a Stepwise tool source built: JSON text naming the source and holding the source's own reference. Not model-visible, so it compares in canonical JSON. Every core reads every written form, and its own written form canonicalizes to canonical.",
+    "keys": {
+      "source_name": "stepwise_tool_source",
+      "reference": "reference"
+    },
+    "cases": [
+      {
+        "source_name": "docs",
+        "reference": "{\"server\":\"docs\",\"tool\":\"search\"}",
+        "written": [
+          "{\"stepwise_tool_source\": \"docs\", \"reference\": \"{\\\"server\\\":\\\"docs\\\",\\\"tool\\\":\\\"search\\\"}\"}",
+          "{\"stepwise_tool_source\":\"docs\",\"reference\":\"{\\\"server\\\":\\\"docs\\\",\\\"tool\\\":\\\"search\\\"}\"}"
+        ],
+        "canonical": "{\"reference\":\"{\\\"server\\\":\\\"docs\\\",\\\"tool\\\":\\\"search\\\"}\",\"stepwise_tool_source\":\"docs\"}"
+      },
+      {
+        "source_name": "tickets-☕",
+        "reference": null,
+        "written": [
+          "{\"stepwise_tool_source\": \"tickets-\\u2615\", \"reference\": null}",
+          "{\"stepwise_tool_source\":\"tickets-☕\",\"reference\":null}"
+        ],
+        "canonical": "{\"reference\":null,\"stepwise_tool_source\":\"tickets-\\u2615\"}"
+      }
+    ]
+  },
+  "limits": {
+    "snapshot_message_limit": 200,
+    "list_agent_messages_default_limit": 50,
+    "list_agent_messages_maximum_limit": 200,
+    "default_max_durable_wait_seconds": 31536000,
+    "turn_control_at_most": 2147483647,
+    "stepwise_default_max_model_calls_per_turn": 100
+  }
+}

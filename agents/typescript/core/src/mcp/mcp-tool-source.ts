@@ -45,6 +45,7 @@ import {
   readServerName,
   resourceAndPromptToolNames,
   runResourceAndPromptTool,
+  serializeToolOutputJson,
 } from "./mcp-resource-and-prompt-tools.js";
 import type { SourceToolDefinition } from "../stepwise/tool-source.js";
 import { redactMcpServerConfigSecrets, validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
@@ -1364,11 +1365,7 @@ function savedTaskFromCheckpoint(
 }
 
 function outcomeFromToolResult(result: CallToolResult): ToolCallOutcome {
-  const parts = result.content.map((block) => (block.type === "text" ? block.text : JSON.stringify(block)));
-  if (parts.length === 0 && result.structuredContent !== undefined) {
-    parts.push(JSON.stringify(result.structuredContent));
-  }
-  const text = parts.join("\n");
+  const text = renderToolResultText(result);
   if (result.isError === true) {
     return { kind: "failed", message: text === "" ? "the MCP tool reported an error" : text };
   }
@@ -1421,4 +1418,13 @@ function dexAgentsVersion(): string {
 
 function isMcpTool(tool: SourceToolDefinition | undefined): tool is McpTool {
   return tool !== undefined && "serverName" in tool && "mcpToolName" in tool && "frameworkEffect" in tool;
+}
+
+/** Joins text blocks; other content blocks and structured content render as `serializeToolOutputJson` text. */
+export function renderToolResultText(result: CallToolResult): string {
+  const parts = result.content.map((block) => (block.type === "text" ? block.text : serializeToolOutputJson(block)));
+  if (parts.length === 0 && result.structuredContent !== undefined) {
+    parts.push(serializeToolOutputJson(result.structuredContent));
+  }
+  return parts.join("\n");
 }

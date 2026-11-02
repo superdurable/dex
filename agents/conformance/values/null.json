@@ -1,0 +1,13 @@
+{
+  "type": "null",
+  "wire_kind": "json",
+  "description": "Input of AwaitUserMessage and ApplyTurnControl.",
+  "cases": [
+    {
+      "name": "null",
+      "description": "No input.",
+      "wire": "null",
+      "canonical": "null"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "type": "PlanExecutionRequest",
+  "wire_kind": "json",
+  "description": "PlanExecutions Channel messages and the PendingPlanExecution Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A plan revision.",
+      "wire": "{\"revision\":3}",
+      "canonical": "{\"revision\":3}"
+    }
+  ]
+}

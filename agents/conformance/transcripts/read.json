@@ -1,0 +1,385 @@
+{
+  "name": "read",
+  "description": "A read tool call with reasoning and non-ASCII text, then the answer.",
+  "agent": "chat",
+  "replies": {
+    "Where is order 7?": [
+      {
+        "reasoning": "Look it up.",
+        "text": "Let me check ☕.",
+        "tool_calls": [
+          {
+            "tool_name": "lookup_order",
+            "arguments": {
+              "query": "7 – Grüße"
+            }
+          }
+        ]
+      },
+      {
+        "text": "Order 7 shipped."
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "start_session"
+    },
+    {
+      "action": "send_user_message",
+      "text": "Where is order 7?",
+      "returns": true
+    },
+    {
+      "action": "wait_for_idle",
+      "turn_count": 1
+    }
+  ],
+  "expected": {
+    "steps": {
+      "executed": [
+        [
+          "StartAgentSession",
+          "StartAgentSession-1",
+          1
+        ],
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-1",
+          1
+        ],
+        [
+          "RunModel",
+          "RunModel-1",
+          1
+        ],
+        [
+          "CallTool",
+          "CallTool-1",
+          1
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-1",
+          1
+        ],
+        [
+          "RunModel",
+          "RunModel-2",
+          1
+        ]
+      ],
+      "waits_completed": [
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-1"
+        ],
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-2"
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-1"
+        ]
+      ]
+    },
+    "events": [
+      {
+        "type": "turn_started",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "AwaitUserMessage-1",
+        "payload": "{\"sequence\":1}"
+      },
+      {
+        "type": "reasoning_delta",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"text\":\"Look it up.\"}"
+      },
+      {
+        "type": "text_delta",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"text\":\"Let me check \\u2615.\"}"
+      },
+      {
+        "type": "tool_call_deferred",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"effect\":\"read\",\"requires_approval\":false,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"lookup_order\"}"
+      },
+      {
+        "type": "usage_recorded",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"recorded\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0},\"session\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0}}"
+      },
+      {
+        "type": "tool_call_started",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "CallTool-1",
+        "payload": "{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"lookup_order\"}"
+      },
+      {
+        "type": "tool_call_finished",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "CallTool-1",
+        "payload": "{\"status\":\"succeeded\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"lookup_order\"}"
+      },
+      {
+        "type": "text_delta",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-2",
+        "payload": "{\"text\":\"Order 7 shipped.\"}"
+      },
+      {
+        "type": "usage_recorded",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-2",
+        "payload": "{\"recorded\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0},\"session\":{\"cached_input_tokens\":0,\"input_tokens\":20,\"model_calls\":2,\"output_tokens\":10,\"reasoning_tokens\":0}}"
+      },
+      {
+        "type": "turn_completed",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-2",
+        "payload": "{\"message_count\":5}"
+      }
+    ],
+    "snapshots": {
+      "final": {
+        "context_summary": null,
+        "messages": [
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"user_text\",\"text\":\"Where is order 7?\"}",
+            "role": "user",
+            "sequence": 1,
+            "text": "Where is order 7?",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"reasoning\\\",\\\"summary\\\":\\\"Look it up.\\\"}\",\"text\":null,\"tool_calls\":[]}",
+            "role": "assistant",
+            "sequence": 2,
+            "text": null,
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Let me check ☕.\\\"}\",\"text\":\"Let me check ☕.\",\"tool_calls\":[]}",
+            "role": "assistant",
+            "sequence": 3,
+            "text": "Let me check ☕.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"lookup_order\\\",\\\"arguments\\\":\\\"{\\\\\\\"query\\\\\\\": \\\\\\\"7 – Grüße\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"7 – Grüße\\\"}\"}]}",
+            "role": "assistant",
+            "sequence": 4,
+            "text": null,
+            "tool_arguments": "{\"query\": \"7 – Grüße\"}",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "lookup_order",
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"lookup_order\",\"output\":\"order 7 – Grüße: shipped\"}",
+            "role": "tool",
+            "sequence": 5,
+            "text": null,
+            "tool_arguments": null,
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "lookup_order",
+            "tool_output": "order 7 – Grüße: shipped",
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Order 7 shipped.\\\"}\",\"text\":\"Order 7 shipped.\",\"tool_calls\":[]}",
+            "role": "assistant",
+            "sequence": 6,
+            "text": "Order 7 shipped.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          }
+        ],
+        "pending_interrupts": [],
+        "plan": null,
+        "queued_message_count": 0,
+        "queued_messages": [],
+        "state": {
+          "accepts_turn_control": false,
+          "active_turn_id": null,
+          "interaction_mode": "chat",
+          "last_turn_error": null,
+          "next_message_sequence": 7,
+          "status": "waiting_for_user_message",
+          "turn_count": 1
+        },
+        "steered_messages": [],
+        "tool_calls": [],
+        "usage": {
+          "cached_input_tokens": 0,
+          "input_tokens": 20,
+          "model_calls": 2,
+          "output_tokens": 10,
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "model_requests": [
+      {
+        "step_execution_id": "RunModel-1",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "instructions": "You are the conformance agent.",
+        "tools": [
+          {
+            "name": "lookup_order",
+            "description": "Look up an order.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "send_email",
+            "description": "Send an email.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"to\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"to\",\"body\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "start_report",
+            "description": "Start building a report.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\"}},\"required\":[\"topic\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "ask_user",
+            "description": "Ask the user one question and wait for the answer, which becomes this tool's result. Use it only when you cannot continue without information or a decision from the user. The wait can last hours or days.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\",\"description\":\"One concise question for the user.\"},\"choices\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Answers the user can pick. Omit for a free-text answer.\"},\"allows_free_text\":{\"type\":\"boolean\",\"description\":\"Whether the user may answer with text that is not one of the choices. Defaults to true.\"}},\"required\":[\"question\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "durable_wait",
+            "description": "Pause this turn for a number of whole seconds, then continue. Nothing runs during the wait. Use it to wait for something outside the conversation, such as a job that needs time to finish.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"duration_seconds\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Whole seconds to wait.\"},\"reason\":{\"type\":\"string\",\"description\":\"Why the turn waits, shown to the user.\"}},\"required\":[\"duration_seconds\",\"reason\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "write_todos",
+            "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+          }
+        ],
+        "tool_choice": "auto",
+        "items": [
+          {
+            "type": "user_text",
+            "text": "Where is order 7?"
+          }
+        ]
+      },
+      {
+        "step_execution_id": "RunModel-2",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "instructions": "You are the conformance agent.",
+        "tools": [
+          {
+            "name": "lookup_order",
+            "description": "Look up an order.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "send_email",
+            "description": "Send an email.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"to\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"to\",\"body\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "start_report",
+            "description": "Start building a report.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\"}},\"required\":[\"topic\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "ask_user",
+            "description": "Ask the user one question and wait for the answer, which becomes this tool's result. Use it only when you cannot continue without information or a decision from the user. The wait can last hours or days.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\",\"description\":\"One concise question for the user.\"},\"choices\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Answers the user can pick. Omit for a free-text answer.\"},\"allows_free_text\":{\"type\":\"boolean\",\"description\":\"Whether the user may answer with text that is not one of the choices. Defaults to true.\"}},\"required\":[\"question\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "durable_wait",
+            "description": "Pause this turn for a number of whole seconds, then continue. Nothing runs during the wait. Use it to wait for something outside the conversation, such as a job that needs time to finish.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"duration_seconds\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Whole seconds to wait.\"},\"reason\":{\"type\":\"string\",\"description\":\"Why the turn waits, shown to the user.\"}},\"required\":[\"duration_seconds\",\"reason\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "write_todos",
+            "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+          }
+        ],
+        "tool_choice": "auto",
+        "items": [
+          {
+            "type": "user_text",
+            "text": "Where is order 7?"
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"reasoning\",\"summary\":\"Look it up.\"}",
+            "text": null,
+            "tool_call_ids": []
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"message\",\"text\":\"Let me check ☕.\"}",
+            "text": "Let me check ☕.",
+            "tool_call_ids": []
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-1-0\",\"name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"7 – Grüße\\\"}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-1-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "lookup_order",
+            "output": "order 7 – Grüße: shipped"
+          }
+        ]
+      }
+    ]
+  }
+}

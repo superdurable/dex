@@ -1,0 +1,13 @@
+{
+  "type": "ToolCallCompleted",
+  "wire_kind": "json",
+  "description": "One ToolCallResults Channel message.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A tool call ID.",
+      "wire": "{\"tool_call_id\":\"call-7\"}",
+      "canonical": "{\"tool_call_id\":\"call-7\"}"
+    }
+  ]
+}

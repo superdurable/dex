@@ -118,6 +118,10 @@ def resolve_server_zd_path(dexcli: Path) -> Path:
     )
 
 
+# How many times PrivateDexEngine.start tries, each on new free ports, as the TypeScript core does.
+_ENGINE_START_ATTEMPTS = 3
+
+
 class KillableProcess:
     """Run one child process in its own process group and kill it with SIGKILL.
 
@@ -222,6 +226,10 @@ class KillableProcess:
             os.killpg(self._process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except PermissionError:
+            # macOS refuses killpg once the group's leader has exited; that is not a failure.
+            if self._process.poll() is None:
+                raise
         self._process.wait()
         self._process = None
 
@@ -324,36 +332,47 @@ class PrivateDexEngine:
             ready_timeout: Maximum wait for readiness.
 
         Raises:
-            RuntimeError: If the engine exits or misses the timeout.
+            RuntimeError: If the engine exits or misses the timeout on every one of
+                three attempts, each on new free ports.
         """
         self._state_dir.mkdir(parents=True, exist_ok=True)
         config_arguments = (
             [] if self._server_zd_config is None else ["-zd-config", str(self._server_zd_config)]
         )
-        await self._process.start(
-            [
-                str(self._dexcli),
-                "dev",
-                "-engine",
-                "zd",
-                "-zd-binary",
-                str(self._server_zd),
-                "-zd-data-dir",
-                str(self._state_dir / "zd"),
-                "-connector-config-dir",
-                str(self._state_dir / "connectors"),
-                "-bind-address",
-                "127.0.0.1",
-                "-dex-port",
-                str(self.dex_port),
-                "-web-port",
-                str(self.web_port),
-                "-open=false",
-                *config_arguments,
-            ],
-            ENGINE_READY_LINE,
-            ready_timeout=ready_timeout,
-        )
+        for attempt in range(1, _ENGINE_START_ATTEMPTS + 1):
+            # A failed attempt may leave state behind, so each retry gets its own data directory.
+            data_dir = self._state_dir / ("zd" if attempt == 1 else f"zd-{attempt}")
+            try:
+                await self._process.start(
+                    [
+                        str(self._dexcli),
+                        "dev",
+                        "-engine",
+                        "zd",
+                        "-zd-binary",
+                        str(self._server_zd),
+                        "-zd-data-dir",
+                        str(data_dir),
+                        "-connector-config-dir",
+                        str(self._state_dir / "connectors"),
+                        "-bind-address",
+                        "127.0.0.1",
+                        "-dex-port",
+                        str(self.dex_port),
+                        "-web-port",
+                        str(self.web_port),
+                        "-open=false",
+                        *config_arguments,
+                    ],
+                    ENGINE_READY_LINE,
+                    ready_timeout=ready_timeout,
+                )
+                return
+            except RuntimeError:
+                if attempt == _ENGINE_START_ATTEMPTS:
+                    raise
+                # Another process can take a free port before the engine binds it.
+                self.dex_port, self.web_port = find_free_ports(2)
 
     def kill(self) -> None:
         """Hard-kill the engine and its server."""

@@ -1,0 +1,13 @@
+{
+  "type": "CompactContextInput",
+  "wire_kind": "json",
+  "description": "Input of CompactContext.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A cutoff sequence.",
+      "wire": "{\"through_sequence\":40}",
+      "canonical": "{\"through_sequence\":40}"
+    }
+  ]
+}

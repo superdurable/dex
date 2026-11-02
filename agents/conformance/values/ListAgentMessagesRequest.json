@@ -1,0 +1,25 @@
+{
+  "type": "ListAgentMessagesRequest",
+  "wire_kind": "json",
+  "description": "Input of the list_agent_messages RPC.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A page before a sequence.",
+      "wire": "{\"before_sequence\":40,\"limit\":20}",
+      "canonical": "{\"before_sequence\":40,\"limit\":20}"
+    },
+    {
+      "name": "defaults",
+      "description": "The newest page.",
+      "wire": "{\"before_sequence\":null,\"limit\":50}",
+      "canonical": "{\"before_sequence\":null,\"limit\":50}"
+    },
+    {
+      "name": "without-limit",
+      "description": "A request without limit reads limit 50.",
+      "wire": "{\"before_sequence\":null}",
+      "canonical": "{\"before_sequence\":null,\"limit\":50}"
+    }
+  ]
+}

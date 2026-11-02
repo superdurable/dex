@@ -1,0 +1,943 @@
+{
+  "name": "plan",
+  "description": "A planning turn writes a draft plan; execute_plan runs it in an executing turn.",
+  "agent": "chat",
+  "replies": {
+    "Plan the refund of order 7.": [
+      {
+        "tool_calls": [
+          {
+            "tool_name": "write_todos",
+            "arguments": {
+              "todos": [
+                {
+                  "content": "Look up order 7",
+                  "status": "pending"
+                },
+                {
+                  "content": "Refund order 7",
+                  "status": "pending"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "text": "Here is the plan."
+      }
+    ],
+    "[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos.": [
+      {
+        "tool_calls": [
+          {
+            "tool_name": "lookup_order",
+            "arguments": {
+              "query": "7"
+            }
+          }
+        ]
+      },
+      {
+        "tool_calls": [
+          {
+            "tool_name": "write_todos",
+            "arguments": {
+              "todos": [
+                {
+                  "content": "Look up order 7",
+                  "status": "completed"
+                },
+                {
+                  "content": "Refund order 7",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "text": "Refunded."
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action": "start_session"
+    },
+    {
+      "action": "send_user_message",
+      "text": "Plan the refund of order 7.",
+      "plan_mode": true,
+      "returns": true
+    },
+    {
+      "action": "wait_for_idle",
+      "turn_count": 1
+    },
+    {
+      "action": "snapshot",
+      "label": "draft-plan"
+    },
+    {
+      "action": "execute_plan",
+      "revision": 2,
+      "returns": false
+    },
+    {
+      "action": "execute_plan",
+      "revision": 1,
+      "returns": true
+    },
+    {
+      "action": "wait_for_idle",
+      "turn_count": 2
+    }
+  ],
+  "expected": {
+    "steps": {
+      "executed": [
+        [
+          "StartAgentSession",
+          "StartAgentSession-1",
+          1
+        ],
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-1",
+          1
+        ],
+        [
+          "RunModel",
+          "RunModel-1",
+          1
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-1",
+          1
+        ],
+        [
+          "RunModel",
+          "RunModel-2",
+          1
+        ],
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-2",
+          1
+        ],
+        [
+          "RunModel",
+          "RunModel-3",
+          1
+        ],
+        [
+          "CallTool",
+          "CallTool-1",
+          1
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-2",
+          1
+        ],
+        [
+          "RunModel",
+          "RunModel-4",
+          1
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-3",
+          1
+        ],
+        [
+          "RunModel",
+          "RunModel-5",
+          1
+        ]
+      ],
+      "waits_completed": [
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-1"
+        ],
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-2"
+        ],
+        [
+          "AwaitUserMessage",
+          "AwaitUserMessage-3"
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-1"
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-2"
+        ],
+        [
+          "ResumeTurn",
+          "ResumeTurn-3"
+        ]
+      ]
+    },
+    "events": [
+      {
+        "type": "turn_started",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "AwaitUserMessage-1",
+        "payload": "{\"sequence\":1}"
+      },
+      {
+        "type": "tool_call_deferred",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"effect\":\"read\",\"requires_approval\":false,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\"}"
+      },
+      {
+        "type": "plan_updated",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"revision\":1,\"status\":\"draft\",\"task_count\":2}"
+      },
+      {
+        "type": "tool_call_finished",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"status\":\"succeeded\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\"}"
+      },
+      {
+        "type": "usage_recorded",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-1",
+        "payload": "{\"recorded\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0},\"session\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0}}"
+      },
+      {
+        "type": "text_delta",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-2",
+        "payload": "{\"text\":\"Here is the plan.\"}"
+      },
+      {
+        "type": "usage_recorded",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-2",
+        "payload": "{\"recorded\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0},\"session\":{\"cached_input_tokens\":0,\"input_tokens\":20,\"model_calls\":2,\"output_tokens\":10,\"reasoning_tokens\":0}}"
+      },
+      {
+        "type": "turn_completed",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "step_execution_id": "RunModel-2",
+        "payload": "{\"message_count\":3}"
+      },
+      {
+        "type": "turn_started",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "AwaitUserMessage-2",
+        "payload": "{\"sequence\":5}"
+      },
+      {
+        "type": "plan_execution_started",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "AwaitUserMessage-2",
+        "payload": "{\"revision\":1}"
+      },
+      {
+        "type": "plan_updated",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "AwaitUserMessage-2",
+        "payload": "{\"revision\":1,\"status\":\"active\",\"task_count\":2}"
+      },
+      {
+        "type": "tool_call_deferred",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-3",
+        "payload": "{\"effect\":\"read\",\"requires_approval\":false,\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"lookup_order\"}"
+      },
+      {
+        "type": "usage_recorded",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-3",
+        "payload": "{\"recorded\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0},\"session\":{\"cached_input_tokens\":0,\"input_tokens\":30,\"model_calls\":3,\"output_tokens\":15,\"reasoning_tokens\":0}}"
+      },
+      {
+        "type": "tool_call_started",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "CallTool-1",
+        "payload": "{\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"lookup_order\"}"
+      },
+      {
+        "type": "tool_call_finished",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "CallTool-1",
+        "payload": "{\"status\":\"succeeded\",\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"lookup_order\"}"
+      },
+      {
+        "type": "tool_call_deferred",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-4",
+        "payload": "{\"effect\":\"read\",\"requires_approval\":false,\"tool_call_id\":\"RunModel-4-0\",\"tool_name\":\"write_todos\"}"
+      },
+      {
+        "type": "plan_updated",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-4",
+        "payload": "{\"revision\":2,\"status\":\"completed\",\"task_count\":2}"
+      },
+      {
+        "type": "tool_call_finished",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-4",
+        "payload": "{\"status\":\"succeeded\",\"tool_call_id\":\"RunModel-4-0\",\"tool_name\":\"write_todos\"}"
+      },
+      {
+        "type": "usage_recorded",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-4",
+        "payload": "{\"recorded\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0},\"session\":{\"cached_input_tokens\":0,\"input_tokens\":40,\"model_calls\":4,\"output_tokens\":20,\"reasoning_tokens\":0}}"
+      },
+      {
+        "type": "text_delta",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-5",
+        "payload": "{\"text\":\"Refunded.\"}"
+      },
+      {
+        "type": "usage_recorded",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-5",
+        "payload": "{\"recorded\":{\"cached_input_tokens\":0,\"input_tokens\":10,\"model_calls\":1,\"output_tokens\":5,\"reasoning_tokens\":0},\"session\":{\"cached_input_tokens\":0,\"input_tokens\":50,\"model_calls\":5,\"output_tokens\":25,\"reasoning_tokens\":0}}"
+      },
+      {
+        "type": "turn_completed",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "step_execution_id": "RunModel-5",
+        "payload": "{\"message_count\":5}"
+      }
+    ],
+    "snapshots": {
+      "draft-plan": {
+        "context_summary": null,
+        "messages": [
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"user_text\",\"text\":\"Plan the refund of order 7.\"}",
+            "role": "user",
+            "sequence": 1,
+            "text": "Plan the refund of order 7.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"write_todos\\\",\\\"arguments\\\":\\\"{\\\\\\\"todos\\\\\\\": [{\\\\\\\"content\\\\\\\": \\\\\\\"Look up order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}, {\\\\\\\"content\\\\\\\": \\\\\\\"Refund order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}]}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}]}",
+            "role": "assistant",
+            "sequence": 2,
+            "text": null,
+            "tool_arguments": "{\"todos\": [{\"content\": \"Look up order 7\", \"status\": \"pending\"}, {\"content\": \"Refund order 7\", \"status\": \"pending\"}]}",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"output\":\"{\\\"status\\\":\\\"updated\\\",\\\"revision\\\":1,\\\"task_count\\\":2}\"}",
+            "role": "tool",
+            "sequence": 3,
+            "text": null,
+            "tool_arguments": null,
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "tool_output": "{\"status\":\"updated\",\"revision\":1,\"task_count\":2}",
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Here is the plan.\\\"}\",\"text\":\"Here is the plan.\",\"tool_calls\":[]}",
+            "role": "assistant",
+            "sequence": 4,
+            "text": "Here is the plan.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          }
+        ],
+        "pending_interrupts": [],
+        "plan": {
+          "revision": 1,
+          "status": "draft",
+          "tasks": [
+            {
+              "content": "Look up order 7",
+              "status": "pending"
+            },
+            {
+              "content": "Refund order 7",
+              "status": "pending"
+            }
+          ],
+          "updated_at": "<timestamp>"
+        },
+        "queued_message_count": 0,
+        "queued_messages": [],
+        "state": {
+          "accepts_turn_control": false,
+          "active_turn_id": null,
+          "interaction_mode": "planning",
+          "last_turn_error": null,
+          "next_message_sequence": 5,
+          "status": "waiting_for_user_message",
+          "turn_count": 1
+        },
+        "steered_messages": [],
+        "tool_calls": [],
+        "usage": {
+          "cached_input_tokens": 0,
+          "input_tokens": 20,
+          "model_calls": 2,
+          "output_tokens": 10,
+          "reasoning_tokens": 0
+        }
+      },
+      "final": {
+        "context_summary": null,
+        "messages": [
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"user_text\",\"text\":\"Plan the refund of order 7.\"}",
+            "role": "user",
+            "sequence": 1,
+            "text": "Plan the refund of order 7.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"write_todos\\\",\\\"arguments\\\":\\\"{\\\\\\\"todos\\\\\\\": [{\\\\\\\"content\\\\\\\": \\\\\\\"Look up order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}, {\\\\\\\"content\\\\\\\": \\\\\\\"Refund order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}]}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}]}",
+            "role": "assistant",
+            "sequence": 2,
+            "text": null,
+            "tool_arguments": "{\"todos\": [{\"content\": \"Look up order 7\", \"status\": \"pending\"}, {\"content\": \"Refund order 7\", \"status\": \"pending\"}]}",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"output\":\"{\\\"status\\\":\\\"updated\\\",\\\"revision\\\":1,\\\"task_count\\\":2}\"}",
+            "role": "tool",
+            "sequence": 3,
+            "text": null,
+            "tool_arguments": null,
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "tool_output": "{\"status\":\"updated\",\"revision\":1,\"task_count\":2}",
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Here is the plan.\\\"}\",\"text\":\"Here is the plan.\",\"tool_calls\":[]}",
+            "role": "assistant",
+            "sequence": 4,
+            "text": "Here is the plan.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-1"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"user_text\",\"text\":\"[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos.\"}",
+            "role": "user",
+            "sequence": 5,
+            "text": "[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-2"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-3-0\\\",\\\"name\\\":\\\"lookup_order\\\",\\\"arguments\\\":\\\"{\\\\\\\"query\\\\\\\": \\\\\\\"7\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"7\\\"}\"}]}",
+            "role": "assistant",
+            "sequence": 6,
+            "text": null,
+            "tool_arguments": "{\"query\": \"7\"}",
+            "tool_call_id": "RunModel-3-0",
+            "tool_name": "lookup_order",
+            "tool_output": null,
+            "turn_id": "turn-2"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"lookup_order\",\"output\":\"order 7: shipped\"}",
+            "role": "tool",
+            "sequence": 7,
+            "text": null,
+            "tool_arguments": null,
+            "tool_call_id": "RunModel-3-0",
+            "tool_name": "lookup_order",
+            "tool_output": "order 7: shipped",
+            "turn_id": "turn-2"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-4-0\\\",\\\"name\\\":\\\"write_todos\\\",\\\"arguments\\\":\\\"{\\\\\\\"todos\\\\\\\": [{\\\\\\\"content\\\\\\\": \\\\\\\"Look up order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"completed\\\\\\\"}, {\\\\\\\"content\\\\\\\": \\\\\\\"Refund order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"completed\\\\\\\"}]}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-4-0\",\"tool_name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"completed\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"completed\\\"}]}\"}]}",
+            "role": "assistant",
+            "sequence": 8,
+            "text": null,
+            "tool_arguments": "{\"todos\": [{\"content\": \"Look up order 7\", \"status\": \"completed\"}, {\"content\": \"Refund order 7\", \"status\": \"completed\"}]}",
+            "tool_call_id": "RunModel-4-0",
+            "tool_name": "write_todos",
+            "tool_output": null,
+            "turn_id": "turn-2"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-4-0\",\"tool_name\":\"write_todos\",\"output\":\"{\\\"status\\\":\\\"updated\\\",\\\"revision\\\":2,\\\"task_count\\\":2}\"}",
+            "role": "tool",
+            "sequence": 9,
+            "text": null,
+            "tool_arguments": null,
+            "tool_call_id": "RunModel-4-0",
+            "tool_name": "write_todos",
+            "tool_output": "{\"status\":\"updated\",\"revision\":2,\"task_count\":2}",
+            "turn_id": "turn-2"
+          },
+          {
+            "created_at": "<timestamp>",
+            "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Refunded.\\\"}\",\"text\":\"Refunded.\",\"tool_calls\":[]}",
+            "role": "assistant",
+            "sequence": 10,
+            "text": "Refunded.",
+            "tool_arguments": null,
+            "tool_call_id": null,
+            "tool_name": null,
+            "tool_output": null,
+            "turn_id": "turn-2"
+          }
+        ],
+        "pending_interrupts": [],
+        "plan": {
+          "revision": 2,
+          "status": "completed",
+          "tasks": [
+            {
+              "content": "Look up order 7",
+              "status": "completed"
+            },
+            {
+              "content": "Refund order 7",
+              "status": "completed"
+            }
+          ],
+          "updated_at": "<timestamp>"
+        },
+        "queued_message_count": 0,
+        "queued_messages": [],
+        "state": {
+          "accepts_turn_control": false,
+          "active_turn_id": null,
+          "interaction_mode": "executing",
+          "last_turn_error": null,
+          "next_message_sequence": 11,
+          "status": "waiting_for_user_message",
+          "turn_count": 2
+        },
+        "steered_messages": [],
+        "tool_calls": [],
+        "usage": {
+          "cached_input_tokens": 0,
+          "input_tokens": 50,
+          "model_calls": 5,
+          "output_tokens": 25,
+          "reasoning_tokens": 0
+        }
+      }
+    },
+    "model_requests": [
+      {
+        "step_execution_id": "RunModel-1",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "instructions": "You are the conformance agent.",
+        "tools": [
+          {
+            "name": "write_todos",
+            "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+          }
+        ],
+        "tool_choice": "auto",
+        "items": [
+          {
+            "type": "user_text",
+            "text": "[Dex] There is no plan yet.\nThis turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs."
+          },
+          {
+            "type": "user_text",
+            "text": "Plan the refund of order 7."
+          }
+        ]
+      },
+      {
+        "step_execution_id": "RunModel-2",
+        "turn_id": "turn-1",
+        "attempt": 1,
+        "instructions": "You are the conformance agent.",
+        "tools": [
+          {
+            "name": "write_todos",
+            "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+          }
+        ],
+        "tool_choice": "auto",
+        "items": [
+          {
+            "type": "user_text",
+            "text": "[Dex] The current plan, revision 1, is draft:\n- [pending] Look up order 7\n- [pending] Refund order 7\nThis turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs."
+          },
+          {
+            "type": "user_text",
+            "text": "Plan the refund of order 7."
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-1-0\",\"name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-1-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "output": "{\"status\":\"updated\",\"revision\":1,\"task_count\":2}"
+          }
+        ]
+      },
+      {
+        "step_execution_id": "RunModel-3",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "instructions": "You are the conformance agent.",
+        "tools": [
+          {
+            "name": "lookup_order",
+            "description": "Look up an order.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "send_email",
+            "description": "Send an email.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"to\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"to\",\"body\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "start_report",
+            "description": "Start building a report.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\"}},\"required\":[\"topic\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "ask_user",
+            "description": "Ask the user one question and wait for the answer, which becomes this tool's result. Use it only when you cannot continue without information or a decision from the user. The wait can last hours or days.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\",\"description\":\"One concise question for the user.\"},\"choices\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Answers the user can pick. Omit for a free-text answer.\"},\"allows_free_text\":{\"type\":\"boolean\",\"description\":\"Whether the user may answer with text that is not one of the choices. Defaults to true.\"}},\"required\":[\"question\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "durable_wait",
+            "description": "Pause this turn for a number of whole seconds, then continue. Nothing runs during the wait. Use it to wait for something outside the conversation, such as a job that needs time to finish.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"duration_seconds\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Whole seconds to wait.\"},\"reason\":{\"type\":\"string\",\"description\":\"Why the turn waits, shown to the user.\"}},\"required\":[\"duration_seconds\",\"reason\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "write_todos",
+            "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+          }
+        ],
+        "tool_choice": "auto",
+        "items": [
+          {
+            "type": "user_text",
+            "text": "Plan the refund of order 7."
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-1-0\",\"name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-1-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "output": "{\"status\":\"updated\",\"revision\":1,\"task_count\":2}"
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"message\",\"text\":\"Here is the plan.\"}",
+            "text": "Here is the plan.",
+            "tool_call_ids": []
+          },
+          {
+            "type": "user_text",
+            "text": "[Dex] The current plan, revision 1, is active:\n- [pending] Look up order 7\n- [pending] Refund order 7"
+          },
+          {
+            "type": "user_text",
+            "text": "[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos."
+          }
+        ]
+      },
+      {
+        "step_execution_id": "RunModel-4",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "instructions": "You are the conformance agent.",
+        "tools": [
+          {
+            "name": "lookup_order",
+            "description": "Look up an order.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "send_email",
+            "description": "Send an email.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"to\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"to\",\"body\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "start_report",
+            "description": "Start building a report.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\"}},\"required\":[\"topic\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "ask_user",
+            "description": "Ask the user one question and wait for the answer, which becomes this tool's result. Use it only when you cannot continue without information or a decision from the user. The wait can last hours or days.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\",\"description\":\"One concise question for the user.\"},\"choices\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Answers the user can pick. Omit for a free-text answer.\"},\"allows_free_text\":{\"type\":\"boolean\",\"description\":\"Whether the user may answer with text that is not one of the choices. Defaults to true.\"}},\"required\":[\"question\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "durable_wait",
+            "description": "Pause this turn for a number of whole seconds, then continue. Nothing runs during the wait. Use it to wait for something outside the conversation, such as a job that needs time to finish.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"duration_seconds\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Whole seconds to wait.\"},\"reason\":{\"type\":\"string\",\"description\":\"Why the turn waits, shown to the user.\"}},\"required\":[\"duration_seconds\",\"reason\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "write_todos",
+            "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+          }
+        ],
+        "tool_choice": "auto",
+        "items": [
+          {
+            "type": "user_text",
+            "text": "Plan the refund of order 7."
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-1-0\",\"name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-1-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "output": "{\"status\":\"updated\",\"revision\":1,\"task_count\":2}"
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"message\",\"text\":\"Here is the plan.\"}",
+            "text": "Here is the plan.",
+            "tool_call_ids": []
+          },
+          {
+            "type": "user_text",
+            "text": "[Dex] The current plan, revision 1, is active:\n- [pending] Look up order 7\n- [pending] Refund order 7"
+          },
+          {
+            "type": "user_text",
+            "text": "[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos."
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-3-0\",\"name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"7\\\"}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-3-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-3-0",
+            "tool_name": "lookup_order",
+            "output": "order 7: shipped"
+          }
+        ]
+      },
+      {
+        "step_execution_id": "RunModel-5",
+        "turn_id": "turn-2",
+        "attempt": 1,
+        "instructions": "You are the conformance agent.",
+        "tools": [
+          {
+            "name": "lookup_order",
+            "description": "Look up an order.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "send_email",
+            "description": "Send an email.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"to\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"to\",\"body\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "start_report",
+            "description": "Start building a report.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\"}},\"required\":[\"topic\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "ask_user",
+            "description": "Ask the user one question and wait for the answer, which becomes this tool's result. Use it only when you cannot continue without information or a decision from the user. The wait can last hours or days.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\",\"description\":\"One concise question for the user.\"},\"choices\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Answers the user can pick. Omit for a free-text answer.\"},\"allows_free_text\":{\"type\":\"boolean\",\"description\":\"Whether the user may answer with text that is not one of the choices. Defaults to true.\"}},\"required\":[\"question\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "durable_wait",
+            "description": "Pause this turn for a number of whole seconds, then continue. Nothing runs during the wait. Use it to wait for something outside the conversation, such as a job that needs time to finish.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"duration_seconds\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Whole seconds to wait.\"},\"reason\":{\"type\":\"string\",\"description\":\"Why the turn waits, shown to the user.\"}},\"required\":[\"duration_seconds\",\"reason\"],\"additionalProperties\":false}"
+          },
+          {
+            "name": "write_todos",
+            "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+            "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+          }
+        ],
+        "tool_choice": "auto",
+        "items": [
+          {
+            "type": "user_text",
+            "text": "Plan the refund of order 7."
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-1-0\",\"name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-1-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-1-0",
+            "tool_name": "write_todos",
+            "output": "{\"status\":\"updated\",\"revision\":1,\"task_count\":2}"
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"message\",\"text\":\"Here is the plan.\"}",
+            "text": "Here is the plan.",
+            "tool_call_ids": []
+          },
+          {
+            "type": "user_text",
+            "text": "[Dex] The current plan, revision 2, is completed:\n- [completed] Look up order 7\n- [completed] Refund order 7"
+          },
+          {
+            "type": "user_text",
+            "text": "[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos."
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-3-0\",\"name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"7\\\"}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-3-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-3-0",
+            "tool_name": "lookup_order",
+            "output": "order 7: shipped"
+          },
+          {
+            "type": "model_output",
+            "provider": "dex-scripted",
+            "api": "scripted",
+            "item": "{\"type\":\"function_call\",\"call_id\":\"RunModel-4-0\",\"name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"completed\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"completed\\\"}]}\"}",
+            "text": null,
+            "tool_call_ids": [
+              "RunModel-4-0"
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_call_id": "RunModel-4-0",
+            "tool_name": "write_todos",
+            "output": "{\"status\":\"updated\",\"revision\":2,\"task_count\":2}"
+          }
+        ]
+      }
+    ]
+  }
+}

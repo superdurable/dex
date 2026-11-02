@@ -1,0 +1,31 @@
+{
+  "type": "QuestionAnswer",
+  "wire_kind": "json",
+  "description": "One element of AgentToolCall.input_answers.",
+  "cases": [
+    {
+      "name": "resolution-answered",
+      "description": "Resolution answered.",
+      "wire": "{\"answer\":\"checking\",\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"resolution\":\"answered\"}",
+      "canonical": "{\"answer\":\"checking\",\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"resolution\":\"answered\"}"
+    },
+    {
+      "name": "resolution-declined",
+      "description": "Resolution declined.",
+      "wire": "{\"answer\":\"\",\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"resolution\":\"declined\"}",
+      "canonical": "{\"answer\":\"\",\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"resolution\":\"declined\"}"
+    },
+    {
+      "name": "resolution-deadline_passed",
+      "description": "Resolution deadline_passed.",
+      "wire": "{\"answer\":\"\",\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"resolution\":\"deadline_passed\"}",
+      "canonical": "{\"answer\":\"\",\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"resolution\":\"deadline_passed\"}"
+    },
+    {
+      "name": "without-resolution",
+      "description": "Written before resolution existed; reads as answered.",
+      "wire": "{\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"answer\":\"savings\"}",
+      "canonical": "{\"answer\":\"savings\",\"interrupt_id\":\"call-7-input-1\",\"question\":\"Which account?\",\"resolution\":\"answered\"}"
+    }
+  ]
+}

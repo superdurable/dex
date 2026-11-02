@@ -169,7 +169,7 @@ class ScriptedModelClient:
                 tool_name=scripted.tool_name,
                 arguments=scripted.arguments
                 if isinstance(scripted.arguments, str)
-                else json.dumps(dict(scripted.arguments)),
+                else json.dumps(dict(scripted.arguments), ensure_ascii=False),
             )
             tool_calls.append(call)
             items.append(
@@ -246,7 +246,7 @@ def _scripted_item(
     return ModelOutputItem(
         provider=SCRIPTED_MODEL_PROVIDER,
         api=SCRIPTED_MODEL_API,
-        item=json.dumps(dict(item), separators=(",", ":")),
+        item=json.dumps(dict(item), ensure_ascii=False, separators=(",", ":")),
         text=text,
         tool_calls=tuple(tool_calls),
     )

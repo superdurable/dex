@@ -27,7 +27,7 @@ if installed != sdk["version"]:
 print(f"dex-python-sdk {installed} from {sdk['source']['registry']}")
 PY
 
-uv run --frozen ruff check
-uv run --frozen ruff format --check
+uv run --frozen ruff check . ../../conformance
+uv run --frozen ruff format --check . ../../conformance
 uv run --frozen mypy
 uv run --frozen pytest -p no:cacheprovider -v

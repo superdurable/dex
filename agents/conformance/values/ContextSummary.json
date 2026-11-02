@@ -1,0 +1,13 @@
+{
+  "type": "ContextSummary",
+  "wire_kind": "json",
+  "description": "The ContextSummary Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A second-generation summary.",
+      "wire": "{\"created_at\":\"2026-11-02T09:45:30.125Z\",\"first_sequence\":1,\"generation\":2,\"last_sequence\":40,\"text\":\"The user asked about order 7.\\nIt shipped.\"}",
+      "canonical": "{\"created_at\":\"2026-11-02T09:45:30.125Z\",\"first_sequence\":1,\"generation\":2,\"last_sequence\":40,\"text\":\"The user asked about order 7.\\nIt shipped.\"}"
+    }
+  ]
+}

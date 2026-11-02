@@ -1,0 +1,970 @@
+{
+  "description": "Every text a model sees that the session, not the model or a tool, wrote. Compare byte for byte.",
+  "constants": {
+    "outcome_unknown_tool_result": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+    "default_rejection_tool_result": "The user rejected this tool call.",
+    "approval_deadline_passed": "approval deadline passed",
+    "question_deadline_passed": "question deadline passed",
+    "question_declined_tool_result": "The user declined to answer.",
+    "turn_failure_note_header": "[Dex] The previous turn failed after these tool calls ran:",
+    "turn_failure_note_footer": "Do not repeat these tool calls unless the user asks again.",
+    "turn_steered_note_header": "[Dex] The user steered the conversation after these tool calls ran:",
+    "turn_cancelled_note_header": "[Dex] The user stopped the previous turn after these tool calls ran:",
+    "tool_call_cancelled_by_steering_result": "{\"status\":\"cancelled\",\"reason\":\"superseded_by_steered_user_message\"}",
+    "tool_call_cancelled_by_turn_cancellation_result": "{\"status\":\"cancelled\",\"reason\":\"turn_cancelled_by_user\"}",
+    "write_todos_called_more_than_once": "write_todos was called more than once in one response",
+    "planning_turn_tool_rejection": "The tool call was not run: a planning turn can only call write_todos.",
+    "no_plan_note": "[Dex] There is no plan yet.",
+    "planning_turn_instruction": "This turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs.",
+    "blank_tool_task_id": "the tool started a task without a task ID",
+    "invalid_tool_task_poll_interval": "the tool task's poll interval is not a number",
+    "stepwise_context_summary_note_header": "[Dex] Summary of the earlier conversation:",
+    "stepwise_context_summary_instructions": "You summarize the earlier part of an agent conversation. The agent continues from your summary and the messages after it, so keep every fact, decision, user request and preference, open task, and tool result that it still needs, including what an earlier summary says. Write plain text.",
+    "stepwise_context_summary_request": "[Dex] Summarize the conversation above. Reply with the summary only."
+  },
+  "templates": {
+    "tool_call_outcome": [
+      {
+        "input": {
+          "record": {
+            "arguments": "{\"query\": \"7\"}",
+            "cancellation_reason": null,
+            "deferral_order": 0,
+            "effect": "read",
+            "error": null,
+            "input_allows_free_text": true,
+            "input_answers": [],
+            "input_choices": [],
+            "input_continuation": null,
+            "input_question": null,
+            "output": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>",
+            "rejection_message": null,
+            "requires_approval": false,
+            "status": "succeeded",
+            "task_answer_pending": false,
+            "task_id": null,
+            "task_poll_interval_seconds": null,
+            "tool_call_id": "call-1",
+            "tool_name": "lookup_order",
+            "tool_source_reference": null,
+            "trace_context": null,
+            "turn_id": "turn-1",
+            "wait_until": null
+          }
+        },
+        "text": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>"
+      },
+      {
+        "input": {
+          "record": {
+            "arguments": "{\"query\": \"7\"}",
+            "cancellation_reason": null,
+            "deferral_order": 0,
+            "effect": "read",
+            "error": null,
+            "input_allows_free_text": true,
+            "input_answers": [],
+            "input_choices": [],
+            "input_continuation": null,
+            "input_question": null,
+            "output": null,
+            "rejection_message": null,
+            "requires_approval": false,
+            "status": "succeeded",
+            "task_answer_pending": false,
+            "task_id": null,
+            "task_poll_interval_seconds": null,
+            "tool_call_id": "call-1",
+            "tool_name": "lookup_order",
+            "tool_source_reference": null,
+            "trace_context": null,
+            "turn_id": "turn-1",
+            "wait_until": null
+          }
+        },
+        "text": ""
+      },
+      {
+        "input": {
+          "record": {
+            "arguments": "{\"query\": \"7\"}",
+            "cancellation_reason": null,
+            "deferral_order": 0,
+            "effect": "read",
+            "error": "smtp down",
+            "input_allows_free_text": true,
+            "input_answers": [],
+            "input_choices": [],
+            "input_continuation": null,
+            "input_question": null,
+            "output": null,
+            "rejection_message": null,
+            "requires_approval": false,
+            "status": "failed",
+            "task_answer_pending": false,
+            "task_id": null,
+            "task_poll_interval_seconds": null,
+            "tool_call_id": "call-1",
+            "tool_name": "lookup_order",
+            "tool_source_reference": null,
+            "trace_context": null,
+            "turn_id": "turn-1",
+            "wait_until": null
+          }
+        },
+        "text": "The tool call failed: smtp down"
+      },
+      {
+        "input": {
+          "record": {
+            "arguments": "{\"query\": \"7\"}",
+            "cancellation_reason": null,
+            "deferral_order": 0,
+            "effect": "read",
+            "error": null,
+            "input_allows_free_text": true,
+            "input_answers": [],
+            "input_choices": [],
+            "input_continuation": null,
+            "input_question": null,
+            "output": null,
+            "rejection_message": null,
+            "requires_approval": false,
+            "status": "failed",
+            "task_answer_pending": false,
+            "task_id": null,
+            "task_poll_interval_seconds": null,
+            "tool_call_id": "call-1",
+            "tool_name": "lookup_order",
+            "tool_source_reference": null,
+            "trace_context": null,
+            "turn_id": "turn-1",
+            "wait_until": null
+          }
+        },
+        "text": "The tool call failed: unknown error"
+      },
+      {
+        "input": {
+          "record": {
+            "arguments": "{\"query\": \"7\"}",
+            "cancellation_reason": null,
+            "deferral_order": 0,
+            "effect": "read",
+            "error": null,
+            "input_allows_free_text": true,
+            "input_answers": [],
+            "input_choices": [],
+            "input_continuation": null,
+            "input_question": null,
+            "output": null,
+            "rejection_message": "not today",
+            "requires_approval": false,
+            "status": "rejected",
+            "task_answer_pending": false,
+            "task_id": null,
+            "task_poll_interval_seconds": null,
+            "tool_call_id": "call-1",
+            "tool_name": "lookup_order",
+            "tool_source_reference": null,
+            "trace_context": null,
+            "turn_id": "turn-1",
+            "wait_until": null
+          }
+        },
+        "text": "not today"
+      },
+      {
+        "input": {
+          "record": {
+            "arguments": "{\"query\": \"7\"}",
+            "cancellation_reason": null,
+            "deferral_order": 0,
+            "effect": "read",
+            "error": null,
+            "input_allows_free_text": true,
+            "input_answers": [],
+            "input_choices": [],
+            "input_continuation": null,
+            "input_question": null,
+            "output": null,
+            "rejection_message": null,
+            "requires_approval": false,
+            "status": "rejected",
+            "task_answer_pending": false,
+            "task_id": null,
+            "task_poll_interval_seconds": null,
+            "tool_call_id": "call-1",
+            "tool_name": "lookup_order",
+            "tool_source_reference": null,
+            "trace_context": null,
+            "turn_id": "turn-1",
+            "wait_until": null
+          }
+        },
+        "text": "The user rejected this tool call."
+      },
+      {
+        "input": {
+          "record": {
+            "arguments": "{\"query\": \"7\"}",
+            "cancellation_reason": null,
+            "deferral_order": 0,
+            "effect": "read",
+            "error": null,
+            "input_allows_free_text": true,
+            "input_answers": [],
+            "input_choices": [],
+            "input_continuation": null,
+            "input_question": null,
+            "output": null,
+            "rejection_message": null,
+            "requires_approval": false,
+            "status": "outcome_unknown",
+            "task_answer_pending": false,
+            "task_id": null,
+            "task_poll_interval_seconds": null,
+            "tool_call_id": "call-1",
+            "tool_name": "lookup_order",
+            "tool_source_reference": null,
+            "trace_context": null,
+            "turn_id": "turn-1",
+            "wait_until": null
+          }
+        },
+        "text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically."
+      }
+    ],
+    "turn_failure_note": [
+      {
+        "input": {
+          "records": [
+            {
+              "arguments": "{\"amount\": 5}",
+              "cancellation_reason": null,
+              "deferral_order": 2,
+              "effect": "read",
+              "error": null,
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": null,
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "rejected",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-3",
+              "tool_name": "transfer_funds",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            },
+            {
+              "arguments": "{\"query\": \"7\"}",
+              "cancellation_reason": null,
+              "deferral_order": 0,
+              "effect": "read",
+              "error": null,
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": "found 7",
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "succeeded",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-1",
+              "tool_name": "lookup_order",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            },
+            {
+              "arguments": "{}",
+              "cancellation_reason": null,
+              "deferral_order": 3,
+              "effect": "read",
+              "error": null,
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": null,
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "outcome_unknown",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-4",
+              "tool_name": "publish_note",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            },
+            {
+              "arguments": "{\"to\": \"ops\"}",
+              "cancellation_reason": null,
+              "deferral_order": 1,
+              "effect": "read",
+              "error": "smtp down",
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": null,
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "failed",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-2",
+              "tool_name": "send_email",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            }
+          ]
+        },
+        "text": "[Dex] The previous turn failed after these tool calls ran:\n- lookup_order {\"query\": \"7\"} -> succeeded: found 7\n- send_email {\"to\": \"ops\"} -> failed: The tool call failed: smtp down\n- transfer_funds {\"amount\": 5} -> rejected: The user rejected this tool call.\n- publish_note {} -> outcome_unknown: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\nDo not repeat these tool calls unless the user asks again."
+      }
+    ],
+    "turn_steered_note": [
+      {
+        "input": {
+          "records": [
+            {
+              "arguments": "{\"amount\": 5}",
+              "cancellation_reason": null,
+              "deferral_order": 2,
+              "effect": "read",
+              "error": null,
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": null,
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "rejected",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-3",
+              "tool_name": "transfer_funds",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            },
+            {
+              "arguments": "{\"query\": \"7\"}",
+              "cancellation_reason": null,
+              "deferral_order": 0,
+              "effect": "read",
+              "error": null,
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": "found 7",
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "succeeded",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-1",
+              "tool_name": "lookup_order",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            }
+          ]
+        },
+        "text": "[Dex] The user steered the conversation after these tool calls ran:\n- lookup_order {\"query\": \"7\"} -> succeeded: found 7\n- transfer_funds {\"amount\": 5} -> rejected: The user rejected this tool call.\nDo not repeat these tool calls unless the user asks again."
+      }
+    ],
+    "turn_cancelled_note": [
+      {
+        "input": {
+          "records": [
+            {
+              "arguments": "{}",
+              "cancellation_reason": null,
+              "deferral_order": 3,
+              "effect": "read",
+              "error": null,
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": null,
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "outcome_unknown",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-4",
+              "tool_name": "publish_note",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            },
+            {
+              "arguments": "{\"to\": \"ops\"}",
+              "cancellation_reason": null,
+              "deferral_order": 1,
+              "effect": "read",
+              "error": "smtp down",
+              "input_allows_free_text": true,
+              "input_answers": [],
+              "input_choices": [],
+              "input_continuation": null,
+              "input_question": null,
+              "output": null,
+              "rejection_message": null,
+              "requires_approval": false,
+              "status": "failed",
+              "task_answer_pending": false,
+              "task_id": null,
+              "task_poll_interval_seconds": null,
+              "tool_call_id": "call-2",
+              "tool_name": "send_email",
+              "tool_source_reference": null,
+              "trace_context": null,
+              "turn_id": "turn-1",
+              "wait_until": null
+            }
+          ]
+        },
+        "text": "[Dex] The user stopped the previous turn after these tool calls ran:\n- send_email {\"to\": \"ops\"} -> failed: The tool call failed: smtp down\n- publish_note {} -> outcome_unknown: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\nDo not repeat these tool calls unless the user asks again."
+      }
+    ],
+    "plan_execution_message": [
+      {
+        "input": {
+          "revision": 1
+        },
+        "text": "[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos."
+      },
+      {
+        "input": {
+          "revision": 12
+        },
+        "text": "[Dex] The user approved plan revision 12. Execute it and keep the task statuses current with write_todos."
+      }
+    ],
+    "plan_note": [
+      {
+        "input": {
+          "plan": {
+            "revision": 3,
+            "status": "active",
+            "tasks": [
+              {
+                "content": "Look up the order",
+                "status": "completed"
+              },
+              {
+                "content": "Refund the order",
+                "status": "in_progress"
+              },
+              {
+                "content": "Tell the user ☕",
+                "status": "pending"
+              }
+            ],
+            "updated_at": "2026-11-02T09:45:30.125Z"
+          },
+          "interaction_mode": "chat"
+        },
+        "text": "[Dex] The current plan, revision 3, is active:\n- [completed] Look up the order\n- [in_progress] Refund the order\n- [pending] Tell the user ☕"
+      },
+      {
+        "input": {
+          "plan": {
+            "revision": 3,
+            "status": "active",
+            "tasks": [
+              {
+                "content": "Look up the order",
+                "status": "completed"
+              },
+              {
+                "content": "Refund the order",
+                "status": "in_progress"
+              },
+              {
+                "content": "Tell the user ☕",
+                "status": "pending"
+              }
+            ],
+            "updated_at": "2026-11-02T09:45:30.125Z"
+          },
+          "interaction_mode": "planning"
+        },
+        "text": "[Dex] The current plan, revision 3, is active:\n- [completed] Look up the order\n- [in_progress] Refund the order\n- [pending] Tell the user ☕\nThis turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs."
+      },
+      {
+        "input": {
+          "plan": {
+            "revision": 3,
+            "status": "active",
+            "tasks": [
+              {
+                "content": "Look up the order",
+                "status": "completed"
+              },
+              {
+                "content": "Refund the order",
+                "status": "in_progress"
+              },
+              {
+                "content": "Tell the user ☕",
+                "status": "pending"
+              }
+            ],
+            "updated_at": "2026-11-02T09:45:30.125Z"
+          },
+          "interaction_mode": "executing"
+        },
+        "text": "[Dex] The current plan, revision 3, is active:\n- [completed] Look up the order\n- [in_progress] Refund the order\n- [pending] Tell the user ☕"
+      },
+      {
+        "input": {
+          "plan": null,
+          "interaction_mode": "planning"
+        },
+        "text": "[Dex] There is no plan yet.\nThis turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs."
+      },
+      {
+        "input": {
+          "plan": null,
+          "interaction_mode": "chat"
+        },
+        "text": null
+      },
+      {
+        "input": {
+          "plan": {
+            "revision": 4,
+            "status": "cleared",
+            "tasks": [],
+            "updated_at": "2026-11-02T09:45:30.125Z"
+          },
+          "interaction_mode": "planning"
+        },
+        "text": "[Dex] There is no plan yet.\nThis turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs."
+      },
+      {
+        "input": {
+          "plan": {
+            "revision": 3,
+            "status": "draft",
+            "tasks": [
+              {
+                "content": "Look up the order",
+                "status": "completed"
+              },
+              {
+                "content": "Refund the order",
+                "status": "in_progress"
+              },
+              {
+                "content": "Tell the user ☕",
+                "status": "pending"
+              }
+            ],
+            "updated_at": "2026-11-02T09:45:30.125Z"
+          },
+          "interaction_mode": "planning"
+        },
+        "text": "[Dex] The current plan, revision 3, is draft:\n- [completed] Look up the order\n- [in_progress] Refund the order\n- [pending] Tell the user ☕\nThis turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs."
+      }
+    ],
+    "question_answered_output": [
+      {
+        "input": {
+          "answer": "checking"
+        },
+        "text": "{\"status\":\"answered\",\"answer\":\"checking\"}"
+      },
+      {
+        "input": {
+          "answer": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>"
+        },
+        "text": "{\"status\":\"answered\",\"answer\":\"Grüße \\\"quoted\\\" \\\\ back\\nline\\ttab ☕ 😀 </script> & <ok>\"}"
+      }
+    ],
+    "durable_wait_completed_output": [
+      {
+        "input": {
+          "waited_seconds": 30,
+          "reason": "the build runs"
+        },
+        "text": "{\"status\":\"completed\",\"waited_seconds\":30,\"reason\":\"the build runs\"}"
+      },
+      {
+        "input": {
+          "waited_seconds": 30,
+          "reason": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>"
+        },
+        "text": "{\"status\":\"completed\",\"waited_seconds\":30,\"reason\":\"Grüße \\\"quoted\\\" \\\\ back\\nline\\ttab ☕ 😀 </script> & <ok>\"}"
+      }
+    ],
+    "plan_updated_output": [
+      {
+        "input": {
+          "revision": 2,
+          "task_count": 3
+        },
+        "text": "{\"status\":\"updated\",\"revision\":2,\"task_count\":3}"
+      }
+    ],
+    "plan_cleared_output": [
+      {
+        "input": {
+          "revision": 4
+        },
+        "text": "{\"status\":\"cleared\",\"revision\":4}"
+      }
+    ],
+    "stepwise_tool_call_limit_reached_result": [
+      {
+        "input": {
+          "max_model_calls_per_turn": 100
+        },
+        "text": "The tool call was not run: this turn reached its limit of 100 model calls."
+      }
+    ],
+    "stepwise_context_summary_omission_note": [
+      {
+        "input": {
+          "omitted_count": 1
+        },
+        "text": "[Dex] 1 earlier message did not fit in this request and is left out."
+      },
+      {
+        "input": {
+          "omitted_count": 3
+        },
+        "text": "[Dex] 3 earlier messages did not fit in this request and are left out."
+      }
+    ],
+    "stepwise_unknown_tool_error": [
+      {
+        "input": {
+          "tool_name": "lookup_invoice"
+        },
+        "text": "unknown tool lookup_invoice"
+      },
+      {
+        "input": {
+          "tool_name": "mcp_docs_search"
+        },
+        "text": "unknown tool mcp_docs_search"
+      }
+    ],
+    "mcp_tool_output_json": [
+      {
+        "input": {
+          "value": "{\"zeta\": 1, \"alpha\": [{\"b\": 2.0, \"a\": \"Grüße\"}], \"mid\": null}"
+        },
+        "text": "{\"alpha\": [{\"a\": \"Grüße\", \"b\": 2}], \"mid\": null, \"zeta\": 1}"
+      },
+      {
+        "input": {
+          "value": "{\"contents\": [{\"uri\": \"docs://readme\", \"text\": \"<ok> & \\\"quoted\\\"\"}]}"
+        },
+        "text": "{\"contents\": [{\"text\": \"<ok> & \\\"quoted\\\"\", \"uri\": \"docs://readme\"}]}"
+      },
+      {
+        "input": {
+          "value": "{\"b\": 1, \"10\": 2, \"9\": 3, \"\\ud83d\\ude00\": 4, \"\\ue000\": 5, \"a\": {\"2\": 0}}"
+        },
+        "text": "{\"10\": 2, \"9\": 3, \"a\": {\"2\": 0}, \"b\": 1, \"\": 5, \"😀\": 4}"
+      }
+    ],
+    "mcp_tool_result_text": [
+      {
+        "input": {
+          "result": {
+            "content": [],
+            "structuredContent": {
+              "temp": 21,
+              "city": "Zürich",
+              "10": 1,
+              "9": 2.0
+            }
+          }
+        },
+        "text": "{\"10\": 1, \"9\": 2, \"city\": \"Zürich\", \"temp\": 21}"
+      },
+      {
+        "input": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Grüße ☕"
+              },
+              {
+                "type": "image",
+                "data": "aGk=",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        },
+        "text": "Grüße ☕\n{\"data\": \"aGk=\", \"mimeType\": \"image/png\", \"type\": \"image\"}"
+      },
+      {
+        "input": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              },
+              {
+                "type": "text",
+                "text": "second"
+              }
+            ]
+          }
+        },
+        "text": "first\nsecond"
+      }
+    ],
+    "stepwise_context_summary_note": [
+      {
+        "input": {
+          "summary": {
+            "created_at": "2026-11-02T09:45:30.125Z",
+            "first_sequence": 1,
+            "generation": 2,
+            "last_sequence": 40,
+            "text": "The user asked about order 7.\nIt shipped."
+          }
+        },
+        "text": "[Dex] Summary of the earlier conversation:\nThe user asked about order 7.\nIt shipped."
+      }
+    ]
+  },
+  "built_in_tool_definitions": [
+    {
+      "name": "ask_user",
+      "description": "Ask the user one question and wait for the answer, which becomes this tool's result. Use it only when you cannot continue without information or a decision from the user. The wait can last hours or days.",
+      "parameters_json": "{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\",\"description\":\"One concise question for the user.\"},\"choices\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Answers the user can pick. Omit for a free-text answer.\"},\"allows_free_text\":{\"type\":\"boolean\",\"description\":\"Whether the user may answer with text that is not one of the choices. Defaults to true.\"}},\"required\":[\"question\"],\"additionalProperties\":false}"
+    },
+    {
+      "name": "durable_wait",
+      "description": "Pause this turn for a number of whole seconds, then continue. Nothing runs during the wait. Use it to wait for something outside the conversation, such as a job that needs time to finish.",
+      "parameters_json": "{\"type\":\"object\",\"properties\":{\"duration_seconds\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Whole seconds to wait.\"},\"reason\":{\"type\":\"string\",\"description\":\"Why the turn waits, shown to the user.\"}},\"required\":[\"duration_seconds\",\"reason\"],\"additionalProperties\":false}"
+    },
+    {
+      "name": "write_todos",
+      "description": "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you start it and completed when it is done.",
+      "parameters_json": "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"description\":\"Every task of the plan, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"content\":{\"type\":\"string\",\"description\":\"What the task does, in one short sentence.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"],\"description\":\"Where the task stands.\"}},\"required\":[\"content\",\"status\"],\"additionalProperties\":false}}},\"required\":[\"todos\"],\"additionalProperties\":false}"
+    }
+  ],
+  "built_in_tool_argument_errors": {
+    "ask_user": [
+      {
+        "arguments": "{\"question\": \"Which?\", \"choices\": [\"checking\"], \"allows_free_text\": false}",
+        "error": null
+      },
+      {
+        "arguments": "{\"question\": \"Which account?\", \"choices\": null, \"allows_free_text\": null}",
+        "error": null
+      },
+      {
+        "arguments": "[]",
+        "error": "invalid ask_user arguments: arguments must be a JSON object"
+      },
+      {
+        "arguments": "not json",
+        "error": "invalid ask_user arguments: arguments must be a JSON object"
+      },
+      {
+        "arguments": "{\"question\": NaN}",
+        "error": "invalid ask_user arguments: arguments must be a JSON object"
+      },
+      {
+        "arguments": "{\"question\": \" \"}",
+        "error": "invalid ask_user arguments: question must be a non-empty string"
+      },
+      {
+        "arguments": "{\"question\": \"Q\", \"choices\": [\"a\", \"\"]}",
+        "error": "invalid ask_user arguments: choices must be a list of non-empty strings"
+      },
+      {
+        "arguments": "{\"question\": \"Q\", \"allows_free_text\": \"yes\"}",
+        "error": "invalid ask_user arguments: allows_free_text must be a boolean"
+      },
+      {
+        "arguments": "{\"question\": \"Q\", \"zeta\": 1, \"alpha\": 2}",
+        "error": "invalid ask_user arguments: unknown argument alpha"
+      }
+    ],
+    "durable_wait": [
+      {
+        "arguments": "{\"duration_seconds\": 30, \"reason\": \"the build runs\"}",
+        "error": null
+      },
+      {
+        "arguments": "{\"duration_seconds\": 2.0, \"reason\": \"whole\"}",
+        "error": null
+      },
+      {
+        "arguments": "{\"duration_seconds\": 2.5, \"reason\": \"fraction\"}",
+        "error": "invalid durable_wait arguments: duration_seconds must be an integer"
+      },
+      {
+        "arguments": "{\"duration_seconds\": true, \"reason\": \"bool\"}",
+        "error": "invalid durable_wait arguments: duration_seconds must be an integer"
+      },
+      {
+        "arguments": "{\"duration_seconds\": 0, \"reason\": \"zero\"}",
+        "error": "invalid durable_wait arguments: duration_seconds must be between 1 and 31536000"
+      },
+      {
+        "arguments": "{\"duration_seconds\": 31536001, \"reason\": \"too long\"}",
+        "error": "invalid durable_wait arguments: duration_seconds must be between 1 and 31536000"
+      },
+      {
+        "arguments": "{\"duration_seconds\": 5}",
+        "error": "invalid durable_wait arguments: reason must be a string"
+      },
+      {
+        "arguments": "{\"duration_seconds\": 5, \"reason\": \"x\", \"extra\": 1}",
+        "error": "invalid durable_wait arguments: unknown argument extra"
+      }
+    ],
+    "write_todos": [
+      {
+        "arguments": "{\"todos\": [{\"content\": \"Refund\", \"status\": \"pending\"}]}",
+        "error": null
+      },
+      {
+        "arguments": "{\"todos\": []}",
+        "error": null
+      },
+      {
+        "arguments": "[]",
+        "error": "invalid todos: arguments must be a JSON object"
+      },
+      {
+        "arguments": "{\"todos\": {}}",
+        "error": "invalid todos: todos must be a list"
+      },
+      {
+        "arguments": "{\"todos\": [1]}",
+        "error": "invalid todos: todos[0] must be an object"
+      },
+      {
+        "arguments": "{\"todos\": [{\"content\": \"x\", \"status\": \"pending\", \"owner\": \"me\"}]}",
+        "error": "invalid todos: todos[0] has unknown field owner"
+      },
+      {
+        "arguments": "{\"todos\": [{\"content\": \" \", \"status\": \"pending\"}]}",
+        "error": "invalid todos: todos[0].content must be a non-empty string"
+      },
+      {
+        "arguments": "{\"todos\": [{\"content\": \"x\", \"status\": \"done\"}]}",
+        "error": "invalid todos: todos[0].status must be pending, in_progress, or completed"
+      },
+      {
+        "arguments": "{\"todos\": [], \"plan\": 1}",
+        "error": "invalid todos: unknown argument plan"
+      }
+    ]
+  },
+  "mcp_resource_and_prompt_tools": {
+    "server_names": [
+      "docs",
+      "tickets"
+    ],
+    "definitions": [
+      {
+        "name": "mcp_list_resources_and_prompts",
+        "description": "List the resources, resource templates, and prompts of a configured MCP server.",
+        "input_schema_json": "{\"type\":\"object\",\"properties\":{\"server\":{\"type\":\"string\",\"enum\":[\"docs\",\"tickets\"],\"description\":\"Name of a configured MCP server.\"}},\"required\":[\"server\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "mcp_read_resource",
+        "description": "Read one resource of a configured MCP server by its URI.",
+        "input_schema_json": "{\"type\":\"object\",\"properties\":{\"server\":{\"type\":\"string\",\"enum\":[\"docs\",\"tickets\"],\"description\":\"Name of a configured MCP server.\"},\"uri\":{\"type\":\"string\",\"description\":\"URI of the resource, as the server lists it.\"}},\"required\":[\"server\",\"uri\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "mcp_get_prompt",
+        "description": "Get one prompt of a configured MCP server, rendered with its arguments.",
+        "input_schema_json": "{\"type\":\"object\",\"properties\":{\"server\":{\"type\":\"string\",\"enum\":[\"docs\",\"tickets\"],\"description\":\"Name of a configured MCP server.\"},\"name\":{\"type\":\"string\",\"description\":\"Name of the prompt, as the server lists it.\"},\"arguments\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"},\"description\":\"Prompt arguments by name. Defaults to none.\"}},\"required\":[\"server\",\"name\"],\"additionalProperties\":false}"
+      }
+    ],
+    "argument_errors": [
+      {
+        "tool_name": "mcp_read_resource",
+        "arguments": {
+          "server": 7
+        },
+        "error": "the server argument must be a string"
+      },
+      {
+        "tool_name": "mcp_read_resource",
+        "arguments": {
+          "server": "docs",
+          "uri": 7
+        },
+        "error": "the uri argument must be a string"
+      },
+      {
+        "tool_name": "mcp_get_prompt",
+        "arguments": {
+          "server": "docs",
+          "name": null
+        },
+        "error": "the name argument must be a string"
+      },
+      {
+        "tool_name": "mcp_get_prompt",
+        "arguments": {
+          "server": "docs",
+          "name": "greet",
+          "arguments": {
+            "who": 1
+          }
+        },
+        "error": "the arguments argument must map names to strings"
+      }
+    ]
+  },
+  "language_specific": {
+    "missing_tool_task_poller": {
+      "python": "the tool started a task, but the runner does not implement poll_tool_task",
+      "note": "Names the runner method in each language, such as pollToolTask."
+    }
+  }
+}

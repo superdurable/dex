@@ -1,0 +1,19 @@
+{
+  "type": "TurnFailureRouteInput",
+  "wire_kind": "json",
+  "description": "Input of RunModel, CompactContext, and RecordTurnFailure: a CompactContextInput or JSON null.",
+  "cases": [
+    {
+      "name": "null",
+      "description": "RunModel's input, and the failure route of RunModel.",
+      "wire": "null",
+      "canonical": "null"
+    },
+    {
+      "name": "compact-context",
+      "description": "The failure route of CompactContext.",
+      "wire": "{\"through_sequence\":40}",
+      "canonical": "{\"through_sequence\":40}"
+    }
+  ]
+}

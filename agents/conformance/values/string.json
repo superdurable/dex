@@ -1,0 +1,25 @@
+{
+  "type": "string",
+  "wire_kind": "string",
+  "description": "String Values: FrameworkRunState, AgentTraceContext, and the tool call ID input of the tool Steps.",
+  "cases": [
+    {
+      "name": "tool-call-id",
+      "description": "A tool call ID.",
+      "wire": "call-7",
+      "canonical": "call-7"
+    },
+    {
+      "name": "framework-run-state",
+      "description": "Opaque framework JSON.",
+      "wire": "{\"model_calls\":2}",
+      "canonical": "{\"model_calls\":2}"
+    },
+    {
+      "name": "non-ascii",
+      "description": "Text with every escape-sensitive character.",
+      "wire": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>",
+      "canonical": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>"
+    }
+  ]
+}

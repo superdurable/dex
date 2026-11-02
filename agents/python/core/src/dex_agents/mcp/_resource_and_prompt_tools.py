@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
@@ -18,7 +17,7 @@ from mcp import Client, MCPError
 from mcp_types import METHOD_NOT_FOUND
 from pydantic import BaseModel
 
-from dex_agents.mcp._tools import McpTool, McpToolAnnotations
+from dex_agents.mcp._tools import McpTool, McpToolAnnotations, serialize_tool_output_json
 from dex_agents.runner import ToolExecutionError
 from dex_agents.values import ToolEffect
 
@@ -145,22 +144,6 @@ async def run_resource_and_prompt_tool(
     except MCPError as error:
         raise ToolExecutionError(f"MCP error {error.code}: {error.message}") from error
     return serialize_tool_output_json(output)
-
-
-def serialize_tool_output_json(value: Any) -> str:
-    """Serialize with sorted keys, as the TypeScript core does, so both cores show the same text."""
-    return json.dumps(_write_whole_floats_as_integers(value), sort_keys=True, ensure_ascii=False)
-
-
-def _write_whole_floats_as_integers(value: Any) -> Any:
-    # JavaScript writes 1.0 as 1; the SDK's float fields, such as priority, turn 1 into 1.0.
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, list):
-        return [_write_whole_floats_as_integers(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _write_whole_floats_as_integers(item) for key, item in value.items()}
-    return value
 
 
 async def _list_all(list_page: Callable[..., Awaitable[Any]], field_name: str) -> list[Any]:

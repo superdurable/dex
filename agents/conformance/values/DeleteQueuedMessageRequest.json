@@ -1,0 +1,13 @@
+{
+  "type": "DeleteQueuedMessageRequest",
+  "wire_kind": "json",
+  "description": "Input of the delete_queued_message RPC.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A message ID.",
+      "wire": "{\"message_id\":\"msg-3\"}",
+      "canonical": "{\"message_id\":\"msg-3\"}"
+    }
+  ]
+}

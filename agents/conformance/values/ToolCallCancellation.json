@@ -1,0 +1,19 @@
+{
+  "type": "ToolCallCancellation",
+  "wire_kind": "json",
+  "description": "One ToolCallCancellations Channel message.",
+  "cases": [
+    {
+      "name": "reason-steered",
+      "description": "Reason steered.",
+      "wire": "{\"reason\":\"steered\"}",
+      "canonical": "{\"reason\":\"steered\"}"
+    },
+    {
+      "name": "reason-turn_cancelled",
+      "description": "Reason turn_cancelled.",
+      "wire": "{\"reason\":\"turn_cancelled\"}",
+      "canonical": "{\"reason\":\"turn_cancelled\"}"
+    }
+  ]
+}
