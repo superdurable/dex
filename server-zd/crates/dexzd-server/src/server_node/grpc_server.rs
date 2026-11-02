@@ -186,7 +186,7 @@ impl GrpcServer {
         self.worker_task_service_gate.deactivate();
     }
 
-    /// Ends open FlowService and WorkerTaskService calls with UNAVAILABLE; AdminService calls keep running.
+    /// Ends public calls still in their handler with UNAVAILABLE; started response streams and AdminService calls continue.
     pub(super) fn end_public_calls(&self) {
         self.flow_service_gate.end_open_calls();
         self.worker_task_service_gate.end_open_calls();
@@ -264,7 +264,7 @@ impl<S> StartupService<S> {
         self.calls.wait().await;
     }
 
-    /// Answers every open call UNAVAILABLE at once, dropping its service clone and so its store handles.
+    /// Answers UNAVAILABLE to calls whose handler still runs, dropping their service clones and store handles.
     fn end_open_calls(&self) {
         self.period_end.cancel();
     }
@@ -329,6 +329,10 @@ where
                 }
                 response = service.call(request) => response?,
             };
+            // A later period may hold a valid lease again; this period's answer must not pass it.
+            if period_end.is_cancelled() {
+                return Ok(Status::unavailable(STOPPED_SERVING_MESSAGE).into_http());
+            }
             // A freeze during the call can outlast the lease, so the answer may already be stale.
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());

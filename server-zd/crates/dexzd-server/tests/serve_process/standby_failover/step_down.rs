@@ -22,8 +22,8 @@ use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 
 use super::held_calls::{
-    HELD_CALL_START_WINDOW, HeldCall, STOPPED_SERVING_REFUSAL,
-    start_flow_with_hard_delete_attribute,
+    HELD_CALL_START_WINDOW, HeldCall, HeldRpcWorker, STOPPED_SERVING_REFUSAL,
+    start_flow_for_held_rpc, start_flow_with_hard_delete_attribute,
 };
 use super::node_group::{DirectoryFate, NodeGroup, ProcessSignal, SlotSettings};
 use super::object_store_endpoints::ObjectStoreFault;
@@ -60,6 +60,10 @@ const ADMIN_TOKEN: &str = "serve-test-static-token";
 /// Holds a hard-delete Attribute read well past the hold-off and the take-back.
 const TAKE_BACK_HELD_READ_DELAY: Duration = Duration::from_secs(15);
 const REREAD_RETRY_INTERVAL: Duration = Duration::from_millis(100);
+const HELD_RPC_FLOW_ID: &str = "held-rpc-flow";
+const RPC_ARRIVAL_BUDGET: Duration = Duration::from_secs(10);
+/// Under the step down's 4 s drain, after which it cancels the RPC task it waits for.
+const DRAINING_BUDGET: Duration = Duration::from_secs(3);
 
 /// P9, hot: a step down hands over, the old active stays hot, and describe and the epoch precondition work.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -268,7 +272,7 @@ async fn take_back_past_a_held_read(test: &str, slot: SlotSettings<'_>) {
     );
     assert!(
         held_read_ended_at < answered_at,
-        "the read must end before the take-back: it ended {:?} after the step down, which answered after {:?}",
+        "the read must end before the take-back is answered: it ended {:?} after the step down call, and the answer came {:?} after it",
         held_read_ended_at - stepped_down_at,
         answered_at - stepped_down_at
     );
@@ -279,7 +283,7 @@ async fn take_back_past_a_held_read(test: &str, slot: SlotSettings<'_>) {
         "the stepped-down process takes the lease back without a restart"
     );
     group.object_store(FIRST).clear_faults().await;
-    // A new connection may still reach the retiring standby instance, which refuses the read.
+    // The router reports serving from its own probes, so this connection's first read may race them.
     let reread_deadline = Instant::now() + TAKEOVER_BUDGET;
     loop {
         let (reread, _) =
@@ -301,6 +305,49 @@ async fn take_back_past_a_held_read(test: &str, slot: SlotSettings<'_>) {
         "{test}: the held read ended {:?} after the step down, which answered after {:?}: {}; {report}",
         held_read_ended_at - stepped_down_at,
         answered_at - stepped_down_at,
+        describe_outcome(&outcome)
+    );
+}
+
+/// A call that its Worker answers during the step down's commit drain, before the release, keeps its answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn step_down_keeps_the_answer_of_a_call_that_ends_before_the_release() {
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let workload = Workload::new();
+    let [first, _] = SLOTS;
+    let mut group = NodeGroup::start(directory.path(), &workload, &[first]).await;
+    group.spawn(FIRST);
+    assert_eq!(group.wait_for_serving(STARTUP_BUDGET).await, FIRST);
+    let mut worker = HeldRpcWorker::start(group.api_address(FIRST)).await;
+    start_flow_for_held_rpc(group.router_channel(), HELD_RPC_FLOW_ID).await;
+    let held_rpc = HeldCall::invoke_held_rpc(group.api_address(FIRST), HELD_RPC_FLOW_ID);
+    worker.wait_for_rpc(RPC_ARRIVAL_BUDGET).await;
+    group.note_possible_release();
+    let step_down = tokio::spawn(step_down_through(group.router_channel()));
+    // The drain waits for the RPC task, so the lease is still held when the Worker answers.
+    group
+        .wait_for_role(FIRST, "draining", DRAINING_BUDGET)
+        .await;
+    worker.release_rpc();
+    let (rpc_answer, _) = held_rpc.finish().await;
+    rpc_answer.expect("a call that ends before the release keeps its answer");
+    let outcome = step_down
+        .await
+        .expect("the step down task does not panic")
+        .expect("the active steps down");
+    assert!(
+        matches!(
+            outcome.lease_holder_after_step_down,
+            Some(LeaseHolderAfterStepDown::TakenBackByThisProcess(_))
+        ),
+        "{outcome:?}"
+    );
+    worker.stop().await;
+    assert_eq!(group.wait_for_serving(TAKEOVER_BUDGET).await, FIRST);
+    let report = group.finish().await;
+    assert!(report.serving_periods() >= 2, "{report}");
+    eprintln!(
+        "step_down_keeps_the_answer_of_a_call_that_ends_before_the_release: {}; {report}",
         describe_outcome(&outcome)
     );
 }

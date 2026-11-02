@@ -519,9 +519,10 @@ dexzd_hot_standby_lag_seconds > 5
 
 **dexcli admin step-down** asks the active process of a node ID to give up its
 lease. The process stops serving and waits briefly for in-flight commits. Then
-it releases the lease and keeps running as a standby. Calls still open at the
-release answer **UNAVAILABLE**, so clients retry them on the new active process.
-Another process of the same node ID can take the lease at once, as after a
+it releases the lease and keeps running as a standby. Calls that finish before
+the release keep their answers. Calls still open at the release answer
+**UNAVAILABLE** at once, so clients retry them on the new active process. A pull
+Worker that runs a task finishes it and then reconnects. Another process of the same node ID can take the lease at once, as after a
 graceful shutdown. The stepped-down process waits for a hold-off,
 **standby.stepDownHoldOff**, before it competes for the lease again. If no other
 process takes over in that time, it takes the lease back. With **standby.mode**
@@ -568,6 +569,14 @@ After the release, the step down call watches the lease. It returns as soon as
 another process takes over. Otherwise it returns after the hold-off and one
 attempt to take the lease back. The call therefore lasts at most the commit
 drain bound, the release, the hold-off, and one lease acquisition attempt.
+
+There is one exception. The process competes for the lease again only after the
+local store of its stopped serving period has closed. If a stuck task keeps that
+store open, the process waits up to about 64 seconds after the release. Then the
+call returns **INTERNAL**, and the process exits 1 without taking the lease. The
+restart releases the store. Meanwhile another process of the same node ID can
+take over.
+
 **dexcli admin step-down** waits up to 2 minutes unless you set **--timeout**.
 Its output has these fields:
 

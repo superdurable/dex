@@ -147,7 +147,7 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         .object_store(FIRST)
         .inject(ObjectStoreFault::HardDeleteLatency(HELD_READ_DELAY))
         .await;
-    // Open across the whole step down, it must delay neither the handover nor the reopened store.
+    // Open when the step down starts, it must delay neither the handover nor the reopened store.
     let held_read =
         HeldCall::read_hard_delete_attribute(group.api_address(FIRST), HELD_READ_FLOW_ID);
     tokio::time::sleep(HELD_CALL_START_WINDOW).await;
@@ -167,7 +167,7 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         served_after <= STEP_DOWN_SERVED_BOUND,
         "an open read held up the handover: served {served_after:?} after the step down"
     );
-    let refusal = held_answer.expect_err("a read that outlives the node lease is refused");
+    let refusal = held_answer.expect_err("the step down ends a read still open at the release");
     assert_eq!(refusal.code(), Code::Unavailable, "{refusal}");
     // Only the stopping period answers so; the read was therefore open at the release.
     assert!(

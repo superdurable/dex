@@ -46,6 +46,15 @@ impl LocalStoreCloseWaiter {
         Self { store, directory }
     }
 
+    /// Returns a waiter of whatever store this process has open in `directory`.
+    #[cfg(feature = "test-util")]
+    pub fn for_directory_for_test(directory: PathBuf) -> Self {
+        Self {
+            store: Arc::new(Mutex::new(None)),
+            directory: Some(directory),
+        }
+    }
+
     /// Returns a waiter of `store`, which `config` names.
     pub(crate) fn for_store(store: &Arc<EngineLocalStore>, config: &LocalStoreConfig) -> Self {
         Self::new(Arc::new(Mutex::new(Some(Arc::downgrade(store)))), config)

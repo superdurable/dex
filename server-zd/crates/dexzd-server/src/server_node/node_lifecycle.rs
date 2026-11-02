@@ -10,6 +10,8 @@
 
 mod active_node_requests;
 mod lease_holder_id_source;
+#[cfg(test)]
+mod local_store_close_tests;
 mod standby_status;
 
 pub(super) use active_node_requests::{
@@ -266,29 +268,8 @@ impl NodeLifecycle {
                 &mut cancellation,
             )
             .await;
-            match store_close {
-                LocalStoreCloseOutcome::Closed => {}
-                LocalStoreCloseOutcome::Cancelled => {
-                    if let Some(waiting) = entry.pending {
-                        waiting
-                            .answer_unknown("the process stopped during the step down".to_owned());
-                    }
-                    break (Ok(()), BoundedTeardown::start());
-                }
-                // Only a restart clears a stuck handle; this process no longer renews the lease.
-                LocalStoreCloseOutcome::StillOpen => {
-                    let error = ServerError::ServingTaskFailed {
-                        detail: format!(
-                            "a task of the stepped-down serving period still held the local store \
-                             after {} s; exiting so that a restart releases it",
-                            LOCAL_STORE_CLOSE_BUDGET.as_secs()
-                        ),
-                    };
-                    if let Some(waiting) = entry.pending {
-                        waiting.answer_failure(error.to_string());
-                    }
-                    break (Err(error), BoundedTeardown::start());
-                }
+            if let Some(outcome) = end_after_local_store_close(store_close, &mut entry.pending) {
+                break (outcome, BoundedTeardown::start());
             }
             match acquire_serving_node(
                 &process,
@@ -723,14 +704,7 @@ async fn wait_for_local_store_close(
                 "stepped-down public calls are still open; waiting for the local store to close"
             );
         }
-        let is_closed = waiter.wait_until_closed(LOCAL_STORE_CLOSE_BUDGET).await;
-        if !is_closed {
-            tracing::error!(
-                budget_seconds = LOCAL_STORE_CLOSE_BUDGET.as_secs(),
-                "a stepped-down task still holds the local store open; exiting so that a restart releases it"
-            );
-        }
-        is_closed
+        waiter.wait_until_closed(LOCAL_STORE_CLOSE_BUDGET).await
     };
     let mut closed = std::pin::pin!(closed);
     loop {
@@ -754,6 +728,41 @@ async fn wait_for_local_store_close(
             () = tokio::time::sleep(SUCCESSOR_POLL_INTERVAL), if entry.pending.is_some() => {
                 answer_on_successor(process, &mut entry.pending, None).await;
             }
+        }
+    }
+}
+
+/// Answers a pending step down from how the wait for the stepped-down store ended.
+///
+/// Returns `None` when the store closed, so the process competes for the lease again;
+/// `Some(Ok(()))` when cancellation stopped the wait, so the process stops; and
+/// `Some(Err(_))` when a handle still holds the store, so the process exits 1 without competing
+/// for the lease, which it no longer renews. Only a restart clears such a stuck handle.
+fn end_after_local_store_close(
+    store_close: LocalStoreCloseOutcome,
+    pending: &mut Option<PendingStepDownAnswer>,
+) -> Option<Result<(), ServerError>> {
+    match store_close {
+        LocalStoreCloseOutcome::Closed => None,
+        LocalStoreCloseOutcome::Cancelled => {
+            if let Some(waiting) = pending.take() {
+                waiting.answer_unknown("the process stopped during the step down".to_owned());
+            }
+            Some(Ok(()))
+        }
+        LocalStoreCloseOutcome::StillOpen => {
+            let error = ServerError::ServingTaskFailed {
+                detail: format!(
+                    "a task of the stepped-down serving period still held the local store after \
+                     {} s; exiting so that a restart releases it",
+                    LOCAL_STORE_CLOSE_BUDGET.as_secs()
+                ),
+            };
+            tracing::error!(%error, "the stepped-down local store is still open");
+            if let Some(waiting) = pending.take() {
+                waiting.answer_failure(error.to_string());
+            }
+            Some(Err(error))
         }
     }
 }
