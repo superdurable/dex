@@ -87,8 +87,13 @@ impl DurableEmulator {
         }
     }
 
+    /// Returns a guard that keeps the stored objects if a check panics while it lives.
+    pub(crate) fn keep_data_if_a_check_panics(&mut self) -> EmulatorEvidenceGuard<'_> {
+        EmulatorEvidenceGuard { emulator: self }
+    }
+
     /// Keeps the stored objects after the test, as evidence of a failed check; returns their directory.
-    pub(crate) fn keep_data_after_the_test(&mut self) -> &Path {
+    fn keep_data_after_the_test(&mut self) -> &Path {
         self.directory.disable_cleanup(true);
         self.directory.path()
     }
@@ -104,6 +109,22 @@ impl DurableEmulator {
 
     pub(crate) async fn shutdown(self) {
         self.server.shutdown().await;
+    }
+}
+
+/// Keeps the emulator's objects as evidence when a check panics while this guard lives.
+pub(crate) struct EmulatorEvidenceGuard<'a> {
+    emulator: &'a mut DurableEmulator,
+}
+
+impl Drop for EmulatorEvidenceGuard<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!(
+                "the emulator keeps the log objects in {}",
+                self.emulator.keep_data_after_the_test().display()
+            );
+        }
     }
 }
 

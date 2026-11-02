@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use dexzd_protocol::dexzd::v1::LogBatchHeader;
+use dexzd_protocol::dexzd::v1::{LogBatchHeader, LogEpochStart};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -27,6 +27,8 @@ const RELEASED_LEASE_EXPIRY_UNIX_MICROS: i64 = i64::MIN;
 const EARLY_TAKEOVER_TOLERANCE: Duration = Duration::from_millis(50);
 /// A process told to stop or step down releases its lease within this long.
 const POSSIBLE_RELEASE_WINDOW: Duration = Duration::from_secs(20);
+/// Batches printed on each side of the batch where the EpochStart check failed.
+const DUMPED_NEIGHBOR_BATCHES: u64 = 3;
 
 /// One read of the node lease object.
 #[derive(Clone, Debug)]
@@ -42,8 +44,7 @@ struct LeaseObservation {
 pub(crate) struct LeaseReport {
     /// Distinct holders the lease object named.
     pub(crate) observed_holders: usize,
-    /// Recoveries in the log, one for each process that recovered under the lease; a recovery's
-    /// hole-filling EpochStarts count with it.
+    /// Distinct epochs that recoveries raised in the log; hole fillers count once.
     pub(crate) acquisitions: usize,
     /// Whether log cleanup was off, so the log still holds every EpochStart.
     pub(crate) is_log_complete: bool,
@@ -75,7 +76,7 @@ struct EpochStartBatch {
 
 impl EpochStartBatch {
     /// Returns the EpochStart that `header` carries, if any.
-    fn of(header: &LogBatchHeader) -> Option<Self> {
+    fn from_header(header: &LogBatchHeader) -> Option<Self> {
         header.epoch_start.as_ref().map(|start| Self {
             incarnation: header.incarnation,
             seq: header.seq,
@@ -83,6 +84,14 @@ impl EpochStartBatch {
             writer_process_id: start.writer_process_id.clone(),
         })
     }
+}
+
+/// A broken EpochStart rule and the batch where the check found it.
+#[derive(Debug)]
+struct EpochStartViolation {
+    incarnation: u32,
+    seq: u64,
+    reason: String,
 }
 
 /// One change of lease holder and its delay after the lease became available.
@@ -121,8 +130,8 @@ impl LeaseHistory {
 
     /// Stops reading, then panics if an epoch fell; reports whether the log raised one twice.
     ///
-    /// Returns the lease report. Returns an error that lists every log batch when the EpochStarts
-    /// break the rules of [`recovered_epochs`], so the caller can keep the objects as evidence.
+    /// Returns the lease report. Returns an error that lists the EpochStart batches and the batches
+    /// around the violation when the EpochStarts break the rules of [`recovered_epochs`].
     pub(crate) async fn stop_and_check(
         mut self,
         is_log_complete: bool,
@@ -150,12 +159,17 @@ impl LeaseHistory {
         };
         // The log is the complete record: every recovery writes an EpochStart with its new epoch.
         let headers = inspector.log_batch_headers().await;
-        let epoch_starts: Vec<EpochStartBatch> =
-            headers.iter().filter_map(EpochStartBatch::of).collect();
-        let recovered = recovered_epochs(&epoch_starts).map_err(|failure| {
+        let epoch_starts: Vec<EpochStartBatch> = headers
+            .iter()
+            .filter_map(EpochStartBatch::from_header)
+            .collect();
+        let recovered = recovered_epochs(&epoch_starts).map_err(|violation| {
             format!(
-                "{failure}\nlog batches:\n{}",
-                describe_log_batches(&headers)
+                "{}\nEpochStart batches and the batches around incarnation {} seq {}:\n{}",
+                violation.reason,
+                violation.incarnation,
+                violation.seq,
+                describe_log_batches(&headers, &violation)
             )
         })?;
         let highest_epoch = observations
@@ -288,28 +302,62 @@ fn handover(
 
 /// Returns the epoch of every recovery in `epoch_starts`, which are in log order.
 ///
-/// A recovery writes its EpochStart at the first gap and fills each later hole with another
-/// EpochStart of its epoch, so batches are grouped by writer. Returns an error when one writer
-/// names two epochs, or when a writer's first EpochStart does not raise the epoch of the previous
-/// writer in its stream. An incarnation change recovers two streams under one lease acquisition,
-/// so the returned set holds each epoch once.
-fn recovered_epochs(epoch_starts: &[EpochStartBatch]) -> Result<BTreeSet<u64>, String> {
+/// Returns a violation when a writer ID is empty or names two epochs, or when a stale writer's
+/// EpochStart follows a newer writer in its stream. Also returns one when a new writer does not
+/// raise its stream's epoch, or when a new stream starts below the previous stream's last epoch.
+///
+/// A recovery fills each later hole with another EpochStart of its epoch.
+/// So EpochStarts are grouped by writer.
+///
+/// An incarnation change recovers two streams under one lease acquisition.
+/// So the returned set holds each epoch once.
+fn recovered_epochs(
+    epoch_starts: &[EpochStartBatch],
+) -> Result<BTreeSet<u64>, EpochStartViolation> {
     let mut writer_epochs = BTreeMap::<&str, u64>::new();
     let mut latest_by_stream = BTreeMap::<u32, &EpochStartBatch>::new();
     for batch in epoch_starts {
+        let violation = |reason: String| EpochStartViolation {
+            incarnation: batch.incarnation,
+            seq: batch.seq,
+            reason,
+        };
+        if batch.writer_process_id.is_empty() {
+            return Err(violation(format!(
+                "an EpochStart names no writer: incarnation {} seq {} epoch {}",
+                batch.incarnation, batch.seq, batch.epoch
+            )));
+        }
+        let latest = latest_by_stream.get(&batch.incarnation).copied();
         if let Some(&epoch) = writer_epochs.get(batch.writer_process_id.as_str()) {
             if epoch != batch.epoch {
-                return Err(format!(
+                return Err(violation(format!(
                     "one recovery wrote EpochStarts of epochs {epoch} and {}: writer {} at incarnation {} seq {}",
                     batch.epoch, batch.writer_process_id, batch.incarnation, batch.seq
-                ));
+                )));
+            }
+            if latest.is_none_or(|latest| latest.writer_process_id != batch.writer_process_id) {
+                return Err(violation(format!(
+                    "a stale writer's EpochStart follows a newer writer: writer {} wrote epoch {} at incarnation {} seq {} after {}",
+                    batch.writer_process_id,
+                    batch.epoch,
+                    batch.incarnation,
+                    batch.seq,
+                    latest.map_or_else(
+                        || "no writer of this stream".to_owned(),
+                        |latest| format!(
+                            "writer {} raised epoch {} at seq {}",
+                            latest.writer_process_id, latest.epoch, latest.seq
+                        )
+                    )
+                )));
             }
             continue;
         }
-        if let Some(previous) = latest_by_stream.get(&batch.incarnation)
+        if let Some(previous) = latest
             && batch.epoch <= previous.epoch
         {
-            return Err(format!(
+            return Err(violation(format!(
                 "every recovery must raise a new epoch, but writer {} raised epoch {} at incarnation {} seq {} after writer {} raised epoch {} at seq {}",
                 batch.writer_process_id,
                 batch.epoch,
@@ -318,7 +366,24 @@ fn recovered_epochs(epoch_starts: &[EpochStartBatch]) -> Result<BTreeSet<u64>, S
                 previous.writer_process_id,
                 previous.epoch,
                 previous.seq
-            ));
+            )));
+        }
+        // A new stream's first recovery reuses the epoch that closed the previous stream.
+        if latest.is_none()
+            && let Some((&previous_incarnation, previous)) =
+                latest_by_stream.range(..batch.incarnation).next_back()
+            && batch.epoch < previous.epoch
+        {
+            return Err(violation(format!(
+                "an incarnation change lowered the epoch: writer {} raised epoch {} at incarnation {} seq {} after writer {} raised epoch {} at incarnation {previous_incarnation} seq {}",
+                batch.writer_process_id,
+                batch.epoch,
+                batch.incarnation,
+                batch.seq,
+                previous.writer_process_id,
+                previous.epoch,
+                previous.seq
+            )));
         }
         writer_epochs.insert(&batch.writer_process_id, batch.epoch);
         latest_by_stream.insert(batch.incarnation, batch);
@@ -326,10 +391,15 @@ fn recovered_epochs(epoch_starts: &[EpochStartBatch]) -> Result<BTreeSet<u64>, S
     Ok(writer_epochs.into_values().collect())
 }
 
-/// Returns one line per log batch with its position, epoch, record count, and EpochStart.
-fn describe_log_batches(headers: &[LogBatchHeader]) -> String {
+/// Returns one line per EpochStart batch, and per batch near the violation, with its header fields.
+fn describe_log_batches(headers: &[LogBatchHeader], violation: &EpochStartViolation) -> String {
     headers
         .iter()
+        .filter(|header| {
+            header.epoch_start.is_some()
+                || (header.incarnation == violation.incarnation
+                    && header.seq.abs_diff(violation.seq) <= DUMPED_NEIGHBOR_BATCHES)
+        })
         .map(|header| {
             format!(
                 "incarnation {} seq {} epoch {} records {} epoch_start {:?} sealed_at_unix_micros {}",
@@ -487,8 +557,10 @@ fn two_recoveries_of_one_epoch_fail_the_check() {
     ])
     .expect_err("two writers raised epoch 2");
     assert!(
-        failure.contains("every recovery must raise a new epoch"),
-        "{failure}"
+        failure
+            .reason
+            .contains("every recovery must raise a new epoch"),
+        "{failure:?}"
     );
 }
 
@@ -514,8 +586,10 @@ fn a_writer_of_two_epochs_fails_the_check() {
     ])
     .expect_err("one recovery names one epoch");
     assert!(
-        failure.contains("one recovery wrote EpochStarts of epochs 3 and 4"),
-        "{failure}"
+        failure
+            .reason
+            .contains("one recovery wrote EpochStarts of epochs 3 and 4"),
+        "{failure:?}"
     );
 }
 
@@ -529,4 +603,100 @@ fn an_incarnation_change_counts_its_epoch_once() {
     ])
     .expect("each stream raises its epochs");
     assert_eq!(epochs, BTreeSet::from([1, 2]));
+}
+
+/// A recovery's epoch below the previous recovery's epoch fails the check.
+#[test]
+fn a_decreasing_epoch_fails_the_check() {
+    let failure = recovered_epochs(&[
+        epoch_start(1, 1, 1, "first"),
+        epoch_start(1, 50, 3, "second"),
+        epoch_start(1, 100, 2, "third"),
+    ])
+    .expect_err("the third writer lowered the epoch");
+    assert!(
+        failure
+            .reason
+            .contains("every recovery must raise a new epoch"),
+        "{failure:?}"
+    );
+    assert_eq!((failure.incarnation, failure.seq), (1, 100));
+}
+
+/// A stale writer's EpochStart after a newer writer fails the check, though its epoch repeats.
+#[test]
+fn a_stale_writer_after_a_newer_writer_fails_the_check() {
+    let failure = recovered_epochs(&[
+        epoch_start(1, 1, 1, "first"),
+        epoch_start(1, 100, 2, "second"),
+        epoch_start(1, 150, 1, "first"),
+    ])
+    .expect_err("the first writer was fenced by the second");
+    assert!(
+        failure
+            .reason
+            .contains("a stale writer's EpochStart follows a newer writer"),
+        "{failure:?}"
+    );
+    assert_eq!((failure.incarnation, failure.seq), (1, 150));
+}
+
+/// An EpochStart without a writer ID fails the check.
+#[test]
+fn an_epoch_start_without_a_writer_fails_the_check() {
+    let failure = recovered_epochs(&[epoch_start(1, 1, 1, ""), epoch_start(1, 100, 1, "")])
+        .expect_err("an empty writer ID could merge two writers");
+    assert!(
+        failure.reason.contains("an EpochStart names no writer"),
+        "{failure:?}"
+    );
+}
+
+/// A new stream that starts below the previous stream's last epoch fails the check.
+#[test]
+fn an_incarnation_change_that_lowers_the_epoch_fails_the_check() {
+    let failure = recovered_epochs(&[
+        epoch_start(1, 1, 1, "first"),
+        epoch_start(1, 90, 3, "third-closing"),
+        epoch_start(2, 1, 2, "second-opening"),
+    ])
+    .expect_err("the new stream started below epoch 3");
+    assert!(
+        failure
+            .reason
+            .contains("an incarnation change lowered the epoch"),
+        "{failure:?}"
+    );
+    assert_eq!((failure.incarnation, failure.seq), (2, 1));
+}
+
+/// The dump keeps the EpochStart batches and the batches near the violation.
+#[test]
+fn the_log_dump_keeps_epoch_starts_and_the_batches_near_the_violation() {
+    let headers: Vec<LogBatchHeader> = (1..=40)
+        .map(|seq| LogBatchHeader {
+            incarnation: 1,
+            seq,
+            epoch_start: (seq == 1).then(|| LogEpochStart {
+                epoch: 1,
+                writer_process_id: "first".to_owned(),
+            }),
+            ..LogBatchHeader::default()
+        })
+        .collect();
+    let violation = EpochStartViolation {
+        incarnation: 1,
+        seq: 20,
+        reason: String::new(),
+    };
+    let dumped_seqs: Vec<String> = describe_log_batches(&headers, &violation)
+        .lines()
+        .map(|line| {
+            line.split_whitespace()
+                .nth(3)
+                .expect("each line names its seq")
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(dumped_seqs, ["1", "17", "18", "19", "20", "21", "22", "23"]);
 }
