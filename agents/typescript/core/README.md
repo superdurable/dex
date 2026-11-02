@@ -7,6 +7,14 @@ the Steps, persistence, RPCs, live events, tool approval, and crash recovery.
 It runs in Step mode: each model call and each tool call is its own Dex Step,
 and the tool calls of one model response run in parallel.
 
+The package also ships the built-in agent loop, **Stepwise mode**, for agents
+defined in Dex terms without a framework (`@superdurable/dex-agents/stepwise`),
+and its AI SDK model client (`@superdurable/dex-agents/ai-sdk`). Stepwise runs
+on the same session Flow as every adapter, with the same Steps, RPCs, and
+events. The session also handles two built-in tools under any runner:
+`ask_user` asks the user a question and waits in `AwaitQuestionAnswer`, and
+`durable_wait` suspends the turn on a Dex Timer in `AwaitTimer`.
+
 The session Flow implements the contract in
 [`docs/design/plan/agent-framework-adapters.md`](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 Its Step types, persistence names, RPC names, wire values, and event payloads
@@ -38,9 +46,17 @@ processes for integration tests, and the adapters' own tests import it from
 the published core. It is for tests only; it needs `DEXCLI` and
 `dex-server-zd`.
 
-`@superdurable/dex-agents/mcp` offers the tools of MCP servers as agent tools;
-see [MCP tools](#mcp-tools-superdurabledex-agentsmcp). It needs the optional
-peer dependency `@modelcontextprotocol/sdk` `^1.32.2`.
+| Subpath | Contents | Extra dependency |
+| --- | --- | --- |
+| `@superdurable/dex-agents` | Session Flow, runner contract, built-in tool definitions | none |
+| `@superdurable/dex-agents/stepwise` | Stepwise mode: `createStepwiseAgentSessionFlow`, `functionTool`, `ModelClient` | none |
+| `@superdurable/dex-agents/ai-sdk` | `createAiSdkModelClient` for any AI SDK `LanguageModel` | optional peer `ai@^7.0.159`, the Vercel AI SDK adapter's range |
+| `@superdurable/dex-agents/mcp` | MCP servers' tools as agent tools; see [MCP tools](#mcp-tools-superdurabledex-agentsmcp) | optional peer `@modelcontextprotocol/sdk@^1.32.2` |
+| `@superdurable/dex-agents/ui-stream` | Browser streams of live sessions; see [UI streams](#ui-streams) | none |
+| `@superdurable/dex-agents/testing` | Test engine, Worker processes, waits, and `ScriptedModelClient` | none |
+
+Install `ai` and a provider package only for `./ai-sdk`; importing that
+subpath without `ai` fails with `Cannot find package 'ai'`.
 
 Develop the package inside this repository with `./ci.sh`. The adapters in
 this repository depend on it as a `file:../core` devDependency with
@@ -99,7 +115,145 @@ persistence definitions are properties of the Flow (`flow.agentState`,
 | `toolPolicies` | `{}` | `ToolPolicy` by tool name; overrides framework metadata and the default effect |
 | `defaultToolEffect` | `"unclassified"` | Effect of a tool without a policy or framework metadata |
 | `eventStreamCapacityBytes` | 10 MiB | Byte budget of the `AgentEvents` Stream, shared by every session of the Flow type |
-| `interruptDeadlineMs` | none | Milliseconds after which a pending approval is rejected with `"approval deadline passed"` |
+| `interruptDeadlineMs` | none | Milliseconds after which a pending approval or question is rejected with `"approval deadline passed"` or `"question deadline passed"` |
+| `builtInTools` | `[]` | Built-in tools the session handles: `"ask_user"`, `"durable_wait"`. An enabled name is reserved; a tool policy for it is refused |
+| `maxDurableWaitMs` | 365 days | Longest `durable_wait`, a positive multiple of 1,000; a longer `duration_seconds` fails the call at once. The Python core's `max_durable_wait` |
+
+Enable built-in tools and call `answer_question` only after every Worker of the
+Flow type runs 0.2.0, because a 0.1.0 Worker cannot decode the new non-final
+statuses.
+
+## Stepwise mode
+
+Stepwise is the built-in agent loop. Declare the agent, its function tools,
+and its model client; `createStepwiseAgentSessionFlow` builds the session Flow
+with a `StepwiseAgentRunner` and derives the session options from the
+definition.
+
+```ts
+import { openai } from "@ai-sdk/openai";
+import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";
+import { createStepwiseAgentSessionFlow, functionTool } from "@superdurable/dex-agents/stepwise";
+
+const lookupOrder = functionTool<{ order_id: string }>({
+  name: "lookup_order",
+  description: "Look up an order by its ID.",
+  parameters: { type: "object", properties: { order_id: { type: "string" } }, required: ["order_id"] },
+  effect: "read",
+  execute: async ({ order_id }) => orders.get(order_id),
+});
+const refundOrder = functionTool<{ order_id: string }>({
+  name: "refund_order",
+  description: "Refund an order.",
+  parameters: { type: "object", properties: { order_id: { type: "string" } }, required: ["order_id"] },
+  effect: "non_idempotent_write",
+  execute: async ({ order_id }, context) => payments.refund(order_id, { idempotencyKey: context.idempotencyKey }),
+});
+
+export const supportAgentFlow = createStepwiseAgentSessionFlow(
+  {
+    name: "support",
+    instructions: "You help customers with their orders.",
+    model: createAiSdkModelClient(openai("gpt-5-mini")),
+    tools: [lookupOrder, refundOrder],
+    builtInTools: ["ask_user", "durable_wait"],
+  },
+  "SupportAgent",
+);
+```
+
+| `AgentDefinition` field | Default | Meaning |
+| --- | --- | --- |
+| `name` | required | Agent name |
+| `instructions` | required | A string, or a function of `{ flowId, turnId, attempt }` evaluated in every `RunModel`, so a deploy changes the next model call |
+| `model` | required | A `ModelClient`, such as `createAiSdkModelClient(model)` |
+| `modelSettings` | none | `temperature`, `maxOutputTokens`, `reasoningEffort`, and `providerOptions`, passed through unchanged |
+| `tools` | `[]` | Function tools from `functionTool` |
+| `toolPolicies` | `{}` | `ToolPolicy` by tool name; overrides a function tool's own effect and approval |
+| `defaultToolEffect` | `"unclassified"` | Effect of a tool that declares none |
+| `builtInTools` | `[]` | Built-in tools the model sees |
+| `maxModelCallsPerTurn` | 100 | After this many model calls in one turn, the next call offers no tools, so the model must answer. If it still asks for tools, the turn ends and each call gets the result `The tool call was not run: this turn reached its limit of <n> model calls.` |
+| `interruptDeadlineMs`, `eventStreamCapacityBytes` | as for the session | Passed to the session options |
+
+Each `RunModel` makes at most one model call, built from committed state only:
+the instructions, the stored messages, and the results of the previous model
+response from the turn's final records. The runner stores the turn's
+transcript as it goes: `ToolCallsRequested.newMessages` carries the previous
+round's tool results and the new model output, so `FrameworkRunState` holds
+only `{"model_calls": <n>}`. The input builder pairs every stored tool call
+with a result, and a missing one gets the outcome-unknown text, so an orphaned
+call never reaches a provider.
+
+A function tool declares its effect, which picks `CallTool` or
+`CallSingleAttemptTool` and the default approval. The runner checks the
+model's arguments against the tool's JSON Schema before `execute` runs, and a
+mismatch or an unknown tool reaches the model as a tool failure. `execute`
+receives the arguments and a `ToolCallContext` with the idempotency key,
+attempt, events, heartbeat, and the answers to the tool's own questions. A
+`string` result is the output, and a `ToolInputRequested` result asks the user
+first. Any other result is JSON with the separators of Python's `json.dumps`,
+so the model sees the same text as from the Python core; the one exception is a
+whole-number float such as `1.0`, which JavaScript cannot tell from `1`. The
+argument check and its messages match the Python core, including Python's `==`
+for `enum`, so `true` matches `1`.
+
+The session's tool policies, `turn.toolPolicies`, win over a function tool's own
+effect and `requiresApproval`, whether they come from the agent definition or
+from options passed to `createAgentSessionFlow` with a `StepwiseAgentRunner`. A
+built-in tool enabled only in those options must not share a function tool's
+name; the first `RunModel` fails before it calls the model.
+
+`createAiSdkModelClient(model, options?)` makes one `streamText` call per
+`RunModel`, with `stopWhen: stepCountIs(1)`, `maxRetries: 0`, and the tools as
+definitions without `execute`. The AI SDK therefore makes exactly one model
+call and runs no tool loop, no tool, and no retry; a retry is a `RunModel`
+attempt. Text and reasoning deltas stream to `AgentEvents`. Each response is
+stored as the AI SDK assistant message, as JSON text, with every part's
+`providerOptions` (thinking signatures, encrypted reasoning) exactly as the AI
+SDK returned them. It is replayed unchanged to a model of the same provider;
+any other provider gets its text and tool calls only, so a session can change
+model between turns.
+
+Test a Stepwise agent without a model key with `ScriptedModelClient` from
+`@superdurable/dex-agents/testing`, which mirrors the Python core's: a function
+from the `ModelRequest` to a reply of text, reasoning, and tool calls.
+
+The stored `framework_item` of a Stepwise message is one of
+`{"type":"user_text","text"}`,
+`{"type":"model_output","provider","api","item","text","tool_calls"}`, or
+`{"type":"tool_result","tool_call_id","tool_name","output"}`, the same as the
+Python core.
+
+## Built-in tools
+
+`builtInToolDefinitions` holds the name, description, and JSON Schema of each
+built-in tool, with the same text as the Python core. A runner offers the ones
+in `turn.enabledBuiltInTools` to its model and returns their calls like any
+other. `RunModel` routes a call whose name is an enabled built-in tool to the
+session's own handling, with a fixed policy (`read`, no approval), and
+validates its arguments in the same commit. A `null` optional argument counts
+as absent, and a blank check strips the same whitespace as Python's
+`str.strip()`. Invalid arguments record `failed` with
+`invalid <tool> arguments: <reason>`, which the model sees after `ResumeTurn`.
+
+| Built-in tool | Arguments | Step | Result the model sees |
+| --- | --- | --- | --- |
+| `ask_user` | `{ question, choices?, allows_free_text? }` | `AwaitQuestionAnswer` | `{"status":"answered","answer":"<text>"}`; `The user declined to answer.` or the rejection message when declined; `question deadline passed` after the deadline |
+| `durable_wait` | `{ duration_seconds, reason }`, 1 to `maxDurableWaitMs` | `AwaitTimer` | `{"status":"completed","waited_seconds":<n>,"reason":"<reason>"}` |
+
+`ask_user` raises a `question` interrupt whose ID is the tool call ID. Answer it
+with `answer_question`; decline it with `resolve_interrupt` and `approved`
+`false`. A tool can ask a question too: `executeDeferredToolCall` returns
+`ToolInputRequested { kind: "tool_input_requested", question, choices,
+allowsFreeText, continuation }` before it takes any effect. The tool Step runs
+without the `PendingInterrupts` lock, so it only records `awaiting_answer` and
+the question; `AwaitQuestionAnswer` then raises a question with ID
+`<toolCallId>-input-<n>` under the lock, so parallel tools can ask at once.
+After the answer, the same tool Step type runs the call again with
+`DeferredToolExecution.inputAnswers` and `toolCall.inputContinuation`. If
+`<toolCallId>-input-<n>` is another tool call's ID in the same turn, the asking
+call records `failed` with `the tool's question cannot use interrupt ID <id>,
+which another tool call of this turn uses`, and no question is raised.
 
 ## The runner contract
 
@@ -110,10 +264,12 @@ implements `AgentFrameworkRunner` and wraps `createAgentSessionFlow` in its own
 factory.
 
 ```ts
-interface AgentFrameworkRunner {
+// ToolOutcome is ToolExecutionResult, or DeferredToolOutcome for tools that ask for input.
+interface AgentFrameworkRunner<ToolOutcome = ToolExecutionResult> {
   buildUserMessage(text: string): FrameworkMessage;
   runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome>;
-  executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult>;
+  executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolOutcome>;
+  buildUnfinishedTurnMessages?(turn: AgentTurnContext): FrameworkMessage[]; // optional
 }
 
 type AgentTurnOutcome = TurnCompleted | ToolCallsRequested;
@@ -123,6 +279,7 @@ interface ToolCallsRequested {
   frameworkRunState: string;          // non-empty, opaque to the session
   toolCalls: DeferredToolCall[];      // at least one, in the order the model made them
   usage: AgentUsage;
+  newMessages?: FrameworkMessage[];   // optional: messages to store now
 }
 interface DeferredToolCall { toolCallId: string; toolName: string; arguments: string; policy: ResolvedToolPolicy }
 interface ResolvedToolPolicy { effect: ToolEffect; requiresApproval: boolean }
@@ -156,7 +313,15 @@ calls it for the turn failure note.
 | `resolveToolPolicy(name, frameworkEffect?)` | Effective `ResolvedToolPolicy { effect, requiresApproval }` |
 | `events` | `AgentEventWriter` bound to this turn and attempt |
 | `cancellationSignal`, `deadline` | Abort signal and attempt deadline from Dex |
+| `stepExecutionId` | Dex Step execution ID of this `RunModel` |
+| `enabledBuiltInTools` | Built-in tools to offer to the model, from `builtInToolDefinitions` |
+| `toolPolicies`, `defaultToolEffect` | The session's explicit policies and default effect, as Python's `tool_policies` and `default_tool_effect`; a framework's own approval default applies only to tools without a policy here |
 | `heartbeat()` | Extra heartbeat; the session already sends one every 20 seconds |
+
+`stepExecutionId` and `enabledBuiltInTools` are optional in the type only so
+that hand-built contexts in unit tests keep compiling; the session always sets
+them. The same holds for `DeferredToolExecution.inputAnswers` and the 0.2.0
+fields of `AgentToolCall`.
 
 The runner must:
 
@@ -176,8 +341,9 @@ The runner must:
    `runModelStep` continue the turn, including the messages the turn produced
    so far; the session stores no partial messages.
 5. If the response is the final answer, return `TurnCompleted.newMessages` with
-   every message the turn produced after its user message, across all model
-   calls, in order: model output, tool requests, tool results, and the answer.
+   every message of the turn the session has not stored yet, in order: model
+   output, tool requests, tool results, and the answer. Without incremental
+   messages, that is every message the turn produced after its user message.
 6. Report only this model call's usage. Use `emptyAgentUsage()` and
    `addAgentUsage()` when a framework reports several usage parts. Optionally
    return `modelCallMetadata: { requestModel, responseModel, providerName,
@@ -186,6 +352,14 @@ The runner must:
    framework does not expose.
 7. Throw for an unexpected failure. The model call reruns from the same
    committed state, up to 3 attempts within 30 minutes; then the turn fails.
+
+**Incremental turn messages (optional).** A runner may return the turn's
+messages as it goes in `ToolCallsRequested.newMessages`, usually the previous
+round's tool results and the new model output; `RunModel` appends them in the
+same commit that records the tool calls. Such a runner must implement
+`buildUnfinishedTurnMessages(turn)`. `RecordTurnFailure` calls it, with every
+record final, and appends its messages, such as the results of stored tool
+calls, before the turn-failure note. If it throws, only the note is stored.
 
 Never run a tool inside `runModelStep`, unless the framework cannot defer it.
 Such a tool repeats whenever the model call reruns; the adapter documents it as
@@ -215,6 +389,11 @@ so the tool's source can resolve the tool without listing it again.
 
 - Run the real tool and return `{ output }`; the text is recorded and shown to
   the model.
+- Return `ToolInputRequested` to ask the user a question first, only when the
+  call has taken no effect; see Built-in tools. Such a runner implements
+  `AgentFrameworkRunner<DeferredToolOutcome>`; the default type
+  parameter keeps `executeDeferredToolCall` returning `ToolExecutionResult`,
+  so code that calls a runner through `AgentFrameworkRunner` compiles as before.
 - Throw `ToolExecutionError(message)` for a failure the model should see. The
   call is recorded as `failed` and not retried.
 - Throw anything else for an unexpected failure. `CallTool` retries it up to 3
@@ -243,6 +422,10 @@ RunModel          -> AwaitUserMessage                      (final answer)
                    | RecordTurnFailure -> AwaitUserMessage  (retries exhausted)
 AwaitToolApproval(id) -> CallTool(id) | CallSingleAttemptTool(id) (approved)
                        | dead end, after publishing to ToolCallResults (rejected or deadline)
+AwaitQuestionAnswer(id) -> dead end (ask_user answered, declined, or past its deadline)
+                         | CallTool(id) | CallSingleAttemptTool(id) (a tool's question answered)
+AwaitTimer(id)    -> dead end, after publishing to ToolCallResults
+CallTool(id), CallSingleAttemptTool(id) -> AwaitQuestionAnswer(id) (ToolInputRequested)
 CallTool(id), CallSingleAttemptTool(id), RecordToolFailure(id), RecordToolOutcomeUnknown(id)
                   -> dead end, after publishing to ToolCallResults
 ResumeTurn(n)     -> RunModel
@@ -257,12 +440,14 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | `AwaitUserMessage` | none | Waits for one queued message, appends it, starts `turn-<n>` | |
 | `RunModel` | none | Calls `runModelStep`. On `TurnCompleted`, appends the messages and clears the turn. On `ToolCallsRequested`, stores the run state, records, and interrupts, then moves to one Step per call plus `ResumeTurn` | 15 min method timeout, 2 min heartbeat timeout, 3 attempts within 30 min, failure route `RecordTurnFailure` |
 | `AwaitToolApproval` | tool call ID | Waits for the call's `InterruptResolutions` instance or its deadline Timer. Approved: moves to the call's tool Step. Rejected or expired: records `rejected` | Locks `PendingInterrupts` in Execute |
+| `AwaitQuestionAnswer` | tool call ID | Waits for the question's `InterruptResolutions` instance or its deadline Timer. A tool's unraised question waits on a zero Timer, and Execute raises it and waits again. Records the answer, the decline, or the passed deadline; a tool's answered question returns the record to `approved` and moves to its tool Step | Locks `PendingInterrupts` in Execute |
+| `AwaitTimer` | tool call ID | Waits on a Timer until the record's `wait_until`, then records `succeeded` | |
 | `CallTool` | tool call ID | Runs one `read` or `idempotent_write` call | 3 attempts, failure route `RecordToolFailure` |
 | `CallSingleAttemptTool` | tool call ID | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, failure route `RecordToolOutcomeUnknown` |
 | `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text | Retry backoff capped at 5 s |
 | `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text | Retry backoff capped at 5 s |
 | `ResumeTurn` | expected result count | Waits for that many `ToolCallResults` messages; if a record is still open, waits for the rest; then moves to `RunModel` | |
-| `RecordTurnFailure` | none | Records `last_turn_error` and clears the turn; first appends the turn failure note when the turn has final tool call records | Retry backoff capped at 5 s |
+| `RecordTurnFailure` | none | Records `last_turn_error` and clears the turn; first appends the runner's unfinished-turn messages, when it has the method, and the turn failure note when the turn has final tool call records | Retry backoff capped at 5 s |
 
 Every tool Step receives the tool call ID as its input, and a failure route
 receives the failed Step's input, so each Step knows its own call without any
@@ -289,7 +474,7 @@ Do not repeat these tool calls unless the user asks again.
 | `AgentState` | Attribute | `AgentState` |
 | `AgentMessages` | AttributeMap, key = `messageSequenceKey(sequence)` (12-digit zero-padded) | `AgentMessage` |
 | `FrameworkRunState` | Attribute | string; set only between a turn's model calls |
-| `AgentToolCalls` | AttributeMap, key = tool call ID | `AgentToolCall`; only the active turn's records |
+| `AgentToolCalls` | AttributeMap, key = tool call ID | `AgentToolCallRecord`; only the active turn's records |
 | `PendingInterrupts` | Attribute | `AgentInterrupt[]` |
 | `AgentUsage` | Attribute | cumulative `AgentUsage` |
 | `QueuedUserMessages` | Channel | `AgentUserMessage` |
@@ -299,28 +484,36 @@ Do not repeat these tool calls unless the user asks again.
 | `AgentEvents` | Stream | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`, or
-`running_tools`. Wire values are snake_case JSON; TypeScript values are the
+`running_tools`. A stored record's status can also be `awaiting_answer` or
+`waiting_for_timer`; these non-final statuses appear only in
+`AgentToolCallRecord`, which snapshots and `client.getAttributes` return.
+Runners receive `AgentToolCall`, whose `AgentToolCallStatus` keeps its six
+values, because a runner never sees a waiting record. The record gains
+`wait_until`, `input_continuation`, `input_answers`, `input_question`,
+`input_choices`, and `input_allows_free_text`. Wire values are snake_case JSON; TypeScript values are the
 same fields in camelCase. Message sequences start at 1 and have no gaps. Turn
 IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 
 | RPC | Input | Output |
 | --- | --- | --- |
 | `send_user_message` | `{ text }` | `false` for blank text; a message sent during a turn starts the next turn |
-| `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | `false` when not pending or past its deadline; may throw `RpcLockConflictError`, which is safe to retry |
+| `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | `false` when not pending, past its deadline, or a question with `approved` `true`; `approved` `false` declines a question; may throw `RpcLockConflictError`, which is safe to retry |
+| `answer_question` | `{ interrupt_id, answer }` | `false` when not pending, not a question, past its deadline, blank, or outside `choices` while free text is not allowed; locks `PendingInterrupts` like `resolve_interrupt` |
 | `get_agent_snapshot` | none | `{ state, messages, pending_interrupts, tool_calls, usage, queued_message_count }`; `state` is `null` before the session starts |
 | `list_agent_messages` | `{ before_sequence, limit }` | `{ messages, next_before_sequence }`, oldest first; `limit` clamped to 1..200, default 50 |
 
 | Event type | Payload |
 | --- | --- |
 | `turn_started` | `{"sequence"}` of the user message |
-| `turn_completed` | `{"message_count"}` appended by the turn |
+| `turn_completed` | `{"message_count"}` appended by the turn after its user message, including incremental messages |
 | `turn_failed` | `{"error"}` |
 | `text_delta`, `reasoning_delta` | `{"text"}` |
 | `tool_call_deferred` | `{"tool_call_id","tool_name","effect","requires_approval"}`; the model asked for a call, which runs in its own Step |
 | `tool_call_started` | `{"tool_call_id","tool_name"}` |
 | `tool_call_finished` | `{"tool_call_id","tool_name","status"}`; the record became final, including a rejection |
-| `interrupt_raised` | `{"interrupt_id","tool_call_id","tool_name","deadline"}` |
-| `interrupt_resolved` | `{"interrupt_id","approved","rejection_message"}` |
+| `interrupt_raised` | `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question","choices","allows_free_text"}` |
+| `interrupt_resolved` | `{"interrupt_id","kind","approved","answered","rejection_message","cancellation_reason"}`; `answered` is `true` only for an answered question, and `cancellation_reason` is `null` until steering ships |
+| `timer_started` | `{"tool_call_id","wait_until","reason"}` for a `durable_wait` call |
 | `usage_recorded` | `{"recorded","session"}`, each an `AgentUsage` object |
 
 Every event carries `turn_id`, the Step `attempt`, and `step_execution_id`.
@@ -871,6 +1064,7 @@ real Dex Server with no model key:
 | `AgentSessionTestClient` | Typed RPC calls (`resolveInterrupt` retries lock conflicts) and Worker-free waits on committed Attributes |
 | `readStepHistory(serverAddress, flowId)` | Completed Step methods from `dexcli flow history`, to assert a turn's Step shape |
 | `FileGate`, `InvocationLog` | Pause Worker code at an exact point; count real tool runs across processes |
+| `ScriptedModelClient` | Stepwise `ModelClient` that answers from a script, like the Python core's; see Stepwise mode |
 | `pollUntil(probe, options)` | Deadline polling where the Client has no direct wait |
 | `findFreeLoopbackPorts(count)` | Distinct free loopback ports, chosen with every listener held open until all are picked |
 
@@ -948,7 +1142,37 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
   also with a forged Dex position; plain Server-Sent Events resumed with
   `Last-Event-ID` and a rejected token; a turn finished from committed state
   with the Stream Store disabled; the resume token size limit; and
-  `reset-step` after SIGKILL during `RunModel`.
+  `reset-step` after SIGKILL during `RunModel`;
+- a tool that asks for input with `ToolInputRequested`, runs again with the
+  answer, and records `outcome_unknown` once when its second run is killed;
+- two tools of one response that ask at once, both answerable, and a sibling
+  approval resolved while a tool runs that never reappears as pending.
+
+The Stepwise tests (`test/integ/stepwise-*.integration.test.ts`) run the
+built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
+(`test/fixtures/stepwise-scripted-language-model.ts`), and cover:
+
+- a read tool turn whose transcript is stored while the tool runs, history
+  replay, one model call per `RunModel`, and the Step shape;
+- an approved write in `CallSingleAttemptTool`; a schema mismatch; the model
+  call limit; reserved built-in names;
+- `ask_user` answered by `answer_question`, with refused, duplicate, declined,
+  and expired answers;
+- `durable_wait` on a Timer in `AwaitTimer`, and an invalid duration that fails
+  without a Step;
+- reasoning and tool call parts replayed with their provider metadata
+  unchanged, and replay to another provider without reasoning;
+- a failed turn that stores its tool results before the turn-failure note;
+- SIGKILL during `RunModel`, during a single-attempt write, and while waiting
+  on a question or a Timer;
+- a session policy that wins over a tool's own approval, `null` `ask_user`
+  arguments, a one-day wait ended with **SkipTimer**, a model that asks for
+  tools past the call limit, a built-in name clash before any model call, the
+  argument messages shared with Python, and `ScriptedModelClient`.
+
+`test/integ/wire-compatibility.integration.test.ts` decodes 0.1.0 wire values in
+0.2.0 and checks that 0.2.0 values keep every 0.1.0 field, and
+`test/compat/agents-0.1.0-source-compatibility.ts` keeps 0.1.0 code compiling.
 
 ## Design decisions
 
@@ -993,6 +1217,21 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
 - **TypeScript extras.** `AgentTurnContext` and `DeferredToolExecution` add
   `cancellationSignal` and `deadline`. `ToolPolicy.requiresApproval` is optional
   and defaults by effect, as in Python.
+- **Two record types.** The wire status gains non-final values, but
+  `AgentToolCallStatus` keeps its six, so exhaustive mappings in adapters still
+  compile. Stored records use `AgentToolCallRecord`, whose status also allows
+  `awaiting_answer` and `waiting_for_timer`.
+- **One `streamText` step.** The AI SDK client uses only the public `ai` API.
+  `streamText` with `stopWhen: stepCountIs(1)`, `maxRetries: 0`, and tools
+  without `execute` makes exactly one model call. It accepts every
+  `LanguageModel` form, and the AI SDK's own prompt conversion and middleware
+  apply as in any `streamText` call.
+- **0.1.0 source compatibility.** Every field added to a 0.1.0 type is
+  optional, and `test/compat/agents-0.1.0-source-compatibility.ts` is 0.1.0
+  code that the typecheck compiles. One break remains: `AgentSnapshot.toolCalls`
+  and records read with `client.getAttributes` are `AgentToolCallRecord`, whose
+  status can be a waiting status, so code that assigns them to `AgentToolCall`
+  must widen the type.
 
 ## Limits
 
@@ -1013,8 +1252,9 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
   normally well under a second.
 - Tools a framework cannot defer run inside `RunModel` and repeat with it; each
   adapter documents them as at-least-once.
-- Interrupts are only tool approvals. Queued user messages are consumed one per
-  turn; there is no steering of a running turn.
+- Queued user messages are consumed one per turn. Steering, cancellation,
+  plans, compaction, and tool tasks are not implemented yet, and a queued
+  message does not end a `durable_wait`.
 - A failed turn keeps its user message in history without an assistant reply;
   only the turn failure note records what its tools did.
 - Deadlines use the Worker clock when the Timer is computed.

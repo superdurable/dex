@@ -42,6 +42,19 @@ for (const packageDirectoryName of packages) {
   if (manifest.publishConfig?.access !== "public") problems.push(`${label} lacks publishConfig.access public`);
   if (manifest.license !== "LicenseRef-Sustainable-Use-1.0") problems.push(`${label} license is ${manifest.license}`);
   if (manifest.types === undefined || manifest.exports?.["."]?.types === undefined) problems.push(`${label} has no types`);
+  for (const [subpath, target] of Object.entries(manifest.exports ?? {})) {
+    for (const condition of ["types", "import"]) {
+      const file = target?.[condition];
+      if (typeof file !== "string" || !members.includes(`package/${file.replace(/^\.\//, "")}`)) {
+        problems.push(`${label} export ${subpath} lacks its ${condition} file ${file}`);
+      }
+    }
+  }
+  for (const dependency of Object.keys(manifest.peerDependenciesMeta ?? {})) {
+    if (manifest.peerDependencies?.[dependency] === undefined) {
+      problems.push(`${label} peerDependenciesMeta.${dependency} names no peer dependency`);
+    }
+  }
   if (manifest.repository?.directory !== `agents/typescript/${packageDirectoryName}`) {
     problems.push(`${label} repository.directory is ${manifest.repository?.directory}`);
   }

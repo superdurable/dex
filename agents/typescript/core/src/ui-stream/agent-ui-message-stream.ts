@@ -8,6 +8,7 @@
 
 import type { Client, StreamMessage } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import {
   describeToolCallOutcome,
@@ -53,7 +54,7 @@ export interface AgentUIMessageStreamOptions {
   /** Client used for every Stream read, Attribute read, and RPC. The caller keeps ownership. */
   readonly client: Client;
   /** The agent session Flow, such as the value an adapter factory returns. */
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   /**
    * Session ID: the Flow ID of the agent session. The value usually comes from the browser, so the route
    * must check that the caller may read this session before it streams.
@@ -108,6 +109,8 @@ export interface AgentUIMessageStreamOptions {
  * for example after a Worker crash, the generator emits `reset-step`, so the browser drops the partial
  * text of the interrupted attempt. Tool calls become dynamic tool parts. A tool call that needs approval
  * gets a `tool-approval-request` whose `approvalId` is the `interrupt_id` for `resolve_interrupt`. A
+ * `question` interrupt is not an approval: its `interrupt_raised` and `interrupt_resolved` events arrive as
+ * agent event data parts, and the browser answers it with `answer_question`. A
  * transient `data-agent-resume-token` part follows every part; send the latest one back to resume.
  *
  * The generator reads tool arguments and results from the committed `AgentToolCalls` records, waiting up
@@ -181,7 +184,7 @@ export async function prepareAgentUIStreamStart(
 /** Checks a cursor's Dex resume token, replacing a rejected one with the turn's listed start. */
 export async function probeAgentUIStreamStart(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   cursor: AgentUIStreamCursor,
 ): Promise<AgentUIStreamStart | undefined> {
@@ -235,7 +238,7 @@ export async function resolveAgentUIStreamStartCursor(
  */
 export async function createTurnReplayCursor(
   client: Client,
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   flowId: string,
   turnId: string,
   knownTurnStartResumeToken: string | null,
@@ -447,7 +450,8 @@ class AgentUIMessageChunkTranslator {
       case "interrupt_raised": {
         const interruptId = readPayloadString(payload, "interrupt_id");
         const toolCallId = readPayloadString(payload, "tool_call_id");
-        if (interruptId === undefined || toolCallId === undefined) {
+        // A question is answered with answer_question, not approved, so it stays an event data part.
+        if (interruptId === undefined || toolCallId === undefined || payload["kind"] === "question") {
           this.pushAgentEventData(event);
           return;
         }
@@ -473,7 +477,7 @@ class AgentUIMessageChunkTranslator {
       case "interrupt_resolved": {
         const interruptId = readPayloadString(payload, "interrupt_id");
         const isApproved = payload["approved"];
-        if (interruptId === undefined || typeof isApproved !== "boolean") {
+        if (interruptId === undefined || typeof isApproved !== "boolean" || payload["kind"] === "question") {
           this.pushAgentEventData(event);
           return;
         }

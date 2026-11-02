@@ -38,6 +38,14 @@
     "./ui-stream": {
       "types": "./dist/src/ui-stream/index.d.ts",
       "import": "./dist/src/ui-stream/index.js"
+    },
+    "./stepwise": {
+      "types": "./dist/src/stepwise/index.d.ts",
+      "import": "./dist/src/stepwise/index.js"
+    },
+    "./ai-sdk": {
+      "types": "./dist/src/ai-sdk/index.d.ts",
+      "import": "./dist/src/ai-sdk/index.js"
     }
   },
   "scripts": {
@@ -48,13 +56,17 @@
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@opentelemetry/api": "^1.3.0",
-    "@superdurable/dex": "1.30.0"
+    "@superdurable/dex": "1.30.0",
+    "ai": "^7.0.159"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
       "optional": true
     },
     "@opentelemetry/api": {
+      "optional": true
+    },
+    "ai": {
       "optional": true
     }
   },

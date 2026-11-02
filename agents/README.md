@@ -21,7 +21,7 @@ adapter depends on the published core instead.
 | [`python/langgraph`](python/langgraph) | [`dex-agents-langgraph`](https://pypi.org/project/dex-agents-langgraph/) | LangChain `create_agent` and LangGraph |
 | [`python/google-adk`](python/google-adk) | [`dex-agents-google-adk`](https://pypi.org/project/dex-agents-google-adk/) | Google ADK |
 | [`python/claude-agent-sdk`](python/claude-agent-sdk) | [`dex-agents-claude-agent-sdk`](https://pypi.org/project/dex-agents-claude-agent-sdk/) | Claude Agent SDK |
-| [`typescript/core`](typescript/core) | [`@superdurable/dex-agents`](https://www.npmjs.com/package/@superdurable/dex-agents) | Shared session Flow and `@superdurable/dex-agents/testing` |
+| [`typescript/core`](typescript/core) | [`@superdurable/dex-agents`](https://www.npmjs.com/package/@superdurable/dex-agents) | Shared session Flow, Stepwise mode (`/stepwise`), the AI SDK model client (`/ai-sdk`, optional peer `ai`), and `/testing` |
 | [`typescript/vercel-ai`](typescript/vercel-ai) | [`@superdurable/dex-agents-vercel-ai`](https://www.npmjs.com/package/@superdurable/dex-agents-vercel-ai) | Vercel AI SDK |
 | [`typescript/openai-agents`](typescript/openai-agents) | [`@superdurable/dex-agents-openai-agents`](https://www.npmjs.com/package/@superdurable/dex-agents-openai-agents) | OpenAI Agents SDK |
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |
@@ -105,7 +105,8 @@ locally to bump the committed version, and pass `--check` to verify it.
 [`script/smoke-test-built-packages.sh`](script/smoke-test-built-packages.sh)
 builds every package with `uv build` and `npm pack`, checks the artifacts,
 and installs them into fresh projects without path dependencies: the core
-first, then each adapter. It then runs one Pydantic AI session and one Vercel
+first, then each adapter. It imports every TypeScript core subpath with and
+without the optional peer `ai`. It then runs one Pydantic AI session and one Vercel
 AI SDK session against `dexcli dev --engine zd` with a scripted model, using
 the adapters' own test fixtures. Agents CI runs it on every change, so
 packaging regressions fail CI:

@@ -94,13 +94,16 @@ export interface AgentMessage extends FrameworkMessage {
 export type ToolEffect = "read" | "idempotent_write" | "non_idempotent_write" | "unclassified";
 
 /**
- * Status of one deferred tool call record.
+ * Status of one deferred tool call record, as a runner sees it.
  *
  * `awaiting_approval` and `approved` are open. The other statuses are final: the session
  * never runs a call whose record is final, and the runner reports the result to the model.
  * `failed` means the tool threw {@link ToolExecutionError}, or a `read` call ended without a result after
  * its attempts ran out. `outcome_unknown` means a write's tool Step ended without a result, through a
  * Worker crash, a timeout, or another error after its attempts ran out.
+ *
+ * The set of final statuses never grows, so an exhaustive mapping of final statuses stays complete.
+ * A stored record can also hold an {@link AgentToolCallWaitingStatus}; runners never see one.
  */
 export type AgentToolCallStatus =
   | "awaiting_approval"
@@ -110,7 +113,39 @@ export type AgentToolCallStatus =
   | "failed"
   | "outcome_unknown";
 
-/** Durable record of one deferred tool call, stored in `AgentToolCalls` under its tool call ID. */
+/**
+ * Non-final status of a stored record while a session Step waits on the call's behalf.
+ *
+ * - `awaiting_answer`: `AwaitQuestionAnswer` waits for `answer_question`. The call is an `ask_user`
+ *   call, or a tool call whose tool returned {@link ToolInputRequested}.
+ * - `waiting_for_timer`: `AwaitTimer` waits until {@link AgentToolCallRecord.waitUntil} for a
+ *   `durable_wait` call.
+ *
+ * These statuses appear in {@link AgentSnapshot.toolCalls} and in records read with
+ * `Client.getAttributes`. A runner never receives a record with one of them: `RunModel` runs only after
+ * every record of the turn is final, and a tool Step runs only an `approved` record.
+ */
+export type AgentToolCallWaitingStatus = "awaiting_answer" | "waiting_for_timer";
+
+/** Status of a stored tool call record: an {@link AgentToolCallStatus} or an {@link AgentToolCallWaitingStatus}. */
+export type AgentToolCallRecordStatus = AgentToolCallStatus | AgentToolCallWaitingStatus;
+
+/**
+ * One answer to a question that a tool asked by returning {@link ToolInputRequested}.
+ *
+ * `AwaitQuestionAnswer` appends one to the call's `inputAnswers` when the user answers. The tool then
+ * runs again and receives every answer in {@link DeferredToolExecution.inputAnswers}.
+ */
+export interface QuestionAnswer {
+  /** Interrupt ID of the answered question, `<toolCallId>-input-<n>`. Wire field: `interrupt_id`. */
+  readonly interruptId: string;
+  /** Question text the tool asked. Wire field: `question`. */
+  readonly question: string;
+  /** The user's answer, exactly as sent to `answer_question`. Wire field: `answer`. */
+  readonly answer: string;
+}
+
+/** Durable record of one deferred tool call, as a runner sees it; stored in `AgentToolCalls` under its tool call ID. */
 export interface AgentToolCall {
   /** Framework tool call ID; non-empty and slash-free. Wire field: `tool_call_id`. */
   readonly toolCallId: string;
@@ -152,32 +187,135 @@ export interface AgentToolCall {
    * `trace_context`, `null` when absent.
    */
   readonly traceContext?: string;
+  /**
+   * RFC 3339 time at which a `durable_wait` call's Timer ends, otherwise `null`. Wire field: `wait_until`.
+   *
+   * Records the session reads always carry this field. It is optional only so that code that builds
+   * records by hand, such as a unit test, keeps compiling.
+   */
+  readonly waitUntil?: string | null;
+  /**
+   * Opaque text from the tool's last {@link ToolInputRequested}, returned to the tool when it runs
+   * again after the answer; `null` when the tool gave none. Wire field: `input_continuation`.
+   * Optional for the same reason as {@link waitUntil}.
+   */
+  readonly inputContinuation?: string | null;
+  /**
+   * Answers to the questions the tool asked through {@link ToolInputRequested}, oldest first; empty
+   * for other calls. Wire field: `input_answers`. Optional for the same reason as {@link waitUntil}.
+   */
+  readonly inputAnswers?: readonly QuestionAnswer[];
+  /**
+   * Question text of the tool's pending {@link ToolInputRequested} while the record is
+   * `awaiting_answer`, otherwise `null`. It is `null` for an `ask_user` call, whose question is in
+   * {@link arguments}. `AwaitQuestionAnswer` raises the question interrupt from it under the
+   * `PendingInterrupts` lock. Wire field: `input_question`. Optional for the same reason as
+   * {@link waitUntil}.
+   */
+  readonly inputQuestion?: string | null;
+  /**
+   * Choices of that pending {@link ToolInputRequested}; empty for a free-text question or when no tool
+   * question is pending. Wire field: `input_choices`. Optional for the same reason as {@link waitUntil}.
+   */
+  readonly inputChoices?: readonly string[];
+  /**
+   * Whether that pending {@link ToolInputRequested} accepts free text; `true` when no tool question is
+   * pending. Wire field: `input_allows_free_text`. Optional for the same reason as {@link waitUntil}.
+   */
+  readonly inputAllowsFreeText?: boolean;
 }
 
-/** One pending approval request, stored in the `PendingInterrupts` Attribute. */
+/**
+ * A stored tool call record, as `get_agent_snapshot` and `Client.getAttributes` return it.
+ *
+ * It is an {@link AgentToolCall} whose status may also be an {@link AgentToolCallWaitingStatus}, and
+ * whose fields added in 0.2.0 are always present.
+ */
+export interface AgentToolCallRecord
+  extends Omit<
+    AgentToolCall,
+    "status" | "waitUntil" | "inputContinuation" | "inputAnswers" | "inputQuestion" | "inputChoices" | "inputAllowsFreeText"
+  > {
+  /** Current status. Wire field: `status`. */
+  readonly status: AgentToolCallRecordStatus;
+  /** See {@link AgentToolCall.waitUntil}. Wire field: `wait_until`. */
+  readonly waitUntil: string | null;
+  /** See {@link AgentToolCall.inputContinuation}. Wire field: `input_continuation`. */
+  readonly inputContinuation: string | null;
+  /** See {@link AgentToolCall.inputAnswers}. Wire field: `input_answers`. */
+  readonly inputAnswers: readonly QuestionAnswer[];
+  /** See {@link AgentToolCall.inputQuestion}. Wire field: `input_question`. */
+  readonly inputQuestion: string | null;
+  /** See {@link AgentToolCall.inputChoices}. Wire field: `input_choices`. */
+  readonly inputChoices: readonly string[];
+  /** See {@link AgentToolCall.inputAllowsFreeText}. Wire field: `input_allows_free_text`. */
+  readonly inputAllowsFreeText: boolean;
+}
+
+/**
+ * Kind of one {@link AgentInterrupt}.
+ *
+ * - `tool_approval`: a tool call waits for approval. Answer it with `resolve_interrupt`.
+ * - `question`: the model, through `ask_user`, or a tool, through {@link ToolInputRequested}, asked the
+ *   user a question. Answer it with `answer_question`, or decline it with `resolve_interrupt` and
+ *   `approved` `false`.
+ */
+export type AgentInterruptKind = "tool_approval" | "question";
+
+/** One pending approval or question, stored in the `PendingInterrupts` Attribute. */
 export interface AgentInterrupt {
-  /** Interrupt ID; equals the tool call ID for tool approvals. Wire field: `interrupt_id`. */
+  /**
+   * Interrupt ID passed to `resolve_interrupt` or `answer_question`. It equals the tool call ID for a
+   * tool approval and an `ask_user` question, and is `<toolCallId>-input-<n>` for the `n`-th question a
+   * tool asked through {@link ToolInputRequested}. Wire field: `interrupt_id`.
+   */
   readonly interruptId: string;
   /** Interrupt kind. Wire field: `kind`. */
-  readonly kind: "tool_approval";
-  /** Tool call awaiting approval. Wire field: `tool_call_id`. */
+  readonly kind: AgentInterruptKind;
+  /** Tool call that waits. Wire field: `tool_call_id`. */
   readonly toolCallId: string;
-  /** Tool name. Wire field: `tool_name`. */
+  /** Tool name; `ask_user` for an `ask_user` question. Wire field: `tool_name`. */
   readonly toolName: string;
   /** Tool arguments as JSON text. Wire field: `arguments`. */
   readonly arguments: string;
   /** RFC 3339 time at which the interrupt was raised. Wire field: `created_at`. */
   readonly createdAt: string;
-  /** RFC 3339 approval deadline, or `null` for no deadline. Wire field: `deadline`. */
+  /**
+   * RFC 3339 deadline, or `null` for no deadline. After it, the session rejects the call with
+   * {@link approvalDeadlinePassed} or {@link questionDeadlinePassed}. Wire field: `deadline`.
+   */
   readonly deadline: string | null;
+  /**
+   * Question text of a `question` interrupt, otherwise `null`. Wire field: `question`.
+   *
+   * Interrupts the session reads always carry this field and the two below. They are optional only so
+   * that code written against 0.1.0, which builds interrupts by hand, keeps compiling; treat `undefined`
+   * as `null`, an empty list, and `true`.
+   */
+  readonly question?: string | null;
+  /** Answers to offer for a `question` interrupt; empty for a free-text question. Wire field: `choices`. */
+  readonly choices?: readonly string[];
+  /**
+   * Whether `answer_question` accepts an answer that is not one of {@link choices}. Always `true` when
+   * `choices` is empty and for a tool approval. Wire field: `allows_free_text`.
+   */
+  readonly allowsFreeText?: boolean;
 }
 
 /** Resolution of one interrupt, published to the `InterruptResolutions` ChannelMap. */
 export interface AgentInterruptResolution {
-  /** Whether the tool call may run. Wire field: `approved`. */
+  /**
+   * Whether the tool call may run, or, for a question, whether the user answered it. Wire field:
+   * `approved`.
+   */
   readonly approved: boolean;
-  /** Text shown to the model when rejected, or `null`. Wire field: `rejection_message`. */
+  /** Text shown to the model when rejected or declined, or `null`. Wire field: `rejection_message`. */
   readonly rejectionMessage: string | null;
+  /**
+   * The answer to a `question` interrupt, otherwise `null`. Wire field: `answer`. Resolutions the
+   * session reads always carry it; it is optional so that 0.1.0 code keeps compiling.
+   */
+  readonly answer?: string | null;
 }
 
 /**
@@ -227,9 +365,14 @@ export interface AgentUserMessage {
  * - `tool_call_finished`: `{"tool_call_id","tool_name","status"}`, when a record becomes final,
  *   including a rejection.
  * - `tool_call_deferred`: `{"tool_call_id","tool_name","effect","requires_approval"}`, when the model
- *   asks for a call, which then runs in its own Step.
- * - `interrupt_raised`: `{"interrupt_id","tool_call_id","tool_name","deadline"}`.
- * - `interrupt_resolved`: `{"interrupt_id","approved","rejection_message"}`.
+ *   asks for a call, which then runs in its own Step or, for a built-in tool, waits in the session.
+ * - `interrupt_raised`: `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question",
+ *   "choices","allows_free_text"}`. For a tool approval, `question` is `null`, `choices` is empty, and
+ *   `allows_free_text` is `true`.
+ * - `interrupt_resolved`: `{"interrupt_id","kind","approved","answered","rejection_message",
+ *   "cancellation_reason"}`. `answered` is `true` only for an answered question. `cancellation_reason`
+ *   is always `null` in this release.
+ * - `timer_started`: `{"tool_call_id","wait_until","reason"}`, when a `durable_wait` call starts its Timer.
  * - `usage_recorded`: `{"recorded","session"}`: one model call's and the cumulative usage, each with
  *   {@link AgentUsage} wire fields.
  */
@@ -244,6 +387,7 @@ export type AgentEventType =
   | "tool_call_deferred"
   | "interrupt_raised"
   | "interrupt_resolved"
+  | "timer_started"
   | "usage_recorded";
 
 /** One best-effort live event, written to the `AgentEvents` Stream. */
@@ -279,6 +423,28 @@ export interface ResolveInterruptInput {
   readonly rejectionMessage: string | null;
 }
 
+/**
+ * Input of the `answer_question` RPC.
+ *
+ * @example
+ * ```ts
+ * const question = snapshot.pendingInterrupts.find((interrupt) => interrupt.kind === "question");
+ * if (question !== undefined) {
+ *   await client.invokeRPC(flow.answerQuestion, sessionId, {
+ *     interruptId: question.interruptId, answer: question.choices[0] ?? "yes" });
+ * }
+ * ```
+ */
+export interface AnswerQuestionRequest {
+  /** {@link AgentInterrupt.interruptId} of a pending `question` interrupt. Wire field: `interrupt_id`. */
+  readonly interruptId: string;
+  /**
+   * The answer. It must not be blank. When the interrupt has `choices` and `allowsFreeText` is `false`,
+   * it must equal one of the choices exactly. Wire field: `answer`.
+   */
+  readonly answer: string;
+}
+
 /** Output of the `get_agent_snapshot` RPC, enough for a UI to rebuild its view. */
 export interface AgentSnapshot {
   /** Current session state, or `null` before `StartAgentSession` committed. Wire field: `state`. */
@@ -288,7 +454,7 @@ export interface AgentSnapshot {
   /** Interrupts that `resolve_interrupt` still accepts. Wire field: `pending_interrupts`. */
   readonly pendingInterrupts: readonly AgentInterrupt[];
   /** Deferred tool call records of the active turn, in deferral order. Wire field: `tool_calls`. */
-  readonly toolCalls: readonly AgentToolCall[];
+  readonly toolCalls: readonly AgentToolCallRecord[];
   /** Cumulative usage. Wire field: `usage`. */
   readonly usage: AgentUsage;
   /** User messages queued and not yet consumed. Wire field: `queued_message_count`. */
@@ -356,10 +522,12 @@ export function addAgentUsage(left: AgentUsage, right: AgentUsage): AgentUsage {
  *
  * @param status - Status to classify.
  * @returns `true` for `rejected`, `succeeded`, `failed`, and `outcome_unknown`; `false` for
- * `awaiting_approval` and `approved`.
+ * `awaiting_approval`, `approved`, and every {@link AgentToolCallWaitingStatus}.
  */
-export function isFinalToolCallStatus(status: AgentToolCallStatus): boolean {
-  return status !== "awaiting_approval" && status !== "approved";
+export function isFinalToolCallStatus(status: AgentToolCallRecordStatus): boolean {
+  return (
+    status === "rejected" || status === "succeeded" || status === "failed" || status === "outcome_unknown"
+  );
 }
 
 /** Tool result text the model sees for an `outcome_unknown` call; the same text as the Python core. */
@@ -378,6 +546,12 @@ export const defaultRejectionToolResult = "The user rejected this tool call.";
 
 /** Rejection message recorded when an approval deadline passes. */
 export const approvalDeadlinePassed = "approval deadline passed";
+
+/** Rejection message recorded when a question's deadline passes. */
+export const questionDeadlinePassed = "question deadline passed";
+
+/** Tool result text the model sees when the user declines a question without a message. */
+export const defaultQuestionDeclinedToolResult = "The user declined to answer.";
 
 /**
  * Returns the note text that tells the model what a failed turn already did.
@@ -398,7 +572,7 @@ export const approvalDeadlinePassed = "approval deadline passed";
  * joined with newlines.
  * @throws {TypeError} When a record is not final.
  */
-export function buildTurnFailureNote(toolCalls: readonly AgentToolCall[]): string {
+export function buildTurnFailureNote(toolCalls: readonly (AgentToolCall | AgentToolCallRecord)[]): string {
   const lines = [turnFailureNoteHeader];
   for (const toolCall of [...toolCalls].sort((left, right) => left.deferralOrder - right.deferralOrder)) {
     const outcome = describeToolCallOutcome(toolCall);
@@ -426,9 +600,9 @@ export function buildTurnFailureNote(toolCalls: readonly AgentToolCall[]): strin
  * @returns The output for `succeeded`; `The tool call failed: <error>` for `failed`; the rejection
  * message, or {@link defaultRejectionToolResult}, for `rejected`; {@link outcomeUnknownToolResult}
  * for `outcome_unknown`.
- * @throws {TypeError} When the record status is `awaiting_approval` or `approved`.
+ * @throws {TypeError} When the record status is not final.
  */
-export function describeToolCallOutcome(toolCall: AgentToolCall): string {
+export function describeToolCallOutcome(toolCall: AgentToolCall | AgentToolCallRecord): string {
   switch (toolCall.status) {
     case "succeeded":
       return toolCall.output ?? "";
@@ -440,6 +614,8 @@ export function describeToolCallOutcome(toolCall: AgentToolCall): string {
       return outcomeUnknownToolResult;
     case "awaiting_approval":
     case "approved":
+    case "awaiting_answer":
+    case "waiting_for_timer":
       throw new TypeError(`tool call ${toolCall.toolCallId} has no final outcome yet`);
   }
 }

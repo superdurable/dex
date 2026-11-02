@@ -8,6 +8,7 @@
 
 import type { Client, StreamMessage } from "@superdurable/dex";
 
+import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type { AgentEvent, AgentSnapshot } from "../agent-session-values.js";
 import { convertAgentEventToJson, convertAgentSnapshotToJson } from "./agent-event-json.js";
@@ -41,7 +42,7 @@ export interface AgentEventSseOptions {
   /** Client used for every Stream read. The caller keeps ownership. */
   readonly client: Client;
   /** The agent session Flow, the same object the Worker registered. */
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   /** Session ID: the Flow ID of the agent session. */
   readonly flowId: string;
   /**
@@ -221,7 +222,7 @@ export async function createAgentEventSseResponse(
  */
 export async function readAgentEventStreamSnapshot(options: {
   readonly client: Client;
-  readonly flow: AgentSessionFlow;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   readonly flowId: string;
 }): Promise<AgentEventStreamSnapshot> {
   const { client, flow, flowId } = options;

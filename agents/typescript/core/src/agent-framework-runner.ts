@@ -6,12 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { BuiltInTool } from "./agent-built-in-tools.js";
 import type {
   AgentMessage,
   AgentToolCall,
   AgentToolCallStatus,
   AgentUsage,
   FrameworkMessage,
+  QuestionAnswer,
   ToolEffect,
 } from "./agent-session-values.js";
 
@@ -149,6 +151,13 @@ export interface AgentTurnContext {
    */
   readonly attempt: number;
   /**
+   * Dex Step execution ID of this `RunModel` Step, shared by all of its attempts.
+   *
+   * The session always sets this field. It is optional only so that code that builds a context by hand
+   * keeps compiling.
+   */
+  readonly stepExecutionId?: string;
+  /**
    * Every stored session message in ascending sequence order, including the user message that
    * started this turn. Replay each `frameworkItem` to the framework unchanged.
    */
@@ -172,6 +181,26 @@ export interface AgentTurnContext {
   readonly cancellationSignal: AbortSignal;
   /** Absolute deadline of the current attempt, or `undefined` when Dex supplied none. */
   readonly deadline: Date | undefined;
+  /**
+   * Built-in tools enabled for this session through {@link AgentSessionOptions.builtInTools}. Offer
+   * their definitions from {@link builtInToolDefinitions} to the model; the session handles their calls.
+   *
+   * The session always sets this field. It is optional only so that code that builds a context by hand,
+   * such as a unit test, keeps compiling; treat `undefined` as no built-in tools.
+   */
+  readonly enabledBuiltInTools?: ReadonlySet<BuiltInTool>;
+  /**
+   * Explicit policies by tool name from {@link AgentSessionOptions.toolPolicies}, the same map
+   * {@link resolveToolPolicy} applies first. A runner whose framework sets its own approval default, such as
+   * a tool's `requiresApproval`, applies that default only to tools without an explicit policy here.
+   * Optional for the same reason as {@link enabledBuiltInTools}; treat `undefined` as no policies.
+   */
+  readonly toolPolicies?: Readonly<Record<string, ToolPolicy>>;
+  /**
+   * {@link AgentSessionOptions.defaultToolEffect}, the effect of a tool without a policy or framework
+   * metadata. Optional for the same reason as {@link enabledBuiltInTools}.
+   */
+  readonly defaultToolEffect?: ToolEffect;
   /**
    * Returns the effective policy of a tool; see {@link resolveToolPolicy} for the precedence.
    * Pass it unchanged in {@link DeferredToolCall.policy}.
@@ -261,9 +290,13 @@ export interface TurnCompleted {
   /** Discriminator. */
   readonly kind: "completed";
   /**
-   * Every message the turn produced after its user message, across all of its model calls, in order:
-   * model output, tool requests, tool results, and the final answer. The session appends them in one
-   * commit and deletes the turn's tool call records.
+   * Every message of the turn that the session has not stored yet, in order: model output, tool
+   * requests, tool results, and the final answer. The session appends them in one commit and deletes the
+   * turn's tool call records.
+   *
+   * A runner that never sets {@link ToolCallsRequested.newMessages} returns every message the turn
+   * produced after its user message, across all of its model calls. A runner that stores messages
+   * incrementally returns only the messages after the ones it already returned.
    */
   readonly newMessages: readonly FrameworkMessage[];
   /** Usage of this model call only; the session adds it to the cumulative usage. */
@@ -277,11 +310,21 @@ export interface ToolCallsRequested {
   /** Discriminator. */
   readonly kind: "tool_calls_requested";
   /**
-   * Non-empty serialized framework state from which the next `RunModel` continues the turn, including
-   * the messages this turn has produced so far. The session stores no partial messages; it keeps this
-   * value opaquely in `FrameworkRunState`.
+   * Non-empty serialized framework state from which the next `RunModel` continues the turn. The
+   * session keeps this value opaquely in `FrameworkRunState`. A runner without
+   * {@link newMessages} includes the messages this turn has produced so far; a runner with them keeps
+   * only what the stored messages cannot rebuild, so the value does not grow with the turn.
    */
   readonly frameworkRunState: string;
+  /**
+   * Messages of the turn to store now, in the same commit that records the tool calls. Defaults to none.
+   *
+   * Return the previous model response's tool results and this model response, so the turn's
+   * transcript is stored while its tools run. A runner that sets this field must implement
+   * {@link AgentFrameworkRunner.buildUnfinishedTurnMessages}; the session fails the model call
+   * otherwise. The next {@link AgentTurnContext.messages} include these messages.
+   */
+  readonly newMessages?: readonly FrameworkMessage[];
   /**
    * Every tool call of the model response, at least one. Each runs in its own Step, in parallel. Do not
    * repeat a call that already has a record in {@link AgentTurnContext.toolCalls}; the session rejects
@@ -321,6 +364,14 @@ export interface DeferredToolExecution {
   /** Absolute deadline of the current attempt, or `undefined`. */
   readonly deadline: Date | undefined;
   /**
+   * Answers to the questions this call asked by returning {@link ToolInputRequested}, oldest first, or
+   * empty. The opaque continuation of the last question is in `toolCall.inputContinuation`.
+   *
+   * The session always sets this field. It is optional only so that code that builds an execution by
+   * hand, such as a unit test, keeps compiling; treat `undefined` as no answers.
+   */
+  readonly inputAnswers?: readonly QuestionAnswer[];
+  /**
    * Records a heartbeat. The session already records one every 20 seconds.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
@@ -341,11 +392,53 @@ export interface DeferredToolExecution {
   saveHeartbeatCheckpoint?(checkpoint: string): Promise<void>;
 }
 
-/** Successful result of one deferred tool call. */
+/** Successful result of one deferred tool call. A result without `kind` is a `ToolExecutionResult`. */
 export interface ToolExecutionResult {
   /** Output text recorded on the call and shown to the model. */
   readonly output: string;
 }
+
+/**
+ * Result of a deferred tool call that needs an answer from the user before it can take effect.
+ *
+ * Return it from {@link AgentFrameworkRunner.executeDeferredToolCall} only when the call has had no
+ * effect yet. The tool Step records `awaiting_answer` and stores {@link continuation}. `AwaitQuestionAnswer`
+ * then raises a `question` interrupt with ID `<toolCallId>-input-<n>`, where `n` counts the call's
+ * questions from 1. After `answer_question`, the record returns to `approved` and the same tool Step
+ * type runs the call again, with every answer in {@link DeferredToolExecution.inputAnswers} and the
+ * continuation in `toolCall.inputContinuation`. The tool's later output, not the answer, is the result.
+ * A declined question or a passed deadline records `rejected`, and the tool never runs again.
+ *
+ * Because the call took no effect, a single-attempt tool that runs again after an answer still never
+ * repeats an effect. A crash during the second run records `outcome_unknown`, as for any run.
+ *
+ * @example
+ * ```ts
+ * public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+ *   const confirmation = call.inputAnswers?.at(-1)?.answer;
+ *   if (confirmation === undefined) {
+ *     return { kind: "tool_input_requested", question: "Ship to the saved address?", choices: ["yes", "no"],
+ *       allowsFreeText: false, continuation: null };
+ *   }
+ *   return { output: confirmation === "yes" ? await shipOrder(call.idempotencyKey) : "not shipped" };
+ * }
+ * ```
+ */
+export interface ToolInputRequested {
+  /** Discriminator. */
+  readonly kind: "tool_input_requested";
+  /** Question for the user; it must not be blank. */
+  readonly question: string;
+  /** Answers to offer. Defaults to none, which makes the question free text. */
+  readonly choices?: readonly string[];
+  /** Whether an answer outside {@link choices} is accepted. Defaults to `true`; ignored without choices. */
+  readonly allowsFreeText?: boolean;
+  /** Opaque text returned to the tool with the answer, such as a server request ID, or `null`. */
+  readonly continuation: string | null;
+}
+
+/** Result of {@link AgentFrameworkRunner.executeDeferredToolCall}. */
+export type DeferredToolOutcome = ToolExecutionResult | ToolInputRequested;
 
 /**
  * Tool failure that the model should see, thrown from {@link AgentFrameworkRunner.executeDeferredToolCall}.
@@ -394,6 +487,9 @@ export class ToolExecutionError extends Error {
  *   run in another Worker process.
  * - Throwing from `runModelStep` retries the model call, up to 3 attempts within 30 minutes; then the
  *   turn fails, the session records `last_turn_error`, and it waits for the next user message.
+ * - A runner may store the turn's transcript incrementally with {@link ToolCallsRequested.newMessages};
+ *   it then implements {@link buildUnfinishedTurnMessages}. A runner may offer the
+ *   {@link AgentTurnContext.enabledBuiltInTools} to its model; the session handles their calls.
  *
  * @example
  * ```ts
@@ -414,8 +510,11 @@ export class ToolExecutionError extends Error {
  *   }
  * }
  * ```
+ * @typeParam ToolOutcome - What {@link executeDeferredToolCall} returns. It defaults to
+ * {@link ToolExecutionResult}; a runner whose tools can ask the user a question first implements
+ * `AgentFrameworkRunner<DeferredToolOutcome>`. The session accepts both.
  */
-export interface AgentFrameworkRunner {
+export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = ToolExecutionResult> {
   /**
    * Converts user text into the framework's user message.
    *
@@ -439,12 +538,27 @@ export interface AgentFrameworkRunner {
    * Runs the real tool for one tool call, in `CallTool` or `CallSingleAttemptTool`.
    *
    * @param call - Deferred call to run.
-   * @returns The tool output text.
+   * @returns The tool output text, or {@link ToolInputRequested} when the tool needs an answer from the
+   * user before it takes any effect.
    * @throws {ToolExecutionError} For a failure the model should see; the call is recorded as `failed`.
    * @throws Any other error for an unexpected failure; after the last attempt the record becomes
    * `failed` for a `read` tool and `outcome_unknown` for a write. See {@link ToolExecutionError}.
    */
-  executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult>;
+  executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolOutcome>;
+  /**
+   * Returns the turn's messages that the session has not stored yet, when the turn ends without a final
+   * answer. Optional.
+   *
+   * Implement it when the runner sets {@link ToolCallsRequested.newMessages}. `RecordTurnFailure` calls
+   * it before it appends the turn-failure note, with every record of the turn final. Return the tool
+   * result of every tool call already stored or returned that has no stored result, so no tool call is
+   * left without a result. It must be synchronous and make no model call. When it throws, the session
+   * stores only the turn-failure note, so a runner defect never blocks the failure route.
+   *
+   * @param turn - The ended turn; {@link AgentTurnContext.toolCalls} holds its final records.
+   * @returns The messages to append, in order, possibly none.
+   */
+  buildUnfinishedTurnMessages?(turn: AgentTurnContext): readonly FrameworkMessage[];
 }
 
 /** MCP tool annotations that classify a tool's side effects. */

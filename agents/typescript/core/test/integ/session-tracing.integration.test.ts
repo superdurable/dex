@@ -29,8 +29,10 @@ import {
 import { Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 
 import type {
+  AgentFrameworkRunner,
   AgentSessionFlow,
   AgentTracingOptions,
+  DeferredToolOutcome,
   AgentTurnContext,
   AgentTurnOutcome,
   AgentUsage,
@@ -147,15 +149,15 @@ describe("agent sessions emit OpenTelemetry GenAI spans", () => {
   const sampledExporter = new InMemorySpanExporter();
   const openSpans = new OpenSpanCounter();
   let markerDirectory: string;
-  let tracedFlow: AgentSessionFlow;
-  let contentFlow: AgentSessionFlow;
-  let legacyFlow: AgentSessionFlow;
-  let untracedFlow: AgentSessionFlow;
-  let globalFlow: AgentSessionFlow;
-  let throwingProcessorFlow: AgentSessionFlow;
-  let zeroUsageFlow: AgentSessionFlow;
-  let harnessFlow: AgentSessionFlow;
-  let sampledFlow: AgentSessionFlow;
+  let tracedFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let contentFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let legacyFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let untracedFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let globalFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let throwingProcessorFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let zeroUsageFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let harnessFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let sampledFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
 
   before(async () => {
     engine = await PrivateDexEngine.start();
@@ -170,7 +172,7 @@ describe("agent sessions emit OpenTelemetry GenAI spans", () => {
       flowType: string,
       tracing: AgentTracingOptions,
       runner = new ScriptedAgentRunnerWithModelMetadata(markerDirectory),
-    ): AgentSessionFlow => createScriptedAgentFlow(markerDirectory, { flowType, runner, tracing });
+    ): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> => createScriptedAgentFlow(markerDirectory, { flowType, runner, tracing });
     tracedFlow = createFlow("TracedAgent", { tracerProvider });
     contentFlow = createFlow("ContentTracedAgent", { tracerProvider, shouldCaptureMessageContent: true });
     legacyFlow = createFlow("LegacyTracedAgent", {
@@ -627,6 +629,34 @@ describe("agent sessions emit OpenTelemetry GenAI spans", () => {
     assertChildrenOf(emailRoot, [finalChat]);
     assert.equal(new Set(spans.map((span) => span.spanContext().traceId)).size, 3);
   });
+
+  test("a tool that asks for input records awaiting_answer on its span, and its rerun records the result", async () => {
+    const sessions = new AgentSessionTestClient(environment.client, tracedFlow);
+    const sessionId = newSessionId();
+    await sessions.startSession(sessionId, "call confirm_return");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "confirm_return");
+    const [root, firstChat, asking] = spansByName(
+      await waitForSpans(sessionId, 3),
+      "invoke_agent TracedAgent",
+      "chat scripted-model",
+      "execute_tool confirm_return",
+    );
+    assertChildrenOf(root, [firstChat, asking]);
+    assertAttributes(asking, {
+      "dex.step.type": "CallSingleAttemptTool",
+      "dex.agent.tool_call.status": "awaiting_answer",
+    });
+    assert.equal(asking.status.code, SpanStatusCode.UNSET);
+
+    assert.equal(await sessions.answerQuestion(sessionId, interrupt.interruptId, "yes"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const answered = (await waitForSpans(sessionId, 5)).filter((span) => ![root, firstChat, asking].includes(span));
+    const [rerun] = spansByName(answered, "execute_tool confirm_return", "chat scripted-model");
+    // A question answer starts no activation yet, so the rerun stays in the asking turn's trace.
+    assertChildrenOf(root, [rerun]);
+    assertAttributes(rerun, { "dex.agent.tool_call.status": "succeeded" });
+    assert.equal(openSpans.openSpanCount, 0);
+  });
 });
 
 describe("a root Step on a Worker without an OpenTelemetry SDK", () => {
@@ -750,7 +780,7 @@ class InProcessWorker {
     private readonly blobCache: BlobCache,
   ) {}
 
-  public static async start(serverAddress: string, flow: AgentSessionFlow): Promise<InProcessWorker> {
+  public static async start(serverAddress: string, flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>): Promise<InProcessWorker> {
     const blobCache = openBlobCache({
       directory: mkdtempSync(join(tmpdir(), "dex-agents-tracing-worker-")),
       maxBytes: 64 * 1024 * 1024,
