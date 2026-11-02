@@ -220,7 +220,8 @@ const config: Config = {
     image: 'img/brand/dex-social.png',
     colorMode: {
       defaultMode: 'light',
-      disableSwitch: true,
+      // No toggle renders. disableSwitch would delete the shared theme choice and reset other tabs.
+      disableSwitch: false,
       respectPrefersColorScheme: true,
     },
     navbar: {
