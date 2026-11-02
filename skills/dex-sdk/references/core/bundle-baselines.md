@@ -6,8 +6,8 @@ and lockfiles remain authoritative for application code.
 
 ```text
 DEX_BASELINE=sdk-go/v1.32.0
-DEX_SERVER_BASELINE=server-zd/v0.1.14
-DEX_CLI_BASELINE=cli-v1.32.0
+DEX_SERVER_BASELINE=server-zd/v0.1.15
+DEX_CLI_BASELINE=cli-v1.33.0
 DEX_WEB_BASELINE=web/v1.32.0
 DEX_JAVA_BASELINE=sdk-java/v1.32.0
 DEX_PYTHON_BASELINE=sdk-python/v1.32.0
@@ -20,11 +20,11 @@ The package validator rejects any drift between the two copies.
 
 Go, Java, Python, and TypeScript are at their published v1.32.0 tags. Rust is
 at v1.31.0, because Dex published no Rust SDK v1.32.0. The Server baseline is
-server-zd/v0.1.14, the CLI is cli-v1.32.0, and Dex Web is web/v1.32.0. The
+server-zd/v0.1.15, the CLI is cli-v1.33.0, and Dex Web is web/v1.32.0. The
 Temporal-based Go Server was removed in Dex 1.26; its final release is
 server/v1.25.0, and server-zd is the only Dex Server. cli-v1.26.0 was tagged
 without binaries, so never pin it. The CLI release package bundles
-`dex-server-zd` server-zd/v0.1.14, which is the Server baseline. Dex Web runs as
+`dex-server-zd` server-zd/v0.1.15, which is the Server baseline. Dex Web runs as
 the standalone `dex-web` binary or `superdurable/dex-web` image, released as
 web/vX.Y.Z.
 
@@ -46,8 +46,9 @@ sources and Connector package manifests. v1.30.0 adds two protocol
 sub-statuses for the PostgreSQL search backend to the generated bindings of
 Go, Java, Python, and TypeScript; no public SDK API changes. Rust v1.31.0
 generates them too, and its public error model does not map them. v1.32.0 adds
-only generated AdminService bindings, which server-zd does not serve yet; no
-public SDK API changes. The server-zd guidance covers v0.1.3 through v0.1.14.
+only generated AdminService bindings; server-zd v0.1.15 serves AdminService, and no
+public SDK API changes. cli-v1.33.0 changes only the CLI, which bundles
+server-zd v0.1.15; the SDKs and Dex Web stay at v1.32.0. The server-zd guidance covers v0.1.3 through v0.1.15.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
 At their baseline tags, the Rust example manifest selects SDK v1.26.0, the Java example manifest selects SDK v1.31.0, and the Go, Python, and TypeScript example manifests select SDK v1.29.0.

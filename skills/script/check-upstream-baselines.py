@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.14"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.15"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -206,7 +206,6 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "To switch between PostgreSQL and ParadeDB, select a new database or schema.\n"
         "The server loads it from committed state automatically.",
         "configure a new **search.paradeDbSchema** or **search.postgresSchema**, or a new\ndatabase,",
-        "server-zd does not serve **AdminService** yet",
     )),
     ("server-zd/v0.1.14", "server-zd/config/dex-server-zd.example.yaml", (
         "  readYourWritesWait: 2s\n  outboxBatchSize: 1000\n  outboxPollInterval: 100ms\n"
@@ -238,8 +237,34 @@ SERVER_ZD_LATEST_STATEMENTS = (
     ("server-zd/v0.1.14", "server-zd/README.md", (
         "`dexzd_search_outbox_batches_total` | counter | `outcome`: ok, error |",
         "`dexzd_search_outbox_ack_proposals_total` | counter | `outcome`: ok, error |",
-        "server-zd does not\nregister `AdminService` yet",
         "Before the consumer serves, every enabled partition's appended seq is raised to its last command.",
+    )),
+    ("server-zd/v0.1.15", "docs/content/production/server-zd-operations.mdx", (
+        "**standby.mode** chooses what the standby does while it waits:",
+        "The service name **dex.HotStandby** reports **SERVING** only on a hot standby.",
+        "A hot standby takes a released lease within about one\n**heldLeasePollInterval**.",
+        "A hot standby only reads object storage. It runs no Steps or timers, and it\nanswers public API calls with **UNAVAILABLE**.",
+        "**dexcli admin step-down** asks the active process of a node ID to give up its\nlease.",
+        "Static tokens never authorize admin\ncalls.",
+        "On a single replica, no other process can take over.",
+        "A process whose node lease is no longer valid, such as one resumed after a\nfreeze longer than its lease, answers public API calls with **UNAVAILABLE**",
+    )),
+    ("server-zd/v0.1.15", "server-zd/config/dex-server-zd.example.yaml", (
+        "standby:\n",
+        "  mode: cold\n",
+        "  stepDownHoldOff: 5s\n",
+    )),
+    ("server-zd/v0.1.15", "server-zd/crates/dexzd-metrics/src/lib.rs", (
+        '"dexzd_hot_standby_state",',
+        '"dexzd_hot_standby_lag_batches",',
+        '"dexzd_hot_standby_lag_seconds",',
+        '"dexzd_hot_standby_error",',
+        '"dexzd_takeovers",',
+        '"dexzd_takeover_duration_seconds",',
+    )),
+    ("server-zd/v0.1.15", "server-zd/README.md", (
+        "`AdminService` holds operator RPCs: `DescribeActiveNode` and `StepDownActiveNode`.",
+        "A server that does not serve `AdminService` answers UNIMPLEMENTED.",
     )),
 )
 # Core operations statements for the server-zd v0.1.14 search projection.
@@ -251,7 +276,7 @@ SEARCH_PROJECTION_REFERENCES = (
         "On an existing ParadeDB or PostgreSQL schema, the first start after the upgrade reloads every partition once. "
         "The log reports reason `no_outbox_progress`. "
         "Until a partition's load completes, SearchFlows for it waits or returns UNAVAILABLE",
-        "server-zd does not serve AdminService yet, so these calls return UNIMPLEMENTED.",
+        "v0.1.14 does not serve AdminService, so these calls return UNIMPLEMENTED there; v0.1.15 serves it.",
         "On server-zd v0.1.14 or later, skip these steps: "
         "the first start after upgrading from an earlier release reloads every partition.",
         "Search results lag, but no change is lost and nothing is rebuilt.",
@@ -269,7 +294,16 @@ SEARCH_PROJECTION_REFERENCES = (
         "point the server at a new database or schema; the server loads it from committed state automatically.",
         "After restoring the object storage prefix, configure a new `search.paradeDbSchema` or `search.postgresSchema`, "
         "or a new database, before restarting the node.",
-        "server-zd/v0.1.14 for CLI v1.32.0",
+        "server-zd/v0.1.15 for CLI v1.33.0",
+        "server-zd v0.1.15 changes these operator-visible behaviors.",
+        "Upgrade the binary on every process before you add a `standby` section to any configuration",
+        "`standby.mode: hot` runs extra processes with the same node ID.",
+        "The health name `dex.HotStandby` reports SERVING only on a hot standby that is ready to take over.",
+        "AdminService is now served.",
+        "static tokens and API key exchange never authorize them.",
+        "A process whose node lease expired",
+        "Every FlowService and WorkerTaskService call, Worker task dispatch, and the readiness health name now check the lease validity deadline.",
+        "(#1174)",
     )),
     ("core/read-after-write.md", (
         "| Any indexed Attribute write | `SearchFlows`, CLI search, or Dex Web work discovery | **Eventual.**",
@@ -562,7 +596,7 @@ REFERENCE_1_24_STATEMENTS = (
         "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.14.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.15.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
