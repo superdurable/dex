@@ -655,7 +655,12 @@ Dex and no web framework. An application mounts two endpoints:
   returns the `get_agent_snapshot` result plus the Dex resume token to open the
   event stream from. Serve its `to_json()`: `{"snapshot": ..., "resume_token":
   ...}` in the wire format. While a turn is active, the token replays that
-  turn's events, so the browser can rebuild its live text.
+  turn's events, so the browser can rebuild its live text. The snapshot leaves
+  out the fields only the session's Steps use: `framework_item` on messages,
+  the framework's replay data, which can hold the agent's instructions, and
+  `tool_source_reference`, `trace_context`, `input_continuation`, and
+  `input_answers` on tool calls. Read them with `get_agent_snapshot` on the
+  server when needed.
 - **Events.** `await stream_agent_event_frames(client, flow, session_id,
   resume_token=...)` checks the token with one short read, then returns a
   generator of Server-Sent Event frames. Each frame's `id` is the event's Dex

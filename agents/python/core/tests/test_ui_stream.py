@@ -20,7 +20,22 @@ from typing import Any
 
 from dex import BlobCacheConfig, Client, ClientOptions, Registry, StreamMessage, open_blob_cache
 
-from dex_agents import AgentEvent, AgentEventType
+from dex_agents import (
+    AgentEvent,
+    AgentEventType,
+    AgentInterrupt,
+    AgentMessage,
+    AgentSessionStatus,
+    AgentSnapshot,
+    AgentState,
+    AgentToolCall,
+    AgentUsage,
+    InterruptKind,
+    MessageRole,
+    QuestionAnswer,
+    ToolCallStatus,
+    ToolEffect,
+)
 from dex_agents.testing import AgentTestStack, wait_for_agent_snapshot, wait_until
 from dex_agents.testing.worker import TEST_BLOB_CACHE_BYTES
 from dex_agents.ui_stream import (
@@ -29,6 +44,7 @@ from dex_agents.ui_stream import (
     InvalidAgentEventResumeTokenError,
     _parse_turn_number,
     agent_event_to_json,
+    agent_snapshot_to_json,
     read_agent_event_stream_snapshot,
     read_agent_event_stream_snapshot_sync,
     stream_agent_event_frames,
@@ -38,6 +54,25 @@ from tests.conftest import CORE_DIR, WORKER_MODULE, ScriptedAgentHarness
 from tests.scripted_agent import STATE_DIR_ENVIRONMENT_VARIABLE, build_scripted_agent_flow
 
 POLL_TIMEOUT = timedelta(seconds=1)
+# The TypeScript core's snapshot JSON test expects exactly this text.
+BROWSER_SNAPSHOT_JSON = (
+    '{"state":{"status":"running_tools","turn_count":1,"active_turn_id":"turn-2",'
+    '"next_message_sequence":4,"last_turn_error":null},'
+    '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",'
+    '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,'
+    '"created_at":"2026-11-01T12:00:00.000Z"}],'
+    '"pending_interrupts":[{"interrupt_id":"call-1-input-2","kind":"question",'
+    '"tool_call_id":"call-1","tool_name":"refund_order","arguments":"{\\"order_id\\":\\"42\\"}",'
+    '"created_at":"2026-11-01T12:00:01.000Z","deadline":null,"question":"Refund to the card?",'
+    '"choices":["yes","no"],"allows_free_text":false}],'
+    '"tool_calls":[{"tool_call_id":"call-1","turn_id":"turn-2","tool_name":"refund_order",'
+    '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,'
+    '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,'
+    '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",'
+    '"input_choices":["yes","no"],"input_allows_free_text":false}],'
+    '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,'
+    '"reasoning_tokens":0},"queued_message_count":0}'
+)
 
 
 @dataclass(frozen=True)
@@ -341,6 +376,67 @@ async def test_snapshot_and_event_frames_work_with_the_stream_store_disabled(
             assert await anext(frames) == KEEP_ALIVE_FRAME
         finally:
             await frames.aclose()
+
+
+def test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use() -> None:
+    snapshot = AgentSnapshot(
+        state=AgentState(
+            status=AgentSessionStatus.RUNNING_TOOLS,
+            turn_count=1,
+            active_turn_id="turn-2",
+            next_message_sequence=4,
+        ),
+        messages=[
+            AgentMessage(
+                sequence=3,
+                turn_id="turn-2",
+                role=MessageRole.USER,
+                text="refund order 42",
+                framework_item='{"instructions":"Never refund more than $50."}',
+                created_at="2026-11-01T12:00:00.000Z",
+            )
+        ],
+        pending_interrupts=[
+            AgentInterrupt(
+                interrupt_id="call-1-input-2",
+                kind=InterruptKind.QUESTION,
+                tool_call_id="call-1",
+                tool_name="refund_order",
+                arguments='{"order_id":"42"}',
+                created_at="2026-11-01T12:00:01.000Z",
+                question="Refund to the card?",
+                choices=["yes", "no"],
+                allows_free_text=False,
+            )
+        ],
+        tool_calls=[
+            AgentToolCall(
+                tool_call_id="call-1",
+                turn_id="turn-2",
+                tool_name="refund_order",
+                arguments='{"order_id":"42"}',
+                effect=ToolEffect.IDEMPOTENT_WRITE,
+                requires_approval=False,
+                status=ToolCallStatus.AWAITING_ANSWER,
+                tool_source_reference='{"server":"payments","tool":"refund_order"}',
+                trace_context="00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+                input_continuation='{"refund_draft":"rf_1"}',
+                input_answers=[
+                    QuestionAnswer(
+                        interrupt_id="call-1-input-1", question="Which order?", answer="42"
+                    )
+                ],
+                input_question="Refund to the card?",
+                input_choices=["yes", "no"],
+                input_allows_free_text=False,
+            )
+        ],
+        usage=AgentUsage(model_calls=1, input_tokens=10, output_tokens=5),
+    )
+
+    snapshot_json = agent_snapshot_to_json(snapshot)
+
+    assert json.dumps(snapshot_json, separators=(",", ":")) == BROWSER_SNAPSHOT_JSON
 
 
 def test_turn_numbers_accept_only_ascii_digits() -> None:
