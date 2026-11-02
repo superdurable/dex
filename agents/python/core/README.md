@@ -947,9 +947,10 @@ error spans.
 | `execute_tool` | `dex.agent.tool.effect`, `dex.agent.tool_call.status` | The effect and the final status |
 
 The `chat` span is named `chat {request_model}` when the runner returns
-`ModelCallMetadata.request_model`, and `chat` otherwise. The adapters in this
-repository do not return `ModelCallMetadata` yet, so their `chat` spans are
-named `chat` and carry no model or provider until each adapter reports them.
+`ModelCallMetadata.request_model`, and `chat` otherwise. Each framework
+adapter in this repository returns `ModelCallMetadata` with what its framework
+reports for the call and leaves the rest unset. Its README lists the fields it
+sets and where they come from.
 
 A runner that reports `model_calls` other than 1, such as a whole-turn harness
 that makes several model calls in one `RunModel`, gets an `INTERNAL` `chat`
@@ -1147,6 +1148,6 @@ The plan records each of these decisions too.
   do not control.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
-- The adapters in this repository do not return `ModelCallMetadata` yet, so
-  their `chat` spans are named `chat` and carry no model or provider. Wiring
-  each adapter to report it is a follow-up.
+- The adapters report only the model information their framework exposes, so
+  some `chat` spans carry no provider, response ID, or finish reasons. Each
+  adapter's README lists what it sets.

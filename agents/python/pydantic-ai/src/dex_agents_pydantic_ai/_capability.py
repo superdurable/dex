@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -32,15 +33,41 @@ from pydantic_ai.capabilities import AbstractCapability, CapabilityOrdering
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
 
-from dex_agents import AgentTurnContext, ToolEffect, ToolPolicy
+from dex_agents import AgentTurnContext, ModelCallMetadata, ToolEffect, ToolPolicy
 
 TOOL_SEARCH_TOOL_KIND = "tool-search"
+
+# Pydantic AI provider names whose provider has a well-known gen_ai.provider.name value.
+_GEN_AI_PROVIDER_NAMES = {
+    "anthropic": "anthropic",
+    "azure": "azure.ai.openai",
+    "bedrock": "aws.bedrock",
+    "bedrock-mantle": "aws.bedrock",
+    "cohere": "cohere",
+    "deepseek": "deepseek",
+    "google": "gcp.gemini",
+    "google-cloud": "gcp.vertex_ai",
+    "groq": "groq",
+    "mistral": "mistral",
+    "moonshotai": "moonshot_ai",
+    "openai": "openai",
+    "xai": "x_ai",
+}
+# Responses name the endpoint their client reached, such as Vertex or Azure, in canonical_system.
+_PROVIDER_NAMES_WITH_CLIENT_ENDPOINT = frozenset({"google", "google-cloud", "openai"})
+
+
+@dataclass(frozen=True)
+class RecordedModelCall:
+    request_model: str
+    response: ModelResponse
 
 
 @dataclass
 class DexModelStepCapability(AbstractCapability[Any]):
     turn: AgentTurnContext
     tool_definitions: dict[str, ToolDefinition] = field(default_factory=dict)
+    recorded_model_calls: list[RecordedModelCall] = field(default_factory=list)
 
     @classmethod
     def get_serialization_name(cls) -> str | None:
@@ -62,6 +89,26 @@ class DexModelStepCapability(AbstractCapability[Any]):
     def get_wrapper_toolset(self, toolset: AbstractToolset[Any]) -> AbstractToolset[Any]:
         return ExternalFunctionToolsToolset(toolset, self.tool_definitions)
 
+    def model_call_metadata(self) -> ModelCallMetadata | None:
+        calls = self.recorded_model_calls
+        if not calls:
+            return None
+        # Response-specific values describe one response; several calls keep only shared values.
+        single_response = calls[0].response if len(calls) == 1 else None
+        return ModelCallMetadata(
+            request_model=_value_shared_by_every_call([call.request_model for call in calls]),
+            response_model=_value_shared_by_every_call(
+                [call.response.model_name for call in calls]
+            ),
+            provider_name=_value_shared_by_every_call(
+                [gen_ai_provider_name(call.response) for call in calls]
+            ),
+            response_id=None if single_response is None else single_response.provider_response_id,
+            finish_reasons=()
+            if single_response is None or single_response.finish_reason is None
+            else (single_response.finish_reason,),
+        )
+
     async def after_model_request(
         self,
         ctx: RunContext[Any],
@@ -69,6 +116,9 @@ class DexModelStepCapability(AbstractCapability[Any]):
         request_context: ModelRequestContext,
         response: ModelResponse,
     ) -> ModelResponse:
+        self.recorded_model_calls.append(
+            RecordedModelCall(request_model=request_context.model.model_name, response=response)
+        )
         output_tool_names = {
             tool_def.name for tool_def in request_context.model_request_parameters.output_tools
         }
@@ -184,6 +234,28 @@ class ToolBodyErrorRecordingToolset(WrapperToolset[Any]):
             # From the tool body, such as a sub-agent's model error; its work may have happened.
             self.tool_body_errors.append(error)
             raise
+
+
+def gen_ai_provider_name(response: ModelResponse) -> str | None:
+    """Return the ``gen_ai.provider.name`` value of the provider that sent ``response``.
+
+    Returns:
+        The well-known value when one applies, the response's ``provider_name``
+        otherwise, or ``None`` when the response names no provider.
+    """
+    provider_name = response.provider_name
+    if provider_name is None:
+        return None
+    endpoint_name = (
+        response.canonical_system
+        if provider_name in _PROVIDER_NAMES_WITH_CLIENT_ENDPOINT and response.canonical_system
+        else provider_name
+    )
+    return _GEN_AI_PROVIDER_NAMES.get(endpoint_name, provider_name)
+
+
+def _value_shared_by_every_call(values: Sequence[str | None]) -> str | None:
+    return values[0] if len(set(values)) == 1 else None
 
 
 def framework_tool_effect(tool_definition: ToolDefinition | None) -> ToolEffect | None:

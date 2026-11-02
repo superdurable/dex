@@ -77,11 +77,21 @@ class ToolDeferralPlugin(BasePlugin):
         self.deferred_tool_calls: list[DeferredToolCall] = []
         self.control_tool_names: dict[str, str] = {}
         self.model_call_count = 0
+        self.requested_models: list[str | None] = []
+        self.model_responses: list[LlmResponse] = []
 
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> LlmResponse | None:
         self.model_call_count += 1
+        self.requested_models.append(llm_request.model)
+        return None
+
+    async def after_model_callback(
+        self, *, callback_context: CallbackContext, llm_response: LlmResponse
+    ) -> LlmResponse | None:
+        if not llm_response.partial:
+            self.model_responses.append(llm_response)
         return None
 
     async def before_tool_callback(

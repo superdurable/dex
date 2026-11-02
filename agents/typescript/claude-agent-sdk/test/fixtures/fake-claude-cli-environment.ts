@@ -12,3 +12,9 @@ export const fakeClaudeStateDirectoryVariable = "FAKE_CLAUDE_STATE_DIRECTORY";
 export const fakeClaudeInvocationLogName = "invocations.log";
 /** Set to `1` to make the fake CLI resume a deferred call without running the PreToolUse hooks. */
 export const fakeClaudeResumeWithoutHooksVariable = "FAKE_CLAUDE_RESUME_WITHOUT_HOOKS";
+/** Model the fake CLI reports in its `init` message and keys `modelUsage` by. */
+export const fakeClaudeRequestModel = "claude-scripted";
+/** Dated model the fake CLI's replies name, as Messages API responses do. */
+export const fakeClaudeResponseModel = "claude-scripted-20261101";
+/** Model that answers the subagent an `Agent` tool call runs in the fake CLI. */
+export const fakeClaudeSubagentResponseModel = "claude-scripted-subagent-20261101";

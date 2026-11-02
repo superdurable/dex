@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { jsonSchema, tool, type StopCondition, type ToolSet } from "ai";
 import { z } from "zod";
 
+import type { AgentTracingOptions } from "@superdurable/dex-agents";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 
 import {
@@ -30,6 +31,7 @@ export const scriptedAgentMarkerDirectoryVariable = "SCRIPTED_AGENT_MARKER_DIREC
 export interface ScriptedVercelAiAgentFlowOptions {
   readonly flowType?: string;
   readonly stopWhen?: StopCondition<ToolSet>;
+  readonly tracing?: AgentTracingOptions;
 }
 
 interface ScriptedToolInput {
@@ -191,5 +193,6 @@ export function createScriptedVercelAiAgentFlow(
       ...(flowOptions.stopWhen === undefined ? {} : { stopWhen: flowOptions.stopWhen }),
     },
     flowOptions.flowType ?? scriptedVercelAiAgentFlowType,
+    flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing },
   );
 }

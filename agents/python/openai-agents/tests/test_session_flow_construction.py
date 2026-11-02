@@ -17,7 +17,7 @@ from agents import Agent, ShellCommandRequest, ShellTool, function_tool, handoff
 from agents.mcp import MCPServerStdio
 from agents.sandbox import SandboxAgent
 
-from dex_agents import ToolEffect, ToolPolicy
+from dex_agents import AgentTracingOptions, ToolEffect, ToolPolicy
 from dex_agents.testing import InvocationLog
 from dex_agents_openai_agents import openai_agents_session_flow
 from tests.scripted_model import CommandScriptedModel
@@ -124,3 +124,15 @@ def test_function_tool_names_must_be_unique_across_handoffs(model: CommandScript
 
     with pytest.raises(ValueError, match="two different function tools are named 'lookup'"):
         openai_agents_session_flow(triage, flow_type="TriageAgent")
+
+
+def test_openai_agents_session_flow_passes_tracing_options_to_the_session(
+    model: CommandScriptedModel,
+) -> None:
+    tracing = AgentTracingOptions(agent_name="Support", is_enabled=False)
+
+    flow = openai_agents_session_flow(
+        Agent(name="Support", model=model), flow_type="TracingOptionsAgent", tracing=tracing
+    )
+
+    assert flow.options.tracing is tracing

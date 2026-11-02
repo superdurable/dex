@@ -250,6 +250,41 @@ Step execution. Usage counts one model call per AI SDK step; cached input
 tokens come from `inputTokenDetails.cacheReadTokens` and reasoning tokens from
 `outputTokenDetails.reasoningTokens`.
 
+## Tracing
+
+With the session's `tracing` option, each `RunModel` returns
+`modelCallMetadata` from the AI SDK step results, so its `chat` span is named
+`chat <modelId>`:
+
+| Field | Source |
+| --- | --- |
+| `requestModel` | `step.model.modelId` |
+| `providerName` | `step.model.provider`, mapped to its well-known `gen_ai.provider.name` value |
+| `responseModel` | `step.response.modelId`, only when it differs from the requested model |
+| `responseId` | Never set |
+| `finishReasons` | `[step.finishReason]`, the AI SDK's unified reason, such as `tool-calls` |
+
+`providerName` maps the AI SDK provider ID by its longest known dot-separated
+prefix to a value of the pinned GenAI semantic conventions: `openai.responses`
+becomes `openai`, `anthropic.messages` becomes `anthropic`,
+`google.generative-ai` becomes `gcp.gemini`, and `google.vertex.chat`,
+`googleVertex.anthropic.messages`, and `vertex.maas` become `gcp.vertex_ai`.
+`amazon-bedrock` and `bedrock.anthropic.messages` become `aws.bedrock`, and
+`azure.*`, whose package calls Azure OpenAI, becomes `azure.ai.openai`. The
+`mistral`, `cohere`, `groq`, `deepseek`, `perplexity`, `xai`, and `moonshotai`
+providers become `mistral`, `cohere`, `groq`, `deepseek`, `perplexity`, `x_ai`,
+and `moonshot_ai`. Any other ID, such as `gateway`, an OpenAI-compatible
+provider, or a custom provider name, passes through unchanged.
+
+When the provider sends no response ID or response model, the AI SDK fills in
+a generated ID and the requested model ID, and its public API does not say
+which values the provider sent. So `responseId` is never set, and
+`responseModel` is set only when it differs from the requested model, which
+only the provider can cause. When one `RunModel` makes several model calls,
+the model and provider fields are set only when every call shares them, and
+`finishReasons` is left out. A `RunModel` that a stop condition ends before
+any model call returns no metadata.
+
 ## Tool execution scope
 
 `getAgentToolExecutionScope()` returns `{ flowId, turnId, attempt,
@@ -321,7 +356,8 @@ DEXCLI=/path/to/dexcli ./ci.sh
 free ports and need no model key. `test/fixtures/scripted-language-model.ts`
 is an AI SDK `MockLanguageModelV4` that decides only from its prompt, so the
 tests prove history and tool result replay. It records every model call in an
-`InvocationLog`. Commands in the last user message:
+`InvocationLog`, and reports provider `dex-test`, model `scripted-model`, and
+response model `scripted-model-2026-11`. Commands in the last user message:
 
 | Command | Model response |
 | --- | --- |
@@ -334,6 +370,7 @@ tests prove history and tool result replay. It records every model call in an
 | `history` | Answers with every earlier user and assistant text |
 | `think` | Streams a reasoning part, then answers `thought done` |
 | `slow stream` | Streams text tagged with the Step attempt, waits at the gate, then answers |
+| `unidentified <text>` | Sends no response ID or response model, then answers `echo: unidentified <text>` |
 | anything else | Answers `echo: <text>` |
 
 Tool call IDs are `call-<n>-<tool>`, where `n` counts the user messages in the
@@ -359,6 +396,8 @@ The tests check each turn's Step shape with `readStepHistory` and cover:
 - a plain error that exhausts `CallTool` retries and records `outcome_unknown`,
   and outputs JSON cannot hold;
 - trusted MCP annotations and reasoning deltas;
+- the model call metadata on each `chat` span, read from an in-memory
+  OpenTelemetry exporter;
 - approval across a Worker restart; `outcome_unknown` after a SIGKILL during
   `CallSingleAttemptTool`; and SIGKILL during `RunModel`, which reruns only that
   model call, before and after streamed output.

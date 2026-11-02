@@ -98,6 +98,7 @@ export function createMastraAgentSessionFlow(
     defaultToolEffect,
     eventStreamCapacityBytes,
     interruptDeadlineMs,
+    tracing,
     ...runnerOptions
   } = options;
   const runner = new MastraAgentRunner(agent, {
@@ -109,5 +110,6 @@ export function createMastraAgentSessionFlow(
     ...(defaultToolEffect === undefined ? {} : { defaultToolEffect }),
     ...(eventStreamCapacityBytes === undefined ? {} : { eventStreamCapacityBytes }),
     ...(interruptDeadlineMs === undefined ? {} : { interruptDeadlineMs }),
+    ...(tracing === undefined ? {} : { tracing }),
   });
 }

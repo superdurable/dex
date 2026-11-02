@@ -169,5 +169,6 @@ export function createOpenAIAgentsSessionFlow<TContext = undefined>(
     ...(options.interruptDeadlineMs === undefined
       ? {}
       : { interruptDeadlineMs: options.interruptDeadlineMs }),
+    ...(options.tracing === undefined ? {} : { tracing: options.tracing }),
   });
 }

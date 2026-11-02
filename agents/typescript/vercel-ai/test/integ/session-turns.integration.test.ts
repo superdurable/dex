@@ -12,6 +12,8 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
+import { SpanKind } from "@opentelemetry/api";
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { hasToolCall, isStepCount, type ModelMessage } from "ai";
 
 import { messageSequenceKey, outcomeUnknownToolResult, type AgentMessage } from "@superdurable/dex-agents";
@@ -22,9 +24,11 @@ import {
   InvocationLog,
   PrivateDexEngine,
   executeCompletedEvent,
+  pollUntil,
   readStepHistory,
 } from "@superdurable/dex-agents/testing";
 
+import { scriptedResponseModelId } from "../fixtures/scripted-language-model.js";
 import { createScriptedVercelAiAgentFlow } from "../fixtures/scripted-vercel-ai-agent.js";
 
 describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", () => {
@@ -33,7 +37,10 @@ describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", 
   let sessions: AgentSessionTestClient;
   let stopAfterRefundSessions: AgentSessionTestClient;
   let twoStepSessions: AgentSessionTestClient;
+  let tracedSessions: AgentSessionTestClient;
   let markerDirectory: string;
+  const spanExporter = new InMemorySpanExporter();
+  const tracerProvider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(spanExporter)] });
 
   before(async () => {
     engine = await PrivateDexEngine.start();
@@ -47,18 +54,24 @@ describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", 
       flowType: "ScriptedVercelAiAgentWithTwoModelSteps",
       stopWhen: isStepCount(2),
     });
+    const tracedFlow = createScriptedVercelAiAgentFlow(markerDirectory, {
+      flowType: "ScriptedVercelAiAgentWithTracing",
+      tracing: { tracerProvider },
+    });
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, stopAfterRefundFlow, twoStepFlow],
+      flows: [flow, stopAfterRefundFlow, twoStepFlow, tracedFlow],
       isWorkerInProcess: true,
     });
     sessions = new AgentSessionTestClient(environment.client, flow);
     stopAfterRefundSessions = new AgentSessionTestClient(environment.client, stopAfterRefundFlow);
     twoStepSessions = new AgentSessionTestClient(environment.client, twoStepFlow);
+    tracedSessions = new AgentSessionTestClient(environment.client, tracedFlow);
   });
 
   after(async () => {
     await environment?.close();
+    await tracerProvider.shutdown();
     await engine?.stop();
   });
 
@@ -130,6 +143,52 @@ describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", 
       .filter((event) => event.type === "text_delta" && event.turnId === "turn-1")
       .map((event) => (JSON.parse(event.payload) as { text: string }).text);
     assert.deepEqual(turnOneText, ["get_weather -> sunny in Paris"]);
+  });
+
+  test("each chat span carries the model, provider, response model, and finish reason the AI SDK reports", async () => {
+    const sessionId = newSessionId("traced");
+    await tracedSessions.startSession(sessionId, "call get_weather");
+    await tracedSessions.waitForCompletedTurns(sessionId, 1);
+    // This model call sends no response metadata, so the AI SDK fills in a generated ID and the requested model.
+    await tracedSessions.sendUserMessage(sessionId, "unidentified hello");
+    await tracedSessions.waitForCompletedTurns(sessionId, 2);
+
+    const chatSpans = await pollUntil(
+      () => {
+        const spans = spanExporter
+          .getFinishedSpans()
+          .filter((span) => span.attributes["gen_ai.conversation.id"] === sessionId && span.name.startsWith("chat"));
+        return spans.length >= 3 ? spans : undefined;
+      },
+      { description: `three chat spans of ${sessionId}` },
+    );
+    const describeChatSpan = (responseModel: string | undefined, finishReason: string) => ({
+      name: "chat scripted-model",
+      kind: SpanKind.CLIENT,
+      requestModel: "scripted-model",
+      providerName: "dex-test",
+      responseModel,
+      responseId: undefined,
+      finishReasons: [finishReason],
+      inputTokens: 10,
+    });
+    assert.deepEqual(
+      chatSpans.map((span) => ({
+        name: span.name,
+        kind: span.kind,
+        requestModel: span.attributes["gen_ai.request.model"],
+        providerName: span.attributes["gen_ai.provider.name"],
+        responseModel: span.attributes["gen_ai.response.model"],
+        responseId: span.attributes["gen_ai.response.id"],
+        finishReasons: span.attributes["gen_ai.response.finish_reasons"],
+        inputTokens: span.attributes["gen_ai.usage.input_tokens"],
+      })),
+      [
+        describeChatSpan(scriptedResponseModelId, "tool-calls"),
+        describeChatSpan(scriptedResponseModelId, "stop"),
+        describeChatSpan(undefined, "stop"),
+      ],
+    );
   });
 
   test("get_agent_snapshot and list_agent_messages return the conversation after a turn", async () => {

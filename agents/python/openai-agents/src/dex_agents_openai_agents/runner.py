@@ -14,7 +14,7 @@ import asyncio
 import contextlib
 import copy
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from typing import Any
 
@@ -31,6 +31,7 @@ from agents import (
     Usage,
 )
 from agents.agent_tool_state import consume_agent_tool_run_result, get_agent_tool_state_scope
+from agents.models.fake_id import FAKE_RESPONSES_ID
 from agents.run import DEFAULT_MAX_TURNS
 from agents.tool_context import ToolContext
 from openai.types.responses import ResponseFunctionToolCall
@@ -45,6 +46,7 @@ from dex_agents import (
     DeferredToolExecution,
     FrameworkMessage,
     MessageRole,
+    ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
     ToolExecutionError,
@@ -194,6 +196,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         self._run_config = run_config
         self._max_turns = max_turns
         self._hooks = hooks
+        self._graph_request_model = _shared_request_model(run_config, self._graph.agents)
 
     @property
     def agent(self) -> Agent[Any]:
@@ -288,11 +291,14 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         finally:
             ACTIVE_TURN.reset(token)
         usage = _segment_usage(result.context_wrapper.usage, restored_usage)
+        model_call_metadata = self._model_call_metadata(result, usage)
         if result.interruptions:
-            return self._request_tool_calls(active_turn, result, usage)
+            return self._request_tool_calls(active_turn, result, usage, model_call_metadata)
         new_items = result.to_input_list()[len(ItemHelpers.input_to_new_input_list(result.input)) :]
         return TurnCompleted(
-            new_messages=project_input_items(turn.messages, new_items), usage=usage
+            new_messages=project_input_items(turn.messages, new_items),
+            usage=usage,
+            model_call_metadata=model_call_metadata,
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -391,11 +397,24 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
                 state.approve(interruption)
         return state
 
+    def _model_call_metadata(
+        self, result: RunResultStreaming, usage: AgentUsage
+    ) -> ModelCallMetadata:
+        # A handoff adds calls by other agents, which the result does not list one by one.
+        if usage.model_calls != 1 or not result.raw_responses:
+            return ModelCallMetadata(request_model=self._graph_request_model)
+        response_id = result.raw_responses[-1].response_id
+        return ModelCallMetadata(
+            request_model=_request_model(self._run_config, result.last_agent),
+            response_id=None if response_id == FAKE_RESPONSES_ID else response_id,
+        )
+
     def _request_tool_calls(
         self,
         active_turn: ActiveTurn,
         result: RunResultStreaming,
         usage: AgentUsage,
+        model_call_metadata: ModelCallMetadata,
     ) -> ToolCallsRequested:
         tool_calls: list[DeferredToolCall] = []
         for interruption in result.interruptions:
@@ -414,6 +433,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
             framework_run_state=json.dumps(state_json, ensure_ascii=False),
             tool_calls=tool_calls,
             usage=usage,
+            model_call_metadata=model_call_metadata,
         )
 
 
@@ -475,6 +495,17 @@ def _record_tool_output(tool: DeferrableFunctionTool, output: Any) -> str:
 
 def _omit_application_context(context: Any) -> Mapping[str, Any]:
     return {}
+
+
+def _request_model(run_config: RunConfig | None, agent: Agent[Any]) -> str | None:
+    # A Model instance names no model; without a name, the model provider picks one.
+    model = agent.model if run_config is None or run_config.model is None else run_config.model
+    return model if isinstance(model, str) and model else None
+
+
+def _shared_request_model(run_config: RunConfig | None, agents: Sequence[Agent[Any]]) -> str | None:
+    request_models = {_request_model(run_config, agent) for agent in agents}
+    return request_models.pop() if len(request_models) == 1 else None
 
 
 def _segment_usage(total: Usage, restored: Usage) -> AgentUsage:

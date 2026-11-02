@@ -255,6 +255,44 @@ live text by them.
 `model_calls`, `cache_read_tokens` as `cached_input_tokens`, and
 `output_reasoning_tokens` as `reasoning_tokens`.
 
+**Tracing.** Each model Step returns `ModelCallMetadata`, so the core's `chat`
+span is named `chat <model name>`. The request model is the `model_name` of the
+model the run called. The response model, response ID, and finish reason are
+the `ModelResponse` fields `model_name`, `provider_response_id`, and
+`finish_reason`, as Pydantic AI's own instrumentation reports them. The
+provider comes from the response's `provider_name`, which provider models such
+as `OpenAIChatModel` and `GoogleModel` set to their `Model.system`. The runner
+reads it from the response because a `FallbackModel`'s system lists every
+model in its chain. A field the response leaves `None` stays unset:
+`FunctionModel`, for example, reports no provider, response ID, or finish
+reason. With a `FallbackModel`, the request model is its combined name,
+`fallback:<model names>`, and the response fields come from the model that
+answered. When Pydantic AI retries within one Step, the span keeps only the
+values that every model call shares and leaves out the response ID and finish
+reason.
+
+The provider becomes the well-known `gen_ai.provider.name` value when one
+applies, and any other `provider_name` passes through unchanged. For `google`,
+`google-cloud`, and `openai`, the response's `canonical_system` names the
+endpoint the client reached, so it decides: a Vertex AI client is
+`gcp.vertex_ai` and an Azure OpenAI client is `azure.ai.openai`.
+
+| Endpoint | `gen_ai.provider.name` |
+| --- | --- |
+| `openai` | `openai` |
+| `azure` | `azure.ai.openai` |
+| `anthropic` | `anthropic` |
+| `google` (Gemini API) | `gcp.gemini` |
+| `google-cloud` (Vertex AI) | `gcp.vertex_ai` |
+| `bedrock`, `bedrock-mantle` | `aws.bedrock` |
+| `xai` | `x_ai` |
+| `moonshotai` | `moonshot_ai` |
+| `mistral`, `cohere`, `deepseek`, `groq` | The same name |
+
+`AnthropicModel` reports `anthropic` with every client, including Bedrock,
+Vertex AI, and Foundry clients, because its response does not say which one it
+used.
+
 ## Why not Pydantic AI's durable execution
 
 Pydantic AI also ships durability capabilities that run an agent inside
@@ -323,4 +361,5 @@ needed. Each test starts a private `dexcli dev --engine zd` engine on free
 ports and runs the Worker as a child process, so it can SIGKILL the Worker
 during `RunModel` or a tool Step. Tests assert the Step shape of each turn
 from the Flow's history with `dex_agents.testing.read_step_history`, and count
-real model and tool calls across Worker processes.
+real model and tool calls across Worker processes. The tracing test runs its
+Worker in the test process, so an in-memory exporter receives the spans.

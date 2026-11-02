@@ -20,9 +20,10 @@ The scripted model reads commands from the latest user message:
   model call before answering.
 * ``fail`` raises on every attempt.
 
-Every model call records ``model`` in the ``InvocationLog``, and every tool run
-records its tool name. ``lookup`` and ``charge`` wait at the ``FileGate`` named
-by a ``gate`` argument.
+Every complete response reports model version ``scripted-model-2026-11`` and
+finish reason ``STOP``. Every model call records ``model`` in the
+``InvocationLog``, and every tool run records its tool name. ``lookup`` and
+``charge`` wait at the ``FileGate`` named by a ``gate`` argument.
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_ADK_AGENT_STATE_DIR"
 INVOCATION_LOG_NAME = "invocations.log"
 SLOW_WRITE_GATE = "slow_write"
 MODEL_CALL_LOG_NAME = "model"
+SCRIPTED_MODEL_VERSION = "scripted-model-2026-11"
 PROMPT_TOKENS_PER_CALL = 10
 OUTPUT_TOKENS_PER_CALL = 5
 TOOL_POLICIES = {
@@ -235,6 +237,8 @@ def _function_call_response(requests: Sequence[tuple[str, dict[str, Any]]]) -> L
             ],
         ),
         usage_metadata=_usage_metadata(),
+        model_version=SCRIPTED_MODEL_VERSION,
+        finish_reason=types.FinishReason.STOP,
     )
 
 
@@ -252,6 +256,8 @@ def _text_response(text: str) -> LlmResponse:
     return LlmResponse(
         content=types.Content(role="model", parts=[types.Part(text=text)]),
         usage_metadata=_usage_metadata(),
+        model_version=SCRIPTED_MODEL_VERSION,
+        finish_reason=types.FinishReason.STOP,
     )
 
 

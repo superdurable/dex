@@ -240,6 +240,35 @@ step_execution_id, attempt)` as the core README describes, because a
 `usage_metadata`: `input_tokens`, `output_tokens`, `cache_read` input tokens,
 and `reasoning` output tokens.
 
+Each `RunModel` also returns `ModelCallMetadata`, so the core's `chat` span is
+named `chat <model name>`. The request model is the run metadata's
+`ls_model_name`, which the chat model's `_get_ls_params` reports. The response
+model, provider, response ID, and finish reason come from the reply's
+`response_metadata`: `model_name`, `model_provider`, `id`, and `finish_reason`
+or `stop_reason`. A field stays unset when the chat model does not report it.
+The runner never uses `ls_provider`, because LangChain derives it from the
+class name when an integration does not set it.
+
+The provider becomes the well-known `gen_ai.provider.name` value when one
+applies, and any other `model_provider` passes through unchanged:
+
+| `model_provider` | `gen_ai.provider.name` |
+| --- | --- |
+| `openai` | `openai` |
+| `anthropic` | `anthropic` |
+| `google_genai` | `gcp.gen_ai`, because `ChatGoogleGenerativeAI` reports `google_genai` for both the Gemini API and Vertex AI |
+| `google_vertexai`, `google_anthropic_vertex` | `gcp.vertex_ai` |
+| `bedrock`, `bedrock_converse`, `anthropic_bedrock`, `bedrock_mantle_anthropic`, `bedrock_mantle_openai` | `aws.bedrock` |
+| `azure`, `azure_openai` | `azure.ai.openai` |
+| `xai` | `x_ai` |
+| `mistralai` | `mistral` |
+| `ibm` | `ibm.watsonx.ai` |
+| `cohere`, `deepseek`, `groq`, `perplexity` | The same name |
+
+When one `RunModel` makes
+several model calls, the span keeps only the values that every call shares and
+leaves out the response ID and finish reason.
+
 ## Effects and policies
 
 | Effect | Step | Retry | Crash mid-call | Default approval |
@@ -331,8 +360,10 @@ second model call that requests tools again; a Worker SIGKILL during
 note; dynamic and unknown tools; a `ValidationError` inside a tool body; a
 subgraph compiled with `checkpointer=False`; and a Worker whose clock runs
 behind. With `create_agent` they also cover a second `resolve_interrupt`,
-idempotency keys, the snapshot, and an agent without the middleware.
-Construction tests cover two tool nodes with one tool name.
+idempotency keys, the snapshot, an agent without the middleware, and the
+model and response that name each `chat` span, with an in-process Worker and
+an in-memory span exporter. Construction tests cover two tool nodes with one
+tool name.
 
 ## Limits
 

@@ -15,7 +15,8 @@ from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.models.test import TestModel
 
-from dex_agents_pydantic_ai import PydanticAIRunner
+from dex_agents import AgentTracingOptions
+from dex_agents_pydantic_ai import PydanticAIRunner, pydantic_ai_session_flow
 
 
 def test_a_wrapped_agent_with_output_validators_must_list_deferred_tool_requests() -> None:
@@ -35,3 +36,13 @@ def test_a_wrapped_agent_with_output_validators_must_list_deferred_tool_requests
         return output
 
     assert PydanticAIRunner(WrapperAgent(listed)).agent.output_type == [str, DeferredToolRequests]
+
+
+def test_pydantic_ai_session_flow_passes_tracing_options_to_the_session() -> None:
+    tracing = AgentTracingOptions(agent_name="Support", is_enabled=False)
+
+    flow = pydantic_ai_session_flow(
+        Agent(TestModel()), flow_type="TracingOptionsAgent", tracing=tracing
+    )
+
+    assert flow.options.tracing is tracing

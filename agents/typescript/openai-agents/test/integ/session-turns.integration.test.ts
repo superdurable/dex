@@ -12,6 +12,13 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
+import { SpanKind } from "@opentelemetry/api";
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+  type ReadableSpan,
+} from "@opentelemetry/sdk-trace-base";
 import {
   messageSequenceKey,
   outcomeUnknownToolResult,
@@ -25,6 +32,7 @@ import {
   InvocationLog,
   PrivateDexEngine,
   executeCompletedEvent,
+  pollUntil,
   readStepHistory,
 } from "@superdurable/dex-agents/testing";
 
@@ -34,24 +42,46 @@ describe("OpenAI Agents SDK sessions in Step mode with an in-process Worker", ()
   let engine: PrivateDexEngine;
   let environment: AgentTestEnvironment;
   let sessions: AgentSessionTestClient;
+  let tracedSessions: AgentSessionTestClient;
   let markerDirectory: string;
+  const spanExporter = new InMemorySpanExporter();
+  const tracerProvider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(spanExporter)] });
 
   before(async () => {
     engine = await PrivateDexEngine.start();
     markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
     const flow = createScriptedOpenAIAgentFlow(markerDirectory);
+    const tracedFlow = createScriptedOpenAIAgentFlow(markerDirectory, {
+      flowType: "ScriptedOpenAIAgentWithTracing",
+      requestedModelName: "scripted-model",
+      tracing: { tracerProvider },
+    });
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow],
+      flows: [flow, tracedFlow],
       isWorkerInProcess: true,
     });
     sessions = new AgentSessionTestClient(environment.client, flow);
+    tracedSessions = new AgentSessionTestClient(environment.client, tracedFlow);
   });
 
   after(async () => {
     await environment?.close();
+    await tracerProvider.shutdown();
     await engine?.stop();
   });
+
+  async function waitForChatSpans(sessionId: string, count: number): Promise<ReadableSpan[]> {
+    return pollUntil(
+      () => {
+        const spans = spanExporter
+          .getFinishedSpans()
+          .filter((span) => span.attributes["gen_ai.conversation.id"] === sessionId && span.name.startsWith("chat"));
+        return spans.length >= count ? spans : undefined;
+      },
+      { description: `${count} chat spans of ${sessionId}` },
+    );
+  }
 
   test("a read tool runs as RunModel, CallTool, ResumeTurn, RunModel, and the history replays", async () => {
     const sessionId = newSessionId("read-tool");
@@ -358,6 +388,71 @@ describe("OpenAI Agents SDK sessions in Step mode with an in-process Worker", ()
       .filter((event) => event.type === "openai_agents.handoff")
       .map((event) => (JSON.parse(event.payload) as { agent_name: string }).agent_name);
     assert.deepEqual(handoffAgents, ["Billing agent"]);
+  });
+
+  test("chat spans name the requested model and carry the provider's response ID of a single model call", async () => {
+    const toolSessionId = newSessionId("traced-tool");
+    await tracedSessions.startSession(toolSessionId, "call get_weather");
+    await tracedSessions.waitForCompletedTurns(toolSessionId, 1);
+    const handoffSessionId = newSessionId("traced-handoff");
+    await tracedSessions.startSession(handoffSessionId, "handoff call refund_order");
+    await tracedSessions.waitForCompletedTurns(handoffSessionId, 1);
+    const unidentifiedSessionId = newSessionId("traced-unidentified");
+    await tracedSessions.startSession(unidentifiedSessionId, "unidentified hello");
+    await tracedSessions.waitForCompletedTurns(unidentifiedSessionId, 1);
+
+    const describeChatSpan = (span: ReadableSpan): Record<string, unknown> => ({
+      name: span.name,
+      kind: span.kind,
+      requestModel: span.attributes["gen_ai.request.model"],
+      responseId: span.attributes["gen_ai.response.id"],
+      otherModelAttributes: Object.keys(span.attributes).filter((name) =>
+        /^gen_ai\.(provider\.name|response\.model|response\.finish_reasons)$/.test(name),
+      ),
+    });
+    assert.deepEqual((await waitForChatSpans(toolSessionId, 2)).map(describeChatSpan), [
+      {
+        name: "chat scripted-model",
+        kind: SpanKind.CLIENT,
+        requestModel: "scripted-model",
+        responseId: "resp_scripted_1",
+        otherModelAttributes: [],
+      },
+      {
+        name: "chat scripted-model",
+        kind: SpanKind.CLIENT,
+        requestModel: "scripted-model",
+        responseId: "resp_scripted_3",
+        otherModelAttributes: [],
+      },
+    ]);
+    // The handoff's RunModel made two model calls, so it names no single response.
+    assert.deepEqual((await waitForChatSpans(handoffSessionId, 2)).map(describeChatSpan), [
+      {
+        name: "chat scripted-model",
+        kind: SpanKind.INTERNAL,
+        requestModel: "scripted-model",
+        responseId: undefined,
+        otherModelAttributes: [],
+      },
+      {
+        name: "chat scripted-model",
+        kind: SpanKind.CLIENT,
+        requestModel: "scripted-model",
+        responseId: "resp_scripted_5",
+        otherModelAttributes: [],
+      },
+    ]);
+    // The SDK's placeholder FAKE_ID is not the provider's response ID.
+    assert.deepEqual((await waitForChatSpans(unidentifiedSessionId, 1)).map(describeChatSpan), [
+      {
+        name: "chat scripted-model",
+        kind: SpanKind.CLIENT,
+        requestModel: "scripted-model",
+        responseId: undefined,
+        otherModelAttributes: [],
+      },
+    ]);
   });
 
   test("provider reasoning summaries stream as reasoning_delta and reasoning tokens reach usage", async () => {

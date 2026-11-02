@@ -268,6 +268,41 @@ of the main conversation stream to `AgentEvents` as `text_delta` and
 text by `(turn_id, step_execution_id, attempt)` as the core README describes:
 a retried segment has a higher `attempt` under the same `step_execution_id`.
 
+## Tracing
+
+The session emits a `chat` span for every `RunModel` attempt, as the
+[core README](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#tracing)
+describes. Here one span covers one turn segment. It is `CLIENT` with usage
+when the segment made one model call, and `INTERNAL` without usage when it
+made several, such as a call to an inline `read` tool and the answer after it.
+Pass `tracing=AgentTracingOptions(...)` to `claude_agent_session_flow` to
+choose the tracer provider and span options. The runner returns
+`ModelCallMetadata` with only what the CLI reports, and leaves every other
+field unset:
+
+| Field | Source | Set when |
+| --- | --- | --- |
+| `request_model` | `model` of the CLI's `system` `init` message: the model the CLI requests for the main conversation, after it resolves aliases and its default. `ClaudeAgentOptions.model` when no `init` message arrived. | No subagent made a model call in the segment |
+| `response_model` | `AssistantMessage.model` | Every assistant message of the segment, subagents included, names the same model |
+| `provider_name` | The `provider` of `ResultMessage.model_usage[request_model]`. `firstParty` becomes `anthropic`, `bedrock` and `mantle` become `aws.bedrock`, and `vertex` becomes `gcp.vertex_ai`. Other values, such as `foundry`, `anthropicAws`, and `anthropicGoogleCloud`, pass through unchanged, because no well-known value names them unambiguously. | `request_model` is set and the CLI reports a provider other than `gateway` for it |
+| `response_id` | `AssistantMessage.message_id` | The segment made exactly one model call |
+| `finish_reasons` | `delta.stop_reason` of the main conversation's `message_delta` stream event | The segment made exactly one model call |
+
+- A subagent can request a different model, so a segment with subagent model
+  calls has no `request_model` and no `provider_name`. Its calls count in
+  `model_calls`, so the segment's span is `INTERNAL`.
+- `gateway` means the CLI signed in to an enterprise gateway, which relays to
+  a backend the CLI does not name, so the span has no provider.
+- `ResultMessage.stop_reason` is not a finish reason: a deferred segment
+  reports `tool_deferred`, which is Claude Code's reason, not the model's.
+- When the CLI falls back to another model after an overload or a refusal,
+  `request_model` still names the `init` model. `response_model` names the
+  model that answered, or is unset when the segment's answers came from
+  different models.
+- The adapter never derives a provider from a model name, an environment
+  variable, or a base URL. Without a `provider` in `model_usage`, the span has
+  none.
+
 ## What the real CLI does
 
 `tests/test_real_claude_cli.py` runs the bundled Claude Code CLI 2.1.316
@@ -410,7 +445,7 @@ speaks this subset of the SDK's stream-json protocol:
 | CLI to SDK | `control_request` `mcp_message` with JSON-RPC `initialize`, `notifications/initialized`, `tools/list`, and `tools/call` carrying `_meta["claudecode/toolUseId"]`; the SDK answers `{"mcp_response": ...}`. |
 | CLI to SDK | `control_request` `hook_callback` for every matching PreToolUse callback at once (`tool_name`, `tool_input`, `tool_use_id`); `updatedInput` applies before the decision, and `deny` beats `defer`, `ask`, and `allow`. |
 | CLI to SDK | `control_request` `can_use_tool` when no hook allowed, denied, or deferred the call, or for a resumed call when `FAKE_CLAUDE_RESUME_SKIPS_HOOKS` is set; the SDK answers `behavior` `allow` or `deny`. A hook denial becomes the tool result `PreToolUse:<tool> hook error: <reason>`. |
-| CLI to SDK | `system` `init`, `stream_event` `content_block_delta` text deltas, one `assistant` message per content block, `user` tool results, and `result` with `usage`, or with `stop_reason: "tool_deferred"` and `deferred_tool_use` naming the last deferred call. |
+| CLI to SDK | `system` `init` naming the requested model, `stream_event` `content_block_delta` text deltas, one `assistant` message per content block naming a dated response model, a `stream_event` `message_delta` with the stop reason after each model call, `user` tool results, and `result` with `usage` and `modelUsage` keyed by the requested model with provider `firstParty`, or with `stop_reason: "tool_deferred"` and `deferred_tool_use` naming the last deferred call. |
 | CLI to SDK | `transcript_mirror` frames `{filePath, entries}` for every transcript line. |
 | Transcript | `user`, `assistant`, and `attachment` `hook_deferred_tool` entries with `uuid` and `parentUuid`, and an `isMeta` "Continue from where you left off." entry after a resumed call. A resumed CLI reruns PreToolUse for the last deferral that has no tool result. |
 
@@ -427,7 +462,13 @@ in one reply, an input-rewriting application hook, a hook that rewrites every
 call including the resumed one, custom tools named like
 Claude Code tools, a resumed call that skips the hook, SIGKILL during a resumed
 segment, a CLI error result, and a resumed turn that fails after a write and
-leaves a note for the next prompt. The real-CLI tests cover a resume across a
+leaves a note for the next prompt. `tests/test_tracing.py` runs an in-process
+Worker with an in-memory span exporter and checks the `chat` span metadata of
+a one-call answer, a two-call read tool turn, a deferred write and its resumed
+answer, and a segment with a subagent call, plus the provider name mapping and
+the `tracing` option of `claude_agent_session_flow`. A scripted `Agent` call
+runs a subagent whose assistant message carries `parent_tool_use_id`. The
+real-CLI tests cover a resume across a
 Worker restart, four resumes in one session including a plain-text rejection,
 and two writes in one reply under `dontAsk`.
 

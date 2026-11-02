@@ -73,8 +73,53 @@ Step: OpenTelemetry errors are logged and the span is skipped.
   decision. `AgentToolCall` gains an optional `trace_context`
   (`traceContext`), the activation root its tool spans join.
 - A `chat` span is named `chat {model}` only when the runner returns
-  `ModelCallMetadata`. The adapters do not return it yet; wiring each adapter
-  is a follow-up.
+  `ModelCallMetadata`. Every framework adapter returns it with what its
+  framework reports for the call and leaves the rest unset; each adapter's
+  README lists its fields. When one `RunModel` makes several model calls, an
+  adapter keeps only the values every call shares and leaves out the response
+  ID and finish reasons. A provider identifier becomes its well-known
+  `gen_ai.provider.name` value of the pinned conventions when one applies, and
+  other values pass through unchanged. No adapter derives a provider from a
+  model name, class, base URL, or environment variable.
+  - OpenAI Agents SDK, Python and TypeScript: the requested model when it is
+    given by name, and the response ID unless it is the SDK's placeholder
+    (`__fake_id__` in Python, `FAKE_ID` in TypeScript). The SDK reports no
+    provider, response model, or finish reason.
+  - Pydantic AI: the requested model, and the response model, provider,
+    response ID, and finish reason of the `ModelResponse`. For the `google`,
+    `google-cloud`, and `openai` providers the provider comes from the
+    response's `canonical_system`, which names the endpoint the client
+    reached, so a Vertex AI client reports `gcp.vertex_ai` and an Azure OpenAI
+    client `azure.ai.openai`.
+  - LangChain and LangGraph: the chat model's `ls_model_name`, and the
+    `model_name`, `model_provider`, `id`, and finish reason of the reply's
+    `response_metadata`. `google_genai` becomes `gcp.gen_ai`, because
+    `ChatGoogleGenerativeAI` reports it for both the Gemini API and Vertex AI.
+  - Google ADK: the requested model, and the response's `model_version` and
+    finish reason. ADK keeps no response ID and names no provider.
+  - Vercel AI SDK and Mastra: the model ID, the provider ID by its longest
+    known prefix (`openai.responses` becomes `openai`, `google.vertex.chat`
+    becomes `gcp.vertex_ai`), the response model when it differs from the
+    requested one, and the finish reason. They report no response ID: when
+    the provider sends none, the AI SDK and Mastra fill in a generated ID and
+    the requested model, and their public APIs do not say which it is.
+  - Claude Agent SDK, Python and TypeScript: the model of the CLI's `init`
+    message, the provider from the result's model usage (`firstParty`
+    becomes `anthropic`, `bedrock` and `mantle` become `aws.bedrock`, `vertex`
+    becomes `gcp.vertex_ai`, and `gateway` reports none), and the response
+    model, message ID, and stop reason of the replies. A segment in which a
+    subagent called a model reports no request model.
+- `createMastraAgentSessionFlow` and `createOpenAIAgentsSessionFlow` pass
+  `tracing` to the session Flow. They dropped it before, so their sessions
+  traced with the global tracer provider and the default options.
+- The Python helpers `claude_agent_session_flow`, `adk_agent_session_flow`,
+  `openai_agents_session_flow`, `langchain_agent_session_flow`,
+  `langgraph_agent_session_flow`, and `pydantic_ai_session_flow` take
+  `tracing`, an `AgentTracingOptions`.
+- The TypeScript Claude Agent SDK adapter counts a subagent's model calls in
+  `AgentUsage.modelCalls`, as the Python adapter does. A turn segment with a
+  subagent call therefore gets an `INTERNAL` `chat` span without usage in both
+  languages.
 
 ### Built-in agent loop (Stepwise mode)
 

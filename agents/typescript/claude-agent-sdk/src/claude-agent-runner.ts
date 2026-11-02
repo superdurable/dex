@@ -27,6 +27,7 @@ import {
   type AgentUsage,
   type DeferredToolExecution,
   type FrameworkMessage,
+  type ModelCallMetadata,
   type ToolExecutionResult,
 } from "@superdurable/dex-agents";
 import * as zodV3 from "zod/v3";
@@ -45,6 +46,16 @@ import {
   type PromptTextBlock,
 } from "./claude-transcript.js";
 import { TurnSegmentSessionStore } from "./turn-segment-session-store.js";
+
+// Claude Code's ModelUsage provider values that have a well-known gen_ai.provider.name.
+const genAIProviderNames: Readonly<Record<string, string>> = {
+  firstParty: "anthropic",
+  bedrock: "aws.bedrock",
+  mantle: "aws.bedrock",
+  vertex: "gcp.vertex_ai",
+};
+// A gateway relays requests to a backend that the CLI does not name.
+const claudeProvidersWithoutGenAIProvider: ReadonlySet<string> = new Set(["gateway"]);
 
 /**
  * Name of the in-process MCP server that serves custom tools unless you pass another.
@@ -297,8 +308,9 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       abortSegment();
     }
     turn.cancellationSignal.addEventListener("abort", abortSegment, { once: true });
+    let applicationOptions: ClaudeAgentQueryOptions;
     try {
-      const applicationOptions = this.readApplicationOptions(turn, toolCallGate);
+      applicationOptions = this.readApplicationOptions(turn, toolCallGate);
       const options = this.buildTurnOptions(applicationOptions, {
         resumedSessionId,
         sessionStore,
@@ -319,12 +331,14 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     const segmentTranscript = sessionStore.takeSegmentTranscript();
     const turnEntries = [...earlierTurnEntries, ...segmentTranscript.entries];
     const usage = observer.usage(result);
+    const modelCallMetadata = observer.modelCallMetadata(result, applicationOptions.model);
     if (result.subtype === "success" && result.deferred_tool_use !== undefined) {
       return {
         kind: "tool_calls_requested",
         frameworkRunState: encodeRunState(segmentTranscript.sessionId, turnEntries),
         toolCalls: [toolCallGate.deferredToolCall(result.deferred_tool_use)],
         usage,
+        modelCallMetadata,
       };
     }
     return {
@@ -333,6 +347,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
         this.toolCatalog.policyToolName(cliToolName),
       ),
       usage,
+      modelCallMetadata,
     };
   }
 
@@ -499,6 +514,11 @@ class TurnSegmentInput implements AsyncIterable<SDKUserMessage> {
 /** Turns the SDK message stream of one segment into events, usage, and a result. */
 class TurnSegmentObserver {
   private readonly modelMessageIds = new Set<string>();
+  private readonly providerResponseIds = new Set<string>();
+  private readonly responseModels = new Set<string>();
+  private readonly finishReasons: string[] = [];
+  private initModel: string | undefined;
+  private hasSubagentModelCall = false;
   private readonly mirrorErrors: string[] = [];
   private result: SDKResultMessage | undefined;
 
@@ -512,18 +532,22 @@ class TurnSegmentObserver {
       case "stream_event":
         if (message.parent_tool_use_id === null) {
           this.writeStreamEventDelta(message.event);
+          this.recordFinishReason(message.event);
         }
         return;
       case "assistant":
-        if (message.parent_tool_use_id === null) {
-          this.modelMessageIds.add(message.message.id ?? message.uuid);
+        if (message.parent_tool_use_id !== null) {
+          this.hasSubagentModelCall = true;
         }
+        this.recordModelResponse(message.message, message.uuid);
         return;
       case "user":
         this.recordToolResults(message.message.content);
         return;
       case "system":
-        if (message.subtype === "mirror_error") {
+        if (message.subtype === "init") {
+          this.initModel = message.model === "" ? undefined : message.model;
+        } else if (message.subtype === "mirror_error") {
           this.mirrorErrors.push(String((message as { readonly error?: unknown }).error ?? "unknown error"));
         }
         return;
@@ -563,6 +587,44 @@ class TurnSegmentObserver {
       cachedInputTokens: cacheReadTokens,
       reasoningTokens: 0,
     };
+  }
+
+  public modelCallMetadata(result: SDKResultMessage, optionsModel: string | undefined): ModelCallMetadata {
+    // Subagents can request other models, so a segment with one has no single request model.
+    const requestModel = this.hasSubagentModelCall ? undefined : (this.initModel ?? optionsModel);
+    const responseModel = onlyValue(this.responseModels);
+    const providerName = genAIProviderName(result, requestModel);
+    const isSingleModelCall = this.modelMessageIds.size === 1;
+    const responseId = isSingleModelCall ? onlyValue(this.providerResponseIds) : undefined;
+    return {
+      ...(requestModel === undefined ? {} : { requestModel }),
+      ...(responseModel === undefined ? {} : { responseModel }),
+      ...(providerName === undefined ? {} : { providerName }),
+      ...(responseId === undefined ? {} : { responseId }),
+      ...(isSingleModelCall && this.finishReasons.length > 0 ? { finishReasons: [...this.finishReasons] } : {}),
+    };
+  }
+
+  private recordModelResponse(response: unknown, messageUuid: string): void {
+    const responseFields = isRecord(response) ? response : {};
+    const providerResponseId = typeof responseFields["id"] === "string" ? responseFields["id"] : undefined;
+    this.modelMessageIds.add(providerResponseId ?? messageUuid);
+    if (providerResponseId !== undefined) {
+      this.providerResponseIds.add(providerResponseId);
+    }
+    if (typeof responseFields["model"] === "string") {
+      this.responseModels.add(responseFields["model"]);
+    }
+  }
+
+  private recordFinishReason(event: unknown): void {
+    if (!isRecord(event) || event["type"] !== "message_delta" || !isRecord(event["delta"])) {
+      return;
+    }
+    const stopReason = event["delta"]["stop_reason"];
+    if (typeof stopReason === "string" && stopReason !== "") {
+      this.finishReasons.push(stopReason);
+    }
   }
 
   private writeStreamEventDelta(event: unknown): void {
@@ -605,6 +667,30 @@ function parseCustomToolArguments(
     throw new ToolExecutionError(`invalid arguments for ${customTool.name}: ${parsed.error.message}`);
   }
   return parsed.data as Record<string, unknown>;
+}
+
+function onlyValue(values: ReadonlySet<string>): string | undefined {
+  return values.size === 1 ? values.values().next().value : undefined;
+}
+
+function genAIProviderName(result: SDKResultMessage, requestModel: string | undefined): string | undefined {
+  if (requestModel === undefined) {
+    return undefined;
+  }
+  const provider = result.modelUsage?.[requestModel]?.provider;
+  return provider === undefined ? undefined : readGenAIProviderNameOfClaudeProvider(provider);
+}
+
+/**
+ * Returns the `gen_ai.provider.name` for a Claude Code `ModelUsage.provider` value, such as `bedrock`.
+ * @returns The well-known name when one applies, the value unchanged otherwise, or `undefined` for
+ * `gateway` and an empty value.
+ */
+export function readGenAIProviderNameOfClaudeProvider(claudeProvider: string): string | undefined {
+  if (claudeProvider === "" || claudeProvidersWithoutGenAIProvider.has(claudeProvider)) {
+    return undefined;
+  }
+  return genAIProviderNames[claudeProvider] ?? claudeProvider;
 }
 
 function tokenCount(value: unknown): number {

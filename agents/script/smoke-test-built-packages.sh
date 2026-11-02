@@ -199,6 +199,20 @@ for (const name of new Set(names)) {
 NODE
 }
 
+# Prints name@version from a package's lockfile for each named package.
+locked_package_specs() {
+  node --input-type=module - "$@" <<'NODE'
+import { readFileSync } from "node:fs";
+const [packageDir, ...names] = process.argv.slice(2);
+const lock = JSON.parse(readFileSync(`${packageDir}/package-lock.json`, "utf8"));
+for (const name of names) {
+  const locked = lock.packages[`node_modules/${name}`];
+  if (locked === undefined) throw new Error(`${packageDir}/package-lock.json does not lock ${name}`);
+  console.log(`${name}@${locked.version}`);
+}
+NODE
+}
+
 # Imports every core subpath without the optional peer ai, where ./ai-sdk must fail naming it, then with it.
 smoke_test_typescript_core_subpaths() {
   local core_tarball="$1"
@@ -339,6 +353,8 @@ smoke_test_typescript() {
   echo "== TypeScript session: @superdurable/dex-agents-vercel-ai against dexcli dev --engine zd"
   local session_dir="$work_dir/typescript-vercel-ai"
   cp -R "$agents_dir/typescript/vercel-ai/test" "$session_dir/test"
+  # It tests a module the package does not export, so it cannot import it from the packed package.
+  rm "$session_dir/test/integ/gen-ai-provider-names.integration.test.ts"
   find "$session_dir/test" -name '*.ts' -exec \
     perl -pi -e 's#"\.\./\.\./src/index\.js"#"\@superdurable/dex-agents-vercel-ai"#g' {} +
   if grep -rq '\.\./\.\./src/' "$session_dir/test"; then
@@ -361,8 +377,14 @@ smoke_test_typescript() {
   "include": ["test/**/*.ts"]
 }
 JSON
+  # The copied tests read spans from an in-memory exporter, so they need the adapter's OpenTelemetry devDependencies.
+  local test_dependency_specs=()
+  while IFS= read -r test_dependency_spec; do
+    test_dependency_specs+=("$test_dependency_spec")
+  done < <(locked_package_specs "$agents_dir/typescript/vercel-ai" @opentelemetry/api @opentelemetry/sdk-trace-base)
   (
     cd "$session_dir"
+    npm install --no-audit --no-fund "${test_dependency_specs[@]}"
     npx tsc -p tsconfig.json
     node --test --test-concurrency=1 --test-timeout=240000 \
       --test-name-pattern "a read tool runs in CallTool between two RunModel Steps" \
