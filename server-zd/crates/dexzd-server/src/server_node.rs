@@ -710,6 +710,21 @@ impl ServerNode {
         }
     }
 
+    /// Moves the period's public services into `grpc`'s gates, before the serving instance shares them.
+    fn activate_public_services(&mut self, grpc: &GrpcServer) {
+        let flow_service = self
+            .flow_service
+            .take()
+            .expect("a serving period activates its public services once");
+        let worker_task_service =
+            WorkerTaskServiceServer::new(self.dispatch.service_for_tenant(DEFAULT_TENANT_ID))
+                .max_decoding_message_size(grpc.max_message_bytes)
+                .max_encoding_message_size(grpc.max_message_bytes);
+        grpc.flow_service_gate
+            .activate(flow_service.into_server(grpc.max_message_bytes));
+        grpc.worker_task_service_gate.activate(worker_task_service);
+    }
+
     /// Serves until shutdown, a node stop, or a step down; answers describe and epoch-mismatched step downs meanwhile.
     async fn serve_until_stopped(
         &mut self,
@@ -717,16 +732,7 @@ impl ServerNode {
         shutdown_request: &CancellationToken,
         administration_requests: &mut mpsc::Receiver<AdministrationRequest>,
     ) -> PeriodEnd {
-        if let Some(flow_service) = self.flow_service.take() {
-            let worker_task_service =
-                WorkerTaskServiceServer::new(self.dispatch.service_for_tenant(DEFAULT_TENANT_ID))
-                    .max_decoding_message_size(grpc.max_message_bytes)
-                    .max_encoding_message_size(grpc.max_message_bytes);
-            grpc.flow_service_gate
-                .activate(flow_service.into_server(grpc.max_message_bytes));
-            grpc.worker_task_service_gate.activate(worker_task_service);
-            grpc.health.set_serving().await;
-        }
+        grpc.health.set_serving().await;
         let mut node_stopped = std::pin::pin!(self.engine.wait_for_stop());
         let registry_halted = self.registry.halted();
         loop {

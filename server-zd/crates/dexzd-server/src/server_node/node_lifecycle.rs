@@ -157,8 +157,9 @@ impl NodeLifecycle {
         )
         .await;
         match started {
-            Ok(Some(node)) => {
+            Ok(Some(mut node)) => {
                 let mut grpc = grpc;
+                node.activate_public_services(&grpc);
                 let retirement = tokio::spawn(swap_in_serving_instance(&mut grpc, &grpc_settings));
                 Ok(Some(Self {
                     process,
@@ -298,7 +299,8 @@ impl NodeLifecycle {
             )
             .await
             {
-                Ok(Some(serving)) => {
+                Ok(Some(mut serving)) => {
+                    serving.activate_public_services(&grpc);
                     node = serving;
                     prune_finished_retirements(&mut retirements).await;
                     let retirement =
@@ -668,14 +670,15 @@ async fn wait_refusing_requests(
 }
 
 /// Replaces the standby instance with a serving one; returns the standby instance's retirement to spawn.
+///
+/// Activate the period's public services on `grpc` first: until it retires, the standby instance
+/// still accepts connections, and the shared gates serve their calls.
 fn swap_in_serving_instance(
     grpc: &mut GrpcServer,
     grpc_settings: &GrpcSettings,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
-    let standby_instance = std::mem::replace(
-        grpc,
-        GrpcServer::start(grpc_settings, GrpcInstancePhase::Serving),
-    );
+    let serving_instance = GrpcServer::start_serving_sharing_gates(grpc_settings, grpc);
+    let standby_instance = std::mem::replace(grpc, serving_instance);
     // A standby instance owes no step down answer, so it may send GOAWAY at once.
     let (answered, answer_sent) = oneshot::channel();
     drop(answered);

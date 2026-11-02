@@ -96,6 +96,30 @@ impl GrpcServer {
             StartupService::<WorkerTaskServiceServer<WorkerTaskService>>::new(
                 settings.lease_validity_deadline.clone(),
             );
+        Self::start_with_gates(settings, phase, flow_service_gate, worker_task_service_gate)
+    }
+
+    /// Starts a serving instance whose public services share `standby_instance`'s gates.
+    ///
+    /// The standby instance keeps accepting connections until it retires, so it serves their calls too.
+    pub(super) fn start_serving_sharing_gates(
+        settings: &GrpcSettings,
+        standby_instance: &GrpcServer,
+    ) -> Self {
+        Self::start_with_gates(
+            settings,
+            GrpcInstancePhase::Serving,
+            standby_instance.flow_service_gate.clone(),
+            standby_instance.worker_task_service_gate.clone(),
+        )
+    }
+
+    fn start_with_gates(
+        settings: &GrpcSettings,
+        phase: GrpcInstancePhase,
+        flow_service_gate: StartupService<FlowServiceServer<DexFlowService>>,
+        worker_task_service_gate: StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
+    ) -> Self {
         let administration = match phase {
             GrpcInstancePhase::Standby => settings.standby_instance_administration.clone(),
             GrpcInstancePhase::Serving => settings.serving_instance_administration.clone(),
@@ -221,7 +245,7 @@ pub(super) struct StartupService<S> {
     lease_validity_deadline: LeaseValidityDeadline,
     /// Every accepted call until its response body is dropped; a body can still read the store.
     calls: TaskTracker,
-    /// Ends this instance's open calls; every serving period runs on an instance of its own.
+    /// Ends the open calls of the period these gates serve; each period gets a new standby instance's gates.
     period_end: CancellationToken,
 }
 
