@@ -240,9 +240,12 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
             .await
         {
             Ok(_) => break,
+            // The replaced standby instance closes at once; a describe that races its GOAWAY retries.
             Err(status) => assert!(
-                status.code() == Code::FailedPrecondition
-                    && described_at.elapsed() < TAKEOVER_BUDGET,
+                matches!(
+                    status.code(),
+                    Code::FailedPrecondition | Code::Cancelled | Code::Unavailable
+                ) && described_at.elapsed() < TAKEOVER_BUDGET,
                 "the standby never took over: {status}"
             ),
         }
@@ -258,7 +261,7 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
         .await
         .expect("the first step down task does not panic")
         .expect("the first active steps down");
-    // A call that misses the 250 ms window steps down through the serving instance instead.
+    // A call that misses the retiring instance, which closes at once, steps down through the serving instance.
     let path = match answer {
         Err(status)
             if status.code() == Code::FailedPrecondition
@@ -283,10 +286,13 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
                 ),
                 "{outcome:?}"
             );
+            // Stepped down within milliseconds of serving, it may serve too briefly for the router.
+            group.note_serving_period(SECOND);
             assert_eq!(
                 group.wait_for_takeover(SECOND, TAKEOVER_BUDGET).await,
                 FIRST
             );
+            group.wait_for_hot_standby(SECOND, STANDBY_BUDGET).await;
             "stepped down through the serving instance"
         }
         Err(status) => panic!("the step down answer was lost after {answered_after:?}: {status}"),
