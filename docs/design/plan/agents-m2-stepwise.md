@@ -855,6 +855,38 @@ one. A tool Step must not hold a connection while the work runs.
 Adapters: nothing; only a runner that returns `ToolTaskStarted` implements
 `poll_tool_task`.
 
+**As built (#1193).** The merged code differs from the text above in these
+ways, each covered by a test in both cores:
+
+- An answer, decline, or passed deadline on a started task's question never
+  ends the call. It goes back to `PollToolTask` at once (a zero Timer) as
+  `ToolTaskPoll.pending_answer`, with `QuestionAnswer.resolution` (`answered`,
+  `declined`, `deadline_passed`); MCP sends it as accept, decline, or cancel.
+  The task's own result ends the call. If the task cannot take a decline, it
+  is cancelled best-effort and the call is recorded by effect: `failed` for
+  reads, `outcome_unknown` otherwise. `ask_user` and questions asked before
+  any task still record `rejected`.
+- `ToolTaskPending` carries an optional `continuation` that replaces
+  `input_continuation`, so the runner decides when an answered question is
+  done. The Python MCP source delivers an answer only on a poll's first
+  attempt, pins it to a fingerprint of the exact request, treats a still
+  listed identical request as answered for 10 seconds after the send, and
+  asks again after that or once the task moves on. A retried poll asks the
+  user again rather than resend.
+- Steering and `cancel_turn` never cancel `waiting_for_task`, or
+  `awaiting_answer` with a `task_id` (owner decision 3).
+- Tasks that only their own connection can reach (stdio, and TypeScript
+  servers that bind tasks to a protocol session) stay polled inside the tool
+  Step. TypeScript task input still fails the call: its SDK's tasks protocol
+  needs the answer on a live connection. A runner without a poller makes the
+  MCP source poll inside the call instead of starting a task.
+- A missing poller, a blank task ID, or a bad interval is recorded by effect;
+  intervals are clamped to 1 second through 1 day. MCP polls back off to at
+  most one a minute, and a lost task goes to the failure route.
+- The task ID is still saved as a heartbeat checkpoint before the record
+  commits `waiting_for_task`. Checkpoints are lossy, so a Worker that dies in
+  that window can start a second task on a `CallTool` retry; see "Deferred".
+
 ### Session Steps after M2
 
 | Step type | Input | Wait | Next |
