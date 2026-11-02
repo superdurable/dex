@@ -444,6 +444,41 @@ compaction policy.
   `DEX_AGENTS_LONG_TESTS=1`, TypeScript with `npm run test:long`. `Agents CI`
   runs a 300-turn guard in each core instead.
 
+### Go core
+
+- New module `github.com/superdurable/dex/agents/go/core` (package
+  `dexagents`), the Go core on the shared session contract: the session Flow
+  and its Steps, persistence, RPCs (`send_user_message`, `resolve_interrupt`,
+  `get_agent_snapshot`, `list_agent_messages`), the `AgentEvents` Stream,
+  effect classes and tool policies, approvals and approval deadlines, the
+  turn-failure note, and the `AgentFrameworkRunner` contract with incremental
+  turn messages (`ToolCallsRequested.NewMessages` and
+  `UnfinishedTurnMessageBuilder`). It registers every persistence name of the
+  contract and decodes every value the other cores write. Built-in tools,
+  questions, durable waits, steering, plans, compaction, tool tasks, MCP,
+  spans, UI streams, and framework adapters are not planned for Go. A Go
+  Worker writes
+  `accepts_turn_control` false, so steering RPCs refuse its turns.
+- Stepwise mode in `stepwise`: `NewAgentDefinition`, `NewFunctionTool` and
+  `NewTypedFunctionTool` with the Python core's argument checks and messages,
+  `StepwiseAgentRunner`, and `NewStepwiseAgentSessionFlow`. Model clients on
+  the official SDKs: `openaimodel.NewResponsesModelClient` (`openai-go`,
+  provider `openai`, API `responses`, the same items as the Python LiteLLM
+  client) and `anthropicmodel.NewMessagesModelClient`
+  (`anthropic-sdk-go`).
+- `agentstest`: a scripted model client whose items match the Python core's,
+  a private `dexcli dev` engine, killable Worker processes, and Step history.
+- Clients interoperate across languages: Python and TypeScript Clients drive
+  sessions on Go Workers, and a Go Client drives one on Python Workers, tested
+  against a real engine. Serve each Flow type with Workers of one language: a
+  Go Step that finds state from steering, plan mode, or compaction
+  fails the session with a reason instead of acting on it. RPC names come from
+  `dex.RPCOptions.Name`, which needs a Go SDK release after `sdk-go/v1.32.0`.
+- The Anthropic client stores the LiteLLM chat message that the Python core
+  stores (`anthropic`, `chat_completions`), so either core replays the other's
+  thinking blocks, and it replays the TypeScript core's AI SDK Anthropic items
+  with their signatures. An empty response stores no item.
+
 ### Fixes
 
 - TypeScript: `send_user_message`, the `AwaitUserMessage` Step that takes its
