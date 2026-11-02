@@ -10,9 +10,9 @@ Client calls Server to start and interact with Flow runs. Dex Server dispatches 
 
 
 
-## Reasons to try Dex
+## Why Dex
 
-### Why Dex #1: No Replay
+### No Replay
 
 Unlike most durable execution frameworks, **Dex takes a fundamentally different approach with its non-replay-based programming model**. It eliminates entire classes of footguns—such as replay-induced non-determinism errors and the need for Continue-As-New—by design, rather than forcing developers to work around them.
 
@@ -22,7 +22,19 @@ Dex is an evolution of a battle-tested architecture, shaped by years of building
 
 Learn more [about Dex & SuperDurable](https://superdurable.io/about/).
 
-### Why Dex#2: Zero Dependencies
+So why **"No Replay"** Matters?
+
+Using our unique structural programming model:
+1. Simpler & Cleaner APIs. Less primitives. Less code, less bug
+2. Eliminate the "Non Deterministic Error", completely
+3. Eliminate the "Continue-As-New" restriction, completely
+4. No requires to rely on memory to cache workflow state as "sticky cache"
+5. Data native -- explicit data storage primitives as "data attributes" (Note: no execution runs without data)
+6. A large & growing [OSS library](https://github.com/superdurable/dex-connectors-library) to reuse, from prototype to production, as Step or Trigger.
+7. Somehow visualizable (as long as code is written within certain format)
+   
+
+### Zero Dependencies
 
 Dex requires no database, message queue or coordination service to depend on.
 
@@ -36,7 +48,10 @@ Key idea:
 * When instance crashes, a standby(if any) or restarted instance can resume from the latest snapshots and re-apply the command logs to rebuild the durable state in seconds.
 * Dex SDKs cache the attribute values in local disk to reduce network transport for large values.
 
-See our performance [benchmark](./benchmark) that a very regular AWS EC2 instance can serve 10K to 50K reads/writes per second. 
+The actual benefits:
+1. Much higher performance & throughput, with low latency. See our performance [benchmark](./benchmark) that a very regular AWS EC2 instance can serve 10K to 50K reads/writes per second.
+2. A strong support for the above "Data native". So you can just use Dex as a KV storage. Like you want to store the whole LLM context or thousands of messages in your agent run, you don't need another database.
+3. Easy to operate. S3 is all you need.
 
 ## How to start
 See [Quick start](https://docs.superdurable.io/quick-start) on docs.superdurable.io.
@@ -84,7 +99,7 @@ cargo add dex-sdk
 
 * [Slack](https://dexai.pro)
 * [Discord](https://discord.gg/TetzsMpYb) 
-* WeChat ID: **prclqz**   (龙全正)
+* WeChat Community: please add **prclqz**   (龙全正) or **MUJIzz** (Zane) first.
 
 ## Repository layout
 
