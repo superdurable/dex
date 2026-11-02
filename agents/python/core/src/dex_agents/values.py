@@ -95,6 +95,9 @@ class ToolCallStatus(StrEnum):
             ``ask_user`` call, or a tool call that returned ``ToolInputRequested``.
         WAITING_FOR_TIMER: A ``durable_wait`` call waits for its Timer until
             ``AgentToolCall.wait_until``.
+        WAITING_FOR_TASK: The tool started remote work and returned
+            ``ToolTaskStarted``. ``PollToolTask`` polls the task in
+            ``AgentToolCall.task_id`` every ``task_poll_interval_seconds``.
         REJECTED: The user or an expired deadline rejected the call. It never ran.
         SUCCEEDED: The tool ran and returned ``output``.
         FAILED: The tool raised ``ToolExecutionError``; ``error`` holds the
@@ -108,6 +111,7 @@ class ToolCallStatus(StrEnum):
     APPROVED = "approved"
     AWAITING_ANSWER = "awaiting_answer"
     WAITING_FOR_TIMER = "waiting_for_timer"
+    WAITING_FOR_TASK = "waiting_for_task"
     REJECTED = "rejected"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -318,24 +322,53 @@ class AgentMessage:
     created_at: str
 
 
+class QuestionResolution(StrEnum):
+    """Name how a question that a tool or its task asked was resolved.
+
+    A tool's own question is only ever answered: a decline or a passed
+    deadline ends the call with ``rejected``. A question that a started task
+    asked through ``poll_tool_task`` goes back to the task in every case, so
+    the task, not the session, decides what a decline means.
+
+    Attributes:
+        ANSWERED: The user answered with ``answer_question``.
+        DECLINED: The user declined with ``resolve_interrupt`` and
+            ``approved=False``.
+        DEADLINE_PASSED: ``interrupt_deadline`` passed first.
+    """
+
+    ANSWERED = "answered"
+    DECLINED = "declined"
+    DEADLINE_PASSED = "deadline_passed"
+
+
 @dataclass(frozen=True, kw_only=True)
 class QuestionAnswer:
-    """Record one answer to a question that a tool asked through ``ToolInputRequested``.
+    """Record how one question that a tool asked through ``ToolInputRequested`` was resolved.
 
     ``AwaitQuestionAnswer`` appends one to ``AgentToolCall.input_answers`` when
     the user answers, and the tool receives them in
-    ``DeferredToolExecution.input_answers`` when it runs again.
+    ``DeferredToolExecution.input_answers`` when it runs again. For a question
+    that a started task asked, it also appends one when the user declines or
+    the deadline passes, and ``PollToolTask`` hands it to the task as
+    ``ToolTaskPoll.pending_answer``.
 
     Attributes:
-        interrupt_id: ``"<tool_call_id>-input-<n>"`` of the answered question,
-            where ``n`` counts the tool's questions from 1.
+        interrupt_id: ``"<tool_call_id>-input-<n>"`` of the resolved question,
+            where ``n`` counts the call's questions from 1.
         question: The question text the tool asked.
-        answer: The user's answer, exactly as sent to ``answer_question``.
+        answer: The user's answer, exactly as sent to ``answer_question``. For
+            a declined question, the user's rejection message or
+            ``"The user declined to answer."``; for a passed deadline,
+            ``"question deadline passed"``.
+        resolution: How the question was resolved. Defaults to ``ANSWERED``,
+            the only resolution of a tool's own question.
     """
 
     interrupt_id: str
     question: str
     answer: str
+    resolution: QuestionResolution = QuestionResolution.ANSWERED
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -373,7 +406,9 @@ class AgentToolCall:
             or ``None`` for every other call.
         input_continuation: Opaque text from the tool's last
             ``ToolInputRequested``, returned to the tool when it runs again
-            after the answer. ``None`` when the tool gave none.
+            after the answer. For a call waiting for a task, the continuation
+            of the task's last question until the next poll, and then what the
+            last ``ToolTaskPending`` returned. ``None`` when there is none.
         input_answers: Answers to the questions the tool asked through
             ``ToolInputRequested``, oldest first. Empty for other calls.
         input_question: Question text of the tool's pending
@@ -387,6 +422,17 @@ class AgentToolCall:
             accepts free text. ``True`` when no tool question is pending.
         cancellation_reason: Why steering or ``cancel_turn`` abandoned the
             call before it started, on a ``REJECTED`` record, or ``None``.
+        task_id: The remote task ID from the tool's ``ToolTaskStarted``, or
+            ``None`` for a call that started no task. It stays on the record
+            after the task finishes.
+        task_poll_interval_seconds: Whole seconds ``PollToolTask`` waits
+            before the next poll, at least 1, from ``ToolTaskStarted`` or the
+            last ``ToolTaskPending``. ``None`` for a call that started no task.
+        task_answer_pending: Whether the last entry of ``input_answers``, the
+            resolution of the task's last question, has not reached the task
+            yet. ``AwaitQuestionAnswer`` sets it, ``PollToolTask`` then polls at
+            once and hands that entry to the runner, and the poll's commit
+            clears it.
     """
 
     tool_call_id: str
@@ -409,6 +455,9 @@ class AgentToolCall:
     input_choices: list[str] = field(default_factory=list)
     input_allows_free_text: bool = True
     cancellation_reason: ToolCallCancellationReason | None = None
+    task_id: str | None = None
+    task_poll_interval_seconds: int | None = None
+    task_answer_pending: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)

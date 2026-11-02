@@ -35,6 +35,9 @@ import {
   type McpToolAnnotations,
   type ToolExecutionResult,
   type ToolPolicy,
+  type ToolTaskPoll,
+  type ToolTaskPollOutcome,
+  type ToolTaskStarted,
 } from "../agent-framework-runner.js";
 import type { ToolEffect } from "../agent-session-values.js";
 import { validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
@@ -47,8 +50,10 @@ export const mcpToolProgressEventType = "mcp.tool_progress";
 export const mcpTaskStatusEventType = "mcp.task_status";
 /** Default bound on one MCP `tools/call` or task request, in milliseconds: 10 minutes. */
 export const defaultMcpRequestTimeoutMs = 600_000;
-/** Default bound on polling one MCP task in one tool Step attempt, in milliseconds: 10 minutes. */
+/** Default bound on polling one MCP task inside one tool Step attempt, in milliseconds: 10 minutes. */
 export const defaultMcpTaskWaitTimeoutMs = 600_000;
+/** Default TTL the source requests for a task that `PollToolTask` polls, in milliseconds: 24 hours. */
+export const defaultMcpTaskTtlMs = 86_400_000;
 /** Default bound on connecting, the `initialize` handshake, and `tools/list`, in milliseconds: 30 seconds. */
 export const defaultMcpConnectionTimeoutMs = 30_000;
 /** Default number of connection attempts before a request reports the server unreachable. */
@@ -64,6 +69,9 @@ const taskCancelTimeoutMs = 5_000;
 const sessionTerminationTimeoutMs = 5_000;
 // The requested task TTL outlasts CallTool's three bounded waits, with margin for retry delays.
 const taskTtlWaitMultiple = 4;
+// A durable poll is a Step: backing off to a minute bounds a long task's history.
+const durableTaskPollBackoffCapSeconds = 60;
+const maximumDurableTaskPollIntervalSeconds = 3_600;
 // The server or a gateway may report InternalError after the call ran, so it leaves the outcome unknown.
 const noResultErrorCodes: ReadonlySet<number> = new Set([
   ErrorCode.ConnectionClosed,
@@ -72,7 +80,7 @@ const noResultErrorCodes: ReadonlySet<number> = new Set([
 ]);
 
 /** Handler that runs one deferred tool call, as {@link McpToolSource.executeDeferredToolCall} does. */
-export type DeferredToolHandler = (call: DeferredToolExecution) => Promise<ToolExecutionResult>;
+export type DeferredToolHandler = (call: DeferredToolExecution) => Promise<ToolExecutionResult | ToolTaskStarted>;
 
 /** One MCP tool described as an agent tool definition, returned by {@link McpToolSource.listTools}. */
 export interface McpTool {
@@ -98,8 +106,8 @@ export interface McpTool {
    */
   readonly frameworkEffect: ToolEffect | undefined;
   /**
-   * The tool's MCP `execution.taskSupport`. A `required` tool is called as a task and polled inside
-   * its tool Step.
+   * The tool's MCP `execution.taskSupport`. A `required` tool is called as a task; see
+   * {@link McpToolSource} for who polls it.
    */
   readonly taskSupport: "required" | "optional" | "forbidden" | undefined;
 }
@@ -112,12 +120,21 @@ export interface McpToolSourceOptions {
    */
   readonly requestTimeoutMs?: number;
   /**
-   * Bound on polling one MCP task in one tool Step attempt, in milliseconds. When it passes, the
-   * source throws {@link McpToolCallInterruptedError} and leaves the task running; a retried attempt
-   * resumes polling it. The source requests a task TTL of four times this bound, so the task outlives
-   * every attempt. Defaults to {@link defaultMcpTaskWaitTimeoutMs}.
+   * Bound on polling one MCP task inside one tool Step attempt, in milliseconds: a stdio server's task, a
+   * task of a server that keeps protocol sessions, and any task that {@link McpToolSource.callTool}
+   * polls. When it passes, the source throws {@link McpToolCallInterruptedError} and leaves the task
+   * running; a retried attempt resumes polling it. The source requests such a task's TTL as four times
+   * this bound, so the task outlives every attempt. Defaults to {@link defaultMcpTaskWaitTimeoutMs}.
    */
   readonly taskWaitTimeoutMs?: number;
+  /**
+   * TTL the source requests for a task that `PollToolTask` polls, in milliseconds. The server keeps the
+   * task and its result for this long after it creates the task, and it may grant less. `PollToolTask`
+   * polls on Timers that outlive Worker restarts, so the TTL must cover the task's run time plus the
+   * longest time no Worker serves the session; a task whose TTL passes first is lost, and the call is
+   * recorded by its effect. Defaults to {@link defaultMcpTaskTtlMs}, 24 hours.
+   */
+  readonly taskTtlMs?: number;
   /**
    * Bound on connecting, the `initialize` handshake, and each `tools/list` request, in milliseconds.
    * Defaults to {@link defaultMcpConnectionTimeoutMs}.
@@ -201,7 +218,9 @@ type ToolCallOutcome =
   | { readonly kind: "failed"; readonly message: string }
   | { readonly kind: "interrupted"; readonly detail: string }
   | { readonly kind: "server_unreachable"; readonly detail: string }
-  | { readonly kind: "task_lost"; readonly detail: string };
+  | { readonly kind: "task_lost"; readonly detail: string }
+  | { readonly kind: "task_started"; readonly taskId: string; readonly pollIntervalSeconds: number }
+  | { readonly kind: "task_pending"; readonly pollIntervalSeconds: number };
 
 /** Where one call goes: the configured server, the tool's name there, and its task support. */
 interface McpToolTarget {
@@ -242,17 +261,28 @@ interface McpConnection {
  *   content as JSON.
  * - An `isError` result, a JSON-RPC error response other than an internal error, and a failed,
  *   cancelled, or `input_required` task throw {@link ToolExecutionError}, so the session records
- *   `failed` and the model sees the text.
+ *   `failed` and the model sees the text. The 2025-11-25 tasks deliver input requests as server requests
+ *   that must be answered on a live connection, so no durable question can carry them; the source cancels
+ *   an `input_required` task.
  * - No result after the request was sent throws {@link McpToolCallInterruptedError}; the tool Step's
  *   effect decides whether it is re-issued.
  * - A call that was never sent, because its server is not configured or cannot be reached, throws
  *   {@link ToolExecutionError}.
- * - A tool whose `execution.taskSupport` is `required` is called as a task and polled with `tasks/get`
- *   inside the tool Step, with a heartbeat per poll, for at most `taskWaitTimeoutMs` per attempt. For a
- *   Streamable HTTP server the task ID is saved as the attempt's heartbeat checkpoint, so a retried
- *   attempt polls the same task instead of calling again. A server that binds tasks to its protocol
- *   session, as the SDK's task store does, cannot show the task to the retry's new session, so the
- *   retry calls the tool again.
+ * - A tool whose `execution.taskSupport` is `required` is called as a task. A Streamable HTTP server
+ *   without protocol sessions gets {@link ToolTaskStarted}: the tool Step ends, and `PollToolTask` calls
+ *   {@link pollToolTask} on a Timer, so no Step or connection is held while the task runs. The source
+ *   requests a TTL of `taskTtlMs` for such a task.
+ * - A stdio server's task lives in its process, and a server that keeps protocol sessions, as the SDK's
+ *   task store does, binds its tasks to the session, which ends with the request. The tool Step polls
+ *   such a task with `tasks/get`, with a heartbeat per poll, for at most `taskWaitTimeoutMs` per attempt.
+ *   A retried attempt of a stateful server's call cannot see the task from its new session, so it calls
+ *   the tool again.
+ * - For a Streamable HTTP server the task ID is saved as the attempt's heartbeat checkpoint before
+ *   anything else, so once that checkpoint reaches Dex, a retried attempt resumes the same task instead of
+ *   calling again. Dex may drop a heartbeat checkpoint; the idempotency key lets the server drop the
+ *   duplicate then.
+ * - Without `DeferredToolExecution.supportsToolTasks`, for a runner without `pollToolTask`, the tool Step
+ *   polls every task itself, as {@link callTool} does.
  *
  * Share one source between the parallel tool Steps of a Worker; build it once at startup.
  *
@@ -275,8 +305,11 @@ interface McpConnection {
  *         tools.deferredToolCall(turn, { toolCallId: call.id, toolName: call.name, arguments: call.arguments })),
  *     };
  *   }
- *   public executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+ *   public executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult | ToolTaskStarted> {
  *     return tools.executeDeferredToolCall(call);
+ *   }
+ *   public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+ *     return tools.pollToolTask(poll);
  *   }
  * }
  * ```
@@ -285,6 +318,7 @@ export class McpToolSource {
   private readonly servers: ReadonlyMap<string, McpServerConfig>;
   private readonly requestTimeoutMs: number;
   private readonly taskWaitTimeoutMs: number;
+  private readonly taskTtlMs: number;
   private readonly connectionTimeoutMs: number;
   private readonly connectionAttempts: number;
   private readonly connector: McpConnector;
@@ -296,8 +330,8 @@ export class McpToolSource {
    * Describes the servers without connecting to them.
    * @param servers - Server configurations with unique names.
    * @param options - Timeouts, connection attempts, and client name.
-   * @throws {TypeError} When a configuration is invalid, server names repeat, a timeout is not positive,
-   * or `connectionAttempts` is less than 1.
+   * @throws {TypeError} When a configuration is invalid, server names repeat, a timeout or `taskTtlMs` is
+   * not positive, or `connectionAttempts` is less than 1.
    */
   public constructor(servers: readonly McpServerConfig[], options: McpToolSourceOptions = {}) {
     const serversByName = new Map<string, McpServerConfig>();
@@ -311,10 +345,16 @@ export class McpToolSource {
     this.servers = serversByName;
     this.requestTimeoutMs = options.requestTimeoutMs ?? defaultMcpRequestTimeoutMs;
     this.taskWaitTimeoutMs = options.taskWaitTimeoutMs ?? defaultMcpTaskWaitTimeoutMs;
+    this.taskTtlMs = options.taskTtlMs ?? defaultMcpTaskTtlMs;
     this.connectionTimeoutMs = options.connectionTimeoutMs ?? defaultMcpConnectionTimeoutMs;
     this.connectionAttempts = options.connectionAttempts ?? defaultMcpConnectionAttempts;
-    if (!(this.requestTimeoutMs > 0) || !(this.taskWaitTimeoutMs > 0) || !(this.connectionTimeoutMs > 0)) {
-      throw new TypeError("requestTimeoutMs, taskWaitTimeoutMs, and connectionTimeoutMs must be positive");
+    if (
+      !(this.requestTimeoutMs > 0) ||
+      !(this.taskWaitTimeoutMs > 0) ||
+      !(this.taskTtlMs > 0) ||
+      !(this.connectionTimeoutMs > 0)
+    ) {
+      throw new TypeError("requestTimeoutMs, taskWaitTimeoutMs, taskTtlMs, and connectionTimeoutMs must be positive");
     }
     if (!Number.isInteger(this.connectionAttempts) || this.connectionAttempts < 1) {
       throw new TypeError("connectionAttempts must be an integer of at least 1");
@@ -450,20 +490,30 @@ export class McpToolSource {
   /**
    * Runs one deferred MCP tool call in its tool Step.
    *
-   * Call it from `AgentFrameworkRunner.executeDeferredToolCall`. A call built by {@link deferredToolCall}
+   * Call it from `AgentFrameworkRunner.executeDeferredToolCall`, and implement
+   * `AgentFrameworkRunner.pollToolTask` with {@link pollToolTask}. A call built by {@link deferredToolCall}
    * goes straight to the server named on its record, without a listing. It passes the call's idempotency
    * key, events, heartbeat, heartbeat checkpoint, and cancellation signal on.
+   *
+   * A Streamable HTTP server without protocol sessions that answers with a task gets {@link ToolTaskStarted}.
+   * The source saves the task ID as the heartbeat checkpoint first; a retried attempt that reads it returns
+   * the same task without calling the tool again.
    * @param call - The approved call from the tool Step.
-   * @returns The tool output the model sees.
+   * @returns The tool output the model sees, or {@link ToolTaskStarted} for a task that `PollToolTask` polls.
    * @throws {ToolExecutionError} When the arguments are not a JSON object, the tool failed, the server
    * answered with an error or asked for input, or the call was never sent.
    * @throws {McpToolCallInterruptedError} When the call was sent and no result came back.
    */
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult | ToolTaskStarted> {
     const toolArguments = parseToolArguments(call.toolCall.arguments);
-    const target =
-      this.targetFromReference(call.toolCall.toolName, call.toolCall.toolSourceReference) ??
-      (await this.targetFromListing(call.toolCall.toolName));
+    const target = await this.resolveTarget(call.toolCall.toolName, call.toolCall.toolSourceReference);
+    // Without a poller, a task runs to its end inside the call, as for callTool.
+    const isTaskPolledBySession = call.supportsToolTasks === true;
+    const savedTask = savedTaskFromCheckpoint(call.heartbeatCheckpoint, target);
+    if (isTaskPolledBySession && savedTask?.isPolledBySession === true) {
+      // An earlier attempt started this task; PollToolTask finds out how it went.
+      return { kind: "tool_task_started", taskId: savedTask.taskId, pollIntervalSeconds: 1 };
+    }
     return this.callTarget(target, toolArguments, {
       idempotencyKey: call.idempotencyKey,
       toolCallId: call.toolCall.toolCallId,
@@ -474,7 +524,56 @@ export class McpToolSource {
         ? {}
         : { saveHeartbeatCheckpoint: (checkpoint: string) => call.saveHeartbeatCheckpoint!(checkpoint) }),
       signal: call.cancellationSignal,
+    }, isTaskPolledBySession);
+  }
+
+  /**
+   * Polls one MCP task that {@link executeDeferredToolCall} started, once.
+   *
+   * Call it from `AgentFrameworkRunner.pollToolTask`. It reads the task with `tasks/get` and writes an
+   * `mcp.task_status` event when the status changed. A completed task's result comes from `tasks/result`. A task in
+   * `input_required` is cancelled and fails, because its input requests need a live connection.
+   * @param poll - The call's record from `PollToolTask`.
+   * @returns The tool output, or `tool_task_pending` with the next poll interval, which backs off from the
+   * server's `pollInterval` to at most a minute.
+   * @throws {ToolExecutionError} When the task failed, was cancelled, returned an `isError` result, or asked
+   * for input.
+   * @throws {McpToolCallInterruptedError} When the server could not be reached, no longer knows the task, or
+   * answered a poll with an error. The task may still run, so `PollToolTask` retries and then records the
+   * call by its effect.
+   */
+  public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    const record = poll.toolCall;
+    const taskId = record.taskId ?? null;
+    if (taskId === null) {
+      throw new TypeError(`tool call ${record.toolCallId} has no MCP task`);
+    }
+    const target = await this.resolveTarget(record.toolName, record.toolSourceReference);
+    const call = new McpToolCall(this.connector, this.callLimits(false), target, {}, {
+      toolCallId: record.toolCallId,
+      events: poll.events,
+      heartbeat: () => poll.heartbeat(),
+      signal: poll.cancellationSignal,
     });
+    const outcome = await call.pollTaskOnce(taskId, record.taskPollIntervalSeconds ?? null);
+    switch (outcome.kind) {
+      case "succeeded":
+        return { output: outcome.output };
+      case "failed":
+        throw new ToolExecutionError(outcome.message);
+      case "task_pending":
+        return { kind: "tool_task_pending", pollIntervalSeconds: outcome.pollIntervalSeconds };
+      case "interrupted":
+      case "server_unreachable":
+      case "task_lost":
+        throw new McpToolCallInterruptedError(
+          target.server.name,
+          target.mcpToolName,
+          `polling MCP task ${taskId}: ${outcome.detail}`,
+        );
+      case "task_started":
+        throw new McpToolCallInterruptedError(target.server.name, target.mcpToolName, `MCP task ${taskId} restarted`);
+    }
   }
 
   /**
@@ -486,7 +585,8 @@ export class McpToolSource {
    * @param toolName - {@link McpTool.name}.
    * @param toolArguments - Tool arguments.
    * @param options - Idempotency key, events, heartbeat, checkpoints, and abort signal.
-   * @returns The tool output the model sees.
+   * @returns The tool output the model sees. A task is polled inside the call, for at most
+   * `taskWaitTimeoutMs`.
    * @throws {ToolExecutionError} When the tool failed, the server answered with an error or asked for
    * input, or the call was never sent.
    * @throws {McpToolCallInterruptedError} When the call was sent and no result came back.
@@ -496,29 +596,50 @@ export class McpToolSource {
     toolArguments: Readonly<Record<string, unknown>>,
     options: McpToolCallOptions = {},
   ): Promise<ToolExecutionResult> {
-    return this.callTarget(await this.targetFromListing(toolName), { ...toolArguments }, options);
+    const result = await this.callTarget(await this.targetFromListing(toolName), { ...toolArguments }, options, false);
+    if ("kind" in result) {
+      throw new Error(`MCP tool ${toolName} returned a task to callTool`);
+    }
+    return result;
+  }
+
+  private callLimits(isTaskPolledBySession: boolean): McpCallLimits {
+    return {
+      requestTimeoutMs: this.requestTimeoutMs,
+      taskWaitTimeoutMs: this.taskWaitTimeoutMs,
+      taskTtlMs: this.taskTtlMs,
+      connectionAttempts: this.connectionAttempts,
+      isTaskPolledBySession,
+    };
+  }
+
+  private async resolveTarget(toolName: string, toolSourceReference: string | undefined): Promise<McpToolTarget> {
+    return this.targetFromReference(toolName, toolSourceReference) ?? (await this.targetFromListing(toolName));
   }
 
   private async callTarget(
     target: McpToolTarget,
     toolArguments: Record<string, unknown>,
     options: McpToolCallOptions,
-  ): Promise<ToolExecutionResult> {
-    const limits = {
-      requestTimeoutMs: this.requestTimeoutMs,
-      taskWaitTimeoutMs: this.taskWaitTimeoutMs,
-      connectionAttempts: this.connectionAttempts,
-    };
-    const call = new McpToolCall(this.connector, limits, target, toolArguments, options);
-    const outcome = await call.run(taskIdFromCheckpoint(options.heartbeatCheckpoint, target));
+    isTaskPolledBySession: boolean,
+  ): Promise<ToolExecutionResult | ToolTaskStarted> {
+    const call = new McpToolCall(this.connector, this.callLimits(isTaskPolledBySession), target, toolArguments, options);
+    const outcome = await call.run(savedTaskFromCheckpoint(options.heartbeatCheckpoint, target)?.taskId);
     switch (outcome.kind) {
       case "succeeded":
         return { output: outcome.output };
+      case "task_started":
+        return { kind: "tool_task_started", taskId: outcome.taskId, pollIntervalSeconds: outcome.pollIntervalSeconds };
       case "failed":
         throw new ToolExecutionError(outcome.message);
       case "interrupted":
       case "task_lost":
-        throw new McpToolCallInterruptedError(target.server.name, target.mcpToolName, outcome.detail);
+      case "task_pending":
+        throw new McpToolCallInterruptedError(
+          target.server.name,
+          target.mcpToolName,
+          outcome.kind === "task_pending" ? "the MCP task is still running" : outcome.detail,
+        );
       case "server_unreachable":
         throw new ToolExecutionError(
           `could not connect to MCP server ${target.server.name}, so ${target.mcpToolName} did not run: ${outcome.detail}`,
@@ -700,7 +821,10 @@ class McpConnector {
 interface McpCallLimits {
   readonly requestTimeoutMs: number;
   readonly taskWaitTimeoutMs: number;
+  readonly taskTtlMs: number;
   readonly connectionAttempts: number;
+  /** Whether a task of a server without protocol sessions goes to `PollToolTask`. */
+  readonly isTaskPolledBySession: boolean;
 }
 
 /** One tool call: connection attempts, the request, and task polling. */
@@ -719,7 +843,7 @@ class McpToolCall {
 
   public async run(resumedTaskId: string | undefined): Promise<ToolCallOutcome> {
     if (resumedTaskId !== undefined) {
-      const outcome = await this.withConnection((client) => this.awaitTask(client, resumedTaskId, undefined));
+      const outcome = await this.withConnection(({ client }) => this.awaitTask(client, resumedTaskId, undefined));
       if (outcome.kind === "server_unreachable") {
         // An earlier attempt started the task, so it may be running.
         return {
@@ -733,10 +857,35 @@ class McpToolCall {
       // Only CallTool retries an attempt, and it may send the call again.
       console.warn(`calling MCP tool ${this.target.mcpToolName} again: ${outcome.detail}`);
     }
-    return this.withConnection((client) => this.sendToolCall(client));
+    return this.withConnection((connection) => this.sendToolCall(connection));
   }
 
-  private async withConnection(operation: (client: Client) => Promise<ToolCallOutcome>): Promise<ToolCallOutcome> {
+  /** Reads one task once, for `PollToolTask`. */
+  public pollTaskOnce(taskId: string, previousIntervalSeconds: number | null): Promise<ToolCallOutcome> {
+    return this.withConnection(async ({ client }) => {
+      let task: Task;
+      try {
+        task = await client.experimental.tasks.getTask(taskId, { timeout: this.limits.requestTimeoutMs });
+      } catch (error: unknown) {
+        // The task may still run, so a failed poll leaves the outcome unknown.
+        return { kind: "interrupted", detail: `tasks/get for MCP task ${taskId} failed: ${describeError(error)}` };
+      }
+      // A working task was working at the last poll too; only a change is worth an event.
+      if (task.status !== "working") {
+        this.reporter.writeTaskStatus(task);
+      }
+      return (
+        (await this.decideTaskOutcome(client, taskId, task)) ?? {
+          kind: "task_pending",
+          pollIntervalSeconds: durableTaskPollIntervalSeconds(task, previousIntervalSeconds),
+        }
+      );
+    });
+  }
+
+  private async withConnection(
+    operation: (connection: McpConnection) => Promise<ToolCallOutcome>,
+  ): Promise<ToolCallOutcome> {
     const { connectionAttempts } = this.limits;
     let outcome: ToolCallOutcome = { kind: "server_unreachable", detail: "no connection attempt" };
     for (let connectionAttempt = 1; connectionAttempt <= connectionAttempts; connectionAttempt += 1) {
@@ -751,7 +900,9 @@ class McpToolCall {
     return outcome;
   }
 
-  private async runOnNewConnection(operation: (client: Client) => Promise<ToolCallOutcome>): Promise<ToolCallOutcome> {
+  private async runOnNewConnection(
+    operation: (connection: McpConnection) => Promise<ToolCallOutcome>,
+  ): Promise<ToolCallOutcome> {
     let connection: McpConnection;
     try {
       connection = await this.connector.connect(this.target.server);
@@ -759,7 +910,7 @@ class McpToolCall {
       return { kind: "server_unreachable", detail: describeError(error) };
     }
     try {
-      return await operation(connection.client);
+      return await operation(connection);
     } catch (error: unknown) {
       return { kind: "interrupted", detail: `the connection broke before a result arrived: ${describeError(error)}` };
     } finally {
@@ -767,7 +918,7 @@ class McpToolCall {
     }
   }
 
-  private async sendToolCall(client: Client): Promise<ToolCallOutcome> {
+  private async sendToolCall({ client, transport }: McpConnection): Promise<ToolCallOutcome> {
     const meta =
       this.options.idempotencyKey === undefined ? undefined : { [mcpIdempotencyKeyMetaKey]: this.options.idempotencyKey };
     const params = { name: this.target.mcpToolName, arguments: this.toolArguments, ...(meta === undefined ? {} : { _meta: meta }) };
@@ -778,6 +929,11 @@ class McpToolCall {
     };
     const isTaskCall =
       this.target.taskSupport === "required" && client.getServerCapabilities()?.tasks?.requests?.tools?.call !== undefined;
+    // A stdio task lives in its process, and a stateful server binds its tasks to the session this request ends.
+    const isTaskPolledBySession =
+      this.limits.isTaskPolledBySession &&
+      transport instanceof StreamableHTTPClientTransport &&
+      transport.sessionId === undefined;
     let createdTask: Task;
     try {
       if (!isTaskCall) {
@@ -791,7 +947,9 @@ class McpToolCall {
       createdTask = (
         await client.request({ method: "tools/call", params }, CreateTaskResultSchema, {
           ...requestOptions,
-          task: { ttl: this.limits.taskWaitTimeoutMs * taskTtlWaitMultiple },
+          task: {
+            ttl: isTaskPolledBySession ? this.limits.taskTtlMs : this.limits.taskWaitTimeoutMs * taskTtlWaitMultiple,
+          },
         })
       ).task;
     } catch (error: unknown) {
@@ -802,7 +960,15 @@ class McpToolCall {
     }
     if (this.options.saveHeartbeatCheckpoint !== undefined && this.target.server.transport === "streamable_http") {
       // A stdio server's tasks end with its process, so only HTTP tasks resume.
-      await this.options.saveHeartbeatCheckpoint(taskCheckpoint(this.target, createdTask.taskId));
+      await this.options.saveHeartbeatCheckpoint(taskCheckpoint(this.target, createdTask.taskId, isTaskPolledBySession));
+    }
+    if (isTaskPolledBySession) {
+      this.reporter.writeTaskStatus(createdTask);
+      return {
+        kind: "task_started",
+        taskId: createdTask.taskId,
+        pollIntervalSeconds: durableTaskPollIntervalSeconds(createdTask, null),
+      };
     }
     // The task exists and may run on, so a polling failure propagates as an unknown outcome.
     return this.awaitTask(client, createdTask.taskId, createdTask);
@@ -812,29 +978,16 @@ class McpToolCall {
     const { requestTimeoutMs, taskWaitTimeoutMs } = this.limits;
     const deadline = Date.now() + taskWaitTimeoutMs;
     let task = created;
+    let reportedStatus: Task["status"] | undefined;
     for (;;) {
       if (task !== undefined) {
-        this.reporter.writeTaskStatus(task);
-        if (task.status === "completed") {
-          const result = await client.experimental.tasks.getTaskResult(taskId, CallToolResultSchema, {
-            timeout: requestTimeoutMs,
-          });
-          return outcomeFromToolResult(result);
+        if (task.status !== reportedStatus) {
+          this.reporter.writeTaskStatus(task);
+          reportedStatus = task.status;
         }
-        if (task.status === "failed") {
-          return { kind: "failed", message: `MCP task ${taskId} failed: ${task.statusMessage ?? "no error detail"}` };
-        }
-        if (task.status === "cancelled") {
-          const reason = task.statusMessage === undefined ? "" : `: ${task.statusMessage}`;
-          return { kind: "failed", message: `MCP task ${taskId} was cancelled${reason}` };
-        }
-        if (task.status === "input_required") {
-          await cancelTaskQuietly(client, taskId);
-          const detail = task.statusMessage === undefined ? "" : ` (${task.statusMessage})`;
-          return {
-            kind: "failed",
-            message: `the MCP server asked for input that this agent session cannot provide yet${detail}, so the tool did not finish`,
-          };
+        const outcome = await this.decideTaskOutcome(client, taskId, task);
+        if (outcome !== undefined) {
+          return outcome;
         }
         const remainingMs = deadline - Date.now();
         if (remainingMs <= 0) {
@@ -855,6 +1008,32 @@ class McpToolCall {
         throw error;
       }
     }
+  }
+
+  /** Maps a terminal or `input_required` task; returns `undefined` while it works. */
+  private async decideTaskOutcome(client: Client, taskId: string, task: Task): Promise<ToolCallOutcome | undefined> {
+    if (task.status === "completed") {
+      const result = await client.experimental.tasks.getTaskResult(taskId, CallToolResultSchema, {
+        timeout: this.limits.requestTimeoutMs,
+      });
+      return outcomeFromToolResult(result);
+    }
+    if (task.status === "failed") {
+      return { kind: "failed", message: `MCP task ${taskId} failed: ${task.statusMessage ?? "no error detail"}` };
+    }
+    if (task.status === "cancelled") {
+      const reason = task.statusMessage === undefined ? "" : `: ${task.statusMessage}`;
+      return { kind: "failed", message: `MCP task ${taskId} was cancelled${reason}` };
+    }
+    if (task.status === "input_required") {
+      await cancelTaskQuietly(client, taskId);
+      const detail = task.statusMessage === undefined ? "" : ` (${task.statusMessage})`;
+      return {
+        kind: "failed",
+        message: `the MCP server asked for input that this agent session cannot provide yet${detail}, so the tool did not finish`,
+      };
+    }
+    return undefined;
   }
 }
 
@@ -960,17 +1139,28 @@ function parseToolSourceReference(
   };
 }
 
-function taskCheckpoint(target: McpToolTarget, taskId: string): string {
-  return JSON.stringify({ mcp_server: target.server.name, mcp_tool: target.mcpToolName, mcp_task_id: taskId });
+function taskCheckpoint(target: McpToolTarget, taskId: string, isPolledBySession: boolean): string {
+  return JSON.stringify({
+    mcp_server: target.server.name,
+    mcp_tool: target.mcpToolName,
+    mcp_task_id: taskId,
+    ...(isPolledBySession ? { mcp_task_polled_by_session: true } : {}),
+  });
 }
 
-function taskIdFromCheckpoint(checkpoint: string | undefined, target: McpToolTarget): string | undefined {
+/** Reads a task this source saved; a checkpoint another writer saved reads as none. */
+function savedTaskFromCheckpoint(
+  checkpoint: string | undefined,
+  target: McpToolTarget,
+): { readonly taskId: string; readonly isPolledBySession: boolean } | undefined {
   const saved = parseJsonObject(checkpoint);
   if (saved?.["mcp_server"] !== target.server.name || saved["mcp_tool"] !== target.mcpToolName) {
     return undefined;
   }
   const taskId = saved["mcp_task_id"];
-  return typeof taskId === "string" ? taskId : undefined;
+  return typeof taskId === "string"
+    ? { taskId, isPolledBySession: saved["mcp_task_polled_by_session"] === true }
+    : undefined;
 }
 
 function outcomeFromToolResult(result: CallToolResult): ToolCallOutcome {
@@ -983,6 +1173,13 @@ function outcomeFromToolResult(result: CallToolResult): ToolCallOutcome {
     return { kind: "failed", message: text === "" ? "the MCP tool reported an error" : text };
   }
   return { kind: "succeeded", output: text };
+}
+
+/** Seconds until the next durable poll: the server's hint, backed off from the last interval to a minute. */
+function durableTaskPollIntervalSeconds(task: Task, previousSeconds: number | null): number {
+  const hintSeconds = task.pollInterval === undefined ? 1 : Math.ceil(task.pollInterval / 1_000);
+  const backoffSeconds = previousSeconds === null ? 1 : Math.min(previousSeconds * 2, durableTaskPollBackoffCapSeconds);
+  return Math.min(Math.max(1, hintSeconds, backoffSeconds), maximumDurableTaskPollIntervalSeconds);
 }
 
 function taskPollIntervalMs(task: Task): number {

@@ -657,6 +657,27 @@ describe("agent sessions emit OpenTelemetry GenAI spans", () => {
     assertAttributes(rerun, { "dex.agent.tool_call.status": "succeeded" });
     assert.equal(openSpans.openSpanCount, 0);
   });
+
+  test("each poll of a tool task is an execute_tool span, and the last records the outcome", async () => {
+    const sessions = new AgentSessionTestClient(environment.client, tracedFlow);
+    const sessionId = newSessionId();
+    await sessions.startSession(sessionId, "call report_task");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const toolSpans = (await waitForSpans(sessionId, 7))
+      .filter((span) => span.name === "execute_tool report_task")
+      .sort((left, right) => hrTimeNanoseconds(left.startTime) - hrTimeNanoseconds(right.startTime));
+    assert.deepEqual(
+      toolSpans.map((span) => [span.attributes["dex.step.type"], span.attributes["dex.agent.tool_call.status"]]),
+      [
+        ["CallTool", "waiting_for_task"],
+        ["PollToolTask", "waiting_for_task"],
+        ["PollToolTask", "waiting_for_task"],
+        ["PollToolTask", "succeeded"],
+      ],
+    );
+    assert.equal(openSpans.openSpanCount, 0);
+  });
 });
 
 describe("a root Step on a Worker without an OpenTelemetry SDK", () => {

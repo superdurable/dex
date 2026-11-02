@@ -46,6 +46,7 @@ import {
   type DeferredToolOutcome,
   type ToolCallsRequested,
   type ToolInputRequested,
+  type ToolTaskStarted,
   type TurnCompleted,
 } from "./agent-framework-runner.js";
 import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
@@ -72,11 +73,14 @@ import type { ToolCallSpan } from "./agent-session-tracer.js";
 import {
   approvalDeadlinePassed,
   buildToolCallNote,
+  blankToolTaskId,
   buildTurnFailureNote,
   emptyAgentUsage,
+  invalidToolTaskPollInterval,
   isFinalToolCallStatus,
   turnCancelledNoteHeader,
   turnSteeredNoteHeader,
+  missingToolTaskPoller,
   type AgentInterrupt,
   type AgentPlan,
   type AgentInterruptKind,
@@ -91,6 +95,8 @@ import {
 } from "./agent-session-values.js";
 
 const minuteMs = 60_000;
+/** Longest wait between two polls of a tool task, as in the Python core; a longer interval is shortened. */
+const maximumToolTaskPollIntervalSeconds = 86_400;
 // Recovery Steps must eventually run; cap their backoff so a returning Worker picks them up quickly.
 const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
 // An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
@@ -742,6 +748,7 @@ export class ToolCallStep implements Step<string> {
           cancellationSignal: context.cancellationSignal,
           deadline: context.deadline,
           inputAnswers: toolCall.inputAnswers,
+          supportsToolTasks: transitions.runner.pollToolTask !== undefined,
           heartbeat: () => heartbeats.record(),
           ...(heartbeats.previousCheckpoint === undefined ? {} : { heartbeatCheckpoint: heartbeats.previousCheckpoint }),
           saveHeartbeatCheckpoint: (checkpoint: string) => heartbeats.saveCheckpoint(checkpoint),
@@ -765,6 +772,9 @@ export class ToolCallStep implements Step<string> {
         if (isToolInputRequested(outcome)) {
           return this.requestToolInput(context, toolCall, outcome, events, toolCallSpan);
         }
+        if (isToolTaskStarted(outcome)) {
+          return this.startToolTask(context, toolCall, outcome, events, toolCallSpan);
+        }
         if (typeof outcome?.output !== "string") {
           throw new TypeError(`executeDeferredToolCall returned no output for ${toolCallId}`);
         }
@@ -787,33 +797,58 @@ export class ToolCallStep implements Step<string> {
     toolCallSpan: ToolCallSpan,
   ): StepDecision {
     const transitions = this.transitions;
-    const choices = request.choices ?? [];
-    if (
-      typeof request.question !== "string" ||
-      isBlankText(request.question) ||
-      !choices.every((choice) => typeof choice === "string" && !isBlankText(choice))
-    ) {
-      const failed: AgentToolCallRecord = {
-        ...toolCall,
-        status: "failed",
-        error: "the tool asked for input with a blank question or choice",
-      };
-      toolCallSpan.recordFinished(failed);
-      transitions.finishToolCall(context, failed, events);
+    const waiting = recordToolInputRequest(toolCall, request);
+    toolCallSpan.recordFinished(waiting);
+    if (isFinalToolCallStatus(waiting.status)) {
+      transitions.finishToolCall(context, waiting, events);
       return deadEnd();
     }
     // This Step runs unlocked, so it leaves PendingInterrupts to AwaitQuestionAnswer.
+    transitions.writeToolCall(context, waiting);
+    return goToMany(questionAnswerMovement(transitions.persistence, waiting));
+  }
+
+  /** Records `waiting_for_task` and moves to `PollToolTask`, or records a task it cannot poll by effect. */
+  private startToolTask(
+    context: Context,
+    toolCall: AgentToolCallRecord,
+    started: ToolTaskStarted,
+    events: StreamAgentEventWriter,
+    toolCallSpan: ToolCallSpan,
+  ): StepDecision {
+    const transitions = this.transitions;
+    const pollIntervalSeconds = toolTaskPollIntervalSeconds(started.pollIntervalSeconds);
+    const defect =
+      transitions.runner.pollToolTask === undefined
+        ? missingToolTaskPoller
+        : typeof started.taskId !== "string" || isBlankText(started.taskId)
+          ? blankToolTaskId
+          : pollIntervalSeconds === null
+            ? invalidToolTaskPollInterval
+            : undefined;
+    if (defect !== undefined || pollIntervalSeconds === null) {
+      const finished = recordToolTaskDefect(toolCall, defect ?? invalidToolTaskPollInterval);
+      toolCallSpan.recordFinished(finished);
+      transitions.finishToolCall(context, finished, events);
+      return deadEnd();
+    }
+    // The tool consumed any continuation of its own questions when it ran again.
     const waiting: AgentToolCallRecord = {
       ...toolCall,
-      status: "awaiting_answer",
-      inputContinuation: request.continuation,
-      inputQuestion: request.question,
-      inputChoices: [...choices],
-      inputAllowsFreeText: (request.allowsFreeText ?? true) || choices.length === 0,
+      status: "waiting_for_task",
+      taskId: started.taskId,
+      taskPollIntervalSeconds: pollIntervalSeconds,
+      inputContinuation: null,
+      ...noPendingToolQuestion,
     };
     toolCallSpan.recordFinished(waiting);
     transitions.writeToolCall(context, waiting);
-    return goToMany(questionAnswerMovement(transitions.persistence, waiting));
+    events.writeEvent("tool_task_started", {
+      tool_call_id: waiting.toolCallId,
+      tool_name: waiting.toolName,
+      task_id: started.taskId,
+    });
+    return goToMany(toolTaskPollMovement(transitions.persistence, waiting));
   }
 }
 
@@ -1242,6 +1277,8 @@ export function toolStepOptions(
           toolStepOptions(persistence, agentSessionStepTypes.recordToolOutcomeUnknown, toolCallId),
         ),
       };
+    case agentSessionStepTypes.pollToolTask:
+      return toolTaskPollOptions(persistence, agentSessionStepTypes.recordToolFailure, toolCallId);
     case agentSessionStepTypes.recordToolFailure:
     case agentSessionStepTypes.recordToolOutcomeUnknown:
       return { ...syncDurability, ...loads, executeRetry: recoveryRetry };
@@ -1256,6 +1293,94 @@ export function toolStepMovement(
   toolCallId: string,
 ): StepMovement<string> {
   return StepMovement.of(new StepRef(stepType), toolCallId, toolStepOptions(persistence, stepType, toolCallId));
+}
+
+/**
+ * Returns the options of `PollToolTask`. It takes no lock and never waits on a cancellation: it owns the
+ * record, and a started task runs on.
+ */
+function toolTaskPollOptions(
+  persistence: AgentSessionPersistence,
+  recoveryStepType: string,
+  toolCallId: string | undefined,
+): StepOptions {
+  const loads =
+    toolCallId === undefined
+      ? {
+          waitForLoadAttributeMaps: [persistence.agentToolCalls],
+          executeLoadAttributeMaps: [persistence.agentToolCalls],
+        }
+      : {
+          waitForLoadAttributeMapInstances: [persistence.agentToolCalls.load(toolCallId)],
+          executeLoadAttributeMapInstances: [persistence.agentToolCalls.load(toolCallId)],
+        };
+  return {
+    ...syncDurability,
+    ...loads,
+    executeRetry: { maximumAttempts: 3 },
+    executeFailure: ExecuteFailure.proceedTo(
+      new StepRef(recoveryStepType),
+      toolStepOptions(persistence, recoveryStepType, toolCallId),
+    ),
+  };
+}
+
+/** Moves to `PollToolTask`; a poll that keeps failing leaves the task running, so the call is recorded by effect. */
+export function toolTaskPollMovement(
+  persistence: AgentSessionPersistence,
+  toolCall: AgentToolCallRecord,
+): StepMovement<string> {
+  const recoveryStepType =
+    toolStepTypeForEffect(toolCall.effect) === agentSessionStepTypes.callTool
+      ? agentSessionStepTypes.recordToolFailure
+      : agentSessionStepTypes.recordToolOutcomeUnknown;
+  return StepMovement.of(
+    new StepRef(agentSessionStepTypes.pollToolTask),
+    toolCall.toolCallId,
+    toolTaskPollOptions(persistence, recoveryStepType, toolCall.toolCallId),
+  );
+}
+
+/** Returns the record of a tool's question: `awaiting_answer`, or `failed` when it is blank. */
+export function recordToolInputRequest(
+  toolCall: AgentToolCallRecord,
+  request: ToolInputRequested,
+): AgentToolCallRecord {
+  const choices = request.choices ?? [];
+  if (
+    typeof request.question !== "string" ||
+    isBlankText(request.question) ||
+    !choices.every((choice) => typeof choice === "string" && !isBlankText(choice))
+  ) {
+    return { ...toolCall, status: "failed", error: "the tool asked for input with a blank question or choice" };
+  }
+  return {
+    ...toolCall,
+    status: "awaiting_answer",
+    inputContinuation: request.continuation,
+    inputQuestion: request.question,
+    inputChoices: [...choices],
+    inputAllowsFreeText: (request.allowsFreeText ?? true) || choices.length === 0,
+  };
+}
+
+/** Returns a final record for a task that cannot be polled: `failed` for a read, else `outcome_unknown`. */
+export function recordToolTaskDefect(toolCall: AgentToolCallRecord, error: string): AgentToolCallRecord {
+  return {
+    ...toolCall,
+    status: toolCall.effect === "read" ? "failed" : "outcome_unknown",
+    error,
+    ...noPendingToolQuestion,
+  };
+}
+
+/** Returns a poll interval in whole seconds from 1 to a day, or `null` when it is not a finite number. */
+export function toolTaskPollIntervalSeconds(seconds: unknown): number | null {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+    return null;
+  }
+  // Dex Timers take whole seconds, and a zero interval would poll without a pause.
+  return Math.min(Math.max(1, Math.ceil(seconds)), maximumToolTaskPollIntervalSeconds);
 }
 
 function createToolCallRecord(
@@ -1286,6 +1411,9 @@ function createToolCallRecord(
     inputAnswers: [],
     ...noPendingToolQuestion,
     cancellationReason: null,
+    taskId: null,
+    taskPollIntervalSeconds: null,
+    taskAnswerPending: false,
   };
 }
 
@@ -1374,8 +1502,12 @@ export function cancelWaitingToolCall(
   return deadEnd();
 }
 
-function isToolInputRequested(outcome: DeferredToolOutcome): outcome is ToolInputRequested {
+export function isToolInputRequested(outcome: unknown): outcome is ToolInputRequested {
   return (outcome as { readonly kind?: unknown } | undefined)?.kind === "tool_input_requested";
+}
+
+function isToolTaskStarted(outcome: DeferredToolOutcome): outcome is ToolTaskStarted {
+  return (outcome as { readonly kind?: unknown } | undefined)?.kind === "tool_task_started";
 }
 
 function requirePositiveResultCount(value: number): number {

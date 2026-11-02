@@ -217,7 +217,8 @@ function convertToolCallRecordToUIPart(toolCall: AgentToolCallRecord): AgentDyna
         : { ...toolPart, state: "input-available" };
     case "awaiting_answer":
     case "waiting_for_timer":
-      // A question or a durable wait holds the call; the browser shows it running, as for an approved call.
+    case "waiting_for_task":
+      // A question, a durable wait, or a remote task holds the call; the browser shows it running, as for an approved call.
       return toolCall.requiresApproval
         ? { ...toolPart, state: "approval-responded", approval: { id: approvalId, approved: true } }
         : { ...toolPart, state: "input-available" };

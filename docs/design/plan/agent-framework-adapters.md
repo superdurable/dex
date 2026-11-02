@@ -190,15 +190,63 @@ optional peer dependency. Neither core's main entry point imports an MCP SDK.
   The MCP SDKs also report an HTTP error status, and Python an unreadable
   body, as `-32603` and `-32700`; a gateway can send those after the server
   ran the call, so they count as no result.
-- A task handle from `io.modelcontextprotocol/tasks` is polled with
-  `tasks/get` inside the tool Step, with a heartbeat per poll, for a bounded
-  wait per attempt (10 minutes by default). For a Streamable HTTP server the
-  task ID is the attempt's heartbeat checkpoint: the new
+- A task handle from `io.modelcontextprotocol/tasks` (Python) or the SDK's
+  2025-11-25 tasks (TypeScript) of a Streamable HTTP server is first saved as
+  the attempt's heartbeat checkpoint: the new
   `DeferredToolExecution.save_heartbeat_checkpoint` records it, every later
   heartbeat of the attempt repeats it, and a retried attempt reads it as
-  `heartbeat_checkpoint` and polls the same task. A Worker kill while polling
-  therefore never creates a second task.
-- `input_required` records `failed` with text naming the requested input.
+  `heartbeat_checkpoint` and returns the same task without calling again. Once
+  that checkpoint reaches Dex, a Worker kill after `tools/call` creates no
+  second task. Dex may drop a heartbeat checkpoint (see Known limits), so an
+  attempt that dies before its checkpoint is saved and before the tool Step
+  commits can send `tools/call` again on a `CallTool` retry; the idempotency
+  key in `_meta` lets the server drop the duplicate. Each source reads only a
+  checkpoint it wrote, so another writer's checkpoint reads as none.
+- A source called without `DeferredToolExecution.supports_tool_tasks`, for a
+  runner without `poll_tool_task`, polls every task inside the tool Step, as
+  `call_tool` does, instead of starting one nobody polls.
+- A task that any connection can poll becomes `ToolTaskStarted` (see
+  `PollToolTask`): a Python Streamable HTTP server's task, and a TypeScript
+  one when the server keeps no protocol session. `poll_tool_task` sends one
+  `tasks/get` per poll and writes an `mcp.task_status` event only when the
+  status changed. The next interval is the server's poll interval,
+  rounded up to whole seconds, or, when that is shorter, double the previous
+  interval, up to a minute, to bound a long task's Steps. TypeScript requests
+  a task TTL of `taskTtlMs`, 24 hours by default, because the poll spans
+  Worker restarts; Python lets the server choose. A task the server no longer
+  knows, or that three poll attempts cannot reach, goes to the call's failure
+  route by effect.
+- A task that only its own connection can poll is polled with `tasks/get`
+  inside the tool Step, with a heartbeat per poll, for a bounded wait per
+  attempt (10 minutes by default): a stdio server's task, which dies with its
+  process, and in TypeScript a stateful server's task, which the SDK's task
+  store binds to the protocol session that the request ends. TypeScript
+  requests its TTL as four times the wait. A retried attempt of a
+  session-bound task cannot see it and calls the tool again.
+- In Python, a task in `input_required` that asks one form elicitation with a
+  single string, `enum`, or boolean field becomes `ToolInputRequested` from
+  `poll_tool_task`. Its continuation names the request: its key and a SHA-256
+  fingerprint of the request. The first poll after the question is resolved
+  sends the resolution with `tasks/update`, only on its first attempt, after a
+  heartbeat, and only while the task still lists that same request: an
+  `accept` input response for an answer, `decline` for a declined question,
+  and `cancel` for a passed deadline. A different later request under the same
+  key never gets an old answer. A retried attempt cannot tell whether the
+  first one sent it, and the task may since have asked the identical request
+  again, so it returns the question again and the user answers anew. After a
+  send, the poll returns `ToolTaskPending` with the continuation plus the
+  Worker clock's send time while the task still lists the request, and polls
+  a second apart read that request as working for 10 seconds after the send.
+  A poll that sees the task leave `input_required`, or the request change,
+  returns no continuation, so an identical later request, such as one per
+  batch, is asked as a new question; so is one still listed after those 10
+  seconds. When `tasks/update` fails for a decline, or
+  the task is cancelled after one, the source cancels it best-effort and
+  fails the poll, so the call is recorded by effect. Any other input request,
+  any TypeScript task input request (2025-11-25 input requests must be
+  answered on a live connection), and an `input_required` answer to
+  `tools/call` itself record `failed` with text naming the requested input,
+  and a waiting task is cancelled.
 - The Python SDK (`mcp` 2.3) speaks 2026-07-28; the source adds the tasks
   extension, which the SDK does not implement. The TypeScript SDK 1.x speaks
   up to 2025-11-25, so the TypeScript source uses the initialize handshake per
@@ -206,21 +254,12 @@ optional peer dependency. Neither core's main entry point imports an MCP SDK.
 
 Follow-ups:
 
-1. **Timer-driven task polling.** The tool Step that receives a task handle
-   stores the task ID on the call's `AgentToolCalls` record and moves to
-   `PollMcpTask(tool_call_id)`. That Step waits on a Timer at the task's
-   `pollIntervalMs`, polls `tasks/get` once per execution, and records the
-   final result, or moves to itself while the task works. No Step holds a
-   connection, a Worker restart only delays a poll, and a task can run for
-   days. A stdio server's tasks die with its process, so this applies to
-   Streamable HTTP servers.
-2. **Question interrupts.** An `input_required` answer raises a session
-   question interrupt per input request instead of failing. The answer RPC
-   resumes the call, and the tool Step retries `tools/call` with
-   `inputResponses` and the echoed `requestState`, or sends `tasks/update` for
-   a task.
-3. **MCP 2026-07-28 in TypeScript** when an `@modelcontextprotocol/sdk` release
-   speaks it.
+1. **Question interrupts outside tasks.** An `input_required` answer to
+   `tools/call` raises a session question interrupt per input request instead
+   of failing. The answer RPC resumes the call, and the tool Step retries
+   `tools/call` with `inputResponses` and the echoed `requestState`.
+2. **MCP 2026-07-28 in TypeScript** when an `@modelcontextprotocol/sdk` release
+   speaks it, which also lets TypeScript task input requests become questions.
 
 Framework adapters use the source when they accept tools defined by a JSON
 Schema: each MCP tool becomes a framework tool that calls `call_tool` with the
@@ -242,13 +281,14 @@ languages.
 | `AwaitUserMessage` | none | WaitFor any of `TurnControlRequests.for_range(at_least=1, at_most=MAX)`, `QueuedUserMessages.for_one()`, and, while `AgentPlan` is `draft` or `active`, `PlanExecutions.for_one(<revision>)`, in that order; Dex selects Channel conditions in argument order, so a steer beats a queued message, which beats a plan execution. A control wake: Execute moves to `ApplyTurnControl`. A message: Execute appends it and starts a turn whose `interaction_mode` is `planning` when plan mode is enabled and the message has `plan_mode` or a `draft` plan exists, else `chat`. An approval: Execute deletes `PendingPlanExecution`; unless the plan still has that revision and is `draft` or `active`, it waits again; otherwise it marks the plan `active`, appends `[Dex] The user approved plan revision <n>. Execute it and keep the task statuses current with write_todos.` through `build_user_message`, and starts an `executing` turn, writing `turn_started` then `plan_execution_started`. | `ApplyTurnControl` on a control wake, else `RunModel`, or itself |
 | `RunModel` | none | Async Execute. Before the model call, when the turn is steered or cancelled, it moves to `ApplyTurnControl` without a model call; this is its one decision point. Otherwise it calls `run_model_step` for one model call. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | `TurnCompleted`: appends `new_messages`, clears the turn, `AwaitUserMessage`. `ToolCallsRequested`: appends `new_messages`, stores `FrameworkRunState`, one `AgentToolCalls` record per call, and the interrupts, then `go_to_many` with one Step per call plus `ResumeTurn(<call count>)`. A runner that sets `new_messages` without implementing `build_unfinished_turn_messages` fails the turn in this commit, with `last_turn_error` `a runner that sets ToolCallsRequested.new_messages must implement build_unfinished_turn_messages` (TypeScript names `newMessages` and `buildUnfinishedTurnMessages`) and no retry. It records the model call's usage first. An `ask_user` call is recorded `awaiting_answer` with a `question` interrupt and goes to `AwaitQuestionAnswer`; a `durable_wait` call is recorded `waiting_for_timer` with `wait_until`, writes `timer_started`, and goes to `AwaitTimer`; a `write_todos` call replaces `AgentPlan`, writes `plan_updated`, and records `succeeded`; an invalid built-in call records `failed`; in a `planning` turn every call but `write_todos` records `rejected` with `The tool call was not run: a planning turn can only call write_todos.`. A call that becomes final here publishes its result in this commit, and `ResumeTurn` still counts it |
 | `AwaitToolApproval` | tool call ID | WaitFor any of `ToolCallCancellations.for_one(id)`, `InterruptResolutions.for_one(id)`, and, while the interrupt is in `PendingInterrupts` with a deadline, a Timer at that deadline, rounded up to whole seconds because Dex Timers take whole seconds. Execute locks `PendingInterrupts`. | Approved: records `approved`, then `CallTool` or `CallSingleAttemptTool` (id). Rejected or deadline passed: records `rejected`, publishes `ToolCallResults`, ends (dead end). Timer fired after `resolve_interrupt` already removed the interrupt, or before the deadline: itself (id), which waits again. A cancellation wake: see the steering rules below |
-| `AwaitQuestionAnswer` | tool call ID | WaitFor any of `ToolCallCancellations.for_one(id)`, `InterruptResolutions.for_one(interrupt_id)`, and, while the interrupt is pending with a deadline, a Timer at that deadline; while a tool's question is neither pending nor answered, a zero Timer instead. Execute locks `PendingInterrupts` and raises such a tool question from the record (`interrupt_raised`), then waits again; in a steered or cancelled turn it records the call cancelled instead and asks nothing. When the tool question's ID `<tool_call_id>-input-<n>` is already the ID of a pending interrupt of another call, or of another call's record, it records the asking call `failed` with `the tool's question cannot use interrupt ID <interrupt_id>, which another tool call of this turn uses` and raises nothing. Answered `ask_user`: records `succeeded` with `{"status":"answered","answer":"<text>"}`. Answered tool question: appends a `QuestionAnswer` to `input_answers` and records `approved`. Declined: `rejected` with the message or `The user declined to answer.`. Deadline: `rejected` with `question deadline passed`. | Ends, back to the call's tool Step, or itself after an early Timer |
+| `AwaitQuestionAnswer` | tool call ID | WaitFor any of `ToolCallCancellations.for_one(id)`, `InterruptResolutions.for_one(interrupt_id)`, and, while the interrupt is pending with a deadline, a Timer at that deadline; while a tool's question is neither pending nor answered, a zero Timer instead. Execute locks `PendingInterrupts` and raises such a tool question from the record (`interrupt_raised`), then waits again; in a steered or cancelled turn it records the call cancelled instead and asks nothing, unless the record has `task_id`. When the tool question's ID `<tool_call_id>-input-<n>` is already the ID of a pending interrupt of another call, or of another call's record, it records the asking call `failed` with `the tool's question cannot use interrupt ID <interrupt_id>, which another tool call of this turn uses` and raises nothing. Answered `ask_user`: records `succeeded` with `{"status":"answered","answer":"<text>"}`. Answered tool question: appends a `QuestionAnswer` to `input_answers` and records `approved`. A question that a started task asked (the record has `task_id`) never ends the call here: an answer, a decline, and a passed deadline each append a `QuestionAnswer` with `resolution` `answered`, `declined`, or `deadline_passed` (the answer, the decline text, or `question deadline passed` in `answer`), set `task_answer_pending`, record `waiting_for_task`, and move to `PollToolTask`, which hands the resolution to the task; such a call whose question ID collides is recorded by effect instead of `failed`. Declined `ask_user` or tool question: `rejected` with the message or `The user declined to answer.`. Deadline: `rejected` with `question deadline passed`. | Ends, back to the call's tool Step or `PollToolTask`, or itself after an early Timer |
 | `AwaitTimer` | tool call ID | WaitFor any of a Timer for the remaining whole seconds until `wait_until` and `ToolCallCancellations.for_one(id)`; Dex selects Timers before Channels, so a wait that ends as a steer arrives completes normally. Execute records `succeeded` with `{"status":"completed","waited_seconds":<n>,"reason":"<reason>"}` and publishes `ToolCallResults`. The Timer is the authority, so `SkipTimer` ends the wait. | Ends |
-| `CallTool` | tool call ID | Execute one `read` or `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. Before `tool_call_started`, when the turn is steered or cancelled, records the call cancelled and publishes its result without running it. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result records `awaiting_answer` with `input_continuation`, `input_question`, `input_choices`, and `input_allows_free_text`, and moves to `AwaitQuestionAnswer`, which raises the `question` interrupt `<tool_call_id>-input-<n>` under the `PendingInterrupts` lock. The tool Step itself never writes `PendingInterrupts`, so parallel tool Steps cannot lose an update. | Ends, or `AwaitQuestionAnswer` |
-| `CallSingleAttemptTool` | tool call ID | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. Same check before `tool_call_started`, and the same recording. | Ends |
-| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for an `idempotent_write` call, with the recovery detail in `error`, and publishes `ToolCallResults`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts ran out. | Ends |
+| `CallTool` | tool call ID | Execute one `read` or `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. Before `tool_call_started`, when the turn is steered or cancelled, records the call cancelled and publishes its result without running it. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result records `awaiting_answer` with `input_continuation`, `input_question`, `input_choices`, and `input_allows_free_text`, and moves to `AwaitQuestionAnswer`, which raises the `question` interrupt `<tool_call_id>-input-<n>` under the `PendingInterrupts` lock. The tool Step itself never writes `PendingInterrupts`, so parallel tool Steps cannot lose an update. A `ToolTaskStarted` result records `waiting_for_task` with `task_id` and `task_poll_interval_seconds`, clears `input_continuation`, writes `tool_task_started`, and moves to `PollToolTask`. When the runner does not implement `poll_tool_task` (`pollToolTask`), or `task_id` is blank or the interval is not a number, it records `failed` for a `read` call and `outcome_unknown` otherwise, with that error, because the task may run. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
+| `CallSingleAttemptTool` | tool call ID | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. Same check before `tool_call_started`, and the same recording. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
+| `PollToolTask` | tool call ID | WaitFor a Timer for `task_poll_interval_seconds`, or a zero Timer while `task_answer_pending` is set, so a resolved question reaches the task at once. Execute calls `poll_tool_task(ToolTaskPoll)` once, with `pending_answer` set to the last `input_answers` entry while `task_answer_pending` is set, and an `execute_tool` span that records the outcome. `ToolExecutionResult` records `succeeded` and `ToolExecutionError` records `failed`, each publishing `ToolCallResults`; `ToolTaskPending(poll_interval_seconds, continuation)` stores the interval, rounded up to whole seconds from 1 to a day, and `continuation` as `input_continuation`, where `None` clears it; `ToolInputRequested` records `awaiting_answer` as `CallTool` does. The poll's commit clears `task_answer_pending`. The poll with `pending_answer` reads the question's continuation, and each later poll reads what the last `ToolTaskPending` returned, so the runner decides how long it recognizes the request it answered. Options: retry 3 attempts; failure route `RecordToolFailure` for `read` and `idempotent_write` calls and `RecordToolOutcomeUnknown` otherwise. It takes no lock and waits on no cancellation, so steering never abandons a started task. | Ends, itself, or `AwaitQuestionAnswer` |
+| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for an `idempotent_write` call, with the recovery detail in `error`, and publishes `ToolCallResults`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts of `CallTool` or `PollToolTask` ran out. | Ends |
 | `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
-| `ResumeTurn` | expected result count | WaitFor any of `ToolCallResults.for_n(count)` and `TurnControlRequests.for_range(at_least=1, at_most=MAX)`. Execute locks `PendingInterrupts`. On a control wake in a steered or cancelled turn, it removes each pending interrupt of an `awaiting_approval` or `awaiting_answer` record, writes its `interrupt_resolved` with `cancellation_reason`, and publishes `ToolCallCancellations[id]` for those records and every `waiting_for_timer` record; then, as on a wake with nothing to apply, it waits again for the same count. With every result in, it checks that every record of the turn is final; if a consumed result belonged to an earlier turn, it waits again for the unfinished count. It never writes a record. | `RunModel`, resumed with the final records; `ApplyTurnControl` in a steered or cancelled turn; itself |
+| `ResumeTurn` | expected result count | WaitFor any of `ToolCallResults.for_n(count)` and `TurnControlRequests.for_range(at_least=1, at_most=MAX)`. Execute locks `PendingInterrupts`. On a control wake in a steered or cancelled turn, it removes each pending interrupt of an `awaiting_approval` record or of an `awaiting_answer` record with no `task_id`, writes its `interrupt_resolved` with `cancellation_reason`, and publishes `ToolCallCancellations[id]` for those records and every `waiting_for_timer` record; then, as on a wake with nothing to apply, it waits again for the same count. With every result in, it checks that every record of the turn is final; if a consumed result belonged to an earlier turn, it waits again for the unfinished count. It never writes a record. | `RunModel`, resumed with the final records; `ApplyTurnControl` in a steered or cancelled turn; itself |
 | `ApplyTurnControl` | none | WaitFor all of `SteeredUserMessages.at_most(MAX)` and `TurnControlRequests.at_most(MAX)`, which are non-blocking, so it consumes every steered message and stale wake at once; it is the only consumer of `SteeredUserMessages`. Execute, options SYNC and the recovery retry: with an active turn, every record final, it appends the runner's unfinished-turn messages when the runner implements them and they succeed, otherwise, when the turn has records, the steered or cancelled note. It deletes the turn's records and `FrameworkRunState`, counts the turn, clears it and `last_turn_error`, and writes `turn_steered` or `turn_cancelled`. With consumed steered messages, it starts a turn whose user messages are all of them, in order. | `RunModel` with steered messages, else `AwaitUserMessage` |
 | `RecordTurnFailure` | none | Records `last_turn_error`. When the runner implements `build_unfinished_turn_messages`, first appends what it returns; if it raises, or returns anything but messages with a `user`, `assistant`, or `tool` role and a string `framework_item`, it logs a warning and appends nothing for it, so a runner defect never blocks the failure route. When the turn has final `AgentToolCalls` records, then appends one turn-failure note; otherwise appends nothing more. Deletes the turn's records and `FrameworkRunState`, empties `PendingInterrupts`, and clears the turn. | `AwaitUserMessage` |
 
@@ -273,6 +313,12 @@ Rules:
   remains.
 - `ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
   the error message and is not retried. Any other error fails the attempt.
+- A record with `task_id` belongs to remote work that started. Nothing but the
+  task's own outcome, or the call's failure route by effect, makes it final:
+  it is never recorded `rejected`, which means the tool never ran. Steering and
+  turn cancellation never cancel it: they skip a `waiting_for_task` record and
+  an `awaiting_answer` record with `task_id`, whose question keeps waiting for
+  its answer, decline, or deadline, and they wait for the task's result.
 - A runner either stores no messages while tool calls run, or stores them
   incrementally. `ToolCallsRequested.new_messages` (default empty) is appended
   in the commit that records the tool calls. `TurnCompleted.new_messages`
@@ -335,7 +381,8 @@ Steering and cancellation rules (`MAX` is 2,147,483,647):
   built-in call with invalid arguments, so one that a model call made while
   the user steered still replaces the plan.
 - Steering abandons a waiting call only while it has taken no effect: an
-  `awaiting_approval`, `awaiting_answer`, or `waiting_for_timer` record. One
+  `awaiting_approval` record, an `awaiting_answer` record with no `task_id`,
+  or a `waiting_for_timer` record. One
   predicate in each core decides this for `ResumeTurn`, the woken Step, and an
   unraised tool question, so a call whose remote work has started is left to
   finish.
@@ -476,8 +523,8 @@ AgentToolCall {
   arguments: str             # JSON text
   effect: "read" | "idempotent_write" | "non_idempotent_write" | "unclassified"
   requires_approval: bool
-  status: "awaiting_approval" | "approved" | "awaiting_answer" | "waiting_for_timer"   # non-final
-        | "rejected" | "succeeded" | "failed" | "outcome_unknown"                   # final
+  status: "awaiting_approval" | "approved" | "awaiting_answer" | "waiting_for_timer" | "waiting_for_task"  # non-final
+        | "rejected" | "succeeded" | "failed" | "outcome_unknown"                                      # final
   output: str | null
   error: str | null          # ToolExecutionError message, or the recovery detail
   rejection_message: str | null
@@ -485,14 +532,18 @@ AgentToolCall {
   tool_source_reference: str | null  # opaque text from DeferredToolCall.tool_source_reference
   trace_context: str | null  # traceparent of the activation root its tool spans join; set by RunModel and by an approval
   wait_until: str | null = null              # RFC 3339, durable_wait only
-  input_continuation: str | null = null      # from the last ToolInputRequested
+  input_continuation: str | null = null      # from the last ToolInputRequested, or a task's last ToolTaskPending
   input_answers: list of QuestionAnswer = []
   input_question: str | null = null          # the pending ToolInputRequested question
   input_choices: list of str = []            # its choices
   input_allows_free_text: bool = true        # whether it accepts free text
   cancellation_reason: "steered" | "turn_cancelled" | null = null  # on a rejected record that steering abandoned
+  task_id: str | null = null                 # from ToolTaskStarted; kept after the task ends
+  task_poll_interval_seconds: int | null = null  # whole seconds, at least 1, until the next poll
+  task_answer_pending: bool = false          # input_answers[-1] has not reached the task yet
 }
-QuestionAnswer { interrupt_id: str, question: str, answer: str }
+QuestionAnswer { interrupt_id: str, question: str, answer: str,
+                 resolution: "answered" | "declined" | "deadline_passed" = "answered" }
 AgentInterrupt {
   interrupt_id: str          # the tool call ID for approvals and ask_user; "<id>-input-<n>" for tool questions
   kind: "tool_approval" | "question"
@@ -582,6 +633,7 @@ keys:
 | `timer_started` | `{"tool_call_id", "wait_until", "reason"}` |
 | `plan_updated` | `{"revision", "status", "task_count"}`, when `write_todos` replaces the plan or an approval marks a `draft` plan `active` |
 | `plan_execution_started` | `{"revision"}`, after the `turn_started` of an `executing` turn |
+| `tool_task_started` | `{"tool_call_id", "tool_name", "task_id"}` |
 | `usage_recorded` | `{"recorded", "session"}`: two `AgentUsage` objects, the model call and the session total |
 
 Adapter-specific types use an adapter prefix, such as
@@ -616,7 +668,7 @@ Parent design: C9 in [#1132](https://github.com/superdurable/dex/pull/1132).
   root in `AgentTraceContext`: `CLIENT` with usage when the runner reports one
   model call, `INTERNAL` without usage otherwise. `RunModel` copies the root
   onto each tool call record, and an approval replaces it with its own root.
-  Each `CallTool` and `CallSingleAttemptTool` attempt emits
+  Each `CallTool`, `CallSingleAttemptTool`, and `PollToolTask` attempt emits
   `execute_tool {tool name}` under the record's root. Every span ends inside
   its Step attempt, so none stays open across a durable wait, and the
   `invoke_agent` root ends with its own Step.
@@ -670,7 +722,11 @@ also carries `heartbeat_checkpoint`, the checkpoint an earlier attempt saved
 with `save_heartbeat_checkpoint`. It may instead return
 `ToolInputRequested(question, choices, allows_free_text, continuation)` when the
 tool needs the user's answer before it takes any effect; the tool Step runs
-again with `DeferredToolExecution.input_answers`.
+again with `DeferredToolExecution.input_answers`. It may also return
+`ToolTaskStarted(task_id, poll_interval_seconds)` when the tool started remote
+work, after saving the handle with `save_heartbeat_checkpoint` so a retried
+attempt returns it instead of starting the work again; `DeferredToolOutcome`
+is `ToolExecutionResult | ToolInputRequested | ToolTaskStarted`.
 
 Optional additions, all inert for a runner that ignores them:
 
@@ -695,11 +751,31 @@ Optional additions, all inert for a runner that ignores them:
   exists, which some models and Anthropic extended thinking refuse; the Python
   core refuses `required` when the model client's
   `supports_forced_tool_choice(settings)` returns false.
+- A runner whose tools return `ToolTaskStarted` implements
+  `ToolTaskPoller.poll_tool_task(poll: ToolTaskPoll) -> ToolExecutionResult |
+  ToolInputRequested | ToolTaskPending` (`ToolTaskPollOutcome`), where
+  `ToolTaskPoll` is `{flow_id, tool_call, idempotency_key, attempt,
+  input_answers, events, heartbeat, pending_answer}` and `ToolTaskPending` is
+  `{poll_interval_seconds, continuation = null}`. A poll only reads the task,
+  and delivers `pending_answer`, the resolution of the task's last question,
+  when it is set: the answer, a decline, or a cancelled request, by its
+  `resolution`. It delivers only to the request that
+  `tool_call.input_continuation` names, and idempotently, because a crashed
+  poll runs again; when a retried attempt cannot tell whether an earlier one
+  delivered, it returns the question again instead. A pending poll returns
+  the continuation the next poll needs, and drops an answered question's
+  continuation once the task took the answer, so an identical later question
+  reads as new. A runner that cannot
+  deliver a decline cancels the task best-effort and raises an error other
+  than `ToolExecutionError`, so the call is recorded by effect.
+  `DeferredToolExecution.supports_tool_tasks` tells a tool whether the runner
+  polls tasks; without it, the tool runs its work to the end inside the call.
 
 The TypeScript core mirrors these names in camelCase for code and keeps the
 snake_case wire format. Its runner-facing `AgentToolCallStatus` keeps the six
 statuses a runner sees; stored records use `AgentToolCallRecord`, whose status
-also allows the two waiting statuses. `AgentTurnContext.toolPolicies` and
+also allows the three waiting statuses, and which `ToolTaskPoll.toolCall`
+carries. `AgentTurnContext.toolPolicies` and
 `defaultToolEffect` mirror `tool_policies` and `default_tool_effect`. Options
 that only one core has, because of each language's conventions: TypeScript
 takes `interruptDeadlineMs` and `maxDurableWaitMs` in milliseconds where
@@ -794,7 +870,8 @@ token and need no Server change and no other store.
   so an `EventSource` resumes through `Last-Event-ID`, and a snapshot with the
   token to open the events from. The snapshot JSON leaves out the fields only
   the session's Steps use: `framework_item`, `tool_source_reference`,
-  `trace_context`, `input_continuation`, and `input_answers`. A rejected token
+  `trace_context`, `input_continuation`, `input_answers`, and
+  `task_answer_pending`. A rejected token
   gets a 400 before the stream starts.
 - Stop is pending: a durable turn cancel is not in the contract yet, so
   closing the browser response leaves the turn running.

@@ -21,6 +21,8 @@ import {
   encodeAgentToolCall,
   encodeAgentUserMessage,
 } from "../../src/agent-session-codecs.js";
+import { isCancellableByTurnControl } from "../../src/agent-session-transitions.js";
+import type { AgentToolCallRecord } from "../../src/index.js";
 
 // Wire values exactly as @superdurable/dex-agents 0.1.0 encodes them.
 const recordOf010 = {
@@ -76,6 +78,9 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       inputChoices: [],
       inputAllowsFreeText: true,
       cancellationReason: null,
+      taskId: null,
+      taskPollIntervalSeconds: null,
+      taskAnswerPending: false,
     });
     assert.deepEqual(decodeAgentInterrupt(interruptOf010), {
       interruptId: "call-1",
@@ -106,6 +111,40 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       rejectionMessage: "not today",
       answer: null,
     });
+  });
+
+  test("a record built by hand without the optional fields reads them as their defaults", () => {
+    // Compiles without cancellationReason, taskId, taskPollIntervalSeconds, or taskAnswerPending.
+    const handBuiltRecord: AgentToolCallRecord = {
+      toolCallId: "call-1",
+      turnId: "turn-1",
+      toolName: "send_email",
+      arguments: '{"to":"ops"}',
+      effect: "unclassified",
+      requiresApproval: false,
+      status: "awaiting_answer",
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+      waitUntil: null,
+      inputContinuation: null,
+      inputAnswers: [],
+      inputQuestion: "Which account?",
+      inputChoices: [],
+      inputAllowsFreeText: true,
+    };
+
+    assert.deepEqual(decodeAgentToolCall(encodeAgentToolCall(handBuiltRecord)), {
+      ...handBuiltRecord,
+      cancellationReason: null,
+      taskId: null,
+      taskPollIntervalSeconds: null,
+      taskAnswerPending: false,
+    });
+    // A question with no taskId is not a task's question, so steering may still cancel it.
+    assert.equal(isCancellableByTurnControl(handBuiltRecord), true);
+    assert.equal(isCancellableByTurnControl({ ...handBuiltRecord, taskId: "task-1" }), false);
   });
 
   test("values 0.2.0 writes with no new option enabled keep every 0.1.0 field, so a 0.1.0 Worker decodes them", () => {

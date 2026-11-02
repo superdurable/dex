@@ -11,6 +11,7 @@ import type {
   AgentMessage,
   AgentPlan,
   AgentToolCall,
+  AgentToolCallRecord,
   AgentToolCallStatus,
   AgentUsage,
   FrameworkMessage,
@@ -385,6 +386,12 @@ export interface DeferredToolExecution {
    */
   readonly inputAnswers?: readonly QuestionAnswer[];
   /**
+   * Whether the runner implements {@link AgentFrameworkRunner.pollToolTask}, so the tool may return
+   * {@link ToolTaskStarted}. When it is not `true`, run remote work to its end inside the call instead.
+   * Optional for the same reason as {@link inputAnswers}; treat `undefined` as `false`.
+   */
+  readonly supportsToolTasks?: boolean;
+  /**
    * Records a heartbeat. The session already records one every 20 seconds.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
@@ -450,8 +457,107 @@ export interface ToolInputRequested {
   readonly continuation: string | null;
 }
 
+/**
+ * Result of a deferred tool call that started remote work and returned a handle to poll.
+ *
+ * Return it from {@link AgentFrameworkRunner.executeDeferredToolCall} when the tool's work runs
+ * elsewhere and outlives the call, such as an MCP task. The tool Step records `waiting_for_task` with
+ * {@link taskId} and the poll interval, writes `tool_task_started`, and ends. `PollToolTask` then waits
+ * on a Timer for the interval and calls {@link AgentFrameworkRunner.pollToolTask} once per execution, so
+ * no Step or connection is held while the work runs, and a Worker restart only delays the next poll. The
+ * runner must implement `pollToolTask`; without it the session records the call `failed` for a `read`
+ * tool and `outcome_unknown` otherwise.
+ *
+ * The tool Step commits the handle with its result. A `CallTool` attempt that dies after the remote work
+ * started runs again, so save the handle with {@link DeferredToolExecution.saveHeartbeatCheckpoint}
+ * before you return it, and return the saved handle when {@link DeferredToolExecution.heartbeatCheckpoint}
+ * holds one. Once the checkpoint has reached Dex, a retried attempt resumes the same work. Dex may drop a
+ * heartbeat checkpoint, though, so an attempt that dies before its checkpoint is saved and before the tool
+ * Step commits can still start the work a second time on a `CallTool` retry; pass the idempotency key to
+ * the remote system so it can drop the duplicate. Steering and turn cancellation never abandon a started
+ * task: the session waits for it.
+ *
+ * @example
+ * ```ts
+ * public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+ *   if (call.heartbeatCheckpoint !== undefined) {
+ *     return { kind: "tool_task_started", taskId: call.heartbeatCheckpoint, pollIntervalSeconds: 5 };
+ *   }
+ *   const jobId = await reports.start(call.idempotencyKey);
+ *   await call.saveHeartbeatCheckpoint?.(jobId);
+ *   return { kind: "tool_task_started", taskId: jobId, pollIntervalSeconds: 5 };
+ * }
+ * ```
+ */
+export interface ToolTaskStarted {
+  /** Discriminator. */
+  readonly kind: "tool_task_started";
+  /** Handle of the remote work; it must not be blank. The session stores it as the record's `taskId`. */
+  readonly taskId: string;
+  /**
+   * Seconds to wait before the first poll. The session rounds it up to whole seconds, at least 1,
+   * because Dex Timers take whole seconds, and shortens it to at most a day.
+   */
+  readonly pollIntervalSeconds: number;
+}
+
+/** Result of {@link AgentFrameworkRunner.pollToolTask} while the polled task still runs. */
+export interface ToolTaskPending {
+  /** Discriminator. */
+  readonly kind: "tool_task_pending";
+  /** Seconds to wait before the next poll. The session rounds it up to whole seconds, from 1 to a day. */
+  readonly pollIntervalSeconds: number;
+  /**
+   * Text the next poll reads as `toolCall.inputContinuation`, such as which question the task took an answer
+   * to and when. Omitted or `null` clears it: keep what the next poll needs, and drop a question's
+   * continuation once the task took its answer, so an identical later question reads as new.
+   */
+  readonly continuation?: string | null;
+}
+
+/** One task that `PollToolTask` asks the runner to poll. */
+export interface ToolTaskPoll {
+  /** Flow ID, which is the session ID. */
+  readonly flowId: string;
+  /** The call's record, `waiting_for_task`, with `taskId`, `taskPollIntervalSeconds`, and `toolSourceReference`. */
+  readonly toolCall: AgentToolCallRecord;
+  /** `<flowId>/<turnId>/<toolCallId>`, the key the tool Step passed when it started the task. */
+  readonly idempotencyKey: string;
+  /** One-based `PollToolTask` attempt. Each poll gets up to three attempts. */
+  readonly attempt: number;
+  /** How the questions this call asked were resolved, oldest first, whether its tool or its task asked them. */
+  readonly inputAnswers: readonly QuestionAnswer[];
+  /**
+   * The resolution of the task's last question, which has not reached the task yet, or `null`. It is set
+   * only on the first poll after `AwaitQuestionAnswer` resolved the question, which runs at once. Deliver it
+   * to the task: the answer when `resolution` is `answered`, a decline when it is `declined`, and a
+   * cancelled request when it is `deadline_passed`. `toolCall.inputContinuation` holds the question's
+   * continuation, so recognize the request it answers and deliver only to that request. Later polls read the
+   * continuation the last {@link ToolTaskPending} returned. A retried attempt gets it again; when it cannot
+   * tell whether an earlier attempt delivered it, return the task's question as {@link ToolInputRequested}
+   * again rather than send it to what may be a later question. When the task cannot take the resolution,
+   * cancel the task best-effort and throw an error other than {@link ToolExecutionError}, so the session
+   * records the call by its effect.
+   */
+  readonly pendingAnswer: QuestionAnswer | null;
+  /** Events writer bound to the turn and attempt. */
+  readonly events: AgentEventWriter;
+  /** Signal aborted when Dex cancels the attempt. */
+  readonly cancellationSignal: AbortSignal;
+  /** Absolute deadline of the current attempt, or `undefined`. */
+  readonly deadline: Date | undefined;
+  /**
+   * Records a heartbeat. The session already records one every 20 seconds.
+   * @returns A Promise that resolves when the Worker accepted the heartbeat.
+   */
+  heartbeat(): Promise<void>;
+}
+
 /** Result of {@link AgentFrameworkRunner.executeDeferredToolCall}. */
-export type DeferredToolOutcome = ToolExecutionResult | ToolInputRequested;
+export type DeferredToolOutcome = ToolExecutionResult | ToolInputRequested | ToolTaskStarted;
+
+/** Result of {@link AgentFrameworkRunner.pollToolTask}. */
+export type ToolTaskPollOutcome = ToolExecutionResult | ToolInputRequested | ToolTaskPending;
 
 /**
  * Tool failure that the model should see, thrown from {@link AgentFrameworkRunner.executeDeferredToolCall}.
@@ -524,8 +630,8 @@ export class ToolExecutionError extends Error {
  * }
  * ```
  * @typeParam ToolOutcome - What {@link executeDeferredToolCall} returns. It defaults to
- * {@link ToolExecutionResult}; a runner whose tools can ask the user a question first implements
- * `AgentFrameworkRunner<DeferredToolOutcome>`. The session accepts both.
+ * {@link ToolExecutionResult}; a runner whose tools can ask the user a question first or start a remote
+ * task implements `AgentFrameworkRunner<DeferredToolOutcome>`. The session accepts both.
  */
 export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = ToolExecutionResult> {
   /**
@@ -551,8 +657,9 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * Runs the real tool for one tool call, in `CallTool` or `CallSingleAttemptTool`.
    *
    * @param call - Deferred call to run.
-   * @returns The tool output text, or {@link ToolInputRequested} when the tool needs an answer from the
-   * user before it takes any effect.
+   * @returns The tool output text; {@link ToolInputRequested} when the tool needs an answer from the
+   * user before it takes any effect; or {@link ToolTaskStarted} when the tool started remote work that
+   * {@link pollToolTask} polls.
    * @throws {ToolExecutionError} For a failure the model should see; the call is recorded as `failed`.
    * @throws Any other error for an unexpected failure; after the last attempt the record becomes
    * `failed` for a `read` tool and `outcome_unknown` for a write. See {@link ToolExecutionError}.
@@ -585,6 +692,33 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * plan mode off.
    */
   readonly supportsPlanMode?: boolean;
+  /**
+   * Polls one remote task that a tool started with {@link ToolTaskStarted}, once. Optional.
+   *
+   * Implement it when a tool returns `ToolTaskStarted`. `PollToolTask` calls it once per execution,
+   * after a Timer for the call's poll interval, until it returns a result. Polling must only read the
+   * task, and deliver `poll.pendingAnswer` when it is set, because the session may poll again after a
+   * crash. Steering and cancellation never stop a poll.
+   *
+   * @example
+   * ```ts
+   * public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+   *   const job = await reports.get(poll.toolCall.taskId!);
+   *   return job.done ? { output: job.summary } : { kind: "tool_task_pending", pollIntervalSeconds: 10 };
+   * }
+   * ```
+   * @param poll - The call's record and its idempotency key.
+   * @returns {@link ToolExecutionResult} when the task finished, which the model sees;
+   * {@link ToolTaskPending} while it runs; or {@link ToolInputRequested} when it needs the user's answer.
+   * The session asks the question through `AwaitQuestionAnswer` and polls again at once with its
+   * resolution, answered, declined, or past its deadline, as `pendingAnswer`. The task's later result is
+   * the call's result.
+   * @throws {ToolExecutionError} When the task failed in a way the model should see; the call is
+   * recorded as `failed`.
+   * @throws Any other error to fail the poll attempt; after three attempts the record becomes `failed`
+   * for a `read` call and `outcome_unknown` otherwise, because the task may still run.
+   */
+  pollToolTask?(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome>;
 }
 
 /** MCP tool annotations that classify a tool's side effects. */

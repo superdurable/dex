@@ -75,7 +75,8 @@ BROWSER_SNAPSHOT_JSON = (
     '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,'
     '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,'
     '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",'
-    '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null}],'
+    '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null,'
+    '"task_id":null,"task_poll_interval_seconds":null}],'
     '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,'
     '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",'
     '"tasks":[{"content":"Refund the order","status":"in_progress"}],'
@@ -145,6 +146,58 @@ async def test_event_frames_resume_from_the_last_event_id_with_no_repeated_or_mi
     ]
     assert received[0].data["type"] == AgentEventType.TURN_STARTED
     assert received[0].data["turn_id"] == "turn-2"
+
+
+async def test_snapshot_json_and_event_frames_carry_a_tool_task_until_it_finishes(
+    task_harness: ScriptedAgentHarness,
+) -> None:
+    harness = task_harness
+    await harness.stack.start_worker()
+    client = harness.stack.client
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call report {"topic": "ui", "poll_gate": "ui-gate"}'
+    )
+    gate = harness.gate("ui-gate")
+    await gate.wait_until_reached()
+
+    opening_json = (
+        await read_agent_event_stream_snapshot(client, harness.flow, session_id)
+    ).to_json()
+    [tool_call] = opening_json["snapshot"]["tool_calls"]
+    assert (
+        tool_call["tool_name"],
+        tool_call["status"],
+        tool_call["task_poll_interval_seconds"],
+    ) == (
+        "report",
+        "waiting_for_task",
+        1,
+    )
+    assert tool_call["task_id"].startswith("task-")
+    assert opening_json["snapshot"]["pending_interrupts"] == []
+    assert opening_json["snapshot"]["state"]["status"] == "running_tools"
+    reading = asyncio.create_task(
+        _read_frames_until(
+            await stream_agent_event_frames(
+                client, harness.flow, session_id, poll_timeout=POLL_TIMEOUT
+            ),
+            lambda data: data["type"] == AgentEventType.TURN_COMPLETED,
+        )
+    )
+    gate.release()
+    events = await reading
+
+    types = [event.data["type"] for event in events]
+    assert types.index(AgentEventType.TOOL_TASK_STARTED) < types.index(
+        AgentEventType.TOOL_CALL_FINISHED
+    )
+    started = next(event for event in events if event.data["type"] == "tool_task_started")
+    assert json.loads(started.data["payload"]) == {
+        "tool_call_id": "turn-1-call-0",
+        "tool_name": "report",
+        "task_id": tool_call["task_id"],
+    }
 
 
 async def test_event_frames_show_the_new_attempt_after_a_worker_killed_during_run_model(

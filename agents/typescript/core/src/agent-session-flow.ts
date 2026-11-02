@@ -54,7 +54,7 @@ import {
   ToolCallStep,
 } from "./agent-session-steps.js";
 import { AgentSessionTracer } from "./agent-session-tracer.js";
-import { AwaitQuestionAnswerStep, AwaitTimerStep } from "./agent-session-wait-steps.js";
+import { AwaitQuestionAnswerStep, AwaitTimerStep, PollToolTaskStep } from "./agent-session-wait-steps.js";
 import {
   AgentSessionTransitions,
   agentSessionStepTypes,
@@ -464,6 +464,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       new AwaitTimerStep(transitions),
       new ToolCallStep(transitions, agentSessionStepTypes.callTool),
       new ToolCallStep(transitions, agentSessionStepTypes.callSingleAttemptTool),
+      new PollToolTaskStep(transitions),
       new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, true),
       new ToolCallFailureRecordingStep(
         transitions,

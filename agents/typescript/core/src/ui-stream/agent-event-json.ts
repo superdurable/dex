@@ -38,6 +38,7 @@ const workerOnlyToolCallFieldNames: ReadonlySet<string> = new Set([
   "trace_context",
   "input_continuation",
   "input_answers",
+  "task_answer_pending",
 ]);
 
 /**
@@ -46,7 +47,7 @@ const workerOnlyToolCallFieldNames: ReadonlySet<string> = new Set([
  * Use it when a browser shared with Python backends reads the snapshot. It is the `get_agent_snapshot` wire
  * format without the fields only the session's Steps use. Messages leave out `framework_item`, the
  * framework's replay data, which can hold the agent's instructions. Tool calls leave out
- * `tool_source_reference`, `trace_context`, `input_continuation`, and `input_answers`.
+ * `tool_source_reference`, `trace_context`, `input_continuation`, `input_answers`, and `task_answer_pending`.
  *
  * @param snapshot - Output of the `get_agent_snapshot` RPC.
  * @returns A new JSON object with `state`, `messages`, `pending_interrupts`, `tool_calls`, `usage`, and

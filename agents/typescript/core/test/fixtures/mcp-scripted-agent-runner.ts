@@ -14,8 +14,10 @@ import {
   type AgentTurnContext,
   type AgentTurnOutcome,
   type DeferredToolExecution,
+  type DeferredToolOutcome,
   type FrameworkMessage,
-  type ToolExecutionResult,
+  type ToolTaskPoll,
+  type ToolTaskPollOutcome,
 } from "../../src/index.js";
 import { McpToolSource } from "../../src/mcp/index.js";
 import { fakeMcpServerModulePath, fakeMcpStateDirectoryVariable } from "./fake-mcp-server-names.js";
@@ -40,9 +42,10 @@ type RequestedCall = readonly [toolCallId: string, toolName: string, toolArgumen
  *
  * The model reads `call <tool> <json>` from the user message, joined with ` && call ` for parallel calls,
  * and asks for those MCP tools. The second model call answers `<tool>: <result>` per call, joined with
- * `; `. The `local` server runs the fake MCP server over stdio; `remote` is the Streamable HTTP URL.
+ * `; `. The `local` server runs the fake MCP server over stdio; `remote` is the Streamable HTTP URL. Tasks of
+ * a server without protocol sessions are polled through `pollToolTask`.
  */
-export class McpScriptedAgentRunner implements AgentFrameworkRunner {
+export class McpScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
   public constructor(private readonly tools: McpToolSource) {}
 
   public buildUserMessage(text: string): FrameworkMessage {
@@ -76,12 +79,16 @@ export class McpScriptedAgentRunner implements AgentFrameworkRunner {
     };
   }
 
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const handler = (await this.tools.deferredToolHandlers())[call.toolCall.toolName];
     if (handler === undefined) {
       throw new Error(`no handler for ${call.toolCall.toolName}`);
     }
     return handler(call);
+  }
+
+  public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    return this.tools.pollToolTask(poll);
   }
 
   private answerWithResults(turn: AgentTurnContext, calls: readonly RequestedCall[]): AgentTurnOutcome {
@@ -136,7 +143,7 @@ export function createMcpScriptedAgentFlow(
   httpUrl: string,
   gatewayUrl?: string,
   sessionsUrl?: string,
-): AgentSessionFlow {
+): AgentSessionFlow<McpScriptedAgentRunner> {
   return createAgentSessionFlow(
     new McpScriptedAgentRunner(createMcpToolSource(stateDirectory, httpUrl, gatewayUrl, sessionsUrl)),
     mcpScriptedAgentFlowType,

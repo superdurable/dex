@@ -11,8 +11,8 @@
 ``AgentSessionFlow`` runs one agent session per Flow execution. A framework
 adapter implements ``AgentFrameworkRunner`` and passes it to the Flow; the
 Flow runs every model call and every tool call as its own Step, and owns the
-conversation, tool approvals, questions, durable waits, plans, steering, and live
-events. See the package README for the full contract.
+conversation, tool approvals, questions, durable waits, plans, steering, tool
+tasks, and live events. See the package README for the full contract.
 
 ``dex_agents.stepwise`` adds a built-in agent loop for agents defined in Dex
 terms, and ``dex_agents.litellm`` (extra ``dex-agents[litellm]``) a model
@@ -86,13 +86,24 @@ from dex_agents.runner import (
     ToolExecutionResult,
     ToolInputRequested,
     ToolPolicy,
+    ToolTaskPending,
+    ToolTaskPoll,
+    ToolTaskPoller,
+    ToolTaskPollOutcome,
+    ToolTaskStarted,
     TurnCompleted,
     UnfinishedTurnMessageBuilder,
     build_turn_failure_note,
     describe_tool_call_outcome,
     resolve_tool_policy,
 )
-from dex_agents.session_flow import AgentSessionFlow, AgentSessionOptions
+from dex_agents.session_flow import (
+    BLANK_TOOL_TASK_ID,
+    INVALID_TOOL_TASK_POLL_INTERVAL,
+    MISSING_TOOL_TASK_POLLER,
+    AgentSessionFlow,
+    AgentSessionOptions,
+)
 from dex_agents.tracing import AgentTracingOptions, GenAISemanticConventionsVersion
 from dex_agents.values import (
     AgentEvent,
@@ -122,6 +133,7 @@ from dex_agents.values import (
     PlanStatus,
     PlanTaskStatus,
     QuestionAnswer,
+    QuestionResolution,
     ResolveInterruptRequest,
     SteerUserMessageRequest,
     ToolCallCancellation,
@@ -142,12 +154,15 @@ __all__ = [
     "AGENT_TRACE_CONTEXT",
     "AGENT_USAGE",
     "APPROVAL_DEADLINE_PASSED",
+    "BLANK_TOOL_TASK_ID",
     "BUILT_IN_TOOL_DEFINITIONS",
     "DEFAULT_AGENT_EVENTS_CAPACITY_BYTES",
     "DEFAULT_MAX_DURABLE_WAIT",
     "DEFAULT_REJECTION_TOOL_RESULT",
     "FRAMEWORK_RUN_STATE",
     "INTERRUPT_RESOLUTIONS",
+    "INVALID_TOOL_TASK_POLL_INTERVAL",
+    "MISSING_TOOL_TASK_POLLER",
     "NO_PLAN_NOTE",
     "OUTCOME_UNKNOWN_TOOL_RESULT",
     "PENDING_INTERRUPTS",
@@ -215,6 +230,7 @@ __all__ = [
     "PlanStatus",
     "PlanTaskStatus",
     "QuestionAnswer",
+    "QuestionResolution",
     "ResolveInterruptRequest",
     "SteerUserMessageRequest",
     "ToolCallCancellation",
@@ -227,6 +243,11 @@ __all__ = [
     "ToolExecutionResult",
     "ToolInputRequested",
     "ToolPolicy",
+    "ToolTaskPending",
+    "ToolTaskPoll",
+    "ToolTaskPollOutcome",
+    "ToolTaskPoller",
+    "ToolTaskStarted",
     "TurnCancellationRequest",
     "TurnCompleted",
     "TurnControlKind",

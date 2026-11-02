@@ -69,6 +69,8 @@ from tests.scripted_agent import (
     ScriptedRunner,
     build_scripted_agent_flow,
 )
+from tests.task_agent import TOOL_POLICIES as TASK_TOOL_POLICIES
+from tests.task_agent import TaskPollingRunner
 from tests.worker_without_opentelemetry import BLOCKED_IMPORT_LOG_ENVIRONMENT_VARIABLE
 
 CORE_DIR = Path(__file__).resolve().parents[1]
@@ -154,6 +156,7 @@ class TracingHarness:
     zero_usage_flow: AgentSessionFlow
     harness_flow: AgentSessionFlow
     sampled_flow: AgentSessionFlow
+    task_flow: AgentSessionFlow
 
     def sessions(self, flow: AgentSessionFlow) -> AgentSessionClient:
         return self.stack.sessions(flow)
@@ -254,6 +257,14 @@ async def tracing(tmp_path: Path) -> AsyncIterator[TracingHarness]:
             AgentUsage(model_calls=2, input_tokens=30, output_tokens=12),
         ),
         build_flow("SampledAgent", AgentTracingOptions(tracer_provider=sampled_provider)),
+        AgentSessionFlow(
+            TaskPollingRunner(state_dir),
+            flow_type="TracedTaskAgent",
+            options=AgentSessionOptions(
+                tool_policies=TASK_TOOL_POLICIES,
+                tracing=AgentTracingOptions(tracer_provider=provider),
+            ),
+        ),
     ]
     async with AgentTestStack(tmp_path, flows, "tests.scripted_worker") as stack:
         async with _in_process_worker(stack, flows, tmp_path / "worker-blob-cache"):
@@ -855,3 +866,32 @@ def _traceparent(span: ReadableSpan) -> str:
         f"00-{span.context.trace_id:032x}-{span.context.span_id:016x}-"
         f"{int(span.context.trace_flags):02x}"
     )
+
+
+async def test_each_poll_of_a_tool_task_is_an_execute_tool_span_and_the_last_records_the_outcome(
+    tracing: TracingHarness,
+) -> None:
+    sessions = tracing.sessions(tracing.task_flow)
+    session_id = f"session-{uuid4().hex}"
+    await sessions.start_session(session_id, 'call report {"topic": "traced", "polls": 2}')
+    await wait_for_agent_snapshot(
+        sessions,
+        session_id,
+        lambda snapshot: snapshot
+        if snapshot.state is not None and snapshot.state.turn_count >= 1
+        else None,
+        description="the task's turn",
+    )
+
+    tool_spans = sorted(
+        (span for span in tracing.spans(session_id) if span.name == "execute_tool report"),
+        key=lambda span: span.start_time or 0,
+    )
+    assert [
+        (_attributes(span)["dex.step.type"], _attributes(span)["dex.agent.tool_call.status"])
+        for span in tool_spans
+    ] == [
+        ("CallTool", "waiting_for_task"),
+        ("PollToolTask", "waiting_for_task"),
+        ("PollToolTask", "succeeded"),
+    ]

@@ -194,7 +194,7 @@ BUILT_IN_TOOL_DEFINITIONS: tuple[BuiltInToolDefinition, ...] = (
     ),
 )
 
-#: Model-visible rejection text for a question the user declined without a message.
+#: Model-visible rejection text for a question declined without a message, or with an empty one.
 QUESTION_DECLINED_TOOL_RESULT = "The user declined to answer."
 
 #: Rejection message recorded when a question's interrupt deadline passes.

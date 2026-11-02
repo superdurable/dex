@@ -15,9 +15,20 @@ for the Dex SDK and framework versions each release supports.
   Step. `readOnlyHint` makes a tool `read`, `idempotentHint` makes it
   `idempotent_write`, and an explicit `ToolPolicy` wins. A call whose response
   never arrived is re-issued only for `read` and `idempotent_write` tools;
-  other tools record `outcome_unknown`. MCP tasks are polled inside the tool
-  Step with heartbeats and a bounded wait, and a retried attempt resumes the
-  same task; `input_required` records `failed`.
+  other tools record `outcome_unknown`. A task of a Streamable HTTP server
+  that any connection can poll becomes a tool task polled by `PollToolTask`
+  (see Tool tasks); a stdio task, and in TypeScript a session-bound task, is
+  polled inside the tool Step with heartbeats and a bounded wait. A retried
+  attempt resumes the same task once its checkpoint reached Dex. In Python, a
+  task's single form elicitation becomes a session question; its answer,
+  decline, or passed deadline goes back with `tasks/update` (`accept`,
+  `decline`, `cancel`), once, from a poll's first attempt, and only to the
+  request it answers; a retried attempt asks the user again. An identical
+  request after the task left `input_required`, or 10 seconds after the
+  answer, is asked as a new question. Other `input_required` answers record
+  `failed`. `mcp.task_status` is written only
+  when a task's status changes. TypeScript requests a 24-hour TTL,
+  `taskTtlMs`, for a polled task.
 - Both cores: `DeferredToolCall.tool_source_reference` (stored on
   `AgentToolCall` as `tool_source_reference`) and
   `DeferredToolExecution.heartbeat_checkpoint` / `save_heartbeat_checkpoint`.
@@ -289,6 +300,42 @@ model-visible text. Nothing changes until an application calls the new RPCs.
   called when a steered or cancelled turn ends. A runner that keeps its items
   in run state may implement it to keep its exact transcript.
 
+### Tool tasks
+
+Both cores, with identical Step types, wire values, events, and error texts
+(the missing-poller text names each language's method). Inert until a runner
+returns the new outcome.
+
+- `execute_deferred_tool_call` may return `ToolTaskStarted(task_id,
+  poll_interval_seconds)` (`{ kind: "tool_task_started", taskId,
+  pollIntervalSeconds }`) when a tool started remote work. The tool Step
+  records the new non-final status `waiting_for_task` with the new
+  `AgentToolCall` fields `task_id` and `task_poll_interval_seconds`, writes the
+  new `tool_task_started` event, and moves to the new `PollToolTask` Step.
+- `PollToolTask` waits on a whole-second Timer and calls the runner's
+  `ToolTaskPoller.poll_tool_task(ToolTaskPoll)` (optional `pollToolTask` in
+  TypeScript) once per execution. It returns a `ToolExecutionResult`, a
+  `ToolTaskPending(poll_interval_seconds, continuation)`, whose continuation
+  the next poll reads as `input_continuation`, or a `ToolInputRequested`,
+  which asks through `AwaitQuestionAnswer`. A task's question never ends the call:
+  an answer, a decline, and a passed deadline each come back to `PollToolTask`
+  at once as a `QuestionAnswer` with the new `resolution` field (`answered`,
+  `declined`, `deadline_passed`), handed to the runner once as
+  `ToolTaskPoll.pending_answer` while the new record field
+  `task_answer_pending` is set. A poll gets three attempts, then the call's
+  failure route by effect. Each poll is an `execute_tool` span. `PollToolTask`
+  takes no lock and is never cancelled, so steering and `cancel_turn` wait
+  for a started task and keep its questions; a call with a task is never
+  recorded `rejected`.
+- `DeferredToolExecution.supports_tool_tasks` (`supportsToolTasks`) tells a
+  tool whether the runner polls tasks; the MCP sources poll inside the tool
+  Step without it.
+- A runner without the poll method that returns `ToolTaskStarted`, a blank
+  `task_id`, or an interval that is not a number records `failed` for a `read`
+  call and `outcome_unknown` otherwise (`MISSING_TOOL_TASK_POLLER`,
+  `BLANK_TOOL_TASK_ID`, `INVALID_TOOL_TASK_POLL_INTERVAL`).
+- `DeferredToolOutcome` gains `ToolTaskStarted`.
+
 ### Fixes
 
 - TypeScript: `send_user_message`, the `AwaitUserMessage` Step that takes its
@@ -312,7 +359,7 @@ model-visible text. Nothing changes until an application calls the new RPCs.
   `resolve_interrupt` and `answer_question` can raise `RpcLockConflictError`
   in sessions that never steer. `AgentSessionClient` retries it for 5 seconds;
   direct `invoke_rpc` callers should retry it too.
-- Python: `ToolCallStatus` gains the two non-final members, so an exhaustive
+- Python: `ToolCallStatus` gains the three non-final members, so an exhaustive
   `match` or `assert_never` over the status of a stored record, such as
   `AgentSnapshot.tool_calls`, must handle them. Runners still see only final
   records. `AgentFrameworkRunner` is generic in what
@@ -327,7 +374,8 @@ model-visible text. Nothing changes until an application calls the new RPCs.
   runner whose tools ask the user implements
   `AgentFrameworkRunner<DeferredToolOutcome>`. `AgentSnapshot.toolCalls` and
   records read with `Client.getAttributes` are now `AgentToolCallRecord`, whose
-  status also allows the non-final `awaiting_answer` and `waiting_for_timer`;
+  status also allows the non-final `awaiting_answer`, `waiting_for_timer`, and
+  `waiting_for_task`;
   code that assigns them to `AgentToolCall` must widen the type.
   `AgentToolCallStatus`, which runners see, keeps its six values. Every other
   0.1.0 type still accepts 0.1.0 code: new fields are optional.

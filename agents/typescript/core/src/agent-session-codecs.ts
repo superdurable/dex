@@ -37,6 +37,7 @@ import type {
   PlanStatus,
   PlanTaskStatus,
   QuestionAnswer,
+  QuestionResolution,
   ResolveInterruptInput,
   SteerUserMessageRequest,
   ToolCallCancellation,
@@ -67,6 +68,7 @@ const agentToolCallStatuses: readonly AgentToolCallRecordStatus[] = [
   "approved",
   "awaiting_answer",
   "waiting_for_timer",
+  "waiting_for_task",
   "rejected",
   "succeeded",
   "failed",
@@ -78,6 +80,7 @@ const planStatuses: readonly PlanStatus[] = ["draft", "active", "completed", "cl
 const planTaskStatuses: readonly PlanTaskStatus[] = ["pending", "in_progress", "completed"];
 const toolCallCancellationReasons: readonly ToolCallCancellationReason[] = ["steered", "turn_cancelled"];
 const turnControlKinds: readonly TurnControlKind[] = ["steer", "cancel_turn"];
+const questionResolutions: readonly QuestionResolution[] = ["answered", "declined", "deadline_passed"];
 
 class WireRecordReader {
   private readonly record: Readonly<Record<string, unknown>>;
@@ -289,6 +292,9 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     input_choices: [...value.inputChoices],
     input_allows_free_text: value.inputAllowsFreeText,
     cancellation_reason: value.cancellationReason ?? null,
+    task_id: value.taskId ?? null,
+    task_poll_interval_seconds: value.taskPollIntervalSeconds ?? null,
+    task_answer_pending: value.taskAnswerPending ?? false,
   };
 }
 
@@ -314,6 +320,9 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     inputChoices: reader.readStringArrayOrEmpty("input_choices"),
     inputAllowsFreeText: reader.readBooleanOrDefault("input_allows_free_text", true),
     cancellationReason: reader.readNullableEnum("cancellation_reason", toolCallCancellationReasons),
+    taskId: reader.readNullableString("task_id"),
+    taskPollIntervalSeconds: reader.readNullableInteger("task_poll_interval_seconds"),
+    taskAnswerPending: reader.readBooleanOrDefault("task_answer_pending", false),
     ...(traceContext === null ? {} : { traceContext }),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
@@ -321,7 +330,12 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
 }
 
 export function encodeQuestionAnswer(value: QuestionAnswer): unknown {
-  return { interrupt_id: value.interruptId, question: value.question, answer: value.answer };
+  return {
+    interrupt_id: value.interruptId,
+    question: value.question,
+    answer: value.answer,
+    resolution: value.resolution ?? "answered",
+  };
 }
 
 export function decodeQuestionAnswer(value: unknown): QuestionAnswer {
@@ -330,6 +344,7 @@ export function decodeQuestionAnswer(value: unknown): QuestionAnswer {
     interruptId: reader.readString("interrupt_id"),
     question: reader.readString("question"),
     answer: reader.readString("answer"),
+    resolution: reader.readNullableString("resolution") === null ? "answered" : reader.readEnum("resolution", questionResolutions),
   };
 }
 
