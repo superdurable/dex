@@ -1350,3 +1350,25 @@ a Stop button that calls `cancel_turn`, and plan review with Execute.
    exposed on `AgentTurnContext`. Recommendation: leave it out of M2 and move
    these choices to Worker configuration in the example, unless the owner
    wants it in this contract.
+
+## Deferred: exactly-once limits of single-attempt tools
+
+Two gaps in the M1 contract surfaced during M2. Both are documented in
+`agent-framework-adapters.md` and the agent deployment guide, and the fix is
+deferred until after M2:
+
+1. **A single-attempt tool can run twice.** The tool Step heartbeats before
+   it runs the tool, but heartbeats are not acknowledged and the server
+   treats checkpoints as lossy. A Worker that dies after starting the tool and
+   before its first heartbeat frame reaches the server gets its attempt
+   redelivered at the same attempt number.
+2. **A call no Worker picked up records `outcome_unknown`.** When no Worker is
+   available within the dispatch wait, the attempt fails with the same error
+   type as a Worker that disconnected mid-call, so the failure route cannot
+   tell that the tool never ran.
+
+Candidate fixes: a "started" entry written through a transactional session
+RPC before the tool runs (existing primitives, one round trip per call), or
+an engine change: acknowledged heartbeats, or the dispatch reason in the
+recovery error.
+
