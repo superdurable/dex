@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import math
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -461,7 +461,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             events=events,
             heartbeat=context.heartbeat,
         )
-        async with _background_heartbeats(context):
+        async with _background_heartbeats(context.heartbeat):
             outcome = await self._runner.run_model_step(turn)
         if isinstance(outcome, TurnCompleted):
             return self._complete_turn(context, state, tool_calls, outcome, events)
@@ -533,6 +533,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     else ToolCallStatus.APPROVED
                 ),
                 deferral_order=len(tool_calls) + index,
+                tool_source_reference=requested.tool_source_reference,
             )
             AGENT_TOOL_CALLS.set(context, tool_call.tool_call_id, tool_call)
             events.write_event(
@@ -651,17 +652,20 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             raise RuntimeError(f"tool call {tool_call_id} is not approved")
         events = self._event_writer(context, tool_call.turn_id)
         events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
+        heartbeats = _ToolStepHeartbeats(context)
         # Dex may redeliver a task without output to another Worker, at the same attempt.
-        await context.heartbeat()
+        await heartbeats.record()
         execution = DeferredToolExecution(
             flow_id=context.flow_id,
             tool_call=tool_call,
             idempotency_key=f"{context.flow_id}/{tool_call.turn_id}/{tool_call.tool_call_id}",
             attempt=context.attempt,
             events=events,
-            heartbeat=context.heartbeat,
+            heartbeat=heartbeats.record,
+            heartbeat_checkpoint=heartbeats.previous_checkpoint,
+            save_heartbeat_checkpoint=heartbeats.save_checkpoint,
         )
-        async with _background_heartbeats(context):
+        async with _background_heartbeats(heartbeats.record):
             try:
                 result = await self._runner.execute_deferred_tool_call(execution)
                 finished = replace(tool_call, status=ToolCallStatus.SUCCEEDED, output=result.output)
@@ -991,9 +995,31 @@ class RecordTurnFailure(Step[None]):
         return self._session._fail_active_turn(context)
 
 
+class _ToolStepHeartbeats:
+    """Heartbeats of one tool Step attempt; each repeats the latest checkpoint."""
+
+    def __init__(self, context: AsyncContext) -> None:
+        self._context = context
+        self.previous_checkpoint: str | None = (
+            context.get_last_heartbeat_value(str) if context.has_last_heartbeat_value() else None
+        )
+        # A bare heartbeat clears saved details, so carry the earlier attempt's forward.
+        self._checkpoint = self.previous_checkpoint
+
+    async def record(self) -> None:
+        if self._checkpoint is None:
+            await self._context.heartbeat()
+        else:
+            await self._context.heartbeat(self._checkpoint)
+
+    async def save_checkpoint(self, checkpoint: str) -> None:
+        self._checkpoint = checkpoint
+        await self.record()
+
+
 @contextlib.asynccontextmanager
-async def _background_heartbeats(context: AsyncContext) -> AsyncIterator[None]:
-    heartbeats = asyncio.create_task(_record_heartbeats(context))
+async def _background_heartbeats(record: Callable[[], Awaitable[None]]) -> AsyncIterator[None]:
+    heartbeats = asyncio.create_task(_record_heartbeats(record))
     try:
         yield
     finally:
@@ -1002,10 +1028,10 @@ async def _background_heartbeats(context: AsyncContext) -> AsyncIterator[None]:
             await heartbeats
 
 
-async def _record_heartbeats(context: AsyncContext) -> None:
+async def _record_heartbeats(record: Callable[[], Awaitable[None]]) -> None:
     while True:
         await asyncio.sleep(BACKGROUND_HEARTBEAT_INTERVAL.total_seconds())
-        await context.heartbeat()
+        await record()
 
 
 def _finish_tool_call(

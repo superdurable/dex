@@ -210,6 +210,12 @@ export interface DeferredToolCall {
   readonly arguments: string;
   /** Policy from {@link AgentTurnContext.resolveToolPolicy}; it decides approval and the tool Step. */
   readonly policy: ResolvedToolPolicy;
+  /**
+   * Opaque text that the tool's source stores on the call's record, such as which MCP server and tool
+   * to call. The tool Step returns it in {@link DeferredToolExecution.toolCall}, so the source resolves
+   * the tool without listing it again. Omit it to store nothing.
+   */
+  readonly toolSourceReference?: string;
 }
 
 /** Outcome of a model call that produced the turn's final answer. */
@@ -277,6 +283,20 @@ export interface DeferredToolExecution {
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
   heartbeat(): Promise<void>;
+  /**
+   * The checkpoint an earlier attempt of this call saved with {@link saveHeartbeatCheckpoint}, absent
+   * when none did. Use it to resume work that the earlier attempt started, such as polling a
+   * long-running job, instead of starting it again.
+   */
+  readonly heartbeatCheckpoint?: string;
+  /**
+   * Records a heartbeat carrying a checkpoint. Every later heartbeat of the attempt, including the
+   * session's background heartbeats, carries it too, so the next attempt reads it as
+   * {@link heartbeatCheckpoint}. Absent when the caller cannot save checkpoints.
+   * @param checkpoint - Text to hand to the next attempt.
+   * @returns A Promise that resolves when the Worker accepted the heartbeat.
+   */
+  saveHeartbeatCheckpoint?(checkpoint: string): Promise<void>;
 }
 
 /** Successful result of one deferred tool call. */
@@ -406,8 +426,9 @@ export interface McpToolAnnotations {
  * const policy = turn.resolveToolPolicy(tool.name, toolEffectFromMcpToolAnnotations(tool.annotations ?? {}));
  * ```
  * @param annotations - The tool's MCP annotations.
- * @returns `read` when `readOnlyHint` is `true`; `idempotent_write` when `idempotentHint` is `true`
- * and `destructiveHint` is not `true`; otherwise `undefined`, so the session default applies.
+ * @returns `read` when `readOnlyHint` is `true`; otherwise `idempotent_write` when `idempotentHint` is
+ * `true`, whatever `destructiveHint` says, as in the Python core; otherwise `undefined`, so the session
+ * default applies.
  */
 export function toolEffectFromMcpToolAnnotations(
   annotations: McpToolAnnotations,
@@ -415,7 +436,7 @@ export function toolEffectFromMcpToolAnnotations(
   if (annotations.readOnlyHint === true) {
     return "read";
   }
-  if (annotations.idempotentHint === true && annotations.destructiveHint !== true) {
+  if (annotations.idempotentHint === true) {
     return "idempotent_write";
   }
   return undefined;

@@ -41,6 +41,7 @@ import {
   agentSessionStepTypes,
   readRecoveryDetail,
   toolStepTypeForEffect,
+  ToolStepHeartbeats,
   type AgentSessionTransitions,
 } from "./agent-session-transitions.js";
 import type { AgentSessionPersistence } from "./agent-session-persistence.js";
@@ -258,6 +259,9 @@ export class RunModelStep implements Step<void> {
         error: null,
         rejectionMessage: null,
         deferralOrder: toolCalls.length + index,
+        ...(requestedToolCall.toolSourceReference === undefined
+          ? {}
+          : { toolSourceReference: requestedToolCall.toolSourceReference }),
       });
       events.writeEvent("tool_call_deferred", {
         tool_call_id: requestedToolCall.toolCallId,
@@ -421,8 +425,9 @@ export class ToolCallStep implements Step<string> {
     const events = transitions.createEventWriter(context, toolCall.turnId);
     try {
       events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
+      const heartbeats = new ToolStepHeartbeats(context);
       // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
-      await transitions.recordHeartbeat(context);
+      await heartbeats.record();
       const execution: DeferredToolExecution = {
         flowId: context.flowId,
         toolCall,
@@ -431,12 +436,16 @@ export class ToolCallStep implements Step<string> {
         events,
         cancellationSignal: context.cancellationSignal,
         deadline: context.deadline,
-        heartbeat: () => transitions.recordHeartbeat(context),
+        heartbeat: () => heartbeats.record(),
+        ...(heartbeats.previousCheckpoint === undefined ? {} : { heartbeatCheckpoint: heartbeats.previousCheckpoint }),
+        saveHeartbeatCheckpoint: (checkpoint: string) => heartbeats.saveCheckpoint(checkpoint),
       };
       let finishedToolCall: AgentToolCall;
       try {
-        const result = await transitions.runWithHeartbeats(context, () =>
-          transitions.runner.executeDeferredToolCall(execution),
+        const result = await transitions.runWithHeartbeats(
+          context,
+          () => transitions.runner.executeDeferredToolCall(execution),
+          () => heartbeats.record(),
         );
         if (typeof result?.output !== "string") {
           throw new TypeError(`executeDeferredToolCall returned no output for ${toolCallId}`);

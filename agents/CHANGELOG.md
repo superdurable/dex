@@ -36,3 +36,22 @@ its own Step.
 
 Every npm adapter peer-depends on `@superdurable/dex-agents` and
 `@superdurable/dex`, so an application holds one copy of each.
+
+### MCP tool source
+
+- `dex_agents.mcp` (extra `dex-agents[mcp]`, `mcp>=2.3,<3`) and
+  `@superdurable/dex-agents/mcp` (optional peer `@modelcontextprotocol/sdk`
+  `^1.32.2`): `McpToolSource` lists the tools of MCP servers configured on the
+  Worker, over stdio or Streamable HTTP, and runs each call in its own tool
+  Step. `readOnlyHint` makes a tool `read`, `idempotentHint` makes it
+  `idempotent_write`, and an explicit `ToolPolicy` wins. A call whose response
+  never arrived is re-issued only for `read` and `idempotent_write` tools;
+  other tools record `outcome_unknown`. MCP tasks are polled inside the tool
+  Step with heartbeats and a bounded wait, and a retried attempt resumes the
+  same task; `input_required` records `failed`.
+- Both cores: `DeferredToolCall.tool_source_reference` (stored on
+  `AgentToolCall` as `tool_source_reference`) and
+  `DeferredToolExecution.heartbeat_checkpoint` / `save_heartbeat_checkpoint`.
+- TypeScript: `toolEffectFromMcpToolAnnotations` maps `idempotentHint` to
+  `idempotent_write` whatever `destructiveHint` says, as the Python adapters
+  do.

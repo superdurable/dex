@@ -9,7 +9,8 @@ export DEXCLI
 
 cd "$(dirname "$0")"
 
-uv sync --locked
+# The mcp extra brings in the MCP SDK for dex_agents.mcp and its tests.
+uv sync --locked --all-extras
 
 uv run --frozen python - <<'PY'
 import importlib.metadata

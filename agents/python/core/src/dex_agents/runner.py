@@ -228,12 +228,18 @@ class DeferredToolCall:
         tool_name: Tool name the model called.
         arguments: Tool arguments as JSON text.
         policy: Policy from ``AgentTurnContext.resolve_tool_policy``.
+        tool_source_reference: Opaque text that the tool's source stores on
+            the call's record, such as which MCP server and tool to call. The
+            tool Step returns it in ``DeferredToolExecution.tool_call``, so the
+            source resolves the tool without listing it again. ``None``, the
+            default, stores nothing.
     """
 
     tool_call_id: str
     tool_name: str
     arguments: str
     policy: ToolPolicy
+    tool_source_reference: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -374,6 +380,15 @@ class DeferredToolExecution:
         events: Writer for live events, bound to the turn and attempt.
         heartbeat: Coroutine function that records Step liveness. The session
             already heartbeats in the background.
+        heartbeat_checkpoint: The checkpoint an earlier attempt of this call
+            saved with ``save_heartbeat_checkpoint``, or ``None``. Use it to
+            resume work that the earlier attempt started, such as polling a
+            long-running job, instead of starting it again.
+        save_heartbeat_checkpoint: Coroutine function that records a heartbeat
+            carrying a checkpoint. Every later heartbeat of the attempt,
+            including the session's background heartbeats, carries it too, so
+            the next attempt reads it as ``heartbeat_checkpoint``. ``None`` when
+            the caller cannot save checkpoints.
     """
 
     flow_id: str
@@ -382,6 +397,8 @@ class DeferredToolExecution:
     attempt: int
     events: AgentEventWriter
     heartbeat: Callable[[], Awaitable[None]]
+    heartbeat_checkpoint: str | None = None
+    save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

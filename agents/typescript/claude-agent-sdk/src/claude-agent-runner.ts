@@ -120,8 +120,8 @@ export interface ClaudeAgentRunnerOptions {
   /**
    * Custom tools created with `tool()` from `@anthropic-ai/claude-agent-sdk`. The runner serves them
    * from an in-process MCP server. Their MCP annotations classify them when no explicit policy exists:
-   * `readOnlyHint` means `read`, and `idempotentHint` without `destructiveHint` means
-   * `idempotent_write`. Defaults to none.
+   * `readOnlyHint` means `read`, and otherwise `idempotentHint` means `idempotent_write`, whatever
+   * `destructiveHint` says. Defaults to none.
    */
   readonly customTools?: readonly ClaudeCustomTool[];
   /**

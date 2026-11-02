@@ -184,8 +184,8 @@ Mastra's total usage of the `RunModel`.
 A tool's effect comes from its `ToolPolicy`, then from MCP annotations on the
 tool (`mcp: { annotations: { readOnlyHint, idempotentHint, destructiveHint } }`
 on `createTool`), then from `defaultToolEffect`. `readOnlyHint: true` means
-`read`; `idempotentHint: true` without `destructiveHint: true` means
-`idempotent_write`. Annotations on tools from an MCP server count only with
+`read`; otherwise `idempotentHint: true` means `idempotent_write`, whatever
+`destructiveHint` says. Annotations on tools from an MCP server count only with
 `shouldTrustMcpServerToolAnnotations: true`.
 
 A tool created with Mastra's `requireApproval` (a boolean or a function), or an

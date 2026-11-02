@@ -211,12 +211,13 @@ export function encodeAgentToolCall(value: AgentToolCall): unknown {
     error: value.error,
     rejection_message: value.rejectionMessage,
     deferral_order: value.deferralOrder,
+    tool_source_reference: value.toolSourceReference ?? null,
   };
 }
 
 export function decodeAgentToolCall(value: unknown): AgentToolCall {
   const reader = new WireRecordReader(value, "AgentToolCall");
-  return {
+  const toolCall: AgentToolCall = {
     toolCallId: reader.readString("tool_call_id"),
     turnId: reader.readString("turn_id"),
     toolName: reader.readString("tool_name"),
@@ -229,6 +230,8 @@ export function decodeAgentToolCall(value: unknown): AgentToolCall {
     rejectionMessage: reader.readNullableString("rejection_message"),
     deferralOrder: reader.readIntegerOrDefault("deferral_order", 0),
   };
+  const toolSourceReference = reader.readNullableString("tool_source_reference");
+  return toolSourceReference === null ? toolCall : { ...toolCall, toolSourceReference };
 }
 
 export function encodeAgentInterrupt(value: AgentInterrupt): unknown {

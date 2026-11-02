@@ -33,6 +33,10 @@ private `dexcli dev --engine zd` engine and Worker processes for integration
 tests, and the adapters' own tests import it from the published core. It is
 for tests only; it needs `DEXCLI` and `dex-server-zd`.
 
+`@superdurable/dex-agents/mcp` offers the tools of MCP servers as agent tools;
+see [MCP tools](#mcp-tools-superdurabledex-agentsmcp). It needs the optional
+peer dependency `@modelcontextprotocol/sdk` `^1.32.2`.
+
 Develop the package inside this repository with `./ci.sh`. The adapters in
 this repository depend on it as a `file:../core` devDependency with
 `install-links=true` in their `.npmrc`, so npm copies the built core instead
@@ -191,7 +195,14 @@ It runs in `CallTool` or `CallSingleAttemptTool`, possibly concurrently with
 other calls of the same response. `DeferredToolExecution` has `flowId`,
 `toolCall` (the call's `AgentToolCall` record), `idempotencyKey`
 (`<flowId>/<turnId>/<toolCallId>`, the same on every attempt), `attempt`,
-`events`, `cancellationSignal`, `deadline`, and `heartbeat()`.
+`events`, `cancellationSignal`, `deadline`, `heartbeat()`,
+`heartbeatCheckpoint`, and `saveHeartbeatCheckpoint(text)`.
+`saveHeartbeatCheckpoint` records a heartbeat that carries the text, and every
+later heartbeat of the attempt carries it too; a retried attempt reads it as
+`heartbeatCheckpoint` and can resume work the earlier attempt started instead
+of starting it again. A `DeferredToolCall` may carry `toolSourceReference`,
+opaque text stored on the call's record (wire field `tool_source_reference`),
+so the tool's source can resolve the tool without listing it again.
 
 - Run the real tool and return `{ output }`; the text is recorded and shown to
   the model.
@@ -322,6 +333,158 @@ A call that requires approval runs `AwaitToolApproval` first. Precedence for a
 tool's effect: its `ToolPolicy`, then the framework effect the runner passes,
 then `defaultToolEffect`. No tool runs inside `RunModel`, unless the framework
 cannot defer it.
+
+## MCP tools (`@superdurable/dex-agents/mcp`)
+
+`@superdurable/dex-agents/mcp` turns the tools of MCP servers into tools of an
+agent session. Every MCP tool call runs in its own tool Step, with an effect
+class from the tool's annotations, so a crash never repeats a write silently.
+It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
+entry point never imports it:
+
+```bash
+npm i @superdurable/dex-agents @superdurable/dex@1.30.0 @modelcontextprotocol/sdk zod
+```
+
+Configure the servers on the Worker, never from Flow input, a user message, or
+a browser: a stdio server's command runs with the Worker's privileges.
+
+```ts
+import { McpToolSource } from "@superdurable/dex-agents/mcp";
+
+const tools = new McpToolSource([
+  { transport: "stdio", name: "files", command: "mcp-server-files", args: ["/srv/reports"] },
+  {
+    transport: "streamable_http",
+    name: "tickets",
+    url: "https://tickets.example.com/mcp",
+    headers: { Authorization: `Bearer ${process.env.TICKETS_TOKEN}` },
+  },
+]);
+```
+
+A runner offers the tools and defers every call; the tool Step runs it:
+
+```ts
+class MyRunner implements AgentFrameworkRunner {
+  // buildUserMessage omitted
+  public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
+    const offered = await tools.listTools(); // McpTool: name, description, inputSchema
+    const response = await callMyModel(turn.messages, offered);
+    return {
+      kind: "tool_calls_requested",
+      frameworkRunState: JSON.stringify(response),
+      usage: response.usage,
+      toolCalls: response.toolCalls.map((call) =>
+        tools.deferredToolCall(turn, { toolCallId: call.id, toolName: call.name, arguments: call.arguments }),
+      ),
+    };
+  }
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+    const handlers = { ...this.localHandlers, ...(await tools.deferredToolHandlers()) };
+    return handlers[call.toolCall.toolName]!(call);
+  }
+}
+```
+
+`listTools()` lists each server on first use and caches its tools on their
+own; `listTools({ refresh: true })` lists every server again. A server that
+cannot be listed is left out with a warning and tried again on the next call,
+so one bad server never hides the others' tools. `deferredToolCall` stores the
+server, the tool's MCP name, and its task support on the call's record, so the
+tool Step calls that server directly, without a listing; `callTool` finds the
+server through the listing. Tool names are `<server>__<tool>`, with characters
+other than letters, digits, `_`, and `-` replaced by `_` and names over 64
+characters shortened with a hash. When two tools get the same name, the first
+in server order is offered and the other is left out with a warning. Key tool
+policies by that name.
+
+### Effects
+
+`toolEffectFromMcpToolAnnotations` classifies each tool:
+
+| MCP annotations | Effect | Tool Step | Approval by default |
+| --- | --- | --- | --- |
+| `readOnlyHint: true` | `read` | `CallTool` | No |
+| `idempotentHint: true`, whatever `destructiveHint` says | `idempotent_write` | `CallTool` | No |
+| anything else, or none | `defaultToolEffect`, `unclassified` by default | `CallSingleAttemptTool` | Yes |
+
+The Python core classifies the same way. A policy in `toolPolicies` wins over
+the annotations. `trustsToolAnnotations` defaults to `true`, so a server with a
+wrong `readOnlyHint` on a write gets that write run without approval and
+retried up to three times. Set `trustsToolAnnotations: false` on a server whose
+hints you do not trust.
+
+### What a call does
+
+The source uses `@modelcontextprotocol/sdk` 1.x, which speaks MCP up to
+2025-11-25. Every request opens a new connection, performs the `initialize`
+handshake within `connectionTimeoutMs` (30 seconds by default), and then ends
+the protocol session with an HTTP `DELETE` and closes the connection, so no
+protocol session outlives a request and a server restart between listing and
+calling is harmless. Every
+`tools/call` carries the session's idempotency key,
+`<flowId>/<turnId>/<toolCallId>`, in `_meta` under `mcpIdempotencyKeyMetaKey`
+(`io.superdurable.dex/idempotencyKey`), and the tool Step's cancellation
+signal aborts the request.
+
+| What happens | Recorded | Re-issued? |
+| --- | --- | --- |
+| A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
+| The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
+| The connection broke, the server exited, or the request timed out after it was sent; an internal error (`-32603`), an HTTP error status, or an unreadable body, which a gateway can return after the server ran the call | `McpToolCallInterruptedError`, a Step failure | `read` and `idempotent_write`: `CallTool` sends a new request, same idempotency key, up to 3 attempts. Other effects: `outcome_unknown`, never sent again |
+
+`notifications/progress` become `mcp.tool_progress` events on `AgentEvents`.
+
+### Long-running MCP tasks
+
+A tool whose `execution.taskSupport` is `required` is called as a task, the
+2025-11-25 experimental tasks of the SDK. The tool Step polls `tasks/get`,
+writes an `mcp.task_status` event per observed status, and heartbeats between
+polls, for at most `taskWaitTimeoutMs` (10 minutes by default) per attempt;
+then it fetches the result with `tasks/result`. A failed or cancelled task
+records `failed`. The source requests a task TTL of four times
+`taskWaitTimeoutMs`, so the task outlives every attempt's wait. For a
+Streamable HTTP server, the tool Step saves the task ID as its heartbeat
+checkpoint. When the wait passes, or the Worker dies while polling, the task
+keeps running: `CallTool` retries a `read` or `idempotent_write` call, and the
+retry polls the same task instead of calling the tool again. A server that
+binds tasks to its protocol session, as the SDK's task store does for a
+stateful Streamable HTTP server, cannot show the task to the retry's new
+session, so the retry calls the tool again. Other effects record
+`outcome_unknown`. The follow-up design,
+shared with the Python core, moves polling to a Timer-driven `PollMcpTask` Step
+so no Step holds a connection while the task runs.
+
+### Input requests
+
+A task in `input_required` is cancelled and records `failed` with `the MCP
+server asked for input that this agent session cannot provide yet (...)`. The
+source declares no elicitation, sampling, or roots capability, so a server
+cannot send those requests directly. The follow-up maps input requests to a
+session question interrupt.
+
+### With a framework adapter
+
+The runner above is the core's runner-agnostic path. A framework adapter uses
+the source when it accepts tools defined by a JSON Schema: wrap each `McpTool`
+as a framework tool that calls `tools.callTool(name, input, { idempotencyKey })`
+with the key from the adapter's tool context, and pass
+`{ ...tools.toolPolicies(), ...yourPolicies }` as the adapter's `toolPolicies`.
+No adapter package changes for this.
+
+| Adapter | Schema-only tool | Key inside the tool |
+| --- | --- | --- |
+| `@superdurable/dex-agents-vercel-ai` | `tool({ inputSchema: jsonSchema(...), execute })` | `getAgentToolExecutionScope()?.idempotencyKey` |
+| `@superdurable/dex-agents-openai-agents` | `tool({ parameters: <JSON Schema>, strict: false, execute })` | `getDeferredToolExecution()`, the whole call |
+| `@superdurable/dex-agents-mastra` | `createTool(...)` or an AI SDK tool | `requestContext.get(idempotencyKeyRequestContextKey)` |
+| `@superdurable/dex-agents-claude-agent-sdk` | an SDK MCP tool; convert the schema to a zod raw shape | `currentDeferredToolExecution()`; write calls only, reads run inside the harness |
+
+Vercel AI SDK and Mastra also defer their own MCP client tools into tool
+Steps; use the source there for the shared idempotency key and annotation
+handling. The OpenAI Agents SDK runs its own MCP servers inline in `RunModel`,
+so a wrapper is its only path to tool Steps.
 
 ## Testing export
 
@@ -474,3 +637,16 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
 - Sessions never complete on their own; stop them with `Client.stopFlow`.
 - `AgentEvents` is best effort and its byte budget is shared by every session
   of the Flow type; rebuild from `get_agent_snapshot`.
+- `@superdurable/dex-agents/mcp` uses `@modelcontextprotocol/sdk` 1.x, which
+  speaks MCP up to 2025-11-25: no stateless 2026-07-28 requests, no
+  `io.modelcontextprotocol/tasks` extension, no `input_required` results, and no
+  `traceparent` in `_meta`. It calls only `taskSupport: required` tools as
+  tasks. The Python core speaks 2026-07-28.
+- An MCP task is polled inside its tool Step, holding a Worker slot; a task in
+  `input_required` records `failed`. Timer-driven polling and question
+  interrupts are follow-ups.
+- Every MCP request opens a new connection and runs the `initialize`
+  handshake. An unreachable server is tried again, with its connection
+  attempts, on every `listTools` call until it answers. A server that binds
+  tasks to its protocol session, such as a stateful server on the SDK's task
+  store, cannot resume a task across attempts; the retry calls the tool again.

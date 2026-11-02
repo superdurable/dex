@@ -252,7 +252,12 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "dex-python-sdk", specifier = "==1.30.0" }]
+requires-dist = [
+    { name = "dex-python-sdk", specifier = "==1.30.0" },
+    { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
+]
+provides-extras = ["mcp"]
 
 [package.metadata.requires-dev]
 dev = [

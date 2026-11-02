@@ -228,6 +228,8 @@ class AgentToolCall:
         deferral_order: Zero-based order in which the turn deferred the call.
             Approved calls run in this order. This field extends the planned
             contract so the order survives storage in an AttributeMap.
+        tool_source_reference: ``DeferredToolCall.tool_source_reference``,
+            opaque text the tool's source stored with the call, or ``None``.
     """
 
     tool_call_id: str
@@ -241,6 +243,7 @@ class AgentToolCall:
     error: str | None = None
     rejection_message: str | None = None
     deferral_order: int = 0
+    tool_source_reference: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

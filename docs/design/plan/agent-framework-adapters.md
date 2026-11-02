@@ -126,6 +126,78 @@ The idempotency key passed to `execute_deferred_tool_call` is
 be non-empty, contain no `/`, and be unique within one turn; they may repeat
 across turns.
 
+## MCP tool source
+
+Parent design: C4, MCP as a tool source. Both cores ship an MCP client as an
+optional part: `dex_agents.mcp` behind the `dex-agents[mcp]` extra, and the
+`@superdurable/dex-agents/mcp` subpath with `@modelcontextprotocol/sdk` as an
+optional peer dependency. Neither core's main entry point imports an MCP SDK.
+
+- `McpToolSource` takes stdio and Streamable HTTP server configurations from
+  the Worker, never from Flow input, a user message, or a browser. It lists
+  and caches each server's tools on their own as agent tool definitions named
+  `<server>__<tool>`; a server that cannot be listed, and a tool whose name
+  collides with an earlier one, are left out with a warning.
+  `deferred_tool_call` resolves each call's policy with the annotation effect
+  as `framework_effect`: `readOnlyHint` is `read`, `idempotentHint` is
+  `idempotent_write` whatever `destructiveHint` says, and an explicit
+  `ToolPolicy` wins. Annotations are trusted by default.
+- `deferred_tool_call` stores the server and the tool's MCP name in the new
+  `DeferredToolCall.tool_source_reference`, which the session keeps on the
+  `AgentToolCall` record (`tool_source_reference`), so the tool Step calls that
+  server without a listing.
+- Calls run only in tool Steps, through `execute_deferred_tool_call`. Every
+  request opens a new connection, with the handshake bounded at 30 seconds by
+  default, so a server restart between listing and calling is harmless.
+  `tools/call` carries the idempotency key in `_meta` under
+  `io.superdurable.dex/idempotencyKey`. The TypeScript source ends each HTTP
+  protocol session with a `DELETE`.
+- An `isError` result, a JSON-RPC error other than `-32603`, and a call that
+  was never sent raise `ToolExecutionError`. A request sent without a result
+  back raises `McpToolCallInterruptedError`, a Step failure, so the effect
+  class decides a re-issue: `CallTool` sends a new request for `read` and
+  `idempotent_write`, and `CallSingleAttemptTool` records `outcome_unknown`.
+  The MCP SDKs also report an HTTP error status, and Python an unreadable
+  body, as `-32603` and `-32700`; a gateway can send those after the server
+  ran the call, so they count as no result.
+- A task handle from `io.modelcontextprotocol/tasks` is polled with
+  `tasks/get` inside the tool Step, with a heartbeat per poll, for a bounded
+  wait per attempt (10 minutes by default). For a Streamable HTTP server the
+  task ID is the attempt's heartbeat checkpoint: the new
+  `DeferredToolExecution.save_heartbeat_checkpoint` records it, every later
+  heartbeat of the attempt repeats it, and a retried attempt reads it as
+  `heartbeat_checkpoint` and polls the same task. A Worker kill while polling
+  therefore never creates a second task.
+- `input_required` records `failed` with text naming the requested input.
+- The Python SDK (`mcp` 2.3) speaks 2026-07-28; the source adds the tasks
+  extension, which the SDK does not implement. The TypeScript SDK 1.x speaks
+  up to 2025-11-25, so the TypeScript source uses the initialize handshake per
+  request and the SDK's 2025-11-25 tasks for `taskSupport: required` tools.
+
+Follow-ups:
+
+1. **Timer-driven task polling.** The tool Step that receives a task handle
+   stores the task ID on the call's `AgentToolCalls` record and moves to
+   `PollMcpTask(tool_call_id)`. That Step waits on a Timer at the task's
+   `pollIntervalMs`, polls `tasks/get` once per execution, and records the
+   final result, or moves to itself while the task works. No Step holds a
+   connection, a Worker restart only delays a poll, and a task can run for
+   days. A stdio server's tasks die with its process, so this applies to
+   Streamable HTTP servers.
+2. **Question interrupts.** An `input_required` answer raises a session
+   question interrupt per input request instead of failing. The answer RPC
+   resumes the call, and the tool Step retries `tools/call` with
+   `inputResponses` and the echoed `requestState`, or sends `tasks/update` for
+   a task.
+3. **MCP 2026-07-28 in TypeScript** when an `@modelcontextprotocol/sdk` release
+   speaks it.
+
+Framework adapters use the source when they accept tools defined by a JSON
+Schema: each MCP tool becomes a framework tool that calls `call_tool` with the
+idempotency key from the adapter's tool context, and `tool_policies()` feeds
+the adapter's `tool_policies`. The Claude Agent SDK harness runs read tools
+inline, so only its write calls become Steps.
+
 ## Session Flow contract
 
 Names here are wire contracts shared by Python and TypeScript, so a UI or Dex
@@ -247,6 +319,7 @@ AgentToolCall {
   error: str | null          # ToolExecutionError message, or the recovery detail
   rejection_message: str | null
   deferral_order: int        # zero-based order of the call within its turn
+  tool_source_reference: str | null  # opaque text from DeferredToolCall.tool_source_reference
 }
 AgentInterrupt {
   interrupt_id: str          # equals the tool call ID for tool approvals
@@ -337,12 +410,15 @@ final when `RunModel` runs), the tool policy lookup `resolve_tool_policy`, an
 event writer, a heartbeat function, the Flow ID, the turn ID, and the attempt.
 `AgentTurnOutcome` is either `TurnCompleted(new_messages, usage)` or
 `ToolCallsRequested(framework_run_state, tool_calls, usage)`, where each tool
-call is a `DeferredToolCall(tool_call_id, tool_name, arguments, policy)`.
+call is a `DeferredToolCall(tool_call_id, tool_name, arguments, policy,
+tool_source_reference=None)`.
 `run_model_step` makes at most one model call and runs no tool it can defer.
 `FrameworkMessage` is the `AgentMessage` projection plus `framework_item`.
 `execute_deferred_tool_call` runs the real tool once, possibly concurrently
 with other calls, and returns `ToolExecutionResult(output)`, or raises
-`ToolExecutionError` for a failure the model should see.
+`ToolExecutionError` for a failure the model should see. `DeferredToolExecution`
+also carries `heartbeat_checkpoint`, the checkpoint an earlier attempt saved
+with `save_heartbeat_checkpoint`.
 
 The TypeScript core mirrors these names in camelCase for code and keeps the
 snake_case wire format.

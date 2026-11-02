@@ -83,7 +83,7 @@ smoke_test_python() {
     distribution="$(python_distribution_name "$package")"
     mkdir -p "$project_dir"
     uv venv --quiet --python 3.11 "$project_dir/.venv"
-    uv export --quiet --project "$agents_dir/python/$package" --frozen --no-dev --no-emit-project \
+    uv export --quiet --project "$agents_dir/python/$package" --frozen --no-dev --all-extras --no-emit-project \
       --no-emit-package dex-agents --no-hashes --output-file "$project_dir/constraints.txt"
     # The core installs first, then the adapter resolves dex-agents==<version> from the built wheels.
     uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
@@ -108,6 +108,9 @@ for name, module in dict([("dex-agents", "dex_agents"), (distribution, module_na
     print(f"{name} {installed} imports from {Path(imported.__file__).parent}")
 PY
     )
+    if [[ "$package" == "core" ]]; then
+      smoke_test_python_mcp_extra "$project_dir" "$release_version"
+    fi
   done
 
   echo "== Python session: dex-agents-pydantic-ai against dexcli dev --engine zd"
@@ -123,6 +126,26 @@ asyncio_default_fixture_loop_scope = session
 asyncio_default_test_loop_scope = session
 INI
   (cd "$session_dir" && .venv/bin/python -m pytest -p no:cacheprovider -v tests/test_completed_turns.py)
+}
+
+# dex_agents.mcp must name the extra without the MCP SDK, and import with dex-agents[mcp].
+smoke_test_python_mcp_extra() {
+  local project_dir="$1" release_version="$2"
+  (cd "$project_dir" && .venv/bin/python - <<'PY'
+try:
+    import dex_agents.mcp
+except ModuleNotFoundError as error:
+    if "dex-agents[mcp]" not in str(error):
+        raise
+    print(f"dex_agents.mcp without the extra: {error}")
+else:
+    raise SystemExit("dex_agents.mcp imported without the mcp extra installed")
+PY
+  )
+  uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
+    --constraint "$project_dir/constraints.txt" "dex-agents[mcp]==$release_version"
+  (cd "$project_dir" && .venv/bin/python -c \
+    'import dex_agents.mcp; print("dex_agents.mcp exports", ", ".join(dex_agents.mcp.__all__))')
 }
 
 typescript_package_name() {
@@ -197,6 +220,27 @@ smoke_test_typescript() {
       "
     )
   done
+
+  echo "== TypeScript subpath @superdurable/dex-agents/mcp with its optional peer"
+  local mcp_project_dir="$work_dir/typescript-core-mcp"
+  mkdir -p "$mcp_project_dir"
+  printf '{"name":"agents-smoke-core-mcp","private":true,"type":"module"}\n' >"$mcp_project_dir/package.json"
+  local core_peer_specs=()
+  while IFS= read -r peer_spec; do
+    core_peer_specs+=("$peer_spec")
+  done < <(locked_peer_specs "$agents_dir/typescript/core")
+  (
+    cd "$mcp_project_dir"
+    npm install --no-audit --no-fund "$core_tarball" "${core_peer_specs[@]}"
+    printf 'import { McpToolSource } from "@superdurable/dex-agents/mcp";\nexport const source = new McpToolSource([]);\n' >consumer.ts
+    npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
+      --types node consumer.ts
+    node --input-type=module -e "
+      const mcp = await import('@superdurable/dex-agents/mcp');
+      if (typeof mcp.McpToolSource !== 'function') throw new Error('@superdurable/dex-agents/mcp lacks McpToolSource');
+      console.log('@superdurable/dex-agents/mcp exports', Object.keys(mcp).join(', '));
+    "
+  )
 
   echo "== TypeScript session: @superdurable/dex-agents-vercel-ai against dexcli dev --engine zd"
   local session_dir="$work_dir/typescript-vercel-ai"
