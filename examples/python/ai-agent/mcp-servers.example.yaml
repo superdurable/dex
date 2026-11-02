@@ -6,12 +6,7 @@ servers:
     args: ["-y", "@brave/brave-search-mcp-server", "--transport", "stdio"]
     env:
       BRAVE_API_KEY: BRAVE_API_KEY
-    tools:
-      brave_web_search:
-        read_only: true
-        timeout_seconds: 30
-        maximum_attempts: 3
-        retry_total_seconds: 120
+    trust_read_only_annotations: true
 
   - name: slack
     transport: streamable_http

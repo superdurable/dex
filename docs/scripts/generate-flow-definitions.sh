@@ -23,7 +23,6 @@ generate_flow_definition_v2() {
   ./cli/dexcli visualize "${source_path}" --schema-version 2.0 --json --out "docs/src/data/flow-definitions/${output_path}"
 }
 
-generate_flow_definition examples/python/dex_examples/products/ai-agent/ai_agent_flow.py ai-agent
 generate_flow_definition examples/python/dex_examples/products/deal_dsl/deal_dsl_flow.py deal-dsl
 generate_flow_definition examples/python/dex_examples/products/job-post/job_post_flow.py job-post
 generate_flow_definition examples/python/dex_examples/products/engagement/engagement_flow.py job-seeker-engagement

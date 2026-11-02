@@ -25,9 +25,13 @@ import pytest_asyncio
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
-from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING_TIMER
-from dex_examples.products.ai_agent.models import HistoryRequest
-from tests.integ.conftest import WAIT_TIMEOUT, wait_until
+from dex_agents import AgentSessionClient
+from tests.integ.conftest import WAIT_TIMEOUT
+from tests.integ.ai_agent_sessions import (
+    is_waiting_for_timer,
+    wait_for_message_text,
+    wait_for_snapshot,
+)
 from tests.integ.flow_smoke_helper import (
     FlowSmokeEntry,
     FlowSmokeFlags,
@@ -416,137 +420,110 @@ async def _rpc_only_pattern_trigger(
 
 async def _ai_agent_trigger(
     client: FlowSmokeHttpClient,
-    flow_id: str,
+    session_id: str,
 ) -> tuple[str, str]:
-    await client.post(
-        "/products/ai-agent/start",
-        {"workflowId": flow_id},
-    )
-    return flow_id, ""
+    await client.post("/products/ai-agent/sessions", {"session_id": session_id})
+    return session_id, ""
 
 
-async def test_ai_agent_portal_configures_credentials_and_capabilities(
+async def test_ai_agent_settings_show_the_worker_configuration(
     flow_smoke_http: FlowSmokeHttpClient,
-    example_app: ExampleApp,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "environment-test-secret")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    _, _, portal_body = await flow_smoke_http.get("/products/ai-agent/portal")
-    portal = json.loads(portal_body)
-    providers = {provider["id"]: provider for provider in portal["providers"]}
-    assert providers["openai"]["isConfigured"] is True
-    assert providers["anthropic"]["isConfigured"] is False
-    assert "write_todos" in portal["builtInTools"]
-    assert "test" in portal["mcpServers"]
-
-    flow_id = flow_smoke_http.new_flow_id("ai-agent-portal")
-    await flow_smoke_http.post(
-        "/products/ai-agent/start",
-        {
-            "workflowId": flow_id,
-            "provider": "openai",
-            "model": "gpt-example",
-            "mcpEnabled": False,
-            "enabledMcpServers": [],
-            "enabledTools": [],
-        },
-    )
-    assert (
-        example_app.ai_agent_credentials.get_api_key(flow_id)
-        == "environment-test-secret"
-    )
-    example_app.ai_agent_credentials.set_api_key(flow_id, None)
-
-
-async def test_ai_agent_portal_rejects_unconfigured_provider(
-    example_app: ExampleApp,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    client = create_app(example_app).test_client()
-    flow_id = f"ai-agent-unconfigured-provider-{uuid4().hex}"
-
-    response = await client.post(
-        "/products/ai-agent/start",
-        json={
-            "workflowId": flow_id,
-            "provider": "openai",
-            "model": "gpt-example",
-        },
-    )
-
-    assert response.status_code == 400
-    assert "set OPENAI_API_KEY in examples/.env" in await response.get_data(
-        as_text=True
-    )
-    assert example_app.ai_agent_credentials.get_api_key(flow_id) is None
+    _, _, settings_body = await flow_smoke_http.get("/products/ai-agent/settings")
+    settings = json.loads(settings_body)
+    assert settings["model"] == "mock/dex"
+    assert settings["mcp_servers"] == ["test"]
+    effects = {tool["name"]: tool["effect"] for tool in settings["mcp_tools"]}
+    assert effects["test__lookup"] == "read"
+    assert effects["test__publish"] == "unclassified"
+    assert settings["built_in_tools"] == ["ask_user", "durable_wait", "write_todos"]
 
 
 async def test_ai_agent_http_queue_can_delete_and_steer(
     flow_smoke_http: FlowSmokeHttpClient,
     example_app: ExampleApp,
 ) -> None:
-    flow_id = flow_smoke_http.new_flow_id("ai-agent-queue")
-    await flow_smoke_http.post(
-        "/products/ai-agent/start",
-        {"workflowId": flow_id},
-    )
+    sessions = AgentSessionClient(example_app.client, example_app.ai_agent)
+    session_id = flow_smoke_http.new_flow_id("ai-agent-queue")
+    await flow_smoke_http.post("/products/ai-agent/sessions", {"session_id": session_id})
     await flow_smoke_http.post(
         "/products/ai-agent/messages",
-        {"workflowId": flow_id, "content": "/wait 30 queue test"},
+        {"session_id": session_id, "text": "/wait 30 queue test"},
     )
-
-    async def timer_is_waiting() -> bool:
-        description = await example_app.client.invoke_rpc(
-            example_app.ai_agent.describe,
-            flow_id,
-        )
-        return description.status == STATUS_WAITING_TIMER
-
-    await wait_until("AI Agent HTTP timer", timer_is_waiting, WAIT_TIMEOUT)
+    await wait_for_snapshot(sessions, session_id, "durable wait", is_waiting_for_timer)
     await flow_smoke_http.post(
         "/products/ai-agent/messages",
-        {"workflowId": flow_id, "content": "delete this"},
+        {"session_id": session_id, "text": "delete this"},
     )
     _, _, snapshot_body = await flow_smoke_http.get(
         "/products/ai-agent/snapshot",
-        {"workflowId": flow_id},
+        {"session_id": session_id},
     )
-    queued = json.loads(snapshot_body)["queued"]
-    assert [message["value"]["content"] for message in queued] == ["delete this"]
-    await flow_smoke_http.post(
-        "/products/ai-agent/message-queue/delete",
-        {"workflowId": flow_id, "messageId": queued[0]["message_id"]},
+    queued = json.loads(snapshot_body)["snapshot"]["queued_messages"]
+    assert [message["message"]["text"] for message in queued] == ["delete this"]
+    _, _, deleted_body = await flow_smoke_http.post(
+        "/products/ai-agent/messages/delete",
+        {"session_id": session_id, "message_id": queued[0]["message_id"]},
     )
+    assert json.loads(deleted_body) == {"accepted": True}
 
     await flow_smoke_http.post(
         "/products/ai-agent/messages",
-        {"workflowId": flow_id, "content": "steer this"},
+        {"session_id": session_id, "text": "steer this"},
     )
     _, _, snapshot_body = await flow_smoke_http.get(
         "/products/ai-agent/snapshot",
-        {"workflowId": flow_id},
+        {"session_id": session_id},
     )
-    queued = json.loads(snapshot_body)["queued"]
-    await flow_smoke_http.post(
-        "/products/ai-agent/message-queue/steer",
-        {"workflowId": flow_id, "messageId": queued[0]["message_id"]},
+    queued = json.loads(snapshot_body)["snapshot"]["queued_messages"]
+    _, _, steered_body = await flow_smoke_http.post(
+        "/products/ai-agent/messages/steer",
+        {"session_id": session_id, "message_id": queued[0]["message_id"]},
     )
+    assert json.loads(steered_body) == {"accepted": True}
+    await wait_for_message_text(sessions, session_id, "Local demo response: steer this")
 
-    async def steer_was_applied() -> bool:
-        history = await example_app.client.invoke_rpc(
-            example_app.ai_agent.get_history,
-            flow_id,
-            HistoryRequest(limit=50),
-        )
-        return any(
-            message.message.role == "user"
-            and message.message.content == "steer this"
-            for message in history.messages
-        )
 
-    await wait_until("AI Agent HTTP Steer", steer_was_applied, WAIT_TIMEOUT)
+async def test_ai_agent_http_history_events_and_closed_sessions(
+    flow_smoke_http: FlowSmokeHttpClient,
+    example_app: ExampleApp,
+) -> None:
+    sessions = AgentSessionClient(example_app.client, example_app.ai_agent)
+    http_client = create_app(example_app).test_client()
+    session_id = flow_smoke_http.new_flow_id("ai-agent-history")
+    await flow_smoke_http.post("/products/ai-agent/sessions", {"session_id": session_id})
+    for index in range(3):
+        await flow_smoke_http.post(
+            "/products/ai-agent/messages", {"session_id": session_id, "text": f"page {index}"}
+        )
+        await wait_for_message_text(sessions, session_id, f"Local demo response: page {index}")
+
+    _, _, history_body = await flow_smoke_http.get(
+        "/products/ai-agent/history", {"session_id": session_id, "before_sequence": "5"}
+    )
+    history = json.loads(history_body)
+    assert [message["sequence"] for message in history["messages"]] == [1, 2, 3, 4]
+    assert history["next_before_sequence"] is None
+    assert all("framework_item" not in message for message in history["messages"])
+    bad_anchor = await http_client.get(
+        "/products/ai-agent/history",
+        query_string={"session_id": session_id, "before_sequence": "first"},
+    )
+    assert bad_anchor.status_code == 400
+
+    missing_events = await http_client.get(
+        "/products/ai-agent/events",
+        query_string={"session_id": flow_smoke_http.new_flow_id("missing-ai-agent")},
+    )
+    assert missing_events.status_code == 404
+
+    await example_app.client.stop_flow(session_id)
+    await example_app.client.wait_for_flow(session_id, WAIT_TIMEOUT)
+    closed = await http_client.post(
+        "/products/ai-agent/messages", json={"session_id": session_id, "text": "too late"}
+    )
+    assert closed.status_code == 409
+    assert "session is closed" in await closed.get_data(as_text=True)
 
 
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:

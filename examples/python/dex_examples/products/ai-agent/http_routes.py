@@ -12,30 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""HTTP routes of the AI Agent UI, each one call on AgentSessionClient or dex_agents.ui_stream."""
+
 from __future__ import annotations
 
-import os
 from dataclasses import asdict
-from datetime import timedelta
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
-from dex import (
-    ChannelMessageNotFoundError,
-    FlowNotActiveOrNotFoundError,
-    StartFlowOptions,
-)
-from quart import Blueprint, Response, jsonify, render_template, request
+from dex import ChannelMessageNotFoundError, FlowNotActiveOrNotFoundError, RpcLockConflictError
+from dex_agents import BUILT_IN_TOOL_DEFINITIONS, AgentSessionClient
+from dex_agents.mcp import McpToolListingError
+from dex_agents.stepwise import StepwiseAgentRunner
+from dex_agents.ui_stream import AGENT_EVENT_STREAM_HEADERS, InvalidAgentEventResumeTokenError
+from dex_agents.ui_stream import read_agent_event_stream_snapshot, stream_agent_event_frames
+from quart import Blueprint, Response, jsonify, make_response, render_template, request
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from dex_examples.app import ExampleApp
-from dex_examples.products.ai_agent.models import (
-    AgentConfig,
-    PlanExecutionRequest,
-    SteerMessageRequest,
-    ToolApprovalRequest,
-    UserMessage,
-)
 from dex_examples.shared.query import optional_query, required_query
 
 WEB_ROOT = Path(__file__).resolve().parents[3] / "ai-agent"
@@ -43,395 +37,166 @@ TEMPLATE_DIR = WEB_ROOT / "templates"
 STATIC_DIR = WEB_ROOT / "static"
 
 
-class ProviderConfig(TypedDict):
-    label: str
-    prefix: str
-    defaultModel: str
-    environmentVariable: str | None
-
-
-PROVIDERS: dict[str, ProviderConfig] = {
-    "mock": {
-        "label": "Local mock",
-        "prefix": "",
-        "defaultModel": "mock/dex",
-        "environmentVariable": None,
-    },
-    "openai": {
-        "label": "OpenAI",
-        "prefix": "openai",
-        "defaultModel": "gpt-5-mini",
-        "environmentVariable": "OPENAI_API_KEY",
-    },
-    "anthropic": {
-        "label": "Anthropic",
-        "prefix": "anthropic",
-        "defaultModel": "claude-sonnet-4-5",
-        "environmentVariable": "ANTHROPIC_API_KEY",
-    },
-    "gemini": {
-        "label": "Google Gemini",
-        "prefix": "gemini",
-        "defaultModel": "gemini-2.5-flash",
-        "environmentVariable": "GEMINI_API_KEY",
-    },
-    "groq": {
-        "label": "Groq",
-        "prefix": "groq",
-        "defaultModel": "llama-3.3-70b-versatile",
-        "environmentVariable": "GROQ_API_KEY",
-    },
-    "custom": {
-        "label": "Other LiteLLM provider",
-        "prefix": "",
-        "defaultModel": "",
-        "environmentVariable": "LITELLM_API_KEY",
-    },
-}
-
-
 def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("ai_agent", __name__, url_prefix="/products/ai-agent")
+
+    def sessions() -> AgentSessionClient:
+        return AgentSessionClient(app_state.client, app_state.ai_agent)
+
+    @blueprint.errorhandler(FlowNotActiveOrNotFoundError)
+    async def report_closed_session(error: FlowNotActiveOrNotFoundError) -> tuple[str, int]:
+        return "the AI Agent session is closed or no longer retained; start a new one", 409
+
+    @blueprint.errorhandler(RpcLockConflictError)
+    async def report_busy_session(error: RpcLockConflictError) -> tuple[str, int]:
+        return "the AI Agent session is busy; try again", 409
 
     @blueprint.get("/")
     async def index() -> str:
         bundle_version = (STATIC_DIR / "js" / "bundle.js").stat().st_mtime_ns
         return await render_template("index.html", bundle_version=bundle_version)
 
-    @blueprint.get("/portal")
-    async def portal() -> Response:
-        registered_tools = {
-            tool.definition.name: tool
-            for tool in app_state.mcp_registry.registered_tools
-        }
-        tools = []
-        for definition in app_state.mcp_registry.definitions([], []):
-            registered = registered_tools.get(definition.name)
-            tools.append(
-                {
-                    "name": definition.name,
-                    "description": definition.description,
-                    "requiresApproval": definition.requires_approval,
-                    "server": registered.server_name if registered else None,
-                }
-            )
+    @blueprint.get("/settings")
+    async def get_worker_settings() -> Response:
+        config, runner = app_state.config, app_state.ai_agent.runner
+        assert isinstance(runner, StepwiseAgentRunner)
+        try:
+            sources = runner.definition.tool_sources
+            mcp_tools = [tool for source in sources for tool in await source.list_tools()]
+        except McpToolListingError:
+            mcp_tools = []
         return jsonify(
-            providers=[
-                {
-                    "id": provider_id,
-                    **provider,
-                    "isConfigured": _provider_api_key(provider) is not None
-                    or provider_id == "mock",
-                }
-                for provider_id, provider in PROVIDERS.items()
+            model=config.agent_model,
+            system_prompt=config.agent_system_prompt,
+            context_window_tokens=config.agent_context_tokens,
+            mcp_servers=[server.name for server in app_state.ai_agent_mcp_servers],
+            mcp_tools=[
+                {"name": tool.name, "effect": tool.framework_effect or "unclassified"}
+                for tool in mcp_tools
             ],
-            mcpServers=app_state.mcp_registry.server_names,
-            tools=tools,
-            builtInTools=["write_todos", "request_user_input", "durable_wait"],
+            built_in_tools=[definition.name for definition in BUILT_IN_TOOL_DEFINITIONS],
         )
 
-    @blueprint.post("/start")
-    async def start() -> Response:
-        payload = await _json_object()
-        flow_id = _required_string(payload, "workflowId")
-        provider = _optional_string(payload, "provider", "mock").strip().lower()
-        provider_config = PROVIDERS.get(provider)
-        if provider_config is None:
-            raise BadRequest(f"unknown provider {provider!r}")
-        api_key = _provider_api_key(provider_config)
-        if provider != "mock" and api_key is None:
-            environment_variable = provider_config["environmentVariable"]
-            if environment_variable is None:
-                raise RuntimeError(f"provider {provider!r} has no credential variable")
-            raise BadRequest(
-                f"{provider} is not configured; set {environment_variable} "
-                "in examples/.env and restart the Python examples"
-            )
-        config = AgentConfig(
-            model=_provider_model(
-                provider,
-                _optional_string(payload, "model", app_state.config.agent_model),
-            ),
-            system_prompt=_optional_string(
-                payload,
-                "systemPrompt",
-                app_state.config.agent_system_prompt,
-            ),
-            compaction_model=_optional_nullable_string(payload, "compactionModel"),
-            max_context_tokens=_optional_int(
-                payload,
-                "maxContextTokens",
-                app_state.config.agent_context_tokens,
-            ),
-            compaction_trigger_fraction=_optional_float(
-                payload,
-                "compactionTriggerFraction",
-                0.85,
-            ),
-            compaction_keep_fraction=_optional_float(
-                payload,
-                "compactionKeepFraction",
-                0.10,
-            ),
-            message_retention_limit=_optional_int(
-                payload,
-                "messageRetentionLimit",
-                app_state.config.agent_message_retention,
-            ),
-            mcp_enabled=_optional_bool(payload, "mcpEnabled", True),
-            enabled_mcp_servers=_string_list(payload, "enabledMcpServers"),
-            enabled_tools=_string_list(payload, "enabledTools"),
-        )
-        config.validate()
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        _, session_id = await _session_request()
+        await sessions().start_session(session_id)
+        return jsonify(session_id=session_id)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = required_query("session_id")
         try:
-            app_state.ai_agent_credentials.set_api_key(flow_id, api_key)
-        except ValueError as error:
-            raise BadRequest(str(error)) from error
-        try:
-            await app_state.client.start_flow(
-                app_state.ai_agent,
-                flow_id,
-                config,
-                StartFlowOptions(),
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, app_state.ai_agent, session_id
             )
-        except Exception:
-            app_state.ai_agent_credentials.set_api_key(flow_id, None)
-            raise
-        return jsonify(workflow_id=flow_id)
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the AI Agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+
+    @blueprint.get("/history")
+    async def list_agent_messages() -> Response:
+        session_id = required_query("session_id")
+        before_sequence = optional_query("before_sequence", "")
+        if before_sequence and not before_sequence.isdigit():
+            raise BadRequest("before_sequence must be a message sequence")
+        anchor = int(before_sequence) if before_sequence else None
+        page = await sessions().list_agent_messages(session_id, before_sequence=anchor, limit=100)
+        messages = [asdict(message) for message in page.messages]
+        for message in messages:
+            # Only the session's Steps read the framework item, which can hold the instructions.
+            message.pop("framework_item")
+        return jsonify(messages=messages, next_before_sequence=page.next_before_sequence)
+
+    @blueprint.get("/events")
+    async def stream_agent_events() -> Response:
+        session_id = required_query("session_id")
+        try:
+            await sessions().get_agent_snapshot(session_id)
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the AI Agent session is missing or no longer retained") from error
+        resume_token = request.headers.get("Last-Event-ID") or request.args.get("resume_token", "")
+        try:
+            frames = await stream_agent_event_frames(
+                app_state.client, app_state.ai_agent, session_id, resume_token=resume_token
+            )
+        except InvalidAgentEventResumeTokenError as error:
+            raise BadRequest("the resume token is not valid; reload the snapshot") from error
+        response = await make_response(frames, dict(AGENT_EVENT_STREAM_HEADERS))
+        response.timeout = None
+        return response
 
     @blueprint.post("/messages")
-    async def send_message() -> Response:
-        payload = await _json_object()
-        accepted = await app_state.client.invoke_rpc(
-            app_state.ai_agent.send_message,
-            _required_string(payload, "workflowId"),
-            UserMessage(
-                _required_string(payload, "content"),
-                _optional_bool(payload, "planMode", False),
-            ),
+    async def send_user_message() -> Response:
+        body, session_id = await _session_request()
+        accepted = await sessions().send_user_message(
+            session_id, _required_string(body, "text"), plan_mode=body.get("plan_mode") is True
         )
         return jsonify(accepted=accepted)
 
-    @blueprint.get("/snapshot")
-    async def snapshot() -> Response:
-        flow_id = required_query("workflowId")
+    @blueprint.post("/messages/steer")
+    async def steer_user_message() -> Response:
+        body, session_id = await _session_request()
         try:
-            agent_snapshot = await app_state.client.invoke_rpc(
-                app_state.ai_agent.get_snapshot,
-                flow_id,
+            accepted = await sessions().steer_user_message(
+                session_id, message_id=body.get("message_id"), text=body.get("text")
             )
-        except FlowNotActiveOrNotFoundError as error:
-            raise NotFound("AI Agent snapshot is missing or unavailable") from error
-        payload = asdict(agent_snapshot)
-        payload.update(
-            flow_status="unknown",
-            error_type=None,
-            error_message=None,
-        )
-        return jsonify(payload)
+        except ChannelMessageNotFoundError as error:
+            raise Conflict("the queued message was consumed; reload the snapshot") from error
+        return jsonify(accepted=accepted)
 
-    @blueprint.post("/message-queue/delete")
+    @blueprint.post("/messages/delete")
     async def delete_queued_message() -> Response:
-        payload = await _json_object()
+        body, session_id = await _session_request()
+        message_id = _required_string(body, "message_id")
         try:
-            await app_state.client.invoke_rpc(
-                app_state.ai_agent.delete_queued_message,
-                _required_string(payload, "workflowId"),
-                _required_string(payload, "messageId"),
-            )
+            accepted = await sessions().delete_queued_message(session_id, message_id)
         except ChannelMessageNotFoundError as error:
-            raise NotFound("the queued message is no longer pending") from error
-        return jsonify(deleted=True)
+            raise Conflict("the queued message was consumed; reload the snapshot") from error
+        return jsonify(accepted=accepted)
 
-    @blueprint.post("/message-queue/steer")
-    async def steer_queued_message() -> Response:
-        payload = await _json_object()
-        flow_id = _required_string(payload, "workflowId")
-        message_id = _required_string(payload, "messageId")
-        try:
-            accepted = await app_state.client.invoke_rpc(
-                app_state.ai_agent.steer_message,
-                flow_id,
-                SteerMessageRequest(message_id),
-            )
-        except ChannelMessageNotFoundError as error:
-            raise NotFound("the queued message is no longer pending") from error
-        if not accepted:
-            raise Conflict("the queued message cannot be steered")
-        return jsonify(steered=True)
+    @blueprint.post("/turns/cancel")
+    async def cancel_turn() -> Response:
+        body, session_id = await _session_request()
+        return jsonify(accepted=await sessions().cancel_turn(session_id, body.get("turn_id")))
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await _session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        accepted = await sessions().resolve_interrupt(session_id, interrupt_id, approved=approved)
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/questions/answer")
+    async def answer_question() -> Response:
+        body, session_id = await _session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        answer = await sessions().answer_question(
+            session_id, interrupt_id, _required_string(body, "answer")
+        )
+        return jsonify(accepted=answer)
 
     @blueprint.post("/plans/execute")
     async def execute_plan() -> Response:
-        payload = await _json_object()
-        accepted = await app_state.client.invoke_rpc(
-            app_state.ai_agent.execute_plan,
-            _required_string(payload, "workflowId"),
-            PlanExecutionRequest(_required_int(payload, "revision")),
-        )
-        if not accepted:
-            raise Conflict("the plan revision is stale or cannot be executed")
-        return jsonify(accepted=True)
-
-    @blueprint.post("/tool-approvals")
-    async def approve_tool() -> Response:
-        payload = await _json_object()
-        approved = payload.get("approved")
-        if not isinstance(approved, bool):
-            raise BadRequest("approved must be a boolean")
-        accepted = await app_state.client.invoke_rpc(
-            app_state.ai_agent.approve_tool,
-            _required_string(payload, "workflowId"),
-            ToolApprovalRequest(
-                _required_string(payload, "callId"),
-                approved,
-            ),
-        )
-        return jsonify(accepted=accepted)
-
-    @blueprint.get("/events")
-    async def events() -> Response:
-        stream_name = optional_query("stream", "activity")
-        if stream_name == "reasoning":
-            message = await app_state.client.read_stream(
-                required_query("workflowId"),
-                app_state.ai_agent.reasoning_summary,
-                optional_query("resumeToken", ""),
-                timedelta(seconds=20),
-            )
-            return jsonify(
-                kind="reasoning_summary",
-                value=message.value,
-                resume_token=message.resume_token,
-                created_time=message.created_time.isoformat(),
-                source=message.source,
-            )
-        if stream_name == "assistant":
-            message = await app_state.client.read_stream(
-                required_query("workflowId"),
-                app_state.ai_agent.assistant_text,
-                optional_query("resumeToken", ""),
-                timedelta(seconds=20),
-            )
-            return jsonify(
-                kind="assistant_text",
-                value=message.value,
-                resume_token=message.resume_token,
-                created_time=message.created_time.isoformat(),
-                source=message.source,
-            )
-        if stream_name != "activity":
-            raise BadRequest("stream must be reasoning, assistant, or activity")
-        message = await app_state.client.read_stream(
-            required_query("workflowId"),
-            app_state.ai_agent.agent_activity,
-            optional_query("resumeToken", ""),
-            timedelta(seconds=20),
-        )
-        return jsonify(
-            kind="activity",
-            value=asdict(message.value),
-            resume_token=message.resume_token,
-            created_time=message.created_time.isoformat(),
-            source=message.source,
-        )
+        body, session_id = await _session_request()
+        if not isinstance(revision := body.get("revision"), int):
+            raise BadRequest("revision must be an integer")
+        return jsonify(accepted=await sessions().execute_plan(session_id, revision))
 
     return blueprint
 
 
-def _provider_api_key(provider: ProviderConfig) -> str | None:
-    environment_variable = provider["environmentVariable"]
-    if environment_variable is None:
-        return None
-    return os.environ.get(environment_variable) or None
+async def _session_request() -> tuple[dict[str, Any], str]:
+    body = await request.get_json(silent=True)
+    if not isinstance(body, dict):
+        raise BadRequest("the request body must be a JSON object")
+    return body, _required_string(body, "session_id")
 
 
-async def _json_object() -> dict[str, Any]:
-    payload = await request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        raise BadRequest("request body must be a JSON object")
-    return payload
-
-
-def _required_string(payload: dict[str, Any], name: str) -> str:
-    value = payload.get(name)
+def _required_string(body: dict[str, Any], name: str) -> str:
+    value = body.get(name)
     if not isinstance(value, str) or not value.strip():
         raise BadRequest(f"{name} must be a non-empty string")
     return value
-
-
-def _optional_string(payload: dict[str, Any], name: str, default: str) -> str:
-    value = payload.get(name, default)
-    if not isinstance(value, str):
-        raise BadRequest(f"{name} must be a string")
-    return value
-
-
-def _optional_nullable_string(
-    payload: dict[str, Any],
-    name: str,
-) -> str | None:
-    value = payload.get(name)
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise BadRequest(f"{name} must be a string")
-    return value or None
-
-
-def _optional_int(payload: dict[str, Any], name: str, default: int) -> int:
-    value = payload.get(name, default)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise BadRequest(f"{name} must be an integer")
-    return value
-
-
-def _required_int(payload: dict[str, Any], name: str) -> int:
-    value = payload.get(name)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise BadRequest(f"{name} must be an integer")
-    return value
-
-
-def _optional_bool(payload: dict[str, Any], name: str, default: bool) -> bool:
-    value = payload.get(name, default)
-    if not isinstance(value, bool):
-        raise BadRequest(f"{name} must be a boolean")
-    return value
-
-
-def _optional_float(payload: dict[str, Any], name: str, default: float) -> float:
-    value = payload.get(name, default)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise BadRequest(f"{name} must be a number")
-    return float(value)
-
-
-def _string_list(payload: dict[str, Any], name: str) -> list[str]:
-    value = payload.get(name, [])
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise BadRequest(f"{name} must be a list of strings")
-    return value
-
-
-def _provider_model(provider: str, model: str) -> str:
-    normalized_provider = provider.strip().lower()
-    try:
-        provider_config = PROVIDERS[normalized_provider]
-    except KeyError as error:
-        raise BadRequest(f"unknown provider {provider!r}") from error
-    if normalized_provider == "mock":
-        return "mock/dex"
-    normalized_model = model.strip()
-    if not normalized_model:
-        raise BadRequest("model must be a non-empty string")
-    prefix = provider_config["prefix"]
-    if not prefix:
-        return normalized_model
-    expected_prefix = f"{prefix}/"
-    if "/" in normalized_model and not normalized_model.startswith(expected_prefix):
-        raise BadRequest(
-            f"model for {normalized_provider} must start with {expected_prefix}"
-        )
-    if normalized_model.startswith(expected_prefix):
-        return normalized_model
-    return f"{expected_prefix}{normalized_model}"

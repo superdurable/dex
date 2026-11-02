@@ -110,29 +110,11 @@ def _new_sync_app(server_address: str, tmp_path: Path) -> SyncExampleApp:
     )
 
 
-def _record_mcp_registry_close(
-    monkeypatch: pytest.MonkeyPatch, app: ExampleApp, failures: int = 0
-) -> list[bool]:
-    """Records each MCP registry close call; the first ``failures`` calls raise."""
-    close_calls: list[bool] = []
-    original_mcp_close = app.mcp_registry.close
-
-    async def record_mcp_close() -> None:
-        close_calls.append(True)
-        if len(close_calls) <= failures:
-            raise RuntimeError("MCP registry close failed")
-        await original_mcp_close()
-
-    monkeypatch.setattr(app.mcp_registry, "close", record_mcp_close)
-    return close_calls
-
-
 async def test_async_app_closes_resources_when_pull_registration_times_out(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, silent_server_address: str
 ) -> None:
     caches = _record_blob_cache(monkeypatch, async_app_module)
     app = _new_async_app(silent_server_address, tmp_path)
-    closed_mcp_registries = _record_mcp_registry_close(monkeypatch, app)
     worker_task_holder: list[Any] = []
     original_wait = app.worker.wait_pull_registered
 
@@ -146,7 +128,6 @@ async def test_async_app_closes_resources_when_pull_registration_times_out(
         await app.start_worker()
 
     assert worker_task_holder and worker_task_holder[0].done()
-    assert closed_mcp_registries == [True]
     assert caches[0].is_closed
     with pytest.raises(RuntimeError, match="client is not ready"):
         app.require_client()
@@ -184,7 +165,6 @@ async def test_async_app_closes_resources_when_worker_start_raises(
 ) -> None:
     caches = _record_blob_cache(monkeypatch, async_app_module)
     app = _new_async_app(refused_server_address, tmp_path)
-    closed_mcp_registries = _record_mcp_registry_close(monkeypatch, app)
     worker_task_holder: list[Any] = []
     original_wait = app.worker.wait_pull_registered
 
@@ -199,12 +179,10 @@ async def test_async_app_closes_resources_when_worker_start_raises(
 
     worker_task = worker_task_holder[0]
     assert worker_task.done() and worker_task.exception() is not None
-    assert closed_mcp_registries == [True]
     assert caches[0].is_closed
     with pytest.raises(RuntimeError, match="client is not ready"):
         app.require_client()
     await app.close()
-    assert closed_mcp_registries == [True]
 
 
 # The stopped Worker thread reports its own startup failure after cleanup.
@@ -238,18 +216,27 @@ async def test_async_app_close_retries_only_failed_steps(
 ) -> None:
     caches = _record_blob_cache(monkeypatch, async_app_module)
     app = _new_async_app(refused_server_address, tmp_path)
-    mcp_close_calls = _record_mcp_registry_close(monkeypatch, app, failures=1)
+    worker_close_calls: list[bool] = []
+    original_worker_close = app.worker.close
 
-    with pytest.raises(RuntimeError, match="MCP registry close failed"):
+    async def fail_first_worker_close() -> None:
+        worker_close_calls.append(True)
+        if len(worker_close_calls) == 1:
+            raise RuntimeError("Worker close failed")
+        await original_worker_close()
+
+    monkeypatch.setattr(app.worker, "close", fail_first_worker_close)
+
+    with pytest.raises(RuntimeError, match="Worker close failed"):
         await app.close()
 
     assert caches[0].is_closed
     with pytest.raises(RuntimeError, match="client is not ready"):
         app.require_client()
     await app.close()
-    assert mcp_close_calls == [True, True]
+    assert worker_close_calls == [True, True]
     await app.close()
-    assert mcp_close_calls == [True, True]
+    assert worker_close_calls == [True, True]
 
 
 def test_sync_app_close_retries_only_failed_steps(
