@@ -35,6 +35,7 @@ from dex_agents.runner import (
     AgentTurnContext,
     AgentTurnOutcome,
     FrameworkMessage,
+    ModelCallMetadata,
     TurnCompleted,
     describe_tool_call_outcome,
 )
@@ -45,6 +46,8 @@ if TYPE_CHECKING:
     from opentelemetry.context import Context as OpenTelemetryContext
     from opentelemetry.trace import Span, SpanContext, Tracer
     from opentelemetry.util.types import AttributeValue
+
+    from dex_agents.compaction import ContextSummaryResult
 
 TRACER_NAME = "dex_agents"
 TOOL_EXECUTION_ERROR_TYPE = "ToolExecutionError"
@@ -80,6 +83,17 @@ class ModelCallSpan:
         """
 
 
+class ContextSummarySpan:
+    """Record the result of one ``CompactContext`` attempt; this base records nothing."""
+
+    def record_result(self, result: ContextSummaryResult) -> None:
+        """Keep the summary call's result for the ``chat`` span, emitted when the attempt ends.
+
+        Args:
+            result: The runner's summary result.
+        """
+
+
 class ToolCallSpan:
     """Record the final record of one tool Step attempt; this base records nothing."""
 
@@ -93,6 +107,7 @@ class ToolCallSpan:
 
 _UNRECORDED_ACTIVATION = ActivationSpan(None)
 _DISABLED_MODEL_CALL_SPAN = ModelCallSpan()
+_DISABLED_CONTEXT_SUMMARY_SPAN = ContextSummarySpan()
 _DISABLED_TOOL_CALL_SPAN = ToolCallSpan()
 
 
@@ -209,6 +224,53 @@ class AgentSessionTracer:
                     "emit the chat span",
                     lambda: model_call_span.emit(
                         tracer, parent, start_time, context, step_type, turn, error
+                    ),
+                )
+
+    @contextmanager
+    def trace_context_summary(
+        self,
+        context: Context,
+        step_type: str,
+        turn_id: str,
+        through_sequence: int,
+        messages: Sequence[AgentMessage],
+    ) -> Iterator[ContextSummarySpan]:
+        """Trace one ``CompactContext`` attempt as a ``chat`` span, emitted when it ends."""
+        tracer = self._resolve_tracer()
+        if tracer is None:
+            yield _DISABLED_CONTEXT_SUMMARY_SPAN
+            return
+        start_time = time.time_ns()
+        parent = _call_safely(
+            "read the activation trace context", lambda: _parent_context(_read_traceparent(context))
+        )
+        token = (
+            None if parent is None else _call_safely("activate the trace", lambda: _attach(parent))
+        )
+        summary_span = _RecordingContextSummarySpan(
+            self._is_latest_version, self._should_capture_content
+        )
+        error: BaseException | None = None
+        try:
+            yield summary_span
+        except BaseException as raised:
+            error = raised
+            raise
+        finally:
+            if token is not None:
+                _call_safely("restore the trace context", lambda: _detach(token))
+            if parent is not None:
+                _call_safely(
+                    "emit the summary chat span",
+                    lambda: summary_span.emit_summary(
+                        tracer,
+                        parent,
+                        start_time,
+                        _step_attributes(context, step_type, turn_id),
+                        through_sequence,
+                        messages,
+                        error,
                     ),
                 )
 
@@ -397,20 +459,7 @@ class _RecordingModelCallSpan(ModelCallSpan):
         outcome: AgentTurnOutcome,
         is_single_model_call: bool,
     ) -> None:
-        metadata = outcome.model_call_metadata
-        if metadata is not None:
-            if metadata.response_model:
-                span.set_attribute("gen_ai.response.model", metadata.response_model)
-            if metadata.provider_name:
-                provider_attribute = (
-                    "gen_ai.provider.name" if self._is_latest_version else "gen_ai.system"
-                )
-                span.set_attribute(provider_attribute, metadata.provider_name)
-            if metadata.response_id:
-                span.set_attribute("gen_ai.response.id", metadata.response_id)
-            finish_reasons = [reason for reason in metadata.finish_reasons or () if reason]
-            if finish_reasons:
-                span.set_attribute("gen_ai.response.finish_reasons", finish_reasons)
+        self._set_metadata_attributes(span, outcome.model_call_metadata)
         if is_single_model_call:
             self._set_usage_attributes(span, outcome.usage)
         if isinstance(outcome, TurnCompleted):
@@ -441,6 +490,22 @@ class _RecordingModelCallSpan(ModelCallSpan):
             output_messages = [message for message in output_messages if message["parts"]]
             span.set_attribute("gen_ai.output.messages", _to_json(output_messages))
 
+    def _set_metadata_attributes(self, span: Span, metadata: ModelCallMetadata | None) -> None:
+        if metadata is None:
+            return
+        if metadata.response_model:
+            span.set_attribute("gen_ai.response.model", metadata.response_model)
+        if metadata.provider_name:
+            provider_attribute = (
+                "gen_ai.provider.name" if self._is_latest_version else "gen_ai.system"
+            )
+            span.set_attribute(provider_attribute, metadata.provider_name)
+        if metadata.response_id:
+            span.set_attribute("gen_ai.response.id", metadata.response_id)
+        finish_reasons = [reason for reason in metadata.finish_reasons or () if reason]
+        if finish_reasons:
+            span.set_attribute("gen_ai.response.finish_reasons", finish_reasons)
+
     def _set_usage_attributes(self, span: Span, usage: AgentUsage) -> None:
         # Runners report zero for counts the framework does not expose.
         if usage.input_tokens == 0 and usage.output_tokens == 0:
@@ -453,6 +518,64 @@ class _RecordingModelCallSpan(ModelCallSpan):
             span.set_attribute("gen_ai.usage.cache_read.input_tokens", usage.cached_input_tokens)
         if usage.reasoning_tokens:
             span.set_attribute("gen_ai.usage.reasoning.output_tokens", usage.reasoning_tokens)
+
+
+class _RecordingContextSummarySpan(_RecordingModelCallSpan, ContextSummarySpan):
+    def __init__(self, is_latest_version: bool, should_capture_content: bool) -> None:
+        super().__init__(is_latest_version, should_capture_content)
+        self._result: ContextSummaryResult | None = None
+
+    def record_result(self, result: ContextSummaryResult) -> None:
+        self._result = result
+
+    def emit_summary(
+        self,
+        tracer: Tracer,
+        parent: OpenTelemetryContext,
+        start_time: int,
+        step_attributes: dict[str, AttributeValue],
+        through_sequence: int,
+        messages: Sequence[AgentMessage],
+        error: BaseException | None,
+    ) -> None:
+        from opentelemetry.trace import SpanKind
+
+        result = self._result
+        metadata = None if result is None else result.model_call_metadata
+        request_model = None if metadata is None else metadata.request_model
+        attributes: dict[str, AttributeValue] = {"gen_ai.operation.name": "chat"}
+        if request_model:
+            attributes["gen_ai.request.model"] = request_model
+        is_single_model_call = result is None or result.usage.model_calls == 1
+        span = tracer.start_span(
+            f"chat {request_model}" if request_model else "chat",
+            context=parent,
+            kind=SpanKind.CLIENT if is_single_model_call else SpanKind.INTERNAL,
+            attributes=attributes,
+            start_time=start_time,
+        )
+        try:
+            if span.is_recording():
+                span.set_attributes(step_attributes)
+                span.set_attribute(
+                    "dex.agent.input_messages.last_key", message_sequence_key(through_sequence)
+                )
+                if self._should_capture_content:
+                    span.set_attribute(
+                        "gen_ai.input.messages",
+                        _to_json([_chat_message(message) for message in messages]),
+                    )
+                if result is not None:
+                    self._set_metadata_attributes(span, metadata)
+                    if is_single_model_call:
+                        self._set_usage_attributes(span, result.usage)
+                    if self._should_capture_content:
+                        output = [{"role": "assistant", "parts": [_text_part(result.text)]}]
+                        span.set_attribute("gen_ai.output.messages", _to_json(output))
+                if error is not None:
+                    _record_span_error(span, error)
+        finally:
+            span.end()
 
 
 class _RecordingToolCallSpan(ToolCallSpan):

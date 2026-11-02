@@ -20,8 +20,10 @@ own Dex Step. It calls the runner from those Steps:
 
 A runner may also implement ``UnfinishedTurnMessageBuilder`` when it stores a
 turn's items incrementally through ``ToolCallsRequested.new_messages``,
-``PlanModeRunner`` when it honors plan mode, and ``ToolTaskPoller`` when its
-tools start remote tasks with ``ToolTaskStarted``.
+``PlanModeRunner`` when it honors plan mode, ``ToolTaskPoller`` when its tools
+start remote tasks with ``ToolTaskStarted``, and
+``dex_agents.compaction.ContextCompactionRunner`` when it can summarize earlier
+messages.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from dex_agents.values import (
     AgentPlan,
     AgentToolCall,
     AgentUsage,
+    ContextSummary,
     InteractionMode,
     MessageRole,
     QuestionAnswer,
@@ -407,7 +410,8 @@ class AgentTurnContext:
         turn_id: ``"turn-<n>"`` of the running turn.
         attempt: One-based ``RunModel`` attempt.
         messages: Every stored message in sequence order. The last user
-            message belongs to this turn.
+            message belongs to this turn. After compaction, only the messages
+            after ``context_summary.last_sequence``.
         framework_run_state: The value from this turn's last
             ``ToolCallsRequested``, or ``None`` for the turn's first model call.
         tool_calls: Every tool call record of this turn by tool call ID. When
@@ -427,6 +431,10 @@ class AgentTurnContext:
         plan: The ``AgentPlan`` as committed before this model call, or ``None``
             before ``write_todos`` first succeeded. Show it to the model with
             ``build_plan_note``. Defaults to ``None``.
+        context_summary: The summary of the messages before ``messages``, or
+            ``None``. Only a runner that implements
+            ``ContextCompactionRunner`` receives one; put its text before
+            ``messages`` in the model input.
     """
 
     flow_id: str
@@ -442,6 +450,7 @@ class AgentTurnContext:
     enabled_built_in_tools: frozenset[BuiltInTool] = frozenset()
     interaction_mode: InteractionMode = InteractionMode.CHAT
     plan: AgentPlan | None = None
+    context_summary: ContextSummary | None = None
 
     @property
     def is_resuming(self) -> bool:

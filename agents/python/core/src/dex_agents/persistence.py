@@ -31,6 +31,7 @@ from dex_agents.values import (
     AgentToolCall,
     AgentUsage,
     AgentUserMessage,
+    ContextSummary,
     PlanExecutionRequest,
     ToolCallCancellation,
     ToolCallCompleted,
@@ -102,6 +103,9 @@ PLAN_EXECUTIONS: ChannelMap[PlanExecutionRequest] = ChannelMap(
 PENDING_PLAN_EXECUTION: Attribute[PlanExecutionRequest] = Attribute(
     "PendingPlanExecution", PlanExecutionRequest
 )
+#: Summary of the earlier messages that compaction left out of the model input; only
+#: ``CompactContext`` writes it.
+CONTEXT_SUMMARY: Attribute[ContextSummary] = Attribute("ContextSummary", ContextSummary)
 
 #: Default ``AgentEvents`` Stream capacity: 10 MiB.
 DEFAULT_AGENT_EVENTS_CAPACITY_BYTES = 10 * 1024 * 1024

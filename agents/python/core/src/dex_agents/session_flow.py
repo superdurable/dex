@@ -19,7 +19,8 @@ tool runs in the built-in's own Step instead: ``AwaitQuestionAnswer`` for
 runs an approved plan from ``AwaitUserMessage``. Steering and ``cancel_turn``
 end a turn at its next safe Step boundary through ``ApplyTurnControl``. A tool
 that starts remote work returns ``ToolTaskStarted``, and ``PollToolTask`` polls
-it on a Timer.
+it on a Timer. With a compaction policy, ``CompactContext`` summarizes earlier
+messages before a model call whose input would cross the threshold.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from typing import Any, cast
 from dex import (
     AsyncContext,
     AttributeMap,
+    AttributeMapLoad,
     Channel,
     Context,
     Flow,
@@ -75,6 +77,12 @@ from dex_agents.built_in_tools import (
     parse_durable_wait_arguments,
     parse_write_todos_arguments,
 )
+from dex_agents.compaction import (
+    CompactionPolicy,
+    ContextCompactionRunner,
+    ContextSummaryRequest,
+    ContextSummaryResult,
+)
 from dex_agents.events import AgentEventType, AgentEventWriter
 from dex_agents.persistence import (
     AGENT_MESSAGES,
@@ -83,6 +91,7 @@ from dex_agents.persistence import (
     AGENT_TOOL_CALLS,
     AGENT_TRACE_CONTEXT,
     AGENT_USAGE,
+    CONTEXT_SUMMARY,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     FRAMEWORK_RUN_STATE,
     INTERRUPT_RESOLUTIONS,
@@ -147,6 +156,8 @@ from dex_agents.values import (
     AgentUserMessage,
     AnswerQuestionRequest,
     CancelTurnRequest,
+    CompactContextInput,
+    ContextSummary,
     DeleteQueuedMessageRequest,
     ExecutePlanRequest,
     InteractionMode,
@@ -190,6 +201,12 @@ MESSAGE_PAGE_LIMIT = 200
 # Keeps liveness well inside the shortest heartbeat timeout, one minute.
 BACKGROUND_HEARTBEAT_INTERVAL = timedelta(seconds=20)
 RECOVERY_RETRY = RetryPolicy(maximum_interval=timedelta(seconds=5))
+_MODEL_CALL_STEP_OPTIONS = StepOptions(
+    execute_method_timeout=timedelta(minutes=15),
+    heartbeat_timeout=timedelta(minutes=2),
+    execute_retry=RetryPolicy(maximum_attempts=3, total_duration=timedelta(minutes=30)),
+    execute_durability=StepDurability.SYNC,
+)
 MULTI_ATTEMPT_TOOL_EFFECTS = (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE)
 BUILT_IN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
 EXECUTABLE_PLAN_STATUSES = (PlanStatus.DRAFT, PlanStatus.ACTIVE)
@@ -208,7 +225,7 @@ _NO_PENDING_TOOL_QUESTION: dict[str, Any] = {
 
 @dataclass(frozen=True, kw_only=True)
 class AgentSessionOptions:
-    """Configure tool policies, built-in tools, live events, deadlines, and tracing for one agent.
+    """Configure tool policies, built-in tools, live events, deadlines, tracing, and compaction.
 
     Pass it to ``AgentSessionFlow``. Options are read when Steps run, so a
     change applies to running sessions after the Worker restarts. Enable a
@@ -263,6 +280,12 @@ class AgentSessionOptions:
             ``PLANNING`` turn until it runs. Requires ``write_todos`` in
             ``built_in_tools`` and a runner that is a ``PlanModeRunner``.
             Defaults to ``False``.
+        compaction: When to summarize earlier messages so the model input
+            stays under the context window. It needs a runner that implements
+            ``ContextCompactionRunner``. Messages stay in ``AgentMessages``;
+            only the model input changes. Enable it only after every Worker of
+            the Flow type runs a version with the ``CompactContext`` Step.
+            ``None``, the default, never compacts.
 
     Raises:
         ValueError: If ``event_stream_capacity_bytes`` or ``interrupt_deadline``
@@ -280,6 +303,7 @@ class AgentSessionOptions:
     built_in_tools: frozenset[BuiltInTool] = frozenset()
     max_durable_wait: timedelta = DEFAULT_MAX_DURABLE_WAIT
     plan_mode_enabled: bool = False
+    compaction: CompactionPolicy | None = None
 
     def __post_init__(self) -> None:
         if self.event_stream_capacity_bytes <= 0:
@@ -350,6 +374,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         agent_plan: The ``AgentPlan`` Attribute.
         plan_executions: The ``PlanExecutions`` ChannelMap, keyed by revision.
         pending_plan_execution: The ``PendingPlanExecution`` Attribute.
+        context_summary: The ``ContextSummary`` Attribute, set once the
+            session compacts.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -371,6 +397,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     agent_plan = AGENT_PLAN
     plan_executions = PLAN_EXECUTIONS
     pending_plan_execution = PENDING_PLAN_EXECUTION
+    context_summary = CONTEXT_SUMMARY
 
     def __init__(
         self,
@@ -395,6 +422,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             ValueError: If ``flow_type`` is empty or whitespace-only, or if
                 ``options.plan_mode_enabled`` is set for a runner that is not a
                 ``PlanModeRunner``.
+            TypeError: If ``options.compaction`` is set and the runner does not
+                implement ``ContextCompactionRunner``.
         """
         if not flow_type.strip():
             raise ValueError("flow_type must not be empty")
@@ -403,6 +432,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self._options = options or AgentSessionOptions()
         if self._options.plan_mode_enabled and not _is_plan_mode_runner(runner):
             raise ValueError("plan_mode_enabled requires a runner that supports plan mode")
+        if self._options.compaction is not None and not isinstance(runner, ContextCompactionRunner):
+            raise TypeError(
+                "AgentSessionOptions.compaction needs a runner that implements "
+                "ContextCompactionRunner"
+            )
         self._session_tracer = AgentSessionTracer(self._options.tracing, flow_type)
         self.agent_events: Stream[AgentEvent] = Stream(
             "AgentEvents", AgentEvent, self._options.event_stream_capacity_bytes
@@ -410,6 +444,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self._start_agent_session = StartAgentSession(self)
         self._await_user_message = AwaitUserMessage(self)
         self._run_model = RunModel(self)
+        self._compact_context = CompactContext(self)
         self._await_tool_approval = AwaitToolApproval(self)
         self._await_question_answer = AwaitQuestionAnswer(self)
         self._await_timer = AwaitTimer(self)
@@ -457,6 +492,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         return StepList.start_step(self._start_agent_session).other_steps(
             self._await_user_message,
             self._run_model,
+            self._compact_context,
             self._await_tool_approval,
             self._await_question_answer,
             self._await_timer,
@@ -473,8 +509,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     def get_persistence_schema(self) -> PersistenceSchema:
         """Return the session Attributes, Channels, and ``AgentEvents`` Stream.
 
-        ``AgentTraceContext`` is always registered, so Workers with and without
-        tracing can serve the same Flow type.
+        ``AgentTraceContext`` and ``ContextSummary`` are always registered, so
+        Workers with and without tracing or compaction can serve the same Flow
+        type.
 
         Returns:
             The persistence schema shared by every agent session Flow type.
@@ -497,6 +534,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             AGENT_PLAN,
             PLAN_EXECUTIONS,
             PENDING_PLAN_EXECUTION,
+            CONTEXT_SUMMARY,
             self.agent_events,
         )
 
@@ -817,7 +855,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         Returns:
             State, the last 200 messages, pending interrupts, the active turn's
             tool calls, usage, the queued message count, the plan, and the
-            queued and steered messages with their Channel message IDs.
+            queued and steered messages with their Channel message IDs, and the
+            context summary. Summarized messages stay in ``messages``.
         """
         state = _optional_agent_state(context)
         if state is None:
@@ -834,6 +873,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 plan=_optional_agent_plan(context),
                 queued_messages=_pending_user_messages(context, QUEUED_USER_MESSAGES),
                 steered_messages=_pending_user_messages(context, STEERED_USER_MESSAGES),
+                context_summary=_context_summary(context),
             )
         )
 
@@ -987,12 +1027,18 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             return decision
         events = self._event_writer(context, turn_id)
         turn = self._turn_context(context, state, tool_calls, events)
+        through_sequence = self._compaction_cutoff_before_model_call(turn, state)
+        if through_sequence is not None:
+            return self._start_compaction(context, state, turn.context_summary, through_sequence)
         with self._session_tracer.trace_model_call(
             context, self._run_model.get_step_type(), turn
         ) as model_call_span:
             async with _background_heartbeats(context.heartbeat):
                 outcome = await self._runner.run_model_step(turn)
-            stored_turn_message_count = _count_messages_after_user_messages(turn.messages, turn_id)
+            # RunModel loads the whole map, so the count includes messages summarized away.
+            stored_turn_message_count = _count_messages_after_user_messages(
+                _read_turn_messages(context, state, turn_id), turn_id
+            )
             if isinstance(outcome, TurnCompleted):
                 model_call_span.record_outcome(
                     outcome,
@@ -1011,7 +1057,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     def _decide_before_model_call(self, context: AsyncContext, turn_id: str) -> StepDecision | None:
         """Return RunModel's move instead of a model call, or None to call the model."""
-        # Execute state is fixed at the first attempt, so this is RunModel's only decision point.
+        # Execute state is fixed at the first attempt, so this and the compaction
+        # check are RunModel's decision points.
         if _turn_control_reason(context, turn_id) is not None:
             return go_to(self._apply_turn_control, None)
         return None
@@ -1023,11 +1070,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_calls: Sequence[AgentToolCall],
         events: AgentEventWriter,
     ) -> AgentTurnContext:
+        context_summary = self._runner_context_summary(context)
+        first_sequence = 1 if context_summary is None else context_summary.last_sequence + 1
         return AgentTurnContext(
             flow_id=context.flow_id,
             turn_id=_require_active_turn_id(state),
             attempt=context.attempt,
-            messages=_read_messages(context, 1, state.next_message_sequence),
+            messages=_read_messages(context, first_sequence, state.next_message_sequence),
             framework_run_state=FRAMEWORK_RUN_STATE.get(context),
             tool_calls={tool_call.tool_call_id: tool_call for tool_call in tool_calls},
             tool_policies=self._options.tool_policies,
@@ -1037,7 +1086,129 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             enabled_built_in_tools=self._options.built_in_tools,
             interaction_mode=_interaction_mode(state),
             plan=_optional_agent_plan(context),
+            context_summary=context_summary,
         )
+
+    def _runner_context_summary(self, context: Context) -> ContextSummary | None:
+        # A runner without the capability cannot use a summary, so it keeps every message.
+        if not isinstance(self._runner, ContextCompactionRunner):
+            return None
+        return _context_summary(context)
+
+    def _compaction_cutoff_before_model_call(
+        self, turn: AgentTurnContext, state: AgentState
+    ) -> int | None:
+        """Return the sequence to summarize through before this model call, or None to call."""
+        policy = self._options.compaction
+        if policy is None or not isinstance(self._runner, ContextCompactionRunner):
+            return None
+        if not policy.is_triggered_by(self._runner.estimate_input_tokens(turn)):
+            return None
+        cutoff = self._runner.select_compaction_cutoff(turn, policy.retained_token_budget)
+        summarized_through = (
+            0 if turn.context_summary is None else turn.context_summary.last_sequence
+        )
+        # A cutoff that does not advance means nothing more to summarize, so the pair cannot loop.
+        if cutoff is None or cutoff <= summarized_through:
+            return None
+        if (
+            not isinstance(cutoff, int)
+            or isinstance(cutoff, bool)
+            or (cutoff >= state.next_message_sequence)
+        ):
+            raise ValueError(
+                f"select_compaction_cutoff returned {cutoff!r}, which is not a stored message"
+            )
+        return cutoff
+
+    def _start_compaction(
+        self,
+        context: AsyncContext,
+        state: AgentState,
+        previous_summary: ContextSummary | None,
+        through_sequence: int,
+    ) -> StepDecision:
+        # CompactContext commits once, so this commit is where the status becomes visible.
+        AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.COMPACTING_CONTEXT))
+        first_sequence = 1 if previous_summary is None else previous_summary.last_sequence + 1
+        options = replace(
+            self._compact_context.get_step_options(),
+            execute_load_attribute_maps=(),
+            execute_load_attribute_map_instances=_message_loads(
+                first_sequence, through_sequence + 1
+            ),
+        )
+        return go_to_many(
+            StepMovement.of(
+                self._compact_context,
+                CompactContextInput(through_sequence=through_sequence),
+                options=options,
+            )
+        )
+
+    async def _compact_context_step(
+        self,
+        context: AsyncContext,
+        input: CompactContextInput,
+    ) -> StepDecision:
+        state = _require_agent_state(context)
+        turn_id = _require_active_turn_id(state)
+        previous_summary = _context_summary(context)
+        first_sequence = 1 if previous_summary is None else previous_summary.last_sequence + 1
+        through_sequence = input.through_sequence
+        if not first_sequence <= through_sequence < state.next_message_sequence:
+            raise RuntimeError(
+                f"CompactContext cannot summarize through message {through_sequence}"
+            )
+        if not isinstance(self._runner, ContextCompactionRunner):
+            raise TypeError("CompactContext needs a runner that implements ContextCompactionRunner")
+        events = self._event_writer(context, turn_id)
+        events.write_event(
+            AgentEventType.COMPACTION_STARTED, {"through_sequence": through_sequence}
+        )
+        request = ContextSummaryRequest(
+            flow_id=context.flow_id,
+            turn_id=turn_id,
+            attempt=context.attempt,
+            previous_summary=previous_summary,
+            messages=_read_messages(context, first_sequence, through_sequence + 1),
+            through_sequence=through_sequence,
+            events=events,
+            heartbeat=context.heartbeat,
+            input_token_budget=(
+                None
+                if self._options.compaction is None
+                else self._options.compaction.context_window_tokens
+            ),
+        )
+        with self._session_tracer.trace_context_summary(
+            context,
+            self._compact_context.get_step_type(),
+            turn_id,
+            through_sequence,
+            request.messages,
+        ) as summary_span:
+            async with _background_heartbeats(context.heartbeat):
+                result = await self._runner.summarize_context(request)
+            if not isinstance(result, ContextSummaryResult) or not str(result.text).strip():
+                raise ValueError("summarize_context must return a ContextSummaryResult with text")
+            summary_span.record_result(result)
+        summary = ContextSummary(
+            generation=1 if previous_summary is None else previous_summary.generation + 1,
+            first_sequence=1,
+            last_sequence=through_sequence,
+            text=result.text,
+            created_at=_rfc3339(datetime.now(UTC)),
+        )
+        CONTEXT_SUMMARY.set(context, summary)
+        _record_usage(context, events, result.usage)
+        AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_MODEL))
+        events.write_event(
+            AgentEventType.COMPACTION_FINISHED,
+            {"generation": summary.generation, "through_sequence": through_sequence},
+        )
+        # RunModel loads the whole map: listing instances in each movement would cost run storage.
+        return go_to(self._run_model, None)
 
     def _complete_turn(
         self,
@@ -2078,27 +2249,51 @@ class AwaitUserMessage(Step[None]):
         return self._session._start_user_message_turn(context, self.get_step_type())
 
 
-class RunModel(Step[None]):
+# RunModel always receives None. A failure route's input type must match each Step routing to it.
+TurnFailureRouteInput = CompactContextInput | None
+
+
+class RunModel(Step[TurnFailureRouteInput]):
     """Make one model call of the active turn through the framework runner."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(
-            execute_method_timeout=timedelta(minutes=15),
-            heartbeat_timeout=timedelta(minutes=2),
-            execute_retry=RetryPolicy(maximum_attempts=3, total_duration=timedelta(minutes=30)),
-            execute_durability=StepDurability.SYNC,
+        return replace(
+            _MODEL_CALL_STEP_OPTIONS,
             execute_load_attribute_maps=(AGENT_MESSAGES, AGENT_TOOL_CALLS),
         ).on_execute_failure_proceed_to(self._session._record_turn_failure)
 
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: TurnFailureRouteInput,
     ) -> StepDecision:
         return await self._session._run_model_step(context)
+
+
+class CompactContext(Step[TurnFailureRouteInput]):
+    """Summarize the messages through a sequence for the model input, then call the model."""
+
+    def __init__(self, session: AgentSessionFlow) -> None:
+        self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        # The summary is one model call, so it gets RunModel's options and failure route.
+        return replace(
+            _MODEL_CALL_STEP_OPTIONS,
+            execute_load_attribute_maps=(AGENT_MESSAGES,),
+        ).on_execute_failure_proceed_to(self._session._record_turn_failure)
+
+    async def execute(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: TurnFailureRouteInput,
+    ) -> StepDecision:
+        if input is None:
+            raise TypeError("CompactContext needs a CompactContextInput")
+        return await self._session._compact_context_step(context, input)
 
 
 class AwaitToolApproval(Step[str]):
@@ -2359,7 +2554,7 @@ class ApplyTurnControl(Step[None]):
         return self._session._apply_turn_control_requests(context)
 
 
-class RecordTurnFailure(Step[None]):
+class RecordTurnFailure(Step[TurnFailureRouteInput]):
     """Record a failed turn and wait for the next user message."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
@@ -2381,7 +2576,7 @@ class RecordTurnFailure(Step[None]):
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: TurnFailureRouteInput,
     ) -> StepDecision:
         return self._session._fail_active_turn(context)
 
@@ -2756,6 +2951,24 @@ def _append_messages(
     return state
 
 
+def _message_loads(start: int, end: int) -> tuple[AttributeMapLoad, ...]:
+    return tuple(
+        AGENT_MESSAGES.load(message_sequence_key(sequence)) for sequence in range(start, end)
+    )
+
+
+def _read_turn_messages(context: Context, state: AgentState, turn_id: str) -> list[AgentMessage]:
+    """Return the turn's stored messages; they are the newest, so read back until another turn's."""
+    turn_messages: list[AgentMessage] = []
+    for sequence in range(state.next_message_sequence - 1, 0, -1):
+        message = AGENT_MESSAGES.get(context, message_sequence_key(sequence))
+        if message.turn_id != turn_id:
+            break
+        turn_messages.append(message)
+    turn_messages.reverse()
+    return turn_messages
+
+
 def _read_messages(context: Context, start: int, end: int) -> list[AgentMessage]:
     return [
         AGENT_MESSAGES.get(context, message_sequence_key(sequence))
@@ -2874,3 +3087,7 @@ def _pending_interrupt(context: Context, interrupt_id: str) -> AgentInterrupt | 
 
 def _agent_usage(context: Context) -> AgentUsage:
     return cast(AgentUsage | None, AGENT_USAGE.get(context)) or AgentUsage()
+
+
+def _context_summary(context: Context) -> ContextSummary | None:
+    return cast(ContextSummary | None, CONTEXT_SUMMARY.get(context))

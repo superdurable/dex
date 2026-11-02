@@ -13,8 +13,14 @@
  * - `running_model`: `RunModel` makes the turn's next model call.
  * - `running_tools`: the requested tool calls run in parallel Steps, some possibly waiting for
  *   approval, and `ResumeTurn` waits for their results.
+ * - `compacting_context`: `CompactContext` summarizes earlier messages before the turn's next model
+ *   call. Only a session with {@link AgentSessionOptions.compaction} reaches it.
  */
-export type AgentSessionStatus = "waiting_for_user_message" | "running_model" | "running_tools";
+export type AgentSessionStatus =
+  | "waiting_for_user_message"
+  | "running_model"
+  | "running_tools"
+  | "compacting_context";
 
 /**
  * Kind of a turn, stored in {@link AgentState.interactionMode} when the turn starts, for the runner to choose
@@ -666,6 +672,10 @@ export interface ToolCallCancellation {
  *   `PollToolTask` polls.
  * - `usage_recorded`: `{"recorded","session"}`: one model call's and the cumulative usage, each with
  *   {@link AgentUsage} wire fields.
+ * - `compaction_started`: `{"through_sequence"}`, when `CompactContext` starts summarizing the messages
+ *   through that sequence. A retried attempt writes it again.
+ * - `compaction_finished`: `{"generation","through_sequence"}`, when `CompactContext` wrote a
+ *   {@link ContextSummary}.
  */
 export type AgentEventType =
   | "turn_started"
@@ -684,7 +694,9 @@ export type AgentEventType =
   | "plan_updated"
   | "plan_execution_started"
   | "tool_task_started"
-  | "usage_recorded";
+  | "usage_recorded"
+  | "compaction_started"
+  | "compaction_finished";
 
 /** One best-effort live event, written to the `AgentEvents` Stream. */
 export interface AgentEvent {
@@ -741,6 +753,48 @@ export interface AnswerQuestionRequest {
   readonly answer: string;
 }
 
+/**
+ * The summary that replaces a session's earlier messages in the model input, stored in the
+ * `ContextSummary` Attribute.
+ *
+ * Only `CompactContext` writes it, in a session with {@link AgentSessionOptions.compaction}. Each new
+ * summary folds in the previous one, so it always covers the messages from {@link firstSequence}
+ * through {@link lastSequence}. The messages stay in `AgentMessages`: `list_agent_messages` and
+ * `get_agent_snapshot` return them as before. Only the model input changes.
+ *
+ * @example
+ * ```ts
+ * const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+ * const summarizedThrough = snapshot.contextSummary?.lastSequence ?? 0;
+ * ```
+ */
+export interface ContextSummary {
+  /** Count of summaries the session has written, starting at 1. Wire field: `generation`. */
+  readonly generation: number;
+  /** Sequence of the first summarized message; always 1. Wire field: `first_sequence`. */
+  readonly firstSequence: number;
+  /**
+   * Sequence of the last summarized message. A runner with the compaction capability receives only the
+   * messages after it. Wire field: `last_sequence`.
+   */
+  readonly lastSequence: number;
+  /** Summary text from the runner's `summarizeContext`. Wire field: `text`. */
+  readonly text: string;
+  /** RFC 3339 time at which `CompactContext` wrote the summary. Wire field: `created_at`. */
+  readonly createdAt: string;
+}
+
+/**
+ * Input of the `CompactContext` Step: the last message to summarize.
+ *
+ * `RunModel` moves to `CompactContext` with it when the next model input would cross the compaction
+ * threshold.
+ */
+export interface CompactContextInput {
+  /** Sequence of the last message to summarize, after the current summary's. Wire field: `through_sequence`. */
+  readonly throughSequence: number;
+}
+
 /** Output of the `get_agent_snapshot` RPC, enough for a UI to rebuild its view. */
 export interface AgentSnapshot {
   /** Current session state, or `null` before `StartAgentSession` committed. Wire field: `state`. */
@@ -768,6 +822,12 @@ export interface AgentSnapshot {
   readonly queuedMessages?: readonly PendingUserMessage[];
   /** Steered messages the session has not applied yet, oldest first. Wire field: `steered_messages`. */
   readonly steeredMessages?: readonly PendingUserMessage[];
+  /**
+   * The current {@link ContextSummary}, or `null` when the session never compacted; {@link messages}
+   * still holds the summarized messages. Wire field: `context_summary`. The RPC always sets it; it is
+   * optional so that 0.1.0 code that builds a snapshot keeps compiling.
+   */
+  readonly contextSummary?: ContextSummary | null;
 }
 
 /** Input of the `list_agent_messages` RPC. */

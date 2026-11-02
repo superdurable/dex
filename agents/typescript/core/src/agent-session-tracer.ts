@@ -11,7 +11,8 @@ import { createRequire } from "node:module";
 import type * as OpenTelemetryApi from "@opentelemetry/api";
 import type { Context } from "@superdurable/dex";
 
-import type { AgentTurnContext, AgentTurnOutcome } from "./agent-framework-runner.js";
+import type { ContextSummaryResult } from "./agent-context-compaction.js";
+import type { AgentTurnContext, AgentTurnOutcome, ModelCallMetadata } from "./agent-framework-runner.js";
 import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
 import {
   genAISemanticConventionsSchemaUrls,
@@ -47,6 +48,11 @@ export interface ModelCallSpan {
   recordOutcome(outcome: AgentTurnOutcome, appendedMessageKeys: readonly string[]): void;
 }
 
+/** Keeps the result of one `CompactContext` attempt for its `chat` span, emitted when the attempt ends. */
+export interface ContextSummarySpan {
+  recordResult(result: ContextSummaryResult): void;
+}
+
 /** Records the final record of one tool Step attempt on its `execute_tool` span. */
 export interface ToolCallSpan {
   recordFinished(finishedToolCall: AgentToolCall | AgentToolCallRecord): void;
@@ -55,6 +61,7 @@ export interface ToolCallSpan {
 const unrecordedActivation: ActivationSpan = Object.freeze({ traceparent: null });
 const disabledModelCallSpan: ModelCallSpan = { recordOutcome: () => undefined };
 const disabledToolCallSpan: ToolCallSpan = { recordFinished: () => undefined };
+const disabledContextSummarySpan: ContextSummarySpan = { recordResult: () => undefined };
 
 /**
  * Emits the spans of one agent session Flow type, or nothing when tracing is off.
@@ -159,6 +166,50 @@ export class AgentSessionTracer {
       if (parent !== undefined) {
         callSafely("emit the chat span", () =>
           modelCallSpan.emit(tracing, parent, startTime, context, stepType, turn, hasFailed, error),
+        );
+      }
+    }
+  }
+
+  /** Runs one `CompactContext` attempt and emits its `chat` span when the attempt ends. */
+  public async traceContextSummary<Result>(
+    context: Context,
+    stepType: string,
+    turnId: string,
+    throughSequence: number,
+    messages: readonly AgentMessage[],
+    run: (summarySpan: ContextSummarySpan) => Promise<Result>,
+  ): Promise<Result> {
+    const tracing = this.resolveTracing();
+    if (tracing === null) {
+      return run(disabledContextSummarySpan);
+    }
+    const startTime = performance.timeOrigin + performance.now();
+    const parent = callSafely("read the activation trace context", () =>
+      activationParentContext(tracing.api, this.readTraceparent(context)),
+    );
+    const summarySpan = new RecordingContextSummarySpan(this.isLatestVersion, this.shouldCaptureContent);
+    let error: unknown;
+    let hasFailed = false;
+    try {
+      return await runInContext(tracing.api, parent, () => run(summarySpan));
+    } catch (raised: unknown) {
+      hasFailed = true;
+      error = raised;
+      throw raised;
+    } finally {
+      if (parent !== undefined) {
+        callSafely("emit the summary chat span", () =>
+          summarySpan.emitSummary(
+            tracing,
+            parent,
+            startTime,
+            stepAttributes(context, stepType, turnId),
+            throughSequence,
+            messages,
+            hasFailed,
+            error,
+          ),
         );
       }
     }
@@ -302,8 +353,8 @@ class RecordingModelCallSpan implements ModelCallSpan {
   private appendedMessageKeys: readonly string[] = [];
 
   public constructor(
-    private readonly isLatestVersion: boolean,
-    private readonly shouldCaptureContent: boolean,
+    protected readonly isLatestVersion: boolean,
+    protected readonly shouldCaptureContent: boolean,
   ) {}
 
   public recordOutcome(outcome: AgentTurnOutcome, appendedMessageKeys: readonly string[]): void {
@@ -366,25 +417,7 @@ class RecordingModelCallSpan implements ModelCallSpan {
     outcome: AgentTurnOutcome,
     isSingleModelCall: boolean,
   ): void {
-    const metadata = outcome.modelCallMetadata;
-    const responseModel = nonEmptyString(metadata?.responseModel);
-    if (responseModel !== undefined) {
-      span.setAttribute("gen_ai.response.model", responseModel);
-    }
-    const providerName = nonEmptyString(metadata?.providerName);
-    if (providerName !== undefined) {
-      span.setAttribute(this.isLatestVersion ? "gen_ai.provider.name" : "gen_ai.system", providerName);
-    }
-    const responseId = nonEmptyString(metadata?.responseId);
-    if (responseId !== undefined) {
-      span.setAttribute("gen_ai.response.id", responseId);
-    }
-    const finishReasons = Array.isArray(metadata?.finishReasons)
-      ? metadata.finishReasons.filter((reason): reason is string => nonEmptyString(reason) !== undefined)
-      : [];
-    if (finishReasons.length > 0) {
-      span.setAttribute("gen_ai.response.finish_reasons", finishReasons);
-    }
+    this.setMetadataAttributes(span, outcome.modelCallMetadata);
     if (isSingleModelCall) {
       this.setUsageAttributes(span, outcome.usage);
     }
@@ -415,7 +448,28 @@ class RecordingModelCallSpan implements ModelCallSpan {
     }
   }
 
-  private setUsageAttributes(span: OpenTelemetryApi.Span, usage: AgentUsage | undefined): void {
+  protected setMetadataAttributes(span: OpenTelemetryApi.Span, metadata: ModelCallMetadata | undefined): void {
+    const responseModel = nonEmptyString(metadata?.responseModel);
+    if (responseModel !== undefined) {
+      span.setAttribute("gen_ai.response.model", responseModel);
+    }
+    const providerName = nonEmptyString(metadata?.providerName);
+    if (providerName !== undefined) {
+      span.setAttribute(this.isLatestVersion ? "gen_ai.provider.name" : "gen_ai.system", providerName);
+    }
+    const responseId = nonEmptyString(metadata?.responseId);
+    if (responseId !== undefined) {
+      span.setAttribute("gen_ai.response.id", responseId);
+    }
+    const finishReasons = Array.isArray(metadata?.finishReasons)
+      ? metadata.finishReasons.filter((reason): reason is string => nonEmptyString(reason) !== undefined)
+      : [];
+    if (finishReasons.length > 0) {
+      span.setAttribute("gen_ai.response.finish_reasons", finishReasons);
+    }
+  }
+
+  protected setUsageAttributes(span: OpenTelemetryApi.Span, usage: AgentUsage | undefined): void {
     // Runners report zero for counts the framework does not expose.
     if (usage === undefined || (usage.inputTokens === 0 && usage.outputTokens === 0)) {
       return;
@@ -430,6 +484,69 @@ class RecordingModelCallSpan implements ModelCallSpan {
     }
     if (usage.reasoningTokens > 0) {
       span.setAttribute("gen_ai.usage.reasoning.output_tokens", usage.reasoningTokens);
+    }
+  }
+}
+
+class RecordingContextSummarySpan extends RecordingModelCallSpan implements ContextSummarySpan {
+  private result: ContextSummaryResult | undefined;
+
+  public recordResult(result: ContextSummaryResult): void {
+    this.result = result;
+  }
+
+  public emitSummary(
+    tracing: ResolvedTracing,
+    parent: OpenTelemetryApi.Context,
+    startTime: number,
+    attributes: OpenTelemetryApi.Attributes,
+    throughSequence: number,
+    messages: readonly AgentMessage[],
+    hasFailed: boolean,
+    error: unknown,
+  ): void {
+    const { api, tracer } = tracing;
+    const result = this.result;
+    const requestModel = nonEmptyString(result?.modelCallMetadata?.requestModel);
+    const isSingleModelCall = result === undefined || result.usage?.modelCalls === 1;
+    const span = tracer.startSpan(
+      requestModel === undefined ? "chat" : `chat ${requestModel}`,
+      {
+        kind: isSingleModelCall ? api.SpanKind.CLIENT : api.SpanKind.INTERNAL,
+        attributes: {
+          "gen_ai.operation.name": "chat",
+          ...(requestModel === undefined ? {} : { "gen_ai.request.model": requestModel }),
+        },
+        startTime,
+      },
+      parent,
+    );
+    try {
+      if (!span.isRecording()) {
+        return;
+      }
+      span.setAttributes(attributes);
+      span.setAttribute("dex.agent.input_messages.last_key", messageSequenceKey(throughSequence));
+      if (this.shouldCaptureContent) {
+        span.setAttribute("gen_ai.input.messages", JSON.stringify(messages.map(chatMessage)));
+      }
+      if (result !== undefined) {
+        this.setMetadataAttributes(span, result.modelCallMetadata);
+        if (isSingleModelCall) {
+          this.setUsageAttributes(span, result.usage);
+        }
+        if (this.shouldCaptureContent) {
+          span.setAttribute(
+            "gen_ai.output.messages",
+            JSON.stringify([{ role: "assistant", parts: [textPart(result.text)] }]),
+          );
+        }
+      }
+      if (hasFailed) {
+        recordSpanError(api, span, error);
+      }
+    } finally {
+      span.end();
     }
   }
 }

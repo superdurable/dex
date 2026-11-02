@@ -18,6 +18,12 @@ import {
 } from "@superdurable/dex";
 
 import { builtInToolNames, isBlankText, type BuiltInTool } from "./agent-built-in-tools.js";
+import {
+  isContextCompactionRunner,
+  resolveCompactionPolicy,
+  type CompactionPolicy,
+  type ResolvedCompactionPolicy,
+} from "./agent-context-compaction.js";
 import type {
   AgentFrameworkRunner,
   DeferredToolOutcome,
@@ -45,6 +51,7 @@ import {
   ApplyTurnControlStep,
   AwaitToolApprovalStep,
   AwaitUserMessageStep,
+  CompactContextStep,
   isExecutablePlanStatus,
   RecordTurnFailureStep,
   ResumeTurnStep,
@@ -92,8 +99,8 @@ const toolEffects: readonly ToolEffect[] = [
 ];
 
 /**
- * Tool policies, built-in tools, live events, interrupt deadline, and tracing of one agent, passed to
- * {@link createAgentSessionFlow}.
+ * Tool policies, built-in tools, live events, interrupt deadline, tracing, and compaction of one agent,
+ * passed to {@link createAgentSessionFlow}.
  */
 export interface AgentSessionOptions {
   /**
@@ -146,6 +153,14 @@ export interface AgentSessionOptions {
    * {@link AgentFrameworkRunner.supportsPlanMode} is `true`, such as the Stepwise runner.
    */
   readonly planModeEnabled?: boolean;
+  /**
+   * When to summarize earlier messages so the model input stays under the context window. Defaults to no
+   * compaction. It needs a runner that implements {@link AgentFrameworkRunner.estimateInputTokens},
+   * {@link AgentFrameworkRunner.selectCompactionCutoff}, and {@link AgentFrameworkRunner.summarizeContext}.
+   * Messages stay in `AgentMessages`; only the model input changes. Enable it only after every Worker of
+   * the Flow type runs a release with the `CompactContext` Step. See {@link CompactionPolicy}.
+   */
+  readonly compaction?: CompactionPolicy;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -172,6 +187,8 @@ export interface ResolvedAgentSessionOptions {
   readonly maxDurableWaitMs?: number;
   /** Whether plan mode is enabled. A Flow always sets it; it is optional for the same reason. */
   readonly planModeEnabled?: boolean;
+  /** The compaction policy with its defaults, or `undefined` when the session never compacts. */
+  readonly compaction?: ResolvedCompactionPolicy;
 }
 
 /**
@@ -357,8 +374,9 @@ export interface AgentSessionFlow<
    *
    * @param context - RPC Context supplied by Dex.
    * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued
-   * message count, the plan, and the queued and steered messages with their Channel message IDs. Before
-   * `StartAgentSession` commits, `state` is `null` and the lists are empty.
+   * message count, the plan, the queued and steered messages with their Channel message IDs, and the context
+   * summary; summarized messages stay in `messages`. Before `StartAgentSession` commits, `state` is `null` and
+   * the lists are empty.
    */
   getAgentSnapshot(context: Context): RPCResult<AgentSnapshot>;
   /**
@@ -403,10 +421,11 @@ export interface AgentSessionFlow<
  * defaults.
  * @returns A new Flow to register in one Registry.
  * @throws {TypeError} When `flowType` is blank, the runner is incomplete, an effect or built-in tool is
- * unknown, a tool policy names an enabled built-in tool, a tracing option is invalid, or `planModeEnabled`
- * is set without `write_todos` or for a runner without {@link AgentFrameworkRunner.supportsPlanMode}.
- * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive, or
- * `maxDurableWaitMs` is not a positive whole number of seconds.
+ * unknown, a tool policy names an enabled built-in tool, a tracing option is invalid, `planModeEnabled`
+ * is set without `write_todos` or for a runner without {@link AgentFrameworkRunner.supportsPlanMode}, or
+ * `compaction` is set for a runner without the compaction methods.
+ * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive,
+ * `maxDurableWaitMs` is not a positive whole number of seconds, or the compaction policy is out of range.
  */
 export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<DeferredToolOutcome>>(
   runner: Runner,
@@ -430,6 +449,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     builtInTools: Object.freeze(builtInToolNames.filter((name) => config.builtInTools.has(name))),
     maxDurableWaitMs: config.maxDurableWaitMs,
     planModeEnabled: config.planModeEnabled,
+    ...(config.compaction === undefined ? {} : { compaction: config.compaction }),
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -454,11 +474,13 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly agentPlan = persistence.agentPlan;
     public readonly planExecutions = persistence.planExecutions;
     public readonly pendingPlanExecution = persistence.pendingPlanExecution;
+    public readonly contextSummary = persistence.contextSummary;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
       new AwaitUserMessageStep(transitions),
       new RunModelStep(transitions),
+      new CompactContextStep(transitions),
       new AwaitToolApprovalStep(transitions),
       new AwaitQuestionAnswerStep(transitions),
       new AwaitTimerStep(transitions),
@@ -484,7 +506,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       return this.steps;
     }
 
-    // AgentTraceContext is always registered, so Workers with and without tracing serve one Flow type.
+    // AgentTraceContext and ContextSummary are always registered, so Workers with and without tracing or
+    // compaction serve one Flow type.
     public getPersistenceSchema(): PersistenceSchema {
       return {
         attributes: [
@@ -498,6 +521,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.agentTraceContext,
           persistence.agentPlan,
           persistence.pendingPlanExecution,
+          persistence.contextSummary,
         ],
         channels: [
           persistence.queuedUserMessages,
@@ -717,6 +741,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
             plan: null,
             queuedMessages: [],
             steeredMessages: [],
+            contextSummary: null,
           },
         };
       }
@@ -732,6 +757,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           plan: transitions.readOptionalAgentPlan(context),
           queuedMessages: readPendingUserMessages(context, persistence.queuedUserMessages),
           steeredMessages: readPendingUserMessages(context, persistence.steeredUserMessages),
+          contextSummary: transitions.readContextSummary(context),
         },
       };
     }
@@ -825,6 +851,12 @@ function resolveAgentSessionConfig(
   if (!Number.isSafeInteger(maxDurableWaitMs) || maxDurableWaitMs < 1_000 || maxDurableWaitMs % 1_000 !== 0) {
     throw new RangeError("maxDurableWaitMs must be a positive whole number of seconds, in milliseconds");
   }
+  const compaction = options.compaction === undefined ? undefined : resolveCompactionPolicy(options.compaction);
+  if (compaction !== undefined && !isContextCompactionRunner(runner)) {
+    throw new TypeError(
+      "compaction needs a runner that implements estimateInputTokens, selectCompactionCutoff, and summarizeContext",
+    );
+  }
   return {
     flowType,
     toolPolicies: Object.freeze(toolPolicies),
@@ -835,6 +867,7 @@ function resolveAgentSessionConfig(
     builtInTools,
     maxDurableWaitMs,
     planModeEnabled,
+    compaction,
   };
 }
 

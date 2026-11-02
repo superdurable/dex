@@ -425,9 +425,8 @@ class AgentUIMessageChunkTranslator {
       case "text_delta":
       case "reasoning_delta": {
         const text = readPayloadString(payload, "text");
-        const stepType = readStepType(event.stepExecutionId);
         // Text from a tool Step belongs to no model call, so it travels as event data.
-        if (text === undefined || (stepType !== modelCallStepType && stepType !== "")) {
+        if (text === undefined || !isModelCallStepType(readStepType(event.stepExecutionId))) {
           this.pushAgentEventData(event);
           return;
         }
@@ -462,7 +461,12 @@ class AgentUIMessageChunkTranslator {
         return;
       }
       case "usage_recorded":
-        if (this.enterModelStep(event) && this.cursor.modelStep !== null) {
+        // A CompactContext summary call is no step of the assistant message; its usage is only event data.
+        if (
+          isModelCallStepType(readStepType(event.stepExecutionId)) &&
+          this.enterModelStep(event) &&
+          this.cursor.modelStep !== null
+        ) {
           this.cursor.modelStep.isUsageRecorded = true;
         }
         this.pushAgentEventData(event);
@@ -851,4 +855,9 @@ export function parseToolArguments(toolArguments: string | null | undefined): un
   } catch {
     return toolArguments;
   }
+}
+
+/** Reports whether events of this Step type belong to a model call: `RunModel`, or unknown for old events. */
+function isModelCallStepType(stepType: string): boolean {
+  return stepType === modelCallStepType || stepType === "";
 }

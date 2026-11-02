@@ -32,6 +32,7 @@ from dex_agents import (
     AgentState,
     AgentToolCall,
     AgentUsage,
+    ContextSummary,
     InteractionMode,
     InterruptKind,
     MessageRole,
@@ -80,7 +81,9 @@ BROWSER_SNAPSHOT_JSON = (
     '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,'
     '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",'
     '"tasks":[{"content":"Refund the order","status":"in_progress"}],'
-    '"updated_at":"2026-11-01T12:00:02.000Z"},"queued_messages":[],"steered_messages":[]}'
+    '"updated_at":"2026-11-01T12:00:02.000Z"},"queued_messages":[],"steered_messages":[],'
+    '"context_summary":{"generation":1,"first_sequence":1,"last_sequence":2,'
+    '"text":"The user asked to refund order 42.","created_at":"2026-11-01T12:00:03.000Z"}}'
 )
 
 
@@ -506,6 +509,13 @@ def test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use() -> Non
             status=PlanStatus.ACTIVE,
             tasks=[AgentPlanTask(content="Refund the order", status=PlanTaskStatus.IN_PROGRESS)],
             updated_at="2026-11-01T12:00:02.000Z",
+        ),
+        context_summary=ContextSummary(
+            generation=1,
+            first_sequence=1,
+            last_sequence=2,
+            text="The user asked to refund order 42.",
+            created_at="2026-11-01T12:00:03.000Z",
         ),
     )
 

@@ -31,6 +31,8 @@ import type {
   DeleteQueuedMessageRequest,
   ExecutePlanRequest,
   InteractionMode,
+  CompactContextInput,
+  ContextSummary,
   ListAgentMessagesInput,
   PendingUserMessage,
   PlanExecutionRequest,
@@ -55,6 +57,7 @@ const agentSessionStatuses: readonly AgentSessionStatus[] = [
   "waiting_for_user_message",
   "running_model",
   "running_tools",
+  "compacting_context",
 ];
 const agentMessageRoles: readonly AgentMessageRole[] = ["user", "assistant", "tool"];
 const toolEffects: readonly ToolEffect[] = [
@@ -576,6 +579,36 @@ export function decodeResolveInterruptInput(value: unknown): ResolveInterruptInp
   };
 }
 
+export function encodeContextSummary(value: ContextSummary): unknown {
+  return {
+    generation: value.generation,
+    first_sequence: value.firstSequence,
+    last_sequence: value.lastSequence,
+    text: value.text,
+    created_at: value.createdAt,
+  };
+}
+
+export function decodeContextSummary(value: unknown): ContextSummary {
+  const reader = new WireRecordReader(value, "ContextSummary");
+  return {
+    generation: reader.readInteger("generation"),
+    firstSequence: reader.readInteger("first_sequence"),
+    lastSequence: reader.readInteger("last_sequence"),
+    text: reader.readString("text"),
+    createdAt: reader.readString("created_at"),
+  };
+}
+
+export function encodeCompactContextInput(value: CompactContextInput): unknown {
+  return { through_sequence: value.throughSequence };
+}
+
+export function decodeCompactContextInput(value: unknown): CompactContextInput {
+  const reader = new WireRecordReader(value, "CompactContextInput");
+  return { throughSequence: reader.readInteger("through_sequence") };
+}
+
 export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
   return {
     state: value.state === null ? null : encodeAgentState(value.state),
@@ -587,6 +620,10 @@ export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
     plan: value.plan == null ? null : encodeAgentPlan(value.plan),
     queued_messages: (value.queuedMessages ?? []).map(encodePendingUserMessage),
     steered_messages: (value.steeredMessages ?? []).map(encodePendingUserMessage),
+    context_summary:
+      value.contextSummary === undefined || value.contextSummary === null
+        ? null
+        : encodeContextSummary(value.contextSummary),
   };
 }
 
@@ -602,6 +639,10 @@ export function decodeAgentSnapshot(value: unknown): AgentSnapshot {
     ...(reader.readObject("plan") == null ? {} : { plan: decodeAgentPlan(reader.readObject("plan")) }),
     queuedMessages: reader.readArrayOrEmpty("queued_messages").map(decodePendingUserMessage),
     steeredMessages: reader.readArrayOrEmpty("steered_messages").map(decodePendingUserMessage),
+    contextSummary:
+      reader.readObject("context_summary") == null
+        ? null
+        : decodeContextSummary(reader.readObject("context_summary")),
   };
 }
 
@@ -749,3 +790,25 @@ export const agentMessagesPageCodec = snakeCaseJsonCodec(
   encodeAgentMessagesPage,
   decodeAgentMessagesPage,
 );
+export const contextSummaryCodec = snakeCaseJsonCodec(
+  "ContextSummary",
+  encodeContextSummary,
+  decodeContextSummary,
+);
+
+/** Input of `CompactContext` and `RecordTurnFailure`: a `CompactContextInput`, or `RunModel`'s JSON `null` as `undefined`. */
+export const turnFailureRouteInputCodec: Codec<CompactContextInput | undefined> = {
+  typeName: "TurnFailureRouteInput",
+  wireKind: "json",
+  encode: (value) => ({
+    kind: "json",
+    data: value === undefined ? "null" : JSON.stringify(encodeCompactContextInput(value)),
+  }),
+  decode: (value) => {
+    if (value.kind !== "json") {
+      throw new TypeError(`TurnFailureRouteInput requires JSON, got ${value.kind}`);
+    }
+    const parsed: unknown = JSON.parse(String(value.data));
+    return parsed === null ? undefined : decodeCompactContextInput(parsed);
+  },
+};
