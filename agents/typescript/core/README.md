@@ -28,10 +28,12 @@ RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
 for the same reason. Requirements: Node `^22.0.0 || ^24.0.0`.
 
-The package also exports `@superdurable/dex-agents/testing`. It starts a
-private `dexcli dev --engine zd` engine and Worker processes for integration
-tests, and the adapters' own tests import it from the published core. It is
-for tests only; it needs `DEXCLI` and `dex-server-zd`.
+The package also exports `@superdurable/dex-agents/ui-stream`, the
+[UI stream adapters](#ui-streams), and `@superdurable/dex-agents/testing`. The
+testing export starts a private `dexcli dev --engine zd` engine and Worker
+processes for integration tests, and the adapters' own tests import it from
+the published core. It is for tests only; it needs `DEXCLI` and
+`dex-server-zd`.
 
 `@superdurable/dex-agents/mcp` offers the tools of MCP servers as agent tools;
 see [MCP tools](#mcp-tools-superdurabledex-agentsmcp). It needs the optional
@@ -486,6 +488,245 @@ Steps; use the source there for the shared idempotency key and annotation
 handling. The OpenAI Agents SDK runs its own MCP servers inline in `RunModel`,
 so a wrapper is its only path to tool Steps.
 
+## UI streams
+
+`@superdurable/dex-agents/ui-stream` lets a browser render a live session
+from its `AgentEvents` Stream and recover after a reconnect. It needs no store
+besides Dex: the resume position rides in a token the browser sends back. It
+offers three things:
+
+- an [AI SDK](https://ai-sdk.dev) UI message stream (protocol
+  `x-vercel-ai-ui-message-stream: v1`) for `useChat`;
+- a plain Server-Sent Events stream whose event `id` is the Dex resume token,
+  so an `EventSource` resumes through `Last-Event-ID`;
+- snapshots that map `get_agent_snapshot` to AI SDK `UIMessage` objects or to
+  wire JSON.
+
+It has no runtime dependency on `ai`. Its part and message types are
+structural subsets of the AI SDK `UIMessageChunk` and `UIMessage` types, and
+the tests check that they stay assignable. The helpers return Fetch API
+`Response` objects, so they mount in any server that speaks `Request` and
+`Response`.
+
+**Authorize every route.** The session ID, the approval decisions, and the
+resume token all come from the browser. Each route must check that the caller
+may read, or write to, the session it names before it calls a helper. The
+helpers only check that a decision answers an interrupt pending in that
+session's active turn.
+
+### useChat
+
+Mount three routes, with the chat ID as the session ID:
+
+```ts
+import {
+  agentResumeTokenHeaderName,
+  createAgentUIMessageStreamResponse,
+  readAgentSessionUIMessages,
+  readAgentToolApprovalResponses,
+  resolveAgentToolApprovalsWithUIMessageStream,
+  sendAgentUserMessageWithUIMessageStream,
+} from "@superdurable/dex-agents/ui-stream";
+import type { UIMessage } from "ai";
+
+// GET /api/chat/:id: the stored messages and the active turn's resume token.
+export async function getChat(request: Request, sessionId: string): Promise<Response> {
+  await authorizeSession(request, sessionId);
+  return Response.json(await readAgentSessionUIMessages({ client, flow, flowId: sessionId }));
+}
+
+// POST /api/chat: useChat sends a user message, or the answers to tool approvals.
+export async function postChat(request: Request): Promise<Response> {
+  const { id, messages } = (await request.json()) as { id: string; messages: UIMessage[] };
+  await authorizeSession(request, id);
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role === "assistant") {
+    return resolveAgentToolApprovalsWithUIMessageStream({
+      client, flow, flowId: id,
+      approvals: readAgentToolApprovalResponses(lastMessage),
+      signal: request.signal,
+    });
+  }
+  const text = (lastMessage?.parts ?? [])
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("");
+  return sendAgentUserMessageWithUIMessageStream({ client, flow, flowId: id, text, signal: request.signal });
+}
+
+// GET /api/chat/:id/stream: useChat reconnects.
+export async function getChatStream(request: Request, sessionId: string): Promise<Response> {
+  await authorizeSession(request, sessionId);
+  return createAgentUIMessageStreamResponse({
+    client, flow, flowId: sessionId,
+    resumeToken: request.headers.get(agentResumeTokenHeaderName) ?? undefined,
+    signal: request.signal,
+  });
+}
+```
+
+In the browser, keep the latest resume token in memory and send it in a header
+when the stream reconnects. A token can reach 64 KiB, so keep it out of URLs:
+
+```tsx
+import { useChat } from "@ai-sdk/react";
+import {
+  DefaultChatTransport,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+  type UIMessage,
+} from "ai";
+import { useRef } from "react";
+
+export function AgentChat(props: {
+  sessionId: string;
+  initial: { messages: UIMessage[]; resumeToken: string | null };
+}) {
+  const resumeToken = useRef(props.initial.resumeToken ?? undefined);
+  const { messages, sendMessage, addToolApprovalResponse } = useChat({
+    id: props.sessionId,
+    messages: props.initial.messages,
+    resume: props.initial.resumeToken !== null,
+    onData: (part) => {
+      if (part.type === "data-agent-resume-token") resumeToken.current = part.data as string;
+    },
+    onFinish: ({ finishReason }) => {
+      // "other": the turn ended without its events reaching the Stream; reload the stored messages.
+    },
+    transport: new DefaultChatTransport({
+      api: "/api/chat",
+      prepareReconnectToStreamRequest: ({ id }) => ({
+        api: `/api/chat/${id}/stream`,
+        headers: resumeToken.current === undefined ? {} : { "x-agent-resume-token": resumeToken.current },
+      }),
+    }),
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+  });
+  // Render messages; answer a part in state "approval-requested" with
+  // addToolApprovalResponse({ id: part.approval.id, approved: true }).
+}
+```
+
+Events become parts as follows. Each part belongs to the turn's assistant
+message, whose ID is `<turnId>-assistant`.
+
+| `AgentEvent` | UI message stream parts |
+| --- | --- |
+| `turn_started` | `start` |
+| `text_delta`, `reasoning_delta` of a `RunModel` Step | `text-*` or `reasoning-*`; `start-step` (after `finish-step`) for a new `RunModel` Step execution; `reset-step` when a new attempt of the same Step execution starts |
+| `tool_call_deferred` | `tool-input-available` with `dynamic: true` and the parsed arguments |
+| `interrupt_raised` | `tool-approval-request`; its `approvalId` is the `interrupt_id` |
+| `interrupt_resolved` | `tool-approval-response` |
+| `tool_call_finished` | `tool-output-available` (`succeeded`), `tool-output-error` (`failed`, `outcome_unknown`), or `tool-output-denied` (`rejected`) |
+| `turn_completed` | `finish` with reason `stop`, once the turn's end committed |
+| `turn_failed` | `error`, then `finish` with reason `error`, once the turn's end committed |
+| `usage_recorded`, `tool_call_started`, text written by a tool Step, adapter-specific events | transient `data-agent-event` with the event's wire JSON |
+| every part | a transient `data-agent-resume-token` after it |
+
+- **Resume.** A reconnect with a token replays the token's turn from its
+  first retained event. Its `start` part makes the default
+  `DefaultChatTransport` reset the message and rebuild it, so the result is
+  right whether the connection dropped, closed cleanly, or the page reloaded.
+  A reconnect without a token replays the active turn. To continue exactly
+  after the last part instead, without resending the turn, pass
+  `continueAfterResumeToken: true`, but only while the browser still holds
+  that message: with `useChat`, while `status` is `"error"` after a dropped
+  connection. Each part has its own token, so a cut between two parts of one
+  event repeats neither.
+- **Rejected positions.** Before it answers 200, the stream reads once to
+  check the token's Dex position. A position Dex rejects, such as a forged one,
+  restarts the turn from its first retained event.
+- **Turn ends.** `turn_completed` and `turn_failed` reach the Stream before
+  their commit, so the stream waits up to 3 seconds for the commit before it
+  finishes, and keeps reading when a retry follows. When the Stream lost a
+  turn's events, the session's committed state still ends the stream, with
+  reason `other`; that includes a Server whose Stream Store is disabled.
+- **Approvals.** When the turn waits only for approvals, the stream finishes
+  with reason `tool-calls`, so `sendAutomaticallyWhen` can send the answers.
+  It decides that from the committed records, so a replay that reaches an
+  approval request keeps reading when the call was already answered.
+  `resolveAgentToolApprovalsWithUIMessageStream` reads at most 100 decisions,
+  keeps the first per approval ID, calls `resolve_interrupt` only for
+  interrupts pending in the active turn, and streams the rest of the turn into
+  the same message. `readAgentToolApprovalResponses` binds each decision to
+  the turn of the message it came from, and a decision bound to another turn,
+  such as from a stale browser tab, is not applied. A decision that is no
+  longer pending gets the call's outcome, or an error part, so the browser
+  does not send it again. To keep
+  one stream open instead and resolve approvals from your own endpoint with
+  `resolveAgentToolApproval`, pass `finishWhenAwaitingApproval: false`.
+- **Retries.** A `reset-step` drops the partial text of an interrupted
+  `RunModel` attempt, such as after a Worker crash.
+- **Tool details.** Tool arguments and results come from the committed
+  `AgentToolCalls` records, because events carry only IDs and statuses. The
+  stream waits up to 3 seconds for the commit that follows an event, and reads
+  the stored messages once the turn has deleted its records.
+- **Lower-level APIs.** `streamAgentUIMessageChunks` yields the parts for
+  `createUIMessageStreamResponse` or your own response.
+  `convertAgentSnapshotToUIMessages` maps a snapshot you already have.
+
+### Plain Server-Sent Events
+
+For a UI that applies the event rules itself, serve the snapshot and the
+events:
+
+```ts
+import {
+  convertAgentEventStreamSnapshotToJson,
+  createAgentEventSseResponse,
+  readAgentEventStreamSnapshot,
+} from "@superdurable/dex-agents/ui-stream";
+
+// GET /sessions/:id/snapshot
+export async function getSnapshot(request: Request, sessionId: string): Promise<Response> {
+  await authorizeSession(request, sessionId);
+  const value = await readAgentEventStreamSnapshot({ client, flow, flowId: sessionId });
+  return Response.json(convertAgentEventStreamSnapshotToJson(value));
+}
+
+// GET /sessions/:id/events
+export async function getEvents(request: Request, sessionId: string): Promise<Response> {
+  await authorizeSession(request, sessionId);
+  const resumeToken =
+    request.headers.get("last-event-id") ?? new URL(request.url).searchParams.get("resumeToken") ?? "";
+  return createAgentEventSseResponse({ client, flow, flowId: sessionId, resumeToken, signal: request.signal });
+}
+```
+
+The browser loads the snapshot, then opens the event stream from its token:
+
+```ts
+const { resume_token } = await (await fetch(`/sessions/${sessionId}/snapshot`)).json();
+const events = new EventSource(`/sessions/${sessionId}/events?resumeToken=${encodeURIComponent(resume_token)}`);
+events.onmessage = (message) => applyAgentEvent(JSON.parse(message.data));
+```
+
+Each event's data is the `AgentEvent` wire JSON with `payload` as JSON text.
+On a reconnect the browser sends `Last-Event-ID`, which takes precedence over
+the query parameter, and the stream continues with the next event. A token
+that Dex rejects, such as one of another session, gets a 400, which stops the
+`EventSource`; load the snapshot again. While a turn is active, the
+snapshot's token replays that turn's events. The snapshot and event JSON is
+the same as the Python core's `dex_agents.ui_stream`.
+
+### UI stream limits
+
+- **Stop is not durable yet.** Stopping in the browser only closes the HTTP
+  response; the turn keeps running in Dex. A durable turn cancel is not in the
+  session contract yet.
+- **Streams are best effort.** A production Dex Server drops Stream writes
+  until a Stream backend is enabled (`streamStore.backend`). Trimming can also
+  remove old events. Without the events, the UI message stream ends with
+  reason `other` once the turn ends, and `readAgentSessionUIMessages` shows the
+  active turn's tool calls and approvals with a `null` token; poll it until the
+  turn ends.
+- **Stored results.** A stored tool result is the text the model saw, so after
+  a reload a failed or rejected call shows that text in `output-available`.
+- **Queued messages.** `sendAgentUserMessageWithUIMessageStream` follows the
+  next turn that starts. When other messages were queued first, that turn
+  answers the oldest of them.
+- **Exact continuation.** With `continueAfterResumeToken`, a cut that falls
+  between a part and its token, which arrive in one write, still repeats that
+  part.
+
 ## Testing export
 
 `@superdurable/dex-agents/testing` runs adapter integration tests against a
@@ -493,7 +734,7 @@ real Dex Server with no model key:
 
 | Export | Purpose |
 | --- | --- |
-| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli` |
+| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli`. `serverZdConfigPath` passes `dex-server-zd` overrides, such as a disabled Stream Store |
 | `KillableWorkerProcess.start({ entryModulePath, serverAddress, logPath, environment })` | Worker child in its own process group; `kill()` sends SIGKILL to the group, `stop()` drains |
 | `runAgentWorkerProcess(flows)` | Body of the Worker child module; 8 concurrent tasks; prints `dex-agents test Worker ready` once registered |
 | `AgentTestEnvironment.start({ serverAddress, flows, isWorkerInProcess })` | Registry, BlobCache, Client, and optional in-process Worker with 8 concurrent tasks |
@@ -564,7 +805,20 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
   also under an ASYNC step durability FlowConfig;
 - SIGKILL during `CallTool`, retried with the same idempotency key;
 - an approval that survives a Worker restart, `send_user_message` during a
-  turn, and snapshots and message paging.
+  turn, and snapshots and message paging;
+- the UI stream adapters through the AI SDK `Chat` client and
+  `DefaultChatTransport` over HTTP: a streamed turn that matches the stored
+  messages; a dropped connection continued exactly, a clean close replayed into
+  the same message, and a cut between two parts of one event, each with no
+  repeated or missing part; an approval and a rejection round trip; a stale
+  approval that does not resend in a loop; untrusted, duplicate, and excess
+  decisions, decisions bound to an older turn, and an approval sent with the
+  paused stream's token; a reconnect after an approval while the approved call
+  runs; a `turn_completed` or `turn_failed` that never commits; a page reload,
+  also with a forged Dex position; plain Server-Sent Events resumed with
+  `Last-Event-ID` and a rejected token; a turn finished from committed state
+  with the Stream Store disabled; the resume token size limit; and
+  `reset-step` after SIGKILL during `RunModel`.
 
 ## Design decisions
 

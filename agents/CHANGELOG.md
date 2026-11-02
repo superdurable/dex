@@ -55,3 +55,16 @@ Every npm adapter peer-depends on `@superdurable/dex-agents` and
 - TypeScript: `toolEffectFromMcpToolAnnotations` maps `idempotentHint` to
   `idempotent_write` whatever `destructiveHint` says, as the Python adapters
   do.
+
+### UI streams
+
+- `@superdurable/dex-agents/ui-stream`: an AI SDK UI message stream (protocol
+  `v1`) for `useChat`, resumed through a UI stream resume token, with
+  `reset-step` for a new `RunModel` attempt and tool approvals through
+  `resolve_interrupt`; plain Server-Sent Events resumed with `Last-Event-ID`;
+  and snapshots as AI SDK `UIMessage` objects or wire JSON.
+- `dex_agents.ui_stream`: Server-Sent Event frames resumed with
+  `Last-Event-ID`, and snapshot JSON, for async and synchronous Clients.
+- The testing exports' private engines accept `dex-server-zd` configuration
+  overrides: `serverZdConfigPath` in TypeScript and `server_zd_config` in
+  Python.

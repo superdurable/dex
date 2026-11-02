@@ -62,6 +62,7 @@ class AgentTestStack:
         *,
         worker_cwd: Path | None = None,
         worker_env: Mapping[str, str] | None = None,
+        server_zd_config: Path | None = None,
     ) -> None:
         """Describe the stack without starting anything.
 
@@ -71,13 +72,15 @@ class AgentTestStack:
             worker_module: Module each Worker child runs with ``python -m``.
             worker_cwd: Working directory that makes ``worker_module`` importable.
             worker_env: Environment variables for every Worker child.
+            server_zd_config: ``dex-server-zd`` YAML overrides for the engine,
+                such as a disabled Stream Store. ``None`` uses none.
         """
         self._state_dir = state_dir
         self._flows = tuple(flows)
         self._worker_module = worker_module
         self._worker_cwd = worker_cwd
         self._worker_env = dict(worker_env or {})
-        self._engine = PrivateDexEngine(state_dir / "engine")
+        self._engine = PrivateDexEngine(state_dir / "engine", server_zd_config=server_zd_config)
         self._workers: list[AgentWorkerProcess] = []
         self._blob_cache: BlobCache | None = None
         self._client: AsyncClient | None = None

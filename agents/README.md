@@ -27,6 +27,20 @@ adapter depends on the published core instead.
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |
 | [`typescript/claude-agent-sdk`](typescript/claude-agent-sdk) | [`@superdurable/dex-agents-claude-agent-sdk`](https://www.npmjs.com/package/@superdurable/dex-agents-claude-agent-sdk) | Claude Agent SDK |
 
+## UI streams
+
+Both cores ship UI stream adapters, so a browser can render a live session
+from its `AgentEvents` Stream and resume after a reconnect with no store
+besides Dex. `@superdurable/dex-agents/ui-stream` serves an AI SDK UI message
+stream for `useChat`, with `reset-step` for a retried model call and tool
+approvals through `tool-approval-request` and `tool-approval-response`.
+Both `@superdurable/dex-agents/ui-stream` and `dex_agents.ui_stream` serve
+plain Server-Sent Events whose `id` is the Dex resume token, so an
+`EventSource` resumes through `Last-Event-ID`, and a snapshot to load on
+every connection. See the
+[TypeScript core](typescript/core/README.md#ui-streams) and the
+[Python core](python/core/README.md#browser-streams).
+
 ## Installation
 
 Install an adapter with its framework. The Python adapter brings in

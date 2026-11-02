@@ -481,3 +481,33 @@ its type checks and lint, and runs its integration tests. Tests start private
 N/A: the packages add no Dex Web UI. The Dex Web agent view in the parent
 design reads the contract above, and Step mode gives every framework the same
 Step shapes.
+
+### UI stream adapters
+
+The cores also carry the protocol adapters of parent design C6, for UIs that
+applications build. They read `AgentEvents` through the Client with a resume
+token and need no Server change and no other store.
+
+- `@superdurable/dex-agents/ui-stream` translates one turn into the AI SDK UI
+  message stream (`x-vercel-ai-ui-message-stream: v1`). A `RunModel` Step
+  execution is one AI SDK step, recognized by its `StepType-Number` Step
+  execution ID; a new attempt of it emits `reset-step`. Tool calls are dynamic
+  tool parts whose arguments and results come from `AgentToolCalls`, or from
+  the stored messages once the turn ended. An interrupt is a
+  `tool-approval-request` whose `approvalId` is the `interrupt_id`, and a
+  `tool-approval-response` calls `resolve_interrupt` for an interrupt pending
+  in the active turn. The stream finishes with reason `tool-calls` when the
+  turn waits only for approvals, so `useChat` can send the answers.
+- The UI stream resume token encodes the Dex resume token plus the parts the
+  browser holds open, with one token after every part. A reconnect replays the
+  token's turn by default, so any browser state rebuilds; an opt-in exact
+  continuation serves a browser that kept its message. A Dex position the
+  Server rejects restarts the turn from its listed start.
+- Turn ends wait for the end's commit, and committed state ends a stream whose
+  events the Stream lost, including with the Stream Store disabled.
+- Both cores serve plain Server-Sent Events whose `id` is the Dex resume token,
+  so an `EventSource` resumes through `Last-Event-ID`, and a snapshot with the
+  token to open the events from. A rejected token gets a 400 before the stream
+  starts.
+- Stop is pending: a durable turn cancel is not in the contract yet, so
+  closing the browser response leaves the turn running.

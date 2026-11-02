@@ -34,6 +34,10 @@
     "./mcp": {
       "types": "./dist/src/mcp/index.d.ts",
       "import": "./dist/src/mcp/index.js"
+    },
+    "./ui-stream": {
+      "types": "./dist/src/ui-stream/index.d.ts",
+      "import": "./dist/src/ui-stream/index.js"
     }
   },
   "scripts": {
@@ -54,6 +58,7 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "@superdurable/dex": "1.30.0",
     "@types/node": "22.20.5",
+    "ai": "7.0.159",
     "typescript": "5.9.3",
     "zod": "4.6.7"
   },
