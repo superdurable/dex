@@ -242,10 +242,8 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
             Ok(_) => break,
             // The replaced standby instance closes at once; a describe that races its GOAWAY retries.
             Err(status) => assert!(
-                matches!(
-                    status.code(),
-                    Code::FailedPrecondition | Code::Cancelled | Code::Unavailable
-                ) && described_at.elapsed() < TAKEOVER_BUDGET,
+                (status.code() == Code::FailedPrecondition || is_transport_failure(&status))
+                    && described_at.elapsed() < TAKEOVER_BUDGET,
                 "the standby never took over: {status}"
             ),
         }
@@ -415,6 +413,11 @@ async fn collect_reads(mut readers: JoinSet<usize>) -> usize {
         reads += answered.expect("a reader does not panic");
     }
     reads
+}
+
+/// Returns whether the connection, not the server, failed the call, as when it raced a GOAWAY.
+fn is_transport_failure(status: &tonic::Status) -> bool {
+    std::error::Error::source(status).is_some_and(|source| source.is::<tonic::transport::Error>())
 }
 
 fn summary_request() -> GetFlowSummaryRequest {
