@@ -697,13 +697,14 @@ class AgentUIMessageChunkTranslator {
   }
 
   /**
-   * Reports whether the turn waits only for approvals, judged by the committed records: a replay reaches
-   * an approval request before the events that answered it.
+   * Reports whether the turn waits only for approvals, judged by the committed records and
+   * `PendingInterrupts`: a replay reaches an approval request before the events that answered it.
    */
   private async isConfirmedWaitingOnlyForApprovals(): Promise<boolean> {
     if (!this.isWaitingOnlyForApprovals()) {
       return false;
     }
+    const requestedApprovalToolCallIds: string[] = [];
     for (const [toolCallId, state] of this.cursor.toolCalls) {
       if (state !== "approval_requested") {
         continue;
@@ -712,8 +713,11 @@ class AgentUIMessageChunkTranslator {
       if (record?.status !== "awaiting_approval") {
         return false;
       }
+      requestedApprovalToolCallIds.push(toolCallId);
     }
-    return true;
+    // resolve_interrupt removes the interrupt before the approval Step commits the record.
+    const pendingApprovalToolCallIds = await this.records.readPendingApprovalToolCallIds();
+    return requestedApprovalToolCallIds.every((toolCallId) => pendingApprovalToolCallIds.has(toolCallId));
   }
 
   private isWaitingOnlyForApprovals(): boolean {

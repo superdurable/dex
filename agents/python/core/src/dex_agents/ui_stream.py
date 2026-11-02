@@ -64,6 +64,12 @@ DEFAULT_EVENT_POLL_TIMEOUT = timedelta(seconds=10)
 #: SSE comment sent after an empty long poll; it keeps proxies from closing an idle response.
 KEEP_ALIVE_FRAME = ": keep-alive\n\n"
 
+# Replay, routing, tracing, and tool resume state that only the session's Steps read.
+_WORKER_ONLY_MESSAGE_FIELD_NAMES = frozenset({"framework_item"})
+_WORKER_ONLY_TOOL_CALL_FIELD_NAMES = frozenset(
+    {"tool_source_reference", "trace_context", "input_continuation", "input_answers"}
+)
+
 _RESUME_TOKEN_PROBE_TIMEOUT = timedelta(seconds=1)
 _TURN_START_SEARCH_PAGE_SIZE = 500
 _TURN_START_SEARCH_PAGE_LIMIT = 20
@@ -140,10 +146,15 @@ def agent_event_to_json(event: AgentEvent) -> dict[str, Any]:
 
 
 def agent_snapshot_to_json(snapshot: AgentSnapshot) -> dict[str, Any]:
-    """Return an ``AgentSnapshot`` as its snake_case wire JSON.
+    """Return an ``AgentSnapshot`` as the snake_case JSON a browser reads.
 
     Use it for a snapshot endpoint that serves the snapshot without a resume
-    token, or inside another response.
+    token, or inside another response. It is the ``get_agent_snapshot`` wire
+    format without the fields only the session's Steps use, the same JSON as
+    the TypeScript core. Messages leave out ``framework_item``, the framework's
+    replay data, which can hold the agent's instructions. Tool calls leave out
+    ``tool_source_reference``, ``trace_context``, ``input_continuation``, and
+    ``input_answers``.
 
     Args:
         snapshot: The ``get_agent_snapshot`` result.
@@ -155,6 +166,14 @@ def agent_snapshot_to_json(snapshot: AgentSnapshot) -> dict[str, Any]:
     converted = _convert_wire_value(snapshot)
     if not isinstance(converted, dict):
         raise TypeError("AgentSnapshot must convert to a JSON object")
+    converted["messages"] = [
+        _omit_json_fields(message, _WORKER_ONLY_MESSAGE_FIELD_NAMES)
+        for message in converted["messages"]
+    ]
+    converted["tool_calls"] = [
+        _omit_json_fields(tool_call, _WORKER_ONLY_TOOL_CALL_FIELD_NAMES)
+        for tool_call in converted["tool_calls"]
+    ]
     return converted
 
 
@@ -599,6 +618,10 @@ def _require_poll_timeout(poll_timeout: timedelta) -> None:
     seconds = poll_timeout.total_seconds()
     if seconds < 1 or not seconds.is_integer():
         raise ValueError("poll_timeout must be a positive whole number of seconds")
+
+
+def _omit_json_fields(value: dict[str, Any], field_names: frozenset[str]) -> dict[str, Any]:
+    return {name: field_value for name, field_value in value.items() if name not in field_names}
 
 
 def _convert_wire_value(value: Any) -> Any:
