@@ -597,7 +597,8 @@ token and need no Server change and no other store.
   `tool-approval-request` whose `approvalId` is the `interrupt_id`, and a
   `tool-approval-response` calls `resolve_interrupt` for an interrupt pending
   in the active turn. The stream finishes with reason `tool-calls` when the
-  turn waits only for approvals, so `useChat` can send the answers.
+  turn waits only for approvals whose interrupts are still in
+  `PendingInterrupts`, so `useChat` can send the answers.
 - The UI stream resume token encodes the Dex resume token plus the parts the
   browser holds open, with one token after every part. A reconnect replays the
   token's turn by default, so any browser state rebuilds; an opt-in exact
@@ -607,7 +608,9 @@ token and need no Server change and no other store.
   events the Stream lost, including with the Stream Store disabled.
 - Both cores serve plain Server-Sent Events whose `id` is the Dex resume token,
   so an `EventSource` resumes through `Last-Event-ID`, and a snapshot with the
-  token to open the events from. A rejected token gets a 400 before the stream
-  starts.
+  token to open the events from. The snapshot JSON leaves out the fields only
+  the session's Steps use: `framework_item`, `tool_source_reference`,
+  `trace_context`, `input_continuation`, and `input_answers`. A rejected token
+  gets a 400 before the stream starts.
 - Stop is pending: a durable turn cancel is not in the contract yet, so
   closing the browser response leaves the turn running.
