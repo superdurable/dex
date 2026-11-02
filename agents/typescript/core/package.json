@@ -51,7 +51,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:integration": "npm run build && node --test --test-concurrency=1 --test-timeout=240000 'dist/test/integ/*.integration.test.js'"
+    "test:integration": "npm run build && node --test --test-concurrency=1 --test-timeout=240000 'dist/test/integ/*.integration.test.js'",
+    "test:long": "npm run build && node --test --test-concurrency=1 --test-timeout=1800000 'dist/test/long/*.integration.test.js'"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

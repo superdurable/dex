@@ -19,6 +19,7 @@ import {
   agentUsageCodec,
   agentUserMessageCodec,
   planExecutionRequestCodec,
+  contextSummaryCodec,
   toolCallCancellationCodec,
   toolCallCompletedCodec,
   turnCancellationRequestCodec,
@@ -35,6 +36,7 @@ import type {
   AgentUsage,
   AgentUserMessage,
   PlanExecutionRequest,
+  ContextSummary,
   ToolCallCancellation,
   ToolCallCompleted,
   TurnCancellationRequest,
@@ -114,6 +116,11 @@ export interface AgentSessionPersistence {
    * not consumed yet.
    */
   readonly pendingPlanExecution: Attribute<PlanExecutionRequest>;
+  /**
+   * The `ContextSummary` Attribute: the summary that replaces the earlier messages in the model input,
+   * set once the session compacts. Only `CompactContext` writes it.
+   */
+  readonly contextSummary: Attribute<ContextSummary>;
 }
 
 export function createAgentSessionPersistence(
@@ -138,6 +145,7 @@ export function createAgentSessionPersistence(
     agentPlan: new Attribute("AgentPlan", agentPlanCodec),
     planExecutions: new ChannelMap("PlanExecutions", planExecutionRequestCodec),
     pendingPlanExecution: new Attribute("PendingPlanExecution", planExecutionRequestCodec),
+    contextSummary: new Attribute("ContextSummary", contextSummaryCodec),
   };
 }
 

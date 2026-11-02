@@ -38,9 +38,17 @@ import {
   writeTodosCalledMoreThanOnce,
   type BuiltInTool,
 } from "./agent-built-in-tools.js";
+import {
+  isCompactionTriggered,
+  isContextCompactionRunner,
+  readRetainedTokenBudget,
+  type ContextCompactionRunner,
+  type ContextSummaryResult,
+} from "./agent-context-compaction.js";
 import type { StreamAgentEventWriter } from "./agent-event-writer.js";
 import {
   ToolExecutionError,
+  type AgentTurnContext,
   type DeferredToolCall,
   type DeferredToolExecution,
   type DeferredToolOutcome,
@@ -50,7 +58,7 @@ import {
   type TurnCompleted,
 } from "./agent-framework-runner.js";
 import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
-import { agentSessionStartInputCodec } from "./agent-session-codecs.js";
+import { agentSessionStartInputCodec, turnFailureRouteInputCodec } from "./agent-session-codecs.js";
 import {
   agentSessionStepTypes,
   allPendingMessages,
@@ -88,6 +96,8 @@ import {
   type AgentState,
   type AgentToolCallRecord,
   type AgentUserMessage,
+  type CompactContextInput,
+  type ContextSummary,
   type FrameworkMessage,
   type InteractionMode,
   type PlanStatus,
@@ -97,6 +107,13 @@ import {
 const minuteMs = 60_000;
 /** Longest wait between two polls of a tool task, as in the Python core; a longer interval is shortened. */
 const maximumToolTaskPollIntervalSeconds = 86_400;
+// CompactContext makes one model call, so it shares RunModel's timeouts and retries.
+const modelCallStepOptions = {
+  executeMethodTimeoutMs: 15 * minuteMs,
+  heartbeatTimeoutMs: 2 * minuteMs,
+  executeRetry: { maximumAttempts: 3, totalDurationMs: 30 * minuteMs },
+  executeFailure: ExecuteFailure.proceedTo(new StepRef(agentSessionStepTypes.recordTurnFailure)),
+} as const satisfies StepOptions;
 // Recovery Steps must eventually run; cap their backoff so a returning Worker picks them up quickly.
 const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
 // An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
@@ -246,10 +263,7 @@ export class RunModelStep implements Step<void> {
     const persistence = this.transitions.persistence;
     return {
       ...syncDurability,
-      executeMethodTimeoutMs: 15 * minuteMs,
-      heartbeatTimeoutMs: 2 * minuteMs,
-      executeRetry: { maximumAttempts: 3, totalDurationMs: 30 * minuteMs },
-      executeFailure: ExecuteFailure.proceedTo(new StepRef(agentSessionStepTypes.recordTurnFailure)),
+      ...modelCallStepOptions,
       executeLoadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
     };
   }
@@ -275,6 +289,10 @@ export class RunModelStep implements Step<void> {
       const turnContext = transitions.createTurnContext(context, state, turnId, toolCalls, events, () =>
         transitions.recordHeartbeat(context),
       );
+      const throughSequence = await this.selectCompactionBeforeModelCall(turnContext, state);
+      if (throughSequence !== null) {
+        return this.startCompaction(context, state, turnContext.contextSummary ?? null, throughSequence);
+      }
       return await transitions.tracer.traceModelCall(
         context,
         this.getStepType(),
@@ -286,7 +304,11 @@ export class RunModelStep implements Step<void> {
           switch (outcome?.kind) {
             case "completed": {
               modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages));
-              const storedTurnMessageCount = countMessagesAfterUserMessages(turnContext.messages, turnId);
+              // RunModel loads the whole map, so the count includes messages summarized away.
+              const storedTurnMessageCount = countMessagesAfterUserMessages(
+                transitions.readTurnMessages(context, state, turnId),
+                turnId,
+              );
               return this.completeTurn(context, state, turnId, toolCalls, outcome, storedTurnMessageCount, events);
             }
             case "tool_calls_requested":
@@ -310,7 +332,7 @@ export class RunModelStep implements Step<void> {
 
   /** Returns RunModel's move instead of a model call, or `null` to call the model. */
   private decideBeforeModelCall(context: Context, turnId: string): StepDecision | null {
-    // Execute state is fixed at the first attempt, so this is RunModel's only decision point.
+    // Execute state is fixed at the first attempt, so this and the compaction check are RunModel's decision points.
     if (this.transitions.readTurnControlReason(context, turnId) !== null) {
       return this.transitions.goToApplyTurnControl();
     }
@@ -346,6 +368,52 @@ export class RunModelStep implements Step<void> {
     const messageCount = storedTurnMessageCount + outcome.newMessages.length;
     events.writeEvent("turn_completed", { message_count: messageCount });
     return transitions.goToAwaitUserMessage();
+  }
+
+  /** Returns the sequence to summarize through before this model call, or `null` to make the call. */
+  private async selectCompactionBeforeModelCall(turn: AgentTurnContext, state: AgentState): Promise<number | null> {
+    const transitions = this.transitions;
+    const policy = transitions.config.compaction;
+    const runner = transitions.runner;
+    if (policy === undefined || !isContextCompactionRunner(runner)) {
+      return null;
+    }
+    if (!isCompactionTriggered(policy, await runner.estimateInputTokens(turn))) {
+      return null;
+    }
+    const cutoff = await runner.selectCompactionCutoff(turn, readRetainedTokenBudget(policy));
+    // A cutoff that does not advance means nothing more to summarize, so the pair cannot loop.
+    if (cutoff === null || cutoff <= (turn.contextSummary?.lastSequence ?? 0)) {
+      return null;
+    }
+    if (!Number.isSafeInteger(cutoff) || cutoff >= state.nextMessageSequence) {
+      throw new TypeError(`selectCompactionCutoff returned ${String(cutoff)}, which is not a stored message`);
+    }
+    return cutoff;
+  }
+
+  private startCompaction(
+    context: Context,
+    state: AgentState,
+    previousSummary: ContextSummary | null,
+    throughSequence: number,
+  ): StepDecision {
+    const persistence = this.transitions.persistence;
+    // CompactContext commits once, so this commit is where the status becomes visible.
+    this.transitions.writeAgentState(context, { ...state, status: "compacting_context" });
+    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
+    const messageLoads = [];
+    for (let sequence = firstSequence; sequence <= throughSequence; sequence += 1) {
+      messageLoads.push(persistence.agentMessages.load(messageSequenceKey(sequence)));
+    }
+    const input: CompactContextInput = { throughSequence };
+    return goToMany(
+      StepMovement.of(new StepRef(agentSessionStepTypes.compactContext), input, {
+        ...syncDurability,
+        ...modelCallStepOptions,
+        executeLoadAttributeMapInstances: messageLoads,
+      }),
+    );
   }
 
   private requestToolCalls(
@@ -549,6 +617,111 @@ export class RunModelStep implements Step<void> {
 
   private failBuiltInToolCall(batch: ToolCallBatchCommit, record: AgentToolCallRecord, error: string): void {
     this.transitions.finishToolCall(batch.context, { ...record, status: "failed", error }, batch.events);
+  }
+}
+
+/** Summarizes the messages through a sequence for the model input, then moves back to `RunModel`. */
+export class CompactContextStep implements Step<CompactContextInput | undefined> {
+  public readonly inputCodec = turnFailureRouteInputCodec;
+
+  public constructor(private readonly transitions: AgentSessionTransitions) {}
+
+  public getStepType(): string {
+    return agentSessionStepTypes.compactContext;
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      ...syncDurability,
+      ...modelCallStepOptions,
+      executeLoadAttributeMaps: [this.transitions.persistence.agentMessages],
+    };
+  }
+
+  public async execute(context: AsyncContext, input: CompactContextInput | undefined): Promise<StepDecision> {
+    const transitions = this.transitions;
+    if (input === undefined) {
+      throw new TypeError("CompactContext needs a CompactContextInput");
+    }
+    const state = transitions.readAgentState(context);
+    const turnId = state.activeTurnId;
+    if (turnId === null) {
+      throw new Error(`the agent session ${context.flowId} has no active turn`);
+    }
+    const previousSummary = transitions.readContextSummary(context);
+    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
+    const throughSequence = input.throughSequence;
+    if (throughSequence < firstSequence || throughSequence >= state.nextMessageSequence) {
+      throw new Error(`CompactContext cannot summarize through message ${throughSequence}`);
+    }
+    const runner = transitions.runner;
+    if (!isContextCompactionRunner(runner)) {
+      throw new TypeError("CompactContext needs a runner that implements the compaction methods");
+    }
+    const events = transitions.createEventWriter(context, turnId);
+    try {
+      events.writeEvent("compaction_started", { through_sequence: throughSequence });
+      const result = await this.summarize(context, runner, turnId, previousSummary, throughSequence, events);
+      const summary: ContextSummary = {
+        generation: previousSummary === null ? 1 : previousSummary.generation + 1,
+        firstSequence: 1,
+        lastSequence: throughSequence,
+        text: result.text,
+        createdAt: new Date().toISOString(),
+      };
+      transitions.persistence.contextSummary.set(context, summary);
+      transitions.recordUsage(context, result.usage, events);
+      transitions.writeAgentState(context, { ...state, status: "running_model" });
+      events.writeEvent("compaction_finished", { generation: summary.generation, through_sequence: throughSequence });
+      // RunModel loads the whole map: listing instances in each movement would cost run storage.
+      return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+    } finally {
+      events.close();
+    }
+  }
+
+  private async summarize(
+    context: AsyncContext,
+    runner: ContextCompactionRunner,
+    turnId: string,
+    previousSummary: ContextSummary | null,
+    throughSequence: number,
+    events: StreamAgentEventWriter,
+  ): Promise<ContextSummaryResult> {
+    const transitions = this.transitions;
+    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
+    const messages = transitions.readMessages(context, firstSequence, throughSequence + 1);
+    const policy = transitions.config.compaction;
+    return transitions.tracer.traceContextSummary(
+      context,
+      this.getStepType(),
+      turnId,
+      throughSequence,
+      messages,
+      async (summarySpan) => {
+        const result = await transitions.runWithHeartbeats(context, () =>
+          runner.summarizeContext({
+            flowId: context.flowId,
+            turnId,
+            attempt: context.attempt,
+            stepExecutionId: context.stepExecutionId,
+            previousSummary,
+            messages,
+            throughSequence,
+            events,
+            cancellationSignal: context.cancellationSignal,
+            deadline: context.deadline,
+            ...(policy === undefined ? {} : { inputTokenBudget: policy.contextWindowTokens }),
+            heartbeat: () => transitions.recordHeartbeat(context),
+          }),
+        );
+        if (typeof result?.text !== "string" || result.text.trim() === "" || typeof result.usage !== "object") {
+          throw new TypeError("summarizeContext must return summary text and usage");
+        }
+        summarySpan.recordResult(result);
+        return result;
+      },
+    );
   }
 }
 
@@ -1098,8 +1271,9 @@ export class ApplyTurnControlStep implements Step<void> {
   }
 }
 
-export class RecordTurnFailureStep implements Step<void> {
-  public readonly inputCodec = voidCodec;
+/** Ends a failed turn; it is the failure route of `RunModel` and `CompactContext`, so it takes either's input. */
+export class RecordTurnFailureStep implements Step<CompactContextInput | undefined> {
+  public readonly inputCodec = turnFailureRouteInputCodec;
 
   public constructor(private readonly transitions: AgentSessionTransitions) {}
 

@@ -18,7 +18,8 @@ tasks, and live events. See the package README for the full contract.
 terms, and ``dex_agents.litellm`` (extra ``dex-agents[litellm]``) a model
 client on LiteLLM.
 
-``AgentTracingOptions`` configures its optional OpenTelemetry GenAI spans.
+``AgentTracingOptions`` configures its optional OpenTelemetry GenAI spans, and
+``CompactionPolicy`` its optional context compaction.
 """
 
 from dex_agents.built_in_tools import (
@@ -31,6 +32,12 @@ from dex_agents.built_in_tools import (
     BuiltInToolDefinition,
 )
 from dex_agents.client import AgentSessionClient
+from dex_agents.compaction import (
+    CompactionPolicy,
+    ContextCompactionRunner,
+    ContextSummaryRequest,
+    ContextSummaryResult,
+)
 from dex_agents.events import AgentEventType, AgentEventWriter
 from dex_agents.persistence import (
     AGENT_MESSAGES,
@@ -39,6 +46,7 @@ from dex_agents.persistence import (
     AGENT_TOOL_CALLS,
     AGENT_TRACE_CONTEXT,
     AGENT_USAGE,
+    CONTEXT_SUMMARY,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     FRAMEWORK_RUN_STATE,
     INTERRUPT_RESOLUTIONS,
@@ -122,6 +130,8 @@ from dex_agents.values import (
     AgentUserMessage,
     AnswerQuestionRequest,
     CancelTurnRequest,
+    CompactContextInput,
+    ContextSummary,
     DeleteQueuedMessageRequest,
     ExecutePlanRequest,
     InteractionMode,
@@ -156,6 +166,7 @@ __all__ = [
     "APPROVAL_DEADLINE_PASSED",
     "BLANK_TOOL_TASK_ID",
     "BUILT_IN_TOOL_DEFINITIONS",
+    "CONTEXT_SUMMARY",
     "DEFAULT_AGENT_EVENTS_CAPACITY_BYTES",
     "DEFAULT_MAX_DURABLE_WAIT",
     "DEFAULT_REJECTION_TOOL_RESULT",
@@ -212,6 +223,12 @@ __all__ = [
     "BuiltInTool",
     "BuiltInToolDefinition",
     "CancelTurnRequest",
+    "CompactContextInput",
+    "CompactionPolicy",
+    "ContextCompactionRunner",
+    "ContextSummary",
+    "ContextSummaryRequest",
+    "ContextSummaryResult",
     "DeferredToolCall",
     "DeferredToolExecution",
     "DeferredToolOutcome",

@@ -21,6 +21,12 @@ export {
   planningTurnToolRejection,
 } from "./agent-plans.js";
 export {
+  type CompactionPolicy,
+  type ContextSummaryRequest,
+  type ContextSummaryResult,
+  type ResolvedCompactionPolicy,
+} from "./agent-context-compaction.js";
+export {
   ToolExecutionError,
   resolveToolPolicy,
   toolEffectFromMcpToolAnnotations,
@@ -101,6 +107,8 @@ export {
   type CancelTurnRequest,
   type DeleteQueuedMessageRequest,
   type ExecutePlanRequest,
+  type CompactContextInput,
+  type ContextSummary,
   type FrameworkMessage,
   type InteractionMode,
   type ListAgentMessagesInput,

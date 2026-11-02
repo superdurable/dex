@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { BuiltInTool } from "./agent-built-in-tools.js";
+import type { ContextSummaryRequest, ContextSummaryResult } from "./agent-context-compaction.js";
 import type {
   AgentMessage,
   AgentPlan,
@@ -14,6 +15,7 @@ import type {
   AgentToolCallRecord,
   AgentToolCallStatus,
   AgentUsage,
+  ContextSummary,
   FrameworkMessage,
   InteractionMode,
   QuestionAnswer,
@@ -162,7 +164,8 @@ export interface AgentTurnContext {
   readonly stepExecutionId?: string;
   /**
    * Every stored session message in ascending sequence order, including the user message that
-   * started this turn. Replay each `frameworkItem` to the framework unchanged.
+   * started this turn. Replay each `frameworkItem` to the framework unchanged. After compaction, only the
+   * messages after {@link contextSummary}.
    */
   readonly messages: readonly AgentMessage[];
   /**
@@ -215,6 +218,13 @@ export interface AgentTurnContext {
    * `undefined` as `null`.
    */
   readonly plan?: AgentPlan | null;
+  /**
+   * The summary of the messages before {@link messages}, or `null`. Only a runner that implements the
+   * compaction methods, such as {@link AgentFrameworkRunner.summarizeContext}, receives one; put its text
+   * before {@link messages} in the model input. Optional for the same reason as {@link enabledBuiltInTools};
+   * treat `undefined` as no summary.
+   */
+  readonly contextSummary?: ContextSummary | null;
   /**
    * Returns the effective policy of a tool; see {@link resolveToolPolicy} for the precedence.
    * Pass it unchanged in {@link DeferredToolCall.policy}.
@@ -719,6 +729,59 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * for a `read` call and `outcome_unknown` otherwise, because the task may still run.
    */
   pollToolTask?(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome>;
+  /**
+   * Estimates the size of the model input that the next {@link runModelStep} sends. Optional; one of the
+   * three compaction methods that {@link AgentSessionOptions.compaction} requires.
+   *
+   * `RunModel` calls it before every model call of a session with a compaction policy. At the policy's
+   * threshold it calls {@link selectCompactionCutoff}, and when that returns a sequence after the current
+   * summary, `CompactContext` calls {@link summarizeContext} once and stores the result as the
+   * `ContextSummary`. From then on, {@link AgentTurnContext.messages} start after the summary and
+   * {@link AgentTurnContext.contextSummary} holds it. A runner without these methods never compacts.
+   *
+   * @example
+   * ```ts
+   * class CompactingRunner extends MyRunner {
+   *   public estimateInputTokens(turn: AgentTurnContext): number {
+   *     return countTokens(buildModelInput(turn));
+   *   }
+   *   public selectCompactionCutoff(turn: AgentTurnContext, retainedTokenBudget: number): number | null {
+   *     return lastSequenceBeforeNewestMessages(turn.messages, retainedTokenBudget);
+   *   }
+   *   public async summarizeContext(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+   *     const response = await model.summarize(request.previousSummary, request.messages);
+   *     return { text: response.text, usage: response.usage };
+   *   }
+   * }
+   * ```
+   * @param turn - The same context the next {@link runModelStep} receives.
+   * @returns The estimated input tokens, in the unit of `CompactionPolicy.contextWindowTokens`.
+   */
+  estimateInputTokens?(turn: AgentTurnContext): number | Promise<number>;
+  /**
+   * Chooses the last message to summarize, so the newest messages fit a token budget. Optional; see
+   * {@link estimateInputTokens}.
+   *
+   * Never separate a tool call from its result: the messages after the cutoff must not start with a tool
+   * result or hold a result whose call is before the cutoff. Keep the turn's unstored tool results
+   * answerable.
+   *
+   * @param turn - The context of the model call that crossed the threshold.
+   * @param retainedTokenBudget - Tokens that the messages after the cutoff may use.
+   * @returns The sequence of the last message to summarize, one of {@link AgentTurnContext.messages}; or
+   * `null` when nothing can be summarized, which lets the model call proceed.
+   */
+  selectCompactionCutoff?(turn: AgentTurnContext, retainedTokenBudget: number): number | null | Promise<number | null>;
+  /**
+   * Folds the previous summary and a range of messages into a new summary, with at most one model call.
+   * Optional; see {@link estimateInputTokens}. A crash during the call reruns only this call.
+   *
+   * @param request - The previous summary and the messages to summarize.
+   * @returns The new summary text and the usage of the call.
+   * @throws Any error to fail the `CompactContext` attempt; it retries up to 3 attempts within 30
+   * minutes, then the turn fails through `RecordTurnFailure`.
+   */
+  summarizeContext?(request: ContextSummaryRequest): Promise<ContextSummaryResult>;
 }
 
 /** MCP tool annotations that classify a tool's side effects. */

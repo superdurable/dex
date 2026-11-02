@@ -391,6 +391,52 @@ at once.
   during the rollout has ended, because such a turn can hold a wait that an
   earlier Worker began, which a steer never wakes.
 
+## Compaction
+
+Compaction keeps the model input under the context window. Pass
+`compaction: { contextWindowTokens, triggerRatio?, retainedRatio? }` to
+`createAgentSessionFlow`, or as `AgentDefinition.compaction` for Stepwise. The
+ratios default to 0.85 and 0.3, as in the Python core.
+
+```ts
+const flow = createAgentSessionFlow(runner, "SupportAgent", {
+  compaction: { contextWindowTokens: 400_000 },
+});
+```
+
+Before each model call, `RunModel` asks the runner for
+`estimateInputTokens(turn)`. At `triggerRatio` of the window it asks for
+`selectCompactionCutoff(turn, retainedTokenBudget)`, the last message to
+summarize; when that sequence is past the current summary, `RunModel` sets
+status `compacting_context` and moves to `CompactContext` without a model call.
+`CompactContext` has `RunModel`'s timeouts, retries, and failure route. It
+calls `summarizeContext(request)` once, stores the `ContextSummary` Attribute,
+records the call's usage, writes `compaction_started` and
+`compaction_finished`, and moves back to `RunModel`. A crash reruns only the
+summary call. From then on the runner receives the messages after the summary
+in `turn.messages` and the summary in `turn.contextSummary`.
+
+Messages are never deleted: `list_agent_messages` and `get_agent_snapshot`
+return all of them, and they count toward the Server's run budget; the agent
+deployment guide states the bound. A compaction policy needs a runner with all
+three optional methods, and `createAgentSessionFlow` throws a `TypeError`
+otherwise. `StepwiseAgentRunner` implements them: its input starts with
+`contextSummaryNoteHeader` (`[Dex] Summary of the earlier conversation:`) and
+the summary, it cuts only between model responses whose tool calls all have
+stored results, so a turn with many tool calls compacts mid-turn without
+separating a call from its result, and it summarizes with
+`contextSummaryInstructions` and no tools. `request.inputTokenBudget` carries
+`contextWindowTokens`; when the summary request plus the definition's
+`maxOutputTokens`, if set, would exceed it, the runner leaves out the oldest
+messages, up to a cut that keeps each model response and each tool call with
+its result whole, and says so with
+`buildContextSummaryOmissionNote(omittedCount)`, the same text as the Python
+core's. Each `CompactContext` attempt emits a `chat` span for the summary call,
+as `RunModel` does; return `modelCallMetadata` from `summarizeContext` to name
+it. The AI SDK UI message stream sends
+the compaction events and the summary call's `usage_recorded` as event data,
+outside the assistant message's steps.
+
 ## The runner contract
 
 The session runs in **Step mode**: every model call and every tool call is its
@@ -651,6 +697,7 @@ AwaitUserMessage  -> RunModel                              (a message, or an app
                    | AwaitUserMessage                      (a stale approval)
 RunModel          -> ApplyTurnControl                      (steered or cancelled, no model call)
                    | AwaitUserMessage                      (final answer)
+                   | CompactContext({ through_sequence }) -> RunModel (compaction policy, input over the threshold)
                    | one Step per tool call + ResumeTurn(n) (tool calls, all at once)
                    | RecordTurnFailure -> AwaitUserMessage  (retries exhausted)
 AwaitToolApproval(id) -> CallTool(id) | CallSingleAttemptTool(id) (approved)
@@ -676,7 +723,8 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | --- | --- | --- | --- |
 | `StartAgentSession` | `AgentSessionStartInput` | Initializes `AgentState`, `AgentUsage`, `PendingInterrupts`; starts a turn when `initial_message` is set | |
 | `AwaitUserMessage` | none | Waits for any of, in this order, a `TurnControlRequests` message, one queued message, or, while the plan is `draft` or `active`, an approval in `PlanExecutions[<revision>]`. A steer or cancellation: moves to `ApplyTurnControl`. A message: appends it and starts a `chat` or `planning` `turn-<n>`. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn | |
-| `RunModel` | none | Moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled. Otherwise calls `runModelStep`. On `TurnCompleted`, appends the messages and clears the turn. On `ToolCallsRequested`, stores the run state, records, and interrupts, then moves to one Step per call plus `ResumeTurn`. A `write_todos` call, and every call but `write_todos` of a planning turn, is final in this commit | 15 min method timeout, 2 min heartbeat timeout, 3 attempts within 30 min, failure route `RecordTurnFailure` |
+| `RunModel` | none | Moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `runModelStep`. On `TurnCompleted`, appends the messages and clears the turn. On `ToolCallsRequested`, stores the run state, records, and interrupts, then moves to one Step per call plus `ResumeTurn`. A `write_todos` call, and every call but `write_todos` of a planning turn, is final in this commit | 15 min method timeout, 2 min heartbeat timeout, 3 attempts within 30 min, failure route `RecordTurnFailure` |
+| `CompactContext` | `CompactContextInput` | Calls `summarizeContext` once for the messages after the current summary through `through_sequence`, stores `ContextSummary`, and moves to `RunModel` | `RunModel`'s options and failure route |
 | `AwaitToolApproval` | tool call ID | Waits for the call's `ToolCallCancellations` instance, its `InterruptResolutions` instance, or its deadline Timer. A cancellation records `rejected` with its reason. Approved: moves to the call's tool Step. Rejected or expired: records `rejected` | Locks `PendingInterrupts` in Execute |
 | `AwaitQuestionAnswer` | tool call ID | Waits for the call's `ToolCallCancellations` instance, the question's `InterruptResolutions` instance, or its deadline Timer. A tool's unraised question waits on a zero Timer, and Execute raises it and waits again. Records the answer, the decline, or the passed deadline; a tool's answered question returns the record to `approved` and moves to its tool Step, and a task's answered question returns it to `waiting_for_task` and moves to `PollToolTask`. Steering and `cancel_turn` never cancel a task's question | Locks `PendingInterrupts` in Execute |
 | `AwaitTimer` | tool call ID | Waits on a Timer until the record's `wait_until`, or the call's `ToolCallCancellations` instance, then records `succeeded` or, when cancelled, `rejected` | |
@@ -687,7 +735,7 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text | Retry backoff capped at 5 s |
 | `ResumeTurn` | expected result count | Waits for that many `ToolCallResults` messages or a `TurnControlRequests` message. A steer or cancellation wake cancels the pending interrupts of the turn's approvals and of questions no task asked, wakes each such approval, question, and durable wait through `ToolCallCancellations`, and waits again. With every result in, moves to `RunModel`, or to `ApplyTurnControl` when steered or cancelled | Locks `PendingInterrupts` in Execute |
 | `ApplyTurnControl` | none | Consumes every steered message and stale wake. Ends an active steered or cancelled turn with the runner's unfinished-turn messages or a note, and writes `turn_steered` or `turn_cancelled`; then starts a turn with the steered messages | Retry backoff capped at 5 s |
-| `RecordTurnFailure` | none | Records `last_turn_error` and clears the turn; first appends the runner's unfinished-turn messages, when it has the method, and the turn failure note when the turn has final tool call records | Retry backoff capped at 5 s |
+| `RecordTurnFailure` | the failing Step's input, ignored | Records `last_turn_error` and clears the turn; first appends the runner's unfinished-turn messages, when it has the method, and the turn failure note when the turn has final tool call records | Retry backoff capped at 5 s |
 
 Every tool Step receives the tool call ID as its input, and a failure route
 receives the failed Step's input, so each Step knows its own call without any
@@ -728,18 +776,19 @@ Do not repeat these tool calls unless the user asks again.
 | `AgentPlan` | Attribute | `AgentPlan`, unset until `write_todos` first succeeds |
 | `PlanExecutions` | ChannelMap, key = `planExecutionKey(revision)` (decimal) | `PlanExecutionRequest { revision }` |
 | `PendingPlanExecution` | Attribute | `PlanExecutionRequest` that `execute_plan` accepted and `AwaitUserMessage` has not consumed |
+| `ContextSummary` | Attribute | `ContextSummary`, set once the session compacts |
 | `AgentEvents` | Stream | `AgentEvent` |
 
-`AgentState.status` is `waiting_for_user_message`, `running_model`, or
-`running_tools`, and `AgentState.interactionMode` is `chat`, `planning`, or
-`executing`. A stored record's status can also be `awaiting_answer`,
-`waiting_for_timer`, or `waiting_for_task`; these non-final statuses appear
-only in `AgentToolCallRecord`, which snapshots, `client.getAttributes`, and
-`ToolTaskPoll.toolCall` carry. Runners receive `AgentToolCall`, whose
-`AgentToolCallStatus` keeps its six values, because a runner never sees a
-waiting record outside `pollToolTask`. The record gains `wait_until`,
-`input_continuation`, `input_answers`, `input_question`, `input_choices`,
-`input_allows_free_text`, `cancellation_reason`, `task_id`,
+`AgentState.status` is `waiting_for_user_message`, `running_model`,
+`running_tools`, or `compacting_context`, and `AgentState.interactionMode` is
+`chat`, `planning`, or `executing`. A stored record's status can also be
+`awaiting_answer`, `waiting_for_timer`, or `waiting_for_task`; these non-final
+statuses appear only in `AgentToolCallRecord`, which snapshots,
+`client.getAttributes`, and `ToolTaskPoll.toolCall` carry. Runners receive
+`AgentToolCall`, whose `AgentToolCallStatus` keeps its six values, because a
+runner never sees a waiting record outside `pollToolTask`. The record gains
+`wait_until`, `input_continuation`, `input_answers`, `input_question`,
+`input_choices`, `input_allows_free_text`, `cancellation_reason`, `task_id`,
 `task_poll_interval_seconds`, and `task_answer_pending`. Wire values are snake_case JSON; TypeScript values are the
 same fields in camelCase. Message sequences start at 1 and have no gaps. Turn
 IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
@@ -753,7 +802,7 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 | `cancel_turn` | `{ turn_id }`, `null` for the active turn | `false` when no turn is active, `turn_id` names another turn, or the turn does not accept cancellation; locks `TurnCancellationRequest`, which only `cancel_turn` locks |
 | `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | `false` when not pending, past its deadline, or a question with `approved` `true`; `approved` `false` declines a question; may throw `RpcLockConflictError`, which is safe to retry |
 | `answer_question` | `{ interrupt_id, answer }` | `false` when not pending, not a question, past its deadline, blank, or outside `choices` while free text is not allowed; locks `PendingInterrupts` like `resolve_interrupt` |
-| `get_agent_snapshot` | none | `{ state, messages, pending_interrupts, tool_calls, usage, queued_message_count, plan, queued_messages, steered_messages }`; `state` is `null` before the session starts |
+| `get_agent_snapshot` | none | `{ state, messages, pending_interrupts, tool_calls, usage, queued_message_count, plan, queued_messages, steered_messages, context_summary }`; `state` is `null` before the session starts |
 | `list_agent_messages` | `{ before_sequence, limit }` | `{ messages, next_before_sequence }`, oldest first; `limit` clamped to 1..200, default 50 |
 
 | Event type | Payload |
@@ -774,6 +823,8 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 | `plan_execution_started` | `{"revision"}`, after the `turn_started` of an `executing` turn |
 | `tool_task_started` | `{"tool_call_id","tool_name","task_id"}`; the tool started remote work that `PollToolTask` polls |
 | `usage_recorded` | `{"recorded","session"}`, each an `AgentUsage` object |
+| `compaction_started` | `{"through_sequence"}`, when `CompactContext` starts |
+| `compaction_finished` | `{"generation","through_sequence"}`, when `CompactContext` stored the summary |
 
 Every event carries `turn_id`, the Step `attempt`, and `step_execution_id`.
 Group live text by `(turn_id, step_execution_id, attempt)`: within one
@@ -1267,8 +1318,9 @@ for the full attribute table. In short:
   `ApplyTurnControl` consumes a user message, or `AwaitToolApproval` an
   interrupt answer or an expired deadline. That Step's attempt emits the root, `invoke_agent {agent
   name}`, with a span link to the previous activation's root. Each `RunModel`
-  attempt emits a `chat` span when it ends, and each `CallTool`,
-  `CallSingleAttemptTool`, and `PollToolTask` attempt an `execute_tool {tool name}` span. A turn
+  and `CompactContext` attempt emits a `chat` span when it ends, and each
+  `CallTool`, `CallSingleAttemptTool`, and `PollToolTask` attempt an
+  `execute_tool {tool name}` span. A turn
   without approvals is one trace; each approval answer and each new turn
   starts another.
 - **A near-zero root.** Every span ends inside its Step attempt, so none stays
@@ -1405,8 +1457,17 @@ DEXCLI=/path/to/dexcli ./ci.sh
 ```
 
 `ci.sh` runs `npm ci`, `npm run typecheck`, and `npm run test:integration`,
-which builds with `tsc` and runs `node --test` over `dist/test/integ`. Strict
-`tsc` (`noUnusedLocals`, `noUncheckedIndexedAccess`,
+which builds with `tsc` and runs `node --test` over `dist/test/integ`. It skips
+`test/long`, the 2,000-turn compaction session behind the agent deployment
+guide's run budget numbers, which runs for minutes; `test/integ` has a 300-turn
+guard instead. The `Agents Long Tests Nightly` workflow runs `test/long` every
+night. Run it by hand with:
+
+```bash
+DEXCLI=/path/to/dexcli npm run test:long
+```
+
+Strict `tsc` (`noUnusedLocals`, `noUncheckedIndexedAccess`,
 `exactOptionalPropertyTypes`, and related flags) is the lint gate. The tests
 use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
 
@@ -1531,8 +1592,9 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 ## Limits
 
 - `RunModel`, `get_agent_snapshot`, and `list_agent_messages` load the whole
-  `AgentMessages` map, and every model call replays the full history. There is
-  no compaction yet.
+  `AgentMessages` map. Compaction shortens the model input, not the load:
+  listing only the messages after the summary in each `RunModel` movement
+  would cost run storage on every model call.
 - Each model call and each tool call adds a Step round trip.
 - A crash in `RunModel` reruns that model call. When the crashed attempt sent
   no output, Dex re-delivers it with the same `attempt`, so `attempt` does not
@@ -1550,7 +1612,7 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 - Queued user messages are consumed one per turn, and a queued message does
   not end a `durable_wait`; a steered one does. Steering and `cancel_turn`
   never stop a model call or a tool call that has started, or a tool task it
-  started. Compaction is not implemented yet.
+  started.
 - Each `PollToolTask` poll is a Step in the session's history.
 - A failed turn keeps its user message in history without an assistant reply;
   only the turn failure note records what its tools did.

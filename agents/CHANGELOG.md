@@ -336,6 +336,60 @@ returns the new outcome.
   `BLANK_TOOL_TASK_ID`, `INVALID_TOOL_TASK_POLL_INTERVAL`).
 - `DeferredToolOutcome` gains `ToolTaskStarted`.
 
+### Context compaction
+
+Both cores, with identical Step types, persistence names, wire values, events,
+and model-visible text (plan section A7). Inert until an application sets a
+compaction policy.
+
+- `AgentSessionOptions.compaction` takes a `CompactionPolicy`
+  (`context_window_tokens`, `trigger_ratio` 0.85, `retained_ratio` 0.3;
+  TypeScript `contextWindowTokens`, `triggerRatio`, `retainedRatio`). It needs
+  a runner with the compaction capability, Python `ContextCompactionRunner`
+  and TypeScript's optional `estimateInputTokens`, `selectCompactionCutoff`,
+  and `summarizeContext`; the Flow constructor refuses it otherwise.
+- Before a model call that would cross the threshold, `RunModel` moves to the
+  new `CompactContext` Step instead of calling the model. `CompactContext`
+  makes one summary call, with `RunModel`'s timeouts, retries, and failure
+  route, and writes the new `ContextSummary` Attribute; a crash reruns only the
+  summary call. From then on the runner receives only the messages after the
+  summary, plus the summary in `AgentTurnContext.context_summary`
+  (`contextSummary`). Messages stay in `AgentMessages`, so
+  `list_agent_messages` and `get_agent_snapshot` still return all of them.
+- Stepwise implements the capability, with `AgentDefinition.compaction`. Its
+  model input starts with `[Dex] Summary of the earlier conversation:` and the
+  summary text, it cuts only between model responses whose tool calls all have
+  stored results, so a long turn compacts mid-turn without separating a tool
+  call from its result, and its summary call streams no text. When the summary
+  request plus the configured `max_output_tokens` would exceed
+  `ContextSummaryRequest.input_token_budget` (`inputTokenBudget`), the
+  policy's window, it leaves out the oldest messages up to a cut that never
+  splits a model response, and says so with
+  `[Dex] <n> earlier messages did not fit in this request and are left out.`
+  (Python `build_context_summary_omission_note`, TypeScript
+  `buildContextSummaryOmissionNote`).
+- Each `CompactContext` attempt emits a `chat` span for the summary call, as
+  `RunModel` does, named from the optional
+  `ContextSummaryResult.model_call_metadata` (`modelCallMetadata`).
+- The `message_count` of `turn_completed`, `turn_steered`, and
+  `turn_cancelled` counts every message the turn appended, also those a
+  mid-turn compaction summarized. A steer or cancellation that arrives during
+  `CompactContext` applies at the next `RunModel`, before any model call.
+- New wire values: `AgentState.status` `compacting_context`; `ContextSummary`;
+  `CompactContextInput`; `AgentSnapshot.context_summary`; the
+  `compaction_started` and `compaction_finished` events. The browser snapshot
+  JSON of both UI stream modules carries `context_summary`, and the AI SDK UI
+  message stream keeps the summary call's usage out of the message's steps.
+- Python: `AgentSessionStatus` gains `COMPACTING_CONTEXT`, so an exhaustive
+  `match` over the status must handle it. TypeScript: `AgentSessionStatus`
+  gains `"compacting_context"`. A 0.1.0 client cannot decode a snapshot taken
+  during compaction, so upgrade the clients that read snapshots before enabling
+  it.
+- The 2,000-turn compaction sessions that calibrate the deployment guide run
+  in the new `Agents Long Tests Nightly` workflow: Python with
+  `DEX_AGENTS_LONG_TESTS=1`, TypeScript with `npm run test:long`. `Agents CI`
+  runs a 300-turn guard in each core instead.
+
 ### Fixes
 
 - TypeScript: `send_user_message`, the `AwaitUserMessage` Step that takes its

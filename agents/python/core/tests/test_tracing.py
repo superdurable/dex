@@ -61,6 +61,7 @@ from dex_agents.testing import (
     wait_for_agent_snapshot,
     wait_until,
 )
+from tests.compaction_agent import build_compaction_agent_flow
 from tests.scripted_agent import (
     INVOCATION_LOG_NAME,
     SCRIPTED_AGENT_FLOW_TYPE,
@@ -739,6 +740,74 @@ async def test_a_root_step_on_a_worker_without_an_sdk_clears_the_stored_trace_co
     provider.shutdown()
 
 
+async def test_each_compact_context_attempt_emits_a_chat_span_with_its_usage(
+    tmp_path: Path,
+) -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    state_dir = tmp_path / "agent-state"
+    state_dir.mkdir()
+    flow = build_compaction_agent_flow(
+        state_dir,
+        tracing=AgentTracingOptions(tracer_provider=provider, should_capture_message_content=True),
+        summary_model_call_metadata=ModelCallMetadata(
+            request_model="summary-model",
+            response_model="summary-model-2026-11",
+            provider_name="scripted",
+        ),
+    )
+    session_id = _new_session_id()
+    async with AgentTestStack(tmp_path, [flow], "tests.compaction_worker") as stack:
+        async with _in_process_worker(stack, [flow], tmp_path / "worker-blob-cache"):
+            sessions = stack.sessions(flow)
+            await sessions.start_session(session_id, "pad 400 t1")
+            for turn in range(2, 7):
+                assert await sessions.send_user_message(session_id, f"pad 400 t{turn}")
+            snapshot = await _wait_for_turns(sessions, session_id, 6)
+            run_model_executions = [
+                step for step in await _executed_step_types(stack, session_id) if step == "RunModel"
+            ]
+    provider.shutdown()
+
+    assert snapshot.context_summary is not None
+    spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if _attributes(span).get("gen_ai.conversation.id") == session_id
+    ]
+    [summary_span] = [
+        span for span in spans if _attributes(span)["dex.step.type"] == "CompactContext"
+    ]
+    attributes = _attributes(summary_span)
+    assert summary_span.name == "chat summary-model"
+    assert summary_span.kind is SpanKind.CLIENT
+    assert attributes["gen_ai.operation.name"] == "chat"
+    assert attributes["gen_ai.request.model"] == "summary-model"
+    assert attributes["gen_ai.response.model"] == "summary-model-2026-11"
+    assert attributes["gen_ai.provider.name"] == "scripted"
+    assert (attributes["gen_ai.usage.input_tokens"], attributes["gen_ai.usage.output_tokens"]) == (
+        10,
+        5,
+    )
+    assert attributes["dex.agent.turn.id"] == "turn-6"
+    assert attributes["dex.agent.input_messages.last_key"] == "000000000008"
+    assert _json_attribute(summary_span, "gen_ai.output.messages") == [
+        {"role": "assistant", "parts": [{"type": "text", "content": snapshot.context_summary.text}]}
+    ]
+    assert len(_json_attribute(summary_span, "gen_ai.input.messages")) == 8
+    [root] = [
+        span
+        for span in spans
+        if span.name.startswith("invoke_agent")
+        and _attributes(span)["dex.agent.turn.id"] == "turn-6"
+    ]
+    _assert_children_of(root, [summary_span])
+    # The RunModel attempt that moved to CompactContext made no model call, so it has no span.
+    model_spans = [span for span in spans if _attributes(span)["dex.step.type"] == "RunModel"]
+    assert (len(run_model_executions), len(model_spans)) == (7, 6)
+
+
 async def test_a_worker_without_opentelemetry_runs_sessions_and_never_loads_it(
     tmp_path: Path,
 ) -> None:
@@ -895,3 +964,8 @@ async def test_each_poll_of_a_tool_task_is_an_execute_tool_span_and_the_last_rec
         ("PollToolTask", "waiting_for_task"),
         ("PollToolTask", "succeeded"),
     ]
+
+
+async def _executed_step_types(stack: AgentTestStack, session_id: str) -> list[str]:
+    history = await stack.read_step_history(session_id)
+    return [entry.step_type for entry in history if entry.event_type == EXECUTE_COMPLETED_EVENT]

@@ -68,6 +68,11 @@ class AgentEventType(StrEnum):
             ``executing`` turn, after its ``turn_started``. Payload ``{"revision"}``.
         TOOL_TASK_STARTED: A tool started remote work that ``PollToolTask``
             polls. Payload ``{"tool_call_id", "tool_name", "task_id"}``.
+        COMPACTION_STARTED: ``CompactContext`` started summarizing the
+            messages through a sequence. Payload ``{"through_sequence"}``. A
+            retried attempt writes it again.
+        COMPACTION_FINISHED: ``CompactContext`` wrote a ``ContextSummary``.
+            Payload ``{"generation", "through_sequence"}``.
     """
 
     TURN_STARTED = "turn_started"
@@ -87,6 +92,8 @@ class AgentEventType(StrEnum):
     PLAN_UPDATED = "plan_updated"
     PLAN_EXECUTION_STARTED = "plan_execution_started"
     TOOL_TASK_STARTED = "tool_task_started"
+    COMPACTION_STARTED = "compaction_started"
+    COMPACTION_FINISHED = "compaction_finished"
 
 
 class AgentEventWriter:

@@ -16,6 +16,7 @@ import {
 } from "@superdurable/dex";
 
 import type { BuiltInTool } from "./agent-built-in-tools.js";
+import { isContextCompactionRunner, type ResolvedCompactionPolicy } from "./agent-context-compaction.js";
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
 import {
   resolveToolPolicy,
@@ -41,6 +42,7 @@ import {
   type AgentToolCallStatus,
   type AgentUsage,
   type AgentUserMessage,
+  type ContextSummary,
   type FrameworkMessage,
   type InteractionMode,
   type ToolCallCancellationReason,
@@ -55,6 +57,7 @@ export const agentSessionStepTypes = {
   startAgentSession: "StartAgentSession",
   awaitUserMessage: "AwaitUserMessage",
   runModel: "RunModel",
+  compactContext: "CompactContext",
   awaitToolApproval: "AwaitToolApproval",
   awaitQuestionAnswer: "AwaitQuestionAnswer",
   awaitTimer: "AwaitTimer",
@@ -100,6 +103,7 @@ export interface AgentSessionConfig {
   readonly builtInTools: ReadonlySet<BuiltInTool>;
   readonly maxDurableWaitMs: number;
   readonly planModeEnabled: boolean;
+  readonly compaction: ResolvedCompactionPolicy | undefined;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
@@ -139,6 +143,15 @@ export class AgentSessionTransitions {
     return (this.persistence.agentUsage.get(context) as AgentUsage | undefined) ?? emptyAgentUsage();
   }
 
+  public readContextSummary(context: Context): ContextSummary | null {
+    return (this.persistence.contextSummary.get(context) as ContextSummary | undefined) ?? null;
+  }
+
+  /** The summary the runner sees; a runner without the compaction methods keeps every message instead. */
+  public readRunnerContextSummary(context: Context): ContextSummary | null {
+    return isContextCompactionRunner(this.runner) ? this.readContextSummary(context) : null;
+  }
+
   public readFrameworkRunState(context: Context): string | null {
     const runState = this.persistence.frameworkRunState.get(context) as string | undefined;
     return runState === undefined || runState === "" ? null : runState;
@@ -151,6 +164,19 @@ export class AgentSessionTransitions {
       messages.push(this.persistence.agentMessages.get(context, messageSequenceKey(sequence)));
     }
     return messages;
+  }
+
+  /** Returns the turn's stored messages, the newest ones, read back until another turn's; requires the whole map. */
+  public readTurnMessages(context: Context, state: AgentState, turnId: string): AgentMessage[] {
+    const turnMessages: AgentMessage[] = [];
+    for (let sequence = state.nextMessageSequence - 1; sequence >= 1; sequence -= 1) {
+      const message = this.persistence.agentMessages.get(context, messageSequenceKey(sequence));
+      if (message.turnId !== turnId) {
+        break;
+      }
+      turnMessages.push(message);
+    }
+    return turnMessages.reverse();
   }
 
   /** Returns the turn's tool call records in deferral order; requires the AgentToolCalls load. */
@@ -276,12 +302,17 @@ export class AgentSessionTransitions {
     const runnerToolCalls = toolCalls.map(toRunnerToolCall);
     const toolCallsById = new Map(runnerToolCalls.map((toolCall) => [toolCall.toolCallId, toolCall]));
     const frameworkRunState = this.readFrameworkRunState(context);
+    const contextSummary = this.readRunnerContextSummary(context);
     return {
       flowId: context.flowId,
       turnId,
       attempt: context.attempt,
       stepExecutionId: context.stepExecutionId,
-      messages: this.readMessages(context, 1, state.nextMessageSequence),
+      messages: this.readMessages(
+        context,
+        contextSummary === null ? 1 : contextSummary.lastSequence + 1,
+        state.nextMessageSequence,
+      ),
       frameworkRunState,
       isResuming: frameworkRunState !== null,
       toolCalls: runnerToolCalls,
@@ -291,6 +322,7 @@ export class AgentSessionTransitions {
       enabledBuiltInTools: this.config.builtInTools,
       interactionMode: state.interactionMode ?? "chat",
       plan: this.readOptionalAgentPlan(context),
+      contextSummary,
       toolPolicies: this.config.toolPolicies,
       defaultToolEffect: this.config.defaultToolEffect,
       resolveToolPolicy: (toolName, frameworkEffect) => this.resolveToolPolicy(toolName, frameworkEffect),

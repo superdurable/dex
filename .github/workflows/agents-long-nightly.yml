@@ -1,0 +1,92 @@
+name: Agents Long Tests Nightly
+
+# The 2,000-turn compaction sessions run for minutes. Agents CI runs a 300-turn guard instead.
+
+on:
+  schedule:
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/agents-long-nightly.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-long-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEXCLI_RELEASE_TAG: cli-v1.30.0
+  DEXCLI_ARCHIVE: dexcli_v1.30.0_linux_amd64.tar.gz
+
+jobs:
+  long:
+    name: ${{ matrix.language }} core long tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, typescript]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        if: matrix.language == 'python'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: agents/python/core
+          enable-cache: true
+      - name: Install Node
+        if: matrix.language == 'typescript'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download and verify dexcli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEXCLI_DIR: ${{ runner.temp }}/dexcli
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEXCLI_DIR"
+          cd "$DEXCLI_DIR"
+          gh release download "$DEXCLI_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$DEXCLI_ARCHIVE" \
+            --pattern checksums.txt
+          if ! grep -E "^[0-9a-f]{64}  (\./)?${DEXCLI_ARCHIVE//./\\.}\$" checksums.txt > archive.sha256; then
+            echo "checksums.txt has no entry for $DEXCLI_ARCHIVE"
+            exit 1
+          fi
+          sha256sum --check --strict archive.sha256
+          tar -xzf "$DEXCLI_ARCHIVE"
+          test -x dexcli && test -x dex-server-zd
+          ./dexcli --version
+          echo "DEXCLI=$DEXCLI_DIR/dexcli" >> "$GITHUB_ENV"
+          echo "DEX_SERVER_ZD_BINARY=$DEXCLI_DIR/dex-server-zd" >> "$GITHUB_ENV"
+      - name: Run the Python long tests
+        if: matrix.language == 'python'
+        timeout-minutes: 40
+        working-directory: agents/python/core
+        env:
+          DEX_AGENTS_LONG_TESTS: "1"
+        run: |
+          uv sync --locked --all-extras
+          uv run --frozen pytest -p no:cacheprovider -v -s tests/test_compaction.py -k 2000_turn
+      - name: Run the TypeScript long tests
+        if: matrix.language == 'typescript'
+        timeout-minutes: 40
+        working-directory: agents/typescript/core
+        run: |
+          npm ci
+          npm run test:long
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agents-${{ matrix.language }}-long-logs
+          path: /tmp/pytest-of-*/pytest-*/**/*.log
+          if-no-files-found: ignore

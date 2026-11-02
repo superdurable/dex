@@ -29,4 +29,11 @@ export {
   type ModelUserTextItem,
 } from "./model-client.js";
 export { createStepwiseAgentSessionFlow } from "./stepwise-agent-session-flow.js";
-export { StepwiseAgentRunner } from "./stepwise-agent-runner.js";
+export {
+  StepwiseAgentRunner,
+  buildContextSummaryNote,
+  buildContextSummaryOmissionNote,
+  contextSummaryInstructions,
+  contextSummaryNoteHeader,
+  contextSummaryRequest,
+} from "./stepwise-agent-runner.js";

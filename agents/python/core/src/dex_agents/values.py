@@ -31,11 +31,15 @@ class AgentSessionStatus(StrEnum):
         RUNNING_MODEL: ``RunModel`` makes one model call of the active turn.
         RUNNING_TOOLS: The tool call Steps of the active turn run, or wait for
             approval, in parallel; ``ResumeTurn`` waits for their results.
+        COMPACTING_CONTEXT: ``CompactContext`` summarizes earlier messages
+            before the turn's next model call. Only a session with
+            ``AgentSessionOptions.compaction`` reaches it.
     """
 
     WAITING_FOR_USER_MESSAGE = "waiting_for_user_message"
     RUNNING_MODEL = "running_model"
     RUNNING_TOOLS = "running_tools"
+    COMPACTING_CONTEXT = "compacting_context"
 
 
 class MessageRole(StrEnum):
@@ -836,6 +840,54 @@ class AgentEvent:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ContextSummary:
+    """Hold the summary that replaces a session's earlier messages in the model input.
+
+    The ``ContextSummary`` Attribute holds one value, and only ``CompactContext``
+    writes it. A session with ``AgentSessionOptions.compaction`` folds its
+    earlier messages into this text when the next model input would cross the
+    threshold. Each new summary folds in the previous one, so it always covers
+    the messages from ``first_sequence`` through ``last_sequence``. The
+    messages stay in ``AgentMessages``: ``list_agent_messages`` and
+    ``get_agent_snapshot`` return them as before. Only the model input changes.
+
+    Example:
+        >>> snapshot = await sessions.get_agent_snapshot("session-42")
+        >>> if snapshot.context_summary is not None:
+        ...     print(snapshot.context_summary.last_sequence)
+
+    Attributes:
+        generation: Count of summaries the session has written, starting at 1.
+        first_sequence: Sequence of the first summarized message. Always 1.
+        last_sequence: Sequence of the last summarized message. A runner with
+            the compaction capability receives only the messages after it.
+        text: Summary text from the runner's ``summarize_context``.
+        created_at: RFC 3339 time when ``CompactContext`` wrote the summary.
+    """
+
+    generation: int
+    first_sequence: int
+    last_sequence: int
+    text: str
+    created_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class CompactContextInput:
+    """Name the messages that one ``CompactContext`` Step summarizes.
+
+    ``RunModel`` moves to ``CompactContext`` with this input when the next
+    model input would cross the compaction threshold.
+
+    Attributes:
+        through_sequence: Sequence of the last message to summarize. It is
+            after the current summary's ``last_sequence``.
+    """
+
+    through_sequence: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentSnapshot:
     """Return everything a UI needs to render one agent session.
 
@@ -857,6 +909,9 @@ class AgentSnapshot:
             ``steer_user_message``.
         steered_messages: Steered messages that the session has not applied
             yet, oldest first.
+        context_summary: The current ``ContextSummary``, or ``None`` when the
+            session never compacted. ``messages`` still holds the summarized
+            messages.
     """
 
     state: AgentState | None
@@ -868,6 +923,7 @@ class AgentSnapshot:
     plan: AgentPlan | None = None
     queued_messages: list[PendingUserMessage] = field(default_factory=list)
     steered_messages: list[PendingUserMessage] = field(default_factory=list)
+    context_summary: ContextSummary | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

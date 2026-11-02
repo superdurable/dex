@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { BuiltInTool } from "../agent-built-in-tools.js";
+import type { CompactionPolicy } from "../agent-context-compaction.js";
 import type { ToolPolicy } from "../agent-framework-runner.js";
 import type { AgentPlan, InteractionMode, ToolEffect } from "../agent-session-values.js";
 import type { FunctionTool } from "./function-tool.js";
@@ -106,4 +107,9 @@ export interface AgentDefinition {
   readonly interruptDeadlineMs?: number;
   /** Byte budget of the `AgentEvents` Stream. Defaults to 10 MiB. */
   readonly eventStreamCapacityBytes?: number;
+  /**
+   * When to summarize earlier messages so the model input stays under the window, counted by the model
+   * client's `estimateInputTokens`. Defaults to no compaction. See {@link CompactionPolicy}.
+   */
+  readonly compaction?: CompactionPolicy;
 }

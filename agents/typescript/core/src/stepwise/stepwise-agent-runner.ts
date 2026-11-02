@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { builtInToolDefinitions, type BuiltInTool } from "../agent-built-in-tools.js";
+import type { ContextSummaryRequest, ContextSummaryResult } from "../agent-context-compaction.js";
 import {
   ToolExecutionError,
   type AgentFrameworkRunner,
@@ -18,14 +19,16 @@ import {
   type ResolvedToolPolicy,
 } from "../agent-framework-runner.js";
 import { buildPlanNote } from "../agent-plans.js";
-import { describeToolCallOutcome, type FrameworkMessage } from "../agent-session-values.js";
+import { describeToolCallOutcome, type ContextSummary, type FrameworkMessage } from "../agent-session-values.js";
 import type { AgentDefinition } from "./agent-definition.js";
 import type { FunctionTool, ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
 import type {
   ModelInputItem,
   ModelOutputItem,
+  ModelOutputWriter,
   ModelRequest,
+  ModelRequestMetadata,
   ModelResponse,
   ModelToolChoice,
   ModelToolDefinition,
@@ -39,6 +42,47 @@ import {
 
 const defaultMaxModelCallsPerTurn = 100;
 
+/** First line of the user text that carries the {@link ContextSummary} into the model input. */
+export const contextSummaryNoteHeader = "[Dex] Summary of the earlier conversation:";
+
+/** Instructions of the model call that writes a {@link ContextSummary}. */
+export const contextSummaryInstructions =
+  "You summarize the earlier part of an agent conversation. The agent continues from your " +
+  "summary and the messages after it, so keep every fact, decision, user request and " +
+  "preference, open task, and tool result that it still needs, including what an earlier " +
+  "summary says. Write plain text.";
+
+/** Last user text of the model call that writes a {@link ContextSummary}. */
+export const contextSummaryRequest = "[Dex] Summarize the conversation above. Reply with the summary only.";
+
+/**
+ * Returns the user text that says how many of the oldest messages a summary request left out.
+ * @param omittedCount - Messages left out, at least 1.
+ * @returns `[Dex] <omittedCount> earlier messages did not fit in this request and are left out.`, or
+ * `[Dex] 1 earlier message did not fit in this request and is left out.` for one message.
+ */
+export function buildContextSummaryOmissionNote(omittedCount: number): string {
+  if (omittedCount === 1) {
+    return "[Dex] 1 earlier message did not fit in this request and is left out.";
+  }
+  return `[Dex] ${omittedCount} earlier messages did not fit in this request and are left out.`;
+}
+
+/**
+ * Returns the user text that puts a summary before the newer messages in a model input.
+ * @param summary - The session's summary.
+ * @returns {@link contextSummaryNoteHeader}, a newline, and the summary text.
+ */
+export function buildContextSummaryNote(summary: ContextSummary): string {
+  return `${contextSummaryNoteHeader}\n${summary.text}`;
+}
+
+// The summary is not the assistant's answer, so its live text goes nowhere.
+const discardedModelOutput: ModelOutputWriter = {
+  writeTextDelta: () => undefined,
+  writeReasoningDelta: () => undefined,
+};
+
 /**
  * The {@link AgentFrameworkRunner} of the built-in Stepwise loop.
  *
@@ -48,7 +92,8 @@ const defaultMaxModelCallsPerTurn = 100;
  * of the previous model response from the turn's final records, and the instructions. The runner
  * stores the turn's transcript as it goes through {@link ToolCallsRequested.newMessages}, so a long turn
  * never rewrites a growing run state. It supports plan mode: a `planning` turn offers only `write_todos`, and
- * every model call shows the plan with {@link buildPlanNote} before the turn's messages.
+ * every model call shows the plan with {@link buildPlanNote} before the turn's messages. It implements the
+ * compaction methods, so a session with a compaction policy starts the model input with the summary.
  *
  * @example
  * ```ts
@@ -133,25 +178,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     const modelCallCount = readModelCallCount(turn.frameworkRunState);
     const unstoredToolResults = buildUnstoredToolResults(turn);
     const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
-    const tools = isToolBudgetSpent ? [] : this.listOfferedTools(turn);
-    let toolChoice: ModelToolChoice = isToolBudgetSpent ? "none" : "auto";
-    if (!isToolBudgetSpent && this.definition.planningToolChoice === "required" && mustWritePlanFirst(turn, modelCallCount)) {
-      toolChoice = { toolName: "write_todos" };
-    }
-    const request: ModelRequest = {
-      instructions: await this.resolveInstructions(turn),
-      inputItems: pairToolCallsWithResults([...readStoredInputItemsWithPlanNote(turn), ...unstoredToolResults]),
-      tools,
-      toolChoice,
-      settings: this.definition.modelSettings ?? {},
-      metadata: {
-        flowId: turn.flowId,
-        turnId: turn.turnId,
-        stepExecutionId: turn.stepExecutionId ?? "",
-        attempt: turn.attempt,
-      },
-      cancellationSignal: turn.cancellationSignal,
-    };
+    const request = await this.buildModelRequest(turn, unstoredToolResults, modelCallCount, isToolBudgetSpent);
     const response = await this.definition.model.callModel(request, turn.events);
     requireModelResponse(response);
     const usage = { ...response.usage, modelCalls: 1 };
@@ -240,6 +267,176 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    */
   public buildUnfinishedTurnMessages(turn: AgentTurnContext): readonly FrameworkMessage[] {
     return buildUnstoredToolResults(turn).map(toStepwiseFrameworkMessage);
+  }
+
+  /**
+   * Estimates the model input of the next `runModelStep` with the model client.
+   * @param turn - The context of the next model call.
+   * @returns `ModelClient.estimateInputTokens` of the request `runModelStep` would send: instructions,
+   * summary, messages, unstored tool results, and tools.
+   */
+  public async estimateInputTokens(turn: AgentTurnContext): Promise<number> {
+    const modelCallCount = readModelCallCount(turn.frameworkRunState);
+    const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
+    const request = await this.buildModelRequest(turn, buildUnstoredToolResults(turn), modelCallCount, isToolBudgetSpent);
+    return this.definition.model.estimateInputTokens(request);
+  }
+
+  /**
+   * Chooses the last message to summarize, at a boundary between model responses.
+   *
+   * The runner cuts only before a user message or before the first output item of a model response whose
+   * earlier tool calls all have stored results, so no tool call is separated from its result and no
+   * response is split. It keeps the newest messages that fit the budget, and never summarizes the newest
+   * stored message.
+   *
+   * @param turn - The context of the model call that crossed the threshold.
+   * @param retainedTokenBudget - Tokens that the kept messages may use.
+   * @returns The sequence of the last message to summarize: the earliest cut whose kept messages fit the
+   * budget, else the latest cut; `null` when every message already fits or no cut is possible.
+   */
+  public selectCompactionCutoff(turn: AgentTurnContext, retainedTokenBudget: number): number | null {
+    const items = turn.messages.map(readStoredModelInputItem);
+    const cuts = findCompactionCuts(items);
+    if (cuts.length === 0) {
+      return null;
+    }
+    const keptTokens = new Array<number>(items.length + 1).fill(0);
+    keptTokens[items.length] = this.estimateItems(turn, buildUnstoredToolResults(turn));
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      keptTokens[index] = (keptTokens[index + 1] ?? 0) + this.estimateItems(turn, items.slice(index, index + 1));
+    }
+    if ((keptTokens[0] ?? 0) <= retainedTokenBudget) {
+      return null;
+    }
+    const cut = cuts.find((candidate) => (keptTokens[candidate] ?? 0) <= retainedTokenBudget) ?? cuts.at(-1);
+    return cut === undefined ? null : (turn.messages[cut - 1]?.sequence ?? null);
+  }
+
+  /**
+   * Folds the previous summary and the messages of the range into new text, with one model call.
+   *
+   * The call uses {@link contextSummaryInstructions}, no tools, the previous summary as a note, the
+   * range's items, and {@link contextSummaryRequest} as the last user text. Its text streams nowhere,
+   * because it is not the assistant's answer. When the request would exceed `request.inputTokenBudget`,
+   * such as after a smaller context window or when compaction starts on a long session, the runner leaves
+   * out the oldest items of the range and says so with {@link buildContextSummaryOmissionNote}, so the
+   * call and its `maxOutputTokens`, when set, still fit. It leaves them out up to a boundary between model responses, as
+   * {@link selectCompactionCutoff} cuts, so it never splits a response or separates a tool call from its
+   * result.
+   *
+   * @param request - The previous summary and the messages to summarize.
+   * @returns The response text and the usage of the call.
+   * @throws {Error} When the model returned no text, or any error of the model call.
+   */
+  public async summarizeContext(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+    const rangeItems = request.messages.map(readStoredModelInputItem);
+    let omittedCount = 0;
+    const budget =
+      request.inputTokenBudget === undefined
+        ? undefined
+        : // The window also holds the summary the call writes.
+          request.inputTokenBudget - (this.definition.modelSettings?.maxOutputTokens ?? 0);
+    if (budget !== undefined) {
+      // Estimate by parts, then leave out the oldest items up to the first cut that fits.
+      const model = this.definition.model;
+      const itemTokens = rangeItems.map((item) =>
+        model.estimateInputTokens({ ...this.buildSummaryRequest(request, [], 0), instructions: "", inputItems: [item] }),
+      );
+      let tokens =
+        model.estimateInputTokens(this.buildSummaryRequest(request, [], rangeItems.length)) +
+        itemTokens.reduce((total, itemToken) => total + itemToken, 0);
+      // A cut never splits a model response or separates a tool call from its result.
+      for (const cut of [...findCompactionCuts(rangeItems), rangeItems.length]) {
+        if (tokens <= budget) {
+          break;
+        }
+        tokens -= itemTokens.slice(omittedCount, cut).reduce((total, itemToken) => total + itemToken, 0);
+        omittedCount = cut;
+      }
+    }
+    const response = await this.definition.model.callModel(
+      this.buildSummaryRequest(request, rangeItems.slice(omittedCount), omittedCount),
+      discardedModelOutput,
+    );
+    requireModelResponse(response);
+    if (response.text.trim() === "") {
+      throw new Error("the summary model call returned no text");
+    }
+    return { text: response.text.trim(), usage: { ...response.usage, modelCalls: 1 } };
+  }
+
+  private buildSummaryRequest(
+    request: ContextSummaryRequest,
+    rangeItems: readonly ModelInputItem[],
+    omittedCount: number,
+  ): ModelRequest {
+    const items: ModelInputItem[] = [];
+    if (request.previousSummary !== null) {
+      items.push({ type: "user_text", text: buildContextSummaryNote(request.previousSummary) });
+    }
+    if (omittedCount > 0) {
+      items.push({ type: "user_text", text: buildContextSummaryOmissionNote(omittedCount) });
+    }
+    items.push(...rangeItems, { type: "user_text", text: contextSummaryRequest });
+    return {
+      instructions: contextSummaryInstructions,
+      inputItems: pairToolCallsWithResults(items),
+      tools: [],
+      toolChoice: "none",
+      settings: this.definition.modelSettings ?? {},
+      metadata: {
+        flowId: request.flowId,
+        turnId: request.turnId,
+        stepExecutionId: request.stepExecutionId,
+        attempt: request.attempt,
+      },
+      cancellationSignal: request.cancellationSignal,
+    };
+  }
+
+  private async buildModelRequest(
+    turn: AgentTurnContext,
+    unstoredToolResults: readonly ModelToolResultItem[],
+    modelCallCount: number,
+    isToolBudgetSpent: boolean,
+  ): Promise<ModelRequest> {
+    const contextSummary = turn.contextSummary ?? null;
+    const summaryItems: ModelInputItem[] =
+      contextSummary === null ? [] : [{ type: "user_text", text: buildContextSummaryNote(contextSummary) }];
+    let toolChoice: ModelToolChoice = isToolBudgetSpent ? "none" : "auto";
+    if (!isToolBudgetSpent && this.definition.planningToolChoice === "required" && mustWritePlanFirst(turn, modelCallCount)) {
+      toolChoice = { toolName: "write_todos" };
+    }
+    return {
+      instructions: await this.resolveInstructions(turn),
+      // The plan note comes after the summary, so compaction never hides the plan.
+      inputItems: pairToolCallsWithResults([
+        ...summaryItems,
+        ...readStoredInputItemsWithPlanNote(turn),
+        ...unstoredToolResults,
+      ]),
+      tools: isToolBudgetSpent ? [] : this.listOfferedTools(turn),
+      toolChoice,
+      settings: this.definition.modelSettings ?? {},
+      metadata: modelRequestMetadata(turn),
+      cancellationSignal: turn.cancellationSignal,
+    };
+  }
+
+  private estimateItems(turn: AgentTurnContext, items: readonly ModelInputItem[]): number {
+    if (items.length === 0) {
+      return 0;
+    }
+    return this.definition.model.estimateInputTokens({
+      instructions: "",
+      inputItems: items,
+      tools: [],
+      toolChoice: "none",
+      settings: this.definition.modelSettings ?? {},
+      metadata: modelRequestMetadata(turn),
+      cancellationSignal: turn.cancellationSignal,
+    });
   }
 
   /** A built-in enabled only in the session options must not share a function tool's name. */
@@ -333,13 +530,23 @@ function readStoredInputItemsWithPlanNote(turn: AgentTurnContext): ModelInputIte
 
 /** Results of the turn's final records that no stored `tool_result` message holds yet, in deferral order. */
 function buildUnstoredToolResults(turn: AgentTurnContext): ModelToolResultItem[] {
+  const turnMessages = turn.messages.filter((message) => message.turnId === turn.turnId);
   const storedResultIds = new Set(
-    turn.messages
-      .filter((message) => message.turnId === turn.turnId && message.role === "tool")
-      .map((message) => message.toolCallId),
+    turnMessages.filter((message) => message.role === "tool").map((message) => message.toolCallId),
   );
+  // A call summarized away was summarized with its result, so only shown calls can lack one.
+  const shownCallIds =
+    (turn.contextSummary ?? null) === null
+      ? undefined
+      : new Set(
+          turnMessages
+            .map(readStoredModelInputItem)
+            .flatMap((item) => (item.type === "model_output" ? item.toolCalls : []))
+            .map((toolCall) => toolCall.toolCallId),
+        );
   return [...turn.toolCalls]
     .sort((left, right) => left.deferralOrder - right.deferralOrder)
+    .filter((record) => shownCallIds === undefined || shownCallIds.has(record.toolCallId))
     .filter((record) => !storedResultIds.has(record.toolCallId))
     .map((record) => ({
       type: "tool_result",
@@ -382,4 +589,45 @@ function requireModelResponse(response: ModelResponse): void {
   ) {
     throw new TypeError("ModelClient.callModel must return output items and tool calls");
   }
+}
+
+/** Each index that may start the kept items, ascending; never the last item's index. */
+function findCompactionCuts(items: readonly ModelInputItem[]): number[] {
+  const cuts: number[] = [];
+  const openCallIds = new Set<string>();
+  for (let index = 0; index < items.length - 1; index += 1) {
+    const item = items[index];
+    const following = items[index + 1];
+    if (item === undefined || following === undefined) {
+      continue;
+    }
+    if (item.type === "model_output") {
+      for (const toolCall of item.toolCalls) {
+        openCallIds.add(toolCall.toolCallId);
+      }
+    } else if (item.type === "tool_result") {
+      openCallIds.delete(item.toolCallId);
+    } else {
+      // User text closes calls left open, as pairToolCallsWithResults does.
+      openCallIds.clear();
+    }
+    if (openCallIds.size > 0 || following.type === "tool_result") {
+      continue;
+    }
+    // Consecutive output items are one model response, which must stay whole.
+    if (item.type === "model_output" && following.type === "model_output") {
+      continue;
+    }
+    cuts.push(index + 1);
+  }
+  return cuts;
+}
+
+function modelRequestMetadata(turn: AgentTurnContext): ModelRequestMetadata {
+  return {
+    flowId: turn.flowId,
+    turnId: turn.turnId,
+    stepExecutionId: turn.stepExecutionId ?? "",
+    attempt: turn.attempt,
+  };
 }
