@@ -1,100 +1,90 @@
 # AI Agent
 
-This Python application is a general durable AI Agent. Dex owns its conversation
-state, plans, tool queue, approvals, context summaries, and timers. LiteLLM
-provides the model adapter, while the official MCP Python SDK connects trusted
-local or remote tool servers.
+This Python application is a general, long-running AI Agent built on
+[Dex Agents](../../../agents/python/core/README.md) (`dex-agents`). It is a
+Stepwise agent: the library's built-in agent loop, with no agent framework.
+Every model call is one **RunModel** Step and every tool call is its own Step,
+so a crash repeats at most the one call that was running.
 
-The application runs without external credentials by default with the `mock/dex`
-model. Its local model echoes normal messages and understands `/wait <seconds>
-<reason>`, which makes the durable timer easy to test. `/tool <name> <json>`
-calls one tool, and `/slow <seconds> <text>` makes the model call take that long.
+The application code is short because the library owns the session: the
+conversation, the message queue, steering, approvals, questions, durable
+waits, plans, context compaction, and live events. The example adds four
+things:
 
-The snapshot endpoint reads retained state through the unlocked, non-transactional
-**get_snapshot** RPC, which returns no durable effects. Missing or retention-unavailable
-targets return HTTP 404 directly. Reads use no lifecycle probe, short timeout, or
-historical output fallback. The response sets **flow_status** to **unknown** because
-a successful query does not establish whether the Flow is active.
+- **Worker configuration**: the model, the system prompt, the context window,
+  and the trusted MCP servers.
+- **MCP tools**: the library's MCP tool source, passed to the agent as a tool
+  source, offers each server's tools and three tools that read MCP resources
+  and prompts.
+- **A local demo model**, `mock/dex`, a script for the library's
+  `ScriptedModelClient`, so the example and its tests run without a provider
+  key.
+- **HTTP routes and a React UI**. Each route is one call on
+  **AgentSessionClient** or the library's browser stream helpers.
 
-## Architecture
+The code is in
+[`dex_examples/products/ai-agent`](../dex_examples/products/ai-agent):
+`ai_agent_session.py` builds the Flow and `http_routes.py` serves the UI.
 
-- `AgentMessages` is an AttributeMap. Each value stores one message and its creation time.
-- `AgentPlan` atomically stores the current revision and ordered task list.
-- `ContextSummary` keeps the cumulative compaction summary.
-- `QueuedUserMessages` keeps user messages in a durable FIFO queue.
-- `SteeredUserMessages` carries explicit Steer messages to safe boundaries.
-- Other Channels carry plan execution requests and tool approvals.
-- `ReasoningSummary` uses a buffered text writer for OpenAI reasoning summaries.
-- `AssistantText` uses a separate buffered writer for visible response text.
-- `AgentActivity` is a best-effort Stream for tool and lifecycle progress.
-- The `durable_wait` tool uses a Dex Timer and can be interrupted by Steer.
-- Write, destructive, and unclassified MCP tools wait for explicit approval.
-- Recovery Steps report a tool call or model call that a crash cut off. See
-  [Crashes and restarts](#crashes-and-restarts).
+## The session Flow
 
-The current AttributeMap retains 2,000 messages by default. Dex compacts older
-context before deleting summarized map instances. Deleted instances remain in the
-Flow history until the configured history retention expires.
+The Flow type is **AIAgentSession**. One Flow execution is one session, and the
+Flow ID is the session ID. The Steps, persistence, RPCs, and events are the
+ones every Dex Agents session uses; see the library README for the full Flow
+shape. The UI calls these RPCs through **AgentSessionClient**:
 
-The model adapter receives separate buffered callbacks for reasoning summaries
-and assistant text. The SDK combines token-sized chunks for up to one second or
-16 KiB and flushes each final batch when the Step invocation finishes.
+| User action | RPC |
+| --- | --- |
+| Send a message, or queue it while a turn runs | `send_user_message` |
+| Steer a queued message, or steer with new text | `steer_user_message` |
+| Delete a queued message | `delete_queued_message` |
+| Stop the running turn | `cancel_turn` |
+| Approve or reject a tool call, or decline a question | `resolve_interrupt` |
+| Answer a question | `answer_question` |
+| Execute a reviewed plan | `execute_plan` |
+| Load the page, with the newest 200 messages | `get_agent_snapshot` |
+| Load older messages | `list_agent_messages` |
 
-OpenAI models use LiteLLM's Responses API adapter with stateless requests and an
-automatic reasoning summary. Dex still rebuilds the complete provider-neutral
-input for every call. Encrypted OpenAI reasoning items are retained with their
-durable assistant message and replayed when that provider requires them. The UI labels official reasoning-summary events as
-**Thinking**, visible output as **Response**, and structured tool or lifecycle
-events as **Agent activity**. Providers without reasoning-summary events never
-show inferred or fabricated thinking.
+Live text, reasoning summaries, tool activity, and plan updates arrive on the
+session's **AgentEvents** Stream. The `/events` route serves it as Server-Sent
+Events with the library's `dex_agents.ui_stream` helpers. A reconnecting
+browser resumes from the last event it saw. The Stream is best effort: the
+page reloads the snapshot after every turn and every eight seconds.
 
-## Plan before execution
+## Features
 
-Enable **Plan mode** beside the message composer to create or revise a plan. The
-Agent can only call `write_todos` during that turn. MCP tools and the durable timer
-remain unavailable until the user clicks **Execute plan**.
-
-The plan card survives page refreshes and Worker restarts. It shows pending, in
-progress, and completed tasks. If the model stops with unfinished work, the card
-remains active and offers **Continue plan**. A waiting Agent is not necessarily a
-completed plan.
-
-## Queue and Steer
-
-Submitting while the Agent loop is active adds a visible **Queued** message. The
-Agent does not consume it until the loop returns to **AwaitUser**. Before then,
-the UI can edit it, delete it, or choose **Steer**. Editing first deletes the
-pending message and puts its content back in the composer; submitting it again
-creates a new message at the queue tail.
-
-Steer sends only the selected message ID. A transactional RPC loads
-**QueuedUserMessages**, finds the original Value, stages its deletion, and
-publishes that Value to **SteeredUserMessages**. A concurrent consumption makes
-the entire operation fail without a destination publication. Dex applies the
-steered message before the next model call, tool, approval wait, or Timer
-continuation. It does not cancel an LLM or MCP request already running. A Steer
-clears unexecuted tool calls and records durable cancellation results. Only Steer
-interrupts a tool approval or durable wait.
-
-The queue panel remains above the composer. It collapses to a compact status row
-when both queues are empty and expands automatically when a pending message appears.
-The browser page is the conversation scroll surface. The queue, user-input request,
-and composer stay fixed at the bottom while new activity remains visible above them.
-The UI treats the Server queue as canonical. Its snapshot endpoint invokes one
-read-only RPC that loads **AgentMessages**, **QueuedUserMessages**, and
-**SteeredUserMessages**, then returns the application history, Agent description,
-run ID, and both queues. It keeps a submitted item visible until the snapshot
-reports it as pending or the Flow consumes it into history. It refreshes
-immediately after each mutation, refreshes from Agent activity events and browser
-reconnection, and uses an eight-second fallback poll while the page is visible or
-the Agent is active.
+- **Queue and steer.** A message sent while a turn runs waits in the queue.
+  The user can delete it, or steer with it. Steering never stops a model call
+  or tool call that has started. The turn ends at its next safe Step boundary,
+  calls that have not started are cancelled, and a new turn starts with the
+  steered messages. **Stop** ends the turn without a new one.
+- **Questions.** The `ask_user` built-in tool asks the user a question, with
+  optional choices. The UI shows choice buttons or a text box, and the answer
+  becomes the tool's result.
+- **Durable waits.** The `durable_wait` built-in tool waits on a Dex Timer. No
+  Worker holds the wait. Steering or **Stop** interrupts it; a queued message
+  does not.
+- **Plans.** With **Plan mode**, the agent can only call `write_todos`, and it
+  drafts a plan for review. **Execute plan** runs the reviewed revision with
+  every tool. A plan that stops with unfinished tasks stays active and offers
+  **Continue plan**. While a plan is active, other turns can call every tool;
+  only a draft plan limits a turn to `write_todos`.
+- **Approvals.** MCP tools that are not read-only or idempotent by their
+  annotations wait for **Approve** or **Reject** before they run, and they run
+  at most once.
+- **Compaction.** At 85 percent of the context window, a **CompactContext**
+  Step summarizes older messages. The model then sees the summary and the
+  recent messages. Every message stays in the session: compaction shortens
+  the model input, not the stored history, so a long session's state grows
+  toward the Dex Server's run budget. The
+  [agent deployment guide](https://docs.superdurable.io/production/agents#limits)
+  gives the bound.
 
 ## Run locally
 
 Start Dex on server-zd, install the Python dependencies, and build the React
 application. **dexcli dev --engine zd** needs **dex-server-zd** from a server-zd
-release on your PATH, or **--zd-binary**. It keeps its state in
-`~/.dex/zd/8801`, so starting it again resumes the same Flows.
+release on your PATH, or **--zd-binary**.
 
 ```bash
 dexcli dev --engine zd
@@ -109,49 +99,49 @@ uv run --frozen python main.py
 ```
 
 Open [http://127.0.0.1:8080/products/ai-agent/](http://127.0.0.1:8080/products/ai-agent/).
-The first page is the Agent Portal. Choose a configured LiteLLM provider and
-model, then select the registered MCP servers and tools available to the new
-session. Providers without their required Worker environment variable remain
-visible but cannot be selected.
+The first page shows the Worker's configuration. Choose **Start AI Agent** to
+start a session.
 
 The local MCP configuration starts credential-free search, Slack, Google Docs,
-and web demo servers before the Portal loads. Read operations run automatically.
-Demo Slack posts and Google Doc creation still require approval. The web
-server's read-only `fetch_page` tool downloads a real public page and reports
-its progress in three paced stages, so the chat page can show a running tool. Use
-[`mcp-servers.example.yaml`](./mcp-servers.example.yaml) when connecting real
-providers.
+and web demo servers. Reads run at once. Demo Slack posts and Google Doc
+creation wait for approval. The web server's read-only `fetch_page` tool
+downloads a public page and reports its progress in three paced stages.
 
-The chat page shows reasoning summaries when the provider supplies them and
-buffers visible response text separately while a model call is running. Press
-**Command/Ctrl+Enter** or **Alt+Enter** to send; plain Enter inserts a line break.
-When work needs information that is missing, the Agent uses
-**request_user_input** to expand a durable input panel in the conversation and
-wait for a reply. The tool may provide known choices, which the UI renders as
-selection buttons; otherwise the panel renders a free-form text box.
+The `mock/dex` model replies `Local demo response: <text>` and reads slash
+commands, so you can try every feature without a key:
 
-## Configure a real model
+| Command | What the agent does |
+| --- | --- |
+| `/tool <name> <json>` | Calls one tool, such as `/tool search__web_search {"query":"dex"}` |
+| `/ask <question>` | Asks you a question |
+| `/choose <question> \| <choice> \| <choice>` | Asks with choice buttons |
+| `/wait <seconds> <reason>` | Waits on a durable Timer |
+| `/slow <seconds> <text>` | Makes the model call take that long |
+| `/plan-stop <objective>` | In plan mode, drafts a plan whose execution stops early |
+| `/plan-clear` | In plan mode, clears the plan |
 
-Add the provider credential required by LiteLLM to `examples/.env`:
+Press **Command/Ctrl+Enter** or **Alt+Enter** to send.
 
-```bash
-OPENAI_API_KEY="..."
-```
+## Worker configuration
 
-Restart the Python examples after changing the file. The Portal shows every
-supported provider, but providers without their environment variable are disabled.
-It never sends credentials to the browser. Shell environment variables take
-precedence over values in `examples/.env`. The selected credential is used for
-normal and context-compaction model calls and is never stored in a Dex Attribute,
-message, or Flow history.
+The model, the prompt, and the MCP servers are Worker configuration, shared by
+every session. Sessions do not choose them, so no credential or server command
+ever comes from a browser or from Flow input.
 
-Worker defaults:
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEX_AGENT_MODEL` | `mock/dex` | A LiteLLM model name, such as `openai/gpt-5-mini`, or `mock/dex` |
+| `DEX_AGENT_SYSTEM_PROMPT` | a general prompt | The agent's instructions |
+| `DEX_AGENT_CONTEXT_TOKENS` | `32000` | The context window that compaction keeps the model input under |
+| `DEX_AGENT_MCP_CONFIG` | none | The MCP server file |
 
-- `DEX_AGENT_MODEL`
-- `DEX_AGENT_SYSTEM_PROMPT`
-- `DEX_AGENT_CONTEXT_TOKENS`
-- `DEX_AGENT_MESSAGE_RETENTION`
-- `DEX_AGENT_MCP_CONFIG`
+Add the provider credential that LiteLLM reads to `examples/.env`, for example
+`OPENAI_API_KEY="..."`, and restart the Worker. The credential stays in the
+Worker's environment. It is never stored in an Attribute, a message, or the
+Flow history.
+
+A changed prompt or model takes effect at the next model call of every session,
+including turns that are waiting, because Dex does not replay a Flow.
 
 ## Configure MCP servers
 
@@ -165,39 +155,37 @@ export GOOGLE_DOCS_MCP_AUTHORIZATION="Bearer ..."
 export DEX_AGENT_MCP_CONFIG="$PWD/ai-agent/mcp-servers.yaml"
 ```
 
-The Brave entry uses the actively maintained
+The Brave entry uses
 [`@brave/brave-search-mcp-server`](https://github.com/brave/brave-search-mcp-server).
-The Slack and Google Docs entries are transport examples: replace their URLs with
-servers selected from the [official MCP Registry](https://registry.modelcontextprotocol.io/).
+The Slack and Google Docs entries are transport examples: replace their URLs
+with servers from the [official MCP Registry](https://registry.modelcontextprotocol.io/).
 
-Configuration keys:
+Configuration keys. The Worker refuses any other key, including the per-tool
+`tools` settings of earlier versions (`read_only`, timeouts, and retries):
+Dex Agents picks retries and approval from each tool's effect.
 
 - `transport`: `stdio` or `streamable_http`.
+- `command`, `args`, `cwd`: the stdio server's process.
+- `url`: the Streamable HTTP endpoint.
 - `env`: child-process variable to Worker environment-variable name.
 - `headers`: HTTP header to Worker environment-variable name.
-- `trust_read_only_annotations`: allows trusted server annotations to classify a
-  tool as read-only.
-- `tools`: local read-only classification plus timeout and retry overrides.
+- `trust_read_only_annotations`: let the server's `readOnlyHint` and
+  `idempotentHint` annotations make a tool `read` or `idempotent_write`, so it
+  runs without approval and is retried after a crash. Off by default, so every
+  tool of the server waits for approval and runs at most once.
 
-MCP sampling, elicitation, and roots are not enabled. Resources, resource
-templates, and prompts are exposed through model-visible broker tools.
-
-## Try durable behavior
-
-With `mock/dex`, send:
-
-```text
-/wait 12 remind me to check the ticket sale
-```
-
-Refresh the page while it waits. The Timer remains active. Send another message
-before it fires, then choose **Steer** to interrupt the wait and let the Agent
-replan.
+Tools are named `<server>__<tool>`. The tool source's
+`mcp_list_resources_and_prompts`, `mcp_read_resource`, and `mcp_get_prompt`
+tools read a server's resources and prompts. A server that cannot be listed
+is left out of the model call and tried again on the next one; when every
+server is down, the agent answers without MCP tools. MCP sampling and roots
+are not enabled.
 
 ## Crashes and restarts
 
-Dex stores the conversation, plan, pending approval, timer, and question in the
-Flow, so you can hard-kill the engine and the Worker at any point:
+Dex stores the conversation, the plan, and each pending approval, timer, and
+question in the session, so you can hard-kill the engine and the Worker at any
+point:
 
 ```bash
 kill -9 $(pgrep -f 'dex-server-zd dev')   # the engine; dexcli dev exits with it
@@ -206,73 +194,42 @@ dexcli dev --engine zd
 uv run --frozen python main.py
 ```
 
-- **While the Agent waits** for a message, a tool approval, a durable timer, or
-  an answer to **request_user_input**, the same run resumes with everything it
-  had. A timer that came due while the engine was down fires after it starts.
-- **A Worker crash during a tool call** ends that call's only attempt as soon as
-  Dex sees the Worker disconnect. When a Worker is running again,
-  **ReportInterruptedTool** records an `interrupted` tool result and the model
-  decides what to do. Read-only tools are marked `retry_safe`; write tools
-  report `outcome_unknown`, because the write may have happened. The tool Step
-  heartbeats every 10 seconds, so a Worker that hangs without disconnecting is
-  detected within 30 seconds.
-- **An engine crash during a tool call** sends the call to the Worker again after
-  the engine starts, because Dex delivers Step work at least once. A write tool
-  can therefore run twice. Make write tools idempotent, for example by using the
-  tool call ID as an idempotency key.
-- **A model call** gets three attempts. When all of them fail,
-  **RecoverFailedModelCall** returns the Agent to the user instead of failing
-  the run. Agent activity says which failure it was: `model_api_failed` names
-  the provider's error class and HTTP status, and `model_unavailable` means the
-  call did not finish, for example because no Worker was running. Send a message
-  or choose **Continue plan** to try again. Context compaction follows the same
-  rules through **RecoverFailedCompaction**.
+- **While the agent waits** for a message, an approval, a durable timer, or an
+  answer, the same session resumes with everything it had. A timer that came
+  due while the engine was down fires after it starts.
+- **A model call** cut off by a crash runs again; nothing else repeats. After
+  three failed attempts the turn ends, the session records the error in
+  `last_turn_error`, and the next message starts a new turn.
+- **A read-only tool call** cut off by a crash runs again.
+- **A write tool call** cut off by a crash never runs again. The model sees that
+  its outcome is unknown and decides what to do with the user. Each MCP call
+  carries an idempotency key, so a server can drop a duplicate.
 
-## Change code while a run waits
+## Change code while a session waits
 
-Dex does not replay a Flow's history. A waiting run executes its next Step with
-whatever code the Worker has when that Step starts, so most changes need no
-versioning. To try it with the local MCP configuration:
+Dex does not replay a Flow. A waiting session runs its next Step with the code
+the Worker has when that Step starts. To try it with the local MCP
+configuration:
 
-1. Send `/tool slack__post_message {"channel":"#eng","message":"hello"}` and leave
-   the approval card waiting.
+1. Send `/tool slack__post_message {"channel":"#eng","message":"hello"}` and
+   leave the approval waiting.
 2. Stop the Worker and run
-   `patch -p1 < ai-agent/changes/save-task-summaries.patch`. The change adds a
-   **SaveTaskSummary** Step after every tool call and stores its result in a new
-   **TaskSummaries** AttributeMap.
-3. Start the Worker and approve. The waiting run executes **SaveTaskSummary**,
-   which did not exist when it started. `dexcli flow state <flow-id>` shows the
-   new `TaskSummaries/<call-id>` entry next to the conversation.
-4. Run `patch -p1 -R < ai-agent/changes/save-task-summaries.patch` to undo it.
+   `patch -p1 < ai-agent/changes/report-tool-results.patch`. The change makes
+   the demo model report tool results as `Done: <result>`.
+3. Start the Worker and approve. The waiting session's next model call uses the
+   new code and replies `Done: ...`.
+4. Run `patch -p1 -R < ai-agent/changes/report-tool-results.patch` to undo it.
 
-These changes are safe while runs wait:
+Keep the Flow type, `AIAgentSession`, stable: running sessions resume by it.
 
-- Change the code inside a Step, RPC, or helper. Waiting runs use it from their
-  next Step.
-- Add a Step and route to it from an existing Step.
-- Put new data in a new Attribute, AttributeMap, Channel, or Stream, and add it
-  to the persistence schema. Do not repurpose existing data.
-- Add a dataclass field with a default to a stored type.
+## Tests
 
-These changes need care:
-
-- Keep every Flow, Step, Attribute, Channel, Stream, and RPC name that a waiting
-  run can still reach. A rename is a removal plus an addition; the run waiting in
-  **AwaitToolApproval** still needs a Step with that name.
-- Do not remove a stored field or change its type. Existing values must still
-  decode.
-- A wait that is already registered keeps its conditions. Changed **wait_for**
-  code applies the next time a Step starts waiting.
-- Step options, such as retries and timeouts, apply from the next Step
-  transition. Flow options are fixed when the run starts.
-
-## Test crashes and code changes
-
-`tests/integ/test_ai_agent_restarts.py` starts a private server-zd through
-**dexcli dev** and runs `main.py` as the only Worker, then hard-kills them. Set
-**DEX_SERVER_ZD_BINARY** to a `dex-server-zd` executable; without it the tests
-are skipped. Set **DEXCLI_PATH** to a `dexcli` executable, or the tests build one
-from `cli/` with Go.
+`tests/integ/test_ai_agent.py` runs every feature against a real Dex engine
+with the demo model. `tests/integ/test_ai_agent_restarts.py` starts a private
+server-zd through **dexcli dev**, runs `main.py` as the only Worker, and
+hard-kills them. Set **DEX_SERVER_ZD_BINARY** to a `dex-server-zd` executable;
+without it the restart tests are skipped. Set **DEXCLI_PATH** to a `dexcli`
+executable, or the tests build one from `cli/` with Go.
 
 ```bash
 DEX_SERVER_ZD_BINARY=/path/to/dex-server-zd \

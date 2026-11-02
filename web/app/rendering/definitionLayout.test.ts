@@ -13,7 +13,7 @@ import {
   type DefinitionVisibility,
   type FlowDefinitionGraph,
 } from '@superdurable/flow-definition-renderer';
-import aiAgentGraph from '../../../docs/src/data/flow-definitions/ai-agent.json';
+import cyclicFlowGraph from './testdata/cyclic-flow-definition.json';
 
 const visible: DefinitionVisibility = {
   control: true,
@@ -113,7 +113,7 @@ describe('Flow Definition Graph layout', () => {
   });
 
   it('keeps the configured start Step above cyclic control flow', () => {
-    const scene = buildDefinitionScene(aiAgentGraph as FlowDefinitionGraph, visible);
+    const scene = buildDefinitionScene(cyclicFlowGraph as FlowDefinitionGraph, visible);
     const start = requiredNode(scene, 'step:Init');
     const stepPositions = scene.nodes
       .filter((node) => node.data.kind === 'step')
@@ -123,7 +123,7 @@ describe('Flow Definition Graph layout', () => {
   });
 
   it('merges decision branches with the same target and preserves selectable conditions', () => {
-    const scene = buildDefinitionScene(aiAgentGraph as FlowDefinitionGraph, visible);
+    const scene = buildDefinitionScene(cyclicFlowGraph as FlowDefinitionGraph, visible);
     const decisions = scene.nodes.filter(
       (node) => node.parentId === 'step:AwaitToolApproval' && node.data.kind === 'decision',
     );

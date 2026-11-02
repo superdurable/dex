@@ -117,11 +117,9 @@ from dex_examples.primitives.subflow.child_flow import SubFlowChildFlow
 from dex_examples.primitives.subflow.parent_flow import SubFlowParentFlow
 from dex_examples.primitives.timer.timer_flow import TimerFlow
 from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
-from dex_examples.products.ai_agent.ai_agent_flow import AIAgentFlow
-from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
-from dex_examples.products.ai_agent.model_client import (
-    AgentCredentialStore,
-    LiteLLMModelClient,
+from dex_examples.products.ai_agent.ai_agent_session import (
+    build_ai_agent_session_flow,
+    load_mcp_servers,
 )
 from dex_examples.products.deal_dsl.deal_dsl_flow import DealDSLFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
@@ -214,11 +212,12 @@ class ExampleApp:
 
         self.controller = ControllerFlow(client_provider, lambda: self.processing)
         self.processing = ProcessingFlow(client_provider, lambda: self.controller)
-        self.mcp_registry = MCPRegistry.from_file(config.agent_mcp_config)
-        self.ai_agent_credentials = AgentCredentialStore()
-        self.ai_agent = AIAgentFlow(
-            LiteLLMModelClient(self.ai_agent_credentials),
-            self.mcp_registry,
+        self.ai_agent_mcp_servers = load_mcp_servers(config.agent_mcp_config)
+        self.ai_agent = build_ai_agent_session_flow(
+            config.agent_model,
+            config.agent_system_prompt,
+            config.agent_context_tokens,
+            self.ai_agent_mcp_servers,
         )
 
         flows: list[Flow[Any]] = [
@@ -294,7 +293,6 @@ class ExampleApp:
         )
         self._worker_task: asyncio.Task[None] | None = None
         self._is_worker_closed = False
-        self._is_mcp_registry_closed = False
         self._is_blob_cache_closed = False
 
     @property
@@ -307,7 +305,7 @@ class ExampleApp:
         return self._client
 
     async def start_worker(self) -> None:
-        """Starts the MCP registry and Worker, closing this app if startup fails.
+        """Starts the Worker, closing this app if startup fails.
 
         Raises:
             BaseException: The original startup or registration error.
@@ -315,7 +313,6 @@ class ExampleApp:
         if self._worker_task is not None:
             return
         try:
-            await self.mcp_registry.start()
             self._worker_task = asyncio.create_task(self.worker.start())
             await self.worker.wait_pull_registered(
                 timeout=PULL_REGISTRATION_TIMEOUT_SECONDS
@@ -328,7 +325,7 @@ class ExampleApp:
             raise
 
     async def close(self) -> None:
-        """Closes the Client, Worker, Worker task, MCP registry, and BlobCache.
+        """Closes the Client, Worker, Worker task, and BlobCache.
 
         Every close step runs even when an earlier step fails. A later call
         retries only the steps that have not completed. A failed Worker task is
@@ -353,12 +350,6 @@ class ExampleApp:
         if self._worker_task is not None:
             await self._await_closed_worker_task(self._worker_task)
             self._worker_task = None
-        if not self._is_mcp_registry_closed:
-            try:
-                await self.mcp_registry.close()
-                self._is_mcp_registry_closed = True
-            except Exception as error:
-                close_errors.append(error)
         if not self._is_blob_cache_closed:
             try:
                 self.blob_cache.close()

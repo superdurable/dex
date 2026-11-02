@@ -27,7 +27,14 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from dex import AsyncClient, DexServiceError, StartFlowOptions
+from dex_agents import (
+    OUTCOME_UNKNOWN_TOOL_RESULT,
+    AgentSessionClient,
+    AgentSessionStatus,
+    InterruptKind,
+    MessageRole,
+    PlanStatus,
+)
 from tests.integ.ai_agent_processes import (
     EXAMPLES_DIR,
     ExamplesWorkerProcess,
@@ -36,30 +43,26 @@ from tests.integ.ai_agent_processes import (
     server_zd_binary,
     write_agent_mcp_config,
 )
-from tests.integ.conftest import wait_until
-from tests.integ.flow_smoke_helper import dexcli_path, run_dexcli_json
+from tests.integ.ai_agent_sessions import (
+    draft_revision,
+    is_idle,
+    is_waiting_for_timer,
+    list_all_messages,
+    message_text,
+    pending_interrupt,
+    send_user_message,
+    wait_for_message_text,
+    wait_for_snapshot,
+)
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
-from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING, AIAgentFlow
-from dex_examples.products.ai_agent.models import (
-    AgentConfig,
-    AgentDescription,
-    AgentSnapshot,
-    HistoryRequest,
-    PlanExecutionRequest,
-    ToolApprovalRequest,
-    UserMessage,
-)
 
 RESTART_TIMEOUT = timedelta(seconds=90)
 TIMER_SECONDS = 30
-SLOW_CALL_SECONDS = 120
-# A crash mid tool call must reach the model in seconds, Worker restart included.
-TOOL_CRASH_REPORT_SECONDS = 20
-# Outlasts all three CallModel attempts, each of which waits 10 seconds for a Worker.
-MODEL_OUTAGE_SECONDS = 30
-CODE_CHANGE_PATCH = EXAMPLES_DIR / "ai-agent" / "changes" / "save-task-summaries.patch"
+# Long enough to kill the Worker mid call, short enough for the retried read to finish.
+SLOW_CALL_SECONDS = 8
+CODE_CHANGE_PATCH = EXAMPLES_DIR / "ai-agent" / "changes" / "report-tool-results.patch"
 
 
 @dataclass
@@ -71,12 +74,8 @@ class PrivateAgentStack:
     workers: list[ExamplesWorkerProcess] = field(default_factory=list)
 
     @property
-    def client(self) -> AsyncClient:
-        return self.app.client
-
-    @property
-    def agent(self) -> AIAgentFlow:
-        return self.app.ai_agent
+    def sessions(self) -> AgentSessionClient:
+        return AgentSessionClient(self.app.client, self.app.ai_agent)
 
     def new_worker(
         self,
@@ -127,55 +126,48 @@ async def test_ai_agent_resumes_every_wait_after_its_engine_and_worker_are_kille
     agent_stack: PrivateAgentStack,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    client, agent = agent_stack.client, agent_stack.agent
+    sessions = agent_stack.sessions
     worker = agent_stack.new_worker()
     await worker.start()
-    approval_flow = await _start_agent(agent_stack, new_flow_id("ai-agent-kill-approval"))
-    timer_flow = await _start_agent(agent_stack, new_flow_id("ai-agent-kill-timer"))
-    input_flow = await _start_agent(agent_stack, new_flow_id("ai-agent-kill-input"))
+    approval_session = await _start(agent_stack, new_flow_id("ai-agent-kill-approval"))
+    timer_session = await _start(agent_stack, new_flow_id("ai-agent-kill-timer"))
+    question_session = await _start(agent_stack, new_flow_id("ai-agent-kill-question"))
 
-    await _send(agent_stack, approval_flow, '/tool test__publish {"message":"after restart"}')
-    await _send(agent_stack, timer_flow, f"/wait {TIMER_SECONDS} check after restart")
-    await _send(agent_stack, input_flow, "/ask What date should I use?", plan_mode=True)
-    draft = await _wait_for_description(
-        agent_stack,
-        input_flow,
+    await send_user_message(
+        sessions, approval_session, '/tool test__publish {"message":"after restart"}'
+    )
+    await send_user_message(sessions, timer_session, f"/wait {TIMER_SECONDS} check after restart")
+    await send_user_message(
+        sessions, question_session, "/ask What date should I use?", plan_mode=True
+    )
+    revision = await wait_for_snapshot(
+        sessions,
+        question_session,
         "draft plan",
-        # execute_plan accepts a plan only after the turn ends and the agent waits again.
-        lambda description: description.plan
-        if description.plan is not None
-        and description.plan["status"] == "draft"
-        and description.status == STATUS_WAITING
-        else None,
+        draft_revision,
+        RESTART_TIMEOUT,
     )
-    assert await client.invoke_rpc(
-        agent.execute_plan,
-        input_flow,
-        PlanExecutionRequest(int(draft["revision"])),
-    )
-    await _wait_for_description(
-        agent_stack,
-        approval_flow,
+    assert await sessions.execute_plan(question_session, revision)
+    approval = await wait_for_snapshot(
+        sessions,
+        approval_session,
         "tool approval",
-        lambda description: description.pending_approval_call_id,
+        lambda snapshot: pending_interrupt(snapshot, InterruptKind.TOOL_APPROVAL),
+        RESTART_TIMEOUT,
     )
-    await _wait_for_description(
-        agent_stack,
-        timer_flow,
-        "durable timer",
-        lambda description: description.status == "waiting_for_timer",
+    await wait_for_snapshot(
+        sessions, timer_session, "durable wait", is_waiting_for_timer, RESTART_TIMEOUT
     )
-    await _wait_for_description(
-        agent_stack,
-        input_flow,
-        "user input",
-        lambda description: description.pending_user_input_prompt is not None
-        and description.plan is not None
-        and description.plan["status"] == "active",
+    question = await wait_for_snapshot(
+        sessions,
+        question_session,
+        "question",
+        lambda snapshot: pending_interrupt(snapshot, InterruptKind.QUESTION),
+        RESTART_TIMEOUT,
     )
     before = {
-        flow_id: await client.invoke_rpc(agent.get_snapshot, flow_id)
-        for flow_id in (approval_flow, timer_flow, input_flow)
+        session_id: await sessions.get_agent_snapshot(session_id)
+        for session_id in (approval_session, timer_session, question_session)
     }
 
     worker.kill()
@@ -184,221 +176,233 @@ async def test_ai_agent_resumes_every_wait_after_its_engine_and_worker_are_kille
     await worker.start()
 
     # The same runs keep their conversation, plan, and pending approval, timer, or question.
-    for flow_id, snapshot in before.items():
-        assert await _wait_for_snapshot(agent_stack, flow_id) == snapshot
-
-    approval_call_id = before[approval_flow].description.pending_approval_call_id
-    assert approval_call_id is not None
-    assert await client.invoke_rpc(
-        agent.approve_tool,
-        approval_flow,
-        ToolApprovalRequest(approval_call_id, True),
+    for session_id, snapshot in before.items():
+        assert (
+            await wait_for_snapshot(
+                sessions, session_id, "snapshot", lambda item: item, RESTART_TIMEOUT
+            )
+            == snapshot
+        )
+    assert await sessions.resolve_interrupt(
+        approval_session, approval.interrupt_id, approved=True
     )
-    await _wait_for_content(agent_stack, approval_flow, "published:after restart")
-    await _wait_for_content(agent_stack, timer_flow, '"status": "completed"')
-    await _send(agent_stack, input_flow, "September 12")
-    await _wait_for_description(
-        agent_stack,
-        input_flow,
+    await wait_for_message_text(
+        sessions, approval_session, "published:after restart", RESTART_TIMEOUT
+    )
+    await wait_for_message_text(sessions, timer_session, "check after restart", RESTART_TIMEOUT)
+    timer_reply = await wait_for_message_text(
+        sessions, timer_session, "Local demo response: {", RESTART_TIMEOUT
+    )
+    assert json.loads(timer_reply.text.split(": ", 1)[1])["status"] == "completed"
+    assert await sessions.answer_question(question_session, question.interrupt_id, "September 12")
+    await wait_for_snapshot(
+        sessions,
+        question_session,
         "completed plan",
-        lambda description: description.plan is not None
-        and description.plan["status"] == "completed",
+        lambda snapshot: snapshot.plan is not None and snapshot.plan.status == PlanStatus.COMPLETED,
+        RESTART_TIMEOUT,
     )
 
 
-async def test_ai_agent_reports_tool_calls_that_a_worker_crash_cut_off(
+async def test_ai_agent_retries_a_cut_off_read_and_reports_a_cut_off_write(
     agent_stack: PrivateAgentStack,
     new_flow_id: Callable[[str], str],
 ) -> None:
+    sessions = agent_stack.sessions
     worker = agent_stack.new_worker()
     await worker.start()
-    read_flow = await _start_agent(agent_stack, new_flow_id("ai-agent-cut-read"))
-    write_flow = await _start_agent(agent_stack, new_flow_id("ai-agent-cut-write"))
-    await _send(
-        agent_stack,
-        read_flow,
+    read_session = await _start(agent_stack, new_flow_id("ai-agent-cut-read"))
+    write_session = await _start(agent_stack, new_flow_id("ai-agent-cut-write"))
+    await send_user_message(
+        sessions,
+        read_session,
         '/tool test__slow_lookup {"query":"cut off","seconds":%d}' % SLOW_CALL_SECONDS,
     )
-    await _send(
-        agent_stack,
-        write_flow,
+    await send_user_message(
+        sessions,
+        write_session,
         '/tool test__slow_publish {"message":"cut off","seconds":%d}' % SLOW_CALL_SECONDS,
     )
-    call_id = await _wait_for_description(
-        agent_stack,
-        write_flow,
+    approval = await wait_for_snapshot(
+        sessions,
+        write_session,
         "write approval",
-        lambda description: description.pending_approval_call_id,
+        lambda snapshot: pending_interrupt(snapshot, InterruptKind.TOOL_APPROVAL),
+        RESTART_TIMEOUT,
     )
-    assert await agent_stack.client.invoke_rpc(
-        agent_stack.agent.approve_tool,
-        write_flow,
-        ToolApprovalRequest(call_id, True),
-    )
-    for flow_id in (read_flow, write_flow):
-        await _wait_for_description(
-            agent_stack,
-            flow_id,
+    assert await sessions.resolve_interrupt(write_session, approval.interrupt_id, approved=True)
+    for session_id in (read_session, write_session):
+        await wait_for_snapshot(
+            sessions,
+            session_id,
             "running tool",
-            lambda description: description.status == "executing_tool",
+            lambda snapshot: snapshot.state is not None
+            and snapshot.state.status == AgentSessionStatus.RUNNING_TOOLS
+            and not snapshot.pending_interrupts,
+            RESTART_TIMEOUT,
         )
     # Give each call time to start its MCP server process.
-    await asyncio.sleep(2)
+    await asyncio.sleep(3)
 
-    crashed_at = asyncio.get_running_loop().time()
     worker.kill()
     await worker.start()
-    read_result = await _wait_for_tool_result(agent_stack, read_flow)
-    write_result = await _wait_for_tool_result(agent_stack, write_flow)
-    assert asyncio.get_running_loop().time() - crashed_at < TOOL_CRASH_REPORT_SECONDS
+    # A read is safe to repeat, so its tool Step runs it again.
+    await wait_for_message_text(
+        sessions, read_session, "Local demo response: found:cut off", RESTART_TIMEOUT
+    )
+    # A write that may have taken effect is never repeated; the model learns its outcome is unknown.
+    write_result = await wait_for_message_text(
+        sessions, write_session, OUTCOME_UNKNOWN_TOOL_RESULT, RESTART_TIMEOUT
+    )
+    assert write_result.role == MessageRole.TOOL
+    messages = await list_all_messages(sessions, write_session)
+    assert not any("published:cut off" in message_text(message) for message in messages)
+    for session_id in (read_session, write_session):
+        await send_user_message(sessions, session_id, "still running")
+        await wait_for_message_text(
+            sessions, session_id, "Local demo response: still running", RESTART_TIMEOUT
+        )
 
-    assert json.loads(read_result) == {
-        "status": "interrupted",
-        "outcome": "known_failure",
-        "retry_safe": True,
-    }
-    assert json.loads(write_result) == {
-        "status": "interrupted",
-        "outcome": "outcome_unknown",
-        "retry_safe": False,
-    }
-    for flow_id in (read_flow, write_flow):
-        await _send(agent_stack, flow_id, "still running")
-        await _wait_for_content(agent_stack, flow_id, "Local demo response: still running")
 
-
-async def test_ai_agent_returns_to_the_user_when_a_worker_outage_outlasts_a_model_call(
+async def test_ai_agent_repeats_only_the_model_call_a_worker_crash_cut_off(
     agent_stack: PrivateAgentStack,
     new_flow_id: Callable[[str], str],
 ) -> None:
+    sessions = agent_stack.sessions
     worker = agent_stack.new_worker()
     await worker.start()
-    flow_id = await _start_agent(agent_stack, new_flow_id("ai-agent-model-outage"))
-    await _send(agent_stack, flow_id, f"/slow {SLOW_CALL_SECONDS} first reply")
-    await _wait_for_description(
-        agent_stack,
-        flow_id,
+    session_id = await _start(agent_stack, new_flow_id("ai-agent-model-crash"))
+    await send_user_message(sessions, session_id, "first reply")
+    await wait_for_message_text(sessions, session_id, "Local demo response: first reply")
+    await send_user_message(sessions, session_id, f"/slow {SLOW_CALL_SECONDS} second reply")
+    await wait_for_snapshot(
+        sessions,
+        session_id,
         "model call",
-        lambda description: description.status == "calling_model",
+        lambda snapshot: snapshot.state is not None
+        and snapshot.state.status == AgentSessionStatus.RUNNING_MODEL,
+        RESTART_TIMEOUT,
     )
     await asyncio.sleep(1)
 
     worker.kill()
-    await asyncio.sleep(MODEL_OUTAGE_SECONDS)
+    await asyncio.sleep(5)
     await worker.start()
-
-    failure = await _wait_for_description(
-        agent_stack,
-        flow_id,
-        "model failure",
-        lambda description: description.model_failure
-        if description.status == "waiting_for_message"
-        else None,
+    await wait_for_message_text(
+        sessions,
+        session_id,
+        f"Local demo response: /slow {SLOW_CALL_SECONDS} second reply",
+        RESTART_TIMEOUT,
     )
-    assert isinstance(failure, dict)
-    assert failure["operation"] == "The model call"
-    assert failure["is_provider_api_error"] is False
-    await _send(agent_stack, flow_id, "second reply")
-    await _wait_for_content(agent_stack, flow_id, "Local demo response: second reply")
-    description = await agent_stack.client.invoke_rpc(agent_stack.agent.describe, flow_id)
-    assert description.model_failure is None
-    history = await agent_stack.client.invoke_rpc(
-        agent_stack.agent.get_history,
-        flow_id,
-        HistoryRequest(limit=100),
-    )
-    assert not any(
-        "Local demo response: first reply" in item.message.content
-        for item in history.messages
-    )
+    messages = await list_all_messages(sessions, session_id)
+    assert [message_text(message) for message in messages] == [
+        "first reply",
+        "Local demo response: first reply",
+        f"/slow {SLOW_CALL_SECONDS} second reply",
+        f"Local demo response: /slow {SLOW_CALL_SECONDS} second reply",
+    ]
 
 
-async def test_ai_agent_flags_a_model_provider_api_failure(
+async def test_ai_agent_records_a_model_provider_failure(
     agent_stack: PrivateAgentStack,
     new_flow_id: Callable[[str], str],
 ) -> None:
+    sessions = agent_stack.sessions
     worker = agent_stack.new_worker(
         extra_env={
+            "DEX_AGENT_MODEL": "openai/gpt-5-mini",
             "OPENAI_API_KEY": "not-a-real-key",
             "OPENAI_BASE_URL": f"http://127.0.0.1:{available_port()}/v1",
         }
     )
     await worker.start()
-    flow_id = await _start_agent(
-        agent_stack,
-        new_flow_id("ai-agent-model-api-failure"),
-        AgentConfig(model="openai/gpt-5-mini"),
-    )
-    await _send(agent_stack, flow_id, "hello")
-
-    failure = await _wait_for_description(
-        agent_stack,
-        flow_id,
+    session_id = await _start(agent_stack, new_flow_id("ai-agent-model-api-failure"))
+    await send_user_message(sessions, session_id, "hello")
+    error = await wait_for_snapshot(
+        sessions,
+        session_id,
         "model failure",
-        lambda description: description.model_failure
-        if description.status == "waiting_for_message"
+        lambda snapshot: snapshot.state.last_turn_error
+        if snapshot.state is not None and is_idle(snapshot)
         else None,
+        RESTART_TIMEOUT,
     )
-    assert isinstance(failure, dict)
-    assert failure["is_provider_api_error"] is True
+    assert error
 
 
-async def test_ai_agent_waiting_run_follows_code_changed_while_it_waited(
+async def test_ai_agent_compacts_context_on_the_workers_window(
+    agent_stack: PrivateAgentStack,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    sessions = agent_stack.sessions
+    worker = agent_stack.new_worker(extra_env={"DEX_AGENT_CONTEXT_TOKENS": "200"})
+    await worker.start()
+    session_id = await _start(agent_stack, new_flow_id("ai-agent-compaction"))
+    for index in range(5):
+        text = f"turn {index}: " + "context " * 20
+        await send_user_message(sessions, session_id, text)
+        await wait_for_message_text(sessions, session_id, f"Local demo response: {text}")
+    snapshot = await wait_for_snapshot(
+        sessions, session_id, "idle", lambda item: item if is_idle(item) else None
+    )
+    assert snapshot.context_summary is not None
+    assert snapshot.context_summary.last_sequence > 0
+    # Compaction shortens the model input; every message stays in the session.
+    messages = await list_all_messages(sessions, session_id)
+    assert len(messages) == 10
+    assert messages[-1].role == MessageRole.ASSISTANT
+
+
+async def test_ai_agent_answers_without_mcp_tools_when_every_server_is_down(
     agent_stack: PrivateAgentStack,
     new_flow_id: Callable[[str], str],
     tmp_path: Path,
 ) -> None:
+    sessions = agent_stack.sessions
+    down_config = tmp_path / "mcp-servers-down.yaml"
+    down_config.write_text(
+        "servers:\n  - name: down\n    transport: stdio\n    command: /missing/mcp-server\n"
+    )
+    worker = agent_stack.new_worker(extra_env={"DEX_AGENT_MCP_CONFIG": str(down_config)})
+    await worker.start()
+    session_id = await _start(agent_stack, new_flow_id("ai-agent-mcp-down"))
+    await send_user_message(sessions, session_id, '/tool down__lookup {"query":"x"}')
+    await wait_for_message_text(
+        sessions, session_id, "unknown tool down__lookup", RESTART_TIMEOUT
+    )
+    await send_user_message(sessions, session_id, "still answering")
+    await wait_for_message_text(
+        sessions, session_id, "Local demo response: still answering", RESTART_TIMEOUT
+    )
+
+
+async def test_ai_agent_waiting_session_follows_code_changed_while_it_waited(
+    agent_stack: PrivateAgentStack,
+    new_flow_id: Callable[[str], str],
+    tmp_path: Path,
+) -> None:
+    sessions = agent_stack.sessions
     project_dir = _copy_examples_project(tmp_path / "project")
     worker = agent_stack.new_worker(project_dir)
     await worker.start()
-    flow_id = await _start_agent(agent_stack, new_flow_id("ai-agent-code-change"))
-    await _send(agent_stack, flow_id, '/tool test__publish {"message":"new code"}')
-    call_id = await _wait_for_description(
-        agent_stack,
-        flow_id,
+    session_id = await _start(agent_stack, new_flow_id("ai-agent-code-change"))
+    await send_user_message(sessions, session_id, '/tool test__publish {"message":"new code"}')
+    approval = await wait_for_snapshot(
+        sessions,
+        session_id,
         "tool approval",
-        lambda description: description.pending_approval_call_id,
+        lambda snapshot: pending_interrupt(snapshot, InterruptKind.TOOL_APPROVAL),
+        RESTART_TIMEOUT,
     )
-    run_id = (await _wait_for_snapshot(agent_stack, flow_id)).run_id
+    run_id = (await agent_stack.app.client.describe_flow(session_id)).run_id
 
-    # The run started before SaveTaskSummary and TaskSummaries existed.
+    # The session waited while the next model call's code changed.
     worker.kill()
     subprocess.run(["patch", "-p1", "-i", str(CODE_CHANGE_PATCH)], cwd=project_dir, check=True)
     await worker.start()
-    assert await agent_stack.client.invoke_rpc(
-        agent_stack.agent.approve_tool,
-        flow_id,
-        ToolApprovalRequest(str(call_id), True),
-    )
-
-    async def task_summary() -> object:
-        state = await asyncio.to_thread(
-            run_dexcli_json,
-            [
-                dexcli_path(),
-                "flow",
-                "state",
-                flow_id,
-                "--server",
-                agent_stack.engine.address,
-                "--output",
-                "json",
-            ],
-        )
-        return next(
-            (
-                attribute["value"]
-                for attribute in state["attributes"]
-                if attribute["key"] == f"TaskSummaries/{call_id}"
-            ),
-            None,
-        )
-
-    summary = await wait_until("TaskSummaries entry", task_summary, RESTART_TIMEOUT)
-    assert isinstance(summary, dict)
-    assert summary["tool_name"] == "test__publish"
-    assert summary["summary"] == "Done: published:new code"
-    assert (await _wait_for_snapshot(agent_stack, flow_id)).run_id == run_id
+    assert await sessions.resolve_interrupt(session_id, approval.interrupt_id, approved=True)
+    await wait_for_message_text(sessions, session_id, "Done: published:new code", RESTART_TIMEOUT)
+    assert (await agent_stack.app.client.describe_flow(session_id)).run_id == run_id
 
 
 def _copy_examples_project(destination: Path) -> Path:
@@ -410,86 +414,6 @@ def _copy_examples_project(destination: Path) -> Path:
     return destination
 
 
-async def _start_agent(
-    stack: PrivateAgentStack,
-    flow_id: str,
-    config: AgentConfig | None = None,
-) -> str:
-    await stack.client.start_flow(
-        stack.agent,
-        flow_id,
-        config or AgentConfig(enabled_mcp_servers=["test"]),
-        StartFlowOptions(),
-    )
-    return flow_id
-
-
-async def _send(
-    stack: PrivateAgentStack,
-    flow_id: str,
-    content: str,
-    plan_mode: bool = False,
-) -> None:
-    assert await stack.client.invoke_rpc(
-        stack.agent.send_message,
-        flow_id,
-        UserMessage(content, plan_mode),
-    )
-
-
-async def _wait_for_description(
-    stack: PrivateAgentStack,
-    flow_id: str,
-    description_name: str,
-    select: Callable[[AgentDescription], object],
-) -> object:
-    async def selected() -> object:
-        try:
-            description = await stack.client.invoke_rpc(stack.agent.describe, flow_id)
-        except DexServiceError:
-            return None
-        return select(description)
-
-    return await wait_until(
-        f"{flow_id} {description_name}",
-        selected,
-        RESTART_TIMEOUT,
-    )
-
-
-async def _wait_for_snapshot(stack: PrivateAgentStack, flow_id: str) -> AgentSnapshot:
-    async def snapshot() -> AgentSnapshot | None:
-        try:
-            return await stack.client.invoke_rpc(stack.agent.get_snapshot, flow_id)
-        except DexServiceError:
-            return None
-
-    return await wait_until(f"{flow_id} snapshot", snapshot, RESTART_TIMEOUT)
-
-
-async def _wait_for_content(
-    stack: PrivateAgentStack,
-    flow_id: str,
-    expected: str,
-) -> None:
-    async def contains_content() -> bool:
-        snapshot = await _wait_for_snapshot(stack, flow_id)
-        return any(expected in item.message.content for item in snapshot.messages)
-
-    await wait_until(f"{flow_id} message containing {expected!r}", contains_content, RESTART_TIMEOUT)
-
-
-async def _wait_for_tool_result(stack: PrivateAgentStack, flow_id: str) -> str:
-    async def tool_result() -> str | None:
-        snapshot = await _wait_for_snapshot(stack, flow_id)
-        return next(
-            (
-                item.message.content
-                for item in snapshot.messages
-                if item.message.role == "tool"
-            ),
-            None,
-        )
-
-    return await wait_until(f"{flow_id} tool result", tool_result, RESTART_TIMEOUT)
-
+async def _start(stack: PrivateAgentStack, session_id: str) -> str:
+    await stack.sessions.start_session(session_id)
+    return session_id

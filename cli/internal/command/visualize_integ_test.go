@@ -262,7 +262,7 @@ func TestVisualizePythonInjectedFailureRecoveryOptions(t *testing.T) {
 
 func TestVisualizePythonBufferedStreamWriterCallbacks(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
-	source := filepath.Join(repositoryRoot, "examples/python/dex_examples/products/ai-agent/ai_agent_flow.py")
+	source := filepath.Join(repositoryRoot, "cli/internal/flowviz/testdata/python/buffered_stream_writer_callbacks.py")
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
 	require.True(t, graph.Valid, graph.Diagnostics)
@@ -272,8 +272,8 @@ func TestVisualizePythonBufferedStreamWriterCallbacks(t *testing.T) {
 		require.NotContains(t, diagnostic.Message, "stream ReasoningSummary has no direct access")
 	}
 	for _, resourceID := range []string{
-		"resource:stream:AIAgentFlow.assistant_text",
-		"resource:stream:AIAgentFlow.reasoning_summary",
+		"resource:stream:ModelReplyFlow.assistant_text",
+		"resource:stream:ModelReplyFlow.reasoning_summary",
 	} {
 		require.True(t, hasEdge(graph.Edges, "resource_write", "step:CallModel", resourceID), resourceID)
 	}

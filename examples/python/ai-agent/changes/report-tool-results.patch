@@ -1,0 +1,11 @@
+--- a/dex_examples/products/ai-agent/ai_agent_session.py
++++ b/dex_examples/products/ai-agent/ai_agent_session.py
+@@ -151,7 +151,7 @@
+     if not results:
+         return ScriptedModelReply(text=DEMO_REPLY_PREFIX + objective)
+     outputs = "; ".join(_readable_tool_output(result.output) for result in results)
+-    return ScriptedModelReply(text=DEMO_REPLY_PREFIX + outputs)
++    return ScriptedModelReply(text=f"Done: {outputs}")
+ 
+ 
+ def _planning_rounds(objective: str) -> list[list[ScriptedToolCall]]:
