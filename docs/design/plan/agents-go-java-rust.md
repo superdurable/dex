@@ -1,6 +1,6 @@
 # Dex Agents for Go, Java, and Rust
 
-Status: proposed, 2026-11-02. Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
+Status: Go in progress; Java and Rust deferred (2026-11-02). Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
 and [agent-framework-adapters.md](agent-framework-adapters.md).
 
 Dex Agents ships for Python and TypeScript. This addendum brings the same
@@ -92,3 +92,45 @@ on Workers of any other.
   Worker, and a TypeScript Client reads its snapshot.
 - **Per language:** the M2 crash matrix (SIGKILL at each risky point) and the
   race tests from the Python and TypeScript suites, ported.
+
+## Decision: Java and Rust are deferred
+
+Recorded 2026-11-02. Dex Agents ships for Python, TypeScript, and Go. Java
+and Rust are deferred, so decisions 1 to 7 apply to Go only for now.
+
+**Why.** Java and Rust have real agent frameworks, but their communities are
+smaller than those of the frameworks Dex Agents already serves. None of the
+durable-execution products ships agent integrations for them. GitHub stars on
+2026-11-02, every repository active that week:
+
+| Language | Framework | Stars |
+| --- | --- | --- |
+| Python | LangGraph | 44.3k |
+| Python | OpenAI Agents SDK | 30.5k |
+| Python | Google ADK | 22.1k |
+| Python | Pydantic AI | 21.0k |
+| TypeScript | Mastra | 29.3k |
+| TypeScript | Vercel AI SDK | 27.7k |
+| Go | Eino | 13.5k |
+| Go | Google ADK for Go | 8.9k |
+| Java | LangChain4j | 13.3k |
+| Java | Spring AI | 9.6k |
+| Java | Embabel | 4.5k |
+| Java | Google ADK for Java | 1.8k |
+| Rust | Rig | 9.0k |
+
+The agent integrations of Temporal, Restate, and DBOS target Python and
+TypeScript frameworks. Temporal and Restate have Java SDKs, and none of the
+three has a Rust SDK.
+
+**Why Go goes ahead anyway.** Go's frameworks are about as large as Java's,
+so framework size alone does not set Go apart. Dex itself does:
+
+- the AI Agent example is hand-built in Go today;
+- `dexcli visualize` renders Go and Python Flows;
+- connectors are Go only;
+- the application builder generates Go backends.
+
+**When to revisit.** Revisit when users ask for agents in Java or Rust, for
+example a team building on Spring AI, LangChain4j, or Rig. The conformance
+suite and the Go core then make a new language a port, not a design.
