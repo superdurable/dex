@@ -50,6 +50,20 @@ for (const packageDirectoryName of packages) {
       if (/^(file|link|workspace|git|https?):/.test(range)) problems.push(`${label} ${field}.${dependency} is ${range}`);
     }
   }
+  if (packageDirectoryName === "core") {
+    // OpenTelemetry stays optional: only the API, only as an optional peer dependency.
+    for (const field of ["dependencies", "optionalDependencies"]) {
+      for (const dependency of Object.keys(manifest[field] ?? {})) {
+        if (dependency.startsWith("@opentelemetry/")) problems.push(`${label} ${field} includes ${dependency}`);
+      }
+    }
+    if (manifest.peerDependencies?.["@opentelemetry/api"] === undefined) {
+      problems.push(`${label} must peer-depend on @opentelemetry/api`);
+    }
+    if (manifest.peerDependenciesMeta?.["@opentelemetry/api"]?.optional !== true) {
+      problems.push(`${label} must mark @opentelemetry/api as an optional peer dependency`);
+    }
+  }
   if (packageDirectoryName !== "core") {
     if (manifest.peerDependencies?.[corePackageName] !== `^${releaseVersion}`) {
       problems.push(`${label} must peer-depend on ${corePackageName}@^${releaseVersion}`);

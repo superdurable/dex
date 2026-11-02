@@ -212,11 +212,13 @@ export function encodeAgentToolCall(value: AgentToolCall): unknown {
     rejection_message: value.rejectionMessage,
     deferral_order: value.deferralOrder,
     tool_source_reference: value.toolSourceReference ?? null,
+    trace_context: value.traceContext ?? null,
   };
 }
 
 export function decodeAgentToolCall(value: unknown): AgentToolCall {
   const reader = new WireRecordReader(value, "AgentToolCall");
+  const traceContext = reader.readNullableString("trace_context");
   const toolCall: AgentToolCall = {
     toolCallId: reader.readString("tool_call_id"),
     turnId: reader.readString("turn_id"),
@@ -229,6 +231,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCall {
     error: reader.readNullableString("error"),
     rejectionMessage: reader.readNullableString("rejection_message"),
     deferralOrder: reader.readIntegerOrDefault("deferral_order", 0),
+    ...(traceContext === null ? {} : { traceContext }),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
   return toolSourceReference === null ? toolCall : { ...toolCall, toolSourceReference };

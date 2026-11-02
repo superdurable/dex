@@ -17,6 +17,7 @@ export {
   type DeferredToolCall,
   type DeferredToolExecution,
   type McpToolAnnotations,
+  type ModelCallMetadata,
   type ResolvedToolPolicy,
   type ToolExecutionResult,
   type ToolPolicy,
@@ -66,3 +67,10 @@ export {
   type ToolCallCompleted,
   type ToolEffect,
 } from "./agent-session-values.js";
+export {
+  genAISemanticConventionsSchemaUrls,
+  type AgentTracingOptions,
+  type GenAISemanticConventionsVersion,
+  type OpenTelemetryTracerProvider,
+  type ResolvedAgentTracingOptions,
+} from "./agent-tracing-options.js";

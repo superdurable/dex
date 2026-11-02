@@ -39,6 +39,7 @@ import {
   ToolCallFailureRecordingStep,
   ToolCallStep,
 } from "./agent-session-steps.js";
+import { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
   AgentSessionTransitions,
   agentSessionStepTypes,
@@ -53,6 +54,11 @@ import type {
   ResolveInterruptInput,
   ToolEffect,
 } from "./agent-session-values.js";
+import {
+  genAISemanticConventionsSchemaUrls,
+  type AgentTracingOptions,
+  type ResolvedAgentTracingOptions,
+} from "./agent-tracing-options.js";
 
 const snapshotMessageLimit = 200;
 const messagePageLimit = 200;
@@ -63,7 +69,10 @@ const toolEffects: readonly ToolEffect[] = [
   "unclassified",
 ];
 
-/** Tool policies, live events, and approval deadline of one agent, passed to {@link createAgentSessionFlow}. */
+/**
+ * Tool policies, live events, approval deadline, and tracing of one agent, passed to
+ * {@link createAgentSessionFlow}.
+ */
 export interface AgentSessionOptions {
   /**
    * Policies by tool name. A policy overrides framework metadata and {@link defaultToolEffect}.
@@ -85,6 +94,11 @@ export interface AgentSessionOptions {
    * `"approval deadline passed"`. Defaults to no deadline: approvals wait indefinitely.
    */
   readonly interruptDeadlineMs?: number;
+  /**
+   * OpenTelemetry GenAI span options. Defaults to spans through the global tracer provider when
+   * `@opentelemetry/api` is installed, and nothing otherwise. See {@link AgentTracingOptions}.
+   */
+  readonly tracing?: AgentTracingOptions;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -97,6 +111,8 @@ export interface ResolvedAgentSessionOptions {
   readonly eventStreamCapacityBytes: number;
   /** Approval deadline in milliseconds, or `undefined` for none. */
   readonly interruptDeadlineMs: number | undefined;
+  /** Tracing options. */
+  readonly tracing: ResolvedAgentTracingOptions;
 }
 
 /**
@@ -204,9 +220,11 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
  * @param runner - Framework runner; the Flow owns no other dependency.
  * @param flowType - Flow type, unique within the Registry, such as `"TriageAgent"`. Keep it stable:
  * running sessions resume by it.
- * @param options - Tool policies, Stream capacity, and approval deadline. Defaults to all defaults.
+ * @param options - Tool policies, Stream capacity, approval deadline, and tracing. Defaults to all
+ * defaults.
  * @returns A new Flow to register in one Registry.
- * @throws {TypeError} When `flowType` is blank, the runner is incomplete, or an effect is unknown.
+ * @throws {TypeError} When `flowType` is blank, the runner is incomplete, an effect is unknown, or a
+ * tracing option is invalid.
  * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive.
  */
 export function createAgentSessionFlow(
@@ -216,12 +234,18 @@ export function createAgentSessionFlow(
 ): AgentSessionFlow {
   const config = resolveAgentSessionConfig(runner, flowType, options);
   const persistence = createAgentSessionPersistence(config.eventStreamCapacityBytes);
-  const transitions = new AgentSessionTransitions(persistence, runner, config);
+  const transitions = new AgentSessionTransitions(
+    persistence,
+    runner,
+    config,
+    new AgentSessionTracer(config.tracing, persistence),
+  );
   const resolvedOptions: ResolvedAgentSessionOptions = Object.freeze({
     toolPolicies: config.toolPolicies,
     defaultToolEffect: config.defaultToolEffect,
     eventStreamCapacityBytes: config.eventStreamCapacityBytes,
     interruptDeadlineMs: config.interruptDeadlineMs,
+    tracing: config.tracing,
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -238,6 +262,7 @@ export function createAgentSessionFlow(
     public readonly interruptResolutions = persistence.interruptResolutions;
     public readonly toolCallResults = persistence.toolCallResults;
     public readonly agentEvents = persistence.agentEvents;
+    public readonly agentTraceContext = persistence.agentTraceContext;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
@@ -264,6 +289,7 @@ export function createAgentSessionFlow(
       return this.steps;
     }
 
+    // AgentTraceContext is always registered, so Workers with and without tracing serve one Flow type.
     public getPersistenceSchema(): PersistenceSchema {
       return {
         attributes: [
@@ -273,6 +299,7 @@ export function createAgentSessionFlow(
           persistence.agentToolCalls,
           persistence.pendingInterrupts,
           persistence.agentUsage,
+          persistence.agentTraceContext,
         ],
         channels: [
           persistence.queuedUserMessages,
@@ -427,7 +454,33 @@ function resolveAgentSessionConfig(
     defaultToolEffect,
     eventStreamCapacityBytes,
     interruptDeadlineMs,
+    tracing: resolveAgentTracingOptions(flowType, options.tracing ?? {}),
   };
+}
+
+function resolveAgentTracingOptions(
+  flowType: string,
+  tracing: AgentTracingOptions,
+): ResolvedAgentTracingOptions {
+  const agentName = tracing.agentName ?? flowType;
+  if (typeof agentName !== "string" || agentName.trim() === "") {
+    throw new TypeError("tracing.agentName must be a non-blank string");
+  }
+  const semanticConventionsVersion = tracing.semanticConventionsVersion ?? "1.42.0-dev";
+  if (!Object.hasOwn(genAISemanticConventionsSchemaUrls, semanticConventionsVersion)) {
+    throw new TypeError(`tracing.semanticConventionsVersion ${String(semanticConventionsVersion)} is unknown`);
+  }
+  const tracerProvider = tracing.tracerProvider;
+  if (tracerProvider !== undefined && typeof tracerProvider?.getTracer !== "function") {
+    throw new TypeError("tracing.tracerProvider must be an OpenTelemetry TracerProvider");
+  }
+  return Object.freeze({
+    isEnabled: tracing.isEnabled ?? true,
+    tracerProvider,
+    agentName,
+    shouldCaptureMessageContent: tracing.shouldCaptureMessageContent ?? false,
+    semanticConventionsVersion,
+  });
 }
 
 function requireToolEffect(effect: ToolEffect, description: string): void {

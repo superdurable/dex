@@ -15,11 +15,13 @@ import re
 import sys
 import tarfile
 import zipfile
+from email.message import Message
 from email.parser import Parser
 from pathlib import Path
 
 FORBIDDEN_MEMBER_PATTERN = re.compile(r"(^|/)(tests?|__pycache__|\.venv|\.mypy_cache|\.ruff_cache)(/|$)|\.pyc$")
 CORE_DISTRIBUTION = "dex-agents"
+OTEL_EXTRA_MARKER_PATTERN = re.compile(r"""extra\s*==\s*["']otel["']""")
 
 
 def canonical_version(version: str) -> str:
@@ -72,6 +74,8 @@ def verify_package(dist_dir: Path, package: str, version: str) -> list[str]:
         problems.append(f"{wheel_path.name} has a direct or path requirement: {requirements}")
     if package != "core" and f"{CORE_DISTRIBUTION}=={version}" not in requirements:
         problems.append(f"{wheel_path.name} does not require {CORE_DISTRIBUTION}=={version}: {requirements}")
+    if package == "core":
+        problems += verify_optional_opentelemetry(wheel_path.name, metadata, requirements)
 
     with tarfile.open(sdist_path) as sdist:
         sdist_members = [member.removeprefix(f"{file_stem}/") for member in sdist.getnames()]
@@ -80,6 +84,22 @@ def verify_package(dist_dir: Path, package: str, version: str) -> list[str]:
             problems.append(f"{sdist_path.name} lacks {member}")
     problems += [f"{sdist_path.name} contains {member}" for member in sdist_members
                  if FORBIDDEN_MEMBER_PATTERN.search(member)]
+    return problems
+
+
+def verify_optional_opentelemetry(wheel_name: str, metadata: Message, requirements: list[str]) -> list[str]:
+    """The core must reach OpenTelemetry only through its otel extra, and only the API."""
+    problems: list[str] = []
+    if "otel" not in (metadata.get_all("Provides-Extra") or []):
+        problems.append(f"{wheel_name} does not provide the otel extra")
+    for requirement in requirements:
+        is_opentelemetry = requirement.startswith("opentelemetry")
+        if is_opentelemetry and (
+            not requirement.startswith("opentelemetry-api") or not OTEL_EXTRA_MARKER_PATTERN.search(requirement)
+        ):
+            problems.append(f"{wheel_name} requires OpenTelemetry outside the otel extra: {requirement}")
+    if not any(requirement.startswith("opentelemetry-api") for requirement in requirements):
+        problems.append(f"{wheel_name} otel extra does not require opentelemetry-api")
     return problems
 
 

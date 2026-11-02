@@ -23,6 +23,7 @@ import {
   type ToolPolicy,
 } from "./agent-framework-runner.js";
 import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
+import type { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
   addAgentUsage,
   emptyAgentUsage,
@@ -34,6 +35,7 @@ import {
   type FrameworkMessage,
   type ToolEffect,
 } from "./agent-session-values.js";
+import type { ResolvedAgentTracingOptions } from "./agent-tracing-options.js";
 
 export const agentSessionStepTypes = {
   startAgentSession: "StartAgentSession",
@@ -57,6 +59,7 @@ export interface AgentSessionConfig {
   readonly defaultToolEffect: ToolEffect;
   readonly eventStreamCapacityBytes: number;
   readonly interruptDeadlineMs: number | undefined;
+  readonly tracing: ResolvedAgentTracingOptions;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
@@ -65,6 +68,7 @@ export class AgentSessionTransitions {
     public readonly persistence: AgentSessionPersistence,
     public readonly runner: AgentFrameworkRunner,
     public readonly config: AgentSessionConfig,
+    public readonly tracer: AgentSessionTracer,
   ) {}
 
   public readOptionalAgentState(context: Context): AgentState | null {
@@ -167,17 +171,26 @@ export class AgentSessionTransitions {
   }
 
   /** Appends the user message, opens the next turn, and moves to RunModel. */
-  public beginTurn(context: Context, state: AgentState, text: string): StepDecision {
+  public beginTurn(context: Context, state: AgentState, text: string, stepType: string): StepDecision {
     const turnId = `turn-${state.turnCount + 1}`;
-    const userMessage = this.runner.buildUserMessage(text);
-    if (userMessage.role !== "user") {
-      throw new TypeError("buildUserMessage must return a message with role user");
-    }
     const sequence = state.nextMessageSequence;
-    const stateWithMessage = this.appendMessages(context, state, turnId, [userMessage]);
-    this.writeAgentState(context, { ...stateWithMessage, status: "running_model", activeTurnId: turnId });
-    this.writeEvents(context, turnId, (events) => events.writeEvent("turn_started", { sequence }));
-    return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+    return this.tracer.traceUserMessageActivation(
+      context,
+      stepType,
+      turnId,
+      messageSequenceKey(sequence),
+      text,
+      () => {
+        const userMessage = this.runner.buildUserMessage(text);
+        if (userMessage.role !== "user") {
+          throw new TypeError("buildUserMessage must return a message with role user");
+        }
+        const stateWithMessage = this.appendMessages(context, state, turnId, [userMessage]);
+        this.writeAgentState(context, { ...stateWithMessage, status: "running_model", activeTurnId: turnId });
+        this.writeEvents(context, turnId, (events) => events.writeEvent("turn_started", { sequence }));
+        return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+      },
+    );
   }
 
   public goToAwaitUserMessage(): StepDecision {

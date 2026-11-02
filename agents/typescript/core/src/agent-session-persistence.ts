@@ -72,6 +72,12 @@ export interface AgentSessionPersistence {
   readonly toolCallResults: Channel<ToolCallCompleted>;
   /** The best-effort `AgentEvents` Stream. Rebuild durable state with `get_agent_snapshot`. */
   readonly agentEvents: Stream<AgentEvent>;
+  /**
+   * The `AgentTraceContext` Attribute: the W3C `traceparent` of the current activation's root span when
+   * that span has a valid context, sampled or not; an activation whose root has none, such as one without
+   * an OpenTelemetry SDK, deletes it. `RunModel` reads it to join the activation's trace.
+   */
+  readonly agentTraceContext: Attribute<string>;
 }
 
 export function createAgentSessionPersistence(
@@ -88,6 +94,7 @@ export function createAgentSessionPersistence(
     interruptResolutions: new ChannelMap("InterruptResolutions", agentInterruptResolutionCodec),
     toolCallResults: new Channel("ToolCallResults", toolCallCompletedCodec),
     agentEvents: new Stream("AgentEvents", agentEventCodec, agentEventsCapacityBytes),
+    agentTraceContext: new Attribute("AgentTraceContext", stringCodec),
   };
 }
 
