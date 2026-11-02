@@ -15,6 +15,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
 
+import { Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -24,7 +25,7 @@ import {
   type UIMessageChunk,
 } from "ai";
 
-import type { AgentFrameworkRunner, DeferredToolOutcome } from "../../src/index.js";
+import type { AgentFrameworkRunner, AgentSnapshot, DeferredToolOutcome } from "../../src/index.js";
 import type { AgentSessionFlow } from "../../src/index.js";
 import {
   AgentSessionTestClient,
@@ -38,6 +39,7 @@ import {
 import {
   agentResumeTokenHeaderName,
   convertAgentEventToJson,
+  convertAgentSnapshotToJson,
   maximumAgentUIStreamResumeTokenLength,
   readAgentToolApprovalResponses,
   resolveAgentToolApprovalsWithUIMessageStream,
@@ -880,6 +882,163 @@ describe("agent UI streams with the Stream Store disabled", () => {
     assert.equal((await fetch(`${server.baseUrl}/api/chat/${sessionId}/stream`)).status, 204);
     const snapshotResponse = await fetch(`${server.baseUrl}/api/sessions/${sessionId}/snapshot`);
     assert.equal(((await snapshotResponse.json()) as { resume_token: string }).resume_token, "");
+  });
+});
+
+describe("agent UI streams with a Worker whose only Step slot is busy", () => {
+  let engine: PrivateDexEngine;
+  let environment: AgentTestEnvironment;
+  let workerBlobCache: BlobCache;
+  let worker: Worker;
+  let flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  let markerDirectory: string;
+  let sessions: AgentSessionTestClient;
+
+  before(async () => {
+    engine = await PrivateDexEngine.start();
+    markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
+    flow = createScriptedAgentFlow(markerDirectory, { flowType: "UIStreamBusyWorkerAgent" });
+    environment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [flow],
+      isWorkerInProcess: false,
+    });
+    sessions = new AgentSessionTestClient(environment.client, flow);
+    workerBlobCache = openBlobCache({
+      directory: mkdtempSync(join(engine.stateDirectory, "worker-cache-")),
+      maxBytes: 64 * 1024 * 1024,
+    });
+    // One Step slot, plus one reserved for RPCs, so resolve_interrupt runs while a Step holds the other.
+    worker = new Worker(environment.registry, workerBlobCache, {
+      serverAddress: engine.serverAddress,
+      pull: { appWorkerID: `busy-worker-${randomUUID()}`, maxConcurrentTasks: 2, reservedRpcTasks: 1 },
+    });
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+  });
+
+  after(async () => {
+    await worker?.close();
+    workerBlobCache?.close();
+    await environment?.close();
+    await engine?.stop();
+  });
+
+  test("a reconnect after resolve_interrupt, before the approval Step commits, keeps reading instead of pausing", async () => {
+    const sessionId = newSessionId("held-approval");
+    await sessions.startSession(sessionId, "call send_email");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    // A slow model call of another session holds the only Step slot, so the approval Step cannot run.
+    const turnGate = new FileGate(markerDirectory, "turn");
+    await sessions.startSession(newSessionId("slot-holder"), "slow");
+    await turnGate.waitUntilReached();
+    try {
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      assert.deepEqual(await sessions.readPendingInterrupts(sessionId), []);
+      assert.equal((await sessions.readToolCall(sessionId, interrupt.toolCallId))?.status, "awaiting_approval");
+
+      const streaming = collectChunks(
+        streamAgentUIMessageChunks({ client: environment.client, flow, flowId: sessionId, pollTimeoutMs: 1_000 }),
+      );
+      const streamEndedWhileHeld = await Promise.race([
+        streaming.then(() => true),
+        delay(3_000).then(() => false),
+      ]);
+
+      assert.equal(streamEndedWhileHeld, false, "the stream paused on an approval that resolve_interrupt removed");
+      assert.equal((await sessions.readToolCall(sessionId, interrupt.toolCallId))?.status, "awaiting_approval");
+      turnGate.release();
+      const chunks = await streaming;
+      assert.deepEqual(
+        protocolChunkTypes(chunks).filter((type) => type.startsWith("tool-")),
+        ["tool-input-available", "tool-approval-request", "tool-approval-response", "tool-output-available"],
+      );
+      assert.deepEqual(chunks.at(-1), { type: "finish", finishReason: "stop" });
+    } finally {
+      turnGate.release();
+    }
+  });
+});
+
+describe("agent snapshot JSON for browsers", () => {
+  test("leaves out the fields only the session's Steps use, with the same text as the Python core", () => {
+    const snapshot: AgentSnapshot = {
+      state: { status: "running_tools", turnCount: 1, activeTurnId: "turn-2", nextMessageSequence: 4, lastTurnError: null },
+      messages: [
+        {
+          sequence: 3,
+          turnId: "turn-2",
+          role: "user",
+          text: "refund order 42",
+          toolCallId: null,
+          toolName: null,
+          toolArguments: null,
+          toolOutput: null,
+          frameworkItem: '{"instructions":"Never refund more than $50."}',
+          createdAt: "2026-11-01T12:00:00.000Z",
+        },
+      ],
+      pendingInterrupts: [
+        {
+          interruptId: "call-1-input-2",
+          kind: "question",
+          toolCallId: "call-1",
+          toolName: "refund_order",
+          arguments: '{"order_id":"42"}',
+          createdAt: "2026-11-01T12:00:01.000Z",
+          deadline: null,
+          question: "Refund to the card?",
+          choices: ["yes", "no"],
+          allowsFreeText: false,
+        },
+      ],
+      toolCalls: [
+        {
+          toolCallId: "call-1",
+          turnId: "turn-2",
+          toolName: "refund_order",
+          arguments: '{"order_id":"42"}',
+          effect: "idempotent_write",
+          requiresApproval: false,
+          status: "awaiting_answer",
+          output: null,
+          error: null,
+          rejectionMessage: null,
+          deferralOrder: 0,
+          toolSourceReference: '{"server":"payments","tool":"refund_order"}',
+          traceContext: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+          waitUntil: null,
+          inputContinuation: '{"refund_draft":"rf_1"}',
+          inputAnswers: [{ interruptId: "call-1-input-1", question: "Which order?", answer: "42" }],
+          inputQuestion: "Refund to the card?",
+          inputChoices: ["yes", "no"],
+          inputAllowsFreeText: false,
+        },
+      ],
+      usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, cachedInputTokens: 0, reasoningTokens: 0 },
+      queuedMessageCount: 0,
+    };
+
+    // The Python core's test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use expects this text.
+    assert.equal(
+      JSON.stringify(convertAgentSnapshotToJson(snapshot)),
+      '{"state":{"status":"running_tools","turn_count":1,"active_turn_id":"turn-2",' +
+        '"next_message_sequence":4,"last_turn_error":null},' +
+        '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",' +
+        '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,' +
+        '"created_at":"2026-11-01T12:00:00.000Z"}],' +
+        '"pending_interrupts":[{"interrupt_id":"call-1-input-2","kind":"question",' +
+        '"tool_call_id":"call-1","tool_name":"refund_order","arguments":"{\\"order_id\\":\\"42\\"}",' +
+        '"created_at":"2026-11-01T12:00:01.000Z","deadline":null,"question":"Refund to the card?",' +
+        '"choices":["yes","no"],"allows_free_text":false}],' +
+        '"tool_calls":[{"tool_call_id":"call-1","turn_id":"turn-2","tool_name":"refund_order",' +
+        '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,' +
+        '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,' +
+        '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",' +
+        '"input_choices":["yes","no"],"input_allows_free_text":false}],' +
+        '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,' +
+        '"reasoning_tokens":0},"queued_message_count":0}',
+    );
   });
 });
 

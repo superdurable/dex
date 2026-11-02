@@ -701,7 +701,7 @@ offers three things:
 - a plain Server-Sent Events stream whose event `id` is the Dex resume token,
   so an `EventSource` resumes through `Last-Event-ID`;
 - snapshots that map `get_agent_snapshot` to AI SDK `UIMessage` objects or to
-  wire JSON.
+  wire JSON without the fields only the session's Steps use.
 
 It has no runtime dependency on `ai`. Its part and message types are
 structural subsets of the AI SDK `UIMessageChunk` and `UIMessage` types, and
@@ -842,8 +842,10 @@ message, whose ID is `<turnId>-assistant`.
   reason `other`; that includes a Server whose Stream Store is disabled.
 - **Approvals.** When the turn waits only for approvals, the stream finishes
   with reason `tool-calls`, so `sendAutomaticallyWhen` can send the answers.
-  It decides that from the committed records, so a replay that reaches an
-  approval request keeps reading when the call was already answered.
+  It decides that from the committed records and `PendingInterrupts`, so a
+  replay that reaches an approval request keeps reading when the call was
+  already answered, including after `resolve_interrupt` and before the
+  approval Step commits.
   `resolveAgentToolApprovalsWithUIMessageStream` reads at most 100 decisions,
   keeps the first per approval ID, calls `resolve_interrupt` only for
   interrupts pending in the active turn, and streams the rest of the turn into
@@ -907,6 +909,12 @@ that Dex rejects, such as one of another session, gets a 400, which stops the
 `EventSource`; load the snapshot again. While a turn is active, the
 snapshot's token replays that turn's events. The snapshot and event JSON is
 the same as the Python core's `dex_agents.ui_stream`.
+
+The snapshot JSON is the `get_agent_snapshot` wire format without the fields
+only the session's Steps use. Messages leave out `framework_item`, the
+framework's replay data, which can hold the agent's instructions. Tool calls
+leave out `tool_source_reference`, `trace_context`, `input_continuation`, and
+`input_answers`. Read them with `getAgentSnapshot` on the server when needed.
 
 ### UI stream limits
 

@@ -37,6 +37,15 @@ for the Dex SDK and framework versions each release supports.
 - The testing exports' private engines accept `dex-server-zd` configuration
   overrides: `serverZdConfigPath` in TypeScript and `server_zd_config` in
   Python.
+- The browser snapshot JSON, `convertAgentSnapshotToJson` and
+  `agent_snapshot_to_json`, leaves out the fields only the session's Steps
+  use: `framework_item` on messages, and `tool_source_reference`,
+  `trace_context`, `input_continuation`, and `input_answers` on tool calls.
+  Both cores produce the same JSON.
+- The AI SDK UI message stream pauses for an approval only while its interrupt
+  is still in `PendingInterrupts`. A reconnect after `resolve_interrupt` and
+  before the approval Step commits keeps reading instead of showing the
+  approval as pending again.
 
 ### OpenTelemetry GenAI spans
 

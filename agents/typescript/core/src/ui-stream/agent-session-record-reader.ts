@@ -52,6 +52,19 @@ export class AgentSessionRecordReader {
     }
   }
 
+  /**
+   * Reads the IDs of the tool calls whose approval `resolve_interrupt` still accepts.
+   * @returns The tool call IDs of the pending `tool_approval` interrupts.
+   */
+  public async readPendingApprovalToolCallIds(): Promise<ReadonlySet<string>> {
+    const [interrupts] = await this.client.getAttributes(this.flowId, this.flow.pendingInterrupts);
+    return new Set(
+      (interrupts ?? [])
+        .filter((interrupt) => interrupt.kind === "tool_approval")
+        .map((interrupt) => interrupt.toolCallId),
+    );
+  }
+
   public async isFlowRunning(): Promise<boolean> {
     try {
       return (await this.client.describeFlow(this.flowId)).status === "running";
