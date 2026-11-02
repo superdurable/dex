@@ -8,9 +8,18 @@
 
 export {
   builtInToolDefinitions,
+  writeTodosCalledMoreThanOnce,
   type BuiltInTool,
   type BuiltInToolDefinition,
 } from "./agent-built-in-tools.js";
+export {
+  buildPlanExecutionMessage,
+  buildPlanNote,
+  noPlanNote,
+  planStatusAfterWrite,
+  planningTurnInstruction,
+  planningTurnToolRejection,
+} from "./agent-plans.js";
 export {
   ToolExecutionError,
   resolveToolPolicy,
@@ -40,6 +49,7 @@ export {
 export {
   defaultAgentEventsCapacityBytes,
   messageSequenceKey,
+  planExecutionKey,
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 export {
@@ -63,6 +73,8 @@ export {
   type AgentMessage,
   type AgentMessageRole,
   type AgentMessagesPage,
+  type AgentPlan,
+  type AgentPlanTask,
   type AgentSessionStartInput,
   type AgentSessionStatus,
   type AgentSnapshot,
@@ -75,8 +87,13 @@ export {
   type AgentUsage,
   type AgentUserMessage,
   type AnswerQuestionRequest,
+  type ExecutePlanRequest,
   type FrameworkMessage,
+  type InteractionMode,
   type ListAgentMessagesInput,
+  type PlanExecutionRequest,
+  type PlanStatus,
+  type PlanTaskStatus,
   type QuestionAnswer,
   type ResolveInterruptInput,
   type ToolCallCompleted,

@@ -254,6 +254,11 @@ class ModelClient(Protocol):
     * Read provider credentials from the Worker's environment or a credential
       provider, never from Flow input or Attributes.
 
+    A client may also implement ``supports_forced_tool_choice(settings) -> bool``
+    to report whether its model accepts a forced tool choice, a named tool or
+    ``"required"``. ``AgentDefinition`` refuses ``planning_tool_choice="required"``
+    when it returns ``False``. A client without it is assumed to accept one.
+
     Example:
         >>> class EchoModelClient:
         ...     async def call_model(self, request, output):

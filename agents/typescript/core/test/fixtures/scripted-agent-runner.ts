@@ -144,9 +144,12 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     const toolCalls: DeferredToolCall[] = action.toolCalls.map(({ toolCallId, toolName }) => {
       // An adapter exposes an enabled built-in tool like any tool; its call carries the built-in's arguments.
       const isAskUserCall = toolName === "ask_user" && turn.enabledBuiltInTools?.has("ask_user") === true;
+      const isWriteTodosCall = toolName === "write_todos" && turn.enabledBuiltInTools?.has("write_todos") === true;
       const toolArguments = isAskUserCall
         ? JSON.stringify({ question: "Proceed?", choices: ["yes", "no"] })
-        : JSON.stringify({ requested_by: userText });
+        : isWriteTodosCall
+          ? JSON.stringify({ todos: [{ content: "Ship it", status: "pending" }] })
+          : JSON.stringify({ requested_by: userText });
       turnItems.push({ kind: "tool_call", toolCallId, toolName, arguments: toolArguments });
       return { toolCallId, toolName, arguments: toolArguments, policy: turn.resolveToolPolicy(toolName) };
     });

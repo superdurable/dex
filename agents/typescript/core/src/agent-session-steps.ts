@@ -29,9 +29,13 @@ import {
 } from "@superdurable/dex";
 
 import {
+  buildPlanClearedOutput,
+  buildPlanUpdatedOutput,
   isBlankText,
   validateAskUserArguments,
   validateDurableWaitArguments,
+  validateWriteTodosArguments,
+  writeTodosCalledMoreThanOnce,
   type BuiltInTool,
 } from "./agent-built-in-tools.js";
 import type { StreamAgentEventWriter } from "./agent-event-writer.js";
@@ -44,6 +48,7 @@ import {
   type ToolInputRequested,
   type TurnCompleted,
 } from "./agent-framework-runner.js";
+import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
 import { agentSessionStartInputCodec } from "./agent-session-codecs.js";
 import {
   agentSessionStepTypes,
@@ -51,9 +56,14 @@ import {
   toRunnerToolCall,
   toolStepTypeForEffect,
   ToolStepHeartbeats,
+  writePlanUpdated,
   type AgentSessionTransitions,
 } from "./agent-session-transitions.js";
-import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
+import {
+  messageSequenceKey,
+  planExecutionKey,
+  type AgentSessionPersistence,
+} from "./agent-session-persistence.js";
 import type { ToolCallSpan } from "./agent-session-tracer.js";
 import {
   approvalDeadlinePassed,
@@ -61,10 +71,14 @@ import {
   emptyAgentUsage,
   isFinalToolCallStatus,
   type AgentInterrupt,
+  type AgentPlan,
   type AgentSessionStartInput,
   type AgentState,
   type AgentToolCallRecord,
+  type AgentUserMessage,
   type FrameworkMessage,
+  type InteractionMode,
+  type PlanStatus,
 } from "./agent-session-values.js";
 
 const minuteMs = 60_000;
@@ -113,6 +127,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
   }
 }
 
+/** Waits for one queued user message, or an approved plan execution, and starts its turn. */
 export class AwaitUserMessageStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
@@ -126,22 +141,72 @@ export class AwaitUserMessageStep implements Step<void> {
     return syncDurability;
   }
 
-  public waitFor(): Wait {
-    return Wait.until(this.transitions.persistence.queuedUserMessages.forOne());
+  public waitFor(context: Context): Wait {
+    const persistence = this.transitions.persistence;
+    const conditions: Condition[] = [persistence.queuedUserMessages.forOne()];
+    const plan = this.transitions.readOptionalAgentPlan(context);
+    // Keyed by revision, so an approval of an earlier revision never starts a turn.
+    if (plan !== null && isExecutablePlanStatus(plan.status)) {
+      conditions.push(persistence.planExecutions.forOne(planExecutionKey(plan.revision)));
+    }
+    return Wait.anyOf(...conditions);
   }
 
   public execute(context: Context): StepDecision {
-    const [message] = context.channelResults(this.transitions.persistence.queuedUserMessages);
-    if (message === undefined || isBlankText(message.text)) {
-      return this.transitions.goToAwaitUserMessage();
+    const transitions = this.transitions;
+    const persistence = transitions.persistence;
+    const [message] = context.channelResults(persistence.queuedUserMessages);
+    if (message !== undefined) {
+      if (isBlankText(message.text)) {
+        return transitions.goToAwaitUserMessage();
+      }
+      return this.beginUserMessageTurn(context, message);
     }
-    return this.transitions.beginTurn(
+    const plan = transitions.readOptionalAgentPlan(context);
+    const [execution] =
+      plan === null ? [] : context.channelResults(persistence.planExecutions, planExecutionKey(plan.revision));
+    if (execution === undefined) {
+      return transitions.goToAwaitUserMessage();
+    }
+    if (persistence.pendingPlanExecution.get(context) !== undefined) {
+      persistence.pendingPlanExecution.delete(context);
+    }
+    if (plan === null || execution.revision !== plan.revision || !isExecutablePlanStatus(plan.status)) {
+      return transitions.goToAwaitUserMessage();
+    }
+    const wasPlanDraft = plan.status !== "active";
+    const executedPlan: AgentPlan = wasPlanDraft
+      ? { ...plan, status: "active", updatedAt: new Date().toISOString() }
+      : plan;
+    if (wasPlanDraft) {
+      persistence.agentPlan.set(context, executedPlan);
+    }
+    return transitions.beginTurn(
       context,
-      this.transitions.readAgentState(context),
-      message.text,
+      transitions.readAgentState(context),
+      buildPlanExecutionMessage(plan.revision),
       this.getStepType(),
+      "executing",
+      executedPlan,
+      wasPlanDraft,
     );
   }
+
+  private beginUserMessageTurn(context: Context, message: AgentUserMessage): StepDecision {
+    const transitions = this.transitions;
+    return transitions.beginTurn(
+      context,
+      transitions.readAgentState(context),
+      message.text,
+      this.getStepType(),
+      transitions.decideInteractionMode(context, [message]),
+    );
+  }
+}
+
+/** Plan statuses that `execute_plan` accepts and `AwaitUserMessage` waits for. */
+export function isExecutablePlanStatus(status: PlanStatus): boolean {
+  return status === "draft" || status === "active";
 }
 
 /** Makes the turn's next model call and fans the requested tool calls out to parallel Steps. */
@@ -273,11 +338,18 @@ export class RunModelStep implements Step<void> {
       traceContext: transitions.tracer.readActivationTraceparent(context),
       movements: [],
       events,
+      interactionMode: state.interactionMode ?? "chat",
+      writeTodosCallCount: outcome.toolCalls.filter(
+        (toolCall) => toolCall.toolName === "write_todos" && transitions.isEnabledBuiltInTool(toolCall.toolName),
+      ).length,
     };
     for (const [index, requestedToolCall] of outcome.toolCalls.entries()) {
       const deferralOrder = toolCalls.length + index;
-      if (transitions.isEnabledBuiltInTool(requestedToolCall.toolName)) {
-        this.deferBuiltInToolCall(batch, requestedToolCall, requestedToolCall.toolName, deferralOrder);
+      const toolName = requestedToolCall.toolName;
+      if (batch.interactionMode === "planning" && !(toolName === "write_todos" && transitions.isEnabledBuiltInTool(toolName))) {
+        this.rejectPlanningTurnToolCall(batch, requestedToolCall, deferralOrder);
+      } else if (transitions.isEnabledBuiltInTool(toolName)) {
+        this.deferBuiltInToolCall(batch, requestedToolCall, toolName, deferralOrder);
       } else {
         this.deferApplicationToolCall(batch, requestedToolCall, deferralOrder);
       }
@@ -289,6 +361,28 @@ export class RunModelStep implements Step<void> {
       StepMovement.of(new StepRef(agentSessionStepTypes.resumeTurn), outcome.toolCalls.length),
     );
     return goToMany(...batch.movements);
+  }
+
+  /** A planning turn hides executable tools; a call to one never runs. */
+  private rejectPlanningTurnToolCall(
+    batch: ToolCallBatchCommit,
+    requestedToolCall: DeferredToolCall,
+    deferralOrder: number,
+  ): void {
+    const isBuiltInTool = this.transitions.isEnabledBuiltInTool(requestedToolCall.toolName);
+    const record = createToolCallRecord(
+      batch,
+      requestedToolCall,
+      isBuiltInTool ? "read" : requestedToolCall.policy.effect,
+      isBuiltInTool ? false : requestedToolCall.policy.requiresApproval,
+      deferralOrder,
+    );
+    writeToolCallDeferred(batch.events, record);
+    this.transitions.finishToolCall(
+      batch.context,
+      { ...record, status: "rejected", rejectionMessage: planningTurnToolRejection },
+      batch.events,
+    );
   }
 
   private deferApplicationToolCall(
@@ -383,7 +477,37 @@ export class RunModelStep implements Step<void> {
         batch.movements.push(toolStepMovement(persistence, agentSessionStepTypes.awaitTimer, record.toolCallId));
         return;
       }
+      case "write_todos":
+        this.writeTodos(batch, record);
+        return;
     }
+  }
+
+  /** Replaces the plan and records the call final, in this commit; no tool Step runs. */
+  private writeTodos(batch: ToolCallBatchCommit, record: AgentToolCallRecord): void {
+    const transitions = this.transitions;
+    if (batch.writeTodosCallCount > 1) {
+      this.failBuiltInToolCall(batch, record, writeTodosCalledMoreThanOnce);
+      return;
+    }
+    const validation = validateWriteTodosArguments(record.arguments);
+    if (!validation.isValid) {
+      this.failBuiltInToolCall(batch, record, validation.error);
+      return;
+    }
+    const tasks = validation.arguments;
+    const previous = transitions.readOptionalAgentPlan(batch.context);
+    const plan: AgentPlan = {
+      revision: (previous?.revision ?? 0) + 1,
+      status: planStatusAfterWrite(tasks, batch.interactionMode),
+      tasks,
+      updatedAt: batch.createdAt,
+    };
+    transitions.persistence.agentPlan.set(batch.context, plan);
+    writePlanUpdated(batch.events, plan);
+    const output =
+      plan.status === "cleared" ? buildPlanClearedOutput(plan.revision) : buildPlanUpdatedOutput(plan.revision, tasks.length);
+    transitions.finishToolCall(batch.context, { ...record, status: "succeeded", output }, batch.events);
   }
 
   private failBuiltInToolCall(batch: ToolCallBatchCommit, record: AgentToolCallRecord, error: string): void {
@@ -403,6 +527,10 @@ interface ToolCallBatchCommit {
   // goToMany takes movements of mixed input types, which the SDK types as StepMovement<any>.
   readonly movements: StepMovement<any>[];
   readonly events: StreamAgentEventWriter;
+  /** The turn's mode; a `planning` turn rejects every call but `write_todos`. */
+  readonly interactionMode: InteractionMode;
+  /** How many calls of the response name the enabled `write_todos`; more than one fails each of them. */
+  readonly writeTodosCallCount: number;
 }
 
 /** Waits for one tool call's approval or its deadline, then runs or rejects the call. */

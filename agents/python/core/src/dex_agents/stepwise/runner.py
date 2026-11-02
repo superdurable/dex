@@ -14,9 +14,11 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from typing import Literal, TypeAlias
 
 from dex_agents.built_in_tools import BUILT_IN_TOOL_DEFINITIONS, BuiltInTool
 from dex_agents.persistence import DEFAULT_AGENT_EVENTS_CAPACITY_BYTES
+from dex_agents.plans import build_plan_note
 from dex_agents.runner import (
     AgentTurnContext,
     AgentTurnOutcome,
@@ -36,10 +38,12 @@ from dex_agents.session_flow import AgentSessionFlow, AgentSessionOptions
 from dex_agents.stepwise.function_tools import FunctionTool, ToolCallContext
 from dex_agents.stepwise.model import (
     ModelClient,
+    ModelInputItem,
     ModelRequest,
     ModelRequestMetadata,
     ModelSettings,
     ModelToolDefinition,
+    NamedToolChoice,
     ToolChoice,
     ToolResultItem,
     UserTextItem,
@@ -49,7 +53,7 @@ from dex_agents.stepwise.transcript import (
     encode_stepwise_message,
     pair_tool_calls_with_results,
 )
-from dex_agents.values import MessageRole, ToolEffect
+from dex_agents.values import AgentPlan, InteractionMode, MessageRole, PlanStatus, ToolEffect
 
 #: Default ``AgentDefinition.max_model_calls_per_turn``.
 DEFAULT_MAX_MODEL_CALLS_PER_TURN = 100
@@ -61,6 +65,10 @@ TOOL_CALL_LIMIT_REACHED_RESULT = (
 )
 _UNKNOWN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
 
+#: How the first model call of a planning turn without a draft uses ``write_todos``.
+PlanningToolChoice: TypeAlias = Literal["auto", "required"]
+_PLANNING_TOOL_CHOICES: tuple[PlanningToolChoice, ...] = ("auto", "required")
+
 
 @dataclass(frozen=True, kw_only=True)
 class InstructionContext:
@@ -70,11 +78,17 @@ class InstructionContext:
         flow_id: Session ID, which is the Flow ID.
         turn_id: ``"turn-<n>"`` of the running turn.
         attempt: One-based ``RunModel`` attempt.
+        interaction_mode: The turn's mode. Defaults to ``CHAT``.
+        plan: The session's plan before this model call, or ``None``. The
+            runner already shows it to the model; use it to adapt the
+            instructions. Defaults to ``None``.
     """
 
     flow_id: str
     turn_id: str
     attempt: int
+    interaction_mode: InteractionMode = InteractionMode.CHAT
+    plan: AgentPlan | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -112,6 +126,20 @@ class AgentDefinition:
             none. Defaults to ``UNCLASSIFIED``.
         built_in_tools: Built-in tools the model sees. Their names are
             reserved. Defaults to none.
+        plan_mode_enabled: Whether the session accepts ``plan_mode`` user
+            messages. A planning turn offers only ``write_todos``, and the
+            ``execute_plan`` RPC then runs the draft with every tool. Requires
+            ``BuiltInTool.WRITE_TODOS`` in ``built_in_tools``. Defaults to ``False``.
+        planning_tool_choice: ``"auto"``, the default, lets the model of a
+            planning turn call ``write_todos`` or answer in text, such as with
+            a clarifying question; the plan note tells it to write the plan
+            with ``write_todos``, and a text answer ends the turn without a
+            draft. ``"required"`` forces ``write_todos`` on the first model
+            call of a planning turn while no draft exists. Some models refuse
+            a forced tool choice, such as Claude Opus 5.5 and Claude Sonnet 5.5,
+            and so does Anthropic extended thinking. A model client that
+            reports it with ``supports_forced_tool_choice(settings)``, as
+            ``LiteLLMModelClient`` does, makes ``"required"`` fail here.
         max_model_calls_per_turn: After this many model calls in one turn,
             the next call offers no tools, so the model must answer. If the
             model asks for tools anyway, the turn ends with that response and
@@ -123,8 +151,11 @@ class AgentDefinition:
 
     Raises:
         ValueError: If ``name`` is blank, two tools share a name, a tool or a
-            tool policy uses an enabled built-in name, or
-            ``max_model_calls_per_turn`` is not positive.
+            tool policy uses an enabled built-in name,
+            ``max_model_calls_per_turn`` is not positive,
+            ``plan_mode_enabled`` is set without ``write_todos``,
+            ``planning_tool_choice`` is unknown, or it is ``"required"`` for a
+            model client that reports it cannot force a tool choice.
     """
 
     name: str
@@ -138,6 +169,8 @@ class AgentDefinition:
     max_model_calls_per_turn: int = DEFAULT_MAX_MODEL_CALLS_PER_TURN
     interrupt_deadline: timedelta | None = None
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES
+    plan_mode_enabled: bool = False
+    planning_tool_choice: PlanningToolChoice = "auto"
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -152,6 +185,20 @@ class AgentDefinition:
         reserved = sorted(built_in_tools.intersection(names))
         if reserved:
             raise ValueError(_built_in_name_collision(reserved[0]))
+        if self.plan_mode_enabled and BuiltInTool.WRITE_TODOS not in built_in_tools:
+            raise ValueError("plan_mode_enabled requires the write_todos built-in tool")
+        if self.planning_tool_choice not in _PLANNING_TOOL_CHOICES:
+            raise ValueError(
+                "planning_tool_choice must be 'auto' or 'required', "
+                f"not {self.planning_tool_choice!r}"
+            )
+        if self.planning_tool_choice == "required" and not _supports_forced_tool_choice(
+            self.model, self.model_settings
+        ):
+            raise ValueError(
+                "planning_tool_choice='required' needs a model that accepts a forced tool "
+                "choice, and this model client reports that its model does not; use 'auto'"
+            )
         object.__setattr__(self, "tools", tuple(self.tools))
         object.__setattr__(self, "tool_policies", dict(self.tool_policies))
         object.__setattr__(self, "built_in_tools", built_in_tools)
@@ -160,9 +207,9 @@ class AgentDefinition:
 class StepwiseAgentRunner:
     """Run an ``AgentDefinition`` as the native Dex Agents loop, with no framework.
 
-    The runner implements ``AgentFrameworkRunner`` and
-    ``UnfinishedTurnMessageBuilder``. ``run_model_step`` makes at most one
-    model call, from committed state only. It stores every item as it appears:
+    The runner implements ``AgentFrameworkRunner``,
+    ``UnfinishedTurnMessageBuilder``, and ``PlanModeRunner``. ``run_model_step``
+    makes at most one model call, from committed state only. It stores every item as it appears:
     the assistant item that asks for tools commits with the tool call records,
     and the tool results commit with the next model call. A tool call is never
     stored without a result. Most applications use
@@ -172,6 +219,9 @@ class StepwiseAgentRunner:
         >>> flow = AgentSessionFlow(StepwiseAgentRunner(definition), flow_type="SupportAgent",
         ...                         options=stepwise_agent_session_options(definition))
     """
+
+    #: The runner honors ``AgentTurnContext.interaction_mode``, so plan mode can be enabled.
+    supports_plan_mode = True
 
     def __init__(self, definition: AgentDefinition) -> None:
         """Create the runner for one agent.
@@ -229,13 +279,16 @@ class StepwiseAgentRunner:
         is_tool_budget_spent = model_calls >= self._definition.max_model_calls_per_turn
         tools = [] if is_tool_budget_spent else self._tool_definitions(turn)
         tool_choice: ToolChoice = "none" if is_tool_budget_spent else "auto"
+        if (
+            not is_tool_budget_spent
+            and self._definition.planning_tool_choice == "required"
+            and _must_write_plan_first(turn, model_calls)
+        ):
+            tool_choice = NamedToolChoice(tool_name=BuiltInTool.WRITE_TODOS)
         request = ModelRequest(
             instructions=self._instructions(turn),
             input_items=pair_tool_calls_with_results(
-                [
-                    *(decode_stepwise_message(message) for message in turn.messages),
-                    *unstored_results,
-                ]
+                [*_stored_input_items_with_plan_note(turn), *unstored_results]
             ),
             tools=tools,
             tool_choice=tool_choice,
@@ -340,10 +393,17 @@ class StepwiseAgentRunner:
         if isinstance(instructions, str):
             return instructions
         return instructions(
-            InstructionContext(flow_id=turn.flow_id, turn_id=turn.turn_id, attempt=turn.attempt)
+            InstructionContext(
+                flow_id=turn.flow_id,
+                turn_id=turn.turn_id,
+                attempt=turn.attempt,
+                interaction_mode=turn.interaction_mode,
+                plan=turn.plan,
+            )
         )
 
     def _tool_definitions(self, turn: AgentTurnContext) -> list[ModelToolDefinition]:
+        is_planning = turn.interaction_mode == InteractionMode.PLANNING
         built_ins = [
             ModelToolDefinition(
                 name=definition.name,
@@ -352,7 +412,10 @@ class StepwiseAgentRunner:
             )
             for definition in BUILT_IN_TOOL_DEFINITIONS
             if definition.name in turn.enabled_built_in_tools
+            and (not is_planning or definition.name is BuiltInTool.WRITE_TODOS)
         ]
+        if is_planning:
+            return built_ins
         return [*(tool.definition for tool in self._definition.tools), *built_ins]
 
     def _tool_policy(self, turn: AgentTurnContext, tool_name: str) -> ToolPolicy:
@@ -371,7 +434,7 @@ def stepwise_agent_session_options(definition: AgentDefinition) -> AgentSessionO
 
     Returns:
         Options with the definition's tool policies, default effect, built-in
-        tools, interrupt deadline, and Stream capacity.
+        tools, plan mode, interrupt deadline, and Stream capacity.
     """
     return AgentSessionOptions(
         tool_policies=definition.tool_policies,
@@ -379,6 +442,7 @@ def stepwise_agent_session_options(definition: AgentDefinition) -> AgentSessionO
         event_stream_capacity_bytes=definition.event_stream_capacity_bytes,
         interrupt_deadline=definition.interrupt_deadline,
         built_in_tools=definition.built_in_tools,
+        plan_mode_enabled=definition.plan_mode_enabled,
     )
 
 
@@ -416,6 +480,36 @@ def stepwise_agent_session_flow(definition: AgentDefinition, *, flow_type: str) 
 
 def _built_in_name_collision(tool_name: str) -> str:
     return f"tool {tool_name} uses the name of an enabled built-in tool"
+
+
+def _must_write_plan_first(turn: AgentTurnContext, model_calls: int) -> bool:
+    """A planning turn without a draft drafts one first; feedback on a draft may only answer."""
+    return (
+        turn.interaction_mode == InteractionMode.PLANNING
+        and model_calls == 0
+        and BuiltInTool.WRITE_TODOS in turn.enabled_built_in_tools
+        and (turn.plan is None or turn.plan.status != PlanStatus.DRAFT)
+    )
+
+
+def _supports_forced_tool_choice(model: ModelClient, settings: ModelSettings) -> bool:
+    # An optional client capability; a client without it is trusted to accept forcing.
+    check = getattr(model, "supports_forced_tool_choice", None)
+    return not callable(check) or check(settings) is not False
+
+
+def _stored_input_items_with_plan_note(turn: AgentTurnContext) -> list[ModelInputItem]:
+    items = [decode_stepwise_message(message) for message in turn.messages]
+    plan_note = build_plan_note(turn.plan, turn.interaction_mode)
+    if plan_note is None:
+        return items
+    # Before the turn's messages, so a plan change rewrites only the turn's tail of the input.
+    turn_start = next(
+        (index for index, message in enumerate(turn.messages) if message.turn_id == turn.turn_id),
+        len(turn.messages),
+    )
+    items.insert(turn_start, UserTextItem(text=plan_note))
+    return items
 
 
 def _model_call_count(framework_run_state: str | None) -> int:

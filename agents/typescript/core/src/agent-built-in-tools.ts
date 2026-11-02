@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { AgentPlanTask, PlanTaskStatus } from "./agent-session-values.js";
+
 /**
  * Name of a built-in tool that the session itself handles.
  *
@@ -13,6 +15,8 @@
  *   `AwaitQuestionAnswer`, and the answer becomes the tool result, so the model continues the same turn.
  * - `durable_wait`: suspends the turn on a Dex Timer in `AwaitTimer`. No model call, coroutine, or
  *   Worker holds the wait.
+ * - `write_todos`: replaces the session's {@link AgentPlan} with a new revision. `RunModel` records the
+ *   call in its own commit; no tool Step runs.
  *
  * Enable built-in tools with {@link AgentSessionOptions.builtInTools}. A runner offers the enabled ones
  * to its model, from {@link builtInToolDefinitions}, like any other tool, and returns their calls in
@@ -20,7 +24,7 @@
  * built-in tool to that tool's handling instead of a tool Step. An enabled built-in name is reserved.
  * A disabled built-in name is an ordinary tool name.
  */
-export type BuiltInTool = "ask_user" | "durable_wait";
+export type BuiltInTool = "ask_user" | "durable_wait" | "write_todos";
 
 /** Model-visible definition of one built-in tool, from {@link builtInToolDefinitions}. */
 export interface BuiltInToolDefinition {
@@ -86,6 +90,37 @@ export const builtInToolDefinitions: readonly BuiltInToolDefinition[] = Object.f
       additionalProperties: false,
     }),
   }),
+  Object.freeze({
+    name: "write_todos",
+    description:
+      "Replace the plan with a complete, ordered list of tasks. Send every task each time, with its " +
+      "status. An empty list clears the plan. Keep the statuses current: mark a task in_progress when you " +
+      "start it and completed when it is done.",
+    parameters: Object.freeze({
+      type: "object",
+      properties: {
+        todos: {
+          type: "array",
+          description: "Every task of the plan, in order.",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "What the task does, in one short sentence." },
+              status: {
+                type: "string",
+                enum: ["pending", "in_progress", "completed"],
+                description: "Where the task stands.",
+              },
+            },
+            required: ["content", "status"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["todos"],
+      additionalProperties: false,
+    }),
+  }),
 ]);
 
 /** Every built-in tool name, in definition order. */
@@ -105,6 +140,11 @@ export interface DurableWaitArguments {
   readonly durationSeconds: number;
   readonly reason: string;
 }
+
+/** Error of every `write_todos` call of a model response that has more than one; the same text as the Python core. */
+export const writeTodosCalledMoreThanOnce = "write_todos was called more than once in one response";
+
+const planTaskStatuses: readonly PlanTaskStatus[] = ["pending", "in_progress", "completed"];
 
 /** Result of validating a built-in call's arguments: the parsed arguments or the model-visible error. */
 export type BuiltInArgumentsValidation<Arguments> =
@@ -171,6 +211,79 @@ export function validateDurableWaitArguments(
   return { isValid: true, arguments: { durationSeconds, reason } };
 }
 
+/** Validates `write_todos` arguments; the error is `invalid todos: <reason>`, as in the Python core. */
+export function validateWriteTodosArguments(argumentsText: string): BuiltInArgumentsValidation<readonly AgentPlanTask[]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(argumentsText);
+  } catch {
+    return invalidTodos("arguments must be a JSON object");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return invalidTodos("arguments must be a JSON object");
+  }
+  const [unknownName] = sortByCodePoint(Object.keys(parsed).filter((name) => name !== "todos"));
+  if (unknownName !== undefined) {
+    return invalidTodos(`unknown argument ${unknownName}`);
+  }
+  const todos = (parsed as Readonly<Record<string, unknown>>)["todos"];
+  if (!Array.isArray(todos)) {
+    return invalidTodos("todos must be a list");
+  }
+  const tasks: AgentPlanTask[] = [];
+  for (const [index, todo] of todos.entries()) {
+    if (typeof todo !== "object" || todo === null || Array.isArray(todo)) {
+      return invalidTodos(`todos[${index}] must be an object`);
+    }
+    const [unknownField] = sortByCodePoint(Object.keys(todo).filter((name) => name !== "content" && name !== "status"));
+    if (unknownField !== undefined) {
+      return invalidTodos(`todos[${index}] has unknown field ${unknownField}`);
+    }
+    const { content, status } = todo as Readonly<Record<string, unknown>>;
+    if (typeof content !== "string" || isBlankText(content)) {
+      return invalidTodos(`todos[${index}].content must be a non-empty string`);
+    }
+    if (typeof status !== "string" || !(planTaskStatuses as readonly string[]).includes(status)) {
+      return invalidTodos(`todos[${index}].status must be pending, in_progress, or completed`);
+    }
+    tasks.push({ content, status: status as PlanTaskStatus });
+  }
+  return { isValid: true, arguments: tasks };
+}
+
+/** Tool output after `write_todos` wrote tasks: `{"status":"updated","revision":<n>,"task_count":<k>}`. */
+export function buildPlanUpdatedOutput(revision: number, taskCount: number): string {
+  return JSON.stringify({ status: "updated", revision, task_count: taskCount });
+}
+
+/** Tool output after `write_todos` cleared the plan: `{"status":"cleared","revision":<n>}`. */
+export function buildPlanClearedOutput(revision: number): string {
+  return JSON.stringify({ status: "cleared", revision });
+}
+
+function invalidTodos(reason: string): { readonly isValid: false; readonly error: string } {
+  return { isValid: false, error: `invalid todos: ${reason}` };
+}
+
+/** Sorted by code point, as Python's `sorted` orders strings, so both cores report the same name. */
+function sortByCodePoint(names: readonly string[]): string[] {
+  return [...names].sort(compareByCodePoint);
+}
+
+/** JavaScript's `<` compares UTF-16 code units, which orders characters above U+FFFF before U+E000. */
+function compareByCodePoint(left: string, right: string): number {
+  const leftCodePoints = Array.from(left, (character) => character.codePointAt(0) ?? 0);
+  const rightCodePoints = Array.from(right, (character) => character.codePointAt(0) ?? 0);
+  const sharedLength = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const difference = (leftCodePoints[index] ?? 0) - (rightCodePoints[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
+}
+
 function parseArgumentsObject(
   builtInTool: BuiltInTool,
   argumentsText: string,
@@ -186,10 +299,7 @@ function parseArgumentsObject(
   }
   const definition = builtInToolDefinitions.find((candidate) => candidate.name === builtInTool);
   const allowedNames = Object.keys((definition?.parameters["properties"] ?? {}) as object);
-  // Sorted by code point, as the Python core sorts, so both report the same name.
-  const [unknownName] = Object.keys(parsed)
-    .filter((name) => !allowedNames.includes(name))
-    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const [unknownName] = sortByCodePoint(Object.keys(parsed).filter((name) => !allowedNames.includes(name)));
   if (unknownName !== undefined) {
     return invalidArguments(builtInTool, `unknown argument ${unknownName}`);
   }

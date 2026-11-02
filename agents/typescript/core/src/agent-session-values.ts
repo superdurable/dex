@@ -17,6 +17,87 @@
 export type AgentSessionStatus = "waiting_for_user_message" | "running_model" | "running_tools";
 
 /**
+ * Kind of a turn, stored in {@link AgentState.interactionMode} when the turn starts, for the runner to choose
+ * the tools it offers. Plan mode needs {@link AgentSessionOptions.planModeEnabled}; without it every turn is
+ * `chat`.
+ *
+ * - `chat`: an ordinary turn. The runner offers every tool.
+ * - `planning`: a turn that only plans. A message of the turn has `planMode`, or a `draft` plan waits for
+ *   review. The runner offers only `write_todos`, and `RunModel` rejects any other call.
+ * - `executing`: a turn that `execute_plan` started. The runner offers every tool.
+ */
+export type InteractionMode = "chat" | "planning" | "executing";
+
+/**
+ * Where an {@link AgentPlan} stands.
+ *
+ * - `draft`: a planning turn wrote the plan, and it waits for `execute_plan`.
+ * - `active`: the plan runs, or `write_todos` wrote it outside a planning turn with a task not completed.
+ * - `completed`: every task is completed.
+ * - `cleared`: `write_todos` replaced the plan with no tasks.
+ */
+export type PlanStatus = "draft" | "active" | "completed" | "cleared";
+
+/** Where one task of an {@link AgentPlan} stands: `pending`, `in_progress`, or `completed`. */
+export type PlanTaskStatus = "pending" | "in_progress" | "completed";
+
+/** One task of an {@link AgentPlan}. */
+export interface AgentPlanTask {
+  /** What the task does, as the model wrote it; never blank. Wire field: `content`. */
+  readonly content: string;
+  /** Where the task stands. Wire field: `status`. */
+  readonly status: PlanTaskStatus;
+}
+
+/**
+ * The session's plan, stored in the `AgentPlan` Attribute: a short task list the model replaces as a whole.
+ *
+ * `write_todos` replaces it with the next revision, and `execute_plan` names the revision the user approves.
+ * Compaction never summarizes it.
+ */
+export interface AgentPlan {
+  /**
+   * Revision of the plan, starting at 1. Every `write_todos` call that succeeds adds 1, an empty list
+   * included. Wire field: `revision`.
+   */
+  readonly revision: number;
+  /** Where the plan stands. Wire field: `status`. */
+  readonly status: PlanStatus;
+  /** Every task in order; empty when `cleared`. Wire field: `tasks`. */
+  readonly tasks: readonly AgentPlanTask[];
+  /** RFC 3339 time of the last change. Wire field: `updated_at`. */
+  readonly updatedAt: string;
+}
+
+/**
+ * Input of the `execute_plan` RPC.
+ *
+ * @example
+ * ```ts
+ * const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+ * if (snapshot.plan?.status === "draft") {
+ *   await client.invokeRPC(flow.executePlan, sessionId, { revision: snapshot.plan.revision });
+ * }
+ * ```
+ */
+export interface ExecutePlanRequest {
+  /**
+   * {@link AgentPlan.revision} the user reviewed. A stale revision is refused, so the session never runs a
+   * plan the user did not see. Wire field: `revision`.
+   */
+  readonly revision: number;
+}
+
+/**
+ * One approved plan execution, published to the `PlanExecutions` ChannelMap instance named by the revision
+ * and held in the `PendingPlanExecution` Attribute until `AwaitUserMessage` starts its `executing` turn.
+ */
+export interface PlanExecutionRequest {
+  /** The approved {@link AgentPlan.revision}. Wire field: `revision`. */
+  readonly revision: number;
+}
+
+/**
  * Input of the `StartAgentSession` Step, passed to `Client.startFlow`.
  *
  * @example
@@ -44,6 +125,15 @@ export interface AgentState {
   readonly nextMessageSequence: number;
   /** Error text of the most recent failed turn, or `null`. Wire field: `last_turn_error`. */
   readonly lastTurnError: string | null;
+  /**
+   * Kind of the active turn, or of the last turn between turns; the session sets it when a turn starts.
+   * Wire field: `interaction_mode`, `chat` by default.
+   *
+   * Like every field plans added, a decoded value omits it at its default, so a value of a session that
+   * uses no plans has its 0.1.0 shape, and code that compares whole values keeps working; the wire always
+   * carries it. Treat `undefined` as `chat`.
+   */
+  readonly interactionMode?: InteractionMode;
 }
 
 /** Author of one stored agent message. */
@@ -351,6 +441,12 @@ export interface ToolCallCompleted {
 export interface AgentUserMessage {
   /** Message text. Blank text is rejected. Wire field: `text`. */
   readonly text: string;
+  /**
+   * Whether the message starts a `planning` turn, which drafts a plan for review instead of doing the work.
+   * `send_user_message` rejects it unless {@link AgentSessionOptions.planModeEnabled} is set. Wire field:
+   * `plan_mode`, `false` by default; a decoded message omits it when `false`, and `null` reads as `false`.
+   */
+  readonly planMode?: boolean;
 }
 
 /**
@@ -373,6 +469,9 @@ export interface AgentUserMessage {
  *   "cancellation_reason"}`. `answered` is `true` only for an answered question. `cancellation_reason`
  *   is always `null` in this release.
  * - `timer_started`: `{"tool_call_id","wait_until","reason"}`, when a `durable_wait` call starts its Timer.
+ * - `plan_updated`: `{"revision","status","task_count"}`, when `write_todos` replaced the plan or an
+ *   approval marked a draft `active`.
+ * - `plan_execution_started`: `{"revision"}`, after the `turn_started` of an `executing` turn.
  * - `usage_recorded`: `{"recorded","session"}`: one model call's and the cumulative usage, each with
  *   {@link AgentUsage} wire fields.
  */
@@ -388,6 +487,8 @@ export type AgentEventType =
   | "interrupt_raised"
   | "interrupt_resolved"
   | "timer_started"
+  | "plan_updated"
+  | "plan_execution_started"
   | "usage_recorded";
 
 /** One best-effort live event, written to the `AgentEvents` Stream. */
@@ -459,6 +560,11 @@ export interface AgentSnapshot {
   readonly usage: AgentUsage;
   /** User messages queued and not yet consumed. Wire field: `queued_message_count`. */
   readonly queuedMessageCount: number;
+  /**
+   * The {@link AgentPlan}, or absent before `write_todos` first succeeded. Wire field: `plan`, `null` while
+   * there is none; a decoded snapshot omits it then, like the other fields plans added.
+   */
+  readonly plan?: AgentPlan | null;
 }
 
 /** Input of the `list_agent_messages` RPC. */

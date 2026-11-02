@@ -192,6 +192,48 @@ model-visible text. Everything is inert until an application enables it.
   `2026-11-01T12:00:00.123Z`. Every reader in both cores, 0.1.0 included,
   accepts the earlier `+00:00` form too.
 
+### Plans and plan mode
+
+Both cores, with identical Step types, persistence names, RPC names, wire
+values, events, and model-visible text. Everything is inert until an
+application enables it.
+
+- The `write_todos` built-in replaces the new `AgentPlan` Attribute
+  (`revision`, `status`, `tasks`, `updated_at`) with the next revision.
+  `RunModel` records the call in its own commit and still moves to
+  `ResumeTurn`; no tool Step runs. An empty list clears the plan, and a
+  response with two `write_todos` calls fails both. The session writes
+  `plan_updated`, and again when an approval marks a draft `active`.
+- `AgentSessionOptions.plan_mode_enabled` (`planModeEnabled`) accepts
+  `AgentUserMessage.plan_mode` (`planMode`) messages, which start a turn whose
+  new `AgentState.interaction_mode` is `planning`; `send_user_message` refuses
+  them otherwise. It needs `write_todos` and a runner that declares
+  `supports_plan_mode` (`supportsPlanMode`, `PlanModeRunner` in Python). A
+  planning turn rejects every call but `write_todos`.
+- The new `execute_plan` RPC approves one plan revision. It locks the new
+  `PendingPlanExecution` Attribute and publishes to the new `PlanExecutions`
+  ChannelMap, keyed by revision, which `AwaitUserMessage` waits on after
+  queued messages; it starts an `executing` turn and writes
+  `plan_execution_started`. A stale revision, or a second approval of a
+  revision not started yet, returns false.
+- Stepwise: `AgentDefinition.plan_mode_enabled` (`planModeEnabled`). A planning
+  turn offers only `write_todos`, and every model call shows the plan with
+  `build_plan_note` (`buildPlanNote`) before the turn's messages.
+  `AgentDefinition.planning_tool_choice` (`planningToolChoice`) is `auto` by
+  default, so a planning turn may also answer in text and end without a draft;
+  `required` forces `write_todos` on the first call while no draft exists. In
+  Python, `required` is refused for a model client whose
+  `supports_forced_tool_choice` returns false, as `LiteLLMModelClient` does
+  for Claude Opus 5.5, Claude Sonnet 5.5, and extended thinking.
+  `InstructionContext` gains `interaction_mode` and `plan`.
+- Both cores reject `NaN` and `Infinity` in built-in tool arguments and report
+  the first unknown argument by code point, so the errors the model sees are
+  the same. An explicit `null` for `plan_mode` or `interaction_mode` reads as
+  the default in both cores.
+- `AgentTurnContext` gains `interaction_mode` and `plan`, `AgentSnapshot`
+  gains `plan`, and `AgentSessionClient` (Python) and the TypeScript testing
+  client gain `execute_plan` and a `plan_mode` argument.
+
 ### Fixes
 
 - TypeScript: `send_user_message`, the `AwaitUserMessage` Step that takes its

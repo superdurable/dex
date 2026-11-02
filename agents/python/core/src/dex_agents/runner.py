@@ -19,7 +19,8 @@ own Dex Step. It calls the runner from those Steps:
 * ``execute_deferred_tool_call`` runs one tool call in its own Step.
 
 A runner may also implement ``UnfinishedTurnMessageBuilder`` when it stores a
-turn's items incrementally through ``ToolCallsRequested.new_messages``.
+turn's items incrementally through ``ToolCallsRequested.new_messages``, and
+``PlanModeRunner`` when it honors plan mode.
 """
 
 from __future__ import annotations
@@ -32,8 +33,10 @@ from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
 from dex_agents.values import (
     AgentMessage,
+    AgentPlan,
     AgentToolCall,
     AgentUsage,
+    InteractionMode,
     MessageRole,
     QuestionAnswer,
     ToolCallStatus,
@@ -381,6 +384,12 @@ class AgentTurnContext:
         enabled_built_in_tools: Built-in tools from
             ``AgentSessionOptions.built_in_tools``. Offer their definitions from
             ``BUILT_IN_TOOL_DEFINITIONS`` to the model. Empty by default.
+        interaction_mode: The turn's ``AgentState.interaction_mode``. A
+            ``PlanModeRunner`` offers only ``write_todos`` in a ``PLANNING``
+            turn. Defaults to ``CHAT``.
+        plan: The ``AgentPlan`` as committed before this model call, or ``None``
+            before ``write_todos`` first succeeded. Show it to the model with
+            ``build_plan_note``. Defaults to ``None``.
     """
 
     flow_id: str
@@ -394,6 +403,8 @@ class AgentTurnContext:
     events: AgentEventWriter
     heartbeat: Callable[[], Awaitable[None]]
     enabled_built_in_tools: frozenset[BuiltInTool] = frozenset()
+    interaction_mode: InteractionMode = InteractionMode.CHAT
+    plan: AgentPlan | None = None
 
     @property
     def is_resuming(self) -> bool:
@@ -690,5 +701,40 @@ class UnfinishedTurnMessageBuilder(Protocol):
         Returns:
             The items not stored yet, including a tool result for every tool
             call already stored or returned by the turn.
+        """
+        ...
+
+
+@runtime_checkable
+class PlanModeRunner(Protocol):
+    """Declare that a runner honors plan mode.
+
+    ``AgentSessionOptions.plan_mode_enabled`` needs a runner that sets
+    ``supports_plan_mode`` to ``True``; ``AgentSessionFlow`` raises otherwise.
+    Such a runner reads ``AgentTurnContext.interaction_mode`` in every
+    ``run_model_step``:
+
+    * In a ``PLANNING`` turn it offers only the ``write_todos`` definition from
+      ``BUILT_IN_TOOL_DEFINITIONS``. It may force ``write_todos`` on the
+      turn's first model call while the plan is not a draft yet, where the
+      model accepts a forced tool choice; Stepwise does with
+      ``planning_tool_choice="required"``.
+    * In every turn it shows the plan with ``build_plan_note(turn.plan,
+      turn.interaction_mode)`` as user text before the turn's messages.
+
+    The Stepwise runner implements it. A framework adapter that cannot change
+    the tools it offers between turns leaves plan mode off.
+
+    Example:
+        >>> class MyRunner:
+        ...     supports_plan_mode = True
+    """
+
+    @property
+    def supports_plan_mode(self) -> bool:
+        """Report whether the runner honors ``AgentTurnContext.interaction_mode``.
+
+        Returns:
+            ``True`` when the runner implements plan mode as described above.
         """
         ...

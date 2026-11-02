@@ -14,7 +14,9 @@ tool call is its own ``CallTool`` or ``CallSingleAttemptTool`` Step, after an
 Steps of one model response run in parallel, and ``ResumeTurn`` waits for all
 of their results before the next ``RunModel``. A call to an enabled built-in
 tool runs in the built-in's own Step instead: ``AwaitQuestionAnswer`` for
-``ask_user`` and ``AwaitTimer`` for ``durable_wait``.
+``ask_user`` and ``AwaitTimer`` for ``durable_wait``. ``RunModel`` records a
+``write_todos`` call in its own commit, and ``execute_plan`` starts a turn that
+runs an approved plan from ``AwaitUserMessage``.
 """
 
 from __future__ import annotations
@@ -58,16 +60,21 @@ from dex_agents.built_in_tools import (
     DEFAULT_MAX_DURABLE_WAIT,
     QUESTION_DEADLINE_PASSED,
     QUESTION_DECLINED_TOOL_RESULT,
+    WRITE_TODOS_CALLED_MORE_THAN_ONCE,
     BuiltInTool,
     BuiltInToolArgumentsError,
     build_durable_wait_completed_output,
+    build_plan_cleared_output,
+    build_plan_updated_output,
     build_question_answered_output,
     parse_ask_user_arguments,
     parse_durable_wait_arguments,
+    parse_write_todos_arguments,
 )
 from dex_agents.events import AgentEventType, AgentEventWriter
 from dex_agents.persistence import (
     AGENT_MESSAGES,
+    AGENT_PLAN,
     AGENT_STATE,
     AGENT_TOOL_CALLS,
     AGENT_TRACE_CONTEXT,
@@ -76,9 +83,17 @@ from dex_agents.persistence import (
     FRAMEWORK_RUN_STATE,
     INTERRUPT_RESOLUTIONS,
     PENDING_INTERRUPTS,
+    PENDING_PLAN_EXECUTION,
+    PLAN_EXECUTIONS,
     QUEUED_USER_MESSAGES,
     TOOL_CALL_RESULTS,
     message_sequence_key,
+    plan_execution_key,
+)
+from dex_agents.plans import (
+    PLANNING_TURN_TOOL_REJECTION,
+    build_plan_execution_message,
+    plan_status_after_write,
 )
 from dex_agents.runner import (
     APPROVAL_DEADLINE_PASSED,
@@ -87,6 +102,7 @@ from dex_agents.runner import (
     DeferredToolExecution,
     DeferredToolOutcome,
     FrameworkMessage,
+    PlanModeRunner,
     ToolCallsRequested,
     ToolExecutionError,
     ToolInputRequested,
@@ -102,6 +118,7 @@ from dex_agents.values import (
     AgentInterruptResolution,
     AgentMessage,
     AgentMessagesPage,
+    AgentPlan,
     AgentSessionStartInput,
     AgentSessionStatus,
     AgentSnapshot,
@@ -110,9 +127,13 @@ from dex_agents.values import (
     AgentUsage,
     AgentUserMessage,
     AnswerQuestionRequest,
+    ExecutePlanRequest,
+    InteractionMode,
     InterruptKind,
     ListAgentMessagesRequest,
     MessageRole,
+    PlanExecutionRequest,
+    PlanStatus,
     QuestionAnswer,
     ResolveInterruptRequest,
     ToolCallCompleted,
@@ -132,6 +153,7 @@ BACKGROUND_HEARTBEAT_INTERVAL = timedelta(seconds=20)
 RECOVERY_RETRY = RetryPolicy(maximum_interval=timedelta(seconds=5))
 MULTI_ATTEMPT_TOOL_EFFECTS = (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE)
 BUILT_IN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
+EXECUTABLE_PLAN_STATUSES = (PlanStatus.DRAFT, PlanStatus.ACTIVE)
 _NO_PENDING_TOOL_QUESTION: dict[str, Any] = {
     "input_question": None,
     "input_choices": [],
@@ -157,6 +179,14 @@ class AgentSessionOptions:
         ...     built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.DURABLE_WAIT}),
         ... )
 
+    Plan mode needs ``write_todos`` and a ``PlanModeRunner``, such as the
+    Stepwise runner:
+
+        >>> options = AgentSessionOptions(
+        ...     built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),
+        ...     plan_mode_enabled=True,
+        ... )
+
     Attributes:
         tool_policies: Policies by tool name. They override framework metadata
             and ``default_tool_effect``. Defaults to none.
@@ -172,21 +202,29 @@ class AgentSessionOptions:
             waits indefinitely.
         built_in_tools: Built-in tools the session runs itself. The runner
             offers their definitions to the model, and the session routes
-            their calls to ``AwaitQuestionAnswer`` and ``AwaitTimer`` with no
-            approval and the ``read`` effect. An enabled name is reserved for
-            the built-in. Defaults to none.
+            their calls to ``AwaitQuestionAnswer`` and ``AwaitTimer``, or
+            records a ``write_todos`` call in ``RunModel``, with no approval
+            and the ``read`` effect. An enabled name is reserved for the
+            built-in. Defaults to none.
         max_durable_wait: Longest ``durable_wait`` the session accepts, in
             whole seconds. A longer request fails at once with a message the
             model sees. Defaults to 365 days.
         tracing: OpenTelemetry GenAI span options. The default emits spans
             through the global tracer provider when the OpenTelemetry API is
             installed, and nothing otherwise.
+        plan_mode_enabled: Whether ``send_user_message`` accepts a message with
+            ``plan_mode``, which starts a ``PLANNING`` turn that drafts a plan
+            for ``execute_plan``. A ``DRAFT`` plan makes every new turn a
+            ``PLANNING`` turn until it runs. Requires ``write_todos`` in
+            ``built_in_tools`` and a runner that is a ``PlanModeRunner``.
+            Defaults to ``False``.
 
     Raises:
         ValueError: If ``event_stream_capacity_bytes`` or ``interrupt_deadline``
             is not positive, if ``max_durable_wait`` is shorter than one second
             or not whole seconds, if ``built_in_tools`` names an unknown tool,
-            or if ``tool_policies`` names an enabled built-in tool.
+            if ``tool_policies`` names an enabled built-in tool, or if
+            ``plan_mode_enabled`` is set without ``write_todos``.
     """
 
     tool_policies: Mapping[str, ToolPolicy] = field(default_factory=dict)
@@ -196,6 +234,7 @@ class AgentSessionOptions:
     tracing: AgentTracingOptions = field(default_factory=AgentTracingOptions)
     built_in_tools: frozenset[BuiltInTool] = frozenset()
     max_durable_wait: timedelta = DEFAULT_MAX_DURABLE_WAIT
+    plan_mode_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.event_stream_capacity_bytes <= 0:
@@ -210,6 +249,8 @@ class AgentSessionOptions:
             raise ValueError(
                 f"tool_policies names {reserved[0]!r}, which is an enabled built-in tool"
             )
+        if self.plan_mode_enabled and BuiltInTool.WRITE_TODOS not in built_in_tools:
+            raise ValueError("plan_mode_enabled requires the write_todos built-in tool")
         object.__setattr__(self, "tool_policies", dict(self.tool_policies))
         object.__setattr__(self, "built_in_tools", built_in_tools)
 
@@ -251,6 +292,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         agent_trace_context: The ``AgentTraceContext`` Attribute: the W3C
             ``traceparent`` of the current activation's root span, set when
             that span has a valid context, sampled or not.
+        agent_plan: The ``AgentPlan`` Attribute.
+        plan_executions: The ``PlanExecutions`` ChannelMap, keyed by revision.
+        pending_plan_execution: The ``PendingPlanExecution`` Attribute.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -265,6 +309,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     interrupt_resolutions = INTERRUPT_RESOLUTIONS
     tool_call_results = TOOL_CALL_RESULTS
     agent_trace_context = AGENT_TRACE_CONTEXT
+    agent_plan = AGENT_PLAN
+    plan_executions = PLAN_EXECUTIONS
+    pending_plan_execution = PENDING_PLAN_EXECUTION
 
     def __init__(
         self,
@@ -286,13 +333,17 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 tracing. ``None`` uses ``AgentSessionOptions()``.
 
         Raises:
-            ValueError: If ``flow_type`` is empty or whitespace-only.
+            ValueError: If ``flow_type`` is empty or whitespace-only, or if
+                ``options.plan_mode_enabled`` is set for a runner that is not a
+                ``PlanModeRunner``.
         """
         if not flow_type.strip():
             raise ValueError("flow_type must not be empty")
         self._runner = runner
         self._flow_type = flow_type
         self._options = options or AgentSessionOptions()
+        if self._options.plan_mode_enabled and not _is_plan_mode_runner(runner):
+            raise ValueError("plan_mode_enabled requires a runner that supports plan mode")
         self._session_tracer = AgentSessionTracer(self._options.tracing, flow_type)
         self.agent_events: Stream[AgentEvent] = Stream(
             "AgentEvents", AgentEvent, self._options.event_stream_capacity_bytes
@@ -376,6 +427,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             INTERRUPT_RESOLUTIONS,
             TOOL_CALL_RESULTS,
             AGENT_TRACE_CONTEXT,
+            AGENT_PLAN,
+            PLAN_EXECUTIONS,
+            PENDING_PLAN_EXECUTION,
             self.agent_events,
         )
 
@@ -391,11 +445,60 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             input: The user message.
 
         Returns:
-            ``True`` when the message was queued; ``False`` for whitespace-only text.
+            ``True`` when the message was queued; ``False`` for whitespace-only
+            text, or for a ``plan_mode`` message when
+            ``AgentSessionOptions.plan_mode_enabled`` is not set.
         """
-        if not input.text.strip():
+        if not input.text.strip() or (input.plan_mode and not self._options.plan_mode_enabled):
             return RPCResult(False)
         QUEUED_USER_MESSAGES.publish(context, input)
+        return RPCResult(True)
+
+    @rpc(lock_attributes=(PENDING_PLAN_EXECUTION.lock(),))
+    def execute_plan(self, context: Context, input: ExecutePlanRequest) -> RPCResult[bool]:
+        """Approve one plan revision, so the session starts a turn that runs it.
+
+        Call it after the user reviewed the ``DRAFT`` plan that a ``plan_mode``
+        message drafted, or to run an ``ACTIVE`` plan again. The next
+        ``AwaitUserMessage`` starts an ``EXECUTING`` turn with every tool,
+        whose user message is ``[Dex] The user approved plan revision <n>.
+        Execute it and keep the task statuses current with write_todos.``. A
+        queued message that the session took first runs its turn first; when
+        that turn changes the plan, the approval is stale and never runs.
+
+        The RPC records the approval in ``PendingPlanExecution`` until the
+        session starts the turn, so a revision runs once per approval. It
+        locks ``PendingPlanExecution``: a concurrent ``execute_plan`` can make
+        it raise ``RpcLockConflictError``, which is safe to retry.
+
+        Args:
+            context: RPC Context supplied by Dex.
+            input: The plan revision the user reviewed.
+
+        Returns:
+            ``True`` when the execution is accepted. ``False`` unless the
+            session waits for a user message, the plan has this revision and is
+            ``DRAFT`` or ``ACTIVE``, no execution of it is pending, and no
+            queued message or interrupt is pending.
+        """
+        state = _optional_agent_state(context)
+        plan = _optional_agent_plan(context)
+        pending = cast(PlanExecutionRequest | None, PENDING_PLAN_EXECUTION.get(context))
+        if (
+            state is None
+            or state.status is not AgentSessionStatus.WAITING_FOR_USER_MESSAGE
+            or state.active_turn_id is not None
+            or plan is None
+            or plan.revision != input.revision
+            or plan.status not in EXECUTABLE_PLAN_STATUSES
+            or (pending is not None and pending.revision == plan.revision)
+            or QUEUED_USER_MESSAGES.size(context) > 0
+            or _pending_interrupts(context)
+        ):
+            return RPCResult(False)
+        request = PlanExecutionRequest(revision=plan.revision)
+        PENDING_PLAN_EXECUTION.set(context, request)
+        PLAN_EXECUTIONS.publish(context, plan_execution_key(plan.revision), request)
         return RPCResult(True)
 
     @rpc(lock_attributes=(PENDING_INTERRUPTS.lock(),))
@@ -511,7 +614,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
         Returns:
             State, the last 200 messages, pending interrupts, the active turn's
-            tool calls, usage, and the queued message count.
+            tool calls, usage, the queued message count, and the plan.
         """
         state = _optional_agent_state(context)
         if state is None:
@@ -525,6 +628,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 tool_calls=_turn_tool_calls(context, state.active_turn_id),
                 usage=_agent_usage(context),
                 queued_message_count=QUEUED_USER_MESSAGES.size(context),
+                plan=_optional_agent_plan(context),
             )
         )
 
@@ -562,7 +666,15 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             )
         )
 
-    def _begin_turn(self, context: AsyncContext, text: str, step_type: str) -> StepDecision:
+    def _begin_turn(
+        self,
+        context: AsyncContext,
+        text: str,
+        step_type: str,
+        interaction_mode: InteractionMode = InteractionMode.CHAT,
+        executed_plan: AgentPlan | None = None,
+        was_plan_draft: bool = False,
+    ) -> StepDecision:
         state = _require_agent_state(context)
         turn_id = f"turn-{state.turn_count + 1}"
         sequence = state.next_message_sequence
@@ -575,12 +687,82 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             state = _append_messages(context, state, turn_id, [user_message])
             AGENT_STATE.set(
                 context,
-                replace(state, status=AgentSessionStatus.RUNNING_MODEL, active_turn_id=turn_id),
+                replace(
+                    state,
+                    status=AgentSessionStatus.RUNNING_MODEL,
+                    active_turn_id=turn_id,
+                    interaction_mode=interaction_mode,
+                ),
             )
-            self._event_writer(context, turn_id).write_event(
-                AgentEventType.TURN_STARTED, {"sequence": sequence}
-            )
+            events = self._event_writer(context, turn_id)
+            events.write_event(AgentEventType.TURN_STARTED, {"sequence": sequence})
+            if executed_plan is not None:
+                events.write_event(
+                    AgentEventType.PLAN_EXECUTION_STARTED, {"revision": executed_plan.revision}
+                )
+                if was_plan_draft:
+                    _write_plan_updated(events, executed_plan)
         return go_to(self._run_model, None)
+
+    def _interaction_mode_for_user_messages(
+        self, context: Context, messages: Sequence[AgentUserMessage]
+    ) -> InteractionMode:
+        """Return the mode of a turn that these user messages start: planning or chat."""
+        if not self._options.plan_mode_enabled:
+            return InteractionMode.CHAT
+        plan = _optional_agent_plan(context)
+        if any(message.plan_mode for message in messages) or (
+            plan is not None and plan.status is PlanStatus.DRAFT
+        ):
+            return InteractionMode.PLANNING
+        return InteractionMode.CHAT
+
+    def _begin_user_message_turn(
+        self, context: AsyncContext, message: AgentUserMessage, step_type: str
+    ) -> StepDecision:
+        mode = self._interaction_mode_for_user_messages(context, [message])
+        return self._begin_turn(context, message.text, step_type, mode)
+
+    def _wait_for_user_message(self, context: Context) -> Wait:
+        conditions: list[Condition] = [QUEUED_USER_MESSAGES.for_one()]
+        plan = _optional_agent_plan(context)
+        # Keyed by revision, so an approval of an earlier revision never starts a turn.
+        if plan is not None and plan.status in EXECUTABLE_PLAN_STATUSES:
+            conditions.append(PLAN_EXECUTIONS.for_one(plan_execution_key(plan.revision)))
+        return Wait.any_of(*conditions)
+
+    def _start_user_message_turn(self, context: AsyncContext, step_type: str) -> StepDecision:
+        messages = QUEUED_USER_MESSAGES.results(context)
+        if messages:
+            return self._begin_user_message_turn(context, messages[0], step_type)
+        plan = _optional_agent_plan(context)
+        executions = (
+            PLAN_EXECUTIONS.results(context, plan_execution_key(plan.revision))
+            if plan is not None
+            else ()
+        )
+        if not executions:
+            raise RuntimeError("the user message wait completed without a message")
+        if PENDING_PLAN_EXECUTION.get(context) is not None:
+            PENDING_PLAN_EXECUTION.delete(context)
+        if (
+            plan is None
+            or executions[0].revision != plan.revision
+            or plan.status not in EXECUTABLE_PLAN_STATUSES
+        ):
+            return go_to(self._await_user_message, None)
+        was_plan_draft = plan.status is not PlanStatus.ACTIVE
+        if was_plan_draft:
+            plan = replace(plan, status=PlanStatus.ACTIVE, updated_at=_rfc3339(datetime.now(UTC)))
+            AGENT_PLAN.set(context, plan)
+        return self._begin_turn(
+            context,
+            build_plan_execution_message(plan.revision),
+            step_type,
+            InteractionMode.EXECUTING,
+            plan,
+            was_plan_draft,
+        )
 
     async def _run_model_step(self, context: AsyncContext) -> StepDecision:
         state = _require_agent_state(context)
@@ -633,6 +815,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             events=events,
             heartbeat=context.heartbeat,
             enabled_built_in_tools=self._options.built_in_tools,
+            interaction_mode=_interaction_mode(state),
+            plan=_optional_agent_plan(context),
         )
 
     def _complete_turn(
@@ -688,6 +872,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         interrupts = _pending_interrupts(context)
         trace_context = self._session_tracer.read_activation_traceparent(context)
         movements: list[StepMovement[str]] = []
+        write_todos_call_count = sum(
+            1
+            for requested in outcome.tool_calls
+            if self._enabled_built_in_tool(requested.tool_name) is BuiltInTool.WRITE_TODOS
+        )
         for index, requested in enumerate(outcome.tool_calls):
             built_in_tool = self._enabled_built_in_tool(requested.tool_name)
             policy = BUILT_IN_TOOL_POLICY if built_in_tool is not None else requested.policy
@@ -717,6 +906,23 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     "requires_approval": requires_approval,
                 },
             )
+            if (
+                state.interaction_mode is InteractionMode.PLANNING
+                and built_in_tool is not BuiltInTool.WRITE_TODOS
+            ):
+                # A planning turn hides executable tools; a call to one never runs.
+                rejected = replace(
+                    tool_call,
+                    status=ToolCallStatus.REJECTED,
+                    rejection_message=PLANNING_TURN_TOOL_REJECTION,
+                )
+                _record_final_tool_call(context, rejected, events)
+                continue
+            if built_in_tool is BuiltInTool.WRITE_TODOS:
+                self._write_todos(
+                    context, state, tool_call, write_todos_call_count > 1, now, events
+                )
+                continue
             if built_in_tool is not None:
                 movement = self._start_built_in_tool_call(
                     context, built_in_tool, tool_call, interrupts, now, events
@@ -797,6 +1003,45 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             {"tool_call_id": waiting.tool_call_id, "wait_until": wait_until, "reason": wait.reason},
         )
         return self._timer_movement(waiting.tool_call_id)
+
+    def _write_todos(
+        self,
+        context: AsyncContext,
+        state: AgentState,
+        tool_call: AgentToolCall,
+        is_called_more_than_once: bool,
+        now: datetime,
+        events: AgentEventWriter,
+    ) -> None:
+        """Replace the plan and record the call final, in RunModel's commit."""
+        if is_called_more_than_once:
+            failed = replace(
+                tool_call, status=ToolCallStatus.FAILED, error=WRITE_TODOS_CALLED_MORE_THAN_ONCE
+            )
+            _record_final_tool_call(context, failed, events)
+            return
+        try:
+            tasks = parse_write_todos_arguments(tool_call.arguments)
+        except BuiltInToolArgumentsError as error:
+            failed = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
+            _record_final_tool_call(context, failed, events)
+            return
+        previous = _optional_agent_plan(context)
+        plan = AgentPlan(
+            revision=(0 if previous is None else previous.revision) + 1,
+            status=plan_status_after_write(tasks, _interaction_mode(state)),
+            tasks=tasks,
+            updated_at=_rfc3339(now),
+        )
+        AGENT_PLAN.set(context, plan)
+        _write_plan_updated(events, plan)
+        output = (
+            build_plan_cleared_output(plan.revision)
+            if plan.status is PlanStatus.CLEARED
+            else build_plan_updated_output(plan.revision, len(tasks))
+        )
+        succeeded = replace(tool_call, status=ToolCallStatus.SUCCEEDED, output=output)
+        _record_final_tool_call(context, succeeded, events)
 
     def _interrupt_deadline(self, now: datetime) -> str | None:
         if self._options.interrupt_deadline is None:
@@ -1235,7 +1480,7 @@ class StartAgentSession(Step[AgentSessionStartInput]):
 
 
 class AwaitUserMessage(Step[None]):
-    """Wait for one queued user message and start its turn."""
+    """Wait for one queued user message, or an approved plan execution, and start its turn."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
@@ -1247,17 +1492,14 @@ class AwaitUserMessage(Step[None]):
         )
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        return Wait.until(QUEUED_USER_MESSAGES.for_one())
+        return self._session._wait_for_user_message(context)
 
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
         input: None,
     ) -> StepDecision:
-        messages = QUEUED_USER_MESSAGES.results(context)
-        if not messages:
-            raise RuntimeError("the user message wait completed without a message")
-        return self._session._begin_turn(context, messages[0].text, self.get_step_type())
+        return self._session._start_user_message_turn(context, self.get_step_type())
 
 
 class RunModel(Step[None]):
@@ -1560,6 +1802,13 @@ def _record_final_tool_call(
     events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
 
 
+def _write_plan_updated(events: AgentEventWriter, plan: AgentPlan) -> None:
+    events.write_event(
+        AgentEventType.PLAN_UPDATED,
+        {"revision": plan.revision, "status": str(plan.status), "task_count": len(plan.tasks)},
+    )
+
+
 def _write_interrupt_raised(events: AgentEventWriter, interrupt: AgentInterrupt) -> None:
     events.write_event(
         AgentEventType.INTERRUPT_RAISED,
@@ -1793,6 +2042,19 @@ def _recovery_detail(context: Context) -> str:
 
 def _optional_agent_state(context: Context) -> AgentState | None:
     return cast(AgentState | None, AGENT_STATE.get(context))
+
+
+def _interaction_mode(state: AgentState) -> InteractionMode:
+    # AgentState replaces None with CHAT when it is built.
+    return state.interaction_mode or InteractionMode.CHAT
+
+
+def _optional_agent_plan(context: Context) -> AgentPlan | None:
+    return cast(AgentPlan | None, AGENT_PLAN.get(context))
+
+
+def _is_plan_mode_runner(runner: object) -> bool:
+    return isinstance(runner, PlanModeRunner) and runner.supports_plan_mode is True
 
 
 def _require_agent_state(context: Context) -> AgentState:

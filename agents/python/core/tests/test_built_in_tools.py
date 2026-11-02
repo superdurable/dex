@@ -135,7 +135,7 @@ async def test_a_session_built_in_sharing_a_function_tool_name_fails_before_any_
 
 def test_invalid_session_options_are_refused() -> None:
     with pytest.raises(ValueError):
-        AgentSessionOptions(built_in_tools=frozenset({"write_todos"}))  # type: ignore[arg-type]
+        AgentSessionOptions(built_in_tools=frozenset({"read_file"}))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="whole number of seconds"):
         AgentSessionOptions(max_durable_wait=timedelta(milliseconds=1500))
     assert AgentSessionOptions(built_in_tools=frozenset({"ask_user"})).built_in_tools == {  # type: ignore[arg-type]

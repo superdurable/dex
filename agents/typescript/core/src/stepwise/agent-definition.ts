@@ -8,9 +8,15 @@
 
 import type { BuiltInTool } from "../agent-built-in-tools.js";
 import type { ToolPolicy } from "../agent-framework-runner.js";
-import type { ToolEffect } from "../agent-session-values.js";
+import type { AgentPlan, InteractionMode, ToolEffect } from "../agent-session-values.js";
 import type { FunctionTool } from "./function-tool.js";
 import type { ModelClient, ModelSettings } from "./model-client.js";
+
+/**
+ * How the first model call of a planning turn without a draft uses `write_todos`, as
+ * {@link AgentDefinition.planningToolChoice}: `auto` lets the model choose, and `required` forces it.
+ */
+export type PlanningToolChoice = "auto" | "required";
 
 /** What a function for {@link AgentDefinition.instructions} receives in every `RunModel`. */
 export interface InstructionContext {
@@ -20,6 +26,13 @@ export interface InstructionContext {
   readonly turnId: string;
   /** One-based `RunModel` attempt. */
   readonly attempt: number;
+  /** The turn's mode. The runner always sets it; it is optional so that hand-built contexts keep compiling. */
+  readonly interactionMode?: InteractionMode;
+  /**
+   * The session's plan before this model call, or `null`. The runner already shows it to the model; use it to
+   * adapt the instructions. The runner always sets it.
+   */
+  readonly plan?: AgentPlan | null;
 }
 
 /**
@@ -68,6 +81,22 @@ export interface AgentDefinition {
   readonly defaultToolEffect?: ToolEffect;
   /** Built-in tools the model sees, such as `["ask_user", "durable_wait"]`. Defaults to none. */
   readonly builtInTools?: readonly BuiltInTool[];
+  /**
+   * Whether the session accepts `planMode` user messages. A planning turn offers only `write_todos`, and the
+   * `execute_plan` RPC then runs the draft with every tool. Requires `write_todos` in {@link builtInTools}.
+   * Defaults to `false`.
+   */
+  readonly planModeEnabled?: boolean;
+  /**
+   * `auto`, the default, lets the model of a planning turn call `write_todos` or answer in text, such as
+   * with a clarifying question; the plan note tells it to write the plan with `write_todos`, and a text
+   * answer ends the turn without a draft. `required` forces `write_todos` on the first model call of a
+   * planning turn while no draft exists. It needs a provider and model that accept a forced tool choice:
+   * Claude Opus 5.5 and Claude Sonnet 5.5, for example, refuse one, and so does Anthropic extended thinking,
+   * which fails every attempt of that model call. Unlike the Python core, this core cannot check the model
+   * when the definition is built.
+   */
+  readonly planningToolChoice?: PlanningToolChoice;
   /**
    * After this many model calls in one turn, the next call offers no tools, so the model must answer.
    * Defaults to 100.

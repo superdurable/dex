@@ -17,14 +17,17 @@ import {
   type DeferredToolOutcome,
   type ResolvedToolPolicy,
 } from "../agent-framework-runner.js";
+import { buildPlanNote } from "../agent-plans.js";
 import { describeToolCallOutcome, type FrameworkMessage } from "../agent-session-values.js";
 import type { AgentDefinition } from "./agent-definition.js";
 import type { FunctionTool, ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
 import type {
+  ModelInputItem,
   ModelOutputItem,
   ModelRequest,
   ModelResponse,
+  ModelToolChoice,
   ModelToolDefinition,
   ModelToolResultItem,
 } from "./model-client.js";
@@ -44,7 +47,8 @@ const defaultMaxModelCallsPerTurn = 100;
  * through {@link AgentDefinition.model}, from committed state only: the stored messages, the results
  * of the previous model response from the turn's final records, and the instructions. The runner
  * stores the turn's transcript as it goes through {@link ToolCallsRequested.newMessages}, so a long turn
- * never rewrites a growing run state.
+ * never rewrites a growing run state. It supports plan mode: a `planning` turn offers only `write_todos`, and
+ * every model call shows the plan with {@link buildPlanNote} before the turn's messages.
  *
  * @example
  * ```ts
@@ -55,6 +59,8 @@ const defaultMaxModelCallsPerTurn = 100;
 export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
   /** The agent definition, frozen at construction. */
   public readonly definition: AgentDefinition;
+  /** The runner honors {@link AgentTurnContext.interactionMode}, so plan mode can be enabled. */
+  public readonly supportsPlanMode = true;
   private readonly functionToolsByName: ReadonlyMap<string, FunctionTool>;
   private readonly maxModelCallsPerTurn: number;
 
@@ -62,7 +68,8 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * Creates the runner and checks the definition.
    * @param definition - The agent definition.
    * @throws {TypeError} When the name, instructions, model, or tools are invalid, two tools share a
-   * name, or a function tool uses the name of an enabled built-in tool.
+   * name, a function tool uses the name of an enabled built-in tool, `planModeEnabled` is set without
+   * `write_todos`, or `planningToolChoice` is neither `auto` nor `required`.
    * @throws {RangeError} When `maxModelCallsPerTurn` is not a positive integer.
    */
   public constructor(definition: AgentDefinition) {
@@ -88,6 +95,13 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
         throw new TypeError(`tool ${tool.name} uses the name of an enabled built-in tool`);
       }
       functionToolsByName.set(tool.name, tool);
+    }
+    if (definition.planModeEnabled === true && !enabledBuiltInTools.has("write_todos")) {
+      throw new TypeError("planModeEnabled requires the write_todos built-in tool");
+    }
+    const planningToolChoice: unknown = definition.planningToolChoice ?? "auto";
+    if (planningToolChoice !== "auto" && planningToolChoice !== "required") {
+      throw new TypeError(`planningToolChoice must be "auto" or "required", not ${String(planningToolChoice)}`);
     }
     const maxModelCallsPerTurn = definition.maxModelCallsPerTurn ?? defaultMaxModelCallsPerTurn;
     if (!Number.isSafeInteger(maxModelCallsPerTurn) || maxModelCallsPerTurn <= 0) {
@@ -120,11 +134,15 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     const unstoredToolResults = buildUnstoredToolResults(turn);
     const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
     const tools = isToolBudgetSpent ? [] : this.listOfferedTools(turn);
+    let toolChoice: ModelToolChoice = isToolBudgetSpent ? "none" : "auto";
+    if (!isToolBudgetSpent && this.definition.planningToolChoice === "required" && mustWritePlanFirst(turn, modelCallCount)) {
+      toolChoice = { toolName: "write_todos" };
+    }
     const request: ModelRequest = {
       instructions: await this.resolveInstructions(turn),
-      inputItems: pairToolCallsWithResults([...turn.messages.map(readStoredModelInputItem), ...unstoredToolResults]),
+      inputItems: pairToolCallsWithResults([...readStoredInputItemsWithPlanNote(turn), ...unstoredToolResults]),
       tools,
-      toolChoice: isToolBudgetSpent ? "none" : "auto",
+      toolChoice,
       settings: this.definition.modelSettings ?? {},
       metadata: {
         flowId: turn.flowId,
@@ -234,19 +252,24 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
   }
 
   private listOfferedTools(turn: AgentTurnContext): ModelToolDefinition[] {
-    const functionTools = [...this.functionToolsByName.values()].map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    }));
+    const isPlanning = turn.interactionMode === "planning";
     const enabledBuiltInTools = turn.enabledBuiltInTools ?? new Set<BuiltInTool>();
     const builtInTools = builtInToolDefinitions
       .filter((definition) => enabledBuiltInTools.has(definition.name))
+      .filter((definition) => !isPlanning || definition.name === "write_todos")
       .map((definition) => ({
         name: definition.name,
         description: definition.description,
         parameters: definition.parameters,
       }));
+    if (isPlanning) {
+      return builtInTools;
+    }
+    const functionTools = [...this.functionToolsByName.values()].map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
     return [...functionTools, ...builtInTools];
   }
 
@@ -272,12 +295,40 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     if (typeof instructions === "string") {
       return instructions;
     }
-    const resolved = await instructions({ flowId: turn.flowId, turnId: turn.turnId, attempt: turn.attempt });
+    const resolved = await instructions({
+      flowId: turn.flowId,
+      turnId: turn.turnId,
+      attempt: turn.attempt,
+      interactionMode: turn.interactionMode ?? "chat",
+      plan: turn.plan ?? null,
+    });
     if (typeof resolved !== "string") {
       throw new TypeError(`the instructions of agent ${this.definition.name} must resolve to a string`);
     }
     return resolved;
   }
+}
+
+/** A planning turn without a draft drafts one first; feedback on a draft may only answer. */
+function mustWritePlanFirst(turn: AgentTurnContext, modelCallCount: number): boolean {
+  return (
+    turn.interactionMode === "planning" &&
+    modelCallCount === 0 &&
+    turn.enabledBuiltInTools?.has("write_todos") === true &&
+    turn.plan?.status !== "draft"
+  );
+}
+
+function readStoredInputItemsWithPlanNote(turn: AgentTurnContext): ModelInputItem[] {
+  const items = turn.messages.map(readStoredModelInputItem);
+  const planNote = buildPlanNote(turn.plan, turn.interactionMode);
+  if (planNote === undefined) {
+    return items;
+  }
+  // Before the turn's messages, so a plan change rewrites only the turn's tail of the input.
+  const turnStart = turn.messages.findIndex((message) => message.turnId === turn.turnId);
+  items.splice(turnStart === -1 ? items.length : turnStart, 0, { type: "user_text", text: planNote });
+  return items;
 }
 
 /** Results of the turn's final records that no stored `tool_result` message holds yet, in deferral order. */

@@ -16,6 +16,8 @@ import type {
   AgentMessage,
   AgentMessageRole,
   AgentMessagesPage,
+  AgentPlan,
+  AgentPlanTask,
   AgentSessionStartInput,
   AgentSessionStatus,
   AgentSnapshot,
@@ -25,7 +27,12 @@ import type {
   AgentUsage,
   AgentUserMessage,
   AnswerQuestionRequest,
+  ExecutePlanRequest,
+  InteractionMode,
   ListAgentMessagesInput,
+  PlanExecutionRequest,
+  PlanStatus,
+  PlanTaskStatus,
   QuestionAnswer,
   ResolveInterruptInput,
   ToolCallCompleted,
@@ -57,6 +64,9 @@ const agentToolCallStatuses: readonly AgentToolCallRecordStatus[] = [
   "outcome_unknown",
 ];
 const agentInterruptKinds: readonly AgentInterruptKind[] = ["tool_approval", "question"];
+const interactionModes: readonly InteractionMode[] = ["chat", "planning", "executing"];
+const planStatuses: readonly PlanStatus[] = ["draft", "active", "completed", "cleared"];
+const planTaskStatuses: readonly PlanTaskStatus[] = ["pending", "in_progress", "completed"];
 
 class WireRecordReader {
   private readonly record: Readonly<Record<string, unknown>>;
@@ -140,6 +150,15 @@ class WireRecordReader {
     return value;
   }
 
+  public readEnumOrDefault<Literal extends string>(
+    field: string,
+    allowed: readonly Literal[],
+    defaultValue: Literal,
+  ): Literal {
+    const value = this.record[field];
+    return value === undefined || value === null ? defaultValue : this.readEnum(field, allowed);
+  }
+
   public readEnum<Literal extends string>(field: string, allowed: readonly Literal[]): Literal {
     const value = this.readString(field);
     if (!(allowed as readonly string[]).includes(value)) {
@@ -180,17 +199,21 @@ export function encodeAgentState(value: AgentState): unknown {
     active_turn_id: value.activeTurnId,
     next_message_sequence: value.nextMessageSequence,
     last_turn_error: value.lastTurnError,
+    interaction_mode: value.interactionMode ?? "chat",
   };
 }
 
 export function decodeAgentState(value: unknown): AgentState {
   const reader = new WireRecordReader(value, "AgentState");
+  const interactionMode = reader.readEnumOrDefault("interaction_mode", interactionModes, "chat");
   return {
     status: reader.readEnum("status", agentSessionStatuses),
     turnCount: reader.readInteger("turn_count"),
     activeTurnId: reader.readNullableString("active_turn_id"),
     nextMessageSequence: reader.readInteger("next_message_sequence"),
     lastTurnError: reader.readNullableString("last_turn_error"),
+    // Fields that plans added are omitted at their defaults, so a session without plans decodes to its 0.1.0 shape.
+    ...(interactionMode === "chat" ? {} : { interactionMode }),
   };
 }
 
@@ -366,12 +389,44 @@ export function decodeAgentUsage(value: unknown): AgentUsage {
 }
 
 export function encodeAgentUserMessage(value: AgentUserMessage): unknown {
-  return { text: value.text };
+  return { text: value.text, plan_mode: value.planMode ?? false };
 }
 
 export function decodeAgentUserMessage(value: unknown): AgentUserMessage {
   const reader = new WireRecordReader(value, "AgentUserMessage");
-  return { text: reader.readString("text") };
+  const planMode = reader.readBooleanOrDefault("plan_mode", false);
+  return { text: reader.readString("text"), ...(planMode ? { planMode } : {}) };
+}
+
+export function encodeAgentPlan(value: AgentPlan): unknown {
+  return {
+    revision: value.revision,
+    status: value.status,
+    tasks: value.tasks.map((task: AgentPlanTask) => ({ content: task.content, status: task.status })),
+    updated_at: value.updatedAt,
+  };
+}
+
+export function decodeAgentPlan(value: unknown): AgentPlan {
+  const reader = new WireRecordReader(value, "AgentPlan");
+  return {
+    revision: reader.readInteger("revision"),
+    status: reader.readEnum("status", planStatuses),
+    tasks: reader.readArrayOrEmpty("tasks").map((task): AgentPlanTask => {
+      const taskReader = new WireRecordReader(task, "AgentPlanTask");
+      return { content: taskReader.readString("content"), status: taskReader.readEnum("status", planTaskStatuses) };
+    }),
+    updatedAt: reader.readString("updated_at"),
+  };
+}
+
+export function encodePlanRevisionRequest(value: ExecutePlanRequest | PlanExecutionRequest): unknown {
+  return { revision: value.revision };
+}
+
+export function decodePlanRevisionRequest(value: unknown): PlanExecutionRequest {
+  const reader = new WireRecordReader(value, "PlanExecutionRequest");
+  return { revision: reader.readInteger("revision") };
 }
 
 export function encodeToolCallCompleted(value: ToolCallCompleted): unknown {
@@ -429,6 +484,7 @@ export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
     tool_calls: value.toolCalls.map(encodeAgentToolCall),
     usage: encodeAgentUsage(value.usage),
     queued_message_count: value.queuedMessageCount,
+    plan: value.plan == null ? null : encodeAgentPlan(value.plan),
   };
 }
 
@@ -441,6 +497,7 @@ export function decodeAgentSnapshot(value: unknown): AgentSnapshot {
     toolCalls: reader.readArray("tool_calls").map(decodeAgentToolCall),
     usage: decodeAgentUsage(reader.readObject("usage")),
     queuedMessageCount: reader.readIntegerOrDefault("queued_message_count", 0),
+    ...(reader.readObject("plan") == null ? {} : { plan: decodeAgentPlan(reader.readObject("plan")) }),
   };
 }
 
@@ -515,6 +572,17 @@ export const agentUserMessageCodec = snakeCaseJsonCodec(
   "AgentUserMessage",
   encodeAgentUserMessage,
   decodeAgentUserMessage,
+);
+export const agentPlanCodec = snakeCaseJsonCodec("AgentPlan", encodeAgentPlan, decodeAgentPlan);
+export const planExecutionRequestCodec = snakeCaseJsonCodec<PlanExecutionRequest>(
+  "PlanExecutionRequest",
+  encodePlanRevisionRequest,
+  decodePlanRevisionRequest,
+);
+export const executePlanRequestCodec = snakeCaseJsonCodec<ExecutePlanRequest>(
+  "ExecutePlanRequest",
+  encodePlanRevisionRequest,
+  decodePlanRevisionRequest,
 );
 export const toolCallCompletedCodec = snakeCaseJsonCodec(
   "ToolCallCompleted",

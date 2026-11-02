@@ -25,13 +25,18 @@ from dex_agents import (
     AgentEventType,
     AgentInterrupt,
     AgentMessage,
+    AgentPlan,
+    AgentPlanTask,
     AgentSessionStatus,
     AgentSnapshot,
     AgentState,
     AgentToolCall,
     AgentUsage,
+    InteractionMode,
     InterruptKind,
     MessageRole,
+    PlanStatus,
+    PlanTaskStatus,
     QuestionAnswer,
     ToolCallStatus,
     ToolEffect,
@@ -57,7 +62,7 @@ POLL_TIMEOUT = timedelta(seconds=1)
 # The TypeScript core's snapshot JSON test expects exactly this text.
 BROWSER_SNAPSHOT_JSON = (
     '{"state":{"status":"running_tools","turn_count":1,"active_turn_id":"turn-2",'
-    '"next_message_sequence":4,"last_turn_error":null},'
+    '"next_message_sequence":4,"last_turn_error":null,"interaction_mode":"executing"},'
     '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",'
     '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,'
     '"created_at":"2026-11-01T12:00:00.000Z"}],'
@@ -71,7 +76,9 @@ BROWSER_SNAPSHOT_JSON = (
     '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",'
     '"input_choices":["yes","no"],"input_allows_free_text":false}],'
     '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,'
-    '"reasoning_tokens":0},"queued_message_count":0}'
+    '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",'
+    '"tasks":[{"content":"Refund the order","status":"in_progress"}],'
+    '"updated_at":"2026-11-01T12:00:02.000Z"}}'
 )
 
 
@@ -392,6 +399,7 @@ def test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use() -> Non
             turn_count=1,
             active_turn_id="turn-2",
             next_message_sequence=4,
+            interaction_mode=InteractionMode.EXECUTING,
         ),
         messages=[
             AgentMessage(
@@ -439,11 +447,75 @@ def test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use() -> Non
             )
         ],
         usage=AgentUsage(model_calls=1, input_tokens=10, output_tokens=5),
+        plan=AgentPlan(
+            revision=2,
+            status=PlanStatus.ACTIVE,
+            tasks=[AgentPlanTask(content="Refund the order", status=PlanTaskStatus.IN_PROGRESS)],
+            updated_at="2026-11-01T12:00:02.000Z",
+        ),
     )
 
     snapshot_json = agent_snapshot_to_json(snapshot)
 
     assert json.dumps(snapshot_json, separators=(",", ":")) == BROWSER_SNAPSHOT_JSON
+
+
+async def test_snapshot_json_and_event_frames_carry_the_plan_through_an_executing_turn(
+    plan_harness: ScriptedAgentHarness,
+) -> None:
+    await plan_harness.stack.start_worker()
+    client = plan_harness.stack.client
+    session_id = plan_harness.new_session_id()
+    await plan_harness.sessions.start_session(session_id)
+    assert await plan_harness.sessions.send_user_message(
+        session_id, "plan stall ui-execution | finish up", plan_mode=True
+    )
+    await plan_harness.wait_for_turns(session_id, 1)
+    assert await plan_harness.sessions.execute_plan(session_id, 1)
+    gate = plan_harness.gate("ui-execution")
+    await gate.wait_until_reached()
+
+    opening = await read_agent_event_stream_snapshot(client, plan_harness.flow, session_id)
+    opening_json = opening.to_json()
+    assert json.loads(json.dumps(opening_json)) == opening_json
+    assert opening_json["snapshot"]["state"]["interaction_mode"] == "executing"
+    assert opening_json["snapshot"]["plan"] == {
+        "revision": 1,
+        "status": "active",
+        "tasks": [
+            {"content": "stall ui-execution", "status": "pending"},
+            {"content": "finish up", "status": "pending"},
+        ],
+        "updated_at": opening_json["snapshot"]["plan"]["updated_at"],
+    }
+    reading = asyncio.create_task(
+        _read_frames_until(
+            await stream_agent_event_frames(
+                client,
+                plan_harness.flow,
+                session_id,
+                resume_token=opening.resume_token,
+                poll_timeout=POLL_TIMEOUT,
+            ),
+            lambda data: data["type"] == AgentEventType.TURN_COMPLETED,
+        )
+    )
+    gate.release()
+    events = await reading
+
+    assert events[0].data["type"] == AgentEventType.TURN_STARTED
+    assert [
+        (event.data["type"], json.loads(event.data["payload"]))
+        for event in events
+        if event.data["type"].startswith("plan_")
+    ] == [
+        (AgentEventType.PLAN_EXECUTION_STARTED, {"revision": 1}),
+        (AgentEventType.PLAN_UPDATED, {"revision": 1, "status": "active", "task_count": 2}),
+        (AgentEventType.PLAN_UPDATED, {"revision": 2, "status": "completed", "task_count": 2}),
+    ]
+    assert AgentEventType.INTERRUPT_RAISED not in [event.data["type"] for event in events]
+    closing = await read_agent_event_stream_snapshot(client, plan_harness.flow, session_id)
+    assert closing.to_json()["snapshot"]["plan"]["status"] == "completed"
 
 
 def test_turn_numbers_accept_only_ascii_digits() -> None:

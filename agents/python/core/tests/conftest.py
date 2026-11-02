@@ -25,6 +25,8 @@ from dex_agents.testing import (
     InvocationLog,
     wait_for_agent_snapshot,
 )
+from tests.plan_agent import STATE_DIR_ENVIRONMENT_VARIABLE as PLAN_STATE_DIR_ENVIRONMENT_VARIABLE
+from tests.plan_agent import build_plan_agent_flow
 from tests.scripted_agent import (
     IDEMPOTENCY_KEY_LOG_NAME,
     INVOCATION_LOG_NAME,
@@ -39,6 +41,7 @@ from tests.stepwise_agent import build_stepwise_agent_flow
 CORE_DIR = Path(__file__).resolve().parents[1]
 WORKER_MODULE = "tests.scripted_worker"
 STEPWISE_WORKER_MODULE = "tests.stepwise_worker"
+PLAN_WORKER_MODULE = "tests.plan_worker"
 
 
 @dataclass
@@ -111,5 +114,21 @@ async def stepwise_harness(tmp_path: Path) -> AsyncIterator[ScriptedAgentHarness
         STEPWISE_WORKER_MODULE,
         worker_cwd=CORE_DIR,
         worker_env={STEPWISE_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+    ) as stack:
+        yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)
+
+
+@pytest_asyncio.fixture
+async def plan_harness(tmp_path: Path) -> AsyncIterator[ScriptedAgentHarness]:
+    """Starts a private engine for the Stepwise agent with plan mode."""
+    state_dir = tmp_path / "agent-state"
+    state_dir.mkdir()
+    flow = build_plan_agent_flow(state_dir)
+    async with AgentTestStack(
+        tmp_path,
+        [flow],
+        PLAN_WORKER_MODULE,
+        worker_cwd=CORE_DIR,
+        worker_env={PLAN_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)
