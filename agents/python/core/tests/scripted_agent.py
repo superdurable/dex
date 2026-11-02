@@ -23,6 +23,11 @@ from the user message:
   for two tool batches in the first two model calls, then answers or fails.
 * ``chain-reusing-ids ...`` does the same, but repeats the first batch's tool
   call IDs in the second batch.
+* ``call-incremental <tool> <json>`` asks for the call and stores its item at
+  once through ``ToolCallsRequested.new_messages``, which this runner may not do.
+
+The released 0.1.0 Worker imports this module too, so it uses only the 0.1.0
+API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools.
 
 Every tool accepts ``"gate"``, which waits at that ``FileGate`` first, and
 ``"fail_attempts"``, which raises on attempts up to that number.
@@ -33,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -62,6 +68,7 @@ from dex_agents.testing import FileGate, InvocationLog
 SCRIPTED_AGENT_FLOW_TYPE = "ScriptedAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SECONDS"
+BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
 INVOCATION_LOG_NAME = "invocations.log"
 IDEMPOTENCY_KEY_LOG_NAME = "idempotency-keys.log"
 MODEL_CALL_USAGE = AgentUsage(model_calls=1, input_tokens=10, output_tokens=5)
@@ -114,6 +121,15 @@ class ScriptedRunner(AgentFrameworkRunner):
             raise RuntimeError("scripted failure")
         if command.startswith(("call ", "call-then-fail ", "call-then-stall ")):
             return self._request_tool_calls(turn, command)
+        if command.startswith("call-incremental "):
+            requested = self._request_tool_calls(turn, command.replace("-incremental", "", 1))
+            assert isinstance(requested, ToolCallsRequested)
+            return ToolCallsRequested(
+                framework_run_state=requested.framework_run_state,
+                tool_calls=requested.tool_calls,
+                usage=requested.usage,
+                new_messages=[_assistant_text(command, "calling")],
+            )
         if command.startswith(("chain ", "chain-reusing-ids ")):
             return self._request_chain_batch(turn, command, [], batch_index=0, model_calls=1)
         raise ValueError(f"unknown scripted command {command!r}")
@@ -250,21 +266,30 @@ class ScriptedRunner(AgentFrameworkRunner):
 def build_scripted_agent_flow(
     state_dir: Path,
     interrupt_deadline: timedelta | None = None,
+    built_in_tool_names: Sequence[str] = (),
 ) -> AgentSessionFlow:
+    options: dict[str, Any] = {}
+    if built_in_tool_names:
+        # Imported here, so the released 0.1.0 Worker can load this module.
+        from dex_agents import BuiltInTool
+
+        options["built_in_tools"] = frozenset(BuiltInTool(name) for name in built_in_tool_names)
     return AgentSessionFlow(
         ScriptedRunner(state_dir),
         flow_type=SCRIPTED_AGENT_FLOW_TYPE,
         options=AgentSessionOptions(
-            tool_policies=TOOL_POLICIES, interrupt_deadline=interrupt_deadline
+            tool_policies=TOOL_POLICIES, interrupt_deadline=interrupt_deadline, **options
         ),
     )
 
 
 def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
     deadline_seconds = os.environ.get(INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE)
+    built_in_tool_names = os.environ.get(BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE, "")
     return build_scripted_agent_flow(
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
+        [name for name in built_in_tool_names.split(",") if name],
     )
 
 

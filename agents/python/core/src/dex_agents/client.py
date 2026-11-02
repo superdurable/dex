@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 from dex import AsyncClient, RpcLockConflictError, StartFlowOptions, StreamMessage
@@ -22,6 +23,7 @@ from dex_agents.values import (
     AgentSessionStartInput,
     AgentSnapshot,
     AgentUserMessage,
+    AnswerQuestionRequest,
     ListAgentMessagesRequest,
     ResolveInterruptRequest,
 )
@@ -59,8 +61,9 @@ class AgentSessionClient:
             client: An open ``AsyncClient`` whose Registry contains ``flow``.
                 The caller keeps ownership and closes it.
             flow: The registered ``AgentSessionFlow`` instance.
-            lock_conflict_retry_timeout: How long ``resolve_interrupt`` retries
-                an ``RpcLockConflictError``. Defaults to five seconds.
+            lock_conflict_retry_timeout: How long ``resolve_interrupt`` and
+                ``answer_question`` retry an ``RpcLockConflictError``. Defaults
+                to five seconds.
         """
         self._client = client
         self._flow = flow
@@ -150,13 +153,51 @@ class AgentSessionClient:
         request = ResolveInterruptRequest(
             interrupt_id=interrupt_id, approved=approved, rejection_message=rejection_message
         )
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.resolve_interrupt, session_id, request)
+        )
+
+    async def answer_question(self, session_id: str, interrupt_id: str, answer: str) -> bool:
+        """Answer one pending ``question`` interrupt.
+
+        The call retries ``RpcLockConflictError`` until
+        ``lock_conflict_retry_timeout`` passes. A retry is safe because a
+        conflicting call makes no change. Decline a question with
+        ``resolve_interrupt(..., approved=False)``.
+
+        Example:
+            >>> snapshot = await sessions.get_agent_snapshot("session-42")
+            >>> question = next(i for i in snapshot.pending_interrupts
+            ...                 if i.kind is InterruptKind.QUESTION)
+            >>> await sessions.answer_question("session-42", question.interrupt_id,
+            ...                                question.choices[0])
+
+        Args:
+            session_id: Running session.
+            interrupt_id: ``AgentInterrupt.interrupt_id`` of the question.
+            answer: Answer text. It must not be blank, and it must be one of
+                ``choices`` when the question does not allow free text.
+
+        Returns:
+            ``True`` when answered; ``False`` when the question is unknown,
+            already resolved, past its deadline, or not a question, or when the
+            answer is blank or not an allowed choice.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        request = AnswerQuestionRequest(interrupt_id=interrupt_id, answer=answer)
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(self._flow.answer_question, session_id, request)
+        )
+
+    async def _retry_lock_conflicts(self, invoke: Callable[[], Awaitable[bool]]) -> bool:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._lock_conflict_retry_timeout.total_seconds()
         while True:
             try:
-                return await self._client.invoke_rpc(
-                    self._flow.resolve_interrupt, session_id, request
-                )
+                return await invoke()
             except RpcLockConflictError:
                 if loop.time() >= deadline:
                     raise

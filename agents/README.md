@@ -15,7 +15,7 @@ adapter depends on the published core instead.
 
 | Package | Distribution | Framework |
 | --- | --- | --- |
-| [`python/core`](python/core) | [`dex-agents`](https://pypi.org/project/dex-agents/) (`dex_agents`) | Shared session Flow and `dex_agents.testing` |
+| [`python/core`](python/core) | [`dex-agents`](https://pypi.org/project/dex-agents/) (`dex_agents`) | Shared session Flow, Stepwise mode (`dex_agents.stepwise`), the LiteLLM model client (`dex_agents.litellm`, extra `dex-agents[litellm]`), and `dex_agents.testing` |
 | [`python/openai-agents`](python/openai-agents) | [`dex-agents-openai-agents`](https://pypi.org/project/dex-agents-openai-agents/) | OpenAI Agents SDK |
 | [`python/pydantic-ai`](python/pydantic-ai) | [`dex-agents-pydantic-ai`](https://pypi.org/project/dex-agents-pydantic-ai/) | Pydantic AI |
 | [`python/langgraph`](python/langgraph) | [`dex-agents-langgraph`](https://pypi.org/project/dex-agents-langgraph/) | LangChain `create_agent` and LangGraph |
@@ -42,6 +42,17 @@ every connection. See the
 [Python core](python/core/README.md#browser-streams).
 
 ## Installation
+
+Agents without a framework use Stepwise mode in the core package. Install
+the core with the LiteLLM model client:
+
+```bash
+pip install 'dex-agents[litellm]'
+```
+
+New features ship as modules of the existing packages. A dependency that only
+one module needs is an extra, such as `dex-agents[litellm]`, so no new
+package name is registered.
 
 Install an adapter with its framework. The Python adapter brings in
 `dex-agents` and the Dex SDK it supports:
