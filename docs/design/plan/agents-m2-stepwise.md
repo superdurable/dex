@@ -659,6 +659,43 @@ Locks and exactly-once:
 
 Adapters: nothing. Optional: implement `build_unfinished_turn_messages`.
 
+**As built (#1191).** The merged code differs from the text above in these
+ways, each covered by a test in both cores:
+
+- `RunModel` decides once, before its model call. A Step's Execute sees the
+  state loaded for its first attempt and retries reuse it, so a steer that
+  lands during a model call is invisible to that `RunModel`. The calls it
+  requested are cancelled one Step later: each tool Step checks the steer
+  flags before `tool_call_started`, and `ResumeTurn` cancels waiting
+  approvals, questions, and timers. The model sees the same results.
+- `ResumeTurn` cancels only the interrupts it removes under the lock, so an
+  answer or approval that committed first wins. A Step woken by
+  `ToolCallCancellations` decides from the steer flags, not from the message,
+  because tool call IDs repeat across turns and a cancellation can go
+  unconsumed. A tool that asks a question after a steer records the
+  cancellation instead of asking.
+- One predicate, `_is_cancellable_by_turn_control` /
+  `isCancellableByTurnControl`, decides what a control wake cancels.
+  `waiting_for_task` and a started task's `awaiting_answer` are never
+  cancelled (A8, owner decision 3).
+- With no active turn, `steer_user_message` with text queues the message like
+  `send_user_message`, which every Worker version waits on; by ID it returns
+  true and leaves the message queued.
+- `AgentState.accepts_turn_control` is set when a 0.2.0 Worker starts a turn
+  and cleared at every turn end. An earlier Worker drops it when it writes
+  `AgentState`, and `steer_user_message` and `cancel_turn` refuse a turn
+  without it. Call these RPCs only after every Worker runs 0.2.0 and every
+  turn active during the rollout has ended.
+- `cancel_turn` locks `TurnCancellationRequest`, so concurrent cancels apply
+  in order. `ResumeTurn` locks `PendingInterrupts` on every wake, because a
+  Step's locks are fixed by the movement that schedules it.
+- `steer_user_message` returns false when both or neither of `message_id`
+  and `text` are set. `turn_completed.message_count` excludes every leading
+  user message, since a steered turn starts with several.
+- A steered turn picks its interaction mode with the same rule as queued
+  messages (A6), and `execute_plan` returns false while a steered message is
+  pending.
+
 ### A6. Plans
 
 A plan is a short task list that the model replaces as a whole. Plan review
@@ -721,6 +758,31 @@ sequential main path, so no lock is needed. `execute_plan` writes only a
 Channel. Compaction never reads or writes `AgentPlan`. Adapters: optional.
 They expose `write_todos` like any built-in and honor `interaction_mode` to
 support plan mode; until they do, plan mode stays disabled for them.
+
+**As built (#1192, #1196).** The merged code differs from the text above in
+these ways, each covered by a test in both cores:
+
+- `execute_plan` takes a lock, and a `PendingPlanExecution` Attribute covers
+  the gap after `AwaitUserMessage` takes an approval and before its turn
+  starts. Without both, two concurrent calls, or a second call in that gap,
+  ran the plan twice.
+- `AgentDefinition.planning_tool_choice` is `auto` (default) or `required`.
+  With `auto`, a planning turn offers only `write_todos`, unforced, and a
+  text answer ends the turn without a draft. `required` forces `write_todos`
+  while no draft exists. Some models refuse a forced tool choice (Claude
+  Opus 5.5, Sonnet 5.5, Fable 5.1, and Anthropic extended thinking, including
+  a `reasoning_effort` that LiteLLM turns into thinking); a model client that
+  reports it through `supports_forced_tool_choice` makes `required` fail at
+  construction.
+- A non-`write_todos` call in a planning turn records "The tool call was not
+  run: a planning turn can only call write_todos."
+- Plan mode requires a runner with `supports_plan_mode` /
+  `supportsPlanMode`; the Flow constructor refuses it otherwise. A draft
+  makes turns planning only while `plan_mode_enabled` is on.
+- `plan_updated` is also written when an approval moves a draft to `active`.
+- An explicit `null` for `plan_mode` or `interaction_mode` decodes to the
+  default in both cores. TypeScript leaves out the plan fields that hold
+  their defaults when decoding; the wire JSON is unchanged.
 
 ### A7. Compaction
 
