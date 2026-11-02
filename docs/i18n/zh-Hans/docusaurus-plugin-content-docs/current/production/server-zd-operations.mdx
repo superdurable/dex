@@ -440,7 +440,8 @@ dexzd_hot_standby_lag_seconds > 5
 **dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
 服务，并短暂等待在途的提交完成，然后释放 lease，并继续作为 standby 运行。在释放之前完成的
 调用保留原来的结果。释放时仍未结束的调用立即返回 **UNAVAILABLE**，客户端会在新的 active
-进程上重试。正在执行任务的 pull Worker 会先完成这个任务，再重新连接。同一个 node ID
+进程上重试。正在执行任务的 pull Worker 在任务结束后重新连接。释放之后才到达的结果不会被
+记录，这个 Step 会再次分派。同一个 node ID
 的另一个进程随即可以拿到 lease，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
 **standby.stepDownHoldOff**，才会再次竞争 lease。如果这段时间内没有其他进程接管，它会把
 lease 拿回来。**standby.mode** 为 **hot** 时，它在等待期间作为[热 standby](#hot-standby)

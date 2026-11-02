@@ -522,8 +522,10 @@ lease. The process stops serving and waits briefly for in-flight commits. Then
 it releases the lease and keeps running as a standby. Calls that finish before
 the release keep their answers. Calls still open at the release answer
 **UNAVAILABLE** at once, so clients retry them on the new active process. A pull
-Worker that runs a task finishes it and then reconnects. Another process of the same node ID can take the lease at once, as after a
-graceful shutdown. The stepped-down process waits for a hold-off,
+Worker that runs a task reconnects when the task ends. A result that arrives
+after the release is not recorded, so the Step is dispatched again. Another
+process of the same node ID can take the lease at once, as after a graceful
+shutdown. The stepped-down process waits for a hold-off,
 **standby.stepDownHoldOff**, before it competes for the lease again. If no other
 process takes over in that time, it takes the lease back. With **standby.mode**
 set to **hot**, it follows the log as a [hot standby](#hot-standby) while it

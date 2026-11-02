@@ -59,7 +59,7 @@ pub(crate) use search_projection::SearchOutboxWatermarks;
 
 use attribute_sync::{AttributeStores, AttributeSyncService, AttributeSyncStart};
 use bounded_teardown::BoundedTeardown;
-use grpc_server::{GrpcInstancePhase, GrpcServer, GrpcSettings};
+use grpc_server::{GrpcServer, GrpcSettings, PublicServices};
 pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
 use node_lifecycle::{
     AdministrationRequest, HeldNodeLease, LifecycleActiveNodeAdministration, NodeLifecycle,
@@ -244,7 +244,7 @@ pub(crate) async fn start_server(
         health,
         lease_validity_deadline: lease_validity_deadline.clone(),
     };
-    let grpc = GrpcServer::start(&grpc_settings, GrpcInstancePhase::Standby);
+    let grpc = GrpcServer::start_standby(&grpc_settings);
     let lease_watchdog = match lease_expiry_response {
         LeaseExpiryResponse::ExitProcess => {
             match LeaseValidityWatchdog::start(
@@ -710,19 +710,20 @@ impl ServerNode {
         }
     }
 
-    /// Moves the period's public services into `grpc`'s gates, before the serving instance shares them.
-    fn activate_public_services(&mut self, grpc: &GrpcServer) {
+    /// Takes the period's public services for its serving instance, which serves them from its start.
+    fn take_public_services(&mut self, max_message_bytes: usize) -> PublicServices {
         let flow_service = self
             .flow_service
             .take()
-            .expect("a serving period activates its public services once");
-        let worker_task_service =
-            WorkerTaskServiceServer::new(self.dispatch.service_for_tenant(DEFAULT_TENANT_ID))
-                .max_decoding_message_size(grpc.max_message_bytes)
-                .max_encoding_message_size(grpc.max_message_bytes);
-        grpc.flow_service_gate
-            .activate(flow_service.into_server(grpc.max_message_bytes));
-        grpc.worker_task_service_gate.activate(worker_task_service);
+            .expect("a serving period hands over its public services once");
+        PublicServices {
+            flow_service: flow_service.into_server(max_message_bytes),
+            worker_task_service: WorkerTaskServiceServer::new(
+                self.dispatch.service_for_tenant(DEFAULT_TENANT_ID),
+            )
+            .max_decoding_message_size(max_message_bytes)
+            .max_encoding_message_size(max_message_bytes),
+        }
     }
 
     /// Serves until shutdown, a node stop, or a step down; answers describe and epoch-mismatched step downs meanwhile.
@@ -760,7 +761,7 @@ impl ServerNode {
             if let Some(step_down) = request.answer_description(&self.held_lease)
                 && let Some(step_down) = step_down.check_precondition(&self.held_lease)
             {
-                // That instance retires within 250 ms of a takeover and would cut a longer answer.
+                // That instance retires at a takeover and would cut a longer answer.
                 if step_down.is_on_standby_instance() {
                     step_down.refuse_not_active(STANDBY_INSTANCE_STEP_DOWN_REFUSAL);
                     continue;

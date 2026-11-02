@@ -82,9 +82,7 @@ impl HeldCall {
         Self::spawn(async move { client.get_attributes(request).await.map(drop) })
     }
 
-    /// Starts a transactional InvokeRPC of `flow_id` at `address`, which a [`HeldRpcWorker`] answers.
-    ///
-    /// The server runs a transactional RPC as a task that a step down drains before its release.
+    /// Starts a transactional InvokeRPC of `flow_id` at `address`; a step down drains its task.
     pub(super) fn invoke_held_rpc(address: SocketAddr, flow_id: &str) -> Self {
         let request = InvokeRpcRequest {
             flow_id: flow_id.to_owned(),

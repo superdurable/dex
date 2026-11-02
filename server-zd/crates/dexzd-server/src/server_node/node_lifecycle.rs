@@ -37,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 use self::active_node_requests::PendingStepDownAnswer;
 use self::standby_status::{StandbyAcquisitionDelay, StandbyStatusPublisher};
 use super::bounded_teardown::BoundedTeardown;
-use super::grpc_server::{GrpcInstancePhase, GrpcServer, GrpcSettings};
+use super::grpc_server::{GrpcServer, GrpcSettings, PublicServices};
 use super::{
     EngineStart, GRPC_DRAIN_BUDGET, PeriodEnd, PeriodStopKind, ServerNode, ServerNodeStart,
     embedded_s3_stop_budget, until_cancelled, wait_for_cancellation,
@@ -161,8 +161,12 @@ impl NodeLifecycle {
         match started {
             Ok(Some(mut node)) => {
                 let mut grpc = grpc;
-                node.activate_public_services(&grpc);
-                let retirement = tokio::spawn(swap_in_serving_instance(&mut grpc, &grpc_settings));
+                let services = node.take_public_services(grpc_settings.max_message_bytes);
+                let retirement = tokio::spawn(swap_in_serving_instance(
+                    &mut grpc,
+                    &grpc_settings,
+                    services,
+                ));
                 Ok(Some(Self {
                     process,
                     grpc_settings,
@@ -229,10 +233,7 @@ impl NodeLifecycle {
             let stopped = node.stop(&mut grpc, PeriodStopKind::StepDown).await;
             // The old instance keeps the step down call's connection until the answer goes out.
             let (answered, answer_sent) = oneshot::channel();
-            let retiring = std::mem::replace(
-                &mut grpc,
-                GrpcServer::start(&grpc_settings, GrpcInstancePhase::Standby),
-            );
+            let retiring = std::mem::replace(&mut grpc, GrpcServer::start_standby(&grpc_settings));
             prune_finished_retirements(&mut retirements).await;
             let retirement = tokio::spawn(retiring.retire_after(answer_sent, GRPC_DRAIN_BUDGET));
             retirements.push(retirement);
@@ -281,11 +282,14 @@ impl NodeLifecycle {
             .await
             {
                 Ok(Some(mut serving)) => {
-                    serving.activate_public_services(&grpc);
+                    let services = serving.take_public_services(grpc_settings.max_message_bytes);
                     node = serving;
                     prune_finished_retirements(&mut retirements).await;
-                    let retirement =
-                        tokio::spawn(swap_in_serving_instance(&mut grpc, &grpc_settings));
+                    let retirement = tokio::spawn(swap_in_serving_instance(
+                        &mut grpc,
+                        &grpc_settings,
+                        services,
+                    ));
                     retirements.push(retirement);
                 }
                 Ok(None) => break (Ok(()), BoundedTeardown::start()),
@@ -650,20 +654,18 @@ async fn wait_refusing_requests(
     }
 }
 
-/// Replaces the standby instance with a serving one; returns the standby instance's retirement to spawn.
-///
-/// Activate the period's public services on `grpc` first: until it retires, the standby instance
-/// still accepts connections, and the shared gates serve their calls.
+/// Replaces the standby instance with one serving `services`; returns the standby instance's retirement to spawn.
 fn swap_in_serving_instance(
     grpc: &mut GrpcServer,
     grpc_settings: &GrpcSettings,
+    services: PublicServices,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
-    let serving_instance = GrpcServer::start_serving_sharing_gates(grpc_settings, grpc);
-    let standby_instance = std::mem::replace(grpc, serving_instance);
+    let standby_instance =
+        std::mem::replace(grpc, GrpcServer::start_serving(grpc_settings, services));
+    // It serves no public call, so no Worker stream or long poll is cut when it closes.
+    standby_instance.refuse_public_calls_as_replaced();
     // A standby instance owes no step down answer, so it may send GOAWAY at once.
-    let (answered, answer_sent) = oneshot::channel();
-    drop(answered);
-    standby_instance.retire_after(answer_sent, GRPC_DRAIN_BUDGET)
+    standby_instance.retire_now(GRPC_DRAIN_BUDGET)
 }
 
 /// Awaits the retirements that already ended, so the list holds only running ones.
