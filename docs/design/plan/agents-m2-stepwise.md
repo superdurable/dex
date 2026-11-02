@@ -1,6 +1,6 @@
 # Agents M2: Built-in Loop, Interrupts, Steering, and Compaction
 
-Status: proposed. Parent design: [long-running-agents.md](../long-running-agents.md)
+Status: phase 1 and phase 2 merged (2026-11-02); release, example, and skill pending. Parent design: [long-running-agents.md](../long-running-agents.md)
 ([#1132](https://github.com/superdurable/dex/pull/1132)), milestone M2.
 Current contract: [agent-framework-adapters.md](agent-framework-adapters.md).
 Direction: the [owner review of #1132](https://github.com/superdurable/dex/pull/1132#pullrequestreview-5724027276)
@@ -833,6 +833,37 @@ earlier turns only.
 Exactly-once: the summary commits with the Step, so a crash reruns only the
 summary call. Locks: none; only `CompactContext` writes `ContextSummary`.
 Adapters: optional; an adapter without the capability never compacts.
+
+**As built (#1194).** The merged code differs from the text above in these
+ways, each covered by a test in both cores:
+
+- `RunModel` still loads the whole message map. Per-movement instance loads
+  were measured to cost more run budget per model call as the window grows.
+  The whole map also gives `turn_completed.message_count` the turn's full
+  count after a mid-turn compaction, so it agrees with `turn_steered` and
+  `turn_cancelled`.
+- `RunModel` checks turn control first, then compaction. It sets
+  `compacting_context` in its own commit, because `CompactContext` commits
+  only once. `RecordTurnFailure` accepts `CompactContextInput` or null.
+- Each `CompactContext` attempt emits a `chat` span with usage, like
+  `RunModel`.
+- `ContextSummaryRequest.input_token_budget` carries the policy's window.
+  When the summary request plus the definition's `max_output_tokens` would
+  exceed it, Stepwise leaves out the oldest messages, up to a cut that never
+  splits a model response or separates a tool call from its result, and says
+  so with "[Dex] <n> earlier messages did not fit in this request and are
+  left out."
+- Compaction cannot run while a tool call is `waiting_for_task` or awaiting
+  approval, because `RunModel` runs only when every record of the turn is
+  final.
+- Measured bound (A7-5): a turn with a 100-character question and a
+  600-character answer stores about 2.9 KB of messages and uses about 5.2 KB
+  of run budget with compaction; 64 MiB holds about 13,000 such turns. The
+  2,000-turn tests run nightly; a 300-turn guard runs on every PR.
+- With dexcli 1.30.0, writes from a TypeScript Worker were not counted
+  against `limits.maxFlowStateBytes` for small and medium values, while a
+  Python Worker crossed the budget where expected. Both cores store the same
+  bytes. This is outside the agents packages and is tracked separately.
 
 ### A8. Tool tasks
 
