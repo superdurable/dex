@@ -14,13 +14,9 @@ Client calls Server to start and interact with Flow runs. Dex Server dispatches 
 
 ### No Replay
 
-Unlike most durable execution frameworks, **Dex takes a fundamentally different approach with its non-replay-based programming model**. It eliminates entire classes of footguns—such as replay-induced non-determinism errors and the need for Continue-As-New—by design, rather than forcing developers to work around them.
+Dex is created by **a core contributor to Uber Cadence&Temporal, and the original creator of iWF**—bringing deep, firsthand experience from generations of durable execution technology.
 
-Dex is created by **a core contributor to Uber Cadence&Temporal, and the original creator of iWF**—bringing deep, firsthand experience from multiple generations of durable execution technology.
-
-Dex is an evolution of a battle-tested architecture, shaped by years of building and operating durable execution systems at scale.
-
-Learn more [about Dex & SuperDurable](https://superdurable.io/about/).
+Unlike most durable execution frameworks, Dex takes a fundamentally different approach as **No Replay**. 
 
 So why **"No Replay"** Matters?
 
@@ -32,7 +28,8 @@ Using our unique structural programming model:
 5. Data native -- explicit data storage primitives as "data attributes" (Note: no execution runs without data)
 6. A large & growing [OSS library](https://github.com/superdurable/dex-connectors-library) to reuse, from prototype to production, as Step or Trigger.
 7. Somehow visualizable (as long as code is written within certain format)
-   
+
+Learn more [about Dex & SuperDurable](https://superdurable.io/about/).
 
 ### Zero Dependencies
 
