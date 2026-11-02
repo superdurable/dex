@@ -663,7 +663,10 @@ standby:
   `stepDownHoldOff` must exceed `laggingTakeoverDelay` plus `heldLeasePollInterval`.
 - A standby's gRPC instance closes each connection after 3 s, with a 1 s grace, so a client that
   reached a standby reconnects. At a takeover the process starts a serving instance without that
-  limit and retires the standby instance. A step down that reaches the retiring standby instance
+  limit, whose public services serve from its first call, and retires the standby instance: that
+  instance sends GOAWAY at once and never serves a public call, so no Worker stream or long poll
+  is accepted where it would be cut. A public call that still reaches it answers UNAVAILABLE "this
+  connection is closing; reconnect and retry the call". A step down that reaches the retiring standby instance
   answers `NotActive` at once and asks the caller to retry, because that instance would close the
   connection before a step down could answer.
 - FlowService and WorkerTaskService calls answer UNAVAILABLE "the node lease is not valid", and
@@ -676,10 +679,20 @@ standby:
 
 A step down stops the public services, closes waiting ReadStream calls, and waits up to 4 s for
 in-flight RPCs. It then stops every component of the serving period and releases the lease, so
-open public calls never delay the release; the lease gate refuses their answers. The process starts
-a new standby gRPC instance and, before it reopens the local store as a standby or to take the lease
-back, waits up to 4 s for public calls whose responses are still being written and up to 5 s for
-the old store to close. Meanwhile it refuses admin calls as not active. The old
+open public calls never delay the release; calls that finish before it keep their answers. Right
+after the release, every FlowService and WorkerTaskService call whose handler still runs answers
+UNAVAILABLE ("the server process stopped serving during the call"), which drops its handles on the
+local store. A PollWorkerTask response stream that has already started stays open until its task
+ends or the old instance retires; it holds no store handle, and the stopped dispatch hands out no
+new task. A task result that arrives after the release is not recorded, so the Step is dispatched
+again. Later public calls on the old instance answer UNAVAILABLE "this server process stepped
+down; retry the call". AdminService calls, the step down included, keep running. The process starts a new standby gRPC instance and, before it reopens the
+local store as a standby or competes for the lease again, waits up to 4 s for public calls whose
+responses are still being written and up to 60 s for the old store to close. Meanwhile it refuses
+admin calls as not active. A task that still holds the old store after 60 s is stuck: unless
+another process has already taken over, the process answers the step down with `Internal`. Either
+way it then exits 1 without competing for the lease, so a restart releases the store and another
+process may take over meanwhile. The old
 instance keeps the connection of the step down call until its answer is sent, then sends GOAWAY
 after 250 ms so clients reconnect through the Service. During the hold-off the process watches the
 lease and answers as soon as another process takes over. After the hold-off it competes again and

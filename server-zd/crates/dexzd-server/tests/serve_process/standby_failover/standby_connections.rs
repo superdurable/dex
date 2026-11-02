@@ -32,7 +32,10 @@ use tonic::codegen::Service;
 use tonic::codegen::http::Uri;
 use tonic::transport::{Channel, Endpoint};
 
-use super::held_calls::{HELD_CALL_START_WINDOW, HeldCall, start_flow_with_hard_delete_attribute};
+use super::held_calls::{
+    HELD_CALL_START_WINDOW, HeldCall, STOPPED_SERVING_REFUSAL,
+    start_flow_with_hard_delete_attribute,
+};
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
     ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HELD_READ_DELAY, HELD_READ_FLOW_ID,
@@ -144,7 +147,7 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         .object_store(FIRST)
         .inject(ObjectStoreFault::HardDeleteLatency(HELD_READ_DELAY))
         .await;
-    // Open across the whole step down, it must delay neither the handover nor the reopened store.
+    // Open when the step down starts, it must delay neither the handover nor the reopened store.
     let held_read =
         HeldCall::read_hard_delete_attribute(group.api_address(FIRST), HELD_READ_FLOW_ID);
     tokio::time::sleep(HELD_CALL_START_WINDOW).await;
@@ -158,19 +161,19 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    let served_at = Instant::now();
-    let served_after = served_at - stepped_down_at;
-    let (held_answer, held_read_ended_at) = held_read.finish().await;
+    let served_after = stepped_down_at.elapsed();
+    let (held_answer, _) = held_read.finish().await;
     assert!(
         served_after <= STEP_DOWN_SERVED_BOUND,
         "an open read held up the handover: served {served_after:?} after the step down"
     );
-    assert!(
-        held_read_ended_at > served_at,
-        "the read must stay open until the takeover, or it proves nothing"
-    );
-    let refusal = held_answer.expect_err("a read that outlives the node lease is refused");
+    let refusal = held_answer.expect_err("the step down ends a read still open at the release");
     assert_eq!(refusal.code(), Code::Unavailable, "{refusal}");
+    // Only the stopping period answers so; the read was therefore open at the release.
+    assert!(
+        refusal.message().contains(STOPPED_SERVING_REFUSAL),
+        "the read must stay open until the step down ends it, or it proves nothing: {refusal}"
+    );
     let hot_after = group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
     group.object_store(FIRST).clear_faults().await;
     let log = group.process_log(FIRST);
@@ -237,8 +240,9 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
             .await
         {
             Ok(_) => break,
+            // The replaced standby instance closes at once; a describe that races its GOAWAY retries.
             Err(status) => assert!(
-                status.code() == Code::FailedPrecondition
+                (status.code() == Code::FailedPrecondition || is_transport_failure(&status))
                     && described_at.elapsed() < TAKEOVER_BUDGET,
                 "the standby never took over: {status}"
             ),
@@ -255,7 +259,7 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
         .await
         .expect("the first step down task does not panic")
         .expect("the first active steps down");
-    // A call that misses the 250 ms window steps down through the serving instance instead.
+    // A call that misses the retiring instance, which closes at once, steps down through the serving instance.
     let path = match answer {
         Err(status)
             if status.code() == Code::FailedPrecondition
@@ -280,10 +284,13 @@ async fn step_down_through_a_retiring_standby_instance_is_answered() {
                 ),
                 "{outcome:?}"
             );
+            // Stepped down within milliseconds of serving, it may serve too briefly for the router.
+            group.note_serving_period(SECOND);
             assert_eq!(
                 group.wait_for_takeover(SECOND, TAKEOVER_BUDGET).await,
                 FIRST
             );
+            group.wait_for_hot_standby(SECOND, STANDBY_BUDGET).await;
             "stepped down through the serving instance"
         }
         Err(status) => panic!("the step down answer was lost after {answered_after:?}: {status}"),
@@ -406,6 +413,11 @@ async fn collect_reads(mut readers: JoinSet<usize>) -> usize {
         reads += answered.expect("a reader does not panic");
     }
     reads
+}
+
+/// Returns whether the connection, not the server, failed the call, as when it raced a GOAWAY.
+fn is_transport_failure(status: &tonic::Status) -> bool {
+    std::error::Error::source(status).is_some_and(|source| source.is::<tonic::transport::Error>())
 }
 
 fn summary_request() -> GetFlowSummaryRequest {

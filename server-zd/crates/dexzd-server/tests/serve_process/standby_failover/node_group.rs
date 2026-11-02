@@ -190,6 +190,8 @@ pub(crate) struct NodeGroup {
     /// Each SIGKILL or permitted exit lets one later process stop once on that process's late batch.
     permitted_stale_batch_stops: usize,
     stale_batch_restarts: usize,
+    /// Serving periods that tests saw and the router may have missed.
+    serving_periods_seen_by_tests: usize,
     /// Whether every slot keeps the log for a day, so no EpochStart is cleaned up.
     is_log_complete: bool,
 }
@@ -264,6 +266,7 @@ impl NodeGroup {
             lease_history: LeaseHistory::start(inspector),
             permitted_stale_batch_stops: 0,
             stale_batch_restarts: 0,
+            serving_periods_seen_by_tests: 0,
             is_log_complete: settings
                 .iter()
                 .all(|slot| slot.log_deletion_delay == LOG_DELETION_DELAY),
@@ -309,6 +312,14 @@ impl NodeGroup {
                     .and_then(|value| value.parse().ok())
             })
             .unwrap_or_else(|| panic!("the takeover logged no replay:\n{takeover}"))
+    }
+
+    /// Records a serving period of `slot` that the test saw and the router may miss, as a short one.
+    ///
+    /// Its standby write check restarts when the slot is next confirmed a standby.
+    pub(crate) fn note_serving_period(&mut self, slot: usize) {
+        self.slots[slot].standby_writes_baseline = None;
+        self.serving_periods_seen_by_tests += 1;
     }
 
     /// Records `slot`'s write requests once its process is a confirmed standby.
@@ -808,6 +819,7 @@ impl NodeGroup {
             router,
             lease_history,
             stale_batch_restarts,
+            serving_periods_seen_by_tests,
             is_log_complete,
             ..
         } = self;
@@ -823,8 +835,11 @@ impl NodeGroup {
         };
         assert!(
             are_periods_within_epochs
-                && lease.acquisitions <= serving.serving_periods + stale_batch_restarts,
-            "{} EpochStarts in the log for {} observed serving periods and {stale_batch_restarts} late-batch restarts",
+                && lease.acquisitions
+                    <= serving.serving_periods
+                        + stale_batch_restarts
+                        + serving_periods_seen_by_tests,
+            "{} EpochStarts in the log for {} observed serving periods, {stale_batch_restarts} late-batch restarts, and {serving_periods_seen_by_tests} periods seen by the test",
             lease.acquisitions,
             serving.serving_periods
         );

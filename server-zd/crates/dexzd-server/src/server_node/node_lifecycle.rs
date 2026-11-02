@@ -10,6 +10,8 @@
 
 mod active_node_requests;
 mod lease_holder_id_source;
+#[cfg(test)]
+mod local_store_close_tests;
 mod standby_status;
 
 pub(super) use active_node_requests::{
@@ -35,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 use self::active_node_requests::PendingStepDownAnswer;
 use self::standby_status::{StandbyAcquisitionDelay, StandbyStatusPublisher};
 use super::bounded_teardown::BoundedTeardown;
-use super::grpc_server::{GrpcInstancePhase, GrpcServer, GrpcSettings};
+use super::grpc_server::{GrpcServer, GrpcSettings, PublicServices};
 use super::{
     EngineStart, GRPC_DRAIN_BUDGET, PeriodEnd, PeriodStopKind, ServerNode, ServerNodeStart,
     embedded_s3_stop_budget, until_cancelled, wait_for_cancellation,
@@ -55,7 +57,8 @@ const SUCCESSOR_READ_TIMEOUT: Duration = Duration::from_secs(1);
 const TAKEOVER_RETRY_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const TAKEOVER_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// Bounds the wait for a stepped-down period's local store to close before this process reopens it.
-const LOCAL_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(5);
+/// Twice the 30 s object storage request timeout, so a task stuck in one request lets go first.
+const LOCAL_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(60);
 
 /// Everything one process keeps across serving periods.
 pub(super) struct ProcessParts {
@@ -76,6 +79,14 @@ pub(super) struct ProcessParts {
 struct StandbyEntry {
     hold_off_until: Option<Instant>,
     pending: Option<PendingStepDownAnswer>,
+}
+
+/// How the wait for a stepped-down period's local store to close ended.
+enum LocalStoreCloseOutcome {
+    Closed,
+    /// A handle still held the store after [`LOCAL_STORE_CLOSE_BUDGET`].
+    StillOpen,
+    Cancelled,
 }
 
 /// The serving process, which steps down to standby on request and serves again later.
@@ -148,9 +159,14 @@ impl NodeLifecycle {
         )
         .await;
         match started {
-            Ok(Some(node)) => {
+            Ok(Some(mut node)) => {
                 let mut grpc = grpc;
-                let retirement = tokio::spawn(swap_in_serving_instance(&mut grpc, &grpc_settings));
+                let services = node.take_public_services(grpc_settings.max_message_bytes);
+                let retirement = tokio::spawn(swap_in_serving_instance(
+                    &mut grpc,
+                    &grpc_settings,
+                    services,
+                ));
                 Ok(Some(Self {
                     process,
                     grpc_settings,
@@ -217,10 +233,7 @@ impl NodeLifecycle {
             let stopped = node.stop(&mut grpc, PeriodStopKind::StepDown).await;
             // The old instance keeps the step down call's connection until the answer goes out.
             let (answered, answer_sent) = oneshot::channel();
-            let retiring = std::mem::replace(
-                &mut grpc,
-                GrpcServer::start(&grpc_settings, GrpcInstancePhase::Standby),
-            );
+            let retiring = std::mem::replace(&mut grpc, GrpcServer::start_standby(&grpc_settings));
             prune_finished_retirements(&mut retirements).await;
             let retirement = tokio::spawn(retiring.retire_after(answer_sent, GRPC_DRAIN_BUDGET));
             retirements.push(retirement);
@@ -247,7 +260,7 @@ impl NodeLifecycle {
                 hold_off_until: Some(Instant::now() + hold_off),
                 pending,
             };
-            let has_closed = wait_for_local_store_close(
+            let store_close = wait_for_local_store_close(
                 stopped.public_calls_ended,
                 &stopped.local_store_close_waiter,
                 &process,
@@ -256,11 +269,8 @@ impl NodeLifecycle {
                 &mut cancellation,
             )
             .await;
-            if !has_closed {
-                if let Some(waiting) = entry.pending {
-                    waiting.answer_unknown("the process stopped during the step down".to_owned());
-                }
-                break (Ok(()), BoundedTeardown::start());
+            if let Some(outcome) = end_after_local_store_close(store_close, &mut entry.pending) {
+                break (outcome, BoundedTeardown::start());
             }
             match acquire_serving_node(
                 &process,
@@ -271,11 +281,15 @@ impl NodeLifecycle {
             )
             .await
             {
-                Ok(Some(serving)) => {
+                Ok(Some(mut serving)) => {
+                    let services = serving.take_public_services(grpc_settings.max_message_bytes);
                     node = serving;
                     prune_finished_retirements(&mut retirements).await;
-                    let retirement =
-                        tokio::spawn(swap_in_serving_instance(&mut grpc, &grpc_settings));
+                    let retirement = tokio::spawn(swap_in_serving_instance(
+                        &mut grpc,
+                        &grpc_settings,
+                        services,
+                    ));
                     retirements.push(retirement);
                 }
                 Ok(None) => break (Ok(()), BoundedTeardown::start()),
@@ -640,19 +654,18 @@ async fn wait_refusing_requests(
     }
 }
 
-/// Replaces the standby instance with a serving one; returns the standby instance's retirement to spawn.
+/// Replaces the standby instance with one serving `services`; returns the standby instance's retirement to spawn.
 fn swap_in_serving_instance(
     grpc: &mut GrpcServer,
     grpc_settings: &GrpcSettings,
+    services: PublicServices,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
-    let standby_instance = std::mem::replace(
-        grpc,
-        GrpcServer::start(grpc_settings, GrpcInstancePhase::Serving),
-    );
+    let standby_instance =
+        std::mem::replace(grpc, GrpcServer::start_serving(grpc_settings, services));
+    // It serves no public call, so no Worker stream or long poll is cut when it closes.
+    standby_instance.refuse_public_calls_as_replaced();
     // A standby instance owes no step down answer, so it may send GOAWAY at once.
-    let (answered, answer_sent) = oneshot::channel();
-    drop(answered);
-    standby_instance.retire_after(answer_sent, GRPC_DRAIN_BUDGET)
+    standby_instance.retire_now(GRPC_DRAIN_BUDGET)
 }
 
 /// Awaits the retirements that already ended, so the list holds only running ones.
@@ -670,7 +683,11 @@ async fn prune_finished_retirements(retirements: &mut Vec<JoinHandle<()>>) {
 /// Waits until the stepped-down period's public calls end and nothing holds its local store, so
 /// reopening it finds no lock.
 ///
-/// Returns `false` when `cancellation` arrives first; after the budgets it returns `true` anyway.
+/// Returns [`LocalStoreCloseOutcome::Closed`] once nothing holds the store,
+/// [`LocalStoreCloseOutcome::Cancelled`] when `cancellation` arrives first, and
+/// [`LocalStoreCloseOutcome::StillOpen`] when a handle still holds it after
+/// [`LOCAL_STORE_CLOSE_BUDGET`]; reopening it would then fail, so the caller must not compete for
+/// the lease.
 async fn wait_for_local_store_close(
     public_calls_ended: impl std::future::Future<Output = ()>,
     waiter: &LocalStoreCloseWaiter,
@@ -678,24 +695,30 @@ async fn wait_for_local_store_close(
     requests: &mut mpsc::Receiver<AdministrationRequest>,
     entry: &mut StandbyEntry,
     cancellation: &mut watch::Receiver<bool>,
-) -> bool {
+) -> LocalStoreCloseOutcome {
     let closed = async {
         // Public calls on a stepped-down instance still hold the local store open.
         if tokio::time::timeout(GRPC_DRAIN_BUDGET, public_calls_ended)
             .await
             .is_err()
         {
-            tracing::warn!("stepped-down public calls are still open; reopening the store anyway");
+            tracing::warn!(
+                "stepped-down public calls are still open; waiting for the local store to close"
+            );
         }
-        if !waiter.wait_until_closed(LOCAL_STORE_CLOSE_BUDGET).await {
-            tracing::warn!("the stepped-down local store is still open; standing by anyway");
-        }
+        waiter.wait_until_closed(LOCAL_STORE_CLOSE_BUDGET).await
     };
     let mut closed = std::pin::pin!(closed);
     loop {
         tokio::select! {
-            () = &mut closed => return true,
-            () = wait_for_cancellation(cancellation) => return false,
+            is_closed = &mut closed => {
+                return if is_closed {
+                    LocalStoreCloseOutcome::Closed
+                } else {
+                    LocalStoreCloseOutcome::StillOpen
+                };
+            }
+            () = wait_for_cancellation(cancellation) => return LocalStoreCloseOutcome::Cancelled,
             // A silent process would leave describe and a retried step down waiting.
             Some(request) = requests.recv() => {
                 refuse_while_standing_by(
@@ -707,6 +730,41 @@ async fn wait_for_local_store_close(
             () = tokio::time::sleep(SUCCESSOR_POLL_INTERVAL), if entry.pending.is_some() => {
                 answer_on_successor(process, &mut entry.pending, None).await;
             }
+        }
+    }
+}
+
+/// Answers a pending step down from how the wait for the stepped-down store ended.
+///
+/// Returns `None` when the store closed, so the process competes for the lease again;
+/// `Some(Ok(()))` when cancellation stopped the wait, so the process stops; and
+/// `Some(Err(_))` when a handle still holds the store, so the process exits 1 without competing
+/// for the lease, which it no longer renews. Only a restart clears such a stuck handle.
+fn end_after_local_store_close(
+    store_close: LocalStoreCloseOutcome,
+    pending: &mut Option<PendingStepDownAnswer>,
+) -> Option<Result<(), ServerError>> {
+    match store_close {
+        LocalStoreCloseOutcome::Closed => None,
+        LocalStoreCloseOutcome::Cancelled => {
+            if let Some(waiting) = pending.take() {
+                waiting.answer_unknown("the process stopped during the step down".to_owned());
+            }
+            Some(Ok(()))
+        }
+        LocalStoreCloseOutcome::StillOpen => {
+            let error = ServerError::ServingTaskFailed {
+                detail: format!(
+                    "a task of the stepped-down serving period still held the local store after \
+                     {} s; exiting so that a restart releases it",
+                    LOCAL_STORE_CLOSE_BUDGET.as_secs()
+                ),
+            };
+            tracing::error!(%error, "the stepped-down local store is still open");
+            if let Some(waiting) = pending.take() {
+                waiting.answer_failure(error.to_string());
+            }
+            Some(Err(error))
         }
     }
 }
