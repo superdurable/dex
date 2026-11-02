@@ -101,7 +101,6 @@ assert.doesNotMatch(home, /github-star-link|github-star-stat|Book a call|Book a 
 assert.doesNotMatch(home, /fonts\.googleapis\.com/);
 
 const siteLinks = [
-  ['Dex Engine', 'https://superdurable.io/dex-engine/'],
   ['Dex Cloud', 'https://superdurable.io/dex-cloud/'],
   ['Dex Connectors', 'https://connectors.superdurable.io/'],
   ['Dex Docs', 'https://docs.superdurable.io/'],
@@ -109,9 +108,8 @@ const siteLinks = [
   ['About', 'https://superdurable.io/about/'],
 ];
 const actionLinks = [
-  ['GitHub', 'https://github.com/superdurable'],
+  ['GitHub', 'https://github.com/superdurable/dex'],
   ['Log in', 'https://dex.superdurable.io/login'],
-  ['Sign up', 'https://dex.superdurable.io/register'],
 ];
 const header = home.match(/<header class="[^"]*\bsd-header\b[\s\S]*?<\/header>/)?.[0] ?? '';
 assert.doesNotMatch(header, /target=|superdurable\.ai/);
@@ -123,11 +121,11 @@ assert.match(desktopSites, /aria-current="page">Dex Docs</);
 const desktopActions = header.match(/<div class="sd-header-actions">[\s\S]*?<\/div><details class="sd-mobile-menu">/)?.[0] ?? '';
 assert.match(desktopActions, /^<div class="sd-header-actions"><details class="sd-locale">/);
 assert.deepEqual(headerLinks(desktopActions.replace(/<details class="sd-locale">[\s\S]*?<\/details>/, '')), actionLinks);
-assert.match(desktopActions, /class="sd-button sd-button-primary sd-button-small" href="https:\/\/dex\.superdurable\.io\/register">Sign up</);
+assert.doesNotMatch(home, /dex\.superdurable\.io\/register|>Sign up<|Book a call/);
 const mobileMenu = header.match(/<details class="sd-mobile-menu">[\s\S]*?<\/details>/)?.[0] ?? '';
 assert.match(mobileMenu, /<summary>Menu<\/summary>/);
 assert.deepEqual(headerLinks(mobileMenu.replace(/<div class="sd-locale-row"[\s\S]*?<\/div>/, '')), [...siteLinks, ...actionLinks]);
-assert.match(mobileMenu, />About<\/a><div class="sd-locale-row" role="group" aria-label="Language">[\s\S]*?<\/div><a href="https:\/\/github\.com\/superdurable">GitHub</);
+assert.match(mobileMenu, />About<\/a><div class="sd-locale-row" role="group" aria-label="Language">[\s\S]*?<\/div><a href="https:\/\/github\.com\/superdurable\/dex">GitHub</);
 assert.match(mobileMenu, /aria-current="page">Dex Docs</);
 
 const footer = home.match(/<footer class="theme-layout-footer footer[\s\S]*?<\/footer>/)?.[0] ?? '';
@@ -159,7 +157,7 @@ const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
 assert.match(zhHome, /English/);
 assert.match(zhHome, /简体中文/);
 assert.doesNotMatch(zhHome, /superdurable\.ai/);
-for (const label of ['Dex 文档', '博客', '关于', '登录', '注册', '菜单', '产品', '开发者', '公司', '快速开始', '引擎对比', '联系我们']) {
+for (const label of ['Dex 文档', '博客', '关于', '登录', '菜单', '产品', '开发者', '公司', '快速开始', '引擎对比', '联系我们']) {
   assert.ok(zhHome.includes(label), `Missing Chinese shell label: ${label}`);
 }
 assert.match(zhHome, /href="\/zh-Hans\/quick-start\/"/);

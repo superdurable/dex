@@ -17,7 +17,6 @@ import redirects from './redirects.json';
 // src/theme/Navbar/Content renders left items as the site row and right items as the actions.
 const companyHeaderNavigation = {
   sites: [
-    {label: 'Dex Engine', href: 'https://superdurable.io/dex-engine/', position: 'left'},
     {label: 'Dex Cloud', href: 'https://superdurable.io/dex-cloud/', position: 'left'},
     {label: 'Dex Connectors', href: 'https://connectors.superdurable.io/', position: 'left'},
     {label: 'Dex Docs', href: 'https://docs.superdurable.io/', position: 'left', 'aria-current': 'page'},
@@ -26,9 +25,8 @@ const companyHeaderNavigation = {
   ],
   actions: [
     {type: 'localeDropdown', position: 'right'},
-    {label: 'GitHub', href: 'https://github.com/superdurable', position: 'right'},
+    {label: 'GitHub', href: 'https://github.com/superdurable/dex', position: 'right'},
     {label: 'Log in', href: 'https://dex.superdurable.io/login', position: 'right'},
-    {label: 'Sign up', href: 'https://dex.superdurable.io/register', position: 'right', className: 'sd-button sd-button-primary'},
   ],
   footer: [
     {
