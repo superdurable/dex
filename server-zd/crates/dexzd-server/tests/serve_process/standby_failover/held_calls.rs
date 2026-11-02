@@ -24,6 +24,8 @@ use crate::string_value;
 
 /// Lets a held call reach the process before the test acts on it.
 pub(super) const HELD_CALL_START_WINDOW: Duration = Duration::from_millis(300);
+/// What a public call answers when a step down ends it.
+pub(super) const STOPPED_SERVING_REFUSAL: &str = "stopped serving during the call";
 /// A Flow type that no Worker serves, so its first Step stays pending.
 const HELD_CALL_FLOW_TYPE: &str = "HeldCallFlow";
 const HELD_CALL_STEP_TYPE: &str = "HeldCallStep";

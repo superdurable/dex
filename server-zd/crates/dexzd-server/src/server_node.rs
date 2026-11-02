@@ -851,6 +851,10 @@ impl ServerNode {
         let has_released_lease = teardown
             .run_fallible("engine", ENGINE_STOP_BUDGET, engine.shutdown())
             .await;
+        // Without the lease their answers are refused anyway; ending them lets the store close.
+        if kind == PeriodStopKind::StepDown {
+            grpc.end_public_calls();
+        }
         // The lease gate refuses calls now, so waiting for open ones keeps no client from a successor.
         if kind == PeriodStopKind::Shutdown && !grpc.task.is_finished() {
             match tokio::time::timeout_at(drain_deadline, &mut grpc.task).await {

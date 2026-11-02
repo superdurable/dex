@@ -42,7 +42,9 @@ pub trait ActiveNodeAdministration: Send + Sync + 'static {
     /// with the new node epoch. Finding another holder returns `TakenOverByAnotherProcess`. Return
     /// [`LeaseHolderAfterStepDown::Unknown`] when neither is confirmed, for example after a failed
     /// lease read. So a call lasts at most the commit drain bound, the release, the hold-off, and
-    /// one lease acquisition attempt.
+    /// one lease acquisition attempt. The exception is a stuck task of the stopped serving period
+    /// that keeps the local store open for about a minute after the release: the process then
+    /// returns `Internal` without competing for the lease, and exits.
     ///
     /// Stepping down must not send GOAWAY on, or close, the connection that carries the admin call,
     /// so the caller receives the result.

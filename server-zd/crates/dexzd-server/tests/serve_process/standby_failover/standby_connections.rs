@@ -32,7 +32,10 @@ use tonic::codegen::Service;
 use tonic::codegen::http::Uri;
 use tonic::transport::{Channel, Endpoint};
 
-use super::held_calls::{HELD_CALL_START_WINDOW, HeldCall, start_flow_with_hard_delete_attribute};
+use super::held_calls::{
+    HELD_CALL_START_WINDOW, HeldCall, STOPPED_SERVING_REFUSAL,
+    start_flow_with_hard_delete_attribute,
+};
 use super::object_store_endpoints::ObjectStoreFault;
 use super::{
     ACKNOWLEDGEMENTS_PER_PHASE, FIRST, FailoverScenario, HELD_READ_DELAY, HELD_READ_FLOW_ID,
@@ -158,19 +161,19 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         group.wait_for_takeover(FIRST, TAKEOVER_BUDGET).await,
         SECOND
     );
-    let served_at = Instant::now();
-    let served_after = served_at - stepped_down_at;
-    let (held_answer, held_read_ended_at) = held_read.finish().await;
+    let served_after = stepped_down_at.elapsed();
+    let (held_answer, _) = held_read.finish().await;
     assert!(
         served_after <= STEP_DOWN_SERVED_BOUND,
         "an open read held up the handover: served {served_after:?} after the step down"
     );
-    assert!(
-        held_read_ended_at > served_at,
-        "the read must stay open until the takeover, or it proves nothing"
-    );
     let refusal = held_answer.expect_err("a read that outlives the node lease is refused");
     assert_eq!(refusal.code(), Code::Unavailable, "{refusal}");
+    // Only the stopping period answers so; the read was therefore open at the release.
+    assert!(
+        refusal.message().contains(STOPPED_SERVING_REFUSAL),
+        "the read must stay open until the step down ends it, or it proves nothing: {refusal}"
+    );
     let hot_after = group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
     group.object_store(FIRST).clear_faults().await;
     let log = group.process_log(FIRST);

@@ -41,6 +41,9 @@ const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 const ANSWER_TRANSPORT_GRACE: Duration = Duration::from_millis(250);
 /// The answer to a public call while the node lease is not valid, such as after a freeze.
 const LEASE_NOT_VALID_MESSAGE: &str = "the node lease is not valid";
+/// The answer to a public call that was still open when its serving period ended.
+const STOPPED_SERVING_MESSAGE: &str =
+    "the server process stopped serving during the call; retry it";
 /// A standby instance closes each connection this soon, so its clients reconnect to the active.
 const STANDBY_CONNECTION_AGE: Duration = Duration::from_secs(3);
 /// How long an aged standby connection may finish its calls; AdminService answers at once.
@@ -159,6 +162,12 @@ impl GrpcServer {
         self.worker_task_service_gate.deactivate();
     }
 
+    /// Ends open FlowService and WorkerTaskService calls with UNAVAILABLE; AdminService calls keep running.
+    pub(super) fn end_public_calls(&self) {
+        self.flow_service_gate.end_open_calls();
+        self.worker_task_service_gate.end_open_calls();
+    }
+
     /// Returns a wait until every accepted public call, response body included, has ended.
     pub(super) fn public_calls_ended(&self) -> impl Future<Output = ()> + Send + 'static {
         let flow_service_gate = self.flow_service_gate.clone();
@@ -212,6 +221,8 @@ pub(super) struct StartupService<S> {
     lease_validity_deadline: LeaseValidityDeadline,
     /// Every accepted call until its response body is dropped; a body can still read the store.
     calls: TaskTracker,
+    /// Ends this instance's open calls; every serving period runs on an instance of its own.
+    period_end: CancellationToken,
 }
 
 impl<S> StartupService<S> {
@@ -220,12 +231,18 @@ impl<S> StartupService<S> {
             serving: Arc::new(RwLock::new(None)),
             lease_validity_deadline,
             calls: TaskTracker::new(),
+            period_end: CancellationToken::new(),
         }
     }
 
     async fn wait_for_calls(&self) {
         self.calls.close();
         self.calls.wait().await;
+    }
+
+    /// Answers every open call UNAVAILABLE at once, dropping its service clone and so its store handles.
+    fn end_open_calls(&self) {
+        self.period_end.cancel();
     }
 
     pub(super) fn activate(&self, service: S) {
@@ -271,6 +288,7 @@ where
             .expect("startup service lock is poisoned only if a holder panicked")
             .clone();
         let lease_validity_deadline = self.lease_validity_deadline.clone();
+        let period_end = self.period_end.clone();
         // Taken with the service clone, so a drain that starts after it waits for this call.
         let call = self.calls.token();
         Box::pin(async move {
@@ -280,7 +298,13 @@ where
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
             }
-            let response = service.call(request).await?;
+            let response = tokio::select! {
+                biased;
+                () = period_end.cancelled() => {
+                    return Ok(Status::unavailable(STOPPED_SERVING_MESSAGE).into_http());
+                }
+                response = service.call(request) => response?,
+            };
             // A freeze during the call can outlast the lease, so the answer may already be stale.
             if !lease_validity_deadline.is_valid_at(Instant::now()) {
                 return Ok(Status::unavailable(LEASE_NOT_VALID_MESSAGE).into_http());
