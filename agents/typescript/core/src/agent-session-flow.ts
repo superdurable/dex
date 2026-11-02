@@ -386,7 +386,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       outputCodec: booleanCodec,
     })
     public sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean> {
-      if (message.text.trim() === "") {
+      if (isBlankText(message.text)) {
         return { output: false };
       }
       persistence.queuedUserMessages.publish(context, { text: message.text });

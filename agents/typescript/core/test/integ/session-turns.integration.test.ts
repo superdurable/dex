@@ -212,6 +212,23 @@ describe("agent session turns with an in-process Worker", () => {
     assert.equal(olderPage.nextBeforeSequence, null);
   });
 
+  test("user message blank checks use Python's whitespace set", async () => {
+    // String.trim() keeps these but Python's str.strip() removes them, and the reverse for U+FEFF.
+    const pythonOnlyWhitespace = String.fromCodePoint(0x1c, 0x1d, 0x1e, 0x1f, 0x85);
+    const byteOrderMark = String.fromCodePoint(0xfeff);
+    const sessionId = newSessionId("blank-text");
+    await sessions.startSession(sessionId, pythonOnlyWhitespace);
+    assert.equal(await sessions.sendUserMessage(sessionId, pythonOnlyWhitespace), false);
+    assert.equal(await sessions.sendUserMessage(sessionId, byteOrderMark), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.messages.map(describeMessage), [
+      `1 turn-1 user ${byteOrderMark}`,
+      `2 turn-1 assistant echo: ${byteOrderMark}`,
+    ]);
+  });
+
   test("a rejected write never runs and the model sees the rejection message", async () => {
     const sessionId = newSessionId("rejected");
     await sessions.startSession(sessionId, "call send_email");
