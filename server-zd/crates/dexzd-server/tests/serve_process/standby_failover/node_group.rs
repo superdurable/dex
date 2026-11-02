@@ -796,6 +796,7 @@ impl NodeGroup {
         let channel = Channel::from_shared(format!("http://{}", self.slots[slot].address))
             .expect("the slot address is a valid URI")
             .connect_lazy();
+        let _evidence = self.emulator.keep_data_if_a_check_panics();
         workload.verify(channel, self.slots[slot].running()).await
     }
 
@@ -813,7 +814,7 @@ impl NodeGroup {
             }
         }
         let Self {
-            emulator,
+            mut emulator,
             fleet: _fleet,
             slots,
             router,
@@ -823,8 +824,12 @@ impl NodeGroup {
             is_log_complete,
             ..
         } = self;
+        let evidence = emulator.keep_data_if_a_check_panics();
         let serving = router.shutdown_and_check().await;
-        let lease = lease_history.stop_and_check(is_log_complete).await;
+        let lease = lease_history
+            .stop_and_check(is_log_complete)
+            .await
+            .unwrap_or_else(|failure| panic!("{failure}"));
         // Each serving period recovered under its own epoch; a late-batch stop may serve too briefly to see.
         let are_periods_within_epochs = if lease.is_log_complete {
             serving.serving_periods <= lease.acquisitions
@@ -839,10 +844,11 @@ impl NodeGroup {
                     <= serving.serving_periods
                         + stale_batch_restarts
                         + serving_periods_seen_by_tests,
-            "{} EpochStarts in the log for {} observed serving periods, {stale_batch_restarts} late-batch restarts, and {serving_periods_seen_by_tests} periods seen by the test",
+            "{} recoveries in the log for {} observed serving periods, {stale_batch_restarts} late-batch restarts, and {serving_periods_seen_by_tests} periods seen by the test",
             lease.acquisitions,
             serving.serving_periods
         );
+        drop(evidence);
         let process_starts = slots.iter().map(|slot| slot.process_count).sum();
         for slot in slots {
             slot.object_store.shutdown().await;
