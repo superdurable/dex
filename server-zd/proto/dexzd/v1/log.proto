@@ -35,8 +35,8 @@ message LogBatchHeader {
   uint32 record_count = 6;
   // One entry per partition that has records in this batch, in ascending partition order.
   repeated LogPartitionFrame partition_frames = 7;
-  // Set only on the EpochStart batch written by a new writer at the first gap; such a batch has
-  // no partition frames.
+  // Set only on an EpochStart batch: the one a new writer writes at the first gap, and each one of
+  // the same epoch with which that writer fills a later hole. Such a batch has no partition frames.
   LogEpochStart epoch_start = 8;
   // Writer wall clock when the batch was sealed, for diagnostics only.
   int64 sealed_at_unix_micros = 9;

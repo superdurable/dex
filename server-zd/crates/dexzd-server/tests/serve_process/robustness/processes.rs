@@ -51,7 +51,7 @@ pub(crate) const STALE_BATCH_STOP_REASON: &str =
 pub(crate) struct DurableEmulator {
     store: Arc<Store>,
     server: ServerHandle,
-    _directory: TempDir,
+    directory: TempDir,
 }
 
 impl DurableEmulator {
@@ -83,8 +83,14 @@ impl DurableEmulator {
         Self {
             store,
             server,
-            _directory: directory,
+            directory,
         }
+    }
+
+    /// Keeps the stored objects after the test, as evidence of a failed check; returns their directory.
+    pub(crate) fn keep_data_after_the_test(&mut self) -> &Path {
+        self.directory.disable_cleanup(true);
+        self.directory.path()
     }
 
     pub(crate) fn endpoint(&self) -> String {

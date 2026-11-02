@@ -8,10 +8,11 @@
 
 //! Checks that lease epochs only grow, that each is raised once, and how fast holders hand over.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use dexzd_protocol::dexzd::v1::LogBatchHeader;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -41,7 +42,8 @@ struct LeaseObservation {
 pub(crate) struct LeaseReport {
     /// Distinct holders the lease object named.
     pub(crate) observed_holders: usize,
-    /// EpochStart batches in the log, one for each process that recovered under the lease.
+    /// Recoveries in the log, one for each process that recovered under the lease; a recovery's
+    /// hole-filling EpochStarts count with it.
     pub(crate) acquisitions: usize,
     /// Whether log cleanup was off, so the log still holds every EpochStart.
     pub(crate) is_log_complete: bool,
@@ -60,6 +62,27 @@ enum HandoverCause {
     Expiry,
     /// The holder released the lease, whether or not a sample showed the release.
     Release,
+}
+
+/// One EpochStart batch in the log and the recovery that wrote it.
+struct EpochStartBatch {
+    incarnation: u32,
+    seq: u64,
+    epoch: u64,
+    /// New for every recovery of a stream; its hole-filling EpochStarts repeat it.
+    writer_process_id: String,
+}
+
+impl EpochStartBatch {
+    /// Returns the EpochStart that `header` carries, if any.
+    fn of(header: &LogBatchHeader) -> Option<Self> {
+        header.epoch_start.as_ref().map(|start| Self {
+            incarnation: header.incarnation,
+            seq: header.seq,
+            epoch: start.epoch,
+            writer_process_id: start.writer_process_id.clone(),
+        })
+    }
 }
 
 /// One change of lease holder and its delay after the lease became available.
@@ -96,8 +119,14 @@ impl LeaseHistory {
             .push(unix_micros_now());
     }
 
-    /// Stops reading, then panics if an epoch fell or the log raised one twice.
-    pub(crate) async fn stop_and_check(mut self, is_log_complete: bool) -> LeaseReport {
+    /// Stops reading, then panics if an epoch fell; reports whether the log raised one twice.
+    ///
+    /// Returns the lease report. Returns an error that lists every log batch when the EpochStarts
+    /// break the rules of [`recovered_epochs`], so the caller can keep the objects as evidence.
+    pub(crate) async fn stop_and_check(
+        mut self,
+        is_log_complete: bool,
+    ) -> Result<LeaseReport, String> {
         self.stop.cancel();
         let (observations, inspector) = self
             .task
@@ -120,27 +149,29 @@ impl LeaseHistory {
                 .collect()
         };
         // The log is the complete record: every recovery writes an EpochStart with its new epoch.
-        let epoch_starts: Vec<u64> = inspector
-            .log_batch_headers()
-            .await
-            .iter()
-            .filter_map(|header| header.epoch_start.as_ref().map(|start| start.epoch))
-            .collect();
-        check_epoch_starts(&epoch_starts);
+        let headers = inspector.log_batch_headers().await;
+        let epoch_starts: Vec<EpochStartBatch> =
+            headers.iter().filter_map(EpochStartBatch::of).collect();
+        let recovered = recovered_epochs(&epoch_starts).map_err(|failure| {
+            format!(
+                "{failure}\nlog batches:\n{}",
+                describe_log_batches(&headers)
+            )
+        })?;
         let highest_epoch = observations
             .iter()
             .map(|observation| observation.epoch)
-            .chain(epoch_starts.iter().copied())
+            .chain(recovered.iter().copied())
             .max()
             .unwrap_or(0);
-        LeaseReport {
+        Ok(LeaseReport {
             observed_holders,
-            acquisitions: epoch_starts.len(),
+            acquisitions: recovered.len(),
             is_log_complete,
             highest_epoch,
             takeovers_after_expiry: delays_after(HandoverCause::Expiry),
             takeovers_after_release: delays_after(HandoverCause::Release),
-        }
+        })
     }
 }
 
@@ -255,12 +286,63 @@ fn handover(
     }
 }
 
-/// Panics unless the EpochStart epochs, in log order, strictly increase.
-fn check_epoch_starts(epoch_starts: &[u64]) {
-    assert!(
-        epoch_starts.windows(2).all(|pair| pair[0] < pair[1]),
-        "every recovery must raise a new epoch, but the log has EpochStarts {epoch_starts:?}"
-    );
+/// Returns the epoch of every recovery in `epoch_starts`, which are in log order.
+///
+/// A recovery writes its EpochStart at the first gap and fills each later hole with another
+/// EpochStart of its epoch, so batches are grouped by writer. Returns an error when one writer
+/// names two epochs, or when a writer's first EpochStart does not raise the epoch of the previous
+/// writer in its stream. An incarnation change recovers two streams under one lease acquisition,
+/// so the returned set holds each epoch once.
+fn recovered_epochs(epoch_starts: &[EpochStartBatch]) -> Result<BTreeSet<u64>, String> {
+    let mut writer_epochs = BTreeMap::<&str, u64>::new();
+    let mut latest_by_stream = BTreeMap::<u32, &EpochStartBatch>::new();
+    for batch in epoch_starts {
+        if let Some(&epoch) = writer_epochs.get(batch.writer_process_id.as_str()) {
+            if epoch != batch.epoch {
+                return Err(format!(
+                    "one recovery wrote EpochStarts of epochs {epoch} and {}: writer {} at incarnation {} seq {}",
+                    batch.epoch, batch.writer_process_id, batch.incarnation, batch.seq
+                ));
+            }
+            continue;
+        }
+        if let Some(previous) = latest_by_stream.get(&batch.incarnation)
+            && batch.epoch <= previous.epoch
+        {
+            return Err(format!(
+                "every recovery must raise a new epoch, but writer {} raised epoch {} at incarnation {} seq {} after writer {} raised epoch {} at seq {}",
+                batch.writer_process_id,
+                batch.epoch,
+                batch.incarnation,
+                batch.seq,
+                previous.writer_process_id,
+                previous.epoch,
+                previous.seq
+            ));
+        }
+        writer_epochs.insert(&batch.writer_process_id, batch.epoch);
+        latest_by_stream.insert(batch.incarnation, batch);
+    }
+    Ok(writer_epochs.into_values().collect())
+}
+
+/// Returns one line per log batch with its position, epoch, record count, and EpochStart.
+fn describe_log_batches(headers: &[LogBatchHeader]) -> String {
+    headers
+        .iter()
+        .map(|header| {
+            format!(
+                "incarnation {} seq {} epoch {} records {} epoch_start {:?} sealed_at_unix_micros {}",
+                header.incarnation,
+                header.seq,
+                header.epoch,
+                header.record_count,
+                header.epoch_start,
+                header.sealed_at_unix_micros
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn unix_micros_now() -> i64 {
@@ -385,9 +467,66 @@ fn a_falling_lease_epoch_fails_the_check() {
     );
 }
 
+#[cfg(test)]
+fn epoch_start(incarnation: u32, seq: u64, epoch: u64, writer: &str) -> EpochStartBatch {
+    EpochStartBatch {
+        incarnation,
+        seq,
+        epoch,
+        writer_process_id: writer.to_owned(),
+    }
+}
+
 /// An epoch that two recoveries raised fails the check.
 #[test]
-#[should_panic(expected = "every recovery must raise a new epoch")]
-fn a_repeated_epoch_start_fails_the_check() {
-    check_epoch_starts(&[1, 2, 2]);
+fn two_recoveries_of_one_epoch_fail_the_check() {
+    let failure = recovered_epochs(&[
+        epoch_start(1, 1, 1, "first"),
+        epoch_start(1, 120, 2, "second"),
+        epoch_start(1, 154, 2, "third"),
+    ])
+    .expect_err("two writers raised epoch 2");
+    assert!(
+        failure.contains("every recovery must raise a new epoch"),
+        "{failure}"
+    );
+}
+
+/// A recovery that filled a hole with another EpochStart of its epoch counts once.
+#[test]
+fn a_recovery_that_filled_a_hole_passes_the_check() {
+    let epochs = recovered_epochs(&[
+        epoch_start(1, 1, 1, "first"),
+        epoch_start(1, 154, 3, "third"),
+        epoch_start(1, 155, 3, "third"),
+    ])
+    .expect("a hole filler repeats its recovery's epoch");
+    assert_eq!(epochs, BTreeSet::from([1, 3]));
+}
+
+/// One writer whose EpochStarts name two epochs fails the check.
+#[test]
+fn a_writer_of_two_epochs_fails_the_check() {
+    let failure = recovered_epochs(&[
+        epoch_start(1, 1, 1, "first"),
+        epoch_start(1, 154, 3, "third"),
+        epoch_start(1, 155, 4, "third"),
+    ])
+    .expect_err("one recovery names one epoch");
+    assert!(
+        failure.contains("one recovery wrote EpochStarts of epochs 3 and 4"),
+        "{failure}"
+    );
+}
+
+/// An incarnation change starts the new stream with the epoch that closed the old one.
+#[test]
+fn an_incarnation_change_counts_its_epoch_once() {
+    let epochs = recovered_epochs(&[
+        epoch_start(1, 1, 1, "first"),
+        epoch_start(1, 90, 2, "second-closing"),
+        epoch_start(2, 1, 2, "second-opening"),
+    ])
+    .expect("each stream raises its epochs");
+    assert_eq!(epochs, BTreeSet::from([1, 2]));
 }
