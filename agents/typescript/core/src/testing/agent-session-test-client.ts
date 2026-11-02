@@ -19,6 +19,7 @@ import type {
   AgentSnapshot,
   AgentState,
   AgentToolCallRecord,
+  PendingUserMessage,
 } from "../agent-session-values.js";
 import { pollUntil } from "./polling.js";
 
@@ -95,6 +96,49 @@ export class AgentSessionTestClient {
    */
   public executePlan(sessionId: string, revision: number): Promise<boolean> {
     return retryLockConflicts(() => this.client.invokeRPC(this.flow.executePlan, sessionId, { revision }));
+  }
+
+  /**
+   * Calls `steer_user_message` with new text; while no turn is active, the RPC queues it.
+   * @param sessionId - Session Flow ID.
+   * @param text - Text of the steered message.
+   * @returns The RPC result: `false` for blank text or a turn that does not accept steering.
+   */
+  public steerUserMessage(sessionId: string, text: string): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.steerUserMessage, sessionId, { messageId: null, text });
+  }
+
+  /**
+   * Calls `steer_user_message` with a queued message's ID, which moves that message.
+   * @param sessionId - Session Flow ID.
+   * @param messageId - {@link PendingUserMessage.messageId} of a queued message.
+   * @returns The RPC result: `false` when the message is no longer queued.
+   * @throws {ChannelMessageNotFoundError} When the session consumed the message while the RPC ran.
+   */
+  public steerQueuedMessage(sessionId: string, messageId: string): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.steerUserMessage, sessionId, { messageId, text: null });
+  }
+
+  /**
+   * Calls `delete_queued_message`.
+   * @param sessionId - Session Flow ID.
+   * @param messageId - {@link PendingUserMessage.messageId} of a queued message.
+   * @returns The RPC result: `false` when the message is no longer queued.
+   * @throws {ChannelMessageNotFoundError} When the session consumed the message while the RPC ran.
+   */
+  public deleteQueuedMessage(sessionId: string, messageId: string): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.deleteQueuedMessage, sessionId, { messageId });
+  }
+
+  /**
+   * Calls `cancel_turn`, retrying an `RpcLockConflictError` for up to 30 seconds.
+   * @param sessionId - Session Flow ID.
+   * @param turnId - The turn to stop, or `null` for the active turn. Defaults to `null`.
+   * @returns The RPC result: `false` when no turn is active, `turnId` names another turn, or the turn does not
+   * accept cancellation.
+   */
+  public cancelTurn(sessionId: string, turnId: string | null = null): Promise<boolean> {
+    return retryLockConflicts(() => this.client.invokeRPC(this.flow.cancelTurn, sessionId, { turnId }));
   }
 
   /**

@@ -16,7 +16,8 @@ of their results before the next ``RunModel``. A call to an enabled built-in
 tool runs in the built-in's own Step instead: ``AwaitQuestionAnswer`` for
 ``ask_user`` and ``AwaitTimer`` for ``durable_wait``. ``RunModel`` records a
 ``write_todos`` call in its own commit, and ``execute_plan`` starts a turn that
-runs an approved plan from ``AwaitUserMessage``.
+runs an approved plan from ``AwaitUserMessage``. Steering and ``cancel_turn``
+end a turn at its next safe Step boundary through ``ApplyTurnControl``.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import contextlib
 import json
 import logging
 import math
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -34,6 +35,7 @@ from typing import Any, cast
 from dex import (
     AsyncContext,
     AttributeMap,
+    Channel,
     Context,
     Flow,
     PersistenceSchema,
@@ -86,7 +88,11 @@ from dex_agents.persistence import (
     PENDING_PLAN_EXECUTION,
     PLAN_EXECUTIONS,
     QUEUED_USER_MESSAGES,
+    STEERED_USER_MESSAGES,
+    TOOL_CALL_CANCELLATIONS,
     TOOL_CALL_RESULTS,
+    TURN_CANCELLATION_REQUEST,
+    TURN_CONTROL_REQUESTS,
     message_sequence_key,
     plan_execution_key,
 )
@@ -97,6 +103,10 @@ from dex_agents.plans import (
 )
 from dex_agents.runner import (
     APPROVAL_DEADLINE_PASSED,
+    TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
+    TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
+    TURN_CANCELLED_NOTE_HEADER,
+    TURN_STEERED_NOTE_HEADER,
     AgentFrameworkRunner,
     AgentTurnContext,
     DeferredToolExecution,
@@ -109,6 +119,7 @@ from dex_agents.runner import (
     ToolPolicy,
     TurnCompleted,
     UnfinishedTurnMessageBuilder,
+    build_tool_call_note,
     build_turn_failure_note,
 )
 from dex_agents.tracing import AgentTracingOptions
@@ -127,18 +138,27 @@ from dex_agents.values import (
     AgentUsage,
     AgentUserMessage,
     AnswerQuestionRequest,
+    CancelTurnRequest,
+    DeleteQueuedMessageRequest,
     ExecutePlanRequest,
     InteractionMode,
     InterruptKind,
     ListAgentMessagesRequest,
     MessageRole,
+    PendingUserMessage,
     PlanExecutionRequest,
     PlanStatus,
     QuestionAnswer,
     ResolveInterruptRequest,
+    SteerUserMessageRequest,
+    ToolCallCancellation,
+    ToolCallCancellationReason,
     ToolCallCompleted,
     ToolCallStatus,
     ToolEffect,
+    TurnCancellationRequest,
+    TurnControlKind,
+    TurnControlRequest,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -154,6 +174,12 @@ RECOVERY_RETRY = RetryPolicy(maximum_interval=timedelta(seconds=5))
 MULTI_ATTEMPT_TOOL_EFFECTS = (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE)
 BUILT_IN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
 EXECUTABLE_PLAN_STATUSES = (PlanStatus.DRAFT, PlanStatus.ACTIVE)
+# Consumes every pending message of a Channel at once; the plan's MAX.
+ALL_PENDING_MESSAGES = 2_147_483_647
+TOOL_CALL_CANCELLATION_RESULTS = {
+    ToolCallCancellationReason.STEERED: TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
+    ToolCallCancellationReason.TURN_CANCELLED: TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
+}
 _NO_PENDING_TOOL_QUESTION: dict[str, Any] = {
     "input_question": None,
     "input_choices": [],
@@ -269,6 +295,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     for the next user message after every turn. Stop it with
     ``AsyncClient.stop_flow``.
 
+    ``steer_user_message`` and ``cancel_turn`` end the running turn at its next
+    safe Step boundary. Neither interrupts a model call or a tool call that has
+    already started. The calls that have not started record ``REJECTED`` with
+    a ``cancellation_reason``, and ``ApplyTurnControl`` ends the turn. A steered
+    turn is followed by a new turn with the steered messages.
+
     Example:
         >>> flow = AgentSessionFlow(MyFrameworkRunner(agent), flow_type="TriageAgent")
         >>> registry = Registry([flow], allow_async_handlers=True)
@@ -289,6 +321,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         queued_user_messages: The ``QueuedUserMessages`` Channel.
         interrupt_resolutions: The ``InterruptResolutions`` ChannelMap.
         tool_call_results: The internal ``ToolCallResults`` Channel.
+        steered_user_messages: The ``SteeredUserMessages`` Channel.
+        turn_control_requests: The internal ``TurnControlRequests`` Channel.
+        turn_cancellation_request: The ``TurnCancellationRequest`` Attribute.
+        tool_call_cancellations: The internal ``ToolCallCancellations`` ChannelMap.
         agent_trace_context: The ``AgentTraceContext`` Attribute: the W3C
             ``traceparent`` of the current activation's root span, set when
             that span has a valid context, sampled or not.
@@ -308,6 +344,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     queued_user_messages = QUEUED_USER_MESSAGES
     interrupt_resolutions = INTERRUPT_RESOLUTIONS
     tool_call_results = TOOL_CALL_RESULTS
+    steered_user_messages = STEERED_USER_MESSAGES
+    turn_control_requests = TURN_CONTROL_REQUESTS
+    turn_cancellation_request = TURN_CANCELLATION_REQUEST
+    tool_call_cancellations = TOOL_CALL_CANCELLATIONS
     agent_trace_context = AGENT_TRACE_CONTEXT
     agent_plan = AGENT_PLAN
     plan_executions = PLAN_EXECUTIONS
@@ -359,6 +399,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self._record_tool_failure = RecordToolFailure(self)
         self._record_tool_outcome_unknown = RecordToolOutcomeUnknown(self)
         self._resume_turn = ResumeTurn(self)
+        self._apply_turn_control = ApplyTurnControl(self)
         self._record_turn_failure = RecordTurnFailure(self)
 
     @property
@@ -404,6 +445,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             self._record_tool_failure,
             self._record_tool_outcome_unknown,
             self._resume_turn,
+            self._apply_turn_control,
             self._record_turn_failure,
         )
 
@@ -426,6 +468,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             QUEUED_USER_MESSAGES,
             INTERRUPT_RESOLUTIONS,
             TOOL_CALL_RESULTS,
+            STEERED_USER_MESSAGES,
+            TURN_CONTROL_REQUESTS,
+            TURN_CANCELLATION_REQUEST,
+            TOOL_CALL_CANCELLATIONS,
             AGENT_TRACE_CONTEXT,
             AGENT_PLAN,
             PLAN_EXECUTIONS,
@@ -479,7 +525,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             ``True`` when the execution is accepted. ``False`` unless the
             session waits for a user message, the plan has this revision and is
             ``DRAFT`` or ``ACTIVE``, no execution of it is pending, and no
-            queued message or interrupt is pending.
+            queued or steered message or interrupt is pending.
         """
         state = _optional_agent_state(context)
         plan = _optional_agent_plan(context)
@@ -493,12 +539,144 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             or plan.status not in EXECUTABLE_PLAN_STATUSES
             or (pending is not None and pending.revision == plan.revision)
             or QUEUED_USER_MESSAGES.size(context) > 0
+            or STEERED_USER_MESSAGES.size(context) > 0
             or _pending_interrupts(context)
         ):
             return RPCResult(False)
         request = PlanExecutionRequest(revision=plan.revision)
         PENDING_PLAN_EXECUTION.set(context, request)
         PLAN_EXECUTIONS.publish(context, plan_execution_key(plan.revision), request)
+        return RPCResult(True)
+
+    @rpc(is_transactional=True, load_channels=(QUEUED_USER_MESSAGES,))
+    def steer_user_message(
+        self,
+        context: Context,
+        input: SteerUserMessageRequest,
+    ) -> RPCResult[bool]:
+        """Steer the running turn with a new message or with a queued one.
+
+        A steered message applies at the turn's next safe Step boundary. The
+        session never interrupts a model call or a tool call that has started.
+        It records the calls that have not started as ``REJECTED`` with
+        ``cancellation_reason`` ``STEERED``, ends the turn, and starts a new
+        turn whose user messages are every steered message, in order.
+
+        While no turn is active, there is nothing to steer: new ``text`` is
+        queued like ``send_user_message``, so it starts the next turn at once,
+        and a ``message_id`` that is still queued stays queued. A turn that a
+        Worker without steering started or advanced cannot be steered; see
+        ``AgentState.accepts_turn_control``.
+
+        With ``message_id``, the RPC moves that queued message: it deletes it
+        from ``QueuedUserMessages`` and publishes it to ``SteeredUserMessages``
+        in one commit. It locks nothing. When another Step or RPC consumes the
+        message between the RPC's read and its commit, the RPC raises
+        ``ChannelMessageNotFoundError`` and commits nothing; reload the
+        snapshot and let the user choose again.
+
+        Example:
+            >>> snapshot = await sessions.get_agent_snapshot("session-42")
+            >>> await client.invoke_rpc(flow.steer_user_message, "session-42",
+            ...     SteerUserMessageRequest(message_id=snapshot.queued_messages[0].message_id))
+
+        Args:
+            context: RPC Context supplied by Dex.
+            input: Exactly one of a queued message ID and new text.
+
+        Returns:
+            ``True`` when the message is steered, or queued while no turn is
+            active; ``False`` when both or neither field is set, the text is
+            blank, the message is no longer queued, or the active turn does
+            not accept steering.
+        """
+        if (input.message_id is None) == (input.text is None):
+            return RPCResult(False)
+        state = _optional_agent_state(context)
+        if state is None or state.active_turn_id is None:
+            # Any Worker version waits for queued messages while idle; a steer might wait forever.
+            if input.text is None:
+                return RPCResult(_find_queued_message(context, input.message_id or "") is not None)
+            return self.send_user_message(context, AgentUserMessage(text=input.text))
+        if not state.accepts_turn_control:
+            return RPCResult(False)
+        if input.text is not None:
+            if not input.text.strip():
+                return RPCResult(False)
+            steered = AgentUserMessage(text=input.text)
+        else:
+            queued = _find_queued_message(context, input.message_id or "")
+            if queued is None:
+                return RPCResult(False)
+            QUEUED_USER_MESSAGES.delete(context, queued.message_id)
+            steered = queued.message
+        STEERED_USER_MESSAGES.publish(context, steered)
+        TURN_CONTROL_REQUESTS.publish(context, TurnControlRequest(kind=TurnControlKind.STEER))
+        return RPCResult(True)
+
+    @rpc(is_transactional=True, load_channels=(QUEUED_USER_MESSAGES,))
+    def delete_queued_message(
+        self,
+        context: Context,
+        input: DeleteQueuedMessageRequest,
+    ) -> RPCResult[bool]:
+        """Delete one queued user message before it starts a turn.
+
+        The RPC locks nothing. When the session consumes the message between
+        the RPC's read and its commit, the RPC raises
+        ``ChannelMessageNotFoundError`` and commits nothing.
+
+        Args:
+            context: RPC Context supplied by Dex.
+            input: ``PendingUserMessage.message_id`` from ``get_agent_snapshot``.
+
+        Returns:
+            ``True`` when the message was deleted; ``False`` when it is no
+            longer queued.
+        """
+        queued = _find_queued_message(context, input.message_id)
+        if queued is None:
+            return RPCResult(False)
+        QUEUED_USER_MESSAGES.delete(context, queued.message_id)
+        return RPCResult(True)
+
+    # Only this RPC locks it: concurrent cancels apply in order, so a stale one cannot win.
+    @rpc(lock_attributes=(TURN_CANCELLATION_REQUEST.lock(),))
+    def cancel_turn(self, context: Context, input: CancelTurnRequest) -> RPCResult[bool]:
+        """Stop the running turn at its next safe Step boundary, with no new turn.
+
+        Cancellation works like steering without a steered message. A model
+        call that is running finishes, and a final answer it returns completes
+        the turn as usual. Tool calls that have started run to the end. The
+        calls that have not started record ``REJECTED`` with
+        ``cancellation_reason`` ``TURN_CANCELLED``. Then the session waits for
+        the next user message. The RPC locks only ``TurnCancellationRequest``,
+        which no Step locks, so it never waits for a running Step. Two calls at
+        once can make one raise ``RpcLockConflictError``, which is safe to
+        retry; ``AgentSessionClient.cancel_turn`` retries it.
+
+        Args:
+            context: RPC Context supplied by Dex.
+            input: The turn to stop, or ``None`` for the active turn.
+
+        Returns:
+            ``True`` when the request is recorded, although the turn may still
+            complete before it applies; ``False`` when no turn is active,
+            ``turn_id`` names another turn, or the active turn does not accept
+            cancellation.
+        """
+        state = _optional_agent_state(context)
+        if state is None or state.active_turn_id is None or not state.accepts_turn_control:
+            return RPCResult(False)
+        if input.turn_id is not None and input.turn_id != state.active_turn_id:
+            return RPCResult(False)
+        TURN_CANCELLATION_REQUEST.set(
+            context,
+            TurnCancellationRequest(
+                turn_id=state.active_turn_id, requested_at=_rfc3339(datetime.now(UTC))
+            ),
+        )
+        TURN_CONTROL_REQUESTS.publish(context, TurnControlRequest(kind=TurnControlKind.CANCEL_TURN))
         return RPCResult(True)
 
     @rpc(lock_attributes=(PENDING_INTERRUPTS.lock(),))
@@ -602,7 +780,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         return RPCResult(True)
 
-    @rpc(load_attribute_maps=(AGENT_MESSAGES, AGENT_TOOL_CALLS))
+    @rpc(
+        load_attribute_maps=(AGENT_MESSAGES, AGENT_TOOL_CALLS),
+        load_channels=(QUEUED_USER_MESSAGES, STEERED_USER_MESSAGES),
+    )
     def get_agent_snapshot(self, context: Context) -> RPCResult[AgentSnapshot]:
         """Return the session state a UI renders.
 
@@ -614,7 +795,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
         Returns:
             State, the last 200 messages, pending interrupts, the active turn's
-            tool calls, usage, the queued message count, and the plan.
+            tool calls, usage, the queued message count, the plan, and the
+            queued and steered messages with their Channel message IDs.
         """
         state = _optional_agent_state(context)
         if state is None:
@@ -629,6 +811,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 usage=_agent_usage(context),
                 queued_message_count=QUEUED_USER_MESSAGES.size(context),
                 plan=_optional_agent_plan(context),
+                queued_messages=_pending_user_messages(context, QUEUED_USER_MESSAGES),
+                steered_messages=_pending_user_messages(context, STEERED_USER_MESSAGES),
             )
         )
 
@@ -669,22 +853,24 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     def _begin_turn(
         self,
         context: AsyncContext,
-        text: str,
+        messages: Sequence[AgentUserMessage],
         step_type: str,
         interaction_mode: InteractionMode = InteractionMode.CHAT,
         executed_plan: AgentPlan | None = None,
         was_plan_draft: bool = False,
     ) -> StepDecision:
+        """Store the turn's user messages, in order, and move to RunModel."""
         state = _require_agent_state(context)
         turn_id = f"turn-{state.turn_count + 1}"
         sequence = state.next_message_sequence
+        text = "\n".join(message.text for message in messages)
         with self._session_tracer.trace_user_message_activation(
             context, step_type, turn_id, message_sequence_key(sequence), text
         ):
-            user_message = self._runner.build_user_message(text)
-            if user_message.role is not MessageRole.USER:
+            user_messages = [self._runner.build_user_message(message.text) for message in messages]
+            if any(user_message.role is not MessageRole.USER for user_message in user_messages):
                 raise ValueError("build_user_message must return a user message")
-            state = _append_messages(context, state, turn_id, [user_message])
+            state = _append_messages(context, state, turn_id, user_messages)
             AGENT_STATE.set(
                 context,
                 replace(
@@ -692,6 +878,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     status=AgentSessionStatus.RUNNING_MODEL,
                     active_turn_id=turn_id,
                     interaction_mode=interaction_mode,
+                    accepts_turn_control=True,
                 ),
             )
             events = self._event_writer(context, turn_id)
@@ -717,14 +904,18 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             return InteractionMode.PLANNING
         return InteractionMode.CHAT
 
-    def _begin_user_message_turn(
-        self, context: AsyncContext, message: AgentUserMessage, step_type: str
+    def _begin_user_messages_turn(
+        self, context: AsyncContext, messages: Sequence[AgentUserMessage], step_type: str
     ) -> StepDecision:
-        mode = self._interaction_mode_for_user_messages(context, [message])
-        return self._begin_turn(context, message.text, step_type, mode)
+        mode = self._interaction_mode_for_user_messages(context, messages)
+        return self._begin_turn(context, messages, step_type, mode)
 
     def _wait_for_user_message(self, context: Context) -> Wait:
-        conditions: list[Condition] = [QUEUED_USER_MESSAGES.for_one()]
+        # Dex selects Channel conditions in argument order: a steer, a queued message, a plan.
+        conditions: list[Condition] = [
+            TURN_CONTROL_REQUESTS.for_range(at_least=1, at_most=ALL_PENDING_MESSAGES),
+            QUEUED_USER_MESSAGES.for_one(),
+        ]
         plan = _optional_agent_plan(context)
         # Keyed by revision, so an approval of an earlier revision never starts a turn.
         if plan is not None and plan.status in EXECUTABLE_PLAN_STATUSES:
@@ -734,7 +925,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     def _start_user_message_turn(self, context: AsyncContext, step_type: str) -> StepDecision:
         messages = QUEUED_USER_MESSAGES.results(context)
         if messages:
-            return self._begin_user_message_turn(context, messages[0], step_type)
+            return self._begin_user_messages_turn(context, [messages[0]], step_type)
         plan = _optional_agent_plan(context)
         executions = (
             PLAN_EXECUTIONS.results(context, plan_execution_key(plan.revision))
@@ -757,7 +948,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             AGENT_PLAN.set(context, plan)
         return self._begin_turn(
             context,
-            build_plan_execution_message(plan.revision),
+            [AgentUserMessage(text=build_plan_execution_message(plan.revision))],
             step_type,
             InteractionMode.EXECUTING,
             plan,
@@ -770,6 +961,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_calls = _turn_tool_calls(context, turn_id)
         if any(not tool_call.status.is_final for tool_call in tool_calls):
             raise RuntimeError(f"turn {turn_id} resumed before every tool call finished")
+        decision = self._decide_before_model_call(context, turn_id)
+        if decision is not None:
+            return decision
         events = self._event_writer(context, turn_id)
         turn = self._turn_context(context, state, tool_calls, events)
         with self._session_tracer.trace_model_call(
@@ -777,9 +971,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         ) as model_call_span:
             async with _background_heartbeats(context.heartbeat):
                 outcome = await self._runner.run_model_step(turn)
-            stored_turn_message_count = sum(
-                1 for message in turn.messages if message.turn_id == turn_id
-            )
+            stored_turn_message_count = _count_messages_after_user_messages(turn.messages, turn_id)
             if isinstance(outcome, TurnCompleted):
                 model_call_span.record_outcome(
                     outcome,
@@ -795,6 +987,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 model_call_span.record_outcome(outcome, [])
                 return self._start_tool_calls(context, state, tool_calls, outcome, events)
             raise TypeError("run_model_step must return TurnCompleted or ToolCallsRequested")
+
+    def _decide_before_model_call(self, context: AsyncContext, turn_id: str) -> StepDecision | None:
+        """Return RunModel's move instead of a model call, or None to call the model."""
+        # Execute state is fixed at the first attempt, so this is RunModel's only decision point.
+        if _turn_control_reason(context, turn_id) is not None:
+            return go_to(self._apply_turn_control, None)
+        return None
 
     def _turn_context(
         self,
@@ -842,11 +1041,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE,
                 turn_count=state.turn_count + 1,
                 active_turn_id=None,
+                accepts_turn_control=False,
                 last_turn_error=None,
             ),
         )
-        # The turn's user message is stored before RunModel; count only what came after it.
-        appended_message_count = max(stored_turn_message_count - 1, 0) + len(outcome.new_messages)
+        # The turn's user messages are stored before RunModel; count only what came after them.
+        appended_message_count = stored_turn_message_count + len(outcome.new_messages)
         events.write_event(AgentEventType.TURN_COMPLETED, {"message_count": appended_message_count})
         return go_to(self._await_user_message, None)
 
@@ -1049,7 +1249,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         return _rfc3339(now + self._options.interrupt_deadline)
 
     def _wait_for_tool_approval(self, context: Context, tool_call_id: str) -> Wait:
-        conditions: list[Condition] = [INTERRUPT_RESOLUTIONS.for_one(tool_call_id)]
+        conditions: list[Condition] = [
+            TOOL_CALL_CANCELLATIONS.for_one(tool_call_id),
+            INTERRUPT_RESOLUTIONS.for_one(tool_call_id),
+        ]
         interrupt = _pending_interrupt(context, tool_call_id)
         # After resolve_interrupt removed the interrupt, its deadline no longer applies.
         if interrupt is not None and interrupt.deadline is not None:
@@ -1061,6 +1264,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         if tool_call.status.is_final:
             return dead_end()
         events = self._event_writer(context, tool_call.turn_id)
+        if TOOL_CALL_CANCELLATIONS.results(context, tool_call_id):
+            return self._cancel_waiting_tool_call(
+                context,
+                tool_call,
+                (tool_call_id, InterruptKind.TOOL_APPROVAL),
+                events,
+                self._tool_approval_movement(tool_call_id),
+            )
         resolutions = INTERRUPT_RESOLUTIONS.results(context, tool_call_id)
         if resolutions:
             return self._resolve_tool_approval(
@@ -1121,7 +1332,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     def _wait_for_question_answer(self, context: Context, tool_call_id: str) -> Wait:
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         interrupt_id = _question_interrupt_id(tool_call)
-        conditions: list[Condition] = [INTERRUPT_RESOLUTIONS.for_one(interrupt_id)]
+        conditions: list[Condition] = [
+            TOOL_CALL_CANCELLATIONS.for_one(tool_call_id),
+            INTERRUPT_RESOLUTIONS.for_one(interrupt_id),
+        ]
         if _is_question_interrupt_id_taken(context, tool_call, interrupt_id):
             # The answers in that instance belong to the other call; Execute fails this one.
             return Wait.until(Timer.by_duration(timedelta(0)))
@@ -1151,12 +1365,24 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 **_NO_PENDING_TOOL_QUESTION,
             )
             return _finish_tool_call(context, failed, events)
+        if TOOL_CALL_CANCELLATIONS.results(context, tool_call_id):
+            return self._cancel_waiting_tool_call(
+                context,
+                tool_call,
+                (interrupt_id, InterruptKind.QUESTION),
+                events,
+                self._question_answer_movement(tool_call),
+            )
         resolutions = INTERRUPT_RESOLUTIONS.results(context, interrupt_id)
         if resolutions:
             return self._resolve_question(context, tool_call, interrupt_id, resolutions[0], events)
         if not context.has_timer_fired():
             raise RuntimeError(f"the question wait for {interrupt_id} completed without an answer")
         if _is_tool_question_unraised(context, tool_call, interrupt_id):
+            reason = _turn_control_reason(context, tool_call.turn_id)
+            if reason is not None and _is_cancellable_by_turn_control(tool_call):
+                # The turn is steered or cancelled, so the tool's question is never asked.
+                return _finish_tool_call(context, _cancelled_tool_call(tool_call, reason), events)
             self._raise_tool_question(context, tool_call, interrupt_id, events)
             return go_to_many(self._question_answer_movement(tool_call))
         interrupt = _pending_interrupt(context, interrupt_id)
@@ -1235,14 +1461,24 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         if tool_call.wait_until is None:
             raise RuntimeError(f"durable wait {tool_call_id} has no wait_until")
-        return Wait.until(_timer_until(tool_call.wait_until))
+        return Wait.any_of(
+            _timer_until(tool_call.wait_until), TOOL_CALL_CANCELLATIONS.for_one(tool_call_id)
+        )
 
     def _finish_durable_wait(self, context: AsyncContext, tool_call_id: str) -> StepDecision:
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         if tool_call.status is not ToolCallStatus.WAITING_FOR_TIMER:
             return dead_end()
         if not context.has_timer_fired():
-            raise RuntimeError(f"the durable wait {tool_call_id} completed without its Timer")
+            if not TOOL_CALL_CANCELLATIONS.results(context, tool_call_id):
+                raise RuntimeError(f"the durable wait {tool_call_id} completed without its Timer")
+            return self._cancel_waiting_tool_call(
+                context,
+                tool_call,
+                None,
+                self._event_writer(context, tool_call.turn_id),
+                self._timer_movement(tool_call_id),
+            )
         # The Timer is the authority: it never fires before wait_until, and SkipTimer ends it early.
         # RunModel validated these arguments; a later max_durable_wait must not fail a started wait.
         arguments = json.loads(tool_call.arguments)
@@ -1255,6 +1491,29 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         return _finish_tool_call(context, completed, self._event_writer(context, tool_call.turn_id))
 
+    def _cancel_waiting_tool_call(
+        self,
+        context: AsyncContext,
+        tool_call: AgentToolCall,
+        interrupt: tuple[str, InterruptKind] | None,
+        events: AgentEventWriter,
+        wait_again: StepMovement[str],
+    ) -> StepDecision:
+        """Record a call woken by ToolCallCancellations as cancelled, or wait again."""
+        # The flags decide; a wake-up left from an earlier turn's call ID changes nothing.
+        reason = _turn_control_reason(context, tool_call.turn_id)
+        if reason is None or not _is_cancellable_by_turn_control(tool_call):
+            return go_to_many(wait_again)
+        if interrupt is not None:
+            interrupt_id, kind = interrupt
+            if _pending_interrupt(context, interrupt_id) is not None:
+                _remove_pending_interrupt(context, interrupt_id)
+                _write_interrupt_cancelled(events, interrupt_id, kind, reason)
+            elif INTERRUPT_RESOLUTIONS.size(context, interrupt_id) > 0:
+                # The answer committed first; the next wait consumes it.
+                return go_to_many(wait_again)
+        return _finish_tool_call(context, _cancelled_tool_call(tool_call, reason), events)
+
     async def _run_tool_call(
         self,
         context: AsyncContext,
@@ -1266,6 +1525,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             return dead_end()
         if tool_call.status is not ToolCallStatus.APPROVED:
             raise RuntimeError(f"tool call {tool_call_id} is not approved")
+        # Retries reuse the first attempt's state, so a call that started is never abandoned.
+        reason = _turn_control_reason(context, tool_call.turn_id)
+        if reason is not None:
+            cancelled = _cancelled_tool_call(tool_call, reason)
+            return _finish_tool_call(
+                context, cancelled, self._event_writer(context, tool_call.turn_id)
+            )
         with self._session_tracer.trace_tool_call(context, step_type, tool_call) as tool_call_span:
             events = self._event_writer(context, tool_call.turn_id)
             events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
@@ -1314,15 +1580,136 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         finished = replace(tool_call, status=status, error=_recovery_detail(context))
         return _finish_tool_call(context, finished, self._event_writer(context, tool_call.turn_id))
 
-    def _resume_turn_after_tool_calls(self, context: AsyncContext) -> StepDecision:
+    def _resume_turn_after_tool_calls(
+        self, context: AsyncContext, expected_result_count: int
+    ) -> StepDecision:
         state = _require_agent_state(context)
-        tool_calls = _turn_tool_calls(context, _require_active_turn_id(state))
+        turn_id = _require_active_turn_id(state)
+        tool_calls = _turn_tool_calls(context, turn_id)
+        reason = _turn_control_reason(context, turn_id)
+        if TURN_CONTROL_REQUESTS.results(context):
+            if reason is not None:
+                self._wake_waiting_tool_calls(
+                    context, tool_calls, reason, self._event_writer(context, turn_id)
+                )
+            # The results did not all arrive, so wait again for the same count.
+            return go_to(self._resume_turn, expected_result_count)
         unfinished_count = sum(1 for tool_call in tool_calls if not tool_call.status.is_final)
         if unfinished_count:
             # A consumed result from an earlier turn must not resume this one early.
             return go_to(self._resume_turn, unfinished_count)
+        if reason is not None:
+            return go_to(self._apply_turn_control, None)
         AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_MODEL))
         return go_to(self._run_model, None)
+
+    def _wake_waiting_tool_calls(
+        self,
+        context: AsyncContext,
+        tool_calls: Sequence[AgentToolCall],
+        reason: ToolCallCancellationReason,
+        events: AgentEventWriter,
+    ) -> None:
+        """Cancel the turn's pending interrupts and wake each Step waiting for a person or Timer."""
+        interrupts = _pending_interrupts(context)
+        cancelled_interrupt_ids: set[str] = set()
+        for tool_call in tool_calls:
+            if not _is_cancellable_by_turn_control(tool_call):
+                continue
+            if tool_call.status is ToolCallStatus.WAITING_FOR_TIMER:
+                # A later control wake finds the first message still pending and adds none.
+                if TOOL_CALL_CANCELLATIONS.size(context, tool_call.tool_call_id) == 0:
+                    _publish_tool_call_cancellation(context, tool_call.tool_call_id, reason)
+                continue
+            if tool_call.status is ToolCallStatus.AWAITING_APPROVAL:
+                interrupt_id = tool_call.tool_call_id
+                kind = InterruptKind.TOOL_APPROVAL
+            else:
+                interrupt_id = _question_interrupt_id(tool_call)
+                kind = InterruptKind.QUESTION
+            # An answered interrupt is gone, so its answer wins; an unraised question checks flags.
+            if any(
+                interrupt.interrupt_id == interrupt_id
+                and interrupt.tool_call_id == tool_call.tool_call_id
+                for interrupt in interrupts
+            ):
+                cancelled_interrupt_ids.add(interrupt_id)
+                _write_interrupt_cancelled(events, interrupt_id, kind, reason)
+                _publish_tool_call_cancellation(context, tool_call.tool_call_id, reason)
+        if cancelled_interrupt_ids:
+            PENDING_INTERRUPTS.set(
+                context,
+                [
+                    interrupt
+                    for interrupt in interrupts
+                    if interrupt.interrupt_id not in cancelled_interrupt_ids
+                ],
+            )
+
+    def _apply_turn_control_requests(self, context: AsyncContext) -> StepDecision:
+        state = _require_agent_state(context)
+        steered_messages = list(STEERED_USER_MESSAGES.results(context))
+        if state.active_turn_id is not None:
+            self._end_controlled_turn(context, state, len(steered_messages))
+        if not steered_messages:
+            return go_to(self._await_user_message, None)
+        # Any steered message with plan_mode, or a draft plan, makes it a planning turn.
+        return self._begin_user_messages_turn(
+            context, steered_messages, self._apply_turn_control.get_step_type()
+        )
+
+    def _end_controlled_turn(
+        self,
+        context: AsyncContext,
+        state: AgentState,
+        steered_message_count: int,
+    ) -> None:
+        """End a steered or cancelled turn with its unfinished-turn messages, or with a note."""
+        turn_id = _require_active_turn_id(state)
+        tool_calls = _turn_tool_calls(context, turn_id)
+        if any(not tool_call.status.is_final for tool_call in tool_calls):
+            raise RuntimeError(f"turn {turn_id} ended before every tool call finished")
+        events = self._event_writer(context, turn_id)
+        is_cancelled = (
+            _turn_control_reason(context, turn_id) is ToolCallCancellationReason.TURN_CANCELLED
+        )
+        stored_message_count = _count_messages_after_user_messages(
+            _read_messages(context, 1, state.next_message_sequence), turn_id
+        )
+        messages = self._build_unfinished_turn_messages(context, state, tool_calls, events)
+        if messages is None:
+            messages = []
+            if tool_calls:
+                header = TURN_CANCELLED_NOTE_HEADER if is_cancelled else TURN_STEERED_NOTE_HEADER
+                # The records are deleted below; the note keeps the next model from repeating them.
+                note = self._runner.build_user_message(build_tool_call_note(header, tool_calls))
+                if note.role is not MessageRole.USER:
+                    raise ValueError("build_user_message must return a user message")
+                messages.append(note)
+        state = _append_messages(context, state, turn_id, messages)
+        for tool_call in tool_calls:
+            AGENT_TOOL_CALLS.delete(context, tool_call.tool_call_id)
+        if FRAMEWORK_RUN_STATE.get(context) is not None:
+            FRAMEWORK_RUN_STATE.delete(context)
+        AGENT_STATE.set(
+            context,
+            replace(
+                state,
+                status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE,
+                turn_count=state.turn_count + 1,
+                active_turn_id=None,
+                accepts_turn_control=False,
+                last_turn_error=None,
+            ),
+        )
+        message_count = stored_message_count + len(messages)
+        if is_cancelled:
+            events.write_event(AgentEventType.TURN_CANCELLED, {"message_count": message_count})
+            return
+        events.write_event(
+            AgentEventType.TURN_STEERED,
+            {"steered_message_count": steered_message_count, "message_count": message_count},
+        )
 
     def _fail_active_turn(self, context: AsyncContext) -> StepDecision:
         state = _require_agent_state(context)
@@ -1340,7 +1727,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         error: str,
     ) -> StepDecision:
         turn_id = _require_active_turn_id(state)
-        messages = list(self._build_unfinished_turn_messages(context, state, tool_calls, events))
+        messages = list(
+            self._build_unfinished_turn_messages(context, state, tool_calls, events) or ()
+        )
         finished_tool_calls = [tool_call for tool_call in tool_calls if tool_call.status.is_final]
         if finished_tool_calls:
             # The records are deleted below; the note keeps the next model from repeating writes.
@@ -1360,6 +1749,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE,
                 turn_count=state.turn_count + 1,
                 active_turn_id=None,
+                accepts_turn_control=False,
                 last_turn_error=error,
             ),
         )
@@ -1372,9 +1762,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         state: AgentState,
         tool_calls: Sequence[AgentToolCall],
         events: AgentEventWriter,
-    ) -> Iterable[FrameworkMessage]:
+    ) -> list[FrameworkMessage] | None:
+        """Return the runner's unfinished-turn messages, or None when it has none or raised."""
         if not isinstance(self._runner, UnfinishedTurnMessageBuilder):
-            return ()
+            return None
         try:
             turn = self._turn_context(context, state, tool_calls, events)
             messages = list(self._runner.build_unfinished_turn_messages(turn))
@@ -1388,7 +1779,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 state.active_turn_id,
                 exc_info=True,
             )
-            return ()
+            return None
 
     def _tool_call_movement(self, tool_call: AgentToolCall) -> StepMovement[str]:
         # Per-movement options load only this call's record, not the whole map.
@@ -1476,11 +1867,13 @@ class StartAgentSession(Step[AgentSessionStartInput]):
         PENDING_INTERRUPTS.set(context, [])
         if input.initial_message is None or not input.initial_message.strip():
             return go_to(self._session._await_user_message, None)
-        return self._session._begin_turn(context, input.initial_message, self.get_step_type())
+        return self._session._begin_turn(
+            context, [AgentUserMessage(text=input.initial_message)], self.get_step_type()
+        )
 
 
 class AwaitUserMessage(Step[None]):
-    """Wait for one queued user message, or an approved plan execution, and start its turn."""
+    """Wait for a steer, a cancellation, a queued user message, or a plan execution."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
@@ -1499,6 +1892,8 @@ class AwaitUserMessage(Step[None]):
         context: AsyncContext,
         input: None,
     ) -> StepDecision:
+        if TURN_CONTROL_REQUESTS.results(context):
+            return go_to(self._session._apply_turn_control, None)
         return self._session._start_user_message_turn(context, self.get_step_type())
 
 
@@ -1694,27 +2089,66 @@ class RecordToolOutcomeUnknown(Step[str]):
 
 
 class ResumeTurn(Step[int]):
-    """Wait for every tool call result of the model response, then call the model again."""
+    """Wait for every tool call result of the model response, then call the model again.
+
+    A steer or ``cancel_turn`` wakes it early: it cancels the turn's pending
+    interrupts and Timers, waits again, and once every result is in moves to
+    ``ApplyTurnControl`` instead of ``RunModel``.
+    """
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
 
     def get_step_options(self) -> StepOptions:
+        # A control wake rewrites PendingInterrupts, which interrupt RPCs also write.
         return StepOptions(
             wait_for_durability=StepDurability.SYNC,
             execute_durability=StepDurability.SYNC,
             execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
+            execute_lock_attributes=(PENDING_INTERRUPTS.lock(),),
         )
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(TOOL_CALL_RESULTS.for_n(input))
+        return Wait.any_of(
+            TOOL_CALL_RESULTS.for_n(input),
+            TURN_CONTROL_REQUESTS.for_range(at_least=1, at_most=ALL_PENDING_MESSAGES),
+        )
 
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
         input: int,
     ) -> StepDecision:
-        return self._session._resume_turn_after_tool_calls(context)
+        return self._session._resume_turn_after_tool_calls(context, input)
+
+
+class ApplyTurnControl(Step[None]):
+    """End a steered or cancelled turn, then start a turn with the steered messages."""
+
+    def __init__(self, session: AgentSessionFlow) -> None:
+        self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RECOVERY_RETRY,
+            wait_for_durability=StepDurability.SYNC,
+            execute_durability=StepDurability.SYNC,
+            execute_load_attribute_maps=(AGENT_TOOL_CALLS, AGENT_MESSAGES),
+        )
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        # Both conditions are non-blocking: the wait consumes every steered message and stale wake.
+        return Wait.all_of(
+            STEERED_USER_MESSAGES.at_most(ALL_PENDING_MESSAGES),
+            TURN_CONTROL_REQUESTS.at_most(ALL_PENDING_MESSAGES),
+        )
+
+    async def execute(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: None,
+    ) -> StepDecision:
+        return self._session._apply_turn_control_requests(context)
 
 
 class RecordTurnFailure(Step[None]):
@@ -1830,6 +2264,7 @@ def _write_interrupt_resolved(
     interrupt_id: str,
     kind: InterruptKind,
     resolution: AgentInterruptResolution,
+    cancellation_reason: ToolCallCancellationReason | None = None,
 ) -> None:
     events.write_event(
         AgentEventType.INTERRUPT_RESOLVED,
@@ -1841,9 +2276,105 @@ def _write_interrupt_resolved(
             "answered": kind is InterruptKind.QUESTION
             and resolution.approved
             and resolution.answer is not None,
-            "cancellation_reason": None,
+            "cancellation_reason": None
+            if cancellation_reason is None
+            else str(cancellation_reason),
         },
     )
+
+
+def _write_interrupt_cancelled(
+    events: AgentEventWriter,
+    interrupt_id: str,
+    kind: InterruptKind,
+    reason: ToolCallCancellationReason,
+) -> None:
+    _write_interrupt_resolved(
+        events,
+        interrupt_id,
+        kind,
+        AgentInterruptResolution(
+            approved=False, rejection_message=TOOL_CALL_CANCELLATION_RESULTS[reason]
+        ),
+        reason,
+    )
+
+
+def _turn_control_reason(
+    context: Context, turn_id: str | None
+) -> ToolCallCancellationReason | None:
+    """Return why the turn ends at this boundary, or None; reads committed state only."""
+    if turn_id is None:
+        return None
+    request = cast(TurnCancellationRequest | None, TURN_CANCELLATION_REQUEST.get(context))
+    # Turn IDs never repeat, so a request for an earlier turn never matches.
+    if request is not None and request.turn_id == turn_id:
+        return ToolCallCancellationReason.TURN_CANCELLED
+    if STEERED_USER_MESSAGES.size(context) > 0:
+        return ToolCallCancellationReason.STEERED
+    return None
+
+
+def _is_cancellable_by_turn_control(tool_call: AgentToolCall) -> bool:
+    """Report whether steering or cancel_turn may abandon a call that waits in a session Step."""
+    # Each of these waits for a person or a Timer; the call has taken no effect.
+    return tool_call.status in (
+        ToolCallStatus.AWAITING_APPROVAL,
+        ToolCallStatus.AWAITING_ANSWER,
+        ToolCallStatus.WAITING_FOR_TIMER,
+    )
+
+
+def _cancelled_tool_call(
+    tool_call: AgentToolCall, reason: ToolCallCancellationReason
+) -> AgentToolCall:
+    return replace(
+        tool_call,
+        status=ToolCallStatus.REJECTED,
+        rejection_message=TOOL_CALL_CANCELLATION_RESULTS[reason],
+        cancellation_reason=reason,
+        **_NO_PENDING_TOOL_QUESTION,
+    )
+
+
+def _publish_tool_call_cancellation(
+    context: Context, tool_call_id: str, reason: ToolCallCancellationReason
+) -> None:
+    TOOL_CALL_CANCELLATIONS.publish(context, tool_call_id, ToolCallCancellation(reason=reason))
+
+
+def _pending_user_messages(
+    context: Context, channel: Channel[AgentUserMessage]
+) -> list[PendingUserMessage]:
+    return [
+        PendingUserMessage(message_id=pending.message_id, message=pending.value)
+        for pending in channel.pending_messages(context)
+    ]
+
+
+def _find_queued_message(context: Context, message_id: str) -> PendingUserMessage | None:
+    return next(
+        (
+            queued
+            for queued in _pending_user_messages(context, QUEUED_USER_MESSAGES)
+            if queued.message_id == message_id
+        ),
+        None,
+    )
+
+
+def _count_messages_after_user_messages(messages: Sequence[AgentMessage], turn_id: str) -> int:
+    """Count a turn's stored messages after the user messages that started it."""
+    turn_messages = [message for message in messages if message.turn_id == turn_id]
+    leading_user_count = next(
+        (
+            index
+            for index, message in enumerate(turn_messages)
+            if message.role is not MessageRole.USER
+        ),
+        len(turn_messages),
+    )
+    return len(turn_messages) - leading_user_count
 
 
 def _record_tool_input_request(

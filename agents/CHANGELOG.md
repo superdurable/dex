@@ -235,6 +235,59 @@ application enables it.
 - `AgentTurnContext` gains `interaction_mode` and `plan`, `AgentSnapshot`
   gains `plan`, and `AgentSessionClient` (Python) and the TypeScript testing
   client gain `execute_plan` and a `plan_mode` argument.
+### Steering and turn cancellation
+
+Both cores, with identical Step types, RPC names, wire values, events, and
+model-visible text. Nothing changes until an application calls the new RPCs.
+
+- `steer_user_message` (`SteerUserMessageRequest`, with a queued message's
+  `message_id` or new `text`) steers the running turn, and
+  `delete_queued_message` (`DeleteQueuedMessageRequest`) removes a queued
+  message. Both are transactional and lock nothing: a message consumed while
+  the RPC runs fails it with `ChannelMessageNotFoundError`, and nothing
+  commits. While no turn is active, `steer_user_message` with `text` queues
+  the message. `cancel_turn` (`CancelTurnRequest`) stops the running turn with
+  no new turn; `true` means the request is recorded, and the turn may still
+  complete first. It locks only `TurnCancellationRequest`, so concurrent
+  cancels apply in order.
+- A steered or cancelled turn ends at its next safe Step boundary. A model
+  call or tool call that has started finishes. Calls that have not started
+  record `rejected` with the new `AgentToolCall.cancellation_reason`
+  (`steered` or `turn_cancelled`) and the result
+  `{"status":"cancelled","reason":"superseded_by_steered_user_message"}` or
+  `{"status":"cancelled","reason":"turn_cancelled_by_user"}`. Final statuses do
+  not change. The new `ApplyTurnControl` Step ends the turn, stores the
+  runner's unfinished-turn messages or a steered or cancelled note, and starts
+  a turn with every steered message, in order. That turn is a planning turn
+  when any steered message has `plan_mode` or a draft plan exists, as for a
+  queued message, and `execute_plan` returns false while a steered message is
+  pending. A `write_todos` call settles in `RunModel`'s own commit, so one
+  that a model call made while the user steered still replaces the plan.
+- New persistence: the `SteeredUserMessages` Channel, the
+  `TurnCancellationRequest` Attribute, and the internal `TurnControlRequests`
+  Channel and `ToolCallCancellations` ChannelMap. `AgentState` gains
+  `accepts_turn_control` (`acceptsTurnControl`), which a turn that 0.2.0
+  started carries. `ResumeTurn` now waits on `TurnControlRequests` too and
+  locks `PendingInterrupts`.
+  `AwaitToolApproval`, `AwaitQuestionAnswer`, and `AwaitTimer` also wait on
+  their `ToolCallCancellations` instance. `AwaitUserMessage` wakes on a steer
+  or cancellation.
+- `get_agent_snapshot` returns `queued_messages` and `steered_messages`
+  (`PendingUserMessage` with the Channel message ID) next to
+  `queued_message_count`. New events `turn_steered` and `turn_cancelled`;
+  `interrupt_resolved.cancellation_reason` is set when steering or
+  cancellation removes an interrupt. New constants
+  `TURN_STEERED_NOTE_HEADER`, `TURN_CANCELLED_NOTE_HEADER`,
+  `TOOL_CALL_CANCELLED_BY_STEERING_RESULT`, and
+  `TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT` (camelCase in TypeScript).
+- `AgentSessionClient` gains `steer_user_message`, `delete_queued_message`,
+  and `cancel_turn`; the TypeScript `AgentSessionTestClient` gains
+  `steerUserMessage`, `steerQueuedMessage`, `deleteQueuedMessage`, and
+  `cancelTurn`. The TypeScript UI message stream ends a steered or cancelled
+  turn with `finish` reason `other`.
+- `build_unfinished_turn_messages` (`buildUnfinishedTurnMessages`) is also
+  called when a steered or cancelled turn ends. A runner that keeps its items
+  in run state may implement it to keep its exact transcript.
 
 ### Fixes
 
@@ -248,6 +301,17 @@ application enables it.
 
 - Enable the new options and call the new RPCs only after every Worker of the
   Flow type runs 0.2.0. A session started on 0.1.0 continues on 0.2.0.
+- Call `steer_user_message` and `cancel_turn` only after every Worker runs
+  0.2.0 and every turn that was active during the rollout has ended. A Step's
+  waits and locks come from the Worker that scheduled it, so such a turn can
+  hold a wait that a steer never wakes. The RPCs refuse a turn that an earlier
+  Worker started or advanced (`AgentState.accepts_turn_control` is false), and
+  a steer while no turn is active is queued, which every Worker's idle wait
+  takes. A turn that started on 0.2.0 during a mixed rollout is not refused.
+- `ResumeTurn` now locks `PendingInterrupts` in its short Execute, so
+  `resolve_interrupt` and `answer_question` can raise `RpcLockConflictError`
+  in sessions that never steer. `AgentSessionClient` retries it for 5 seconds;
+  direct `invoke_rpc` callers should retry it too.
 - Python: `ToolCallStatus` gains the two non-final members, so an exhaustive
   `match` or `assert_never` over the status of a stored record, such as
   `AgentSnapshot.tool_calls`, must handle them. Runners still see only final

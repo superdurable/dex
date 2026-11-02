@@ -61,6 +61,22 @@ DEFAULT_REJECTION_TOOL_RESULT = "The user rejected this tool call."
 #: Rejection message recorded when an interrupt deadline passes.
 APPROVAL_DEADLINE_PASSED = "approval deadline passed"
 
+#: First line of the note ``ApplyTurnControl`` stores after a steered turn ran tools.
+TURN_STEERED_NOTE_HEADER = "[Dex] The user steered the conversation after these tool calls ran:"
+
+#: First line of the note ``ApplyTurnControl`` stores after a cancelled turn ran tools.
+TURN_CANCELLED_NOTE_HEADER = "[Dex] The user stopped the previous turn after these tool calls ran:"
+
+#: Model-visible result of a tool call that steering abandoned before it started.
+TOOL_CALL_CANCELLED_BY_STEERING_RESULT = (
+    '{"status":"cancelled","reason":"superseded_by_steered_user_message"}'
+)
+
+#: Model-visible result of a tool call that ``cancel_turn`` abandoned before it started.
+TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT = (
+    '{"status":"cancelled","reason":"turn_cancelled_by_user"}'
+)
+
 
 @dataclass(frozen=True)
 class ToolPolicy:
@@ -179,7 +195,27 @@ def build_turn_failure_note(tool_calls: Sequence[AgentToolCall]) -> str:
     Raises:
         ValueError: If a record is not final.
     """
-    lines = [TURN_FAILURE_NOTE_HEADER]
+    return build_tool_call_note(TURN_FAILURE_NOTE_HEADER, tool_calls)
+
+
+def build_tool_call_note(header: str, tool_calls: Sequence[AgentToolCall]) -> str:
+    """Return a note in the turn-failure note's line format with another first line.
+
+    The session stores it for a turn that ended without a final answer. Use
+    ``build_turn_failure_note`` for a failed turn.
+
+    Args:
+        header: First line, such as ``TURN_STEERED_NOTE_HEADER``.
+        tool_calls: Final records of the ending turn.
+
+    Returns:
+        ``header``, one line per record as in ``build_turn_failure_note``, and
+        ``TURN_FAILURE_NOTE_FOOTER``, joined with newlines.
+
+    Raises:
+        ValueError: If a record is not final.
+    """
+    lines = [header]
     for tool_call in sorted(tool_calls, key=lambda record: record.deferral_order):
         outcome = describe_tool_call_outcome(tool_call)
         lines.append(
@@ -676,9 +712,13 @@ class UnfinishedTurnMessageBuilder(Protocol):
 
     Implement it next to ``AgentFrameworkRunner`` when the runner sets
     ``ToolCallsRequested.new_messages``. The session calls it when a turn ends
-    without a final answer, such as in ``RecordTurnFailure``, so the stored
-    transcript never holds a tool call without its result. The session checks
-    for the method at runtime; a runner without it behaves as before.
+    without a final answer, in ``RecordTurnFailure`` and, after steering or
+    ``cancel_turn``, in ``ApplyTurnControl``, so the stored transcript never
+    holds a tool call without its result. The session checks for the method at
+    runtime; a runner without it behaves as before. A runner that keeps its
+    items in ``framework_run_state`` can implement it too: after steering, the
+    next model input then holds the turn's exact tool calls and results instead
+    of a note.
 
     Example:
         >>> class MyRunner:
@@ -690,9 +730,11 @@ class UnfinishedTurnMessageBuilder(Protocol):
     def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
         """Return the items of an ending turn that the session has not stored yet.
 
-        The session calls it with every record of the turn final, before it
-        stores its turn-failure note. It makes no model call. If it raises,
-        the session stores only the note.
+        The session calls it with every record of the turn final. In
+        ``RecordTurnFailure`` it stores the result before the turn-failure
+        note. In ``ApplyTurnControl`` it stores the result instead of the
+        steered or cancelled note. It makes no model call. If it raises, the
+        session stores only the note.
 
         Args:
             turn: Committed state of the ending turn. ``events`` writes live

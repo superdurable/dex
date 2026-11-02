@@ -43,7 +43,11 @@ import {
   type AgentUserMessage,
   type FrameworkMessage,
   type InteractionMode,
+  type ToolCallCancellationReason,
   type ToolEffect,
+  toolCallCancelledBySteeringResult,
+  toolCallCancelledByTurnCancellationResult,
+  type TurnCancellationRequest,
 } from "./agent-session-values.js";
 import type { ResolvedAgentTracingOptions } from "./agent-tracing-options.js";
 
@@ -59,8 +63,18 @@ export const agentSessionStepTypes = {
   recordToolFailure: "RecordToolFailure",
   recordToolOutcomeUnknown: "RecordToolOutcomeUnknown",
   resumeTurn: "ResumeTurn",
+  applyTurnControl: "ApplyTurnControl",
   recordTurnFailure: "RecordTurnFailure",
 } as const;
+
+/** Consumes every pending message of a Channel at once; the plan's MAX. */
+export const allPendingMessages = 2_147_483_647;
+
+/** The model-visible result of a call that steering or `cancel_turn` abandoned, by reason. */
+export const toolCallCancellationResults: Readonly<Record<ToolCallCancellationReason, string>> = {
+  steered: toolCallCancelledBySteeringResult,
+  turn_cancelled: toolCallCancelledByTurnCancellationResult,
+};
 
 /** Fields of one `interrupt_resolved` event. */
 export interface InterruptResolvedEvent {
@@ -69,6 +83,7 @@ export interface InterruptResolvedEvent {
   readonly isApproved: boolean;
   readonly isAnswered: boolean;
   readonly rejectionMessage: string | null;
+  readonly cancellationReason?: ToolCallCancellationReason;
 }
 
 // Keeps liveness well inside the shortest heartbeat timeout, one minute.
@@ -209,9 +224,43 @@ export class AgentSessionTransitions {
         approved: resolution.isApproved,
         answered: resolution.isAnswered,
         rejection_message: resolution.rejectionMessage,
-        cancellation_reason: null,
+        cancellation_reason: resolution.cancellationReason ?? null,
       }),
     );
+  }
+
+  /** Writes the `interrupt_resolved` event of an interrupt that steering or `cancel_turn` removed. */
+  public writeInterruptCancelled(
+    context: Context,
+    turnId: string,
+    interruptId: string,
+    kind: AgentInterruptKind,
+    reason: ToolCallCancellationReason,
+  ): void {
+    this.writeInterruptResolved(context, turnId, {
+      interruptId,
+      kind,
+      isApproved: false,
+      isAnswered: false,
+      rejectionMessage: toolCallCancellationResults[reason],
+      cancellationReason: reason,
+    });
+  }
+
+  /**
+   * Returns why the turn ends at this boundary, or `null`. It reads committed state only: a matching
+   * `TurnCancellationRequest`, then any pending steered message.
+   */
+  public readTurnControlReason(context: Context, turnId: string | null): ToolCallCancellationReason | null {
+    if (turnId === null) {
+      return null;
+    }
+    const request = this.persistence.turnCancellationRequest.get(context) as TurnCancellationRequest | undefined;
+    // Turn IDs never repeat, so a request for an earlier turn never matches.
+    if (request !== undefined && request.turnId === turnId) {
+      return "turn_cancelled";
+    }
+    return context.channelSize(this.persistence.steeredUserMessages) > 0 ? "steered" : null;
   }
 
   /** Builds the runner's view of a turn; every record must be final. */
@@ -249,6 +298,38 @@ export class AgentSessionTransitions {
     };
   }
 
+  /**
+   * Returns the runner's unfinished-turn messages for an ending turn, or `null` when the runner has no such
+   * method or it throws, so the caller stores its note instead.
+   */
+  public buildUnfinishedTurnMessages(
+    context: Context,
+    state: AgentState,
+    turnId: string,
+    finalToolCalls: readonly AgentToolCallRecord[],
+  ): readonly FrameworkMessage[] | null {
+    if (this.runner.buildUnfinishedTurnMessages === undefined) {
+      return null;
+    }
+    const events = this.createEventWriter(context, turnId);
+    try {
+      const turnContext = this.createTurnContext(context, state, turnId, finalToolCalls, events, () =>
+        Promise.resolve(),
+      );
+      const messages: unknown = this.runner.buildUnfinishedTurnMessages(turnContext);
+      if (!Array.isArray(messages) || !messages.every(isFrameworkMessage)) {
+        throw new TypeError("buildUnfinishedTurnMessages must return an array of framework messages");
+      }
+      return messages;
+    } catch (error: unknown) {
+      // A runner defect must not block the end of the turn; the caller's note still tells the model.
+      console.warn(`dex-agents: no unfinished-turn messages are stored for ${turnId}:`, error);
+      return null;
+    } finally {
+      events.close();
+    }
+  }
+
   public isEnabledBuiltInTool(toolName: string): toolName is BuiltInTool {
     return this.config.builtInTools.has(toolName as BuiltInTool);
   }
@@ -283,11 +364,11 @@ export class AgentSessionTransitions {
     return advancedState;
   }
 
-  /** Appends the user message, opens the next turn, and moves to RunModel. */
+  /** Appends the turn's user messages, in order, opens the next turn, and moves to RunModel. */
   public beginTurn(
     context: Context,
     state: AgentState,
-    text: string,
+    messages: readonly AgentUserMessage[],
     stepType: string,
     interactionMode: InteractionMode = "chat",
     executedPlan?: AgentPlan,
@@ -300,18 +381,19 @@ export class AgentSessionTransitions {
       stepType,
       turnId,
       messageSequenceKey(sequence),
-      text,
+      messages.map((message) => message.text).join("\n"),
       () => {
-        const userMessage = this.runner.buildUserMessage(text);
-        if (userMessage.role !== "user") {
+        const userMessages = messages.map((message) => this.runner.buildUserMessage(message.text));
+        if (userMessages.some((userMessage) => userMessage.role !== "user")) {
           throw new TypeError("buildUserMessage must return a message with role user");
         }
-        const stateWithMessage = this.appendMessages(context, state, turnId, [userMessage]);
+        const stateWithMessage = this.appendMessages(context, state, turnId, userMessages);
         this.writeAgentState(context, {
           ...stateWithMessage,
           status: "running_model",
           activeTurnId: turnId,
           interactionMode,
+          acceptsTurnControl: true,
         });
         this.writeEvents(context, turnId, (events) => {
           events.writeEvent("turn_started", { sequence });
@@ -341,6 +423,10 @@ export class AgentSessionTransitions {
 
   public goToAwaitUserMessage(): StepDecision {
     return goTo(new StepRef(agentSessionStepTypes.awaitUserMessage), undefined);
+  }
+
+  public goToApplyTurnControl(): StepDecision {
+    return goTo(new StepRef(agentSessionStepTypes.applyTurnControl), undefined);
   }
 
   public resolveToolPolicy(toolName: string, frameworkEffect?: ToolEffect): ResolvedToolPolicy {
@@ -431,6 +517,55 @@ export function toRunnerToolCall(record: AgentToolCallRecord): AgentToolCall {
     throw new TypeError(`tool call ${record.toolCallId} is still ${record.status}`);
   }
   return record as AgentToolCall;
+}
+
+function isFrameworkMessage(value: unknown): value is FrameworkMessage {
+  const message = value as Partial<Record<keyof FrameworkMessage, unknown>> | null;
+  const isNullableString = (field: unknown) => field === null || typeof field === "string";
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    (message.role === "user" || message.role === "assistant" || message.role === "tool") &&
+    typeof message.frameworkItem === "string" &&
+    isNullableString(message.text) &&
+    isNullableString(message.toolCallId) &&
+    isNullableString(message.toolName) &&
+    isNullableString(message.toolArguments) &&
+    isNullableString(message.toolOutput)
+  );
+}
+
+/** Reports whether steering or `cancel_turn` may abandon a call that waits in a session Step. */
+export function isCancellableByTurnControl(toolCall: AgentToolCallRecord): boolean {
+  // Each of these waits for a person or a Timer; the call has taken no effect.
+  return (
+    toolCall.status === "awaiting_approval" ||
+    toolCall.status === "awaiting_answer" ||
+    toolCall.status === "waiting_for_timer"
+  );
+}
+
+/** Returns a record that steering or `cancel_turn` abandoned before the call started. */
+export function cancelledToolCall(
+  toolCall: AgentToolCallRecord,
+  reason: ToolCallCancellationReason,
+): AgentToolCallRecord {
+  return {
+    ...toolCall,
+    status: "rejected",
+    rejectionMessage: toolCallCancellationResults[reason],
+    cancellationReason: reason,
+    inputQuestion: null,
+    inputChoices: [],
+    inputAllowsFreeText: true,
+  };
+}
+
+/** Counts a turn's stored messages after the user messages that started it. */
+export function countMessagesAfterUserMessages(messages: readonly AgentMessage[], turnId: string): number {
+  const turnMessages = messages.filter((message) => message.turnId === turnId);
+  const firstNonUserIndex = turnMessages.findIndex((message) => message.role !== "user");
+  return firstNonUserIndex === -1 ? 0 : turnMessages.length - firstNonUserIndex;
 }
 
 export function toolStepTypeForEffect(effect: ToolEffect): string {

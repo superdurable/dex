@@ -17,21 +17,29 @@ The model reads the current turn's user text:
 * ``lookup-then-stall <gate> <query>`` waits at the gate in the second call.
 * ``lookup-then-fail <query>`` raises in the second call.
 * ``publish <message>`` calls ``publish_note``, which needs approval.
+* ``publish-as <tool_call_id> <message>`` does the same with a fixed tool call ID.
 * ``slow-write <gate> <message>`` calls ``slow_write``, which waits at the gate.
 * ``ask <question> | <choice> ...`` calls ``ask_user``; ``ask-strict`` disallows
   free text.
 * ``ask-raw <json>`` calls ``ask_user`` with raw arguments.
 * ``wait <seconds> <reason>`` calls ``durable_wait``.
 * ``transfer <amount> [gate]`` calls ``transfer_funds``, which asks which account.
+* ``transfer-late-ask <amount> <gate>`` does the same; the tool waits at the
+  gate before it asks.
 * ``transfer-pair <amount> <amount>`` calls ``transfer_funds`` twice in one response.
 * ``loop <obey|defy> <query>`` calls ``lookup_order`` while tools are offered.
   Once none are, ``obey`` answers and ``defy`` asks for a tool anyway.
 * ``collide`` calls ``transfer_funds`` as ``pay`` and ``publish_note`` as
   ``pay-input-1``, the ID that ``pay``'s question would take.
+* ``stall-then-call <gate> <query> | <message>`` waits at the gate in the first
+  call, then calls ``lookup_order`` and ``publish_note`` in one response.
+* ``parallel <gate> <query> | <message>`` calls ``lookup_order``, which waits
+  at the gate, and ``publish_note`` in one response.
 
 ``STEPWISE_AGENT_MAX_MODEL_CALLS`` sets ``max_model_calls_per_turn``, and
 ``STEPWISE_AGENT_UNFINISHED_BUILDER`` set to ``raise`` or ``malformed`` breaks
-``build_unfinished_turn_messages``.
+``build_unfinished_turn_messages``; ``gate:<name>`` makes it wait at that gate,
+blocking the Worker, before it returns the messages.
 
 After its tool results arrive, the model answers ``<tool_name>: <output>``.
 """
@@ -40,6 +48,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
@@ -81,11 +90,19 @@ INSTRUCTIONS = "You are a scripted test agent."
 
 
 class BrokenUnfinishedTurnBuilderRunner(StepwiseAgentRunner):
-    def __init__(self, definition: AgentDefinition, mode: str) -> None:
+    def __init__(self, definition: AgentDefinition, mode: str, state_dir: Path) -> None:
         super().__init__(definition)
         self._mode = mode
+        self._state_dir = state_dir
 
     def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
+        if self._mode.startswith("gate:"):
+            gate = FileGate(self._state_dir, self._mode.removeprefix("gate:"))
+            gate.mark_reached()
+            # The method is synchronous, so the Worker blocks here until the test kills it.
+            while not gate.is_released():
+                time.sleep(0.05)
+            return super().build_unfinished_turn_messages(turn)
         if self._mode == "raise":
             raise RuntimeError("scripted builder defect")
         return cast(Sequence[FrameworkMessage], [{"framework_item": "{}"}])
@@ -127,10 +144,15 @@ def build_stepwise_agent_flow(
 
     @function_tool(effect=ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False)
     async def transfer_funds(
-        amount: int, context: ToolCallContext, gate: str | None = None
+        amount: int,
+        context: ToolCallContext,
+        gate: str | None = None,
+        ask_gate: str | None = None,
     ) -> str | ToolInputRequested:
         """Move money between accounts."""
         if not context.input_answers:
+            if ask_gate is not None:
+                await wait_at_gate(ask_gate)
             invocations.record("transfer_funds:ask")
             return ToolInputRequested(
                 question="Which account?",
@@ -169,6 +191,20 @@ def build_stepwise_agent_flow(
                     ),
                 ]
             )
+        if verb in ("stall-then-call", "parallel") and not results:
+            gate, rest = rest.split(" ", 1)
+            query, message = [part.strip() for part in rest.split("|")]
+            if verb == "stall-then-call":
+                await wait_at_gate(gate)
+            lookup_arguments: dict[str, object] = {"query": query}
+            if verb == "parallel":
+                lookup_arguments["gate"] = gate
+            return ScriptedModelReply(
+                tool_calls=[
+                    ScriptedToolCall(tool_name="lookup_order", arguments=lookup_arguments),
+                    ScriptedToolCall(tool_name="publish_note", arguments={"message": message}),
+                ]
+            )
         if results:
             if verb == "lookup-then-stall" and turn_round == 2:
                 await wait_at_gate(rest.split(" ", 1)[0])
@@ -196,6 +232,17 @@ def build_stepwise_agent_flow(
             return _call("lookup_order", arguments)
         if verb == "publish":
             return _call("publish_note", {"message": rest})
+        if verb == "publish-as":
+            tool_call_id, message = rest.split(" ", 1)
+            return ScriptedModelReply(
+                tool_calls=[
+                    ScriptedToolCall(
+                        tool_name="publish_note",
+                        arguments={"message": message},
+                        tool_call_id=tool_call_id,
+                    )
+                ]
+            )
         if verb == "slow-write":
             gate, message = rest.split(" ", 1)
             return _call("slow_write", {"message": message, "gate": gate})
@@ -223,6 +270,9 @@ def build_stepwise_agent_flow(
                     for amount in rest.split(" ")
                 ]
             )
+        if verb == "transfer-late-ask":
+            amount, ask_gate = rest.split(" ", 1)
+            return _call("transfer_funds", {"amount": int(amount), "ask_gate": ask_gate})
         if verb == "transfer":
             amount, _, gate = rest.partition(" ")
             transfer_arguments: dict[str, object] = {"amount": int(amount)}
@@ -243,7 +293,7 @@ def build_stepwise_agent_flow(
     if unfinished_builder_mode is None:
         return stepwise_agent_session_flow(definition, flow_type=STEPWISE_AGENT_FLOW_TYPE)
     return AgentSessionFlow(
-        BrokenUnfinishedTurnBuilderRunner(definition, unfinished_builder_mode),
+        BrokenUnfinishedTurnBuilderRunner(definition, unfinished_builder_mode, state_dir),
         flow_type=STEPWISE_AGENT_FLOW_TYPE,
         options=stepwise_agent_session_options(definition),
     )

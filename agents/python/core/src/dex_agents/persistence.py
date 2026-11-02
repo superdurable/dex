@@ -32,7 +32,10 @@ from dex_agents.values import (
     AgentUsage,
     AgentUserMessage,
     PlanExecutionRequest,
+    ToolCallCancellation,
     ToolCallCompleted,
+    TurnCancellationRequest,
+    TurnControlRequest,
 )
 
 #: Current session position. Unset until ``StartAgentSession`` commits.
@@ -65,6 +68,24 @@ INTERRUPT_RESOLUTIONS: ChannelMap[AgentInterruptResolution] = ChannelMap(
 
 #: Internal results of tool call Steps; ``ResumeTurn`` waits for one per tool call.
 TOOL_CALL_RESULTS: Channel[ToolCallCompleted] = Channel("ToolCallResults", ToolCallCompleted)
+
+#: Steered user messages that ``ApplyTurnControl`` has not applied yet.
+STEERED_USER_MESSAGES: Channel[AgentUserMessage] = Channel("SteeredUserMessages", AgentUserMessage)
+
+#: Internal wake-ups that ``steer_user_message`` and ``cancel_turn`` publish.
+TURN_CONTROL_REQUESTS: Channel[TurnControlRequest] = Channel(
+    "TurnControlRequests", TurnControlRequest
+)
+
+#: The latest ``cancel_turn`` request. Only ``cancel_turn`` writes it.
+TURN_CANCELLATION_REQUEST: Attribute[TurnCancellationRequest] = Attribute(
+    "TurnCancellationRequest", TurnCancellationRequest
+)
+
+#: Internal wake-ups of the Steps that wait on a tool call, keyed by tool call ID.
+TOOL_CALL_CANCELLATIONS: ChannelMap[ToolCallCancellation] = ChannelMap(
+    "ToolCallCancellations", ToolCallCancellation
+)
 
 #: W3C ``traceparent`` of the current activation's root span when valid, sampled or not.
 AGENT_TRACE_CONTEXT: Attribute[str] = Attribute("AgentTraceContext", str)

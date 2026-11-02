@@ -102,8 +102,9 @@ export function formatAgentEventSseFrame(message: StreamMessage<AgentEvent>): st
  * iterating, or abort `signal`, when the browser goes away.
  *
  * The browser applies the event rules of the session contract. Within one `step_execution_id` it keeps
- * only the highest `attempt` and drops the partial text of lower attempts. After `turn_completed` or
- * `turn_failed` it replaces the turn's live text with the stored messages. On every connection, load
+ * only the highest `attempt` and drops the partial text of lower attempts. After `turn_completed`,
+ * `turn_failed`, `turn_steered`, or `turn_cancelled` it replaces the turn's live text with the stored
+ * messages. On every connection, load
  * {@link readAgentEventStreamSnapshot} first and open the stream from its `resumeToken`.
  *
  * @example

@@ -19,7 +19,10 @@ import {
   agentUsageCodec,
   agentUserMessageCodec,
   planExecutionRequestCodec,
+  toolCallCancellationCodec,
   toolCallCompletedCodec,
+  turnCancellationRequestCodec,
+  turnControlRequestCodec,
 } from "./agent-session-codecs.js";
 import type {
   AgentEvent,
@@ -32,7 +35,10 @@ import type {
   AgentUsage,
   AgentUserMessage,
   PlanExecutionRequest,
+  ToolCallCancellation,
   ToolCallCompleted,
+  TurnCancellationRequest,
+  TurnControlRequest,
 } from "./agent-session-values.js";
 
 /** Default byte budget of the `AgentEvents` Stream: 10 MiB. */
@@ -74,6 +80,20 @@ export interface AgentSessionPersistence {
    * record becomes final, and `ResumeTurn` consumes them. Applications never publish to it.
    */
   readonly toolCallResults: Channel<ToolCallCompleted>;
+  /** The `SteeredUserMessages` Channel; `steer_user_message` publishes and `ApplyTurnControl` consumes. */
+  readonly steeredUserMessages: Channel<AgentUserMessage>;
+  /**
+   * The internal `TurnControlRequests` Channel. `steer_user_message` and `cancel_turn` publish to it, and its
+   * messages only wake `ResumeTurn` or `AwaitUserMessage`.
+   */
+  readonly turnControlRequests: Channel<TurnControlRequest>;
+  /** The `TurnCancellationRequest` Attribute: the latest `cancel_turn` request. Only `cancel_turn` writes it. */
+  readonly turnCancellationRequest: Attribute<TurnCancellationRequest>;
+  /**
+   * The internal `ToolCallCancellations` ChannelMap, keyed by tool call ID. `ResumeTurn` publishes to it to wake
+   * the Step that waits on a call of a steered or cancelled turn.
+   */
+  readonly toolCallCancellations: ChannelMap<ToolCallCancellation>;
   /** The best-effort `AgentEvents` Stream. Rebuild durable state with `get_agent_snapshot`. */
   readonly agentEvents: Stream<AgentEvent>;
   /**
@@ -109,6 +129,10 @@ export function createAgentSessionPersistence(
     queuedUserMessages: new Channel("QueuedUserMessages", agentUserMessageCodec),
     interruptResolutions: new ChannelMap("InterruptResolutions", agentInterruptResolutionCodec),
     toolCallResults: new Channel("ToolCallResults", toolCallCompletedCodec),
+    steeredUserMessages: new Channel("SteeredUserMessages", agentUserMessageCodec),
+    turnControlRequests: new Channel("TurnControlRequests", turnControlRequestCodec),
+    turnCancellationRequest: new Attribute("TurnCancellationRequest", turnCancellationRequestCodec),
+    toolCallCancellations: new ChannelMap("ToolCallCancellations", toolCallCancellationCodec),
     agentEvents: new Stream("AgentEvents", agentEventCodec, agentEventsCapacityBytes),
     agentTraceContext: new Attribute("AgentTraceContext", stringCodec),
     agentPlan: new Attribute("AgentPlan", agentPlanCodec),

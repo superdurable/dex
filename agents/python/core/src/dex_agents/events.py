@@ -31,6 +31,13 @@ class AgentEventType(StrEnum):
         TURN_COMPLETED: The turn produced its final answer. Payload
             ``{"message_count"}``, the number of messages the turn appended.
         TURN_FAILED: ``RecordTurnFailure`` ended the turn. Payload ``{"error"}``.
+        TURN_STEERED: Steering ended the turn before its final answer. Payload
+            ``{"steered_message_count", "message_count"}``: the steered
+            messages that start the next turn, and the messages the ended turn
+            appended. Treat it like ``TURN_COMPLETED``.
+        TURN_CANCELLED: ``cancel_turn`` ended the turn before its final
+            answer. Payload ``{"message_count"}``. Treat it like
+            ``TURN_COMPLETED``.
         TEXT_DELTA: Visible model text. Payload ``{"text"}``.
         REASONING_DELTA: A provider-authored reasoning summary. Payload ``{"text"}``.
         TOOL_CALL_STARTED: A tool started. Payload ``{"tool_call_id", "tool_name"}``.
@@ -47,7 +54,8 @@ class AgentEventType(StrEnum):
             Payload ``{"interrupt_id", "approved", "rejection_message",
             "kind", "answered", "cancellation_reason"}``. ``answered`` is
             ``true`` only for an answered question. ``cancellation_reason`` is
-            reserved for turn cancellation and is ``null`` today.
+            ``"steered"`` or ``"turn_cancelled"`` when steering or
+            ``cancel_turn`` abandoned the call, and ``null`` otherwise.
         USAGE_RECORDED: The session added one model call's usage. Payload
             ``{"recorded", "session"}``, each an ``AgentUsage`` object.
         TIMER_STARTED: A ``durable_wait`` call started its Timer. Payload
@@ -63,6 +71,8 @@ class AgentEventType(StrEnum):
     TURN_STARTED = "turn_started"
     TURN_COMPLETED = "turn_completed"
     TURN_FAILED = "turn_failed"
+    TURN_STEERED = "turn_steered"
+    TURN_CANCELLED = "turn_cancelled"
     TEXT_DELTA = "text_delta"
     REASONING_DELTA = "reasoning_delta"
     TOOL_CALL_STARTED = "tool_call_started"

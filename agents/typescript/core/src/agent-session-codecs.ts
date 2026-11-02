@@ -27,16 +27,25 @@ import type {
   AgentUsage,
   AgentUserMessage,
   AnswerQuestionRequest,
+  CancelTurnRequest,
+  DeleteQueuedMessageRequest,
   ExecutePlanRequest,
   InteractionMode,
   ListAgentMessagesInput,
+  PendingUserMessage,
   PlanExecutionRequest,
   PlanStatus,
   PlanTaskStatus,
   QuestionAnswer,
   ResolveInterruptInput,
+  SteerUserMessageRequest,
+  ToolCallCancellation,
+  ToolCallCancellationReason,
   ToolCallCompleted,
   ToolEffect,
+  TurnCancellationRequest,
+  TurnControlKind,
+  TurnControlRequest,
 } from "./agent-session-values.js";
 
 // Wire values are snake_case JSON shared with the Python core; TypeScript values are camelCase.
@@ -67,6 +76,8 @@ const agentInterruptKinds: readonly AgentInterruptKind[] = ["tool_approval", "qu
 const interactionModes: readonly InteractionMode[] = ["chat", "planning", "executing"];
 const planStatuses: readonly PlanStatus[] = ["draft", "active", "completed", "cleared"];
 const planTaskStatuses: readonly PlanTaskStatus[] = ["pending", "in_progress", "completed"];
+const toolCallCancellationReasons: readonly ToolCallCancellationReason[] = ["steered", "turn_cancelled"];
+const turnControlKinds: readonly TurnControlKind[] = ["steer", "cancel_turn"];
 
 class WireRecordReader {
   private readonly record: Readonly<Record<string, unknown>>;
@@ -159,6 +170,11 @@ class WireRecordReader {
     return value === undefined || value === null ? defaultValue : this.readEnum(field, allowed);
   }
 
+  public readNullableEnum<Literal extends string>(field: string, allowed: readonly Literal[]): Literal | null {
+    const value = this.record[field];
+    return value === undefined || value === null ? null : this.readEnum(field, allowed);
+  }
+
   public readEnum<Literal extends string>(field: string, allowed: readonly Literal[]): Literal {
     const value = this.readString(field);
     if (!(allowed as readonly string[]).includes(value)) {
@@ -200,12 +216,14 @@ export function encodeAgentState(value: AgentState): unknown {
     next_message_sequence: value.nextMessageSequence,
     last_turn_error: value.lastTurnError,
     interaction_mode: value.interactionMode ?? "chat",
+    accepts_turn_control: value.acceptsTurnControl ?? false,
   };
 }
 
 export function decodeAgentState(value: unknown): AgentState {
   const reader = new WireRecordReader(value, "AgentState");
   const interactionMode = reader.readEnumOrDefault("interaction_mode", interactionModes, "chat");
+  const acceptsTurnControl = reader.readBooleanOrDefault("accepts_turn_control", false);
   return {
     status: reader.readEnum("status", agentSessionStatuses),
     turnCount: reader.readInteger("turn_count"),
@@ -214,6 +232,7 @@ export function decodeAgentState(value: unknown): AgentState {
     lastTurnError: reader.readNullableString("last_turn_error"),
     // Fields that plans added are omitted at their defaults, so a session without plans decodes to its 0.1.0 shape.
     ...(interactionMode === "chat" ? {} : { interactionMode }),
+    ...(acceptsTurnControl ? { acceptsTurnControl } : {}),
   };
 }
 
@@ -269,6 +288,7 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     input_question: value.inputQuestion,
     input_choices: [...value.inputChoices],
     input_allows_free_text: value.inputAllowsFreeText,
+    cancellation_reason: value.cancellationReason ?? null,
   };
 }
 
@@ -293,6 +313,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     inputQuestion: reader.readNullableString("input_question"),
     inputChoices: reader.readStringArrayOrEmpty("input_choices"),
     inputAllowsFreeText: reader.readBooleanOrDefault("input_allows_free_text", true),
+    cancellationReason: reader.readNullableEnum("cancellation_reason", toolCallCancellationReasons),
     ...(traceContext === null ? {} : { traceContext }),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
@@ -311,8 +332,6 @@ export function decodeQuestionAnswer(value: unknown): QuestionAnswer {
     answer: reader.readString("answer"),
   };
 }
-
-
 
 export function encodeAgentInterrupt(value: AgentInterrupt): unknown {
   return {
@@ -429,6 +448,72 @@ export function decodePlanRevisionRequest(value: unknown): PlanExecutionRequest 
   return { revision: reader.readInteger("revision") };
 }
 
+export function encodePendingUserMessage(value: PendingUserMessage): unknown {
+  return { message_id: value.messageId, message: encodeAgentUserMessage(value.message) };
+}
+
+export function decodePendingUserMessage(value: unknown): PendingUserMessage {
+  const reader = new WireRecordReader(value, "PendingUserMessage");
+  return { messageId: reader.readString("message_id"), message: decodeAgentUserMessage(reader.readObject("message")) };
+}
+
+export function encodeSteerUserMessageRequest(value: SteerUserMessageRequest): unknown {
+  return { message_id: value.messageId, text: value.text };
+}
+
+export function decodeSteerUserMessageRequest(value: unknown): SteerUserMessageRequest {
+  const reader = new WireRecordReader(value, "SteerUserMessageRequest");
+  return { messageId: reader.readNullableString("message_id"), text: reader.readNullableString("text") };
+}
+
+export function encodeDeleteQueuedMessageRequest(value: DeleteQueuedMessageRequest): unknown {
+  return { message_id: value.messageId };
+}
+
+export function decodeDeleteQueuedMessageRequest(value: unknown): DeleteQueuedMessageRequest {
+  const reader = new WireRecordReader(value, "DeleteQueuedMessageRequest");
+  return { messageId: reader.readString("message_id") };
+}
+
+export function encodeCancelTurnRequest(value: CancelTurnRequest): unknown {
+  return { turn_id: value.turnId };
+}
+
+export function decodeCancelTurnRequest(value: unknown): CancelTurnRequest {
+  if (value === null || value === undefined) {
+    return { turnId: null };
+  }
+  const reader = new WireRecordReader(value, "CancelTurnRequest");
+  return { turnId: reader.readNullableString("turn_id") };
+}
+
+export function encodeTurnControlRequest(value: TurnControlRequest): unknown {
+  return { kind: value.kind };
+}
+
+export function decodeTurnControlRequest(value: unknown): TurnControlRequest {
+  const reader = new WireRecordReader(value, "TurnControlRequest");
+  return { kind: reader.readEnum("kind", turnControlKinds) };
+}
+
+export function encodeTurnCancellationRequest(value: TurnCancellationRequest): unknown {
+  return { turn_id: value.turnId, requested_at: value.requestedAt };
+}
+
+export function decodeTurnCancellationRequest(value: unknown): TurnCancellationRequest {
+  const reader = new WireRecordReader(value, "TurnCancellationRequest");
+  return { turnId: reader.readString("turn_id"), requestedAt: reader.readString("requested_at") };
+}
+
+export function encodeToolCallCancellation(value: ToolCallCancellation): unknown {
+  return { reason: value.reason };
+}
+
+export function decodeToolCallCancellation(value: unknown): ToolCallCancellation {
+  const reader = new WireRecordReader(value, "ToolCallCancellation");
+  return { reason: reader.readEnum("reason", toolCallCancellationReasons) };
+}
+
 export function encodeToolCallCompleted(value: ToolCallCompleted): unknown {
   return { tool_call_id: value.toolCallId };
 }
@@ -485,6 +570,8 @@ export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
     usage: encodeAgentUsage(value.usage),
     queued_message_count: value.queuedMessageCount,
     plan: value.plan == null ? null : encodeAgentPlan(value.plan),
+    queued_messages: (value.queuedMessages ?? []).map(encodePendingUserMessage),
+    steered_messages: (value.steeredMessages ?? []).map(encodePendingUserMessage),
   };
 }
 
@@ -498,6 +585,8 @@ export function decodeAgentSnapshot(value: unknown): AgentSnapshot {
     usage: decodeAgentUsage(reader.readObject("usage")),
     queuedMessageCount: reader.readIntegerOrDefault("queued_message_count", 0),
     ...(reader.readObject("plan") == null ? {} : { plan: decodeAgentPlan(reader.readObject("plan")) }),
+    queuedMessages: reader.readArrayOrEmpty("queued_messages").map(decodePendingUserMessage),
+    steeredMessages: reader.readArrayOrEmpty("steered_messages").map(decodePendingUserMessage),
   };
 }
 
@@ -599,6 +688,36 @@ export const answerQuestionRequestCodec = snakeCaseJsonCodec(
   "AnswerQuestionRequest",
   encodeAnswerQuestionRequest,
   decodeAnswerQuestionRequest,
+);
+export const steerUserMessageRequestCodec = snakeCaseJsonCodec(
+  "SteerUserMessageRequest",
+  encodeSteerUserMessageRequest,
+  decodeSteerUserMessageRequest,
+);
+export const deleteQueuedMessageRequestCodec = snakeCaseJsonCodec(
+  "DeleteQueuedMessageRequest",
+  encodeDeleteQueuedMessageRequest,
+  decodeDeleteQueuedMessageRequest,
+);
+export const cancelTurnRequestCodec = snakeCaseJsonCodec(
+  "CancelTurnRequest",
+  encodeCancelTurnRequest,
+  decodeCancelTurnRequest,
+);
+export const turnControlRequestCodec = snakeCaseJsonCodec(
+  "TurnControlRequest",
+  encodeTurnControlRequest,
+  decodeTurnControlRequest,
+);
+export const turnCancellationRequestCodec = snakeCaseJsonCodec(
+  "TurnCancellationRequest",
+  encodeTurnCancellationRequest,
+  decodeTurnCancellationRequest,
+);
+export const toolCallCancellationCodec = snakeCaseJsonCodec(
+  "ToolCallCancellation",
+  encodeToolCallCancellation,
+  decodeToolCallCancellation,
 );
 export const agentSnapshotCodec = snakeCaseJsonCodec(
   "AgentSnapshot",

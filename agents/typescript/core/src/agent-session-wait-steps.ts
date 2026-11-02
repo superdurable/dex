@@ -20,6 +20,7 @@ import {
 } from "@superdurable/dex";
 
 import {
+  cancelWaitingToolCall,
   noPendingToolQuestion,
   questionAnswerMovement,
   questionInterruptId,
@@ -28,6 +29,8 @@ import {
 } from "./agent-session-steps.js";
 import {
   agentSessionStepTypes,
+  cancelledToolCall,
+  isCancellableByTurnControl,
   toolStepTypeForEffect,
   type AgentSessionTransitions,
 } from "./agent-session-transitions.js";
@@ -66,7 +69,10 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       // Never wait on the other call's answers; Execute fails this call at once.
       return Wait.until(Timer.byDuration(0));
     }
-    const conditions: Condition[] = [transitions.persistence.interruptResolutions.forOne(interruptId)];
+    const conditions: Condition[] = [
+      transitions.persistence.toolCallCancellations.forOne(toolCallId),
+      transitions.persistence.interruptResolutions.forOne(interruptId),
+    ];
     // After answer_question removed the interrupt, its deadline no longer applies.
     const interrupt = transitions
       .readPendingInterrupts(context)
@@ -99,6 +105,15 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       });
       return deadEnd();
     }
+    if (context.channelResults(persistence.toolCallCancellations, toolCallId).length > 0) {
+      return cancelWaitingToolCall(
+        transitions,
+        context,
+        toolCall,
+        { interruptId, kind: "question" },
+        questionAnswerMovement(persistence, toolCall),
+      );
+    }
     const [resolution] = context.channelResults(persistence.interruptResolutions, interruptId);
     if (resolution !== undefined) {
       return this.resolveQuestion(context, toolCall, interruptId, resolution);
@@ -107,6 +122,12 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       throw new Error(`the question wait for ${interruptId} completed without an answer`);
     }
     if (this.isToolQuestionUnraised(context, toolCall, interruptId)) {
+      const reason = transitions.readTurnControlReason(context, toolCall.turnId);
+      if (reason !== null && isCancellableByTurnControl(toolCall)) {
+        // The turn is steered or cancelled, so the tool's question is never asked.
+        transitions.finishToolCall(context, cancelledToolCall(toolCall, reason));
+        return deadEnd();
+      }
       this.raiseToolQuestion(context, toolCall, interruptId);
       return goToMany(questionAnswerMovement(persistence, toolCall));
     }
@@ -247,7 +268,10 @@ export class AwaitTimerStep implements Step<string> {
     }
     // Dex Timers take whole seconds; rounding up can only fire late, never early.
     const remainingMs = Math.max(0, Date.parse(toolCall.waitUntil) - Date.now());
-    return Wait.until(Timer.byDuration(Math.ceil(remainingMs / 1_000) * 1_000));
+    return Wait.anyOf(
+      Timer.byDuration(Math.ceil(remainingMs / 1_000) * 1_000),
+      this.transitions.persistence.toolCallCancellations.forOne(toolCallId),
+    );
   }
 
   public execute(context: Context, toolCallId: string): StepDecision {
@@ -257,7 +281,16 @@ export class AwaitTimerStep implements Step<string> {
       return deadEnd();
     }
     if (!context.hasTimerFired()) {
-      throw new Error(`the durable wait ${toolCallId} completed without its Timer`);
+      if (context.channelResults(transitions.persistence.toolCallCancellations, toolCallId).length === 0) {
+        throw new Error(`the durable wait ${toolCallId} completed without its Timer`);
+      }
+      return cancelWaitingToolCall(
+        transitions,
+        context,
+        toolCall,
+        null,
+        toolStepMovement(transitions.persistence, agentSessionStepTypes.awaitTimer, toolCallId),
+      );
     }
     // The Timer is the authority: it never fires early, and skipping it ends the wait.
     // RunModel validated these arguments, so a later maxDurableWaitMs cannot fail a started wait.

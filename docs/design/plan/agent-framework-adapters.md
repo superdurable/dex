@@ -239,16 +239,17 @@ languages.
 | Step type | Input | Kind | Next |
 | --- | --- | --- | --- |
 | `StartAgentSession` | `AgentSessionStartInput` | Start Step. Initializes `AgentState` (`next_message_sequence` 1), `AgentUsage`, and an empty `PendingInterrupts`. With a non-blank `initial_message`, appends it as the turn's user message. | `RunModel` when `initial_message` is set and not blank, else `AwaitUserMessage` |
-| `AwaitUserMessage` | none | WaitFor any of `QueuedUserMessages.for_one()` and, while `AgentPlan` is `draft` or `active`, `PlanExecutions.for_one(<revision>)`, in that order. A message: Execute appends it and starts a turn whose `interaction_mode` is `planning` when plan mode is enabled and the message has `plan_mode` or a `draft` plan exists, else `chat`. An approval: Execute deletes `PendingPlanExecution`; unless the plan still has that revision and is `draft` or `active`, it waits again; otherwise it marks the plan `active`, appends `[Dex] The user approved plan revision <n>. Execute it and keep the task statuses current with write_todos.` through `build_user_message`, and starts an `executing` turn, writing `turn_started` then `plan_execution_started`. | `RunModel`, or itself |
-| `RunModel` | none | Async Execute. Calls `run_model_step` for one model call. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | `TurnCompleted`: appends `new_messages`, clears the turn, `AwaitUserMessage`. `ToolCallsRequested`: appends `new_messages`, stores `FrameworkRunState`, one `AgentToolCalls` record per call, and the interrupts, then `go_to_many` with one Step per call plus `ResumeTurn(<call count>)`. A runner that sets `new_messages` without implementing `build_unfinished_turn_messages` fails the turn in this commit, with `last_turn_error` `a runner that sets ToolCallsRequested.new_messages must implement build_unfinished_turn_messages` (TypeScript names `newMessages` and `buildUnfinishedTurnMessages`) and no retry. It records the model call's usage first. An `ask_user` call is recorded `awaiting_answer` with a `question` interrupt and goes to `AwaitQuestionAnswer`; a `durable_wait` call is recorded `waiting_for_timer` with `wait_until`, writes `timer_started`, and goes to `AwaitTimer`; a `write_todos` call replaces `AgentPlan`, writes `plan_updated`, and records `succeeded`; an invalid built-in call records `failed`; in a `planning` turn every call but `write_todos` records `rejected` with `The tool call was not run: a planning turn can only call write_todos.`. A call that becomes final here publishes its result in this commit, and `ResumeTurn` still counts it |
-| `AwaitToolApproval` | tool call ID | WaitFor any of `InterruptResolutions.for_one(id)` and, while the interrupt is in `PendingInterrupts` with a deadline, a Timer at that deadline, rounded up to whole seconds because Dex Timers take whole seconds. Execute locks `PendingInterrupts`. | Approved: records `approved`, then `CallTool` or `CallSingleAttemptTool` (id). Rejected or deadline passed: records `rejected`, publishes `ToolCallResults`, ends (dead end). Timer fired after `resolve_interrupt` already removed the interrupt, or before the deadline: itself (id), which waits again |
-| `AwaitQuestionAnswer` | tool call ID | WaitFor any of `InterruptResolutions.for_one(interrupt_id)` and, while the interrupt is pending with a deadline, a Timer at that deadline; while a tool's question is neither pending nor answered, a zero Timer instead. Execute locks `PendingInterrupts` and raises such a tool question from the record (`interrupt_raised`), then waits again. When the tool question's ID `<tool_call_id>-input-<n>` is already the ID of a pending interrupt of another call, or of another call's record, it records the asking call `failed` with `the tool's question cannot use interrupt ID <interrupt_id>, which another tool call of this turn uses` and raises nothing. Answered `ask_user`: records `succeeded` with `{"status":"answered","answer":"<text>"}`. Answered tool question: appends a `QuestionAnswer` to `input_answers` and records `approved`. Declined: `rejected` with the message or `The user declined to answer.`. Deadline: `rejected` with `question deadline passed`. | Ends, back to the call's tool Step, or itself after an early Timer |
-| `AwaitTimer` | tool call ID | WaitFor a Timer for the remaining whole seconds until `wait_until`. Execute records `succeeded` with `{"status":"completed","waited_seconds":<n>,"reason":"<reason>"}` and publishes `ToolCallResults`. The Timer is the authority, so `SkipTimer` ends the wait. | Ends |
-| `CallTool` | tool call ID | Execute one `read` or `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result records `awaiting_answer` with `input_continuation`, `input_question`, `input_choices`, and `input_allows_free_text`, and moves to `AwaitQuestionAnswer`, which raises the `question` interrupt `<tool_call_id>-input-<n>` under the `PendingInterrupts` lock. The tool Step itself never writes `PendingInterrupts`, so parallel tool Steps cannot lose an update. | Ends, or `AwaitQuestionAnswer` |
-| `CallSingleAttemptTool` | tool call ID | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. Same recording. | Ends |
+| `AwaitUserMessage` | none | WaitFor any of `TurnControlRequests.for_range(at_least=1, at_most=MAX)`, `QueuedUserMessages.for_one()`, and, while `AgentPlan` is `draft` or `active`, `PlanExecutions.for_one(<revision>)`, in that order; Dex selects Channel conditions in argument order, so a steer beats a queued message, which beats a plan execution. A control wake: Execute moves to `ApplyTurnControl`. A message: Execute appends it and starts a turn whose `interaction_mode` is `planning` when plan mode is enabled and the message has `plan_mode` or a `draft` plan exists, else `chat`. An approval: Execute deletes `PendingPlanExecution`; unless the plan still has that revision and is `draft` or `active`, it waits again; otherwise it marks the plan `active`, appends `[Dex] The user approved plan revision <n>. Execute it and keep the task statuses current with write_todos.` through `build_user_message`, and starts an `executing` turn, writing `turn_started` then `plan_execution_started`. | `ApplyTurnControl` on a control wake, else `RunModel`, or itself |
+| `RunModel` | none | Async Execute. Before the model call, when the turn is steered or cancelled, it moves to `ApplyTurnControl` without a model call; this is its one decision point. Otherwise it calls `run_model_step` for one model call. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | `TurnCompleted`: appends `new_messages`, clears the turn, `AwaitUserMessage`. `ToolCallsRequested`: appends `new_messages`, stores `FrameworkRunState`, one `AgentToolCalls` record per call, and the interrupts, then `go_to_many` with one Step per call plus `ResumeTurn(<call count>)`. A runner that sets `new_messages` without implementing `build_unfinished_turn_messages` fails the turn in this commit, with `last_turn_error` `a runner that sets ToolCallsRequested.new_messages must implement build_unfinished_turn_messages` (TypeScript names `newMessages` and `buildUnfinishedTurnMessages`) and no retry. It records the model call's usage first. An `ask_user` call is recorded `awaiting_answer` with a `question` interrupt and goes to `AwaitQuestionAnswer`; a `durable_wait` call is recorded `waiting_for_timer` with `wait_until`, writes `timer_started`, and goes to `AwaitTimer`; a `write_todos` call replaces `AgentPlan`, writes `plan_updated`, and records `succeeded`; an invalid built-in call records `failed`; in a `planning` turn every call but `write_todos` records `rejected` with `The tool call was not run: a planning turn can only call write_todos.`. A call that becomes final here publishes its result in this commit, and `ResumeTurn` still counts it |
+| `AwaitToolApproval` | tool call ID | WaitFor any of `ToolCallCancellations.for_one(id)`, `InterruptResolutions.for_one(id)`, and, while the interrupt is in `PendingInterrupts` with a deadline, a Timer at that deadline, rounded up to whole seconds because Dex Timers take whole seconds. Execute locks `PendingInterrupts`. | Approved: records `approved`, then `CallTool` or `CallSingleAttemptTool` (id). Rejected or deadline passed: records `rejected`, publishes `ToolCallResults`, ends (dead end). Timer fired after `resolve_interrupt` already removed the interrupt, or before the deadline: itself (id), which waits again. A cancellation wake: see the steering rules below |
+| `AwaitQuestionAnswer` | tool call ID | WaitFor any of `ToolCallCancellations.for_one(id)`, `InterruptResolutions.for_one(interrupt_id)`, and, while the interrupt is pending with a deadline, a Timer at that deadline; while a tool's question is neither pending nor answered, a zero Timer instead. Execute locks `PendingInterrupts` and raises such a tool question from the record (`interrupt_raised`), then waits again; in a steered or cancelled turn it records the call cancelled instead and asks nothing. When the tool question's ID `<tool_call_id>-input-<n>` is already the ID of a pending interrupt of another call, or of another call's record, it records the asking call `failed` with `the tool's question cannot use interrupt ID <interrupt_id>, which another tool call of this turn uses` and raises nothing. Answered `ask_user`: records `succeeded` with `{"status":"answered","answer":"<text>"}`. Answered tool question: appends a `QuestionAnswer` to `input_answers` and records `approved`. Declined: `rejected` with the message or `The user declined to answer.`. Deadline: `rejected` with `question deadline passed`. | Ends, back to the call's tool Step, or itself after an early Timer |
+| `AwaitTimer` | tool call ID | WaitFor any of a Timer for the remaining whole seconds until `wait_until` and `ToolCallCancellations.for_one(id)`; Dex selects Timers before Channels, so a wait that ends as a steer arrives completes normally. Execute records `succeeded` with `{"status":"completed","waited_seconds":<n>,"reason":"<reason>"}` and publishes `ToolCallResults`. The Timer is the authority, so `SkipTimer` ends the wait. | Ends |
+| `CallTool` | tool call ID | Execute one `read` or `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. Before `tool_call_started`, when the turn is steered or cancelled, records the call cancelled and publishes its result without running it. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result records `awaiting_answer` with `input_continuation`, `input_question`, `input_choices`, and `input_allows_free_text`, and moves to `AwaitQuestionAnswer`, which raises the `question` interrupt `<tool_call_id>-input-<n>` under the `PendingInterrupts` lock. The tool Step itself never writes `PendingInterrupts`, so parallel tool Steps cannot lose an update. | Ends, or `AwaitQuestionAnswer` |
+| `CallSingleAttemptTool` | tool call ID | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. Same check before `tool_call_started`, and the same recording. | Ends |
 | `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for an `idempotent_write` call, with the recovery detail in `error`, and publishes `ToolCallResults`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts ran out. | Ends |
 | `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
-| `ResumeTurn` | expected result count | WaitFor `ToolCallResults.for_n(count)`. Execute checks that every record of the turn is final; if a consumed result belonged to an earlier turn, it waits again for the unfinished count. | `RunModel`, resumed with the final records |
+| `ResumeTurn` | expected result count | WaitFor any of `ToolCallResults.for_n(count)` and `TurnControlRequests.for_range(at_least=1, at_most=MAX)`. Execute locks `PendingInterrupts`. On a control wake in a steered or cancelled turn, it removes each pending interrupt of an `awaiting_approval` or `awaiting_answer` record, writes its `interrupt_resolved` with `cancellation_reason`, and publishes `ToolCallCancellations[id]` for those records and every `waiting_for_timer` record; then, as on a wake with nothing to apply, it waits again for the same count. With every result in, it checks that every record of the turn is final; if a consumed result belonged to an earlier turn, it waits again for the unfinished count. It never writes a record. | `RunModel`, resumed with the final records; `ApplyTurnControl` in a steered or cancelled turn; itself |
+| `ApplyTurnControl` | none | WaitFor all of `SteeredUserMessages.at_most(MAX)` and `TurnControlRequests.at_most(MAX)`, which are non-blocking, so it consumes every steered message and stale wake at once; it is the only consumer of `SteeredUserMessages`. Execute, options SYNC and the recovery retry: with an active turn, every record final, it appends the runner's unfinished-turn messages when the runner implements them and they succeed, otherwise, when the turn has records, the steered or cancelled note. It deletes the turn's records and `FrameworkRunState`, counts the turn, clears it and `last_turn_error`, and writes `turn_steered` or `turn_cancelled`. With consumed steered messages, it starts a turn whose user messages are all of them, in order. | `RunModel` with steered messages, else `AwaitUserMessage` |
 | `RecordTurnFailure` | none | Records `last_turn_error`. When the runner implements `build_unfinished_turn_messages`, first appends what it returns; if it raises, or returns anything but messages with a `user`, `assistant`, or `tool` role and a string `framework_item`, it logs a warning and appends nothing for it, so a runner defect never blocks the failure route. When the turn has final `AgentToolCalls` records, then appends one turn-failure note; otherwise appends nothing more. Deletes the turn's records and `FrameworkRunState`, empties `PendingInterrupts`, and clears the turn. | `AwaitUserMessage` |
 
 Rules:
@@ -309,6 +310,58 @@ Rules:
   `2026-11-01T12:00:00.123Z`. Readers in both cores, 0.1.0 included, accept
   that form and the `+00:00` offset form that Python 0.1.0 wrote.
 
+Steering and cancellation rules (`MAX` is 2,147,483,647):
+
+- Two flags decide every boundary, from committed state only. A turn is
+  cancelled while `TurnCancellationRequest.turn_id` equals the active turn ID;
+  turn IDs never repeat. It is steered while `SteeredUserMessages` is not
+  empty. A turn that is both ends as cancelled, and the steered messages start
+  the next turn. The `cancellation_reason` is `turn_cancelled` or `steered`.
+- A call abandoned before it starts records `rejected` with
+  `cancellation_reason` and the structured `rejection_message` below. Final
+  statuses do not change.
+- Steering never cancels a model call or a tool call that has started.
+  Execute sees the state loaded for its first attempt, and retries reuse it,
+  so `RunModel` decides only before its model call, a tool Step only before
+  `tool_call_started`, and a tool Step that started runs to the end. A steer
+  that commits during a model call applies at the next boundary: the tool
+  Steps it requested, `ResumeTurn`'s control wake, or, after a final answer,
+  `AwaitUserMessage`.
+- A steered turn takes its `interaction_mode` from its messages as a queued
+  turn does: `planning` when plan mode is enabled and any steered message has
+  `plan_mode` or a `draft` plan exists. A queued message moved by its ID keeps
+  `plan_mode`. `execute_plan` returns false while a steered message is
+  pending. A `write_todos` call settles in `RunModel`'s own commit, like a
+  built-in call with invalid arguments, so one that a model call made while
+  the user steered still replaces the plan.
+- Steering abandons a waiting call only while it has taken no effect: an
+  `awaiting_approval`, `awaiting_answer`, or `waiting_for_timer` record. One
+  predicate in each core decides this for `ResumeTurn`, the woken Step, and an
+  unraised tool question, so a call whose remote work has started is left to
+  finish.
+- `ToolCallCancellations` only wakes a waiting Step; the flags decide. A woken
+  Step whose turn is neither steered nor cancelled waits again, so a wake-up
+  left from an earlier turn whose call reused the ID changes nothing. A woken
+  approval or question whose interrupt is gone and whose answer is pending
+  waits again, so an answer that committed first wins. Otherwise the Step
+  removes its interrupt when it is still pending, records the call
+  cancelled, and publishes its result.
+- A Step's waits, locks, and loads come from the Worker that scheduled it. A
+  turn that a Worker without steering started or advanced can hold such a wait,
+  which a steer never wakes. `_begin_turn` sets `AgentState.accepts_turn_control`,
+  every turn end clears it, and an earlier Worker drops it whenever it writes
+  `AgentState`; `steer_user_message` and `cancel_turn` refuse a turn without it.
+  While no turn is active, a steer is queued instead, because an idle wait that
+  an earlier Worker began listens only to `QueuedUserMessages`. A turn that
+  started on 0.2.0 during a mixed rollout is not refused, so applications call
+  the RPCs only after every turn active during the rollout has ended.
+- `ResumeTurn`, `AwaitToolApproval`, and `AwaitQuestionAnswer` serialize on
+  the `PendingInterrupts` lock with `resolve_interrupt` and
+  `answer_question`. Either the RPC commits first and its record moves on, or
+  `ResumeTurn` removes the interrupt first and the RPC returns false. An
+  approval that wins moves to its tool Step, which sees the flag and records
+  the call cancelled before it starts.
+
 ### Turn-failure note and model-visible results
 
 The turn-failure note is the user message that `build_user_message` returns
@@ -328,6 +381,20 @@ Model-visible results for final records, used in the note and when resuming:
 | `failed` | `The tool call failed: <error>` |
 | `rejected` | `rejection_message`, or `The user rejected this tool call.` |
 | `outcome_unknown` | `The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.` |
+
+Steering and `cancel_turn` record an abandoned call `rejected` with one of
+these `rejection_message` values, compact JSON text:
+
+```text
+{"status":"cancelled","reason":"superseded_by_steered_user_message"}
+{"status":"cancelled","reason":"turn_cancelled_by_user"}
+```
+
+When a steered or cancelled turn ends and the runner stores no
+unfinished-turn messages, `ApplyTurnControl` stores a note in the
+turn-failure note's line format and footer, with the first line
+`[Dex] The user steered the conversation after these tool calls ran:` or
+`[Dex] The user stopped the previous turn after these tool calls ran:`.
 
 An expired approval deadline records `rejected` with `rejection_message`
 `approval deadline passed`; an expired question deadline records
@@ -367,6 +434,10 @@ plan shows nothing.
 | `QueuedUserMessages` | Channel | `AgentUserMessage` |
 | `InterruptResolutions` | ChannelMap, key = interrupt ID | `AgentInterruptResolution` |
 | `ToolCallResults` | Channel, internal | `ToolCallCompleted` |
+| `SteeredUserMessages` | Channel | `AgentUserMessage`; `steer_user_message` publishes, `ApplyTurnControl` consumes |
+| `TurnControlRequests` | Channel, internal | `TurnControlRequest`; wakes `ResumeTurn` or `AwaitUserMessage` |
+| `TurnCancellationRequest` | Attribute | `TurnCancellationRequest`; only `cancel_turn` writes it |
+| `ToolCallCancellations` | ChannelMap, internal, key = tool call ID | `ToolCallCancellation`; `ResumeTurn` publishes, the call's waiting Step consumes |
 | `AgentTraceContext` | Attribute | string, the W3C `traceparent` (`00-<trace id>-<span id>-<flags>`) of the current activation's root span while it has a valid context, sampled or not; an activation whose root has none deletes it |
 | `AgentPlan` | Attribute | `AgentPlan`; unset until `write_todos` first succeeds |
 | `PlanExecutions` | ChannelMap, key = revision as decimal | `PlanExecutionRequest` |
@@ -384,6 +455,7 @@ AgentState {
   next_message_sequence: int
   last_turn_error: str | null
   interaction_mode: "chat" | "planning" | "executing" = "chat"  # of the active or last turn
+  accepts_turn_control: bool = false  # set when a Worker with steering starts the turn
 }
 AgentMessage {
   sequence: int
@@ -418,6 +490,7 @@ AgentToolCall {
   input_question: str | null = null          # the pending ToolInputRequested question
   input_choices: list of str = []            # its choices
   input_allows_free_text: bool = true        # whether it accepts free text
+  cancellation_reason: "steered" | "turn_cancelled" | null = null  # on a rejected record that steering abandoned
 }
 QuestionAnswer { interrupt_id: str, question: str, answer: str }
 AgentInterrupt {
@@ -435,6 +508,13 @@ AgentInterrupt {
 AgentInterruptResolution { approved: bool, rejection_message: str | null, answer: str | null = null }
 AnswerQuestionRequest { interrupt_id: str, answer: str }
 ToolCallCompleted { tool_call_id: str }
+PendingUserMessage { message_id: str, message: AgentUserMessage }  # message_id is the Channel message ID
+SteerUserMessageRequest { message_id: str | null, text: str | null }  # exactly one set
+DeleteQueuedMessageRequest { message_id: str }
+CancelTurnRequest { turn_id: str | null }  # null for the active turn
+TurnControlRequest { kind: "steer" | "cancel_turn" }
+TurnCancellationRequest { turn_id: str, requested_at: str }
+ToolCallCancellation { reason: "steered" | "turn_cancelled" }
 AgentUsage { model_calls: int, input_tokens: int, output_tokens: int, cached_input_tokens: int, reasoning_tokens: int }
 AgentUserMessage { text: str, plan_mode: bool = false }
 AgentPlan { revision: int, status: "draft" | "active" | "completed" | "cleared", tasks: list of AgentPlanTask, updated_at: str }
@@ -457,6 +537,8 @@ AgentSnapshot {
   usage: AgentUsage
   queued_message_count: int
   plan: AgentPlan | null = null
+  queued_messages: list of PendingUserMessage = []   # oldest first
+  steered_messages: list of PendingUserMessage = []  # not applied yet, oldest first
 }
 ListAgentMessagesRequest { before_sequence: int | null, limit: int }  # limit defaults to 50
 AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | null }
@@ -467,10 +549,13 @@ AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | 
 | RPC | Input | Output | Notes |
 | --- | --- | --- | --- |
 | `send_user_message` | `AgentUserMessage` | bool | Transactional; false for blank text, and for a `plan_mode` message when `plan_mode_enabled` is false |
-| `execute_plan` | `ExecutePlanRequest` | bool | Locks `PendingPlanExecution`. False unless the session waits for a user message, `AgentPlan` has this revision and is `draft` or `active`, `PendingPlanExecution` holds no request for it, and no queued message or interrupt is pending. Otherwise sets `PendingPlanExecution` and publishes `PlanExecutions[revision]` in one commit |
+| `execute_plan` | `ExecutePlanRequest` | bool | Locks `PendingPlanExecution`. False unless the session waits for a user message, `AgentPlan` has this revision and is `draft` or `active`, `PendingPlanExecution` holds no request for it, and no queued or steered message or interrupt is pending. Otherwise sets `PendingPlanExecution` and publishes `PlanExecutions[revision]` in one commit |
+| `steer_user_message` | `SteerUserMessageRequest` | bool | Transactional, loads `QueuedUserMessages`, locks nothing. While no turn is active, it queues `text` like `send_user_message`, and a `message_id` still queued stays queued (true). False when the active turn's `accepts_turn_control` is false. With `message_id`, deletes that queued message and publishes it to `SteeredUserMessages`; with `text`, publishes a new steered message. Then publishes `TurnControlRequest(kind="steer")`. False when both or neither field is set, the text is blank, or the message ID is not pending. A message consumed between the read and the commit fails the RPC with CHANNEL_MESSAGE_NOT_FOUND, and nothing commits |
+| `delete_queued_message` | `DeleteQueuedMessageRequest` | bool | Transactional, loads `QueuedUserMessages`; deletes the message; false when it is not pending; CHANNEL_MESSAGE_NOT_FOUND as for `steer_user_message` |
+| `cancel_turn` | `CancelTurnRequest` | bool | Locks `TurnCancellationRequest`, which no Step locks, so concurrent cancels apply in order. False when no turn is active, `turn_id` names another turn, or the turn's `accepts_turn_control` is false. Otherwise writes `TurnCancellationRequest(turn_id, requested_at)` and publishes `TurnControlRequest(kind="cancel_turn")`. True means the request is recorded; the turn may still complete first. It never aborts a running model call |
 | `resolve_interrupt` | `ResolveInterruptRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not pending or its deadline has passed; removes it and publishes the resolution in one commit, dropping `rejection_message` on approval. On a `question`, `approved=false` declines it and `approved=true` returns false |
 | `answer_question` | `AnswerQuestionRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not a pending `question`, is past its deadline, or the answer is blank or not one of `choices` while free text is not allowed; removes it and publishes `AgentInterruptResolution(approved=true, answer)` in one commit |
-| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages` and `AgentToolCalls`; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued message count, and the plan |
+| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages` and `AgentToolCalls`, and the `QueuedUserMessages` and `SteeredUserMessages` messages; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, and the queued and steered messages with their IDs |
 | `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first. `before_sequence` null starts after the newest message. Limit clamped to 1..200. `next_before_sequence` is the page's first sequence, or null when the page starts at 1 |
 
 TypeScript uses the same RPC names.
@@ -485,13 +570,15 @@ keys:
 | `turn_started` | `{"sequence"}`: the turn's user message sequence |
 | `turn_completed` | `{"message_count"}`: messages the turn appended |
 | `turn_failed` | `{"error"}` |
+| `turn_steered` | `{"steered_message_count", "message_count"}`: the steered messages that start the next turn, and the messages the ended turn appended |
+| `turn_cancelled` | `{"message_count"}` |
 | `text_delta` | `{"text"}` |
 | `reasoning_delta` | `{"text"}` |
 | `tool_call_started` | `{"tool_call_id", "tool_name"}` |
 | `tool_call_finished` | `{"tool_call_id", "tool_name", "status"}`, once per tool call when its record becomes final, rejections included |
 | `tool_call_deferred` | `{"tool_call_id", "tool_name", "effect", "requires_approval"}`, once per requested tool call |
 | `interrupt_raised` | `{"interrupt_id", "tool_call_id", "tool_name", "deadline", "kind", "question", "choices", "allows_free_text"}` |
-| `interrupt_resolved` | `{"interrupt_id", "approved", "rejection_message", "kind", "answered", "cancellation_reason"}`; `cancellation_reason` is null until steering ships |
+| `interrupt_resolved` | `{"interrupt_id", "approved", "rejection_message", "kind", "answered", "cancellation_reason"}`; `cancellation_reason` is `steered` or `turn_cancelled` when steering or `cancel_turn` removed the interrupt, else null |
 | `timer_started` | `{"tool_call_id", "wait_until", "reason"}` |
 | `plan_updated` | `{"revision", "status", "task_count"}`, when `write_todos` replaces the plan or an approval marks a `draft` plan `active` |
 | `plan_execution_started` | `{"revision"}`, after the `turn_started` of an `executing` turn |
@@ -503,8 +590,9 @@ and `attempt`. A UI groups live text by `(turn_id, step_execution_id,
 attempt)`: within one `step_execution_id` it keeps only the highest `attempt`
 seen and drops the partial text of lower attempts. Different
 `step_execution_id` values of one turn are separate model call and tool call
-Steps, and each keeps its text. After `turn_completed` or `turn_failed`, the UI
-replaces the turn's live text with the stored messages. Streams are best
+Steps, and each keeps its text. After `turn_completed`, `turn_failed`,
+`turn_steered`, or `turn_cancelled`, the UI replaces the turn's live text with
+the stored messages. Streams are best
 effort; clients rebuild from `get_agent_snapshot`. The event writer is safe to
 call from any thread.
 
@@ -517,8 +605,9 @@ tracing disabled, a core never loads it and writes no `AgentTraceContext`.
 Parent design: C9 in [#1132](https://github.com/superdurable/dex/pull/1132).
 
 - An activation starts when a Step consumes an input from outside the
-  session: `StartAgentSession` or `AwaitUserMessage` with a user message, or
-  `AwaitToolApproval` with an interrupt answer or an expired deadline. That
+  session: `StartAgentSession`, `AwaitUserMessage`, or `ApplyTurnControl`
+  with a user message, or `AwaitToolApproval` with an interrupt answer or an
+  expired deadline. That
   Step's attempt emits the trace root `invoke_agent {agent name}`, linked to
   the previous root. It stores its `traceparent` in `AgentTraceContext` when
   its span context is valid, sampled or not, so the activation's spans share
@@ -588,7 +677,10 @@ Optional additions, all inert for a runner that ignores them:
 - `ToolCallsRequested.new_messages` stores items incrementally. A runner that
   sets it implements `UnfinishedTurnMessageBuilder.build_unfinished_turn_messages(turn)`,
   which returns the unstored items, a tool result for every stored tool call
-  included, when a turn ends without a final answer.
+  included, when a turn ends without a final answer: in `RecordTurnFailure`,
+  before the turn-failure note, and in `ApplyTurnControl`, instead of the
+  steered or cancelled note. A runner that keeps its items in run state may
+  implement it too, so a steered turn keeps its exact transcript.
 - `AgentTurnContext.enabled_built_in_tools` names the enabled built-ins. A
   runner offers their `BUILT_IN_TOOL_DEFINITIONS` to its model like any tool.
 - `AgentTurnContext.interaction_mode` and `AgentTurnContext.plan` carry the
