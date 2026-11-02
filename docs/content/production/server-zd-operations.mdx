@@ -572,10 +572,10 @@ drain bound, the release, the hold-off, and one lease acquisition attempt.
 
 There is one exception. The process competes for the lease again only after the
 local store of its stopped serving period has closed. If a stuck task keeps that
-store open, the process waits up to about 64 seconds after the release. Then the
-call returns **INTERNAL**, and the process exits 1 without taking the lease. The
-restart releases the store. Meanwhile another process of the same node ID can
-take over.
+store open, the process waits up to about 64 seconds after the release. If no
+other process has taken over by then, the call returns **INTERNAL**. Either way,
+the process then exits 1 without taking the lease. The restart releases the
+store. Meanwhile another process of the same node ID can take over.
 
 **dexcli admin step-down** waits up to 2 minutes unless you set **--timeout**.
 Its output has these fields:

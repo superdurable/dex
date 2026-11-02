@@ -480,9 +480,9 @@ hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长�
 lease、hold-off，再加一次获取 lease 的尝试。
 
 有一个例外。进程要等已停止的服务阶段的本地 store 关闭之后，才会再次竞争 lease。如果某个
-卡住的任务一直让这个 store 保持打开，进程在释放 lease 之后最多等待约 64 秒。然后调用返回
-**INTERNAL**，进程不拿 lease，以 1 退出。重启会释放这个 store。在此期间，同一个 node ID
-的另一个进程可以接管。
+卡住的任务一直让这个 store 保持打开，进程在释放 lease 之后最多等待约 64 秒。如果到那时还
+没有其他进程接管，调用返回 **INTERNAL**。无论哪种情况，进程都不拿 lease，以 1 退出。重启
+会释放这个 store。在此期间，同一个 node ID 的另一个进程可以接管。
 
 除非设置了 **--timeout**，
 **dexcli admin step-down** 最多等待 2 分钟。输出包含这些字段：

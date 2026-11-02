@@ -686,9 +686,10 @@ ends or the old instance retires; it holds no store handle, and the stopped disp
 new task. AdminService calls, the step down included, keep running. The process starts a new standby gRPC instance and, before it reopens the
 local store as a standby or competes for the lease again, waits up to 4 s for public calls whose
 responses are still being written and up to 60 s for the old store to close. Meanwhile it refuses
-admin calls as not active. A task that still holds the old store after 60 s is stuck: the process
-then answers the step down with `Internal` and exits 1 without competing for the lease, so a
-restart releases the store and another process may take over meanwhile. The old
+admin calls as not active. A task that still holds the old store after 60 s is stuck: unless
+another process has already taken over, the process answers the step down with `Internal`. Either
+way it then exits 1 without competing for the lease, so a restart releases the store and another
+process may take over meanwhile. The old
 instance keeps the connection of the step down call until its answer is sent, then sends GOAWAY
 after 250 ms so clients reconnect through the Service. During the hold-off the process watches the
 lease and answers as soon as another process takes over. After the hold-off it competes again and
