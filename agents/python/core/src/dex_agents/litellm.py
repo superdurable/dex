@@ -170,21 +170,28 @@ class LiteLLMModelClient:
         ``AgentDefinition`` calls it to refuse ``planning_tool_choice="required"``
         for a model that would reject every planning turn's first model call.
         It reads LiteLLM's model map, which marks models such as Claude Opus 5.5
-        and Claude Sonnet 5.5 with ``supports_forced_tool_use: false``, and it
-        treats Anthropic extended thinking, a ``thinking`` request option that
-        is not disabled, as refusing too. A model the map does not describe
-        counts as accepting it.
+        and Claude Sonnet 5.5 with ``supports_forced_tool_use: false``. For a
+        model LiteLLM routes to Anthropic, Bedrock Claude, or Vertex AI Claude,
+        extended thinking refuses a forced tool choice too: a ``thinking``
+        option that is not disabled, or a ``reasoning_effort`` other than
+        ``"none"``, which LiteLLM turns into thinking. Other providers, such as
+        Gemini, accept forced function calls with thinking. A model the map
+        does not describe counts as accepting it.
 
         Args:
-            settings: The agent's model settings, whose ``provider_options``
-                apply on top of ``request_options``. ``None`` uses none.
+            settings: The agent's model settings. Their ``reasoning_effort``
+                and ``provider_options`` apply on top of ``request_options``,
+                as in a request. ``None`` uses none.
 
         Returns:
             ``False`` when the model or its options refuse a forced tool choice.
         """
-        provider_options = settings.provider_options if settings is not None else {}
-        thinking = {**self._request_options, **provider_options}.get("thinking")
-        if isinstance(thinking, Mapping) and thinking.get("type") not in (None, "disabled"):
+        options = dict(self._request_options)
+        if settings is not None:
+            if settings.reasoning_effort is not None:
+                options["reasoning_effort"] = settings.reasoning_effort
+            options.update(settings.provider_options)
+        if _is_anthropic_routed(self._model) and _is_extended_thinking_on(options):
             return False
         return not _is_forced_tool_use_unsupported(self._model)
 
@@ -563,6 +570,24 @@ def _chat_usage(usage: Mapping[str, Any]) -> AgentUsage:
             (usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0
         ),
     )
+
+
+def _is_anthropic_routed(model: str) -> bool:
+    """Report whether LiteLLM sends the model to Anthropic, or to Claude on Bedrock or Vertex AI."""
+    try:
+        model_name, provider, _, _ = litellm.get_llm_provider(model)
+    except Exception:
+        provider, _, model_name = model.rpartition("/")
+    if provider == "anthropic" or (not provider and model_name.startswith("claude-")):
+        return True
+    return provider in ("bedrock", "vertex_ai") and "claude" in model_name
+
+
+def _is_extended_thinking_on(options: Mapping[str, Any]) -> bool:
+    thinking = options.get("thinking")
+    if isinstance(thinking, Mapping) and thinking.get("type") not in (None, "disabled"):
+        return True
+    return options.get("reasoning_effort") not in (None, "none")
 
 
 def _is_forced_tool_use_unsupported(model: str) -> bool:

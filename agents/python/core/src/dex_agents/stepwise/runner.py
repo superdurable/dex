@@ -137,7 +137,8 @@ class AgentDefinition:
             draft. ``"required"`` forces ``write_todos`` on the first model
             call of a planning turn while no draft exists. Some models refuse
             a forced tool choice, such as Claude Opus 5.5 and Claude Sonnet 5.5,
-            and so does Anthropic extended thinking. A model client that
+            and so does Anthropic extended thinking, including a
+            ``reasoning_effort`` that LiteLLM turns into thinking. A model client that
             reports it with ``supports_forced_tool_choice(settings)``, as
             ``LiteLLMModelClient`` does, makes ``"required"`` fail here.
         max_model_calls_per_turn: After this many model calls in one turn,

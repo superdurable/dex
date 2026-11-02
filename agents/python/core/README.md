@@ -267,7 +267,10 @@ model call of a planning turn while no draft exists. Claude Opus 5.5, Claude
 Sonnet 5.5, and Anthropic extended thinking refuse a forced tool choice, so
 `AgentDefinition` raises `ValueError` for `"required"` when the model client's
 `supports_forced_tool_choice(settings)` returns `False`, as
-`LiteLLMModelClient`'s does for them.
+`LiteLLMModelClient`'s does for them. For a model LiteLLM routes to Anthropic,
+or to Claude on Bedrock or Vertex AI, it counts a `thinking` option that is not
+disabled, or a `reasoning_effort` other than `"none"`, as extended thinking.
+Gemini and OpenAI models accept a forced tool choice with thinking or reasoning.
 
 ```python
 sessions = AgentSessionClient(client, flow)
