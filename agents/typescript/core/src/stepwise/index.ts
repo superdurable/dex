@@ -28,6 +28,15 @@ export {
   type ModelToolResultItem,
   type ModelUserTextItem,
 } from "./model-client.js";
+export {
+  ScriptedModelClient,
+  defaultMaxRecordedRequests,
+  scriptedModelApi,
+  scriptedModelProvider,
+  type ScriptedModelReply,
+  type ScriptedModelResponder,
+  type ScriptedToolCall,
+} from "./scripted-model-client.js";
 export { createStepwiseAgentSessionFlow } from "./stepwise-agent-session-flow.js";
 export {
   StepwiseAgentRunner,
@@ -36,4 +45,6 @@ export {
   contextSummaryInstructions,
   contextSummaryNoteHeader,
   contextSummaryRequest,
+  defaultToolSourceListingTimeoutMs,
 } from "./stepwise-agent-runner.js";
+export { type SourceToolDefinition, type ToolSource } from "./tool-source.js";

@@ -167,6 +167,60 @@ own Step, through the same session Flow the adapters use.
 - `@superdurable/dex-agents/testing`: `ScriptedModelClient` for Stepwise tests
   without a model key.
 
+### Stepwise tool sources, MCP resources and prompts, and the demo model
+
+- Both cores: `AgentDefinition.tool_sources` (`toolSources`) takes tool
+  sources, such as `McpToolSource`, through the new `ToolSource` and
+  `SourceToolDefinition` protocols in `dex_agents.stepwise` and
+  `@superdurable/dex-agents/stepwise`. In every `RunModel` of a chat or
+  executing turn, the runner lists each source's tools and offers them after
+  the function tools and before the built-in tools. A call of a source tool
+  becomes the source's `deferred_tool_call`, so its policy, effect class,
+  approval, idempotency key, and `tool_source_reference` apply, and it runs
+  through the source's `execute_deferred_tool_call` in its own tool Step. Each
+  source has a unique, stable `source_name` (`sourceName`), and the runner
+  stores the source's reference as `{"stepwise_tool_source": <source name>,
+  "reference": ...}`, so the tool Step and `PollToolTask` reach the source
+  that built the call without a listing and whatever the source order; a
+  source name the Worker lacks raises a retryable error. The runner passes the
+  definition it offered as `listed_tool` (`listedTool`), so a refresh during
+  the model call cannot change it. `McpToolSource` defaults its source name to
+  `"mcp"` (`DEFAULT_MCP_SOURCE_NAME`, `defaultMcpSourceName`), which adding
+  or removing a server keeps; two `McpToolSource`s in one agent must name at
+  least one. `StepwiseAgentRunner` now implements `poll_tool_task`
+  (`pollToolTask`) and passes each task to its source; function tools start
+  no tasks. A name that no listing offered fails as an unknown tool without an
+  approval and without reaching a source. Each listing is
+  bounded by `tool_source_listing_timeout` (`toolSourceListingTimeoutMs`, 10
+  seconds), and a source that fails or times out offers no tools in that
+  model call instead of failing the turn. A listed name that repeats a
+  function tool, an enabled built-in tool, or another source's tool fails the
+  `RunModel` attempt before any model request, as a built-in name collision
+  does; names a source declares with the optional `declared_tool_names()` are
+  checked when the definition is built. The optional `cached_tools()` feeds
+  the token estimate.
+- Both cores: `McpToolSource` caches each server's listing per Worker,
+  refreshes it in the background after `listing_ttl` (`listingTtlMs`, 5
+  minutes), and leaves a server that failed to list alone for
+  `listing_failure_backoff` (`listingFailureBackoffMs`, 30 seconds). One
+  listing per server runs at a time.
+- Both cores: `McpToolSource(..., resource_and_prompt_tools_enabled=True)`
+  (`resourceAndPromptToolsEnabled: true`) also lists the `read` tools
+  `mcp_list_resources_and_prompts`, `mcp_read_resource`, and `mcp_get_prompt`,
+  which take a configured server's name and reuse the source's transport and
+  headers, with the source's connection attempts. Off by default; two sources
+  with them are refused when the agent definition is built. The names,
+  descriptions, argument schemas, and output JSON (sorted keys, whole numbers
+  without `.0`) are the same in both cores. TypeScript needs nothing beyond
+  `@modelcontextprotocol/sdk` 1.32.2 for them.
+- Both cores: `ScriptedModelClient`, `ScriptedModelReply`, `ScriptedToolCall`,
+  `ScriptedModelResponder`, and the scripted provider and API constants are
+  exported from `dex_agents.stepwise` and `@superdurable/dex-agents/stepwise`
+  as a supported model client for running an agent without a model key, such
+  as an application's demo mode. `requests` keeps the latest 100 requests,
+  `max_recorded_requests` (`maxRecordedRequests`). The `testing` exports and
+  module paths stay and name the same classes.
+
 ### Questions, durable waits, and incremental turn messages
 
 Both cores, with identical Step types, RPC names, wire values, events, and
@@ -402,6 +456,11 @@ compaction policy.
 
 - Enable the new options and call the new RPCs only after every Worker of the
   Flow type runs 0.2.0. A session started on 0.1.0 continues on 0.2.0.
+- `StepwiseAgentRunner` now implements `ToolTaskPoller`, so its
+  `DeferredToolExecution.supports_tool_tasks` (`supportsToolTasks`) is true. A
+  subclass that already defined `poll_tool_task` keeps its own. Function tools
+  cannot start tasks, so a Stepwise agent without tool sources behaves as in
+  0.1.0.
 - Call `steer_user_message` and `cancel_turn` only after every Worker runs
   0.2.0 and every turn that was active during the rollout has ended. A Step's
   waits and locks come from the Worker that scheduled it, so such a turn can

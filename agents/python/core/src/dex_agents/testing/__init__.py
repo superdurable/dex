@@ -21,7 +21,7 @@ Every adapter package tests against a real Dex Server with these tools:
 * ``read_step_history`` lists the completed Steps of a session, so a test can
   assert the Step shape of a turn.
 * ``ScriptedModelClient`` answers Stepwise model calls from a script, so a
-  test needs no model key.
+  test needs no model key. It is the class ``dex_agents.stepwise`` exports.
 
 The tools read ``DEXCLI`` for the ``dexcli`` executable and expect
 ``dex-server-zd`` in the same directory, or ``DEX_SERVER_ZD_BINARY``.

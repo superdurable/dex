@@ -40,6 +40,13 @@ import {
   type ToolTaskStarted,
 } from "../agent-framework-runner.js";
 import type { ToolEffect } from "../agent-session-values.js";
+import {
+  buildResourceAndPromptToolDefinitions,
+  readServerName,
+  resourceAndPromptToolNames,
+  runResourceAndPromptTool,
+} from "./mcp-resource-and-prompt-tools.js";
+import type { SourceToolDefinition } from "../stepwise/tool-source.js";
 import { validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
 
 /** `_meta` key that carries the session's idempotency key on every `tools/call`. */
@@ -58,6 +65,12 @@ export const defaultMcpTaskTtlMs = 86_400_000;
 export const defaultMcpConnectionTimeoutMs = 30_000;
 /** Default number of connection attempts before a request reports the server unreachable. */
 export const defaultMcpConnectionAttempts = 3;
+/** Default {@link McpToolSourceOptions.sourceName}, which stored Stepwise calls are routed by. */
+export const defaultMcpSourceName = "mcp";
+/** Default age in milliseconds after which `listTools` lists a server again, in the background: 5 minutes. */
+export const defaultMcpListingTtlMs = 300_000;
+/** Default wait in milliseconds after a failed listing before `listTools` tries that server again: 30 seconds. */
+export const defaultMcpListingFailureBackoffMs = 30_000;
 
 const toolNameLengthLimit = 64;
 const toolListingPageLimit = 100;
@@ -87,12 +100,16 @@ export interface McpTool {
   /**
    * Agent tool name, `<serverName>__<mcpToolName>`. Characters other than letters, digits, `_`, and
    * `-` become `_`. A name longer than 64 characters is cut to 55 and ends with `_` and 8 hex digits
-   * of its SHA-256. Key {@link ToolPolicy} entries by this name.
+   * of its SHA-256. Key {@link ToolPolicy} entries by this name. The resource and prompt tools have the fixed
+   * names `mcp_list_resources_and_prompts`, `mcp_read_resource`, and `mcp_get_prompt`.
    */
   readonly name: string;
-  /** Name of the configured server that offers the tool. */
+  /**
+   * Name of the configured server that offers the tool, or `""` for a resource and prompt tool, which takes the
+   * server as its `server` argument.
+   */
   readonly serverName: string;
-  /** The tool's name on its MCP server. */
+  /** The tool's name on its MCP server, or `""` for a resource and prompt tool. */
   readonly mcpToolName: string;
   /** Tool description for the model. */
   readonly description: string;
@@ -144,6 +161,38 @@ export interface McpToolSourceOptions {
   readonly connectionAttempts?: number;
   /** `clientInfo.name` sent to the servers. Defaults to `dex-agents`. */
   readonly clientName?: string;
+  /**
+   * Whether {@link McpToolSource.listTools} also offers `mcp_list_resources_and_prompts`, `mcp_read_resource`,
+   * and `mcp_get_prompt`, after the servers' tools, when at least one server is configured. Their requests are
+   * bounded by `connectionTimeoutMs`. Defaults to `false`. Enable it on one source of an agent only: two sources
+   * with it list the same names, which the Stepwise runner refuses. See {@link McpToolSource}.
+   */
+  readonly resourceAndPromptToolsEnabled?: boolean;
+  /**
+   * Age in milliseconds after which {@link McpToolSource.listTools} lists a server again. The refresh runs in the
+   * background, and the earlier listing is returned meanwhile. Defaults to {@link defaultMcpListingTtlMs}.
+   */
+  readonly listingTtlMs?: number;
+  /**
+   * How long in milliseconds {@link McpToolSource.listTools} leaves a server that failed to list alone before it
+   * tries again, in the background. Defaults to {@link defaultMcpListingFailureBackoffMs}.
+   */
+  readonly listingFailureBackoffMs?: number;
+  /**
+   * The source's stable name in a Stepwise agent's `toolSources`, which stored calls are routed by. Defaults to
+   * {@link defaultMcpSourceName}, `"mcp"`, so adding or removing a server keeps it. An agent with two `McpToolSource`
+   * instances must name at least one, because names must be unique.
+   */
+  readonly sourceName?: string;
+}
+
+/** One server's listing state: the last good tools, the last failure, and a running listing. */
+interface ServerListing {
+  tools: readonly McpTool[] | undefined;
+  listedAtMs: number;
+  failure: McpToolListingError | undefined;
+  failedUntilMs: number;
+  pending: Promise<void> | undefined;
 }
 
 /** Per-call options of {@link McpToolSource.callTool}. */
@@ -284,6 +333,17 @@ interface McpConnection {
  * - Without `DeferredToolExecution.supportsToolTasks`, for a runner without `pollToolTask`, the tool Step
  *   polls every task itself, as {@link callTool} does.
  *
+ * With `resourceAndPromptToolsEnabled`, the listing also offers three `read` tools for the servers' resources
+ * and prompts: `mcp_list_resources_and_prompts` lists a server's resources, resource templates, and prompts;
+ * `mcp_read_resource` reads one resource by URI; and `mcp_get_prompt` gets one prompt with its arguments. Each
+ * takes the configured server's name as its `server` argument and opens a new connection to that server with
+ * the same transport and headers as a tool call. Its output is the server's answer as JSON with sorted keys:
+ * `{"resources", "resource_templates", "prompts"}`, `{"contents"}`, or `{"messages", "description"}`. A server
+ * that does not offer resources or prompts lists none of them. An MCP error answer throws
+ * {@link ToolExecutionError}. The names, descriptions, and argument schemas match the Python core. Both cores
+ * support every resource and prompt request that `@modelcontextprotocol/sdk` 1.32.2 supports; this core does
+ * not follow `notifications/resources/list_changed` or subscribe to resources, and neither does Python.
+ *
  * Share one source between the parallel tool Steps of a Worker; build it once at startup.
  *
  * @example
@@ -322,16 +382,19 @@ export class McpToolSource {
   private readonly connectionTimeoutMs: number;
   private readonly connectionAttempts: number;
   private readonly connector: McpConnector;
-  private readonly toolsByServer = new Map<string, readonly McpTool[]>();
+  private readonly listings = new Map<string, ServerListing>();
+  private readonly listingTtlMs: number;
+  private readonly listingFailureBackoffMs: number;
+  private readonly configuredSourceName: string;
   private tools: ReadonlyMap<string, McpTool> | undefined;
-  private pendingListing: Promise<ReadonlyMap<string, McpTool>> | undefined;
+  private readonly resourceAndPromptTools: readonly McpTool[];
 
   /**
    * Describes the servers without connecting to them.
    * @param servers - Server configurations with unique names.
    * @param options - Timeouts, connection attempts, and client name.
-   * @throws {TypeError} When a configuration is invalid, server names repeat, a timeout or `taskTtlMs` is
-   * not positive, or `connectionAttempts` is less than 1.
+   * @throws {TypeError} When a configuration is invalid, server names repeat, a timeout, `taskTtlMs`,
+   * `listingTtlMs`, or `listingFailureBackoffMs` is not positive, or `connectionAttempts` is less than 1.
    */
   public constructor(servers: readonly McpServerConfig[], options: McpToolSourceOptions = {}) {
     const serversByName = new Map<string, McpServerConfig>();
@@ -359,35 +422,104 @@ export class McpToolSource {
     if (!Number.isInteger(this.connectionAttempts) || this.connectionAttempts < 1) {
       throw new TypeError("connectionAttempts must be an integer of at least 1");
     }
+    this.listingTtlMs = options.listingTtlMs ?? defaultMcpListingTtlMs;
+    this.listingFailureBackoffMs = options.listingFailureBackoffMs ?? defaultMcpListingFailureBackoffMs;
+    if (!(this.listingTtlMs > 0) || !(this.listingFailureBackoffMs > 0)) {
+      throw new TypeError("listingTtlMs and listingFailureBackoffMs must be positive");
+    }
+    this.configuredSourceName = options.sourceName ?? defaultMcpSourceName;
+    for (const name of serversByName.keys()) {
+      this.listings.set(name, { tools: undefined, listedAtMs: 0, failure: undefined, failedUntilMs: 0, pending: undefined });
+    }
     this.connector = new McpConnector(
       { name: options.clientName ?? "dex-agents", version: dexAgentsVersion() },
       this.connectionTimeoutMs,
     );
+    this.resourceAndPromptTools =
+      options.resourceAndPromptToolsEnabled === true && serversByName.size > 0
+        ? buildResourceAndPromptToolDefinitions([...serversByName.keys()]).map(
+            (definition): McpTool => ({
+              ...definition,
+              serverName: "",
+              mcpToolName: "",
+              annotations: { readOnlyHint: true },
+              frameworkEffect: "read",
+              taskSupport: undefined,
+            }),
+          )
+        : [];
   }
 
   /**
    * Returns the tools of every reachable configured server.
    *
-   * Each server is listed on first use and cached on its own; `refresh: true` lists every server again.
-   * A server that cannot be listed is left out with a warning and tried again on the next call; when a
-   * refresh fails, its earlier listing stays. When two tools map to the same agent tool name, the first
-   * in server order wins and the other is left out with a warning. Call it from `runModelStep` to offer
-   * the tools, or at Worker startup.
-   * @param options - `refresh: true` lists every server again.
-   * @returns Every offered tool, in server order and then in each server's order.
-   * @throws {McpToolListingError} When no server could be listed and none has an earlier listing.
+   * Each server is listed on its own and cached per Worker process. The first listing of a server is awaited.
+   * After that, a listing older than `listingTtlMs` is refreshed in the background while the earlier one is
+   * returned. A server that cannot be listed is left out with a warning and is not tried again until
+   * `listingFailureBackoffMs` has passed; then it is listed in the background. One listing per server runs at a
+   * time, however many sessions call this. `refresh: true` lists every server again now and waits for it. When two
+   * tools map to the same agent tool name, the first in server order wins and the other is left out with a
+   * warning. Call it from `runModelStep` to offer the tools, or at Worker startup to warm the cache.
+   * @param options - `refresh: true` lists every server again now, ignoring the cache and the failure backoff.
+   * @returns Every offered tool, in server order and then in each server's order, then the resource and prompt
+   * tools when enabled.
+   * @throws {McpToolListingError} When servers are configured and none has a listing, because every one failed.
    */
   public async listTools(options: { readonly refresh?: boolean } = {}): Promise<readonly McpTool[]> {
-    while (this.pendingListing !== undefined) {
-      await this.pendingListing.catch(() => undefined);
+    const isRefresh = options.refresh === true;
+    const now = Date.now();
+    const waits: Promise<void>[] = [];
+    for (const server of this.servers.values()) {
+      const listing = this.listings.get(server.name)!;
+      if (listing.pending === undefined) {
+        const isStale = listing.tools === undefined || now - listing.listedAtMs >= this.listingTtlMs;
+        if (isRefresh || (isStale && now >= listing.failedUntilMs)) {
+          const pending: Promise<void> = this.refreshListing(server, listing).finally(() => {
+            if (listing.pending === pending) {
+              listing.pending = undefined;
+            }
+          });
+          listing.pending = pending;
+        }
+      }
+      const isFirstListing = listing.tools === undefined && listing.failure === undefined;
+      if (listing.pending !== undefined && (isRefresh || isFirstListing)) {
+        waits.push(listing.pending);
+      }
     }
-    const listing = this.listServers(options.refresh === true);
-    this.pendingListing = listing;
-    try {
-      return [...(await listing).values()];
-    } finally {
-      this.pendingListing = undefined;
+    await Promise.all(waits);
+    const listings = [...this.listings.values()];
+    if (listings.length > 0 && listings.every((listing) => listing.tools === undefined)) {
+      const failure = listings.map((listing) => listing.failure).filter((error) => error !== undefined).at(-1);
+      throw failure ?? new McpToolListingError([...this.servers.keys()][0] ?? "", "no listing finished yet");
     }
+    this.tools ??= this.combineServerTools();
+    return [...this.tools.values()];
+  }
+
+  /**
+   * The name a Stepwise agent's `toolSources` routes stored calls by: `sourceName` as passed, or
+   * {@link defaultMcpSourceName}, `"mcp"`.
+   */
+  public get sourceName(): string {
+    return this.configuredSourceName;
+  }
+
+  /**
+   * Returns the tools of the last listings without listing, for estimates.
+   * @returns The cached tools, as {@link listTools} would return them, or none before any listing finished.
+   */
+  public cachedTools(): readonly McpTool[] {
+    return this.tools === undefined ? [] : [...this.tools.values()];
+  }
+
+  /**
+   * Returns the tool names this source lists whatever its servers offer, so the Stepwise runner refuses a name
+   * collision when it is constructed instead of on every model call.
+   * @returns The resource and prompt tool names when they are enabled, else none.
+   */
+  public declaredToolNames(): ReadonlySet<string> {
+    return new Set(this.resourceAndPromptTools.map((tool) => tool.name));
   }
 
   /**
@@ -440,26 +572,38 @@ export class McpToolSource {
    * {@link ToolPolicy} wins. The call's `toolSourceReference` names the server, the tool's MCP name, and
    * its task support.
    * @param turn - The `RunModel` context.
-   * @param call - Framework tool call ID, the {@link McpTool.name} the model called, and the arguments as
-   * JSON text.
+   * @param call - Framework tool call ID, the {@link McpTool.name} the model called, the arguments as JSON
+   * text, and optionally `listedTool`, the {@link McpTool} the listing offered for this model call, as the
+   * Stepwise runner passes it, so a refresh that finished meanwhile cannot change or remove it. Without it, the
+   * tool is looked up in the current listing.
    * @returns The call to put in `ToolCallsRequested.toolCalls`.
-   * @throws {RangeError} When {@link listTools} has not run or the tool is unknown.
+   * @throws {RangeError} When no `listedTool` is given and {@link listTools} has not run or the tool is unknown.
    */
   public deferredToolCall(
     turn: AgentTurnContext,
-    call: { readonly toolCallId: string; readonly toolName: string; readonly arguments: string },
+    call: {
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly arguments: string;
+      readonly listedTool?: SourceToolDefinition;
+    },
   ): DeferredToolCall {
-    const tool = this.tool(call.toolName);
+    const listedTool = call.listedTool;
+    const tool = isMcpTool(listedTool) && listedTool.name === call.toolName ? listedTool : this.tool(call.toolName);
     return {
       toolCallId: call.toolCallId,
       toolName: call.toolName,
       arguments: call.arguments,
       policy: turn.resolveToolPolicy(call.toolName, tool.frameworkEffect),
-      toolSourceReference: JSON.stringify({
-        mcp_server: tool.serverName,
-        mcp_tool: tool.mcpToolName,
-        ...(tool.taskSupport === undefined ? {} : { task_support: tool.taskSupport }),
-      }),
+      ...(this.isResourceAndPromptTool(call.toolName)
+        ? {}
+        : {
+            toolSourceReference: JSON.stringify({
+              mcp_server: tool.serverName,
+              mcp_tool: tool.mcpToolName,
+              ...(tool.taskSupport === undefined ? {} : { task_support: tool.taskSupport }),
+            }),
+          }),
     };
   }
 
@@ -506,6 +650,9 @@ export class McpToolSource {
    */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult | ToolTaskStarted> {
     const toolArguments = parseToolArguments(call.toolCall.arguments);
+    if (this.isResourceAndPromptTool(call.toolCall.toolName)) {
+      return this.runResourceAndPromptTool(call.toolCall.toolName, toolArguments, call.cancellationSignal);
+    }
     const target = await this.resolveTarget(call.toolCall.toolName, call.toolCall.toolSourceReference);
     // Without a poller, a task runs to its end inside the call, as for callTool.
     const isTaskPolledBySession = call.supportsToolTasks === true;
@@ -596,11 +743,53 @@ export class McpToolSource {
     toolArguments: Readonly<Record<string, unknown>>,
     options: McpToolCallOptions = {},
   ): Promise<ToolExecutionResult> {
+    if (this.isResourceAndPromptTool(toolName)) {
+      return this.runResourceAndPromptTool(toolName, toolArguments, options.signal);
+    }
     const result = await this.callTarget(await this.targetFromListing(toolName), { ...toolArguments }, options, false);
     if ("kind" in result) {
       throw new Error(`MCP tool ${toolName} returned a task to callTool`);
     }
     return result;
+  }
+
+  private isResourceAndPromptTool(toolName: string): boolean {
+    return this.resourceAndPromptTools.length > 0 && resourceAndPromptToolNames.has(toolName);
+  }
+
+  private async runResourceAndPromptTool(
+    toolName: string,
+    toolArguments: Readonly<Record<string, unknown>>,
+    signal: AbortSignal | undefined,
+  ): Promise<ToolExecutionResult> {
+    const serverName = readServerName(toolArguments);
+    const server = this.servers.get(serverName);
+    if (server === undefined) {
+      throw new ToolExecutionError(`MCP server ${serverName} is not configured`);
+    }
+    let detail = "no connection attempt";
+    for (let connectionAttempt = 1; connectionAttempt <= this.connectionAttempts; connectionAttempt += 1) {
+      let connection: McpConnection | undefined;
+      try {
+        connection = await this.connector.connect(server);
+        const output = await runResourceAndPromptTool(connection.client, toolName, toolArguments, {
+          timeout: this.connectionTimeoutMs,
+          ...(signal === undefined ? {} : { signal }),
+        });
+        return { output };
+      } catch (error: unknown) {
+        if (error instanceof ToolExecutionError) {
+          throw error;
+        }
+        detail = describeError(error);
+      } finally {
+        await this.connector.disconnectQuietly(connection);
+      }
+      if (connectionAttempt < this.connectionAttempts) {
+        await delay(connectionRetryDelayMs * connectionAttempt);
+      }
+    }
+    throw new ToolExecutionError(`could not read from MCP server ${serverName}, so ${toolName} did not finish: ${detail}`);
   }
 
   private callLimits(isTaskPolledBySession: boolean): McpCallLimits {
@@ -681,37 +870,26 @@ export class McpToolSource {
     return { server, mcpToolName: tool.mcpToolName, toolName: tool.name, taskSupport: tool.taskSupport };
   }
 
-  private async listServers(isRefresh: boolean): Promise<ReadonlyMap<string, McpTool>> {
-    let failure: McpToolListingError | undefined;
-    let hasChanged = this.tools === undefined;
-    for (const server of this.servers.values()) {
-      if (!isRefresh && this.toolsByServer.has(server.name)) {
-        continue;
-      }
-      try {
-        this.toolsByServer.set(server.name, await this.listServerTools(server));
-        hasChanged = true;
-      } catch (error: unknown) {
-        if (!(error instanceof McpToolListingError)) {
-          throw error;
-        }
-        failure = error;
-        console.warn(`left MCP server ${server.name} out of the tool listing: ${error.message}`);
-      }
-    }
-    if (this.toolsByServer.size === 0 && failure !== undefined) {
-      throw failure;
-    }
-    if (hasChanged || this.tools === undefined) {
+  private async refreshListing(server: McpServerConfig, listing: ServerListing): Promise<void> {
+    try {
+      listing.tools = await this.listServerTools(server);
+      listing.listedAtMs = Date.now();
+      listing.failure = undefined;
+      listing.failedUntilMs = 0;
       this.tools = this.combineServerTools();
+    } catch (error: unknown) {
+      // A background listing must never reject: nobody may be waiting for it.
+      const failure = error instanceof McpToolListingError ? error : new McpToolListingError(server.name, describeError(error));
+      listing.failure = failure;
+      listing.failedUntilMs = Date.now() + this.listingFailureBackoffMs;
+      console.warn(`left MCP server ${server.name} out of the tool listing: ${failure.message}`);
     }
-    return this.tools;
   }
 
   private combineServerTools(): ReadonlyMap<string, McpTool> {
     const tools = new Map<string, McpTool>();
     for (const serverName of this.servers.keys()) {
-      for (const tool of this.toolsByServer.get(serverName) ?? []) {
+      for (const tool of this.listings.get(serverName)?.tools ?? []) {
         const existing = tools.get(tool.name);
         if (existing !== undefined) {
           console.warn(
@@ -721,6 +899,9 @@ export class McpToolSource {
         }
         tools.set(tool.name, tool);
       }
+    }
+    for (const tool of this.resourceAndPromptTools) {
+      tools.set(tool.name, tool);
     }
     return tools;
   }
@@ -1217,4 +1398,8 @@ function dexAgentsVersion(): string {
     // A bundled copy has no package.json beside it; the version is informational.
     return "0";
   }
+}
+
+function isMcpTool(tool: SourceToolDefinition | undefined): tool is McpTool {
+  return tool !== undefined && "serverName" in tool && "mcpToolName" in tool && "frameworkEffect" in tool;
 }

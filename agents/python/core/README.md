@@ -40,11 +40,11 @@ module needs a new package name:
 | Module | Install | Contents |
 | --- | --- | --- |
 | `dex_agents` | `dex-agents` | The session Flow, the runner contract, built-in tools, `AgentSessionClient`, and tracing options |
-| `dex_agents.stepwise` | `dex-agents` | Stepwise mode: `AgentDefinition`, function tools, the `ModelClient` protocol, and the runner |
+| `dex_agents.stepwise` | `dex-agents` | Stepwise mode: `AgentDefinition`, function tools, tool sources, the `ModelClient` protocol, `ScriptedModelClient`, and the runner |
 | `dex_agents.litellm` | `dex-agents[litellm]` | `LiteLLMModelClient`, a `ModelClient` on LiteLLM |
 | `dex_agents.mcp` | `dex-agents[mcp]` | `McpToolSource`, MCP servers' tools as agent tools |
 | `dex_agents.ui_stream` | `dex-agents` | Server-Sent Event frames and snapshot JSON for UIs |
-| `dex_agents.testing` | `dex-agents` | Private engines, Worker processes, gates, Step history, and `ScriptedModelClient` |
+| `dex_agents.testing` | `dex-agents` | Private engines, Worker processes, gates, Step history, and `ScriptedModelClient` (the same class as `dex_agents.stepwise`'s) |
 
 Spans need the `otel` extra. Importing `dex_agents.litellm` without its extra
 raises `ImportError` that names `dex-agents[litellm]`.
@@ -137,7 +137,8 @@ registry = Registry([flow], allow_async_handlers=True)
 
 `AgentDefinition` fields: `name`, `instructions` (a string, or a function of
 `InstructionContext` evaluated in every `RunModel`), `model`, `model_settings`,
-`tools`, `tool_policies`, `default_tool_effect`, `built_in_tools`,
+`tools`, `tool_sources` (see [Tool sources](#tool-sources)), `tool_policies`,
+`default_tool_effect`, `built_in_tools`,
 `max_model_calls_per_turn` (100; after that many calls in one turn the next
 call offers no tools, and a tool call the model makes anyway gets the result
 `The tool call was not run: this turn reached its limit of <n> model calls.`
@@ -171,6 +172,65 @@ never reaches a provider. It stores items as they appear
 (`ToolCallsRequested.new_messages`), so `FrameworkRunState` holds only the
 turn's model call count.
 
+### Tool sources
+
+`AgentDefinition.tool_sources` takes tools that are listed at run time, such
+as an MCP server's tools. Any object with a `source_name` and `list_tools`,
+`deferred_tool_call`, `execute_deferred_tool_call`, and `poll_tool_task` is a
+`ToolSource`; `McpToolSource` is one:
+
+```python
+from dex_agents.mcp import McpStdioServerConfig, McpToolSource
+
+files = McpToolSource(
+    [McpStdioServerConfig(name="files", command="mcp-server-files", args=["/srv/reports"])],
+    resource_and_prompt_tools_enabled=True,
+)
+agent = AgentDefinition(
+    name="reports",
+    instructions="You manage reports.",
+    model=LiteLLMModelClient("openai/gpt-5-mini"),
+    tools=[lookup_order],
+    tool_sources=[files],
+    built_in_tools=frozenset({BuiltInTool.ASK_USER}),
+)
+```
+
+In every `RunModel` of a chat or executing turn, the runner awaits each
+source's `list_tools`, for at most `tool_source_listing_timeout` (10 seconds),
+and offers the tools after the function tools and before the built-in tools.
+A source whose listing raises or takes longer offers no tools in that model
+call, with a warning log, so a down server never fails a turn. A planning
+turn, and a call after the model call limit, list nothing.
+
+A call of a listed tool becomes the source's `deferred_tool_call`, so the
+source's policy, effect class, and `tool_source_reference` apply: approvals,
+`CallTool` or `CallSingleAttemptTool`, the idempotency key, and tool tasks
+work as for any tool. The runner passes the definition it offered as
+`listed_tool`, so a listing refreshed during the model call cannot change it.
+It stores the source's reference as `{"stepwise_tool_source": <source_name>,
+"reference": ...}`, so the tool Step and `PollToolTask` reach the source that
+built the call, with its own reference, on any Worker, without a listing, and
+whatever the order of `tool_sources`. Source names must be unique and stable
+across deploys: `McpToolSource` defaults its `source_name` to `"mcp"`, which
+adding or removing a server keeps, and takes `source_name=`. Two
+`McpToolSource`s in one agent must therefore name at least one of them. A stored call whose source name this Worker does not have raises
+`LookupError`, so its effect class decides the outcome. A name that no listing
+offered, such as a tool of a server that was down, fails as `unknown tool
+<name>` without an approval (`unclassified`, no approval): it never reaches a
+source.
+
+A listed name that repeats a function tool, an enabled built-in tool, or
+another source's tool fails the `RunModel` attempt with `ValueError` before any
+model request: `tool <name> uses the name of an enabled built-in tool`, `tool
+<name> of a tool source uses the name of a function tool`, or `two tool sources
+list a tool named <name>`. A source may define `declared_tool_names()`, names
+it always lists, and `AgentDefinition` checks those when it is built; two
+`McpToolSource`s with the resource and prompt tools are refused there. A
+source may also define `cached_tools()`, its last listing without I/O, which
+the synchronous `estimate_input_tokens` counts; otherwise it counts the
+runner's last listing of that source.
+
 ### Model clients
 
 ```python
@@ -197,8 +257,29 @@ with their `signature`. It streams text and reasoning summaries to
 from the Worker's environment, as LiteLLM reads them, or from
 `api_key_provider`; never from Flow input or Attributes.
 
-`dex_agents.testing.ScriptedModelClient(respond)` answers each call from a
-function of the `ModelRequest`, so tests need no model key.
+`ScriptedModelClient(respond)` from `dex_agents.stepwise` answers each call
+from a function of the `ModelRequest`, so an agent runs without a model key: a
+local demo mode, a tutorial, or a test. `respond` returns a
+`ScriptedModelReply` with `text`, `tool_calls` (`ScriptedToolCall`), and
+`reasoning`, sync or async. `ScriptedModelClient.user_texts(request)` and
+`ScriptedModelClient.tool_results(request)` read the request. `requests` keeps
+the latest `max_recorded_requests` requests, 100 by default. Keep the script
+deterministic, because a crashed `RunModel` reruns it. `dex_agents.testing`
+exports the same class.
+
+```python
+from dex_agents.stepwise import ModelRequest, ScriptedModelClient, ScriptedModelReply
+
+
+def reply_as_demo_model(request: ModelRequest) -> ScriptedModelReply:
+    results = ScriptedModelClient.tool_results(request)
+    if results:
+        return ScriptedModelReply(text="; ".join(result.output for result in results))
+    return ScriptedModelReply(text=f"Demo reply: {ScriptedModelClient.user_texts(request)[-1]}")
+
+
+model = ScriptedModelClient(reply_as_demo_model) if demo else LiteLLMModelClient(model_name)
+```
 
 ## Built-in tools: questions and durable waits
 
@@ -819,7 +900,9 @@ tools = McpToolSource([
 ])
 ```
 
-A runner offers the tools and defers every call; the tool Step runs it:
+A Stepwise agent takes the source in `AgentDefinition.tool_sources`; see
+[Tool sources](#tool-sources). Another runner offers the tools and defers
+every call; the tool Step runs it:
 
 ```python
 class MyRunner:
@@ -847,10 +930,14 @@ class MyRunner:
         return await tools.poll_tool_task(poll)
 ```
 
-`list_tools` lists each server on first use and caches its tools on their
-own; `list_tools(refresh=True)` lists every server again. A server that cannot
-be listed is left out with a warning log and tried again on the next call, so
-one bad server never hides the others' tools. `deferred_tool_call` stores the
+`list_tools` lists each server on its own and caches its tools per Worker.
+The first listing of a server is awaited; after `listing_ttl` (5 minutes) a
+server is listed again in the background while its earlier tools are
+returned. A server that cannot be listed is left out with a warning log and
+is not tried again for `listing_failure_backoff` (30 seconds), then in the
+background, so one bad server never hides the others' tools or slows every
+model call. One listing per server runs at a time. `list_tools(refresh=True)`
+lists every server again now. `deferred_tool_call` stores the
 server and the tool's MCP name on the call's record, so the tool Step calls
 that server directly, without a listing; `call_tool` finds the server through
 the listing. Tool names are `<server>__<tool>`, with characters other than
@@ -858,6 +945,30 @@ letters, digits, `_`, and `-` replaced by `_` and names over 64 characters
 shortened with a hash. When two tools get the same name, the first in server
 order is offered and the other is left out with a warning log. Key
 `ToolPolicy` entries by that name.
+
+### Resources and prompts
+
+With `resource_and_prompt_tools_enabled=True`, `list_tools` also offers three
+`READ` tools after the servers' tools, when at least one server is
+configured. Each takes a configured server's name as `server`, an `enum` of
+the names, and opens a new connection to that server with the source's
+transport, headers, and `connection_timeout`:
+
+| Tool | Arguments | Output |
+| --- | --- | --- |
+| `mcp_list_resources_and_prompts` | `server` | `{"prompts": [...], "resource_templates": [...], "resources": [...]}`, every page |
+| `mcp_read_resource` | `server`, `uri` | `{"contents": [...]}` |
+| `mcp_get_prompt` | `server`, `name`, optional `arguments` (strings by name) | `{"description": ..., "messages": [...]}` |
+
+Outputs are the server's items as it sent them, in JSON with sorted keys, so
+both cores show the same text. A server that does not offer resources or
+prompts lists none. A connection failure is retried `connection_attempts`
+times. An MCP error answer, a server that stays unreachable, and an
+unconfigured server raise `ToolExecutionError`. Enable the tools on one
+source of an agent only. Resource subscriptions and list-change notifications are
+not followed. The names are `MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME`,
+`MCP_READ_RESOURCE_TOOL_NAME`, and `MCP_GET_PROMPT_TOOL_NAME`; key a
+`ToolPolicy` by them to require approval.
 
 ### Effects
 

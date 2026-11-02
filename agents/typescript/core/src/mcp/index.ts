@@ -12,12 +12,20 @@ export {
   type McpStreamableHttpServerConfig,
 } from "./mcp-server-config.js";
 export {
+  mcpGetPromptToolName,
+  mcpListResourcesAndPromptsToolName,
+  mcpReadResourceToolName,
+} from "./mcp-resource-and-prompt-tools.js";
+export {
   McpToolCallInterruptedError,
   McpToolListingError,
   McpToolSource,
   defaultMcpConnectionAttempts,
   defaultMcpConnectionTimeoutMs,
+  defaultMcpListingFailureBackoffMs,
+  defaultMcpListingTtlMs,
   defaultMcpRequestTimeoutMs,
+  defaultMcpSourceName,
   defaultMcpTaskTtlMs,
   defaultMcpTaskWaitTimeoutMs,
   mcpIdempotencyKeyMetaKey,

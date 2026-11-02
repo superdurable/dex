@@ -10,11 +10,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from dex_agents.built_in_tools import BUILT_IN_TOOL_DEFINITIONS, BuiltInTool
 from dex_agents.compaction import CompactionPolicy, ContextSummaryRequest, ContextSummaryResult
@@ -31,6 +33,8 @@ from dex_agents.runner import (
     ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
     TurnCompleted,
     describe_tool_call_outcome,
     resolve_tool_policy,
@@ -50,6 +54,7 @@ from dex_agents.stepwise.model import (
     ToolResultItem,
     UserTextItem,
 )
+from dex_agents.stepwise.tool_sources import SourceToolDefinition, ToolSource
 from dex_agents.stepwise.transcript import (
     decode_stepwise_message,
     encode_stepwise_message,
@@ -57,12 +62,16 @@ from dex_agents.stepwise.transcript import (
 )
 from dex_agents.values import (
     AgentPlan,
+    AgentToolCall,
     ContextSummary,
     InteractionMode,
     MessageRole,
     PlanStatus,
     ToolEffect,
 )
+
+#: Default ``AgentDefinition.tool_source_listing_timeout``.
+DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT = timedelta(seconds=10)
 
 #: Default ``AgentDefinition.max_model_calls_per_turn``.
 DEFAULT_MAX_MODEL_CALLS_PER_TURN = 100
@@ -88,6 +97,18 @@ CONTEXT_SUMMARY_REQUEST = "[Dex] Summarize the conversation above. Reply with th
 
 
 _UNKNOWN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
+# An unlisted name never reaches a source, so it fails without asking anyone to approve it.
+_UNLISTED_SOURCE_TOOL_POLICY = ToolPolicy(ToolEffect.UNCLASSIFIED, requires_approval=False)
+_LOGGER = logging.getLogger(__name__)
+# The runner's envelope around a source's tool_source_reference: the building source's name.
+_TOOL_SOURCE_NAME_KEY = "stepwise_tool_source"
+_TOOL_SOURCE_REFERENCE_KEY = "reference"
+_TOOL_SOURCE_METHODS = (
+    "list_tools",
+    "deferred_tool_call",
+    "execute_deferred_tool_call",
+    "poll_tool_task",
+)
 
 #: How the first model call of a planning turn without a draft uses ``write_todos``.
 PlanningToolChoice: TypeAlias = Literal["auto", "required"]
@@ -172,6 +193,23 @@ class AgentDefinition:
         model_settings: Settings for every model call. Defaults to
             ``ModelSettings()``.
         tools: Function tools, with unique names. Defaults to none.
+        tool_sources: Tool sources, such as ``McpToolSource``, whose tools the
+            runner lists in every ``RunModel`` of a chat or executing turn and
+            offers after the function tools. Each source has a unique
+            ``source_name``. Each call of a source tool runs in its own tool
+            Step through the source that built it, found by that name, with the
+            source's policy, effect class, idempotency key, and tool tasks. A
+            source whose listing fails or takes longer than
+            ``tool_source_listing_timeout`` offers no tools in that model
+            call. A listed name that repeats a function tool, an enabled
+            built-in tool, or another source's tool fails that ``RunModel``
+            attempt with ``ValueError``; a source's ``declared_tool_names``
+            are checked when the definition is built. See ``ToolSource``.
+            Defaults to none.
+        tool_source_listing_timeout: How long one model call waits for each
+            tool source's ``list_tools``. A source that takes longer offers
+            no tools in that call, and its listing may finish in the
+            background. Defaults to 10 seconds.
         tool_policies: Policies by tool name. They override a function tool's
             own effect and approval. Defaults to none.
         default_tool_effect: Effect of a tool from a source that declares
@@ -212,6 +250,12 @@ class AgentDefinition:
             ``plan_mode_enabled`` is set without ``write_todos``,
             ``planning_tool_choice`` is unknown, or it is ``"required"`` for a
             model client that reports it cannot force a tool choice.
+        TypeError: If an entry of ``tool_sources`` lacks a ``ToolSource`` method
+            or a non-blank ``source_name``.
+        ValueError: Also if two tool sources share a ``source_name``,
+            ``tool_source_listing_timeout`` is not positive, or a source's
+            ``declared_tool_names`` repeat a function tool, a built-in tool of
+            ``built_in_tools``, or another source's name.
     """
 
     name: str
@@ -228,6 +272,8 @@ class AgentDefinition:
     plan_mode_enabled: bool = False
     planning_tool_choice: PlanningToolChoice = "auto"
     compaction: CompactionPolicy | None = None
+    tool_sources: Sequence[ToolSource] = ()
+    tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -256,7 +302,25 @@ class AgentDefinition:
                 "planning_tool_choice='required' needs a model that accepts a forced tool "
                 "choice, and this model client reports that its model does not; use 'auto'"
             )
+        for source in self.tool_sources:
+            missing = [
+                name for name in _TOOL_SOURCE_METHODS if not callable(getattr(source, name, None))
+            ]
+            if missing:
+                raise TypeError(f"tool source {source!r} has no {missing[0]} method")
+        source_names: set[str] = set()
+        for source in self.tool_sources:
+            source_name = getattr(source, "source_name", None)
+            if not isinstance(source_name, str) or not source_name.strip():
+                raise TypeError(f"tool source {source!r} needs a non-blank source_name")
+            if source_name in source_names:
+                raise ValueError(f"two tool sources are named {source_name}")
+            source_names.add(source_name)
+        if self.tool_source_listing_timeout <= timedelta(0):
+            raise ValueError("tool_source_listing_timeout must be positive")
+        _refuse_declared_tool_name_collisions(self.tool_sources, set(names), built_in_tools)
         object.__setattr__(self, "tools", tuple(self.tools))
+        object.__setattr__(self, "tool_sources", tuple(self.tool_sources))
         object.__setattr__(self, "tool_policies", dict(self.tool_policies))
         object.__setattr__(self, "built_in_tools", built_in_tools)
 
@@ -274,6 +338,10 @@ class StepwiseAgentRunner:
     with the summary. Most applications use ``stepwise_agent_session_flow``
     instead of constructing it.
 
+    It also implements ``ToolTaskPoller``: ``poll_tool_task`` passes a tool
+    task to the tool source that started it, so a source tool's task is
+    polled by ``PollToolTask`` on a Timer. Function tools start no tasks.
+
     Example:
         >>> flow = AgentSessionFlow(StepwiseAgentRunner(definition), flow_type="SupportAgent",
         ...                         options=stepwise_agent_session_options(definition))
@@ -290,6 +358,9 @@ class StepwiseAgentRunner:
         """
         self._definition = definition
         self._tools_by_name = {tool.name: tool for tool in definition.tools}
+        self._sources_by_name = {source.source_name: source for source in definition.tool_sources}
+        # The last listing of each source, for the synchronous estimate_input_tokens.
+        self._last_listings: dict[int, tuple[SourceToolDefinition, ...]] = {}
 
     @property
     def definition(self) -> AgentDefinition:
@@ -324,8 +395,11 @@ class StepwiseAgentRunner:
 
         Raises:
             ValueError: If a function tool uses the name of a built-in tool
-                that the session enables. No model request is made.
-            Exception: What the model client raises.
+                that the session enables, or a tool source lists a name that
+                repeats a function tool, an enabled built-in tool, or another
+                source's tool. No model request is made.
+            Exception: What the model client raises. A tool source whose
+                ``list_tools`` raises or times out offers no tools instead.
         """
         reserved = sorted(
             tool.name for tool in self._definition.tools if tool.name in turn.enabled_built_in_tools
@@ -336,7 +410,12 @@ class StepwiseAgentRunner:
         model_calls = _model_call_count(turn.framework_run_state)
         unstored_results = _unstored_tool_results(turn)
         is_tool_budget_spent = model_calls >= self._definition.max_model_calls_per_turn
-        request = self._model_request(turn, unstored_results, model_calls, is_tool_budget_spent)
+        source_tools: dict[str, _ListedSourceTool] = {}
+        if not is_tool_budget_spent and turn.interaction_mode != InteractionMode.PLANNING:
+            source_tools = await self._list_source_tools(turn)
+        request = self._model_request(
+            turn, unstored_results, model_calls, is_tool_budget_spent, source_tools
+        )
         response = await self._definition.model.call_model(request, turn.events)
         usage = replace(response.usage, model_calls=1)
         new_messages = [
@@ -369,11 +448,8 @@ class StepwiseAgentRunner:
         return ToolCallsRequested(
             framework_run_state=json.dumps({"model_calls": model_calls + 1}),
             tool_calls=[
-                DeferredToolCall(
-                    tool_call_id=call.tool_call_id,
-                    tool_name=call.tool_name,
-                    arguments=call.arguments,
-                    policy=self._tool_policy(turn, call.tool_name),
+                self._deferred_tool_call(
+                    turn, call.tool_call_id, call.tool_name, call.arguments, source_tools
                 )
                 for call in response.tool_calls
             ],
@@ -382,22 +458,37 @@ class StepwiseAgentRunner:
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
-        """Run one function tool call in its own Step.
+        """Run one function tool call or tool source call in its own Step.
+
+        A call of a function tool runs the function. A call that a tool
+        source built in ``run_model_step`` goes to that source, with the
+        source's own ``tool_source_reference``, without a listing. Any other
+        name is an unknown tool and never reaches a source.
 
         Args:
             call: The approved record.
 
         Returns:
-            The tool output, or the tool's ``ToolInputRequested``.
+            The tool output, the tool's ``ToolInputRequested``, or a source's
+            ``ToolTaskStarted``.
 
         Raises:
             ToolExecutionError: If the tool is unknown, the arguments break its
-                schema, or the tool raised it.
+                schema, or the tool or its source raised it.
+            LookupError: If a source built the call but the definition no
+                longer has it, so the effect class decides the outcome.
+            Exception: What the tool source raises otherwise.
         """
         record = call.tool_call
         tool = self._tools_by_name.get(record.tool_name)
         if tool is None:
-            raise ToolExecutionError(f"unknown tool {record.tool_name}")
+            routed = self._route_to_tool_source(record)
+            if routed is None:
+                raise ToolExecutionError(f"unknown tool {record.tool_name}")
+            source, reference = routed
+            return await source.execute_deferred_tool_call(
+                replace(call, tool_call=replace(record, tool_source_reference=reference))
+            )
         result = await tool.invoke(
             record.arguments,
             ToolCallContext(
@@ -413,6 +504,30 @@ class StepwiseAgentRunner:
             ),
         )
         return result if not isinstance(result, str) else ToolExecutionResult(output=result)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        """Poll a tool source's task once, through the source that built the call.
+
+        Args:
+            poll: The call's record from ``PollToolTask``.
+
+        Returns:
+            The source's ``poll_tool_task`` outcome.
+
+        Raises:
+            LookupError: If no tool source built the call. The task may still
+                run, so ``PollToolTask`` retries and then records the call by
+                its effect.
+            Exception: What the source raises.
+        """
+        record = poll.tool_call
+        routed = self._route_to_tool_source(record)
+        if routed is None:
+            raise LookupError(f"no tool source built the call of tool {record.tool_name}")
+        source, reference = routed
+        return await source.poll_tool_task(
+            replace(poll, tool_call=replace(record, tool_source_reference=reference))
+        )
 
     def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
         """Return the results of the turn's tool calls that are not stored yet.
@@ -434,7 +549,9 @@ class StepwiseAgentRunner:
         Returns:
             ``ModelClient.estimate_input_tokens`` of the request that
             ``run_model_step`` would send: instructions, summary, messages,
-            unstored tool results, and tools.
+            unstored tool results, and tools. Tool source tools come from each
+            source's ``cached_tools`` when it has one, else from the runner's
+            last listing, because this method cannot await one.
         """
         model_calls = _model_call_count(turn.framework_run_state)
         request = self._model_request(
@@ -442,6 +559,7 @@ class StepwiseAgentRunner:
             _unstored_tool_results(turn),
             model_calls,
             model_calls >= self._definition.max_model_calls_per_turn,
+            self._cached_source_tools(),
         )
         return self._definition.model.estimate_input_tokens(request)
 
@@ -577,6 +695,7 @@ class StepwiseAgentRunner:
         unstored_results: Sequence[ToolResultItem],
         model_calls: int,
         is_tool_budget_spent: bool,
+        source_tools: Mapping[str, _ListedSourceTool],
     ) -> ModelRequest:
         summary_items: list[ModelInputItem] = []
         if turn.context_summary is not None:
@@ -596,7 +715,7 @@ class StepwiseAgentRunner:
             input_items=pair_tool_calls_with_results(
                 [*summary_items, *_stored_input_items_with_plan_note(turn), *unstored_results]
             ),
-            tools=[] if is_tool_budget_spent else self._tool_definitions(turn),
+            tools=[] if is_tool_budget_spent else self._tool_definitions(turn, source_tools),
             tool_choice=tool_choice,
             settings=self._definition.model_settings,
             metadata=ModelRequestMetadata(
@@ -640,7 +759,11 @@ class StepwiseAgentRunner:
             )
         )
 
-    def _tool_definitions(self, turn: AgentTurnContext) -> list[ModelToolDefinition]:
+    def _tool_definitions(
+        self,
+        turn: AgentTurnContext,
+        source_tools: Mapping[str, _ListedSourceTool],
+    ) -> list[ModelToolDefinition]:
         is_planning = turn.interaction_mode == InteractionMode.PLANNING
         built_ins = [
             ModelToolDefinition(
@@ -654,7 +777,111 @@ class StepwiseAgentRunner:
         ]
         if is_planning:
             return built_ins
-        return [*(tool.definition for tool in self._definition.tools), *built_ins]
+        offered_source_tools = [
+            ModelToolDefinition(
+                name=tool.name, description=tool.description, parameters=dict(tool.input_schema)
+            )
+            for listed in source_tools.values()
+            for tool in (listed.tool,)
+        ]
+        return [
+            *(tool.definition for tool in self._definition.tools),
+            *offered_source_tools,
+            *built_ins,
+        ]
+
+    async def _list_source_tools(self, turn: AgentTurnContext) -> dict[str, _ListedSourceTool]:
+        listed: dict[str, _ListedSourceTool] = {}
+        for index, source in enumerate(self._definition.tool_sources):
+            tools = await self._list_one_source(index, source)
+            for tool in tools:
+                _refuse_source_tool_name(
+                    tool.name, set(self._tools_by_name), turn.enabled_built_in_tools, listed
+                )
+                listed[tool.name] = _ListedSourceTool(index, source, tool)
+        return listed
+
+    async def _list_one_source(
+        self, index: int, source: ToolSource
+    ) -> tuple[SourceToolDefinition, ...]:
+        listing = asyncio.ensure_future(source.list_tools())
+        # A listing that outlives this call keeps running; nobody else reads its error.
+        listing.add_done_callback(_consume_exception)
+        timeout = self._definition.tool_source_listing_timeout.total_seconds()
+        try:
+            tools = tuple(await asyncio.wait_for(asyncio.shield(listing), timeout))
+        except TimeoutError:
+            _LOGGER.warning("tool source %d listed nothing within %ss", index, timeout)
+            return ()
+        except Exception as error:
+            _LOGGER.warning("tool source %d could not list its tools: %s", index, error)
+            return ()
+        self._last_listings[index] = tools
+        return tools
+
+    def _cached_source_tools(self) -> dict[str, _ListedSourceTool]:
+        cached: dict[str, _ListedSourceTool] = {}
+        for index, source in enumerate(self._definition.tool_sources):
+            read_cache = getattr(source, "cached_tools", None)
+            tools = read_cache() if callable(read_cache) else self._last_listings.get(index, ())
+            for tool in tools:
+                cached.setdefault(tool.name, _ListedSourceTool(index, source, tool))
+        return cached
+
+    def _route_to_tool_source(self, record: AgentToolCall) -> tuple[ToolSource, str | None] | None:
+        sources = self._definition.tool_sources
+        envelope = _read_tool_source_envelope(record.tool_source_reference)
+        if envelope is not None:
+            source_name, reference = envelope
+            source = self._sources_by_name.get(source_name)
+            if source is None:
+                raise LookupError(
+                    f"tool source {source_name}, which built the call of tool "
+                    f"{record.tool_name}, is not configured on this Worker"
+                )
+            return source, reference
+        if record.tool_source_reference is None or not sources:
+            return None
+        if len(sources) == 1:
+            # A reference the source built itself, such as in a runner subclass.
+            return sources[0], record.tool_source_reference
+        raise LookupError(f"cannot tell which tool source built the call of {record.tool_name}")
+
+    def _deferred_tool_call(
+        self,
+        turn: AgentTurnContext,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: str,
+        source_tools: Mapping[str, _ListedSourceTool],
+    ) -> DeferredToolCall:
+        listed = source_tools.get(tool_name)
+        if listed is not None:
+            built = listed.source.deferred_tool_call(
+                turn,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                listed_tool=listed.tool,
+            )
+            envelope = {
+                _TOOL_SOURCE_NAME_KEY: listed.source.source_name,
+                _TOOL_SOURCE_REFERENCE_KEY: built.tool_source_reference,
+            }
+            return replace(built, tool_source_reference=json.dumps(envelope))
+        is_unlisted = (
+            bool(self._definition.tool_sources)
+            and tool_name not in self._tools_by_name
+            and tool_name not in turn.enabled_built_in_tools
+        )
+        return DeferredToolCall(
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            policy=_UNLISTED_SOURCE_TOOL_POLICY
+            if is_unlisted
+            else self._tool_policy(turn, tool_name),
+        )
 
     def _tool_policy(self, turn: AgentTurnContext, tool_name: str) -> ToolPolicy:
         if tool_name in turn.tool_policies:
@@ -715,6 +942,66 @@ def stepwise_agent_session_flow(definition: AgentDefinition, *, flow_type: str) 
         flow_type=flow_type,
         options=stepwise_agent_session_options(definition),
     )
+
+
+@dataclass(frozen=True)
+class _ListedSourceTool:
+    index: int
+    source: ToolSource
+    tool: SourceToolDefinition
+
+
+def _refuse_source_tool_name(
+    tool_name: str,
+    function_tool_names: set[str],
+    built_in_tools: frozenset[BuiltInTool],
+    other_source_tool_names: Mapping[str, object],
+) -> None:
+    if tool_name in built_in_tools:
+        raise ValueError(_built_in_name_collision(tool_name))
+    if tool_name in function_tool_names:
+        raise ValueError(f"tool {tool_name} of a tool source uses the name of a function tool")
+    if tool_name in other_source_tool_names:
+        raise ValueError(f"two tool sources list a tool named {tool_name}")
+
+
+def _refuse_declared_tool_name_collisions(
+    sources: Sequence[ToolSource],
+    function_tool_names: set[str],
+    built_in_tools: frozenset[BuiltInTool],
+) -> None:
+    declared: dict[str, object] = {}
+    for source in sources:
+        read_names = getattr(source, "declared_tool_names", None)
+        names = sorted(read_names()) if callable(read_names) else []
+        own: dict[str, object] = {}
+        for tool_name in names:
+            _refuse_source_tool_name(tool_name, function_tool_names, built_in_tools, declared)
+            own[tool_name] = source
+        declared.update(own)
+
+
+def _read_tool_source_envelope(tool_source_reference: str | None) -> tuple[str, str | None] | None:
+    if tool_source_reference is None:
+        return None
+    try:
+        envelope = json.loads(tool_source_reference)
+    except ValueError:
+        return None
+    if not isinstance(envelope, dict):
+        return None
+    source_name = envelope.get(_TOOL_SOURCE_NAME_KEY)
+    reference = envelope.get(_TOOL_SOURCE_REFERENCE_KEY)
+    if not isinstance(source_name, str) or (
+        reference is not None and not isinstance(reference, str)
+    ):
+        return None
+    return source_name, reference
+
+
+def _consume_exception(listing: asyncio.Future[Any]) -> None:
+    if not listing.cancelled():
+        listing.exception()
 
 
 def _built_in_name_collision(tool_name: str) -> str:

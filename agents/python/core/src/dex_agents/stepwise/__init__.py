@@ -8,8 +8,10 @@
 
 """Stepwise mode: the built-in Dex Agents loop, for agents defined without a framework.
 
-Declare an ``AgentDefinition`` with instructions, a ``ModelClient``, and
-function tools, then build its Flow with ``stepwise_agent_session_flow``. The
+Declare an ``AgentDefinition`` with instructions, a ``ModelClient``, function
+tools, and tool sources such as ``McpToolSource``, then build its Flow with
+``stepwise_agent_session_flow``. ``ScriptedModelClient`` answers model calls
+from a script, so an agent runs without a model key. The
 runner makes one model call per ``RunModel`` Step, and the session Flow, its
 Steps, approvals, questions, durable waits, and events are the ones every
 framework adapter uses.
@@ -57,6 +59,7 @@ from dex_agents.stepwise.runner import (
     CONTEXT_SUMMARY_NOTE_HEADER,
     CONTEXT_SUMMARY_REQUEST,
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
+    DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     TOOL_CALL_LIMIT_REACHED_RESULT,
     AgentDefinition,
     InstructionContext,
@@ -67,6 +70,16 @@ from dex_agents.stepwise.runner import (
     stepwise_agent_session_flow,
     stepwise_agent_session_options,
 )
+from dex_agents.stepwise.scripted_model import (
+    DEFAULT_MAX_RECORDED_REQUESTS,
+    SCRIPTED_MODEL_API,
+    SCRIPTED_MODEL_PROVIDER,
+    ScriptedModelClient,
+    ScriptedModelReply,
+    ScriptedModelResponder,
+    ScriptedToolCall,
+)
+from dex_agents.stepwise.tool_sources import SourceToolDefinition, ToolSource
 from dex_agents.stepwise.transcript import (
     MODEL_OUTPUT_ITEM_TYPE,
     TOOL_RESULT_ITEM_TYPE,
@@ -81,7 +94,11 @@ __all__ = [
     "CONTEXT_SUMMARY_NOTE_HEADER",
     "CONTEXT_SUMMARY_REQUEST",
     "DEFAULT_MAX_MODEL_CALLS_PER_TURN",
+    "DEFAULT_MAX_RECORDED_REQUESTS",
+    "DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT",
     "MODEL_OUTPUT_ITEM_TYPE",
+    "SCRIPTED_MODEL_API",
+    "SCRIPTED_MODEL_PROVIDER",
     "TOOL_CALL_LIMIT_REACHED_RESULT",
     "TOOL_RESULT_ITEM_TYPE",
     "USER_TEXT_ITEM_TYPE",
@@ -100,10 +117,16 @@ __all__ = [
     "ModelToolDefinition",
     "NamedToolChoice",
     "PlanningToolChoice",
+    "ScriptedModelClient",
+    "ScriptedModelReply",
+    "ScriptedModelResponder",
+    "ScriptedToolCall",
+    "SourceToolDefinition",
     "StepwiseAgentRunner",
     "ToolCallContext",
     "ToolChoice",
     "ToolResultItem",
+    "ToolSource",
     "UserTextItem",
     "build_context_summary_note",
     "build_context_summary_omission_note",

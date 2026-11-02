@@ -53,6 +53,7 @@ from dex_agents import (
     AgentToolCall,
     AgentTracingOptions,
     DeferredToolExecution,
+    MessageRole,
     QuestionAnswer,
     ToolCallStatus,
     ToolEffect,
@@ -63,6 +64,9 @@ from dex_agents import (
     resolve_tool_policy,
 )
 from dex_agents.mcp import (
+    MCP_GET_PROMPT_TOOL_NAME,
+    MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME,
+    MCP_READ_RESOURCE_TOOL_NAME,
     MCP_TASK_STATUS_EVENT_TYPE,
     MCP_TOOL_PROGRESS_EVENT_TYPE,
     McpStdioServerConfig,
@@ -78,6 +82,9 @@ from dex_agents.mcp._tool_source import (
     _task_question,
     _TaskAsked,
     _TaskPending,
+)
+from dex_agents.stepwise import (
+    ScriptedModelClient,
 )
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
@@ -97,6 +104,10 @@ from tests.mcp_agent import (
     McpScriptedRunner,
     build_mcp_agent_flow,
     build_mcp_tool_source,
+)
+from tests.mcp_stepwise_agent import (
+    build_mcp_stepwise_definition,
+    build_mcp_stepwise_flow,
 )
 
 WORKER_MODULE = "tests.mcp_worker"
@@ -1120,3 +1131,151 @@ async def _agent_events(harness: McpAgentHarness, session_id: str) -> list[Agent
         session_id, harness.flow.agent_events, 500
     )
     return [message.value for message in reversed(page.messages)]
+
+
+async def test_a_stepwise_agent_offers_mcp_tools_and_waits_for_approval_of_an_mcp_write(
+    mcp_harness: McpAgentHarness, tmp_path: Path
+) -> None:
+    definition = build_mcp_stepwise_definition(mcp_harness.state_dir, mcp_harness.http_url)
+    async with _in_process_sessions(
+        mcp_harness.stack.engine.address,
+        build_mcp_stepwise_flow(definition),
+        tmp_path / "stepwise-blob-cache",
+    ) as sessions:
+        session_id = mcp_harness.new_session_id()
+        await sessions.start_session(session_id, 'call remote__send_message {"text": "hello"}')
+        interrupt = await wait_for_agent_snapshot(
+            sessions,
+            session_id,
+            lambda snapshot: next(iter(snapshot.pending_interrupts), None),
+            description="the approval of an MCP write",
+        )
+        assert interrupt.tool_name == "remote__send_message"
+        assert mcp_harness.tool_runs("send_message") == []
+        (record,) = (await sessions.get_agent_snapshot(session_id)).tool_calls
+        assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=True)
+        snapshot = await _wait_for_stepwise_turns(sessions, session_id, 1)
+
+    assert snapshot.messages[-1].text == "remote__send_message: sent hello"
+    assert record.effect is ToolEffect.UNCLASSIFIED
+    envelope = json.loads(record.tool_source_reference or "{}")
+    assert envelope["stepwise_tool_source"] == "mcp"
+    assert json.loads(envelope["reference"]) == {"mcp_server": "remote", "mcp_tool": "send_message"}
+    assert mcp_harness.tool_runs("send_message") == [f"{session_id}/turn-1/{record.tool_call_id}"]
+    steps = await mcp_harness.executed_step_types(session_id)
+    assert steps[2:4] == ["AwaitToolApproval", "CallSingleAttemptTool"]
+    assert isinstance(definition.model, ScriptedModelClient)
+    offered = [tool.name for tool in definition.model.requests[0].tools]
+    # Function tools, then source tools in source order, then built-in tools.
+    assert offered[0] == "take_note"
+    assert offered[1:3] == ["local__lookup", "local__audit_lookup"]
+    assert offered[-4:] == [
+        MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME,
+        MCP_READ_RESOURCE_TOOL_NAME,
+        MCP_GET_PROMPT_TOOL_NAME,
+        "ask_user",
+    ]
+    assert "remote__send_message" in offered
+
+
+async def test_a_stepwise_agent_polls_an_mcp_tool_task_and_runs_function_tools(
+    mcp_harness: McpAgentHarness, tmp_path: Path
+) -> None:
+    definition = build_mcp_stepwise_definition(mcp_harness.state_dir, mcp_harness.http_url)
+    async with _in_process_sessions(
+        mcp_harness.stack.engine.address,
+        build_mcp_stepwise_flow(definition),
+        tmp_path / "stepwise-blob-cache",
+    ) as sessions:
+        session_id = mcp_harness.new_session_id()
+        await sessions.start_session(session_id, 'call remote__long_report {"topic": "q3"}')
+        await _wait_for_stepwise_turns(sessions, session_id, 1)
+        await sessions.send_user_message(session_id, 'call take_note {"text": "q3 done"}')
+        snapshot = await _wait_for_stepwise_turns(sessions, session_id, 2)
+
+    texts = [
+        message.text
+        for message in snapshot.messages
+        if message.role is MessageRole.ASSISTANT and message.text
+    ]
+    assert texts[-2:] == ["remote__long_report: report on q3", "take_note: kept q3 done"]
+    assert len(mcp_harness.tool_runs("long_report")) == 1
+    steps = await mcp_harness.executed_step_types(session_id)
+    assert steps[:6] == [
+        "StartAgentSession",
+        "RunModel",
+        "CallTool",
+        "PollToolTask",
+        "PollToolTask",
+        "ResumeTurn",
+    ]
+
+
+async def test_a_stepwise_agent_reads_mcp_resources_and_prompts(
+    mcp_harness: McpAgentHarness, tmp_path: Path
+) -> None:
+    definition = build_mcp_stepwise_definition(mcp_harness.state_dir, mcp_harness.http_url)
+    commands = [
+        'call mcp_list_resources_and_prompts {"server": "remote"}',
+        'call mcp_read_resource {"server": "local", "uri": "memo://greeting"}',
+        'call mcp_get_prompt {"server": "remote", "name": "summarize", '
+        '"arguments": {"topic": "q3"}}',
+        'call mcp_read_resource {"server": "nowhere", "uri": "memo://greeting"}',
+    ]
+    async with _in_process_sessions(
+        mcp_harness.stack.engine.address,
+        build_mcp_stepwise_flow(definition),
+        tmp_path / "stepwise-blob-cache",
+    ) as sessions:
+        session_id = mcp_harness.new_session_id()
+        await sessions.start_session(session_id, commands[0])
+        for turn_count, command in enumerate(commands[1:], start=1):
+            await _wait_for_stepwise_turns(sessions, session_id, turn_count)
+            await sessions.send_user_message(session_id, command)
+        snapshot = await _wait_for_stepwise_turns(sessions, session_id, len(commands))
+
+    outputs = [
+        message.tool_output for message in snapshot.messages if message.role is MessageRole.TOOL
+    ]
+    listing = json.loads(outputs[0] or "")
+    assert listing["resources"] == [
+        {
+            "annotations": {"priority": 1},
+            "description": "A greeting memo.",
+            "mimeType": "text/plain",
+            "name": "greeting",
+            "uri": "memo://greeting",
+        }
+    ]
+    # Whole numbers are written as JavaScript writes them, so both cores show the same text.
+    assert '"annotations": {"priority": 1}, "description": "A greeting memo."' in (outputs[0] or "")
+    assert listing["resource_templates"] == []
+    assert [prompt["name"] for prompt in listing["prompts"]] == ["summarize"]
+    assert outputs[1] == (
+        '{"contents": [{"mimeType": "text/plain", "text": "hello from the memo", '
+        '"uri": "memo://greeting"}]}'
+    )
+    assert outputs[2] == (
+        '{"description": "Summarize a topic.", "messages": [{"content": '
+        '{"text": "Summarize q3 in one line.", "type": "text"}, "role": "user"}]}'
+    )
+    assert outputs[3] == "The tool call failed: MCP server nowhere is not configured"
+    steps = await mcp_harness.executed_step_types(session_id)
+    # Read tools run in CallTool with no approval.
+    assert steps.count("CallTool") == len(commands)
+    assert "AwaitToolApproval" not in steps
+
+
+async def _wait_for_stepwise_turns(
+    sessions: AgentSessionClient, session_id: str, turn_count: int
+) -> AgentSnapshot:
+    return await wait_for_agent_snapshot(
+        sessions,
+        session_id,
+        lambda snapshot: snapshot
+        if snapshot.state is not None
+        and snapshot.state.turn_count >= turn_count
+        and snapshot.state.active_turn_id is None
+        else None,
+        description=f"{turn_count} finished turn(s)",
+    )

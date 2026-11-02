@@ -37,6 +37,9 @@ real tool run appends ``<tool> <idempotency key>`` to the ``InvocationLog`` in
 * ``reject_order`` (``readOnlyHint``): returns an ``isError`` result.
 * ``purge_cache`` (``idempotentHint`` and ``destructiveHint``).
 * ``audit.lookup``: its agent tool name collides with ``audit_lookup``.
+
+It also offers the resource ``memo://greeting`` and the prompt ``summarize``
+with one ``topic`` argument.
 """
 
 from __future__ import annotations
@@ -57,6 +60,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     INVALID_PARAMS,
+    Annotations,
     CallToolRequestParams,
     ElicitRequest,
     ElicitRequestFormParams,
@@ -312,6 +316,22 @@ def audit_lookup_with_a_colliding_name(query: str) -> str:
 def reject_order(order_id: str) -> str:
     """Reject an order."""
     raise ToolError(f"order {order_id} is already shipped")
+
+
+@server.resource(
+    "memo://greeting",
+    name="greeting",
+    description="A greeting memo.",
+    mime_type="text/plain",
+    annotations=Annotations(priority=1),
+)
+def greeting() -> str:
+    return "hello from the memo"
+
+
+@server.prompt(description="Summarize a topic.")
+def summarize(topic: str) -> str:
+    return f"Summarize {topic} in one line."
 
 
 def _state_dir() -> Path:
