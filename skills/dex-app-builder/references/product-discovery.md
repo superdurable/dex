@@ -207,7 +207,7 @@ Flow, Connector, and API contract are designed.
 
 Create a connector capability matrix for every Trigger, Query, Mutation, and
 integration UI. Start from the canonical published catalog at
-`https://superdurable.github.io/dex-connectors-library/catalog.yaml`. For a
+`https://connectors.superdurable.io/catalog.yaml`. For a
 public external product, match each need to an exact released connector
 capability—not merely a connector name—then verify the complete contract in the
 component tag's immutable `connector.yaml`. Record the catalog URL, connector

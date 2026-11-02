@@ -65,7 +65,7 @@ Never summarize an export by hand. Download the published connector catalog,
 then, from this skill's directory, run:
 
 ```bash
-curl -fsSL https://superdurable.github.io/dex-connectors-library/catalog.yaml -o /path/to/catalog.yaml
+curl -fsSL https://connectors.superdurable.io/catalog.yaml -o /path/to/catalog.yaml
 python3 scripts/n8n_inventory.py inventory /path/to/export.json --out /path/to/import --catalog /path/to/catalog.yaml
 ```
 
