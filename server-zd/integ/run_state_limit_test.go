@@ -35,8 +35,8 @@ const (
 	runStateLimitMaxValueBytes     = 64 * 1024
 	runStateLimitMaxFlowStateBytes = 128 * 1024
 	runStateLimitMessageBytes      = 300
-	// The handler completes the Flow after this many turns, so an unbounded run still ends.
-	runStateLimitMaxTurns = 1500
+	// About twice the appends the budget admits; an unbounded run completes instead of failing.
+	runStateLimitMaxAppends = 500
 
 	childResultLimitParentType = "child-result-limit-parent"
 	childResultLimitChildType  = "child-result-limit-child"
@@ -84,7 +84,7 @@ func (h *runStateLimitHandler) InvokeExecuteMethod(
 	h.lastLoadedMessages = loadedMessages
 	h.completedTurnsCount++
 	h.mu.Unlock()
-	if loadedMessages >= runStateLimitMaxTurns {
+	if loadedMessages >= runStateLimitMaxAppends {
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{CloseDecision: common.ForceCompleteDecision(nil)},
 		}, nil
@@ -184,12 +184,13 @@ func testRunStateLimitFailsGrowingTurns(t *testing.T) {
 		require.NoError(t, err)
 	}
 	loadedMessages, completedTurns := handler.turnCounts()
+	t.Logf("the run closed after %d turns with %d stored messages", completedTurns, loadedMessages)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus(),
 		"after %d turns: %s", completedTurns, result.GetErrorMessage())
 	requireRunStateLimitMessage(t, result.GetErrorMessage())
 	// The run accepted turns until its state approached the budget, not only the first few.
 	require.Greater(t, loadedMessages*runStateLimitMessageBytes, runStateLimitMaxFlowStateBytes/4)
-	require.Less(t, loadedMessages, runStateLimitMaxTurns)
+	require.Less(t, loadedMessages, runStateLimitMaxAppends)
 }
 
 // testRunStateLimitRejectsGrowingRPCs appends one message per RPC until the run is over budget.
@@ -209,7 +210,7 @@ func testRunStateLimitRejectsGrowingRPCs(t *testing.T) {
 
 	acceptedAppends := 0
 	var rejection error
-	for index := 0; index < runStateLimitMaxTurns && rejection == nil; index++ {
+	for index := 0; index < runStateLimitMaxAppends && rejection == nil; index++ {
 		_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 			FlowId:    flowID,
 			RpcName:   runStateLimitAppendRPC,
@@ -222,6 +223,7 @@ func testRunStateLimitRejectsGrowingRPCs(t *testing.T) {
 		}
 		acceptedAppends++
 	}
+	t.Logf("the run accepted %d appends", acceptedAppends)
 	require.Error(t, rejection, "no RPC was rejected after %d appends", acceptedAppends)
 	require.Equal(t, codes.ResourceExhausted, status.Code(rejection), rejection.Error())
 	requireRunStateLimitMessage(t, status.Convert(rejection).Message())

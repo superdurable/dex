@@ -170,7 +170,7 @@ fn step_attempt_state_size(value: Option<&Vec<u8>>) -> Result<i128, ApplyError> 
 
 /// Returns the encoded bytes of a Step execution that only its started or retrying attempt
 /// needs: the snapshot and the fields that attempt starts and failures write.
-pub(crate) fn attempt_scoped_step_bytes(mut record: StepExecutionRecord) -> u64 {
+fn attempt_scoped_step_bytes(mut record: StepExecutionRecord) -> u64 {
     let full_size = record.encoded_len();
     let Some(invocation) = record.invocation.as_mut() else {
         return 0;

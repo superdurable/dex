@@ -24,7 +24,7 @@ pub(crate) use command_scope::{
     CloseBarrierSource, CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 
-use dexzd_protocol::dex::{ErrorSubStatus, FlowHistoryEvent};
+use dexzd_protocol::dex::{AttributeWrite, ErrorSubStatus, FlowHistoryEvent};
 use dexzd_protocol::dexzd::v1::flow_command::Command;
 use dexzd_protocol::dexzd::v1::{
     CommandReply, FlowCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
@@ -271,19 +271,23 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
                     .step_decision
                     .as_ref()
                     .is_some_and(|decision| !decision.next_steps.is_empty())
+                || response
+                    .action_permission_mappings
+                    .as_ref()
+                    .is_some_and(|mappings| !mappings.mappings.is_empty())
         }),
         Command::FlowStart(_)
         | Command::ChannelPublish(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepMethodCompleted(_) => true,
-        // The parent's checked command counted a child start's values in its outbox row.
-        // Outbox delivery retries rejections forever; a child result has its own size limit.
+        // Delivery retries rejections forever. Parents counted child starts; child results
+        // have their own limit.
         Command::InboxMessage(_) => false,
         _ => false,
     }
 }
 
-fn has_attribute_value(writes: &[dexzd_protocol::dex::AttributeWrite]) -> bool {
+fn has_attribute_value(writes: &[AttributeWrite]) -> bool {
     writes
         .iter()
         .any(|attribute| !crate::values::is_null_value(attribute.value.as_ref()))
