@@ -1,5 +1,13 @@
+<p align="center">
+  <a href="https://github.com/stablyai/orca"><img src="https://img.shields.io/github/stars/superdurable/dex?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars" /></a>
+  <a href="https://discord.gg/V9cMHXts98"><img src="https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white" alt="Join the SuperDurable Discord" /></a>
+</p>
+
 # Dex - Durable Execution(D-EX) Engine
-[![Discord](https://img.shields.io/discord/1566530538473390162?logo=discord&label=Discord&color=5865F2)](https://discord.gg/V9cMHXts98)
+
+
+
+
 
 **Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/primitives). 
 
@@ -94,7 +102,7 @@ cargo add dex-sdk
 
 ## 🎉Communityto connect with use and other users!💬
 
-* **Discord**: Join the community on [Discord](https://discord.gg/TetzsMpYb)
+* [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/V9cMHXts98)
 * **WeChat**: Scan to add add **prclqz** (龙全正) or **MUJIzz** (Zane) first:
 <img width="300" height="300" alt="Dex WeChat Group" src="https://github.com/user-attachments/assets/3069ad7c-a905-4ab6-a174-2005ad8d45d5" />
 
