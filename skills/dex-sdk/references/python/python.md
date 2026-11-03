@@ -43,13 +43,20 @@ Python SDK v1.20.0 **ClientOptions** and **WorkerOptions** have no FlowService T
 
 ## Connector runtime support
 
-The Connector SDK's `projectconfig.LoadFromEnvironment` loader and the generated `NewProjectConnection` API are Go-only, and no equivalent Python SDK exists today. Do not invent a Python loader or deserialize Dex Web's credential file into Flow state. For a Python application, keep provider credentials behind an application-owned secret/runtime adapter until an official Python Connector SDK exposes the same contract.
+A Python application can use an official Connector only where the published catalog lists `python` in that connector's `languages` map and in the `languages` list of every operation and Trigger the application needs. A package implements only the capabilities that list its language. Java and Rust have no Connector SDK.
+
+Install the connector package from PyPI as `dex-connector-<slug>`, for example `dex-connector-newsapi==0.1.0`. It depends on `dex-connectors-sdk`, which imports as `dex_connectors.sdk`, and on `dex-python-sdk`. Use the version that `languages.python` gives for the connector.
+
+At startup, call `await load_from_environment()` from `dex_connectors.sdk.projectconfig` once ([loader](https://github.com/superdurable/dex-connectors-library/blob/sdkpython/v0.1.0/sdkpython/src/dex_connectors/sdk/projectconfig/__init__.py), read at `sdkpython/v0.1.0`). Open each connection with the connector package's `new_project_connection(project, "connection-name")`. Pass that connection to the operation-specific step factory, such as `new_search_articles_step(...)`. Register the Flow with `dex.Registry([...], allow_async_handlers=True)` and run it on `dex.AsyncWorker`. On shutdown, call `await connection.aclose()` and then `await project.close()`. The runnable [NewsAPI company news worker](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/python/v0.1.0/connectors/newsapi/python/examples/company_news/worker.py) and [Flow](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/python/v0.1.0/connectors/newsapi/python/examples/company_news/flow.py) show this at `connectors/newsapi/python/v0.1.0`.
+
+Do not write your own loader or deserialize Dex Web's credential file into Flow state.
 
 ## Deployed configuration and recovery boundary
 
-Dex provides no deployed Connector configuration or credential store. A deployed Go
-application reads its connections with the Connector SDK's `sdkgo/projectconfig`, but
-no equivalent Python SDK exists today; see
+Dex provides no deployed Connector configuration or credential store. A deployed
+Python application reads its connections with `load_from_environment` from the Connector
+SDK's `dex_connectors.sdk.projectconfig`, the Python counterpart of the Go
+`sdkgo/projectconfig`; see
 [deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
 Keep credentials behind the deployment's secret management; a browser, Flow input,
 or ordinary Attribute cannot select secret storage.

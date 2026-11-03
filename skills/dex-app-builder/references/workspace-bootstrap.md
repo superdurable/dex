@@ -53,8 +53,9 @@ not fall back to an unreleased dependency.
 TypeScript is limited to an optional frontend and its generated client. Do not
 start a TypeScript, Node, or other non-Go Dex backend for an App Builder
 product. Route an explicitly requested non-Go Dex application through
-`dex-sdk`; do not imply that Go-only Dex Web v2 metadata or Connector
-capabilities remain available.
+`dex-sdk`; do not imply that Go-only Dex Web v2 metadata remains available.
+That Python or TypeScript application may use an official Connector where the
+catalog lists its language, as the `dex-sdk` language reference describes.
 
 ## Version pairing
 

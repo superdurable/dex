@@ -141,8 +141,11 @@ For connectors:
    `https://connectors.superdurable.io/catalog.yaml` before
    selecting a connector or writing provider integration code;
 2. match every required Trigger, Query, Mutation, and UI capability by exact
-   kind and name; a provider or connector name alone is not a match;
-3. derive the component tag from the catalog's `directory` and `version`,
+   kind and name; a provider or connector name alone is not a match. Require
+   `go` in the connector's `languages` map and in each capability's own
+   `languages` list;
+3. derive the component tag from the catalog's `directory` and `languages.go`
+   version (`<directory>/go/<version>`, or `<directory>/<version>` through v0.22.x),
    verify that published tag, and inspect that tag's immutable
    `connector.yaml` for auth, configuration, input/output, branches,
    idempotency, Trigger, UI, and generated Go package contracts;

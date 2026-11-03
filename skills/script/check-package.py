@@ -316,7 +316,9 @@ def check_sdk(baseline: str) -> None:
         "`CONNECTION_NOT_SELECTED`",
         "never follows a changed selection",
         "different settings need a different connection name",
-        "no equivalent SDK exists today",
+        "`load_from_environment`",
+        "`loadFromEnvironment`",
+        "Java and Rust have no Connector SDK",
     ):
         if text not in operations:
             fail(f"Core operations must describe the Connector SDK deployment path: {text}")
@@ -332,7 +334,11 @@ def check_sdk(baseline: str) -> None:
         for text in (
             "## Deployed configuration and recovery boundary",
             "`sdkgo/projectconfig`",
-            "projectconfig.LoadFromEnvironment" if language == "go" else "no equivalent",
+            {
+                "go": "projectconfig.LoadFromEnvironment",
+                "python": "load_from_environment",
+                "typescript": "loadFromEnvironment",
+            }.get(language, "no equivalent"),
         ):
             if text not in handbook:
                 fail(f"{language} handbook must contain the Connector SDK deployment path: {text}")
@@ -486,7 +492,7 @@ def check_app_builder() -> None:
     for text in (
         "## Stack checkpoint",
         "defaults to the exact stack",
-        "without Connector SDK support",
+        "standalone `dex-sdk` project",
         "connector capability matrix",
         "canonical published catalog",
         "immutable `connector.yaml`",

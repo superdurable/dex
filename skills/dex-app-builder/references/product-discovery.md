@@ -18,9 +18,10 @@ do not offer TypeScript, Node, or another SDK language as an equivalent default.
 
 Only an explicit user request can replace the Go backend for a new application.
 Before accepting that request, explain that Dex App Builder, strict FDG 2.0,
-Dex Web v2 management metadata, and the current Connector SDK require a Go
-backend. A requested non-Go backend becomes a standalone `dex-sdk` project
-without Connector SDK support, not a modified App Builder default.
+and Dex Web v2 management metadata require a Go backend. A requested non-Go
+backend becomes a standalone `dex-sdk` project, not a modified App Builder
+default. A Python or TypeScript project may use an official Connector where the
+catalog lists its language; a Java or Rust project has no Connector SDK.
 
 ## Actor, role, operation, and permission matrix
 
@@ -210,7 +211,10 @@ integration UI. Start from the canonical published catalog at
 `https://connectors.superdurable.io/catalog.yaml`. For a
 public external product, match each need to an exact released connector
 capability—not merely a connector name—then verify the complete contract in the
-component tag's immutable `connector.yaml`. Record the catalog URL, connector
+component tag's immutable `connector.yaml`. Check the `languages` map of the
+connector and the `languages` list of each operation and Trigger for the
+backend language, which is `go` for App Builder; a capability without it is a
+gap. Record the catalog URL, connector
 ID, capability kind and name, version/tag, immutable manifest URL, and reuse or
 gap decision.
 

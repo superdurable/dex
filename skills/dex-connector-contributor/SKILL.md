@@ -56,11 +56,17 @@ After entering the checkout:
 3. When the change touches Dex application semantics, read the sibling
    [Dex SDK skill](../dex-sdk/SKILL.md) completely and follow its progressive
    disclosure routing for the required Core references and the
-   [Go handbook](../dex-sdk/references/go/go.md).
+   [Go handbook](../dex-sdk/references/go/go.md), plus the Python or TypeScript
+handbook when the change touches a package in that language.
    For Dex writes followed by reads or completion checks, include the shared
    [read-after-write matrix](../dex-sdk/references/core/read-after-write.md).
 4. Treat the checkout's current rules, commands, examples, acceptance criteria,
    and pull-request template as the sole connector-authoring authority.
+
+A new official connector requires a Go implementation, which is the verified
+reference. Python and TypeScript packages are optional, may implement a subset
+of capabilities, and must replay the Go-recorded conformance scenarios. The
+checkout's `AGENTS.md` holds the detailed rules, so read them there.
 
 Do not substitute instructions copied into this Skill for the target
 repository's current guidance. If the checkout or its required instructions
