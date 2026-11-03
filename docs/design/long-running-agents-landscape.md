@@ -3,7 +3,10 @@
 Status: reference for [long-running-agents.md](long-running-agents.md).
 
 Research date: 2026-10-31. Sources from May to October 2026 carry the most
-weight. Vendor documentation pages are cited as read on that date. Claims that
+weight. Updated 2026-11-03 only where a fact about Dex changed, in the last
+section; the external evidence was not re-researched. GitHub star counts for
+Go, Java, and Rust frameworks, read on 2026-11-02, are in
+[plan/agents-go-java-rust.md](plan/agents-go-java-rust.md#decision-java-and-rust-are-deferred). Vendor documentation pages are cited as read on that date. Claims that
 come from a vendor's own announcement are marked as such. Counts and statuses
 change quickly; re-check a source before quoting it outside this document.
 
@@ -314,3 +317,18 @@ Policy uses Cedar.
 
 The design addresses 1 (C6), 2 (C7), 3 (C3, C4), 4 (C14), 5 (C10), 6 (C12),
 7 (C9), and 8 (C11).
+
+Status on Dex as of 2026-11-03 (see the design's missing pieces table):
+
+- 1 is built: UI stream adapters resume from a Dex Stream token with no extra
+  store (#1181).
+- 2 is built in the agents library: chunked messages with retention bound a
+  session's live Flow state (#1221). The engine's run budget check has an
+  open gap (#1226).
+- 3 is built: effect classes, single-attempt tool Steps, and
+  `outcome_unknown` (#1145, #1146). Two engine gaps remain (#1232, #1233).
+- 4 is partly built: code changes reach waiting sessions at the next Step,
+  and per-session settings apply at the next turn (#1222). Agent definition
+  versions are open.
+- 5, 6, 7, and 8 are open. Token usage is recorded per session (#1188); cost
+  is not yet.
