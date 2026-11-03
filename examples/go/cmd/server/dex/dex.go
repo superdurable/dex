@@ -57,6 +57,7 @@ import (
 	primitiveoptionsoverride "github.com/superdurable/dex/examples/go/primitives/options-override"
 	primitiveproceedonwaitfailure "github.com/superdurable/dex/examples/go/primitives/proceed-on-wait-failure"
 	primitiverpc "github.com/superdurable/dex/examples/go/primitives/rpc"
+	primitiverpccancelingsteps "github.com/superdurable/dex/examples/go/primitives/rpc-canceling-steps"
 	primitivestep "github.com/superdurable/dex/examples/go/primitives/step"
 	primitivestepdecision "github.com/superdurable/dex/examples/go/primitives/step-decision"
 	primitivestream "github.com/superdurable/dex/examples/go/primitives/stream"
@@ -194,6 +195,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	primitivestream.RegisterRoutes(router, client, registry.Stream)
 	primitivetimer.RegisterRoutes(router, client, registry.Timer)
 	primitiverpc.RegisterRoutes(router, client, registry.Rpc)
+	primitiverpccancelingsteps.RegisterRoutes(router, client, registry.ReportGeneration)
 	primitivesubflow.RegisterRoutes(router, client, registry.SubFlowParent)
 	primitiveclientapis.RegisterRoutes(router, client, registry.ClientApis)
 	return router

@@ -376,6 +376,16 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "primitives/rpc-canceling-steps",
+            lambda c: trigger_get(
+                "/primitives/rpc-canceling-steps/start",
+                {
+                    "workflowId": new_id("primitive-rpc-canceling-steps"),
+                    "reportName": "smoke",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
             "primitives/subflow",
             lambda c: trigger_get(
                 "/primitives/subflow/start",

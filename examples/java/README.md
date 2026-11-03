@@ -117,5 +117,6 @@ Minimal examples under [`primitives/`](./src/main/java/io/superdurable/dex/primi
 - [Timer](./src/main/java/io/superdurable/dex/primitives/timer)
 - [Channel](./src/main/java/io/superdurable/dex/primitives/channel)
 - [RPC](./src/main/java/io/superdurable/dex/primitives/rpc)
+- [RPC canceling steps](./src/main/java/io/superdurable/dex/primitives/rpccancelingsteps)
 - [SubFlow](./src/main/java/io/superdurable/dex/primitives/subflow)
 - [Client APIs](./src/main/java/io/superdurable/dex/primitives/clientapis)

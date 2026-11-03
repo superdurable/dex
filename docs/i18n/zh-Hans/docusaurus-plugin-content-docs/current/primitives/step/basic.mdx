@@ -607,3 +607,36 @@ recovery Step 收到失败 Step 不变的 durable input。**getRecoveryError()**
 - 在 Dex Web 中打开事件详情，可在 retry 进行中查看 **Last failure**。Flow 概览中的活跃 Step 也显示 lastFailureInfo。
 
 Last failure info 描述 **retry attempt**。Failure policy 决定 retry 结束后的行为。
+
+## 失败与重新投递 {#failure-and-redelivery}
+
+Retry 和 failure route 处理失败的 attempt。但有些失败会让 Dex 无法知道工作是否已经运行。如果 Step 的外部副作用不能重复，例如付款或发送邮件，就必须为这些情况做好设计。本节说明应用目前可以依赖什么。
+
+### Heartbeat 没有确认 {#heartbeats-not-acknowledged}
+
+Heartbeat 调用在 Worker 将它放入队列或发出后就返回，不会等待 Dex 存储任何内容。Python 的 **heartbeat**、Go 的 **RecordHeartbeat**、Java 和 TypeScript 的 **recordHeartbeat**，以及 Rust 的 **record_heartbeat** 都是这样。Heartbeat 调用返回，并不能证明 Dex 已经知道 attempt 开始了工作。
+
+Heartbeat checkpoint 可能丢失。Dex 会批量处理 checkpoint，每批只保留最新的值。attempt 结束时，例如超时或被取消，或者 Dex Server 节点故障时，checkpoint 也可能丢失。下一次 attempt 收到的是 Dex 最后存储的 checkpoint，它可能比 Step 最后发送的那个更旧。不要把 checkpoint 当作外部副作用已经发生的唯一记录。
+
+### 同一个 attempt 编号可能再次运行 {#same-attempt-redelivery}
+
+在两种情况下，Dex 会以相同的 attempt 编号再次投递 attempt，并且不消耗 retry：
+
+- Worker 在 attempt 发出任何输出之前崩溃或断开，例如 heartbeat 或 Stream message，并且 dispatch wait 还没有结束。Dispatch wait 默认是 10 秒，从 Dex 开始寻找 Worker 时算起。
+- Dex Server 节点重启，或者其他节点接管了它的 Flow。Dex 会重新 dispatch 每个正在运行的 attempt，不论它是否已经发出输出。
+
+两种情况下，之前的那次运行都可能已经完成了外部调用。新的运行看到相同的 attempt 编号，所以无法用 attempt 编号区分这两次运行。
+
+如果 Worker 在 attempt 已经发出输出之后断开，或者在 dispatch wait 之后断开，这个 attempt 会失败并消耗一次 retry。如果 Worker 不再响应但没有断开，attempt 会在 heartbeat timeout 到期时失败。
+
+### Failure route 无法判断工作是否运行过 {#unknown-outcome}
+
+如果在 dispatch wait 内没有 Worker 接受 attempt，这个 attempt 会在没有运行的情况下失败，并消耗一次 retry。当该 Flow type 的所有 Worker 都达到任务上限，或者没有 Worker 在运行时，就会发生这种情况。这种失败的 recovery error type 与 Worker 在 attempt 中途断开时相同：**FLOW_ERROR_TYPE_WORKER_API_FAIL**，只有 error detail 不同。因此，读取 recovery error 的 failure route 无法判断工作是否运行过。Flow 的 history 会记录实际是哪一种情况，Dex Web 也会显示。
+
+### 按这些限制设计 {#design-for-redelivery}
+
+- 让每个外部副作用保持幂等。用一个在各次 attempt 和重新投递之间保持不变的 ID 作为 key，例如 Flow ID 加 Step execution ID，或者你自己的业务 key。把这个 key 发送给执行副作用的服务，让它只执行一次。
+- 只有在这些限制之内，单次 attempt 的 Step 才算 at most once。以相同 attempt 编号重新投递时，它仍可能运行两次。它的 failure route 可能在工作已经发生时运行，也可能在工作从未运行时运行。
+- 对结果未知的情况做对账。当 failure route 无法知道副作用是否发生时，先用幂等 key 或业务 key 到目标系统中检查，再决定是否重复或报告这个副作用。把查到的结果记录到 Flow 中。
+
+缩小这些情况的引擎改进正在跟踪中。关于 agent 包中单次 attempt 的 tool Step，见 [Tool call limits](/production/agents#tool-call-limits)。

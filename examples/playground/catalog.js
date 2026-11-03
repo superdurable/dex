@@ -482,6 +482,20 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "primitives",
+    id: "rpc-canceling-steps",
+    title: "RPC canceling steps",
+    flowIdPrefix: "rpc-canceling-steps",
+    note: "Not in Rust. Call Stop within ten seconds of Start.",
+    endpoints: [
+      endpoint("GET", "/primitives/rpc-canceling-steps/start", "Start", [
+        flowId(),
+        query("reportName", { default: "q3" }),
+      ]),
+      endpoint("GET", "/primitives/rpc-canceling-steps/stop", "Stop", [flowId()]),
+    ],
+  },
+  {
+    group: "primitives",
     id: "step",
     title: "Step",
     flowIdPrefix: "step",

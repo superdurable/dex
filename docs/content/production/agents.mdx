@@ -346,7 +346,8 @@ above the drain timeout. Wait for the new Workers to
 A single-attempt tool runs in a **CallSingleAttemptTool** Step. That Step serves
 **non_idempotent_write** and **unclassified** tools. It should run the tool at
 most once, and record **outcome_unknown** when the tool may have run. Two cases
-break that. Plan for both.
+break that. Plan for both. They follow from how Dex delivers any Step attempt.
+See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
 
 ### A single-attempt tool can run twice {#tool-runs-twice}
 

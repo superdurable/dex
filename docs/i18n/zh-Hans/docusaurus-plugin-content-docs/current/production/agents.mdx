@@ -279,7 +279,8 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 
 单次尝试的 tool 在 **CallSingleAttemptTool** Step 中运行。这个 Step 负责
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
-已经运行过时记录 **outcome_unknown**。有两种情况会打破这一点，两种都要提前准备。
+已经运行过时记录 **outcome_unknown**。有两种情况会打破这一点，两种都要提前准备。它们源于
+Dex 投递任何 Step attempt 的方式。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
 

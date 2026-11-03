@@ -106,6 +106,9 @@ from dex_examples.primitives.proceed_on_wait_failure.proceed_on_wait_failure_flo
     ProceedOnWaitFailureFlow,
 )
 from dex_examples.primitives.rpc.rpc_flow import RpcFlow
+from dex_examples.primitives.rpc_canceling_steps.report_generation_flow import (
+    ReportGenerationFlow,
+)
 from dex_examples.primitives.step.retry_flow import RetryFlow
 from dex_examples.primitives.step.step_flow import StepFlow
 from dex_examples.primitives.step_execution_local.step_execution_local_flow import (
@@ -206,6 +209,7 @@ class ExampleApp:
         self.stream = StreamFlow()
         self.timer = TimerFlow()
         self.rpc = RpcFlow()
+        self.report_generation = ReportGenerationFlow()
         self.subflow_child = SubFlowChildFlow()
         self.subflow_parent = SubFlowParentFlow(self.subflow_child)
         self.client_apis = ClientApisFlow()
@@ -269,6 +273,7 @@ class ExampleApp:
             self.stream,
             self.timer,
             self.rpc,
+            self.report_generation,
             self.subflow_child,
             self.subflow_parent,
             self.client_apis,

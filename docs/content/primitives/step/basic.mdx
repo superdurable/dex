@@ -689,3 +689,36 @@ The recovery Step receives the failed Step's durable input unchanged. **getRecov
 - In Dex Web, open event details to see **Last failure** while retries are in flight. Active Steps in the Flow overview also show lastFailureInfo.
 
 Last failure info describes **retry attempts**. Failure policy decides what happens once retries end.
+
+## Failure and redelivery {#failure-and-redelivery}
+
+Retries and failure routes handle attempts that fail. Some failures leave Dex without knowing whether the work ran. A Step with an external effect that must not repeat, such as a payment or an email, has to plan for these cases. This section states what an application can rely on today.
+
+### Heartbeats are not acknowledged {#heartbeats-not-acknowledged}
+
+A heartbeat call returns once the Worker has queued or sent it. It does not wait for Dex to store anything. Python's **heartbeat**, Go's **RecordHeartbeat**, Java's and TypeScript's **recordHeartbeat**, and Rust's **record_heartbeat** all behave this way. A returned heartbeat call does not prove that Dex knows the attempt started its work.
+
+Heartbeat checkpoints are lossy. Dex batches them and keeps only the latest value of each batch. A checkpoint can also be lost when the attempt ends, such as on a timeout or a cancellation, or when a Dex Server node fails. The next attempt receives the last checkpoint that Dex stored, which can be older than the last one the Step sent. Do not use a checkpoint as the only record that an external effect happened.
+
+### An attempt can run again at the same attempt number {#same-attempt-redelivery}
+
+Dex delivers an attempt again, with the same attempt number and without using a retry, in two cases:
+
+- The Worker dies or disconnects before the attempt sends any output, such as a heartbeat or a Stream message, and before the dispatch wait ends. The dispatch wait is 10 seconds by default, counted from when Dex starts to look for a Worker.
+- A Dex Server node restarts, or another node takes over its Flows. Dex dispatches every running attempt again, whether or not it has sent output.
+
+In both cases the earlier run may already have made its external call. The new run sees the same attempt number, so the attempt number cannot tell the two runs apart.
+
+When a Worker disconnects after the attempt has sent output, or after the dispatch wait, the attempt fails and uses a retry. When a Worker stops responding without disconnecting, the attempt fails when its heartbeat timeout expires.
+
+### A failure route cannot tell whether the work ran {#unknown-outcome}
+
+When no Worker accepts an attempt within the dispatch wait, the attempt fails without running and uses a retry. This happens when every Worker of the Flow type is at its task limit, or when none is running. The failure has the same recovery error type as a Worker that disconnected in the middle of an attempt: **FLOW_ERROR_TYPE_WORKER_API_FAIL**. Only the error detail differs. A failure route that reads the recovery error therefore cannot tell whether the work ran. The Flow's history records which of the two happened, and Dex Web shows it.
+
+### Design for these limits {#design-for-redelivery}
+
+- Make each external effect idempotent. Key it by an ID that stays the same across attempts and redeliveries, such as the Flow ID and the Step execution ID, or your own business key. Send the key to the service that applies the effect, so that it applies the effect once.
+- Treat a Step with a single attempt as at most once only within these limits. A redelivery at the same attempt number can still run it twice. Its failure route can run although the work happened, or although it never ran.
+- Reconcile an unknown outcome. When a failure route cannot know whether the effect happened, check the target system by the idempotency key or your business key before you repeat or report the effect. Record the outcome you find in the Flow.
+
+An engine improvement that narrows these cases is being tracked. For the agent packages' single-attempt tool Steps, see [Tool call limits](/production/agents#tool-call-limits).

@@ -27,6 +27,7 @@ import {
 } from "../../src/config/worker.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
+import { reportGenerationFlow } from "../../src/primitives/rpc-canceling-steps/report-generation-flow.js";
 import { streamFlow } from "../../src/primitives/stream/stream-flow.js";
 import { engagementFlow } from "../../src/products/engagement/engagement-flow.js";
 import { dealDSLFlow } from "../../src/products/deal-dsl/deal-dsl-flow.js";
@@ -44,6 +45,7 @@ export interface IntegEnvironment {
   readonly client: Client;
   readonly failureRecoveryFlow: typeof failureRecoveryFlow;
   readonly channelFlow: typeof channelFlow;
+  readonly reportGenerationFlow: typeof reportGenerationFlow;
   readonly streamFlow: typeof streamFlow;
   readonly moneyTransferFlow: typeof moneyTransferFlow;
   readonly orderProcessingFlow: typeof orderProcessingFlow;
@@ -82,6 +84,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   const flows: readonly Flow<any>[] = [
     failureRecoveryFlow,
     channelFlow,
+    reportGenerationFlow,
     streamFlow,
     moneyTransferFlow,
     orderProcessingFlow,
@@ -110,6 +113,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     client,
     failureRecoveryFlow,
     channelFlow,
+    reportGenerationFlow,
     streamFlow,
     moneyTransferFlow,
     orderProcessingFlow,

@@ -380,6 +380,15 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "primitives/rpc-canceling-steps",
+      trigger: () =>
+        triggerGet(context, "/primitives/rpc-canceling-steps/start", {
+          workflowId: newFlowId("primitive-rpc-canceling-steps"),
+          reportName: "smoke",
+        }),
+      flags: defaultFlags(),
+    },
+    {
       name: "primitives/subflow",
       trigger: () =>
         triggerGet(context, "/primitives/subflow/start", {

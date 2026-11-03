@@ -207,6 +207,14 @@ final class FlowSmokeCatalog {
                         "/primitives/rpc/start",
                         Map.of("workflowId", environment.newFlowId("primitive-rpc"))),
                 FlowSmokeEntry.get(
+                        "primitives/rpc-canceling-steps",
+                        "/primitives/rpc-canceling-steps/start",
+                        Map.of(
+                                "workflowId",
+                                environment.newFlowId("primitive-rpc-canceling-steps"),
+                                "reportName",
+                                "smoke")),
+                FlowSmokeEntry.get(
                         "primitives/subflow",
                         "/primitives/subflow/start",
                         Map.of(
