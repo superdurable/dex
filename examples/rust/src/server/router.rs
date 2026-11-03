@@ -77,6 +77,9 @@ pub fn build_router(client: SharedClient, polling_jobs: Arc<FakeJobService>) -> 
         .merge(primitives::stream::controller::mount(client.clone()))
         .merge(primitives::timer::controller::mount(client.clone()))
         .merge(primitives::rpc::controller::mount(client.clone()))
+        .merge(primitives::rpc::canceling_steps::controller::mount(
+            client.clone(),
+        ))
         .merge(primitives::subflow::controller::mount(client.clone()))
         .merge(primitives::client_apis::controller::mount(client))
         .layer(TraceLayer::new_for_http())

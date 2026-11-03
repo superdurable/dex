@@ -12,5 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod canceling_steps;
 pub mod controller;
 pub mod flow;

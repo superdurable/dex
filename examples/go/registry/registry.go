@@ -48,6 +48,7 @@ import (
 	"github.com/superdurable/dex/examples/go/primitives/options-override"
 	"github.com/superdurable/dex/examples/go/primitives/proceed-on-wait-failure"
 	"github.com/superdurable/dex/examples/go/primitives/rpc"
+	rpccancelingsteps "github.com/superdurable/dex/examples/go/primitives/rpc-canceling-steps"
 	"github.com/superdurable/dex/examples/go/primitives/step"
 	"github.com/superdurable/dex/examples/go/primitives/step-decision"
 	"github.com/superdurable/dex/examples/go/primitives/step-execution-local"
@@ -128,6 +129,7 @@ var (
 	Stream               *stream.StreamFlow
 	Timer                *timer.TimerFlow
 	Rpc                  *rpc.RpcFlow
+	ReportGeneration     *rpccancelingsteps.ReportGenerationFlow
 	SubFlowChild         *subflow.SubFlowChildFlow
 	SubFlowParent        *subflow.SubFlowParentFlow
 	SubFlowSelection     *subflow.SubFlowSelectionFlow
@@ -198,6 +200,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Stream = stream.NewStreamFlow()
 	Timer = timer.NewTimerFlow()
 	Rpc = rpc.NewRpcFlow()
+	ReportGeneration = rpccancelingsteps.NewReportGenerationFlow()
 	SubFlowChild = subflow.NewSubFlowChildFlow()
 	SubFlowParent = subflow.NewSubFlowParentFlow(SubFlowChild)
 	SubFlowSelection = &subflow.SubFlowSelectionFlow{}
@@ -257,6 +260,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Stream,
 		Timer,
 		Rpc,
+		ReportGeneration,
 		SubFlowChild,
 		SubFlowParent,
 		SubFlowSelection,

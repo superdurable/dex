@@ -167,6 +167,292 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## 取消正在运行的 Step {#cancel-running-steps}
+
+RPC result 可以取消所在 Flow 中 active 的 Step。当外部请求让进行中的工作失去意义时使用它，例如报告或模型调用还在运行，用户按下了 Stop。
+
+按 Step type 选择要取消的 Step：Python 用 **with_canceling_steps**，Go 用 **CancelSteps**，Java 用 **withCancelingSteps**，TypeScript 用 **cancelingSteps**，Rust 用 **cancel_step**。选择范围是整个 Flow。RPC 没有 parent Step execution，所以不能取消 sibling Step。Step 也可以用同样的方式在 [StepDecision](/primitives/step/step-decision#cancellation-on-stepdecision) 中取消其他 Step。
+
+示例中，**GenerateReport** 逐节生成报告。**stop_report** RPC 取消它，并启动 **FinishReportStop**。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(timeout=timedelta(seconds=30))
+def stop_report(self, context: Context, input: None) -> RPCResult[bool]:
+    if REPORT_STATUS.get(context) in (REPORT_READY, REPORT_STOPPED):
+        return RPCResult(False)
+    return RPCResult(
+        True,
+        next_steps=(StepMovement.of(FinishReportStop, None),),
+    ).with_canceling_steps(GenerateReport)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (*ReportGenerationFlow) StopReport(ctx dex.Context, _ dex.None) (*dex.RPCResult[bool], error) {
+	status, err := getReportStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status == ReportReady || status == ReportStopped {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	result := &dex.RPCResult[bool]{
+		Output:    true,
+		NextSteps: []dex.StepMovement{dex.MovementOf(FinishReportStop{}, nil)},
+	}
+	return result.CancelSteps(GenerateReport{}), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@RPC(timeoutSeconds = 30)
+public RPCResult<Boolean> stopReport(final Context context) {
+    final String status = reportStatus.get(context);
+    if (REPORT_READY.equals(status) || REPORT_STOPPED.equals(status)) {
+        return RPCResult.of(false);
+    }
+    return RPCResult.of(true, StepMovement.of(FinishReportStop.class, null))
+            .withCancelingSteps(GenerateReport.class);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: voidCodec, outputCodec: booleanCodec, timeoutMs: 30_000 })
+public stopReport(context: Context, _input: void): RPCResult<boolean> {
+  const status = reportStatus.get(context);
+  if (status === REPORT_READY || status === REPORT_STOPPED) {
+    return { output: false };
+  }
+  return {
+    output: true,
+    nextSteps: [StepMovement.of(FinishReportStop, undefined)],
+    cancelingSteps: [GenerateReport],
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn stop_report(&self, context: &mut Context, _input: ()) -> HandlerResult<RpcResult<bool>> {
+    let status = REPORT_STATUS.get(context)?;
+    if matches!(status.as_deref(), Some(REPORT_READY | REPORT_STOPPED)) {
+        return Ok(RpcResult::new(false));
+    }
+    Ok(RpcResult::new(true)
+        .then(StepMovement::to(&self.finish_report_stop, ()))
+        .cancel_step(&self.generate_report))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Dex 在 commit RPC 时执行取消。它先 commit RPC 的 Attribute 写入和 Channel publish，再执行取消，最后启动 RPC 的 next Step。这些变更一起 commit，要么全部生效，要么全部不生效。RPC 自己启动的 next Step 不会被取消，即使它的 Step type 在选择范围内。已经结束的 Step 会被跳过，没有 active Step 的 type 也一样。
+
+取消会结束所选 type 的每个 active Step：正在等待的、正在等待重试的，以及 attempt 正在 Worker 上运行的。对于正在运行的 attempt，Dex 会向该 Worker 发送取消。被取消的 Step 不会重试，它的 failure route 也不会运行。被取消的 attempt 之后返回的任何内容都会被 Dex 丢弃，包括它的 StepDecision 和 Attribute 写入。
+
+### 根据已提交的状态处理竞争 {#cancel-race}
+
+RPC handler 启动时读取 Flow 的一份 snapshot，Dex 之后才 commit 它的 result。要取消哪些 Step 是在 commit 时决定的，而不是根据 snapshot。在这两个时刻之间，被选中的 Step 可能已经结束并 commit 了自己的 result，这时取消找不到可取消的 Step。所选 type 的新 Step 也可能已经启动，取消同样会结束它。这两种情况下 Dex 都不会拒绝这次 RPC。所以 handler 不能假设它看到的 Step 仍在运行，也不能假设那个 Step 的工作没有 commit。
+
+不要在 RPC handler 中决定结果。从 RPC 启动一个后续 Step，让它读取已提交的状态。示例中，**FinishReportStop** 检查报告是否在取消之前已经 commit。如果已经 commit，说明 Stop 来得太晚，Flow 会继续交付报告。否则，它记录报告已停止。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: None) -> StepDecision:
+    # The report can commit after stop_report read its snapshot.
+    if REPORT_STATUS.get(context) == REPORT_READY:
+        return dead_end()
+    REPORT_STATUS.set(context, REPORT_STOPPED)
+    return graceful_complete(REPORT_STOPPED)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (FinishReportStop) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	status, err := getReportStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The report can commit after StopReport read its snapshot.
+	if status == ReportReady {
+		return dex.DeadEnd(), nil
+	}
+	if err := ReportStatus.Set(ctx, ReportStopped); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(ReportStopped), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Void input) {
+    // The report can commit after stopReport read its snapshot.
+    if (REPORT_READY.equals(reportStatus.get(context))) {
+        return StepDecision.deadEnd();
+    }
+    reportStatus.set(context, REPORT_STOPPED);
+    return StepDecision.gracefulComplete(REPORT_STOPPED);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, _input: void): StepDecision {
+  // The report can commit after stopReport read its snapshot.
+  if (reportStatus.get(context) === REPORT_READY) {
+    return deadEnd();
+  }
+  reportStatus.set(context, REPORT_STOPPED);
+  return gracefulComplete(REPORT_STOPPED);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    // The report can commit after stop_report read its snapshot.
+    if REPORT_STATUS.get(context)?.as_deref() == Some(REPORT_READY) {
+        return Ok(StepDecision::dead_end());
+    }
+    REPORT_STATUS.set(context, REPORT_STOPPED.to_string())?;
+    Ok(StepDecision::graceful_complete(REPORT_STOPPED.to_string()))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+[Attribute lock](/primitives/attribute#locking) 本身不能消除这个时间差。它只让 RPC 与声明了相同 lock 的 Step method 串行执行。
+
+### 让 Step 停下来 {#cancel-honour}
+
+Dex 无法停止忽略取消的代码。Step 代码必须检查取消并返回：
+
+- Python：使用 **AsyncWorker** 时，Dex 会取消 handler 的 task，下一个 await 会抛出 **CancelledError**。使用 **Worker** 时，handler 运行在线程上，必须检查 **is_cancellation_requested**。
+- Go：Dex 会取消 handler 的 **Context**。把它传给接受 context 的调用，或在 **Done** 上 select。
+- Java：Dex 会中断 handler 线程。阻塞调用会抛出 **InterruptedException**，**isCancellationRequested** 返回 true。
+- TypeScript：Dex 会 abort **context.cancellationSignal**。把它传给接受 **AbortSignal** 的调用。
+- Rust：检查 **is_cancelled**，或阻塞在 **wait_for_cancellation**。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+for section in range(1, SECTION_COUNT + 1):
+    # A Stop cancels this task, so the await raises CancelledError.
+    await asyncio.sleep(SECTION_WORK.total_seconds())
+    REPORT_PROGRESS.write(context, section)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+for section := 1; section <= sectionCount; section++ {
+	select {
+	case <-ctx.Done():
+		// A Stop cancels ctx; the result of this attempt is discarded.
+		return nil, ctx.Err()
+	case <-time.After(sectionWork):
+	}
+	if err := ReportProgress.Write(ctx, section); err != nil {
+		return nil, err
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+for (int section = 1; section <= SECTION_COUNT; section++) {
+    try {
+        Thread.sleep(SECTION_WORK.toMillis());
+    } catch (final InterruptedException interrupted) {
+        // A Stop interrupts this thread; the result of this attempt is discarded.
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("report generation canceled", interrupted);
+    }
+    reportProgress.write(context, section);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+for (let section = 1; section <= SECTION_COUNT; section++) {
+  // A Stop aborts the signal, so this await rejects with an AbortError.
+  await setTimeout(SECTION_WORK_MS, undefined, { signal: context.cancellationSignal });
+  reportProgress.write(context, section);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+for section in 1..=SECTION_COUNT {
+    // A Stop cancels this attempt, and Dex discards its result.
+    if context.is_cancelled() {
+        return Ok(StepDecision::dead_end());
+    }
+    thread::sleep(SECTION_WORK);
+    REPORT_PROGRESS.write(context, section)?;
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Dex 会等待被取消的 attempt 结束，大约一秒。如果 handler 仍在运行，Dex 会关闭承载它的 Worker stream。handler 会在 Worker 进程中一直运行到返回，它的外部调用仍然会生效。被取消的 attempt 在停下之前也可能已经完成了部分工作。请让它的外部副作用保持幂等。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
+
 ## 只读 RPC 与 terminal Flow {#read-only-rpcs-and-terminal-flows}
 
 从 Flow 外读取已存储的 Attribute 值，不需要只读 RPC。Client 的 **GetAttributes** 直接读取已提交的值，不经过 Worker。见[读取 Attribute](/primitives/client/basic#read-attributes)。当读取需要 Flow 内的逻辑，例如 validation、authorization、Channel 消息或派生视图时，使用只读 RPC。

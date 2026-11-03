@@ -27,6 +27,9 @@ use dex_examples_rust::primitives::channel::flow::{
     GET_QUEUED_MESSAGES, MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES, PUBLISH_APPROVAL_MESSAGE,
     QueuedMessageReference,
 };
+use dex_examples_rust::primitives::rpc::canceling_steps::flow::{
+    REPORT_PROGRESS, REPORT_STOPPED, ReportGenerationFlow, STOP_REPORT_RPC,
+};
 use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::production::pull_workers::{
     GET_GREETING, GreetingFlow, is_pull_greeting_ready, start_pull_greeting, stop_pull_greeting,
@@ -536,6 +539,38 @@ fn stream_resumes_after_step_and_client_writes() {
         older_page.messages[0].value,
         "Rendering preview for invoicePreview ready for invoice"
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn stop_report_cancels_running_generation() {
+    let environment = DexEnvironment::start();
+    let flow = ReportGenerationFlow::default();
+    let flow_id = unique_flow_id("rpc-canceling-steps");
+    environment
+        .client
+        .start_flow(&flow, &flow_id, "q3".to_string())
+        .expect("start Rust ReportGenerationFlow");
+
+    let first_section = environment
+        .client
+        .read_stream_with_timeout(&flow_id, &REPORT_PROGRESS, "", Duration::from_secs(20))
+        .expect("read the first ReportProgress message");
+    assert_eq!(first_section.value, 1);
+
+    let is_stopping = environment
+        .client
+        .invoke_rpc(&flow_id, STOP_REPORT_RPC, ())
+        .expect("invoke StopReport");
+    assert!(is_stopping);
+
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("complete Rust ReportGenerationFlow");
+    assert_eq!(result.status(), FlowStatus::Completed);
+    let output: String = result.single_output().expect("decode Rust report output");
+    assert_eq!(output, REPORT_STOPPED);
 }
 
 #[test]

@@ -386,6 +386,15 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "primitives/rpc-canceling-steps",
+            path: "/primitives/rpc-canceling-steps/start",
+            query: query_with(
+                &client.new_flow_id("primitive-rpc-canceling-steps"),
+                &[("reportName", "smoke")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "primitives/subflow",
             path: "/primitives/subflow/start",
             query: query_with(

@@ -56,6 +56,7 @@ import { optionsOverrideFlow } from "./primitives/options-override/options-overr
 import { proceedOnWaitFailureFlow } from "./primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.js";
 import { stepExecutionLocalFlow } from "./primitives/step-execution-local/step-execution-local-flow.js";
 import { rpcFlow } from "./primitives/rpc/rpc-flow.js";
+import { reportGenerationFlow } from "./primitives/rpc-canceling-steps/report-generation-flow.js";
 import { retryFlow } from "./primitives/step/retry-flow.js";
 import { stepFlow } from "./primitives/step/step-flow.js";
 import { stepDecisionFlow } from "./primitives/step-decision/step-decision-flow.js";
@@ -131,6 +132,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   streamFlow,
   timerFlow,
   rpcFlow,
+  reportGenerationFlow,
   subFlowChildFlow,
   subFlowParentFlow,
   clientApisFlow,
@@ -192,6 +194,7 @@ export {
   streamFlow,
   timerFlow,
   rpcFlow,
+  reportGenerationFlow,
   subFlowChildFlow,
   subFlowParentFlow,
   clientApisFlow,

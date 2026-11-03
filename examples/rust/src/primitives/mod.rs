@@ -50,6 +50,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(stream::flow::StreamFlow::default())?
         .register(timer::flow::TimerFlow::default())?
         .register(rpc::flow::RpcFlow::default())?
+        .register(rpc::canceling_steps::flow::ReportGenerationFlow::default())?
         .register(subflow::flow::SubFlowChildFlow::default())?
         .register(subflow::flow::SubFlowParentFlow::new())?
         .register(client_apis::flow::ClientApisFlow::default())

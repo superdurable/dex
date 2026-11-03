@@ -468,6 +468,16 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "primitives/rpc-canceling-steps",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-rpc-canceling-steps")},
+					"reportName": {"smoke"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/rpc-canceling-steps/start", query, nil)
+			},
+		},
+		{
 			name: "primitives/subflow",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{

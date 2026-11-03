@@ -166,6 +166,292 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## Cancel running Steps {#cancel-running-steps}
+
+An RPC result can cancel active Steps of its Flow. Use it when a request from outside makes work in progress pointless, such as a user who presses Stop while a report or a model call runs.
+
+Select the Steps by Step type: **with_canceling_steps** in Python, **CancelSteps** in Go, **withCancelingSteps** in Java, **cancelingSteps** in TypeScript, and **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no parent Step execution, so it cannot cancel sibling Steps. A Step can cancel other Steps the same way from its [StepDecision](/primitives/step/step-decision#cancellation-on-stepdecision).
+
+In the example, **GenerateReport** writes a report section by section. The **stop_report** RPC cancels it and starts **FinishReportStop**.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(timeout=timedelta(seconds=30))
+def stop_report(self, context: Context, input: None) -> RPCResult[bool]:
+    if REPORT_STATUS.get(context) in (REPORT_READY, REPORT_STOPPED):
+        return RPCResult(False)
+    return RPCResult(
+        True,
+        next_steps=(StepMovement.of(FinishReportStop, None),),
+    ).with_canceling_steps(GenerateReport)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (*ReportGenerationFlow) StopReport(ctx dex.Context, _ dex.None) (*dex.RPCResult[bool], error) {
+	status, err := getReportStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status == ReportReady || status == ReportStopped {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	result := &dex.RPCResult[bool]{
+		Output:    true,
+		NextSteps: []dex.StepMovement{dex.MovementOf(FinishReportStop{}, nil)},
+	}
+	return result.CancelSteps(GenerateReport{}), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@RPC(timeoutSeconds = 30)
+public RPCResult<Boolean> stopReport(final Context context) {
+    final String status = reportStatus.get(context);
+    if (REPORT_READY.equals(status) || REPORT_STOPPED.equals(status)) {
+        return RPCResult.of(false);
+    }
+    return RPCResult.of(true, StepMovement.of(FinishReportStop.class, null))
+            .withCancelingSteps(GenerateReport.class);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: voidCodec, outputCodec: booleanCodec, timeoutMs: 30_000 })
+public stopReport(context: Context, _input: void): RPCResult<boolean> {
+  const status = reportStatus.get(context);
+  if (status === REPORT_READY || status === REPORT_STOPPED) {
+    return { output: false };
+  }
+  return {
+    output: true,
+    nextSteps: [StepMovement.of(FinishReportStop, undefined)],
+    cancelingSteps: [GenerateReport],
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn stop_report(&self, context: &mut Context, _input: ()) -> HandlerResult<RpcResult<bool>> {
+    let status = REPORT_STATUS.get(context)?;
+    if matches!(status.as_deref(), Some(REPORT_READY | REPORT_STOPPED)) {
+        return Ok(RpcResult::new(false));
+    }
+    Ok(RpcResult::new(true)
+        .then(StepMovement::to(&self.finish_report_stop, ()))
+        .cancel_step(&self.generate_report))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Dex applies the cancellation when it commits the RPC. It commits the RPC's Attribute writes and Channel publications first, then cancels, then starts the RPC's next Steps. All of it commits together, or none of it does. The RPC's own next Steps are not canceled, even when they have a selected Step type. A selected Step that has already finished is skipped, and so is a type with no active Step.
+
+Cancellation ends every active Step of a selected type: one that waits, one that waits for a retry, and one whose attempt runs on a Worker. For a running attempt, Dex sends a cancellation to that Worker. A canceled Step is not retried, and its failure route does not run. Dex discards anything the canceled attempt returns later, including its StepDecision and Attribute writes.
+
+### Resolve the race from committed state {#cancel-race}
+
+The RPC handler reads a snapshot of the Flow when it starts. Dex commits its result later. The Steps to cancel are chosen at commit time, not from the snapshot. Between the two, a selected Step can finish and commit its own result. Then the cancellation finds nothing to cancel. A new Step of a selected type can also start, and the cancellation ends it too. Dex does not reject the RPC in either case. So the handler cannot assume that the Step it saw is still running, or that its work did not commit.
+
+Do not decide the outcome in the RPC handler. Start a follow-up Step from the RPC, and let it read the committed state. In the example, **FinishReportStop** checks whether the report committed before the cancellation. If it did, the Stop came too late, and the Flow delivers the report. Otherwise, it records that the report stopped.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: None) -> StepDecision:
+    # The report can commit after stop_report read its snapshot.
+    if REPORT_STATUS.get(context) == REPORT_READY:
+        return dead_end()
+    REPORT_STATUS.set(context, REPORT_STOPPED)
+    return graceful_complete(REPORT_STOPPED)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (FinishReportStop) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	status, err := getReportStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The report can commit after StopReport read its snapshot.
+	if status == ReportReady {
+		return dex.DeadEnd(), nil
+	}
+	if err := ReportStatus.Set(ctx, ReportStopped); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(ReportStopped), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Void input) {
+    // The report can commit after stopReport read its snapshot.
+    if (REPORT_READY.equals(reportStatus.get(context))) {
+        return StepDecision.deadEnd();
+    }
+    reportStatus.set(context, REPORT_STOPPED);
+    return StepDecision.gracefulComplete(REPORT_STOPPED);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, _input: void): StepDecision {
+  // The report can commit after stopReport read its snapshot.
+  if (reportStatus.get(context) === REPORT_READY) {
+    return deadEnd();
+  }
+  reportStatus.set(context, REPORT_STOPPED);
+  return gracefulComplete(REPORT_STOPPED);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    // The report can commit after stop_report read its snapshot.
+    if REPORT_STATUS.get(context)?.as_deref() == Some(REPORT_READY) {
+        return Ok(StepDecision::dead_end());
+    }
+    REPORT_STATUS.set(context, REPORT_STOPPED.to_string())?;
+    Ok(StepDecision::graceful_complete(REPORT_STOPPED.to_string()))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+[Attribute locks](/primitives/attribute#locking) do not close this gap on their own. They serialize the RPC only with Step methods that declare the same locks.
+
+### Make the Step stop {#cancel-honour}
+
+Dex cannot stop code that ignores cancellation. The Step code must check for it and return:
+
+- Python: with **AsyncWorker**, Dex cancels the handler's task, so the next await raises **CancelledError**. With **Worker**, the handler runs on a thread and must check **is_cancellation_requested**.
+- Go: Dex cancels the handler's **Context**. Pass it to calls that accept a context, or select on **Done**.
+- Java: Dex interrupts the handler thread. Blocking calls throw **InterruptedException**, and **isCancellationRequested** returns true.
+- TypeScript: Dex aborts **context.cancellationSignal**. Pass it to calls that accept an **AbortSignal**.
+- Rust: check **is_cancelled**, or block in **wait_for_cancellation**.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+for section in range(1, SECTION_COUNT + 1):
+    # A Stop cancels this task, so the await raises CancelledError.
+    await asyncio.sleep(SECTION_WORK.total_seconds())
+    REPORT_PROGRESS.write(context, section)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+for section := 1; section <= sectionCount; section++ {
+	select {
+	case <-ctx.Done():
+		// A Stop cancels ctx; the result of this attempt is discarded.
+		return nil, ctx.Err()
+	case <-time.After(sectionWork):
+	}
+	if err := ReportProgress.Write(ctx, section); err != nil {
+		return nil, err
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+for (int section = 1; section <= SECTION_COUNT; section++) {
+    try {
+        Thread.sleep(SECTION_WORK.toMillis());
+    } catch (final InterruptedException interrupted) {
+        // A Stop interrupts this thread; the result of this attempt is discarded.
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("report generation canceled", interrupted);
+    }
+    reportProgress.write(context, section);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+for (let section = 1; section <= SECTION_COUNT; section++) {
+  // A Stop aborts the signal, so this await rejects with an AbortError.
+  await setTimeout(SECTION_WORK_MS, undefined, { signal: context.cancellationSignal });
+  reportProgress.write(context, section);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+for section in 1..=SECTION_COUNT {
+    // A Stop cancels this attempt, and Dex discards its result.
+    if context.is_cancelled() {
+        return Ok(StepDecision::dead_end());
+    }
+    thread::sleep(SECTION_WORK);
+    REPORT_PROGRESS.write(context, section)?;
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Dex waits about one second for the canceled attempt to end. If the handler is still running, Dex closes the Worker stream that carried it. The handler keeps running inside the Worker process until it returns, and its external calls still take effect. A canceled attempt may also have done part of its work before it stopped. Keep its external effects idempotent. See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
+
 ## Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
 
 To read stored Attribute values from outside the Flow, an application does not need a read-only RPC. The Client's **GetAttributes** reads committed values directly, without a Worker. See [Read Attributes](/primitives/client/basic#read-attributes). Use a read-only RPC when the read needs Flow-side logic, such as validation, authorization, Channel messages, or a derived view.

@@ -47,6 +47,7 @@ import { createDurabilityRouter } from "./primitives/durability/controller.js";
 import { createHeartbeatRouter } from "./primitives/heartbeat/controller.js";
 import { createOptionsOverrideRouter } from "./primitives/options-override/controller.js";
 import { createRpcRouter } from "./primitives/rpc/controller.js";
+import { createRpcCancelingStepsRouter } from "./primitives/rpc-canceling-steps/controller.js";
 import { createFlowRouter } from "./primitives/flow/controller.js";
 import { createStepRouter } from "./primitives/step/controller.js";
 import { createStepDecisionRouter } from "./primitives/step-decision/controller.js";
@@ -140,6 +141,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/primitives/stream", createStreamRouter(client));
   app.use("/primitives/timer", createTimerRouter(client));
   app.use("/primitives/rpc", createRpcRouter(client));
+  app.use("/primitives/rpc-canceling-steps", createRpcCancelingStepsRouter(client));
   app.use("/primitives/subflow", createSubflowRouter(client));
   app.use("/primitives/client-apis", createClientApisRouter(client));
   app.use(

@@ -268,6 +268,8 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 - **CancelSteps** 按 Step type 选择 active Step。
 - **CancelSiblingSteps** 选择由同一个 parent Step execution 触发的 active Step。
 
+RPC 也可以按 type 取消 Step。见[取消正在运行的 Step](/primitives/rpc#cancel-running-steps)。
+
 <SdkTabs
   examples={{
     go: 'examples/go/primitives/step-decision/workflow.go',

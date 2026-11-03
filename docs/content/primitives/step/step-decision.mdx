@@ -268,6 +268,8 @@ There are two types of cancellation:
 - **CancelSteps** selects active Steps by Step type.
 - **CancelSiblingSteps** selects active Steps that were triggered by the same parent Step execution.
 
+An RPC can also cancel Steps by type. See [Cancel running Steps](/primitives/rpc#cancel-running-steps).
+
 <SdkTabs
   examples={{
     go: 'examples/go/primitives/step-decision/workflow.go',
