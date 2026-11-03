@@ -19,12 +19,12 @@ use dexzd_keyspace::row_keys::hard_delete_current_key;
 use dexzd_keyspace::{ColumnFamily, TenantId};
 use dexzd_protocol::dex::{
     self, DispatchTaskErrorReason, PollWorkerTaskFrame, PullRouting, PullRoutingSource,
-    StepStreamWrite, Value, WorkerErrorResponse, invoke_execute_method_output,
-    invoke_wait_for_method_output, poll_worker_task_frame,
+    StepAttemptProgress, StepStreamWrite, Value, WorkerErrorResponse, poll_worker_task_frame,
 };
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, HardDeleteObjectRecord, StepAttemptFailedCommand, StepAttemptFailureKind,
-    StepAttemptHeartbeatCommand, flow_command, step_attempt_heartbeat_command,
+    StepAttemptHeartbeatCommand, StepAttemptMarkedStartedCommand, flow_command,
+    step_attempt_heartbeat_command,
 };
 use dexzd_stream_store::WriteStreamInput;
 use dexzd_worker_dispatch::{DispatchEvent, DispatchOutcome};
@@ -32,9 +32,13 @@ use tokio::time::{Instant, sleep_until};
 use tokio_util::sync::CancellationToken;
 
 use crate::blocking_work::BlockingWorkFailure;
-use crate::effects::dispatch::MethodDispatchRequest;
+use crate::effects::dispatch::attempt_checkpoints::{
+    CheckpointTracker, heartbeat_change, into_step_stream_write,
+};
+use crate::effects::dispatch::attempt_deadlines::{AttemptTimeouts, MethodDeadline};
 use crate::effects::dispatch::attempt_failure::AttemptFailure;
 use crate::effects::dispatch::worker_result::{WorkerResultCheck, check_worker_result};
+use crate::effects::dispatch::{MethodDispatchRequest, MethodDispatchSession};
 use crate::effects::hard_delete_objects::{HardDeleteObjectOwner, HardDeleteUploads};
 use crate::effects::method_request::{
     MethodAttemptKey, MethodAttemptState, MethodRequest, RequestValueHydration,
@@ -44,9 +48,6 @@ use crate::effects::method_request::{
 use crate::effects::state_reads::{RunLocation, decode_row};
 use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
 use crate::flow_coordination::{CommitUrgency, FlowAddress};
-
-const DEFAULT_METHOD_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
-const DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A method attempt task's inputs.
 pub(crate) struct MethodAttempt {
@@ -59,6 +60,8 @@ pub(crate) struct MethodAttempt {
     pub(crate) method_timeout_seconds: i32,
     pub(crate) scheduled_at: Option<std::time::Instant>,
     pub(crate) retry_deadline_micros: i64,
+    /// True when recovery or time travel dispatches an attempt that a Worker may already hold.
+    pub(crate) is_redispatch: bool,
     /// Canceled by `InvocationCanceled` or node shutdown.
     pub(crate) cancel: CancellationToken,
 }
@@ -68,6 +71,13 @@ enum AttemptEnd {
     Result(Box<PollWorkerTaskFrame>, String),
     Failure(AttemptFailure),
     Canceled,
+}
+
+/// A Worker's final frame, the Worker that sent it, and how far the attempt got.
+struct AttemptResult {
+    frame: PollWorkerTaskFrame,
+    app_worker_id: String,
+    progress: StepAttemptProgress,
 }
 
 /// Outcome of preparing the Worker request.
@@ -87,7 +97,13 @@ impl MethodAttempt {
     /// Runs the attempt to its end. A server-side error fails the attempt so that it retries;
     /// otherwise the invocation would stay running until a restart.
     pub(crate) async fn run(self) {
-        let Err(error) = self.run_attempt().await else {
+        // A redispatched attempt may have reached a Worker before the owner changed.
+        let mut progress = if self.is_redispatch {
+            StepAttemptProgress::Assigned
+        } else {
+            StepAttemptProgress::NotAssigned
+        };
+        let Err(error) = self.run_attempt(&mut progress).await else {
             return;
         };
         if matches!(error, EffectError::Stopped) || self.cancel.is_cancelled() {
@@ -104,11 +120,11 @@ impl MethodAttempt {
             StepAttemptFailureKind::DispatchError,
             format!("server error: {error}"),
         );
-        self.propose_failure(failure, "", CommitUrgency::Prompt)
+        self.propose_failure(failure, "", CommitUrgency::Prompt, progress)
             .await;
     }
 
-    async fn run_attempt(&self) -> Result<(), EffectError> {
+    async fn run_attempt(&self, progress: &mut StepAttemptProgress) -> Result<(), EffectError> {
         // The owner-memory method timeout covers preparation, so slow state or object reads count.
         let method_deadline = MethodDeadline::start(
             self.method_timeout_seconds,
@@ -120,7 +136,8 @@ impl MethodAttempt {
             BeforeDeadline::Canceled => return Ok(()),
             BeforeDeadline::TimedOut => {
                 // Without state, the failure carries no sticky Worker and commits promptly.
-                self.propose_failure(method_deadline.timeout_failure(), "", CommitUrgency::Prompt)
+                let failure = method_deadline.timeout_failure();
+                self.propose_failure(failure, "", CommitUrgency::Prompt, *progress)
                     .await;
                 return Ok(());
             }
@@ -130,6 +147,10 @@ impl MethodAttempt {
             tracing::debug!(run_id = %self.key.run_id, "method attempt is no longer running");
             return Ok(());
         };
+        if is_marked_started(&state, self.key.attempt) {
+            self.fail_marked_attempt(&state).await;
+            return Ok(());
+        }
         let urgency = match resolve_method_durability(
             &state.run_record,
             &state.step_execution,
@@ -141,7 +162,8 @@ impl MethodAttempt {
         let timeouts = AttemptTimeouts::new(&state, method_deadline);
         let end = match self.prepare_request(&state, &timeouts).await? {
             PreparedRequest::Ready(request) => {
-                self.dispatch_and_follow(&state, *request, &timeouts).await
+                self.dispatch_and_follow(&state, *request, &timeouts, progress)
+                    .await
             }
             PreparedRequest::Ended(end) => end,
         };
@@ -151,12 +173,17 @@ impl MethodAttempt {
             AttemptEnd::Failure(mut failure) => {
                 failure.omitted_value_slots =
                     state.omitted_value_slots(self.key.run_id, failure.worker_error.as_ref());
-                self.propose_failure(failure, &sticky_app_worker_id, urgency)
+                self.propose_failure(failure, &sticky_app_worker_id, urgency, *progress)
                     .await;
                 Ok(())
             }
             AttemptEnd::Result(frame, app_worker_id) => {
-                self.complete(&state, *frame, app_worker_id, &timeouts.method, urgency)
+                let result = AttemptResult {
+                    frame: *frame,
+                    app_worker_id,
+                    progress: *progress,
+                };
+                self.complete(&state, result, &timeouts.method, urgency)
                     .await
             }
         }
@@ -400,11 +427,33 @@ impl MethodAttempt {
         }
     }
 
+    /// Fails an attempt that its Worker marked started, instead of dispatching it again.
+    async fn fail_marked_attempt(&self, state: &MethodAttemptState) {
+        let failure = AttemptFailure::server(
+            StepAttemptFailureKind::StartedAttemptInterrupted,
+            "the attempt was marked started, and its Worker's result was lost",
+        );
+        let sticky_app_worker_id = &state.run_record.sticky_app_worker_id;
+        let progress = StepAttemptProgress::Started;
+        self.propose_failure(
+            failure,
+            sticky_app_worker_id,
+            CommitUrgency::Prompt,
+            progress,
+        )
+        .await;
+    }
+
+    /// Dispatches the attempt and follows it to its end.
+    ///
+    /// A failure reports at least `Assigned` once any Worker received the task, even when the
+    /// attempt ended before it read the `Assigned` event.
     async fn dispatch_and_follow(
         &self,
         state: &MethodAttemptState,
         request: MethodRequest,
         timeouts: &AttemptTimeouts,
+        progress: &mut StepAttemptProgress,
     ) -> AttemptEnd {
         // Building the request takes time, and an expired attempt must not reach a Worker.
         if timeouts.method.has_expired() {
@@ -438,6 +487,26 @@ impl MethodAttempt {
                 ));
             }
         };
+        let end = self
+            .follow_dispatch(session.as_mut(), state, timeouts, progress)
+            .await;
+        if matches!(end, AttemptEnd::Failure(_))
+            && session.finish().await
+            && *progress == StepAttemptProgress::NotAssigned
+        {
+            *progress = StepAttemptProgress::Assigned;
+        }
+        end
+    }
+
+    async fn follow_dispatch(
+        &self,
+        session: &mut dyn MethodDispatchSession,
+        state: &MethodAttemptState,
+        timeouts: &AttemptTimeouts,
+        progress: &mut StepAttemptProgress,
+    ) -> AttemptEnd {
+        let method_deadline = timeouts.method.expires_at;
         // Like the Go Server, the heartbeat timeout runs only while a Worker holds the task.
         let mut heartbeat_deadline = None;
         let mut checkpoints = CheckpointTracker {
@@ -487,6 +556,30 @@ impl MethodAttempt {
                         }
                         Some(DispatchEvent::Assigned { .. }) => {
                             heartbeat_deadline = Some(Instant::now() + timeouts.heartbeat_timeout);
+                            if *progress == StepAttemptProgress::NotAssigned {
+                                *progress = StepAttemptProgress::Assigned;
+                            }
+                        }
+                        Some(DispatchEvent::AttemptStarted(ack)) => {
+                            heartbeat_deadline = Some(Instant::now() + timeouts.heartbeat_timeout);
+                            let commit = self.propose_attempt_started_mark();
+                            match self.before_method_deadline(&timeouts.method, commit).await {
+                                BeforeDeadline::Done(true) => {
+                                    *progress = StepAttemptProgress::Started;
+                                    if !ack.acknowledge() {
+                                        tracing::debug!(run_id = %self.key.run_id, "Worker closed before the attempt-started ack");
+                                    }
+                                }
+                                // A rejected mark means the attempt already ended.
+                                BeforeDeadline::Done(false) | BeforeDeadline::Canceled => {
+                                    session.cancel();
+                                    return AttemptEnd::Canceled;
+                                }
+                                BeforeDeadline::TimedOut => {
+                                    session.cancel();
+                                    return AttemptEnd::Failure(timeouts.method.timeout_failure());
+                                }
+                            }
                         }
                         Some(DispatchEvent::Unassigned) => heartbeat_deadline = None,
                         Some(DispatchEvent::Output(frame)) => {
@@ -507,6 +600,23 @@ impl MethodAttempt {
                 }
             }
         }
+    }
+
+    /// Commits the attempt-started mark before the Worker may start its external effect.
+    ///
+    /// Returns true once the mark committed; false when apply rejected it as stale or the
+    /// node is stopping.
+    async fn propose_attempt_started_mark(&self) -> bool {
+        let command = self.flow_command(flow_command::Command::StepAttemptMarkedStarted(
+            StepAttemptMarkedStartedCommand {
+                invocation: Some(self.key.invocation()),
+                attempt: self.key.attempt,
+            },
+        ));
+        self.context
+            .propose_until_committed(&self.flow, command, CommitUrgency::Prompt)
+            .await
+            .is_some_and(|reply| !reply.is_error())
     }
 
     async fn propose_heartbeat(&self, checkpoint: Option<Value>) {
@@ -563,11 +673,15 @@ impl MethodAttempt {
     async fn complete(
         &self,
         state: &MethodAttemptState,
-        frame: PollWorkerTaskFrame,
-        app_worker_id: String,
+        result: AttemptResult,
         method_deadline: &MethodDeadline,
         urgency: CommitUrgency,
     ) -> Result<(), EffectError> {
+        let AttemptResult {
+            frame,
+            app_worker_id,
+            progress,
+        } = result;
         let sticky_app_worker_id = state.run_record.sticky_app_worker_id.clone();
         let max_value_bytes = match state.run_record.settings.as_ref() {
             Some(settings) if settings.max_value_bytes > 0 => settings.max_value_bytes,
@@ -596,7 +710,7 @@ impl MethodAttempt {
                     served_by_app_worker_id: app_worker_id,
                     omitted_value_slots: None,
                 };
-                self.propose_failure(failure, &sticky_app_worker_id, urgency)
+                self.propose_failure(failure, &sticky_app_worker_id, urgency, progress)
                     .await;
                 return Ok(());
             }
@@ -613,7 +727,7 @@ impl MethodAttempt {
                 Err(error) if error.is_retryable() && method_deadline.has_expired() => {
                     tracing::warn!(%error, run_id = %self.key.run_id, "hard-delete uploads failed after the method deadline");
                     let failure = method_deadline.timeout_failure();
-                    self.propose_failure(failure, &sticky_app_worker_id, urgency)
+                    self.propose_failure(failure, &sticky_app_worker_id, urgency, progress)
                         .await;
                     return Ok(());
                 }
@@ -629,7 +743,7 @@ impl MethodAttempt {
         // Like the Go Server's backends, a result whose processing ends after the deadline loses.
         if method_deadline.has_expired() {
             let failure = method_deadline.timeout_failure();
-            self.propose_failure(failure, &sticky_app_worker_id, urgency)
+            self.propose_failure(failure, &sticky_app_worker_id, urgency, progress)
                 .await;
             self.finish_result_uploads(uploads, false).await;
             return Ok(());
@@ -678,6 +792,7 @@ impl MethodAttempt {
         failure: AttemptFailure,
         sticky_app_worker_id: &str,
         urgency: CommitUrgency,
+        progress: StepAttemptProgress,
     ) {
         self.log_failure(&failure);
         let command = self.flow_command(flow_command::Command::StepAttemptFailed(
@@ -692,6 +807,7 @@ impl MethodAttempt {
                     sticky_app_worker_id,
                     &failure.served_by_app_worker_id,
                 )),
+                attempt_progress: progress as i32,
             },
         ));
         // A stale failure is rejected by apply; nothing else to do with the reply.
@@ -743,105 +859,6 @@ impl MethodAttempt {
     }
 }
 
-/// The attempt's owner-memory timeouts.
-struct AttemptTimeouts {
-    method: MethodDeadline,
-    heartbeat_timeout: Duration,
-}
-
-impl AttemptTimeouts {
-    /// Returns the attempt's method timeout and heartbeat timeout, with the Go Server defaults.
-    fn new(state: &MethodAttemptState, method: MethodDeadline) -> Self {
-        let heartbeat_timeout_seconds = state
-            .step_execution
-            .options
-            .as_ref()
-            .map_or(0, |options| options.heartbeat_timeout_seconds);
-        let heartbeat_timeout =
-            positive_seconds(heartbeat_timeout_seconds).unwrap_or(DEFAULT_HEARTBEAT_TIMEOUT);
-        Self {
-            method,
-            heartbeat_timeout,
-        }
-    }
-
-    /// Returns the first expired deadline's failure, checked against the clock rather than the timers.
-    fn expired_failure(&self, heartbeat_deadline: Option<Instant>) -> Option<AttemptFailure> {
-        if self.method.has_expired()
-            && heartbeat_deadline.is_none_or(|deadline| self.method.expires_at <= deadline)
-        {
-            return Some(self.method.timeout_failure());
-        }
-        if heartbeat_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return Some(self.heartbeat_timeout_failure());
-        }
-        self.method
-            .has_expired()
-            .then(|| self.method.timeout_failure())
-    }
-
-    fn heartbeat_timeout_failure(&self) -> AttemptFailure {
-        AttemptFailure::server(
-            StepAttemptFailureKind::HeartbeatTimeout,
-            format!("no heartbeat within {}s", self.heartbeat_timeout.as_secs()),
-        )
-    }
-}
-
-/// The method timeout, started before the attempt's first state read.
-struct MethodDeadline {
-    method_timeout: Duration,
-    /// When the method timeout expires, counted from the attempt's start.
-    expires_at: Instant,
-    is_retry_deadline: bool,
-}
-
-impl MethodDeadline {
-    /// Starts the configured method timeout now, or the Go Server default when it is not positive.
-    fn start(method_timeout_seconds: i32, retry_deadline_micros: i64, now_micros: i64) -> Self {
-        let method_timeout =
-            positive_seconds(method_timeout_seconds).unwrap_or(DEFAULT_METHOD_TIMEOUT);
-        let retry_remaining_micros = retry_deadline_micros.saturating_sub(now_micros).max(0) as u64;
-        let retry_remaining = Duration::from_micros(retry_remaining_micros);
-        let is_retry_deadline = retry_remaining < method_timeout;
-        Self {
-            method_timeout,
-            expires_at: Instant::now() + method_timeout.min(retry_remaining),
-            is_retry_deadline,
-        }
-    }
-
-    /// Returns true once the method timeout has expired, even before its timer fires.
-    fn has_expired(&self) -> bool {
-        Instant::now() >= self.expires_at
-    }
-
-    fn timeout_failure(&self) -> AttemptFailure {
-        if self.is_retry_deadline {
-            let mut failure = AttemptFailure::server(
-                StepAttemptFailureKind::RetryDeadline,
-                "retry policy total duration expired",
-            );
-            failure.is_non_retryable = true;
-            return failure;
-        }
-        AttemptFailure::server(
-            StepAttemptFailureKind::MethodTimeout,
-            format!(
-                "method timeout of {}s expired",
-                self.method_timeout.as_secs()
-            ),
-        )
-    }
-}
-
-fn positive_seconds(seconds: i32) -> Option<Duration> {
-    u64::try_from(seconds)
-        .ok()
-        .filter(|seconds| *seconds > 0)
-        .map(Duration::from_secs)
-}
-
 /// Converts a dispatch outcome into the attempt's end.
 fn attempt_end(outcome: DispatchOutcome, deadline: &MethodDeadline) -> AttemptEnd {
     match outcome {
@@ -885,70 +902,6 @@ fn attempt_end(outcome: DispatchOutcome, deadline: &MethodDeadline) -> AttemptEn
     }
 }
 
-/// A checkpoint change carried by a Worker frame: `Some(value)` sets it, `None` clears it.
-type CheckpointChange = Option<Value>;
-
-/// Returns the checkpoint change of an explicit heartbeat; stream writes keep the checkpoint.
-fn heartbeat_change(frame: &PollWorkerTaskFrame) -> Option<CheckpointChange> {
-    match frame.output.as_ref()? {
-        poll_worker_task_frame::Output::WaitFor(output) => match output.output.as_ref()? {
-            invoke_wait_for_method_output::Output::Heartbeat(heartbeat) => {
-                Some(heartbeat.value.clone())
-            }
-            _ => None,
-        },
-        poll_worker_task_frame::Output::Execute(output) => match output.output.as_ref()? {
-            invoke_execute_method_output::Output::Heartbeat(heartbeat) => {
-                Some(heartbeat.value.clone())
-            }
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Returns the Step Stream write that a Worker frame carries.
-fn into_step_stream_write(frame: PollWorkerTaskFrame) -> Option<StepStreamWrite> {
-    match frame.output? {
-        poll_worker_task_frame::Output::WaitFor(output) => match output.output? {
-            invoke_wait_for_method_output::Output::StreamWrite(write) => Some(write),
-            _ => None,
-        },
-        poll_worker_task_frame::Output::Execute(output) => match output.output? {
-            invoke_execute_method_output::Output::StreamWrite(write) => Some(write),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Coalesces checkpoint changes within the batch window and proposes only real changes.
-struct CheckpointTracker {
-    last_proposed: CheckpointChange,
-    pending: Option<CheckpointChange>,
-    flush_at: Option<Instant>,
-}
-
-impl CheckpointTracker {
-    fn observe(&mut self, change: CheckpointChange, batch_window: Duration) {
-        if change == self.last_proposed {
-            self.pending = None;
-            self.flush_at = None;
-            return;
-        }
-        self.pending = Some(change);
-        self.flush_at
-            .get_or_insert_with(|| Instant::now() + batch_window);
-    }
-
-    fn take_pending(&mut self) -> Option<CheckpointChange> {
-        self.flush_at = None;
-        let change = self.pending.take()?;
-        self.last_proposed = change.clone();
-        Some(change)
-    }
-}
-
 async fn sleep_until_optional(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => sleep_until(deadline).await,
@@ -974,6 +927,15 @@ pub(crate) fn pull_routing(
         served_by_app_worker_id: served_by_app_worker_id.to_owned(),
         source: source as i32,
     }
+}
+
+/// Returns true when the attempt's Worker marked it started, so it must not be dispatched again.
+fn is_marked_started(state: &MethodAttemptState, attempt: u32) -> bool {
+    state
+        .step_execution
+        .invocation
+        .as_ref()
+        .is_some_and(|invocation| invocation.marked_started_attempt == attempt)
 }
 
 fn unix_micros_to_system_time(micros: i64) -> SystemTime {

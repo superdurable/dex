@@ -340,6 +340,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::ChannelMessageDelete(_)) => "ChannelMessageDelete",
         Some(Command::StepAttemptStarted(_)) => "StepAttemptStarted",
         Some(Command::StepAttemptHeartbeat(_)) => "StepAttemptHeartbeat",
+        Some(Command::StepAttemptMarkedStarted(_)) => "StepAttemptMarkedStarted",
         Some(Command::StepAttemptFailed(_)) => "StepAttemptFailed",
         Some(Command::StepMethodCompleted(_)) => "StepMethodCompleted",
         Some(Command::RpcCommitted(_)) => "RpcCommitted",

@@ -70,6 +70,7 @@ import {
   InvokeExecuteMethodRequest,
   InvokeWaitForMethodRequest,
   InvokeWorkerRPCRequest,
+  StepAttemptProgress,
   type StepStreamWrite,
   type Value,
 } from "../src/gen/dex.js";
@@ -592,6 +593,7 @@ test("Step Stream writes emit every message on the active invocation", async () 
   const writes: StepStreamWrite[] = [];
   const output = {
     recordHeartbeat: async () => {},
+    markAttemptStarted: async () => {},
     writeStream(write: StepStreamWrite) {
       writes.push(write);
     },
@@ -701,6 +703,7 @@ test("buffered text Stream flushes on timer and before the final result", async 
   const observed: Array<{ value: string; handlerFinished: boolean }> = [];
   const output = {
     recordHeartbeat: async () => {},
+    markAttemptStarted: async () => {},
     writeStream(write: StepStreamWrite) {
       observed.push({
         value: write.value?.kind?.$case === "stringValue" ? write.value.kind.value : "",
@@ -777,6 +780,7 @@ test("Async Step Context preserves heartbeat Value presence and codecs", async (
       heartbeats.push(value);
       return Promise.resolve();
     },
+    markAttemptStarted: async () => {},
     writeStream(_write: StepStreamWrite): void {},
   };
   const flow = new HeartbeatFlow();
@@ -834,6 +838,7 @@ test("Context exposes the recovery error", () => {
       recoveryError: {
         detail: "handler exhausted retries",
         errorType: "TimeoutError",
+        attemptProgress: StepAttemptProgress.STEP_ATTEMPT_PROGRESS_STARTED,
       },
     }),
     [],
@@ -841,6 +846,7 @@ test("Context exposes the recovery error", () => {
   assert.deepEqual(context.recoveryError, {
     detail: "handler exhausted retries",
     errorType: "TimeoutError",
+    attemptProgress: "started",
   });
 });
 

@@ -4,6 +4,18 @@
 
 ### Added and fixed
 
+- Add `AsyncContext.markAttemptStarted()`. Its Promise resolves after Dex
+  commits that the current attempt is about to start its external effect.
+  Within one run attempt, Dex then never delivers that attempt again at the
+  same attempt number; after a Worker death or a Dex Server restart the attempt
+  fails instead. Time travel to a point before the mark runs the attempt again
+  in the new run attempt, like every Step after that point. It rejects
+  with the new `AttemptStartedNotAcknowledgedError` when the Dex Server does not
+  support the mark or the task stream closes first.
+- Add `RecoveryErrorInfo.attemptProgress` and the `StepAttemptProgress` type:
+  `"notAssigned"`, `"assigned"`, `"started"`, or `"unspecified"` from older Dex
+  Servers. Both new members are required, so a custom implementation of
+  `AsyncContext` or `RecoveryErrorInfo`, such as a test double, must add them.
 - Add `Client.getAttributes(flowId, ...reads)`, which reads committed values of
   registered Attributes and AttributeMap instances in one request, without an
   RPC or Worker. It returns a typed tuple in read order whose elements are

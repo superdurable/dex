@@ -173,6 +173,9 @@ impl FrameApplier {
             Ok(StepAttemptFailureKind::ValueTooLarge) => StepFailureKind::ValueTooLarge,
             Ok(StepAttemptFailureKind::RequestTooLarge) => StepFailureKind::RequestTooLarge,
             Ok(StepAttemptFailureKind::RetryDeadline) => StepFailureKind::RetryDeadline,
+            Ok(StepAttemptFailureKind::StartedAttemptInterrupted) => {
+                StepFailureKind::StartedAttemptInterrupted
+            }
             _ => {
                 metric_mapping_gap(&command.command_id, "Step failure has unmapped kind");
                 return;

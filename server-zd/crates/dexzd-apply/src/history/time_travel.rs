@@ -588,6 +588,7 @@ fn dispatch_restored_invocations(
                     step.options.as_ref(),
                     invocation,
                 ),
+                is_redispatch: true,
             }),
             StepInvocationPhase::Backoff | StepInvocationPhase::Unspecified => {}
         }

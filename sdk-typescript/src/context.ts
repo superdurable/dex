@@ -11,12 +11,38 @@ import type { Channel, ChannelMap, ChannelMessage } from "./wait.js";
 import type { Codec } from "./codec.js";
 import type { Stream } from "./stream.js";
 
+/**
+ * Describes how far the attempts of a failed Step method got.
+ *
+ * Dex reports the furthest attempt of the failed method in {@link RecoveryErrorInfo.attemptProgress}.
+ * A recovery Step uses it to tell work that never ran from work that may have run.
+ *
+ * - `"unspecified"`: the Dex Server does not report progress. Treat the work as possibly run.
+ * - `"notAssigned"`: no attempt was sent to a Worker, so the work never ran.
+ * - `"assigned"`: an attempt was sent to a Worker, and no attempt marked itself started. The work
+ *   did not start only for a Step that calls {@link AsyncContext.markAttemptStarted} before every
+ *   external effect. For any other Step, treat it as possibly run.
+ * - `"started"`: an attempt marked itself started, so its external effect may have run.
+ */
+export type StepAttemptProgress = "unspecified" | "notAssigned" | "assigned" | "started";
+
 /** Describes the final failure that selected a recovery path. */
 export interface RecoveryErrorInfo {
   /** Failure message supplied by the Worker or backend. */
   readonly detail: string;
-  /** Original Worker error type or backend failure type. */
+  /**
+   * Original Worker error type or backend failure type.
+   *
+   * A failed attempt that had marked itself started and lost its Worker result to a Dex Server
+   * restart reports `StartedAttemptInterrupted`.
+   */
   readonly errorType: string;
+  /**
+   * How far the failed method's attempts got.
+   *
+   * It is `"unspecified"` from a Dex Server that does not report it.
+   */
+  readonly attemptProgress: StepAttemptProgress;
 }
 
 /**
@@ -228,4 +254,45 @@ export interface AsyncContext extends Context {
    * @throws {ValueMappingError} The Promise rejects if the heartbeat value cannot be encoded.
    */
   recordHeartbeat<T>(value: T | undefined, codec?: Codec<T>): Promise<void>;
+
+  /**
+   * Records durably that this attempt is about to start its external effect.
+   *
+   * Call this method right before an external effect that must not run twice, such as a payment
+   * or an email. The Promise resolves only after Dex has committed the mark. From then on, Dex
+   * never delivers this attempt again at the same attempt number. When the Worker dies, or a Dex
+   * Server node restarts or fails over, the attempt fails instead. Its retry policy then applies,
+   * and after the last attempt the failure route receives {@link RecoveryErrorInfo.attemptProgress}
+   * set to `"started"`. An attempt that fails before the mark reports `"notAssigned"` or
+   * `"assigned"`, so a failure route can tell that the effect never started.
+   *
+   * Time travel is the exception. Time travel to a point before the mark runs the attempt again in
+   * the new run attempt, like every Step after that point.
+   *
+   * The call costs one commit round trip. Call it once per attempt. A call made while another one
+   * waits for its acknowledgement shares that acknowledgement. A later call commits again and has
+   * no further effect. A heartbeat does not replace it, because Dex does not acknowledge
+   * heartbeats.
+   *
+   * @example
+   * ```ts
+   * class ChargeCard implements Step<string> {
+   *   public readonly inputCodec = stringCodec;
+   *
+   *   public async execute(context: AsyncContext, input: string): Promise<StepDecision> {
+   *     await context.markAttemptStarted();
+   *     await payments.charge(input, { idempotencyKey: context.stepExecutionId });
+   *     return deadEnd();
+   *   }
+   * }
+   * ```
+   *
+   * @returns A Promise resolved after Dex acknowledges the committed mark. It never throws
+   * synchronously.
+   * @throws {AttemptStartedNotAcknowledgedError} The Promise rejects when the Dex Server does not
+   * support the mark, or when the task was cancelled or its stream closed before Dex acknowledged
+   * the mark. Do not start the effect after this error.
+   * @throws {TypeError} The Promise rejects when the Context cannot mark attempts, such as in an RPC.
+   */
+  markAttemptStarted(): Promise<void>;
 }

@@ -47,11 +47,11 @@ use dexzd_protocol::dexzd::v1::{
     FlowDirectoryRecord, FlowStartCommand, FlowStopCommand, HardDeleteObjectRecord,
     HardDeleteObjectReference, HistoryRecord, RetryBackoffTimerId, RpcCommittedCommand,
     RunPurgeCommand, RunRecord, RunSettings, SearchDocumentRecord, SetSearchProjectionModeCommand,
-    StepAttemptFailedCommand, StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord,
-    StepInvocationKey, StepInvocationPhase, StepMethod, StepMethodCompletedCommand,
-    TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand, TimersFiredCommand, ValueRecord,
-    WaitConditionTimerId, command_reply, flow_command::Command, step_method_completed_command,
-    stored_value, timer_id,
+    StepAttemptFailedCommand, StepAttemptMarkedStartedCommand, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    StepMethodCompletedCommand, TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand,
+    TimersFiredCommand, ValueRecord, WaitConditionTimerId, command_reply, flow_command::Command,
+    step_method_completed_command, stored_value, timer_id,
 };
 use prost::Message;
 
@@ -4144,4 +4144,54 @@ fn a_rebuild_from_a_later_checkpoint_replays_the_deciding_command_to_the_same_ro
     let (attempt, _) = harness.travel_to(reset_to_time(decision_time));
     assert_eq!(harness.attempt_record(attempt).parent_seq, decision_seq);
     assert_eq!(ship_steps(&harness.attempt_rows()), original);
+}
+
+/// Time travel restores a mark committed before its point; before the mark, the attempt runs again.
+#[test]
+fn restored_running_attempts_keep_only_marks_committed_before_the_point() {
+    let mut harness = Harness::new();
+    run_charge_then_ship(&mut harness);
+    harness.start_attempt("ShipStep-1", StepMethod::Execute, 1);
+    harness.set_attribute("status", "before the mark", "");
+    let before_mark_time = harness
+        .history_record(harness.last_seq())
+        .unwrap()
+        .timestamp_micros;
+    let marked = harness.apply(Command::StepAttemptMarkedStarted(
+        StepAttemptMarkedStartedCommand {
+            invocation: Some(key("ShipStep-1", StepMethod::Execute)),
+            attempt: 1,
+        },
+    ));
+    assert!(is_ok(&marked.reply));
+    harness.set_attribute("status", "after the mark", "");
+    let after_mark_time = harness
+        .history_record(harness.last_seq())
+        .unwrap()
+        .timestamp_micros;
+
+    let (after_attempt, after) = harness.travel_to(reset_to_time(after_mark_time));
+    assert_eq!(
+        started_effects(&after)
+            .iter()
+            .map(|started| (started.0.as_str(), started.1, started.2))
+            .collect::<Vec<_>>(),
+        vec![("ShipStep-1", 1, after_attempt)]
+    );
+    let restored = harness.step("ShipStep-1").invocation.unwrap();
+    assert_eq!(
+        restored.marked_started_attempt, 1,
+        "the restored attempt fails instead of running again"
+    );
+
+    let (_, before) = harness.travel_to(ResetFlowRequest {
+        run_attempt: 1,
+        ..reset_to_time(before_mark_time)
+    });
+    assert_eq!(started_effects(&before).len(), 1);
+    let restored = harness.step("ShipStep-1").invocation.unwrap();
+    assert_eq!(
+        restored.marked_started_attempt, 0,
+        "a point before the mark re-runs the attempt under the new run attempt"
+    );
 }

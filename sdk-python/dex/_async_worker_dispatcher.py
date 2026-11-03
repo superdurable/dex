@@ -13,7 +13,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import suppress
 from datetime import datetime
 from inspect import isawaitable, isgenerator
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._invocation_context import InvocationContext, InvocationMethod
@@ -82,10 +82,13 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         original: pb.InvokeWaitForMethodRequest,
         is_active: Callable[[], bool] | None = None,
         deadline: datetime | None = None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
     ) -> AsyncGenerator[pb.InvokeWaitForMethodOutput, None]:
         emitter = _AsyncStepOutputEmitter()
         handler = asyncio.create_task(
-            self._invoke_wait_for_result(original, emitter, is_active, deadline)
+            self._invoke_wait_for_result(
+                original, emitter, is_active, deadline, attempt_started_marker
+            )
         )
         try:
             async for output in self._drain_outputs(emitter, handler):
@@ -100,6 +103,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         emitter: _AsyncStepOutputEmitter,
         is_active: Callable[[], bool] | None,
         deadline: datetime | None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
     ) -> pb.InvokeWaitForMethodResponse:
         request = await self._async_hydrator.wait_for_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -118,6 +122,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             is_active=is_active,
             deadline=deadline,
             output_emitter=emitter,
+            attempt_started_marker=attempt_started_marker,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         response: pb.InvokeWaitForMethodResponse | None = None
@@ -169,12 +174,13 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         original: pb.InvokeExecuteMethodRequest,
         is_active: Callable[[], bool] | None = None,
         deadline: datetime | None = None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
     ) -> AsyncGenerator[pb.InvokeExecuteMethodOutput, None]:
         if original.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
             emitter = _AsyncStepOutputEmitter()
             handler = asyncio.create_task(
                 self._invoke_timeout_handler_async(
-                    original, emitter, is_active, deadline
+                    original, emitter, is_active, deadline, attempt_started_marker
                 )
             )
             try:
@@ -186,7 +192,9 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             return
         emitter = _AsyncStepOutputEmitter()
         handler = asyncio.create_task(
-            self._invoke_execute_result(original, emitter, is_active, deadline)
+            self._invoke_execute_result(
+                original, emitter, is_active, deadline, attempt_started_marker
+            )
         )
         try:
             async for output in self._drain_outputs(emitter, handler):
@@ -201,6 +209,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         emitter: _AsyncStepOutputEmitter,
         is_active: Callable[[], bool] | None,
         deadline: datetime | None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
     ) -> pb.InvokeExecuteMethodResponse:
         request = await self._async_hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -224,6 +233,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             is_active=is_active,
             deadline=deadline,
             output_emitter=emitter,
+            attempt_started_marker=attempt_started_marker,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         response: pb.InvokeExecuteMethodResponse | None = None
@@ -274,6 +284,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         emitter: _AsyncStepOutputEmitter,
         is_active: Callable[[], bool] | None,
         deadline: datetime | None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
     ) -> pb.InvokeExecuteMethodResponse:
         request = await self._async_hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -307,6 +318,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             is_active=is_active,
             deadline=deadline,
             output_emitter=emitter,
+            attempt_started_marker=attempt_started_marker,
         )
         response: pb.InvokeExecuteMethodResponse | None = None
         failure: BaseException | None = None

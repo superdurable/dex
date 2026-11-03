@@ -33,10 +33,10 @@ use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, InboxMessageCommand,
     OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
     RunSettings, StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
-    StepAttemptStartedCommand, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
-    TimeTravelCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
-    flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
-    step_method_completed_command, timer_id,
+    StepAttemptMarkedStartedCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, TimeTravelCommand, TimerRecord, TimerSkipCommand,
+    TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
+    step_attempt_heartbeat_command, step_method_completed_command, timer_id,
 };
 use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
 use prost::Message;
@@ -195,6 +195,14 @@ impl Workload<'_> {
                 checkpoint: Some(step_attempt_heartbeat_command::Checkpoint::Value(
                     string_value("authorized"),
                 )),
+            }),
+        )
+        .await;
+        self.commit(
+            &order,
+            Command::StepAttemptMarkedStarted(StepAttemptMarkedStartedCommand {
+                invocation: Some(invocation("ChargeStep-1", StepMethod::Execute)),
+                attempt: 1,
             }),
         )
         .await;

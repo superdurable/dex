@@ -19,7 +19,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable
 
 import grpc
 
@@ -34,6 +34,7 @@ from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
 from dex.pull_registration import PullRegistrationError, _PullRegistration
+from dex.runtime_errors import AttemptStartedNotAcknowledgedError
 from dex.worker_options import PullWorkerOptions
 
 _LOGGER = logging.getLogger(__name__)
@@ -360,6 +361,7 @@ class PullStream:
         self.run_task: asyncio.Task[None]
         self.handler_task: asyncio.Task[None] | None = None
         self.task_id = ""
+        self.task_kind: str | None = None
         self.is_busy = False
         self._is_registered = False
         self.is_draining = False
@@ -375,6 +377,9 @@ class PullStream:
         self._stream_metadata: Any = None
         self._deadline_handle: asyncio.TimerHandle | None = None
         self._supports_unknown_name_rejection = False
+        self._supports_attempt_started_ack = False
+        self._attempt_started_ack: asyncio.Future[None] | None = None
+        self._attempt_started_send: asyncio.Future[None] | None = None
 
     def on_done(self, completed: asyncio.Task[None]) -> None:
         self.runtime._stream_done(self, completed)
@@ -478,6 +483,7 @@ class PullStream:
         if self.runtime.is_stopping:
             return False
         self._supports_unknown_name_rejection = False
+        self._supports_attempt_started_ack = False
         self._is_final_frame_sent = False
         self._stream_metadata = None
         if self.runtime._credential_runner is None:
@@ -551,6 +557,9 @@ class PullStream:
                     self._supports_unknown_name_rejection = (
                         frame.registered.supports_unknown_name_rejection
                     )
+                    self._supports_attempt_started_ack = (
+                        frame.registered.supports_attempt_started_ack
+                    )
                     was_registered = True
                     self._is_registered = True
                     self.runtime.registration.record_registered_stream(self.queue)
@@ -562,6 +571,8 @@ class PullStream:
                     kind == "cancel_task" and frame.cancel_task.task_id == self.task_id
                 ):
                     self.cancel_handler()
+                elif kind == "attempt_started_ack":
+                    self._resolve_attempt_started_ack(frame.attempt_started_ack.task_id)
                 elif kind == "ping":
                     await self._send(
                         pb.PollWorkerTaskRequest(pong=pb.PollWorkerTaskPong())
@@ -572,6 +583,7 @@ class PullStream:
                         self._is_reconnecting = True
                         return was_registered
         finally:
+            self._fail_attempt_started_ack("the Worker task stream closed")
             async with self._send_lock:
                 self._stop_keepalive()
             retirement.cancel()
@@ -654,6 +666,7 @@ class PullStream:
             return
         self.is_busy = True
         self.task_id = task.task_id
+        self.task_kind = task.WhichOneof("request")
         self._active.set()
         self._is_final_frame_sent = False
         self._keepalive_task = asyncio.create_task(self._send_busy_keepalives())
@@ -710,11 +723,16 @@ class PullStream:
             if task.HasField("deadline")
             else None
         )
+
+        def mark_attempt_started() -> Awaitable[None]:
+            return self._mark_attempt_started(task.task_id)
+
         if kind == "wait_for":
             async for output in self.runtime._dispatcher.invoke_wait_for(
                 task.wait_for,
                 self._active.is_set,
                 deadline,
+                attempt_started_marker=mark_attempt_started,
             ):
                 await self._send_frame(
                     pb.PollWorkerTaskFrame(task_id=task.task_id, wait_for=output)
@@ -724,6 +742,7 @@ class PullStream:
                 task.execute,
                 self._active.is_set,
                 deadline,
+                attempt_started_marker=mark_attempt_started,
             ):
                 await self._send_frame(
                     pb.PollWorkerTaskFrame(task_id=task.task_id, execute=output)
@@ -771,6 +790,57 @@ class PullStream:
             )
         else:
             raise ValueError(f"unsupported Worker task request {kind}")
+
+    async def _mark_attempt_started(self, task_id: str) -> None:
+        if not self._supports_attempt_started_ack:
+            raise AttemptStartedNotAcknowledgedError(
+                "the Dex Server does not support attempt-started marks",
+                is_unsupported_server=True,
+            )
+        if self.task_id != task_id or not self._active.is_set():
+            raise AttemptStartedNotAcknowledgedError(
+                "the Worker task is no longer active"
+            )
+        pending = self._attempt_started_ack
+        if pending is not None and not pending.done():
+            # A concurrent mark of this attempt waits for the same acknowledgement.
+            await asyncio.shield(pending)
+            return
+        acknowledged: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._attempt_started_ack = acknowledged
+        frame = pb.PollWorkerTaskFrame(task_id=task_id)
+        if self.task_kind == "wait_for":
+            frame.wait_for.attempt_started.SetInParent()
+        else:
+            frame.execute.attempt_started.SetInParent()
+        # The send and the ack outlive this caller, so canceling it never strands other waiters.
+        self._attempt_started_send = asyncio.ensure_future(self._send_frame(frame))
+        self._attempt_started_send.add_done_callback(self._fail_unsent_attempt_started)
+        await asyncio.shield(acknowledged)
+
+    def _fail_unsent_attempt_started(self, sending: asyncio.Future[None]) -> None:
+        if sending.cancelled():
+            self._fail_attempt_started_ack("sending the mark was canceled")
+        elif (error := sending.exception()) is not None:
+            self._fail_attempt_started_ack(f"sending the mark failed: {error}")
+
+    def _resolve_attempt_started_ack(self, task_id: str) -> None:
+        acknowledged = self._attempt_started_ack
+        if (
+            task_id == self.task_id
+            and acknowledged is not None
+            and not acknowledged.done()
+        ):
+            acknowledged.set_result(None)
+            self._attempt_started_ack = None
+
+    def _fail_attempt_started_ack(self, detail: str) -> None:
+        acknowledged = self._attempt_started_ack
+        if acknowledged is not None and not acknowledged.done():
+            acknowledged.set_exception(AttemptStartedNotAcknowledgedError(detail))
+            # Every waiter re-raises it; retrieving it here keeps an unawaited one quiet.
+            acknowledged.exception()
+        self._attempt_started_ack = None
 
     def _send_from_thread(self, frame: pb.PollWorkerTaskFrame) -> None:
         loop = self.runtime._loop
@@ -866,6 +936,7 @@ class PullStream:
             self._deadline_handle = None
         self.handler_task = None
         self.task_id = ""
+        self.task_kind = None
         self.is_busy = False
         self._active.clear()
         self.runtime.finish_task()
@@ -888,6 +959,7 @@ class PullStream:
 
     def cancel_handler(self) -> None:
         self._active.clear()
+        self._fail_attempt_started_ack("the Worker task was canceled")
         if self.runtime._executor is None and self.handler_task is not None:
             self.handler_task.cancel()
 

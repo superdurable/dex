@@ -843,6 +843,7 @@ async fn speculative_and_committed_copies_of_a_start_dispatch_once() {
         task_id: invocation.task_id,
         method_timeout_seconds: 0,
         retry_deadline_micros: START_MICROS + 4 * 60 * 60 * SECOND_MICROS,
+        is_redispatch: false,
     };
     let flow = EffectHarness::flow("order-1");
     harness
@@ -979,6 +980,7 @@ async fn a_restored_running_attempt_is_redispatched_after_its_original_dispatch_
             task_id,
             method_timeout_seconds: 0,
             retry_deadline_micros: START_MICROS + 4 * 60 * 60 * SECOND_MICROS,
+            is_redispatch: true,
         }],
         true,
     );

@@ -31,6 +31,7 @@ import {
   type StepStreamWrite,
   type Value,
 } from "./gen/dex.js";
+import { AttemptStartedNotAcknowledgedError } from "./errors.js";
 import { workerErrorResponse } from "./grpc-status.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
@@ -48,6 +49,13 @@ interface ActiveTask {
   readonly deadlineCancellation: DeadlineCancellation | undefined;
 }
 
+interface PendingAttemptStartedAck {
+  readonly taskId: string;
+  readonly acknowledged: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (failure: Error) => void;
+}
+
 interface PollStream {
   readonly queue: string;
   stream: ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse> | undefined;
@@ -60,6 +68,8 @@ interface PollStream {
   isRegistered: boolean;
   hasRecordedResult: boolean;
   supportsUnknownNameRejection: boolean;
+  supportsAttemptStartedAck: boolean;
+  attemptStartedAck: PendingAttemptStartedAck | undefined;
   isDisconnected: boolean;
   isHalfClosed: boolean;
   isFinalFrameSent: boolean;
@@ -210,7 +220,7 @@ export class PullWorker {
         const poll: PollStream = {
           queue, stream: undefined, task: undefined, retryTimer: undefined,
           halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
-          isRegistered: false, hasRecordedResult: false, supportsUnknownNameRejection: false, isDisconnected: false, isHalfClosed: false, isFinalFrameSent: false, isDraining: false, isRetiring: false,
+          isRegistered: false, hasRecordedResult: false, supportsUnknownNameRejection: false, supportsAttemptStartedAck: false, attemptStartedAck: undefined, isDisconnected: false, isHalfClosed: false, isFinalFrameSent: false, isDraining: false, isRetiring: false,
           isReconnectRequested: false, hasRetriedRejectedToken: false,
           backoffMs: 100, failure: undefined,
         };
@@ -232,6 +242,7 @@ export class PullWorker {
     poll.isRegistered = false;
     poll.hasRecordedResult = false;
     poll.supportsUnknownNameRejection = false;
+    poll.supportsAttemptStartedAck = false;
     poll.isDisconnected = false;
     poll.isHalfClosed = false;
     poll.isFinalFrameSent = false;
@@ -276,6 +287,7 @@ export class PullWorker {
         poll.isRegistered = true;
         this.registration.registered(poll.queue);
         poll.supportsUnknownNameRejection = frame.value.supportsUnknownNameRejection;
+        poll.supportsAttemptStartedAck = frame.value.supportsAttemptStartedAck;
         poll.backoffMs = 100;
         poll.hasRetriedRejectedToken = false;
         this.reconcile();
@@ -292,6 +304,12 @@ export class PullWorker {
         break;
       case "cancelTask":
         if (poll.task?.id === frame.value.taskId) poll.task.controller.abort();
+        break;
+      case "attemptStartedAck":
+        if (poll.attemptStartedAck?.taskId === frame.value.taskId) {
+          poll.attemptStartedAck.resolve();
+          poll.attemptStartedAck = undefined;
+        }
         break;
       case "ping":
         if (poll.task !== undefined && poll.isFinalFrameSent) break;
@@ -461,6 +479,7 @@ export class PullWorker {
 
   private finishTask(poll: PollStream): void {
     this.stopKeepalive(poll);
+    failAttemptStartedAck(poll, "the Worker task finished");
     const task = poll.task;
     if (task === undefined) return;
     task.deadlineCancellation?.stop();
@@ -515,6 +534,7 @@ export class PullWorker {
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
     poll.stream?.cancel();
+    failAttemptStartedAck(poll, "the Worker task stream closed");
     poll.task?.controller.abort();
     if (this.isStopping) return;
     if (poll.task === undefined) this.scheduleReconnect(poll);
@@ -637,6 +657,7 @@ export class PullWorker {
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
     poll.stream?.cancel();
+    failAttemptStartedAck(poll, "the Worker task stream closed");
     if (poll.isHalfClosed) this.completeHalfClose(poll);
     if (poll.retryTimer !== undefined) {
       clearTimeout(poll.retryTimer);
@@ -668,6 +689,41 @@ class PullStepOutputEmitter implements StepOutputEmitter {
     this.sendOutput({ $case: "streamWrite", value: write });
   }
 
+  public async markAttemptStarted(): Promise<void> {
+    if (!this.poll.supportsAttemptStartedAck) {
+      throw new AttemptStartedNotAcknowledgedError("the Dex Server does not support attempt-started marks", true);
+    }
+    if (!this.isActive || this.signal.aborted || this.poll.isDisconnected) {
+      throw new AttemptStartedNotAcknowledgedError("the Worker task is no longer active");
+    }
+    const pending = this.poll.attemptStartedAck;
+    if (pending?.taskId === this.taskID) {
+      // A concurrent mark of this attempt waits for the same acknowledgement.
+      return pending.acknowledged;
+    }
+    // Send first: a send that throws must not leave a Promise that nobody awaits.
+    try {
+      this.sendOutput({ $case: "attemptStarted", value: {} });
+    } catch (failure) {
+      const detail = failure instanceof Error ? failure.message : String(failure);
+      throw new AttemptStartedNotAcknowledgedError(`sending the mark failed: ${detail}`);
+    }
+    let resolve: () => void = () => {};
+    let reject: (failure: Error) => void = () => {};
+    const acknowledged = new Promise<void>((resolveAck, rejectAck) => {
+      resolve = resolveAck;
+      reject = rejectAck;
+    });
+    this.poll.attemptStartedAck = { taskId: this.taskID, acknowledged, resolve, reject };
+    const onAbort = (): void => failAttemptStartedAck(this.poll, "the Worker task was cancelled");
+    this.signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      await acknowledged;
+    } finally {
+      this.signal.removeEventListener("abort", onAbort);
+    }
+  }
+
   private sendOutput(output: InvokeWaitForMethodOutput["output"]): void {
     if (!this.isActive || this.signal.aborted) throw new Error("Worker task is no longer active");
     if (this.poll.isDisconnected) throw new Error("Worker task stream is closed");
@@ -676,6 +732,13 @@ class PullStepOutputEmitter implements StepOutputEmitter {
       : { $case: "execute" as const, value: InvokeExecuteMethodOutput.create({ output }) };
     this.sendFrame({ taskId: this.taskID, output: value });
   }
+}
+
+function failAttemptStartedAck(poll: PollStream, detail: string): void {
+  const pending = poll.attemptStartedAck;
+  if (pending === undefined) return;
+  poll.attemptStartedAck = undefined;
+  pending.reject(new AttemptStartedNotAcknowledgedError(detail));
 }
 
 class DeadlineCancellation {

@@ -289,6 +289,25 @@ export enum InternalTimerStatus {
   UNRECOGNIZED = -1,
 }
 
+/**
+ * How far the attempts of a failed Step method got, across all of its attempts.
+ * Later values mean more progress, so the furthest attempt decides the value.
+ */
+export enum StepAttemptProgress {
+  /** STEP_ATTEMPT_PROGRESS_UNSPECIFIED - The Server does not report progress. Treat the work as possibly run. */
+  STEP_ATTEMPT_PROGRESS_UNSPECIFIED = 0,
+  /** STEP_ATTEMPT_PROGRESS_NOT_ASSIGNED - No attempt was sent to a Worker, so none ran. */
+  STEP_ATTEMPT_PROGRESS_NOT_ASSIGNED = 1,
+  /**
+   * STEP_ATTEMPT_PROGRESS_ASSIGNED - An attempt was sent to a Worker, and no attempt marked itself started.
+   * A Step that marks before every external effect did not start one.
+   */
+  STEP_ATTEMPT_PROGRESS_ASSIGNED = 2,
+  /** STEP_ATTEMPT_PROGRESS_STARTED - An attempt marked itself started, so its external effect may have run. */
+  STEP_ATTEMPT_PROGRESS_STARTED = 3,
+  UNRECOGNIZED = -1,
+}
+
 /** Describes the Dex Server release and the inclusive protocol range it supports. */
 export interface ServerInfo {
   /** Identifies the Server artifact for diagnostics. Compatibility uses only the protocol range. */
@@ -383,6 +402,9 @@ export interface PollWorkerTaskResponse {
     | //
     /** Checks whether an idle stream remains responsive. */
     { $case: "ping"; value: PollWorkerTaskPing }
+    | //
+    /** Confirms that Dex stored the attempt-started mark of the assigned task. */
+    { $case: "attemptStartedAck"; value: PollWorkerTaskAttemptStartedAck }
     | undefined;
 }
 
@@ -390,6 +412,8 @@ export interface PollWorkerTaskResponse {
 export interface PollWorkerTaskRegistered {
   /** Allows this queue-owner stream to reject an assigned unknown Step type or RPC name. */
   supportsUnknownNameRejection: boolean;
+  /** Allows a Step task on this stream to send StepMethodAttemptStarted and wait for its ack. */
+  supportsAttemptStartedAck: boolean;
 }
 
 /** Assigns one task to this stream until its final result, error, or rejection. */
@@ -414,6 +438,15 @@ export interface PollWorkerTask {
 /** Requests cancellation of the task currently assigned to this stream. */
 export interface PollWorkerTaskCancelTask {
   /** Matches the task currently assigned on this stream. */
+  taskId: string;
+}
+
+/**
+ * Confirms that Dex committed the StepMethodAttemptStarted mark of the assigned task.
+ * The Worker may start the attempt's external effect only after this frame.
+ */
+export interface PollWorkerTaskAttemptStartedAck {
+  /** Matches the task that sent StepMethodAttemptStarted. */
   taskId: string;
 }
 
@@ -1441,6 +1474,16 @@ export interface StepMethodHeartbeat {
   value: Value | undefined;
 }
 
+/**
+ * Marks the current Step method attempt as started before its external effect.
+ * Send it only when PollWorkerTaskRegistered.supports_attempt_started_ack is set.
+ * Dex commits the mark, then sends PollWorkerTaskAttemptStartedAck. Within one run attempt,
+ * a marked attempt is never dispatched again at the same attempt number; Dex fails it instead.
+ * Time travel to a point before the mark runs the attempt again in the new run attempt.
+ */
+export interface StepMethodAttemptStarted {
+}
+
 export interface StepStreamWrite {
   streamName: string;
   streamCapacityBytes: bigint;
@@ -1448,10 +1491,12 @@ export interface StepStreamWrite {
 }
 
 export interface InvokeWaitForMethodOutput {
-  output: { $case: "heartbeat"; value: StepMethodHeartbeat } | { $case: "streamWrite"; value: StepStreamWrite } | {
-    $case: "result";
-    value: InvokeWaitForMethodResponse;
-  } | undefined;
+  output:
+    | { $case: "heartbeat"; value: StepMethodHeartbeat }
+    | { $case: "streamWrite"; value: StepStreamWrite }
+    | { $case: "result"; value: InvokeWaitForMethodResponse }
+    | { $case: "attemptStarted"; value: StepMethodAttemptStarted }
+    | undefined;
 }
 
 export interface InvokeExecuteMethodRequest {
@@ -1490,10 +1535,12 @@ export interface InvokeExecuteMethodResponse {
 }
 
 export interface InvokeExecuteMethodOutput {
-  output: { $case: "heartbeat"; value: StepMethodHeartbeat } | { $case: "streamWrite"; value: StepStreamWrite } | {
-    $case: "result";
-    value: InvokeExecuteMethodResponse;
-  } | undefined;
+  output:
+    | { $case: "heartbeat"; value: StepMethodHeartbeat }
+    | { $case: "streamWrite"; value: StepStreamWrite }
+    | { $case: "result"; value: InvokeExecuteMethodResponse }
+    | { $case: "attemptStarted"; value: StepMethodAttemptStarted }
+    | undefined;
 }
 
 export interface InvokeWorkerRPCRequest {
@@ -1670,6 +1717,8 @@ export interface StepExecutionResumeInfo {
 export interface RecoveryErrorInfo {
   detail: string;
   errorType: string;
+  /** How far the failed method's attempts got. UNSPECIFIED from a Server that does not report it. */
+  attemptProgress: StepAttemptProgress;
 }
 
 export interface AttributeSyncItem {
@@ -2279,6 +2328,9 @@ export const PollWorkerTaskResponse: MessageFns<PollWorkerTaskResponse> = {
       case "ping":
         PollWorkerTaskPing.encode(message.frame.value, writer.uint32(42).fork()).join();
         break;
+      case "attemptStartedAck":
+        PollWorkerTaskAttemptStartedAck.encode(message.frame.value, writer.uint32(50).fork()).join();
+        break;
     }
     return writer;
   },
@@ -2330,6 +2382,17 @@ export const PollWorkerTaskResponse: MessageFns<PollWorkerTaskResponse> = {
           message.frame = { $case: "ping", value: PollWorkerTaskPing.decode(reader, reader.uint32()) };
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.frame = {
+            $case: "attemptStartedAck",
+            value: PollWorkerTaskAttemptStartedAck.decode(reader, reader.uint32()),
+          };
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2375,19 +2438,31 @@ export const PollWorkerTaskResponse: MessageFns<PollWorkerTaskResponse> = {
         }
         break;
       }
+      case "attemptStartedAck": {
+        if (object.frame?.value !== undefined && object.frame?.value !== null) {
+          message.frame = {
+            $case: "attemptStartedAck",
+            value: PollWorkerTaskAttemptStartedAck.fromPartial(object.frame.value),
+          };
+        }
+        break;
+      }
     }
     return message;
   },
 };
 
 function createBasePollWorkerTaskRegistered(): PollWorkerTaskRegistered {
-  return { supportsUnknownNameRejection: false };
+  return { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false };
 }
 
 export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
   encode(message: PollWorkerTaskRegistered, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.supportsUnknownNameRejection !== false) {
       writer.uint32(8).bool(message.supportsUnknownNameRejection);
+    }
+    if (message.supportsAttemptStartedAck !== false) {
+      writer.uint32(16).bool(message.supportsAttemptStartedAck);
     }
     return writer;
   },
@@ -2407,6 +2482,14 @@ export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
           message.supportsUnknownNameRejection = reader.bool();
           continue;
         }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.supportsAttemptStartedAck = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2422,6 +2505,7 @@ export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
   fromPartial<I extends Exact<DeepPartial<PollWorkerTaskRegistered>, I>>(object: I): PollWorkerTaskRegistered {
     const message = createBasePollWorkerTaskRegistered();
     message.supportsUnknownNameRejection = object.supportsUnknownNameRejection ?? false;
+    message.supportsAttemptStartedAck = object.supportsAttemptStartedAck ?? false;
     return message;
   },
 };
@@ -2580,6 +2664,54 @@ export const PollWorkerTaskCancelTask: MessageFns<PollWorkerTaskCancelTask> = {
   },
   fromPartial<I extends Exact<DeepPartial<PollWorkerTaskCancelTask>, I>>(object: I): PollWorkerTaskCancelTask {
     const message = createBasePollWorkerTaskCancelTask();
+    message.taskId = object.taskId ?? "";
+    return message;
+  },
+};
+
+function createBasePollWorkerTaskAttemptStartedAck(): PollWorkerTaskAttemptStartedAck {
+  return { taskId: "" };
+}
+
+export const PollWorkerTaskAttemptStartedAck: MessageFns<PollWorkerTaskAttemptStartedAck> = {
+  encode(message: PollWorkerTaskAttemptStartedAck, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.taskId !== "") {
+      writer.uint32(10).string(message.taskId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PollWorkerTaskAttemptStartedAck {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePollWorkerTaskAttemptStartedAck();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.taskId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<PollWorkerTaskAttemptStartedAck>, I>>(base?: I): PollWorkerTaskAttemptStartedAck {
+    return PollWorkerTaskAttemptStartedAck.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PollWorkerTaskAttemptStartedAck>, I>>(
+    object: I,
+  ): PollWorkerTaskAttemptStartedAck {
+    const message = createBasePollWorkerTaskAttemptStartedAck();
     message.taskId = object.taskId ?? "";
     return message;
   },
@@ -12327,6 +12459,40 @@ export const StepMethodHeartbeat: MessageFns<StepMethodHeartbeat> = {
   },
 };
 
+function createBaseStepMethodAttemptStarted(): StepMethodAttemptStarted {
+  return {};
+}
+
+export const StepMethodAttemptStarted: MessageFns<StepMethodAttemptStarted> = {
+  encode(_: StepMethodAttemptStarted, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StepMethodAttemptStarted {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepMethodAttemptStarted();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepMethodAttemptStarted>, I>>(base?: I): StepMethodAttemptStarted {
+    return StepMethodAttemptStarted.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepMethodAttemptStarted>, I>>(_: I): StepMethodAttemptStarted {
+    const message = createBaseStepMethodAttemptStarted();
+    return message;
+  },
+};
+
 function createBaseStepStreamWrite(): StepStreamWrite {
   return { streamName: "", streamCapacityBytes: 0n, value: undefined };
 }
@@ -12418,6 +12584,9 @@ export const InvokeWaitForMethodOutput: MessageFns<InvokeWaitForMethodOutput> = 
       case "result":
         InvokeWaitForMethodResponse.encode(message.output.value, writer.uint32(26).fork()).join();
         break;
+      case "attemptStarted":
+        StepMethodAttemptStarted.encode(message.output.value, writer.uint32(34).fork()).join();
+        break;
     }
     return writer;
   },
@@ -12453,6 +12622,14 @@ export const InvokeWaitForMethodOutput: MessageFns<InvokeWaitForMethodOutput> = 
           message.output = { $case: "result", value: InvokeWaitForMethodResponse.decode(reader, reader.uint32()) };
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.output = { $case: "attemptStarted", value: StepMethodAttemptStarted.decode(reader, reader.uint32()) };
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12483,6 +12660,15 @@ export const InvokeWaitForMethodOutput: MessageFns<InvokeWaitForMethodOutput> = 
       case "result": {
         if (object.output?.value !== undefined && object.output?.value !== null) {
           message.output = { $case: "result", value: InvokeWaitForMethodResponse.fromPartial(object.output.value) };
+        }
+        break;
+      }
+      case "attemptStarted": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = {
+            $case: "attemptStarted",
+            value: StepMethodAttemptStarted.fromPartial(object.output.value),
+          };
         }
         break;
       }
@@ -12995,6 +13181,9 @@ export const InvokeExecuteMethodOutput: MessageFns<InvokeExecuteMethodOutput> = 
       case "result":
         InvokeExecuteMethodResponse.encode(message.output.value, writer.uint32(26).fork()).join();
         break;
+      case "attemptStarted":
+        StepMethodAttemptStarted.encode(message.output.value, writer.uint32(34).fork()).join();
+        break;
     }
     return writer;
   },
@@ -13030,6 +13219,14 @@ export const InvokeExecuteMethodOutput: MessageFns<InvokeExecuteMethodOutput> = 
           message.output = { $case: "result", value: InvokeExecuteMethodResponse.decode(reader, reader.uint32()) };
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.output = { $case: "attemptStarted", value: StepMethodAttemptStarted.decode(reader, reader.uint32()) };
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -13060,6 +13257,15 @@ export const InvokeExecuteMethodOutput: MessageFns<InvokeExecuteMethodOutput> = 
       case "result": {
         if (object.output?.value !== undefined && object.output?.value !== null) {
           message.output = { $case: "result", value: InvokeExecuteMethodResponse.fromPartial(object.output.value) };
+        }
+        break;
+      }
+      case "attemptStarted": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = {
+            $case: "attemptStarted",
+            value: StepMethodAttemptStarted.fromPartial(object.output.value),
+          };
         }
         break;
       }
@@ -15149,7 +15355,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
 };
 
 function createBaseRecoveryErrorInfo(): RecoveryErrorInfo {
-  return { detail: "", errorType: "" };
+  return { detail: "", errorType: "", attemptProgress: 0 };
 }
 
 export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
@@ -15159,6 +15365,9 @@ export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
     }
     if (message.errorType !== "") {
       writer.uint32(18).string(message.errorType);
+    }
+    if (message.attemptProgress !== 0) {
+      writer.uint32(24).int32(message.attemptProgress);
     }
     return writer;
   },
@@ -15186,6 +15395,14 @@ export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
           message.errorType = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.attemptProgress = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -15202,6 +15419,7 @@ export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
     const message = createBaseRecoveryErrorInfo();
     message.detail = object.detail ?? "";
     message.errorType = object.errorType ?? "";
+    message.attemptProgress = object.attemptProgress ?? 0;
     return message;
   },
 };

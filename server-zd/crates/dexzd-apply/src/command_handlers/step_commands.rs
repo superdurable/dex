@@ -8,7 +8,9 @@
 
 //! Step attempt commands and fired timers.
 
-use dexzd_protocol::dex::{FlowErrorType, FlowStatus, FlowTimeoutPolicy, PullRouting};
+use dexzd_protocol::dex::{
+    FlowErrorType, FlowStatus, FlowTimeoutPolicy, PullRouting, StepAttemptProgress,
+};
 use dexzd_protocol::dexzd::v1::{
     StepAttemptFailedCommand, StepAttemptFailureKind, StepExecutionPhase, StepMethod,
     TimersFiredCommand, flow_command::Command, timer_id,
@@ -22,8 +24,9 @@ use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, StepCommandOutcome, TIMEOUT_HANDLER_STEP_EXECUTION_ID, apply_attempt_failed,
-    apply_attempt_heartbeat, apply_attempt_started, apply_method_completed,
-    apply_retry_backoff_fired, create_step_execution, disarm_timer, make_invocation_pending,
+    apply_attempt_heartbeat, apply_attempt_marked_started, apply_attempt_started,
+    apply_method_completed, apply_retry_backoff_fired, create_step_execution, disarm_timer,
+    make_invocation_pending,
 };
 use crate::values::ValueRejection;
 
@@ -48,6 +51,10 @@ pub(crate) fn apply_step_command(
         ),
         Command::StepAttemptHeartbeat(heartbeat) => (
             apply_attempt_heartbeat(transaction, &mut cursor, heartbeat)?,
+            HistoryKind::BOOKKEEPING,
+        ),
+        Command::StepAttemptMarkedStarted(marked) => (
+            apply_attempt_marked_started(transaction, &mut cursor, marked)?,
             HistoryKind::BOOKKEEPING,
         ),
         Command::StepAttemptFailed(failed) => (
@@ -129,6 +136,8 @@ fn rejected_result_failure(
         server_detail,
         is_non_retryable: true,
         pull_routing,
+        // A Worker sent the rejected result; apply raises this to STARTED for a marked attempt.
+        attempt_progress: StepAttemptProgress::Assigned as i32,
     })
 }
 

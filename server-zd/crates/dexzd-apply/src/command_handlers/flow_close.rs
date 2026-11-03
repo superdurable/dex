@@ -62,6 +62,7 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::ChannelMessageDelete(_)
         | Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
+        | Command::StepAttemptMarkedStarted(_)
         | Command::StepAttemptFailed(_)
         | Command::StepMethodCompleted(_)
         | Command::RpcCommitted(_)

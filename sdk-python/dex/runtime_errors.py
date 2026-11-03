@@ -276,6 +276,38 @@ class InvalidStepResultError(FlowDefinitionError):
         self.detail = detail
 
 
+class AttemptStartedNotAcknowledgedError(RuntimeError):
+    """Report that Dex did not acknowledge an attempt-started mark.
+
+    ``AsyncContext.mark_attempt_started`` raises this error when the Dex Server
+    does not support the mark, or when the Worker task stream closed before Dex
+    acknowledged it. The Step must not start its external effect after this
+    error. Let the error fail the attempt, so the retry policy or the failure
+    route handles it.
+
+    An application that must also run against older Dex Servers can check
+    ``is_unsupported_server`` and fall back to its earlier behavior. When it is
+    ``False``, the Worker task was canceled or lost its stream, and the effect
+    must not start.
+
+    Attributes:
+        detail: Why the mark was not acknowledged.
+        is_unsupported_server: ``True`` when the Dex Server does not support the
+            mark, so no attempt on this Worker task stream can be marked.
+    """
+
+    def __init__(self, detail: str, is_unsupported_server: bool = False) -> None:
+        """Create the error.
+
+        Args:
+            detail: Why the mark was not acknowledged.
+            is_unsupported_server: Whether the Dex Server does not support the mark.
+        """
+        super().__init__(f"Dex did not acknowledge the attempt-started mark: {detail}")
+        self.detail = detail
+        self.is_unsupported_server = is_unsupported_server
+
+
 class ValueMappingError(RuntimeError):
     """Report an application-value encoding or decoding failure.
 

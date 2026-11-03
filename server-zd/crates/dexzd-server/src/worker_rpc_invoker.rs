@@ -57,7 +57,8 @@ impl PullWorkerRpcInvoker {
                 Some(
                     DispatchEvent::Assigned { .. }
                     | DispatchEvent::Unassigned
-                    | DispatchEvent::Output(_),
+                    | DispatchEvent::Output(_)
+                    | DispatchEvent::AttemptStarted(_),
                 ) => {}
                 Some(DispatchEvent::Completed(outcome)) => {
                     return rpc_result(outcome, &sticky_app_worker_id);

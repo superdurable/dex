@@ -13,6 +13,6 @@ mod worker_registry;
 
 pub use matching_config::MatchingConfig;
 pub use worker_registry::{
-    DispatchEvent, DispatchHandle, DispatchOutcome, DispatchRequest, DispatchTaskPayload,
-    WorkerDispatch, WorkerTaskService,
+    AttemptStartedAck, DispatchEvent, DispatchHandle, DispatchOutcome, DispatchRequest,
+    DispatchTaskPayload, WorkerDispatch, WorkerTaskService,
 };

@@ -8,6 +8,7 @@
 
 //! State invariants checked after every applied command (plan sections 8 and 10).
 
+mod attempt_progress_invariants;
 mod attribute_sync_invariants;
 mod directory_invariants;
 mod lock_invariants;
@@ -22,6 +23,7 @@ use dexzd_keyspace::{FlowHash, RunId, ValueId};
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::FlowView;
 
+pub(crate) use attempt_progress_invariants::check_retried_attempt_progress;
 pub use attribute_sync_invariants::CloseBarrierCounts;
 pub(crate) use attribute_sync_invariants::{
     AttributeSyncAcks, check_close_barrier, check_outbox_writes, remember_ack,

@@ -16,9 +16,10 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
-    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
-    StepInvocationRecord, StepMethod, StepMethodCompletedCommand, TimerId, TimersFiredCommand,
-    flow_command::Command, step_attempt_heartbeat_command, step_method_completed_command,
+    StepAttemptMarkedStartedCommand, StepAttemptStartedCommand, StepExecutionPhase,
+    StepExecutionRecord, StepInvocationKey, StepInvocationRecord, StepMethod,
+    StepMethodCompletedCommand, TimerId, TimersFiredCommand, flow_command::Command,
+    step_attempt_heartbeat_command, step_method_completed_command,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
@@ -333,10 +334,27 @@ pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>, is_step_failure_stream
         is_non_retryable: kind == StepAttemptFailureKind::RetryDeadline as i32
             || rng.random_bool(0.03),
         pull_routing: None,
+        // Only the Step failure stream draws it, so main-stream trajectories stay pinned.
+        attempt_progress: if is_step_failure_stream {
+            rng.random_range(0..4)
+        } else {
+            0
+        },
     })
 }
 
-pub(crate) fn heartbeat(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
+/// A heartbeat; in the Step failure stream sometimes the attempt-started mark instead.
+pub(crate) fn heartbeat(
+    rng: &mut ChaCha8Rng,
+    call: &Call<'_>,
+    is_step_failure_stream: bool,
+) -> Command {
+    if is_step_failure_stream && rng.random_bool(0.2) {
+        return Command::StepAttemptMarkedStarted(StepAttemptMarkedStartedCommand {
+            invocation: Some(call.key()),
+            attempt: call.invocation.attempt,
+        });
+    }
     let checkpoint = if rng.random_bool(0.25) {
         step_attempt_heartbeat_command::Checkpoint::IsCleared(true)
     } else {
@@ -369,12 +387,13 @@ pub(crate) fn stale_attempt_command(
     let mut command = match rng.random_range(0..3) {
         0 => complete(rng, call, false, is_step_failure_stream),
         1 => fail(rng, call, is_step_failure_stream),
-        _ => heartbeat(rng, call),
+        _ => heartbeat(rng, call, is_step_failure_stream),
     };
     match &mut command {
         Command::StepMethodCompleted(completed) => completed.attempt = attempt,
         Command::StepAttemptFailed(failed) => failed.attempt = attempt,
         Command::StepAttemptHeartbeat(heartbeat) => heartbeat.attempt = attempt,
+        Command::StepAttemptMarkedStarted(marked) => marked.attempt = attempt,
         _ => {}
     }
     command

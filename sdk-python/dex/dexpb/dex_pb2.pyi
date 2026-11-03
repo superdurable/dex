@@ -204,6 +204,13 @@ class InternalTimerStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     INTERNAL_TIMER_STATUS_PENDING: _ClassVar[InternalTimerStatus]
     INTERNAL_TIMER_STATUS_FIRED: _ClassVar[InternalTimerStatus]
     INTERNAL_TIMER_STATUS_SKIPPED: _ClassVar[InternalTimerStatus]
+
+class StepAttemptProgress(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    STEP_ATTEMPT_PROGRESS_UNSPECIFIED: _ClassVar[StepAttemptProgress]
+    STEP_ATTEMPT_PROGRESS_NOT_ASSIGNED: _ClassVar[StepAttemptProgress]
+    STEP_ATTEMPT_PROGRESS_ASSIGNED: _ClassVar[StepAttemptProgress]
+    STEP_ATTEMPT_PROGRESS_STARTED: _ClassVar[StepAttemptProgress]
 SERVER_ENGINE_UNSPECIFIED: ServerEngine
 SERVER_ENGINE_TEMPORAL: ServerEngine
 SERVER_ENGINE_CADENCE: ServerEngine
@@ -321,6 +328,10 @@ INTERNAL_TIMER_STATUS_UNSPECIFIED: InternalTimerStatus
 INTERNAL_TIMER_STATUS_PENDING: InternalTimerStatus
 INTERNAL_TIMER_STATUS_FIRED: InternalTimerStatus
 INTERNAL_TIMER_STATUS_SKIPPED: InternalTimerStatus
+STEP_ATTEMPT_PROGRESS_UNSPECIFIED: StepAttemptProgress
+STEP_ATTEMPT_PROGRESS_NOT_ASSIGNED: StepAttemptProgress
+STEP_ATTEMPT_PROGRESS_ASSIGNED: StepAttemptProgress
+STEP_ATTEMPT_PROGRESS_STARTED: StepAttemptProgress
 
 class ServerInfo(_message.Message):
     __slots__ = ("server_version", "minimum_supported_protocol_version", "current_protocol_version", "server_engine")
@@ -387,24 +398,28 @@ class PollWorkerTaskPong(_message.Message):
     def __init__(self) -> None: ...
 
 class PollWorkerTaskResponse(_message.Message):
-    __slots__ = ("registered", "task", "cancel_task", "reconnect", "ping")
+    __slots__ = ("registered", "task", "cancel_task", "reconnect", "ping", "attempt_started_ack")
     REGISTERED_FIELD_NUMBER: _ClassVar[int]
     TASK_FIELD_NUMBER: _ClassVar[int]
     CANCEL_TASK_FIELD_NUMBER: _ClassVar[int]
     RECONNECT_FIELD_NUMBER: _ClassVar[int]
     PING_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_STARTED_ACK_FIELD_NUMBER: _ClassVar[int]
     registered: PollWorkerTaskRegistered
     task: PollWorkerTask
     cancel_task: PollWorkerTaskCancelTask
     reconnect: PollWorkerTaskReconnect
     ping: PollWorkerTaskPing
-    def __init__(self, registered: _Optional[_Union[PollWorkerTaskRegistered, _Mapping]] = ..., task: _Optional[_Union[PollWorkerTask, _Mapping]] = ..., cancel_task: _Optional[_Union[PollWorkerTaskCancelTask, _Mapping]] = ..., reconnect: _Optional[_Union[PollWorkerTaskReconnect, _Mapping]] = ..., ping: _Optional[_Union[PollWorkerTaskPing, _Mapping]] = ...) -> None: ...
+    attempt_started_ack: PollWorkerTaskAttemptStartedAck
+    def __init__(self, registered: _Optional[_Union[PollWorkerTaskRegistered, _Mapping]] = ..., task: _Optional[_Union[PollWorkerTask, _Mapping]] = ..., cancel_task: _Optional[_Union[PollWorkerTaskCancelTask, _Mapping]] = ..., reconnect: _Optional[_Union[PollWorkerTaskReconnect, _Mapping]] = ..., ping: _Optional[_Union[PollWorkerTaskPing, _Mapping]] = ..., attempt_started_ack: _Optional[_Union[PollWorkerTaskAttemptStartedAck, _Mapping]] = ...) -> None: ...
 
 class PollWorkerTaskRegistered(_message.Message):
-    __slots__ = ("supports_unknown_name_rejection",)
+    __slots__ = ("supports_unknown_name_rejection", "supports_attempt_started_ack")
     SUPPORTS_UNKNOWN_NAME_REJECTION_FIELD_NUMBER: _ClassVar[int]
+    SUPPORTS_ATTEMPT_STARTED_ACK_FIELD_NUMBER: _ClassVar[int]
     supports_unknown_name_rejection: bool
-    def __init__(self, supports_unknown_name_rejection: _Optional[bool] = ...) -> None: ...
+    supports_attempt_started_ack: bool
+    def __init__(self, supports_unknown_name_rejection: _Optional[bool] = ..., supports_attempt_started_ack: _Optional[bool] = ...) -> None: ...
 
 class PollWorkerTask(_message.Message):
     __slots__ = ("task_id", "deadline", "wait_for", "execute", "rpc")
@@ -421,6 +436,12 @@ class PollWorkerTask(_message.Message):
     def __init__(self, task_id: _Optional[str] = ..., deadline: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., wait_for: _Optional[_Union[InvokeWaitForMethodRequest, _Mapping]] = ..., execute: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ..., rpc: _Optional[_Union[InvokeWorkerRPCRequest, _Mapping]] = ...) -> None: ...
 
 class PollWorkerTaskCancelTask(_message.Message):
+    __slots__ = ("task_id",)
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    task_id: str
+    def __init__(self, task_id: _Optional[str] = ...) -> None: ...
+
+class PollWorkerTaskAttemptStartedAck(_message.Message):
     __slots__ = ("task_id",)
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     task_id: str
@@ -1734,6 +1755,10 @@ class StepMethodHeartbeat(_message.Message):
     value: Value
     def __init__(self, value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
+class StepMethodAttemptStarted(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
 class StepStreamWrite(_message.Message):
     __slots__ = ("stream_name", "stream_capacity_bytes", "value")
     STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -1745,14 +1770,16 @@ class StepStreamWrite(_message.Message):
     def __init__(self, stream_name: _Optional[str] = ..., stream_capacity_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class InvokeWaitForMethodOutput(_message.Message):
-    __slots__ = ("heartbeat", "stream_write", "result")
+    __slots__ = ("heartbeat", "stream_write", "result", "attempt_started")
     HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
     STREAM_WRITE_FIELD_NUMBER: _ClassVar[int]
     RESULT_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_STARTED_FIELD_NUMBER: _ClassVar[int]
     heartbeat: StepMethodHeartbeat
     stream_write: StepStreamWrite
     result: InvokeWaitForMethodResponse
-    def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeWaitForMethodResponse, _Mapping]] = ...) -> None: ...
+    attempt_started: StepMethodAttemptStarted
+    def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeWaitForMethodResponse, _Mapping]] = ..., attempt_started: _Optional[_Union[StepMethodAttemptStarted, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodRequest(_message.Message):
     __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes", "step_exe_locals", "condition_results", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_instances", "loaded_channel_names", "loaded_channel_map_instances")
@@ -1815,14 +1842,16 @@ class InvokeExecuteMethodResponse(_message.Message):
     def __init__(self, step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodOutput(_message.Message):
-    __slots__ = ("heartbeat", "stream_write", "result")
+    __slots__ = ("heartbeat", "stream_write", "result", "attempt_started")
     HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
     STREAM_WRITE_FIELD_NUMBER: _ClassVar[int]
     RESULT_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_STARTED_FIELD_NUMBER: _ClassVar[int]
     heartbeat: StepMethodHeartbeat
     stream_write: StepStreamWrite
     result: InvokeExecuteMethodResponse
-    def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeExecuteMethodResponse, _Mapping]] = ...) -> None: ...
+    attempt_started: StepMethodAttemptStarted
+    def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeExecuteMethodResponse, _Mapping]] = ..., attempt_started: _Optional[_Union[StepMethodAttemptStarted, _Mapping]] = ...) -> None: ...
 
 class InvokeWorkerRPCRequest(_message.Message):
     __slots__ = ("context", "flow_type", "rpc_name", "input", "attributes", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_instances", "loaded_channel_names", "loaded_channel_map_instances")
@@ -2093,12 +2122,14 @@ class StepExecutionResumeInfo(_message.Message):
     def __init__(self, step_execution_id: _Optional[str] = ..., step: _Optional[_Union[StepMovement, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., wait_for_pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
 
 class RecoveryErrorInfo(_message.Message):
-    __slots__ = ("detail", "error_type")
+    __slots__ = ("detail", "error_type", "attempt_progress")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_PROGRESS_FIELD_NUMBER: _ClassVar[int]
     detail: str
     error_type: str
-    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
+    attempt_progress: StepAttemptProgress
+    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., attempt_progress: _Optional[_Union[StepAttemptProgress, str]] = ...) -> None: ...
 
 class AttributeSyncItem(_message.Message):
     __slots__ = ("config_name", "key", "value")

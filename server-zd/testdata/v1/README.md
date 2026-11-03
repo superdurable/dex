@@ -24,7 +24,7 @@ was written before the node started.
 Before the snapshot:
 
 - `order-sync`: SYNC Steps with a Flow timeout. A WaitFor waits on a timer and a Channel; the
-  timer fires. Execute heartbeats with a checkpoint, fails with a Worker error, and succeeds on
+  timer fires. Execute heartbeats with a checkpoint, marks the attempt started, fails with a Worker error, and succeeds on
   the retry after its backoff timer fires. The success writes Attributes, records an event,
   publishes to a Channel, and moves to a Step that locks an Attribute. A Channel message is
   deleted, and a hard-delete Attribute value stays live to the end. One Attribute is longer

@@ -47,7 +47,7 @@ test("Worker synchronizes indexes before opening task streams", async () => {
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, supportsAttemptStartedAck: false } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
@@ -89,7 +89,7 @@ test("Worker rejects incompatible Server before sync and task streams", async ()
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, supportsAttemptStartedAck: false } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
@@ -131,7 +131,7 @@ test("Worker sync failure prevents task streams", async () => {
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, supportsAttemptStartedAck: false } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {

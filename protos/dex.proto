@@ -221,6 +221,8 @@ message PollWorkerTaskResponse {
     PollWorkerTaskReconnect reconnect = 4;
     // Checks whether an idle stream remains responsive.
     PollWorkerTaskPing ping = 5;
+    // Confirms that Dex stored the attempt-started mark of the assigned task.
+    PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;
   }
 }
 
@@ -228,6 +230,8 @@ message PollWorkerTaskResponse {
 message PollWorkerTaskRegistered {
   // Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
   bool supports_unknown_name_rejection = 1;
+  // Allows a Step task on this stream to send StepMethodAttemptStarted and wait for its ack.
+  bool supports_attempt_started_ack = 2;
 }
 
 // Assigns one task to this stream until its final result, error, or rejection.
@@ -249,6 +253,13 @@ message PollWorkerTask {
 // Requests cancellation of the task currently assigned to this stream.
 message PollWorkerTaskCancelTask {
   // Matches the task currently assigned on this stream.
+  string task_id = 1;
+}
+
+// Confirms that Dex committed the StepMethodAttemptStarted mark of the assigned task.
+// The Worker may start the attempt's external effect only after this frame.
+message PollWorkerTaskAttemptStartedAck {
+  // Matches the task that sent StepMethodAttemptStarted.
   string task_id = 1;
 }
 
@@ -1339,6 +1350,13 @@ message StepMethodHeartbeat {
   Value value = 1;
 }
 
+// Marks the current Step method attempt as started before its external effect.
+// Send it only when PollWorkerTaskRegistered.supports_attempt_started_ack is set.
+// Dex commits the mark, then sends PollWorkerTaskAttemptStartedAck. Within one run attempt,
+// a marked attempt is never dispatched again at the same attempt number; Dex fails it instead.
+// Time travel to a point before the mark runs the attempt again in the new run attempt.
+message StepMethodAttemptStarted {}
+
 message StepStreamWrite {
   string stream_name = 1;
   int64 stream_capacity_bytes = 2;
@@ -1350,6 +1368,7 @@ message InvokeWaitForMethodOutput {
     StepMethodHeartbeat heartbeat = 1;
     StepStreamWrite stream_write = 2;
     InvokeWaitForMethodResponse result = 3;
+    StepMethodAttemptStarted attempt_started = 4;
   }
 }
 
@@ -1385,6 +1404,7 @@ message InvokeExecuteMethodOutput {
     StepMethodHeartbeat heartbeat = 1;
     StepStreamWrite stream_write = 2;
     InvokeExecuteMethodResponse result = 3;
+    StepMethodAttemptStarted attempt_started = 4;
   }
 }
 
@@ -1576,6 +1596,22 @@ enum InternalTimerStatus {
 message RecoveryErrorInfo {
   string detail = 1;
   string error_type = 2;
+  // How far the failed method's attempts got. UNSPECIFIED from a Server that does not report it.
+  StepAttemptProgress attempt_progress = 3;
+}
+
+// How far the attempts of a failed Step method got, across all of its attempts.
+// Later values mean more progress, so the furthest attempt decides the value.
+enum StepAttemptProgress {
+  // The Server does not report progress. Treat the work as possibly run.
+  STEP_ATTEMPT_PROGRESS_UNSPECIFIED = 0;
+  // No attempt was sent to a Worker, so none ran.
+  STEP_ATTEMPT_PROGRESS_NOT_ASSIGNED = 1;
+  // An attempt was sent to a Worker, and no attempt marked itself started.
+  // A Step that marks before every external effect did not start one.
+  STEP_ATTEMPT_PROGRESS_ASSIGNED = 2;
+  // An attempt marked itself started, so its external effect may have run.
+  STEP_ATTEMPT_PROGRESS_STARTED = 3;
 }
 
 message AttributeSyncItem {

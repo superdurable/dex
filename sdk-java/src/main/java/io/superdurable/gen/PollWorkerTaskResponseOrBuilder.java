@@ -145,5 +145,32 @@ public interface PollWorkerTaskResponseOrBuilder extends
    */
   io.superdurable.gen.PollWorkerTaskPingOrBuilder getPingOrBuilder();
 
+  /**
+   * <pre>
+   * Confirms that Dex stored the attempt-started mark of the assigned task.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+   * @return Whether the attemptStartedAck field is set.
+   */
+  boolean hasAttemptStartedAck();
+  /**
+   * <pre>
+   * Confirms that Dex stored the attempt-started mark of the assigned task.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+   * @return The attemptStartedAck.
+   */
+  io.superdurable.gen.PollWorkerTaskAttemptStartedAck getAttemptStartedAck();
+  /**
+   * <pre>
+   * Confirms that Dex stored the attempt-started mark of the assigned task.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+   */
+  io.superdurable.gen.PollWorkerTaskAttemptStartedAckOrBuilder getAttemptStartedAckOrBuilder();
+
   io.superdurable.gen.PollWorkerTaskResponse.FrameCase getFrameCase();
 }

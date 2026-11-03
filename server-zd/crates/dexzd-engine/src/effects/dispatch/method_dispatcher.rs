@@ -50,6 +50,9 @@ pub trait MethodDispatchSession: Send {
     fn next_event(&mut self) -> BoxFuture<'_, Option<DispatchEvent>>;
     /// Asks the Worker to stop the task.
     fn cancel(&self);
+    /// Cancels the dispatch, waits until no Worker can receive the task any more, and returns
+    /// whether any Worker received it, even when its `Assigned` event was never read.
+    fn finish(&mut self) -> BoxFuture<'_, bool>;
 }
 
 /// Sends method attempts to Workers.
@@ -119,5 +122,9 @@ impl MethodDispatchSession for WorkerDispatchSession {
 
     fn cancel(&self) {
         self.handle.cancel();
+    }
+
+    fn finish(&mut self) -> BoxFuture<'_, bool> {
+        Box::pin(self.handle.finish())
     }
 }

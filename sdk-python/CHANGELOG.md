@@ -4,6 +4,22 @@
 
 ### Added and fixed
 
+- Add `AsyncContext.mark_attempt_started()`. It returns after Dex commits that
+  the current attempt is about to start its external effect. Within one run
+  attempt, Dex then never delivers that attempt again at the same attempt
+  number; after a Worker death or a Dex Server restart the attempt fails
+  instead. Time travel to a point before the mark runs the attempt again in the
+  new run attempt, like every Step after that point. It raises the new
+  `AttemptStartedNotAcknowledgedError` when the Dex Server does not support the
+  mark or the Worker task stream closes first. Concurrent calls in one handler
+  share one acknowledgement; canceling one waiting call leaves the others
+  waiting. Requires a Dex Server that advertises the mark on
+  pull registration. A class that structurally implements the `AsyncContext`
+  Protocol must add the method.
+- Add `RecoveryErrorInfo.attempt_progress` and the `StepAttemptProgress` enum:
+  a failure route can tell an attempt that never reached a Worker
+  (`NOT_ASSIGNED`) or never marked itself started (`ASSIGNED`) from one that may
+  have run (`STARTED`). Older Dex Servers report `UNSPECIFIED`.
 - Add `Client.get_attributes` and `AsyncClient.get_attributes`, which read
   committed Attribute and AttributeMap instance values of the current or latest
   Flow run in one request, without an RPC or a Worker. Select a map instance

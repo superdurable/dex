@@ -331,6 +331,10 @@ message StepInvocationRecord {
   // Start of the retry total duration: when attempt 1 started, after its locks.
   // Zero on older records.
   int64 retry_started_at_micros = 16;
+  // Attempt whose Worker marked it started through StepAttemptMarkedStarted; zero when none.
+  uint32 marked_started_attempt = 17;
+  // Furthest progress of the method's earlier failed attempts, kept across retries.
+  dex.StepAttemptProgress furthest_attempt_progress = 18;
 }
 
 // Exactly what a Worker receives for one attempt, with values kept as stored values.

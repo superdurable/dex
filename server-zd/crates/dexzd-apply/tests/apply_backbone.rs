@@ -47,6 +47,8 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+#[path = "apply_backbone/attempt_progress.rs"]
+mod attempt_progress;
 #[path = "apply_backbone/retry_snapshots.rs"]
 mod retry_snapshots;
 

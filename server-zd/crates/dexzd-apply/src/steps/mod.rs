@@ -31,8 +31,9 @@ pub(crate) use step_decisions::{
     apply_step_decision, cancel_steps_by_type, complete_gracefully_if_ready, finish_step, is_active,
 };
 pub(crate) use step_results::{
-    StepCommandOutcome, apply_attempt_failed, apply_attempt_heartbeat, apply_attempt_started,
-    apply_method_completed, apply_retry_backoff_fired, arm_timer, disarm_timer,
+    StepCommandOutcome, apply_attempt_failed, apply_attempt_heartbeat,
+    apply_attempt_marked_started, apply_attempt_started, apply_method_completed,
+    apply_retry_backoff_fired, arm_timer, disarm_timer,
 };
 
 /// Step execution ID of the Flow timeout handler.

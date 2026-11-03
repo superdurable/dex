@@ -531,7 +531,7 @@ impl CommandGenerator {
                 let body = match rng.random_range(0..10) {
                     0..=5 => worker_model::complete(rng, &call, is_synced, is_step_failure_stream),
                     6..=7 => worker_model::fail(rng, &call, is_step_failure_stream),
-                    _ => worker_model::heartbeat(rng, &call),
+                    _ => worker_model::heartbeat(rng, &call, is_step_failure_stream),
                 };
                 let command = self.invocation_envelope(flow_id, &call, body);
                 self.remember_result(&command);

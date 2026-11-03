@@ -9,6 +9,7 @@
 //! Effect runner tests on paused tokio time. A fake runtime applies commands with the real
 //! apply on an in-memory state and feeds the committed effects back to the runner.
 
+mod attempt_progress_tests;
 mod attribute_sync_tests;
 mod deadline_tests;
 mod dispatch_tests;
@@ -614,6 +615,7 @@ pub(super) struct FakeDispatch {
     pub(super) request: MethodDispatchRequest,
     events: mpsc::UnboundedSender<DispatchEvent>,
     pub(super) is_cancelled: Arc<AtomicBool>,
+    is_delivered: Arc<AtomicBool>,
 }
 
 impl FakeDispatch {
@@ -629,8 +631,14 @@ impl FakeDispatch {
         .expect("requests carry a Context")
     }
 
+    /// Records that a Worker received the task without sending its `Assigned` event yet.
+    pub(super) fn deliver_without_assigned_event(&self) {
+        self.is_delivered.store(true, Ordering::SeqCst);
+    }
+
     /// Reports that `app_worker_id` received the task.
     pub(super) fn assign(&self, app_worker_id: &str) {
+        self.is_delivered.store(true, Ordering::SeqCst);
         self.events
             .send(DispatchEvent::Assigned {
                 app_worker_id: app_worker_id.to_owned(),
@@ -785,10 +793,12 @@ impl MethodDispatcher for FakeDispatcher {
         }
         let (events, receiver) = mpsc::unbounded_channel();
         let is_cancelled = Arc::new(AtomicBool::new(false));
+        let is_delivered = Arc::new(AtomicBool::new(false));
         let dispatch = FakeDispatch {
             request,
             events,
             is_cancelled: Arc::clone(&is_cancelled),
+            is_delivered: Arc::clone(&is_delivered),
         };
         if !self.is_assignment_manual.load(Ordering::SeqCst) {
             dispatch.assign("worker-a");
@@ -801,6 +811,7 @@ impl MethodDispatcher for FakeDispatcher {
         Ok(Box::new(FakeSession {
             receiver,
             is_cancelled,
+            is_delivered,
         }))
     }
 }
@@ -808,6 +819,7 @@ impl MethodDispatcher for FakeDispatcher {
 struct FakeSession {
     receiver: mpsc::UnboundedReceiver<DispatchEvent>,
     is_cancelled: Arc<AtomicBool>,
+    is_delivered: Arc<AtomicBool>,
 }
 
 impl MethodDispatchSession for FakeSession {
@@ -817,6 +829,12 @@ impl MethodDispatchSession for FakeSession {
 
     fn cancel(&self) {
         self.is_cancelled.store(true, Ordering::SeqCst);
+    }
+
+    fn finish(&mut self) -> BoxFuture<'_, bool> {
+        self.cancel();
+        let is_delivered = self.is_delivered.load(Ordering::SeqCst);
+        Box::pin(std::future::ready(is_delivered))
     }
 }
 

@@ -39,7 +39,7 @@ from dex.codec import (
     WireKind,
 )
 from dex.condition import ConditionCombination
-from dex.context import AsyncContext, Context, RecoveryErrorInfo
+from dex.context import AsyncContext, Context, RecoveryErrorInfo, StepAttemptProgress
 from dex.credential import (
     ApiKeyCredential,
     ApiKeyExchangeError,
@@ -76,6 +76,7 @@ from dex.pull_registration import (
 )
 from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.runtime_errors import (
+    AttemptStartedNotAcknowledgedError,
     AttributeMapNotLoadedError,
     ChannelMessageNotFoundError,
     ChannelMessagesNotLoadedError,
@@ -146,6 +147,7 @@ __all__ = [
     "AttributeMapNotLoadedError",
     "AttributeMatch",
     "AttributeValues",
+    "AttemptStartedNotAcknowledgedError",
     "AsyncContext",
     "AsyncClient",
     "AsyncBufferedTextStream",
@@ -195,6 +197,7 @@ __all__ = [
     "RPCResult",
     "RPCInvokeOptions",
     "RecoveryErrorInfo",
+    "StepAttemptProgress",
     "RetryAfterError",
     "RpcLockConflictError",
     "Registry",

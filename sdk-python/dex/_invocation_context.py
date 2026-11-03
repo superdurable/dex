@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Callable, Protocol, Sequence, TypeVar, cast
+from typing import Any, Awaitable, Callable, Protocol, Sequence, TypeVar, cast
 from urllib.parse import unquote
 
 from dex._utils import require_map_instance, require_name
@@ -23,7 +23,7 @@ from dex.attribute import (
 )
 from dex.channel import Channel, ChannelMap, ChannelMessage
 from dex.codec import Codec
-from dex.context import RecoveryErrorInfo
+from dex.context import RecoveryErrorInfo, StepAttemptProgress
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
 from dex.flow_result import FlowResult, flow_result_from_proto
@@ -84,7 +84,9 @@ class InvocationContext:
         is_active: Callable[[], bool] | None = None,
         output_emitter: _StepOutputEmitter | None = None,
         deadline: datetime | None = None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
+        self._attempt_started_marker = attempt_started_marker
         self._deadline = None if method is InvocationMethod.RPC else deadline
         self._method = method
         self._flow = flow
@@ -133,9 +135,15 @@ class InvocationContext:
     def recovery_error(self) -> RecoveryErrorInfo | None:
         if not self._metadata.HasField("recovery_error"):
             return None
+        progress = self._metadata.recovery_error.attempt_progress
         return RecoveryErrorInfo(
             detail=self._metadata.recovery_error.detail,
             error_type=self._metadata.recovery_error.error_type,
+            attempt_progress=(
+                StepAttemptProgress(progress)
+                if progress in StepAttemptProgress._value2member_map_
+                else StepAttemptProgress.UNSPECIFIED
+            ),
         )
 
     @property
@@ -183,6 +191,21 @@ class InvocationContext:
         await self._output_emitter.emit(
             _HeartbeatStepOutput(has_value, value, encoded_value)
         )
+
+    async def mark_attempt_started(self) -> None:
+        if (
+            self._method
+            not in (
+                InvocationMethod.WAIT_FOR,
+                InvocationMethod.EXECUTE,
+                InvocationMethod.TIMEOUT,
+            )
+            or self._attempt_started_marker is None
+        ):
+            raise ValueError(
+                "mark_attempt_started requires an asynchronous Step Context"
+            )
+        await self._attempt_started_marker()
 
     def has_timer_fired(self, index: int | None = None) -> bool:
         if self._condition_results is None:

@@ -64,6 +64,7 @@ pub(crate) async fn rebuild_partition(
 }
 
 /// Pending invocations start again; running attempts are redispatched with the same attempt.
+/// An attempt its Worker marked started fails instead; see `MethodAttempt::run_attempt`.
 fn rebuild_invocations(
     reader: &dyn FlowStateReader,
     partition: PartitionId,
@@ -105,6 +106,7 @@ fn rebuild_invocations(
                         invocation.method,
                     ),
                     retry_deadline_micros,
+                    is_redispatch: true,
                 });
             }
         }

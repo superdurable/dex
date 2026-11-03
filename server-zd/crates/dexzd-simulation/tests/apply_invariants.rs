@@ -127,6 +127,7 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "ChannelMessageDelete",
         "StepAttemptStarted",
         "StepAttemptHeartbeat",
+        "StepAttemptMarkedStarted",
         "StepAttemptFailed",
         "StepMethodCompleted",
         "TimersFired",
@@ -285,6 +286,7 @@ fn worker_commands_keep_their_dispatched_run_attempt_on_redelivery() {
                     Some(
                         Command::StepAttemptStarted(_)
                             | Command::StepAttemptHeartbeat(_)
+                            | Command::StepAttemptMarkedStarted(_)
                             | Command::StepAttemptFailed(_)
                             | Command::StepMethodCompleted(_)
                     )

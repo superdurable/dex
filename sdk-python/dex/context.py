@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, Sequence, TypeVar
 
 if TYPE_CHECKING:
@@ -29,17 +30,49 @@ if TYPE_CHECKING:
 ValueT = TypeVar("ValueT")
 
 
+class StepAttemptProgress(Enum):
+    """Describe how far the attempts of a failed Step method got.
+
+    Dex reports the furthest attempt of the failed method in
+    ``RecoveryErrorInfo.attempt_progress``. A recovery Step uses it to tell work
+    that never ran from work that may have run. ``ASSIGNED`` means the work did
+    not start only for a Step that calls ``AsyncContext.mark_attempt_started``
+    before every external effect. For any other Step, treat ``ASSIGNED`` as
+    possibly run.
+
+    Attributes:
+        UNSPECIFIED: The Dex Server does not report progress. Treat the work as
+            possibly run.
+        NOT_ASSIGNED: No attempt was sent to a Worker, so the work never ran.
+        ASSIGNED: An attempt was sent to a Worker, and no attempt marked
+            itself started.
+        STARTED: An attempt marked itself started, so its external effect may
+            have run.
+    """
+
+    UNSPECIFIED = 0
+    NOT_ASSIGNED = 1
+    ASSIGNED = 2
+    STARTED = 3
+
+
 @dataclass(frozen=True)
 class RecoveryErrorInfo:
     """Describe the final failure that selected a recovery path.
 
     Attributes:
         detail: Failure message supplied by the Worker or backend.
-        error_type: Original Worker error type or backend failure type.
+        error_type: Original Worker error type or backend failure type. A
+            failed attempt that had marked itself started and lost its Worker
+            result to a Dex Server restart reports ``StartedAttemptInterrupted``.
+        attempt_progress: How far the failed method's attempts got.
+            ``StepAttemptProgress.UNSPECIFIED`` from a Dex Server that does not
+            report it.
     """
 
     detail: str
     error_type: str
+    attempt_progress: StepAttemptProgress = StepAttemptProgress.UNSPECIFIED
 
 
 class Context(Protocol):
@@ -357,5 +390,50 @@ class AsyncContext(Context, Protocol):
             asyncio.CancelledError: If the active Worker invocation is canceled.
             ValueError: If called outside a Step handler.
             ValueMappingError: If ``value`` cannot be encoded.
+        """
+        ...
+
+    async def mark_attempt_started(self) -> None:
+        """Record durably that this attempt is about to start its external effect.
+
+        Call this method right before an external effect that must not run
+        twice, such as a payment or an email. It returns only after Dex has
+        committed the mark. From then on, Dex never delivers this attempt
+        again at the same attempt number. When the Worker dies, or a Dex Server
+        node restarts or fails over, the attempt fails instead. Its retry
+        policy then applies, and after the last attempt the failure route
+        receives ``RecoveryErrorInfo.attempt_progress`` set to
+        ``StepAttemptProgress.STARTED``. An attempt that fails before the mark
+        reports ``NOT_ASSIGNED`` or ``ASSIGNED``, so a failure route can tell
+        that the effect never started.
+
+        Time travel is the exception. Time travel to a point before the mark
+        runs the attempt again in the new run attempt, like every Step after
+        that point.
+
+        The call costs one commit round trip. Call it once per attempt. A call
+        made while another one waits for its acknowledgement waits for the same
+        acknowledgement. A later call commits again and has no further effect.
+        A heartbeat does not replace it, because Dex does not acknowledge
+        heartbeats.
+
+        Example:
+            ```python
+            class ChargeCard(Step[str]):
+                async def execute(self, context: AsyncContext, input: str) -> StepDecision:
+                    await context.mark_attempt_started()
+                    await payments.charge(input, idempotency_key=context.step_execution_id)
+                    return dead_end()
+            ```
+
+        Raises:
+            AttemptStartedNotAcknowledgedError: If the Dex Server does not
+                support the mark (``is_unsupported_server`` is ``True``), or the
+                Worker task was canceled or its stream closed before Dex
+                acknowledged the mark. Do not start the effect after this error.
+            asyncio.CancelledError: If the handler task itself is canceled
+                while it waits.
+            ValueError: If called outside an asynchronous Step handler, such as
+                in an RPC or in a Step run by a synchronous ``Worker``.
         """
         ...

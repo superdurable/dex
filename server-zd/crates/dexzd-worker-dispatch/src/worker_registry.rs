@@ -10,6 +10,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -18,7 +19,7 @@ use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_metrics::{NodeMetrics, WorkerStreamEvent};
 use dexzd_protocol::dex::{
-    self, DispatchTaskErrorReason, PollWorkerTask, PollWorkerTaskCancelTask, PollWorkerTaskFrame,
+    DispatchTaskErrorReason, PollWorkerTask, PollWorkerTaskCancelTask, PollWorkerTaskFrame,
     PollWorkerTaskPing, PollWorkerTaskReconnect, PollWorkerTaskRegister, PollWorkerTaskRegistered,
     PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse, poll_worker_task,
     poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
@@ -32,11 +33,16 @@ use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::MatchingConfig;
+mod dispatch_handle;
 mod dispatch_request;
 mod queue_state;
+mod task_frames;
 mod worker_protocol;
+pub use dispatch_handle::DispatchHandle;
 pub use dispatch_request::{DispatchRequest, DispatchTaskPayload};
 use queue_state::{QueueWaiter, QueuedTaskMetric};
+pub use task_frames::AttemptStartedAck;
+use task_frames::{is_attempt_started, is_final};
 pub use worker_protocol::WorkerTaskService;
 
 /// One ordered frame from the Worker, an assignment change, or the terminal dispatch outcome.
@@ -52,6 +58,8 @@ pub enum DispatchEvent {
     Unassigned,
     /// A non-final heartbeat or stream write from the assigned Worker.
     Output(PollWorkerTaskFrame),
+    /// The assigned Worker marked its attempt started and waits for the acknowledgement.
+    AttemptStarted(AttemptStartedAck),
     /// The unique final outcome of the dispatch.
     Completed(DispatchOutcome),
 }
@@ -87,34 +95,6 @@ pub enum DispatchOutcome {
     /// The matching owner shut down while waiting for a Worker, or its node lease is no longer
     /// valid.
     ServerClosing,
-}
-
-/// Receives ordered events and can request cancellation of an active Worker task.
-pub struct DispatchHandle {
-    events: mpsc::Receiver<DispatchEvent>,
-    cancel: watch::Sender<bool>,
-    task: Option<JoinHandle<()>>,
-}
-
-impl DispatchHandle {
-    /// Returns the next Worker output, assignment change, or the single final outcome, then
-    /// returns `None`.
-    pub async fn next(&mut self) -> Option<DispatchEvent> {
-        self.events.recv().await
-    }
-
-    /// Sends cancel_task for an assigned task, then allows one second for its final frame.
-    pub fn cancel(&self) {
-        self.cancel.send_replace(true);
-    }
-}
-
-impl Drop for DispatchHandle {
-    fn drop(&mut self) {
-        self.cancel();
-        // The dispatch task owns its one-second cancellation grace period.
-        drop(self.task.take());
-    }
 }
 
 /// Shared in-memory matching owner. Clone it to give a tenant-scoped gRPC service access.
@@ -273,7 +253,9 @@ impl WorkerDispatch {
         drop(registry);
         let (events_tx, events) = mpsc::channel(32);
         let (cancel, cancel_rx) = watch::channel(false);
+        let delivered = Arc::new(AtomicBool::new(false));
         let dispatch = self.clone();
+        let is_delivered = Arc::clone(&delivered);
         let task = tokio::spawn(async move {
             let outcome = dispatch
                 .run_dispatch(
@@ -282,6 +264,7 @@ impl WorkerDispatch {
                     scheduled_at,
                     &events_tx,
                     cancel_rx,
+                    &is_delivered,
                 )
                 .await;
             if events_tx
@@ -296,6 +279,7 @@ impl WorkerDispatch {
             events,
             cancel,
             task: Some(task),
+            delivered,
         })
     }
 
@@ -325,6 +309,7 @@ impl WorkerDispatch {
         mut scheduled_at: Option<Instant>,
         events: &mpsc::Sender<DispatchEvent>,
         mut cancel: watch::Receiver<bool>,
+        delivered: &AtomicBool,
     ) -> DispatchOutcome {
         let task_id = Uuid::now_v7().to_string();
         let now = self.inner.clock.now_unix_micros();
@@ -364,6 +349,7 @@ impl WorkerDispatch {
                     &mut unavailable,
                     &mut unknown,
                     &mut scheduled_at,
+                    delivered,
                 )
                 .await
         {
@@ -386,6 +372,7 @@ impl WorkerDispatch {
                 &mut unavailable,
                 &mut unknown,
                 &mut scheduled_at,
+                delivered,
             )
             .await
         {
@@ -427,6 +414,7 @@ impl WorkerDispatch {
         unavailable: &mut bool,
         unknown: &mut bool,
         scheduled_at: &mut Option<Instant>,
+        delivered: &AtomicBool,
     ) -> Option<DispatchOutcome> {
         let mut queue_lease =
             QueueLease::acquire(self, request.tenant_id, queue_name, waiter_sequence);
@@ -469,6 +457,7 @@ impl WorkerDispatch {
                     }
                     continue;
                 }
+                delivered.store(true, Ordering::SeqCst);
                 queued_task.set_waiting(false);
                 self.inner
                     .metrics
@@ -594,8 +583,16 @@ impl WorkerDispatch {
                             }));
                         }
                         has_output = true;
+                        let event = if is_attempt_started(&frame) {
+                            DispatchEvent::AttemptStarted(AttemptStartedAck::new(
+                                worker.output.clone(),
+                                task_id.to_owned(),
+                            ))
+                        } else {
+                            DispatchEvent::Output(frame)
+                        };
                         tokio::select! {
-                            sent = events.send(DispatchEvent::Output(frame)) => {
+                            sent = events.send(event) => {
                                 if sent.is_err() {
                                     self.cancel_assignment(worker, task_id, frames).await;
                                     return AttemptOutcome::Final(Box::new(DispatchOutcome::Cancelled));
@@ -970,23 +967,6 @@ fn validate_registration(
         ));
     }
     Ok(())
-}
-
-fn is_final(frame: &PollWorkerTaskFrame) -> bool {
-    match &frame.output {
-        Some(
-            poll_worker_task_frame::Output::WorkerError(_) | poll_worker_task_frame::Output::Rpc(_),
-        ) => true,
-        Some(poll_worker_task_frame::Output::WaitFor(output)) => matches!(
-            output.output,
-            None | Some(dex::invoke_wait_for_method_output::Output::Result(_))
-        ),
-        Some(poll_worker_task_frame::Output::Execute(output)) => matches!(
-            output.output,
-            None | Some(dex::invoke_execute_method_output::Output::Result(_))
-        ),
-        None => false,
-    }
 }
 
 fn disconnected_outcome(detail: &str) -> DispatchOutcome {

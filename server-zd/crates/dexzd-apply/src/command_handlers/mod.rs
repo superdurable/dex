@@ -136,6 +136,7 @@ fn apply_in_scope(
         }
         Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
+        | Command::StepAttemptMarkedStarted(_)
         | Command::StepAttemptFailed(_)
         | Command::StepMethodCompleted(_) => {
             match with_run(&transaction, scope)? {
@@ -283,6 +284,7 @@ fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAtt
         kind: StepAttemptFailureKind::ValueTooLarge as i32,
         server_detail: detail.to_owned(),
         is_non_retryable: true,
+        attempt_progress: dexzd_protocol::dex::StepAttemptProgress::Assigned as i32,
         ..StepAttemptFailedCommand::default()
     })
 }
@@ -357,6 +359,7 @@ pub(crate) fn apply_run_command(
         Command::FlowStart(_)
         | Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
+        | Command::StepAttemptMarkedStarted(_)
         | Command::StepAttemptFailed(_)
         | Command::StepMethodCompleted(_) => Err(ApplyError::InvariantViolation {
             detail: "command routed to the wrong handler".to_owned(),

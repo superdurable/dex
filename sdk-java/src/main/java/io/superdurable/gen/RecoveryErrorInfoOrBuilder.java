@@ -33,4 +33,23 @@ public interface RecoveryErrorInfoOrBuilder extends
    */
   com.google.protobuf.ByteString
       getErrorTypeBytes();
+
+  /**
+   * <pre>
+   * How far the failed method's attempts got. UNSPECIFIED from a Server that does not report it.
+   * </pre>
+   *
+   * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+   * @return The enum numeric value on the wire for attemptProgress.
+   */
+  int getAttemptProgressValue();
+  /**
+   * <pre>
+   * How far the failed method's attempts got. UNSPECIFIED from a Server that does not report it.
+   * </pre>
+   *
+   * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+   * @return The attemptProgress.
+   */
+  io.superdurable.gen.StepAttemptProgress getAttemptProgress();
 }

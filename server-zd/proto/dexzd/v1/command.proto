@@ -56,6 +56,7 @@ message FlowCommand {
     StepAttemptHeartbeatCommand step_attempt_heartbeat = 31;
     StepAttemptFailedCommand step_attempt_failed = 32;
     StepMethodCompletedCommand step_method_completed = 33;
+    StepAttemptMarkedStartedCommand step_attempt_marked_started = 34;
     RpcCommittedCommand rpc_committed = 40;
     TimersFiredCommand timers_fired = 50;
     TimerSkipCommand timer_skip = 51;
@@ -188,6 +189,13 @@ message StepAttemptHeartbeatCommand {
   }
 }
 
+// The running attempt's Worker marked it started before its external effect. The owner
+// acknowledges the mark to the Worker only after this command commits.
+message StepAttemptMarkedStartedCommand {
+  StepInvocationKey invocation = 1;
+  uint32 attempt = 2;
+}
+
 // Why an attempt failed.
 enum StepAttemptFailureKind {
   STEP_ATTEMPT_FAILURE_KIND_UNSPECIFIED = 0;
@@ -209,6 +217,8 @@ enum StepAttemptFailureKind {
   STEP_ATTEMPT_FAILURE_KIND_REQUEST_TOO_LARGE = 8;
   // The retry policy's total duration expired during an attempt.
   STEP_ATTEMPT_FAILURE_KIND_RETRY_DEADLINE = 9;
+  // The attempt had marked itself started when its owner lost it, so it is not dispatched again.
+  STEP_ATTEMPT_FAILURE_KIND_STARTED_ATTEMPT_INTERRUPTED = 10;
 }
 
 message StepAttemptFailedCommand {
@@ -221,6 +231,8 @@ message StepAttemptFailedCommand {
   // When true, the call fails without further retries (server-zd decided it cannot succeed).
   bool is_non_retryable = 6;
   dex.PullRouting pull_routing = 7;
+  // How far this attempt got as the owner saw it; apply raises it to STARTED for a marked attempt.
+  dex.StepAttemptProgress attempt_progress = 8;
 }
 
 // A Worker result for attempt `attempt`. Values are complete or references to values of this

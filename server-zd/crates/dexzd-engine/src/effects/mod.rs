@@ -66,7 +66,7 @@ use crate::blocking_work::BlockingWorkPlacement;
 use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
-use dispatch::{DispatchScheduler, InvocationStartResult};
+use dispatch::{DispatchScheduler, InvocationStartResult, StartedAttempt};
 use method_request::MethodAttemptKey;
 use timer_service::TimerServices;
 
@@ -608,15 +608,19 @@ impl EffectRouter {
                 task_id,
                 method_timeout_seconds,
                 retry_deadline_micros,
+                is_redispatch,
             } => {
                 let key = MethodAttemptKey::new(run_id, run_attempt, &invocation, attempt);
                 self.dispatch.run_started_attempt(
                     flow.clone(),
                     key,
-                    task_id,
-                    method_timeout_seconds,
-                    scheduled_at,
-                    retry_deadline_micros,
+                    StartedAttempt {
+                        task_id,
+                        method_timeout_seconds,
+                        scheduled_at,
+                        retry_deadline_micros,
+                        is_redispatch,
+                    },
                 );
             }
             ApplyEffect::InvocationCanceled { task_id, .. } => {

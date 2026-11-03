@@ -43,6 +43,17 @@ struct StartingInvocation {
     lock_release_count: u64,
 }
 
+/// The dispatch of an attempt that apply started, from its `InvocationStarted` effect.
+pub(crate) struct StartedAttempt {
+    pub(crate) task_id: Vec<u8>,
+    /// The method's configured timeout in seconds; 0 means the default.
+    pub(crate) method_timeout_seconds: i32,
+    pub(crate) scheduled_at: Option<Instant>,
+    pub(crate) retry_deadline_micros: i64,
+    /// True when recovery or time travel dispatches an attempt that a Worker may already hold.
+    pub(crate) is_redispatch: bool,
+}
+
 /// Dispatch state owned by the effect router task.
 pub(crate) struct DispatchScheduler {
     context: Arc<EffectContext>,
@@ -124,11 +135,15 @@ impl DispatchScheduler {
         &mut self,
         flow: FlowAddress,
         key: MethodAttemptKey,
-        task_id: Vec<u8>,
-        method_timeout_seconds: i32,
-        scheduled_at: Option<Instant>,
-        retry_deadline_micros: i64,
+        started: StartedAttempt,
     ) {
+        let StartedAttempt {
+            task_id,
+            method_timeout_seconds,
+            scheduled_at,
+            retry_deadline_micros,
+            is_redispatch,
+        } = started;
         let attempts = self.running.entry(task_id.clone()).or_default();
         if attempts.contains_key(&key) {
             return;
@@ -150,6 +165,7 @@ impl DispatchScheduler {
             method_timeout_seconds,
             scheduled_at,
             retry_deadline_micros,
+            is_redispatch,
             cancel,
         };
         let context = Arc::clone(&self.context);

@@ -9,13 +9,15 @@
 //! Method dispatch: starting pending invocations when their locks are free, and running each
 //! started attempt on a Worker.
 
+mod attempt_checkpoints;
+mod attempt_deadlines;
 mod attempt_failure;
 mod dispatch_scheduler;
 mod method_attempt;
 mod method_dispatcher;
 mod worker_result;
 
-pub(crate) use dispatch_scheduler::{DispatchScheduler, InvocationStartResult};
+pub(crate) use dispatch_scheduler::{DispatchScheduler, InvocationStartResult, StartedAttempt};
 pub use method_dispatcher::{
     MethodDispatchRequest, MethodDispatchSession, MethodDispatchStartError, MethodDispatcher,
 };

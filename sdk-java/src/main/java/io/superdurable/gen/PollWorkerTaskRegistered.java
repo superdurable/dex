@@ -67,6 +67,21 @@ private static final long serialVersionUID = 0L;
     return supportsUnknownNameRejection_;
   }
 
+  public static final int SUPPORTS_ATTEMPT_STARTED_ACK_FIELD_NUMBER = 2;
+  private boolean supportsAttemptStartedAck_ = false;
+  /**
+   * <pre>
+   * Allows a Step task on this stream to send StepMethodAttemptStarted and wait for its ack.
+   * </pre>
+   *
+   * <code>bool supports_attempt_started_ack = 2;</code>
+   * @return The supportsAttemptStartedAck.
+   */
+  @java.lang.Override
+  public boolean getSupportsAttemptStartedAck() {
+    return supportsAttemptStartedAck_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -84,6 +99,9 @@ private static final long serialVersionUID = 0L;
     if (supportsUnknownNameRejection_ != false) {
       output.writeBool(1, supportsUnknownNameRejection_);
     }
+    if (supportsAttemptStartedAck_ != false) {
+      output.writeBool(2, supportsAttemptStartedAck_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -91,6 +109,10 @@ private static final long serialVersionUID = 0L;
     if (supportsUnknownNameRejection_ != false) {
       size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(1, supportsUnknownNameRejection_);
+    }
+    if (supportsAttemptStartedAck_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(2, supportsAttemptStartedAck_);
     }
     return size;
   }
@@ -118,6 +140,8 @@ private static final long serialVersionUID = 0L;
 
     if (getSupportsUnknownNameRejection()
         != other.getSupportsUnknownNameRejection()) return false;
+    if (getSupportsAttemptStartedAck()
+        != other.getSupportsAttemptStartedAck()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -132,6 +156,9 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + SUPPORTS_UNKNOWN_NAME_REJECTION_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getSupportsUnknownNameRejection());
+    hash = (37 * hash) + SUPPORTS_ATTEMPT_STARTED_ACK_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getSupportsAttemptStartedAck());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -268,6 +295,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       supportsUnknownNameRejection_ = false;
+      supportsAttemptStartedAck_ = false;
       return this;
     }
 
@@ -304,6 +332,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.supportsUnknownNameRejection_ = supportsUnknownNameRejection_;
       }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.supportsAttemptStartedAck_ = supportsAttemptStartedAck_;
+      }
     }
 
     @java.lang.Override
@@ -320,6 +351,9 @@ private static final long serialVersionUID = 0L;
       if (other == io.superdurable.gen.PollWorkerTaskRegistered.getDefaultInstance()) return this;
       if (other.getSupportsUnknownNameRejection() != false) {
         setSupportsUnknownNameRejection(other.getSupportsUnknownNameRejection());
+      }
+      if (other.getSupportsAttemptStartedAck() != false) {
+        setSupportsAttemptStartedAck(other.getSupportsAttemptStartedAck());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -352,6 +386,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 8
+            case 16: {
+              supportsAttemptStartedAck_ = input.readBool();
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 16
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -409,6 +448,50 @@ private static final long serialVersionUID = 0L;
     public Builder clearSupportsUnknownNameRejection() {
       bitField0_ = (bitField0_ & ~0x00000001);
       supportsUnknownNameRejection_ = false;
+      onChanged();
+      return this;
+    }
+
+    private boolean supportsAttemptStartedAck_ ;
+    /**
+     * <pre>
+     * Allows a Step task on this stream to send StepMethodAttemptStarted and wait for its ack.
+     * </pre>
+     *
+     * <code>bool supports_attempt_started_ack = 2;</code>
+     * @return The supportsAttemptStartedAck.
+     */
+    @java.lang.Override
+    public boolean getSupportsAttemptStartedAck() {
+      return supportsAttemptStartedAck_;
+    }
+    /**
+     * <pre>
+     * Allows a Step task on this stream to send StepMethodAttemptStarted and wait for its ack.
+     * </pre>
+     *
+     * <code>bool supports_attempt_started_ack = 2;</code>
+     * @param value The supportsAttemptStartedAck to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSupportsAttemptStartedAck(boolean value) {
+
+      supportsAttemptStartedAck_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Allows a Step task on this stream to send StepMethodAttemptStarted and wait for its ack.
+     * </pre>
+     *
+     * <code>bool supports_attempt_started_ack = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSupportsAttemptStartedAck() {
+      bitField0_ = (bitField0_ & ~0x00000002);
+      supportsAttemptStartedAck_ = false;
       onChanged();
       return this;
     }

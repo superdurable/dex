@@ -98,6 +98,10 @@ pub(crate) fn make_invocation_pending(
         .as_ref()
         .filter(|_| attempt > 1)
         .map_or(0, |invocation| invocation.retry_started_at_micros);
+    let furthest_attempt_progress = previous
+        .as_ref()
+        .filter(|_| attempt > 1)
+        .map_or(0, |invocation| invocation.furthest_attempt_progress);
     step.invocation = Some(StepInvocationRecord {
         method: method as i32,
         phase: StepInvocationPhase::Pending as i32,
@@ -107,6 +111,7 @@ pub(crate) fn make_invocation_pending(
         lock_keys,
         effective_durability,
         retry_started_at_micros,
+        furthest_attempt_progress,
         last_failure: previous
             .as_ref()
             .and_then(|invocation| invocation.last_failure.clone()),
@@ -237,6 +242,7 @@ pub(crate) fn start_attempt(
         task_id: task_id.to_vec(),
         method_timeout_seconds,
         retry_deadline_micros,
+        is_redispatch: false,
     });
     Ok(())
 }

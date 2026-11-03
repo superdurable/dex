@@ -16,8 +16,9 @@ use dexzd_protocol::dex::{
     self, DispatchTaskErrorReason, InvokeExecuteMethodOutput, InvokeExecuteMethodRequest,
     InvokeWaitForMethodOutput, InvokeWaitForMethodRequest, InvokeWaitForMethodResponse,
     InvokeWorkerRpcRequest, PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskReject,
-    PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse, StepMethodHeartbeat,
-    StepStreamWrite, Value, WorkerErrorResponse, poll_worker_task, poll_worker_task_frame,
+    PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse,
+    StepMethodAttemptStarted, StepMethodHeartbeat, StepStreamWrite, Value, WorkerErrorResponse,
+    invoke_wait_for_method_output, poll_worker_task, poll_worker_task_frame,
     poll_worker_task_request, poll_worker_task_response,
     worker_task_service_client::WorkerTaskServiceClient,
     worker_task_service_server::WorkerTaskServiceServer,
@@ -188,6 +189,7 @@ async fn completed(handle: &mut dexzd_worker_dispatch::DispatchHandle) -> Dispat
         {
             DispatchEvent::Completed(outcome) => return outcome,
             DispatchEvent::Output(_)
+            | DispatchEvent::AttemptStarted(_)
             | DispatchEvent::Assigned { .. }
             | DispatchEvent::Unassigned => {}
         }
@@ -1053,7 +1055,9 @@ async fn worker_frames_apply_backpressure_when_the_engine_stops_reading() {
             .expect("event exists")
         {
             DispatchEvent::Output(_) => outputs += 1,
-            DispatchEvent::Assigned { .. } | DispatchEvent::Unassigned => {}
+            DispatchEvent::AttemptStarted(_)
+            | DispatchEvent::Assigned { .. }
+            | DispatchEvent::Unassigned => {}
             DispatchEvent::Completed(outcome) => panic!("unexpected terminal outcome {outcome:?}"),
         }
     }
@@ -1465,4 +1469,76 @@ async fn a_sticky_search_falls_back_when_its_last_stream_disconnects() {
     assert!(
         matches!(completed(&mut waiting).await, DispatchOutcome::WorkerResult { app_worker_id, .. } if app_worker_id == "fallback")
     );
+}
+
+#[tokio::test]
+async fn finish_reports_a_delivered_task_whose_assigned_event_was_never_read() {
+    let dispatch = dispatch_with_config(MatchingConfig::default());
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
+    let mut handle = dispatch
+        .dispatch(request(0, "delivered-flow"))
+        .expect("dispatch starts");
+    let assigned = task_id(&mut worker).await;
+
+    // The engine stops reading before Assigned; the Worker already holds the task.
+    let finishing = tokio::spawn(async move { handle.finish().await });
+    assert!(
+        matches!(worker.next().await.frame, Some(poll_worker_task_response::Frame::CancelTask(cancel)) if cancel.task_id == assigned)
+    );
+    worker
+        .sender
+        .send(result(&assigned))
+        .expect("final frame sends");
+    assert!(finishing.await.expect("finish completes"));
+}
+
+#[tokio::test]
+async fn finish_reports_no_delivery_when_no_worker_received_the_task() {
+    let dispatch = dispatch_with_config(MatchingConfig::default());
+    let mut handle = dispatch
+        .dispatch(request(0, "undelivered-flow"))
+        .expect("dispatch starts");
+    assert!(!handle.finish().await);
+}
+
+#[tokio::test]
+async fn an_attempt_started_frame_waits_for_the_ack_and_counts_as_output() {
+    let dispatch = dispatch_with_config(MatchingConfig::default());
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
+    let mut handle = dispatch
+        .dispatch(request(0, "marked-flow"))
+        .expect("dispatch starts");
+    let assigned = task_id(&mut worker).await;
+    assert!(is_assigned_to(&next_event(&mut handle).await, "worker"));
+    worker.send(poll_worker_task_request::Frame::TaskFrame(
+        PollWorkerTaskFrame {
+            task_id: assigned.clone(),
+            output: Some(poll_worker_task_frame::Output::WaitFor(
+                InvokeWaitForMethodOutput {
+                    output: Some(invoke_wait_for_method_output::Output::AttemptStarted(
+                        StepMethodAttemptStarted {},
+                    )),
+                },
+            )),
+        },
+    ));
+    let DispatchEvent::AttemptStarted(ack) = next_event(&mut handle).await else {
+        panic!("the mark reaches the engine as AttemptStarted");
+    };
+    assert!(ack.acknowledge());
+    assert!(
+        matches!(worker.next().await.frame, Some(poll_worker_task_response::Frame::AttemptStartedAck(ack)) if ack.task_id == assigned)
+    );
+
+    // After the mark, a disconnect ends the dispatch instead of matching another Worker.
+    drop(worker);
+    assert!(matches!(
+        completed(&mut handle).await,
+        DispatchOutcome::DispatchError {
+            reason: DispatchTaskErrorReason::WorkerDisconnected,
+            ..
+        }
+    ));
 }

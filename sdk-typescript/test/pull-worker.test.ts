@@ -16,7 +16,7 @@ import {
   type ServerDuplexStream,
 } from "@grpc/grpc-js";
 
-import { Registry, StepList, Stream, Worker, PullRegistrationError, gracefulComplete, retryAfter, stringCodec, type AsyncContext, type Step, type StepDecision, type PullWorkerOptions, type BlobCache, type Flow } from "../src/index.js";
+import { AttemptStartedNotAcknowledgedError, Registry, StepList, Stream, Worker, PullRegistrationError, gracefulComplete, retryAfter, stringCodec, type AsyncContext, type Step, type StepDecision, type PullWorkerOptions, type BlobCache, type Flow } from "../src/index.js";
 import {
   Context as ProtoContext,
   FlowServiceService,
@@ -312,12 +312,12 @@ test("poll streams register first, reject at capacity, answer Ping, and reuse af
     worker.start();
     const first = await harness.nextStream();
     assert.equal(first.frames[0]?.frame?.$case, "register");
-    first.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    first.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     first.call.write({ frame: { $case: "ping", value: {} } });
     await first.frame("pong");
     first.call.write(rpcTask("first"));
     const second = await harness.nextStream();
-    second.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    second.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     second.call.write(rpcTask("second"));
     const rejected = await second.frame("reject");
     assert.equal(rejected.frame?.$case, "reject");
@@ -469,15 +469,15 @@ test("Reconnect backs off idle streams and drains a busy stream", async () => {
   try {
     worker.start();
     const idle = await harness.nextStream();
-    idle.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    idle.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     const reconnectRequestedAt = Date.now();
     idle.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
     const replacement = await harness.nextStream();
     assert.ok(replacement.openedAt - reconnectRequestedAt >= 95);
-    replacement.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    replacement.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     replacement.call.write(rpcTask("busy"));
     const spare = await harness.nextStream();
-    spare.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    spare.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     replacement.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
     replacement.call.write({ frame: { $case: "ping", value: {} } });
     await replacement.frame("pong");
@@ -568,11 +568,11 @@ test("busy Reconnect retains only the replacement idle stream", async () => {
   try {
     worker.start();
     const first = await harness.nextStream();
-    first.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    first.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     first.call.write(rpcTask("busy-reconnect"));
     await until(() => harness.invocationCount === 1);
     const replacement = await harness.nextStream();
-    replacement.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    replacement.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     first.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
     first.call.write({ frame: { $case: "ping", value: {} } });
     await first.frame("pong");
@@ -602,7 +602,7 @@ test("CancelTask and task deadline abort the handler", async () => {
   try {
     worker.start();
     const stream = await harness.nextStream();
-    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     stream.call.write(rpcTask("cancel"));
     stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "cancel" } } });
     const cancelled = await stream.frame("taskFrame");
@@ -647,7 +647,7 @@ test("pull WaitFor sends heartbeat and stream write before its final result", as
   try {
     worker.start();
     const stream = await harness.nextStream();
-    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     stream.call.write({ frame: { $case: "task", value: {
       taskId: "wait-for", deadline: undefined,
       request: { $case: "waitFor", value: InvokeWaitForMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) },
@@ -814,7 +814,7 @@ for (const shouldReconnect of [false, true]) {
     try {
       worker.start();
       const stream = await harness.nextStream();
-      stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+      stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
       stream.call.write(rpcTask("large-result"));
       await until(() => harness.invocationCount === 1);
       if (shouldReconnect) {
@@ -862,7 +862,7 @@ for (const shutdown of ["Stop drain", "busy Reconnect", "busy Reconnect then Sto
       worker.start();
       const capturedStream = await harness.nextStream();
       stream = capturedStream;
-      capturedStream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+      capturedStream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
       capturedStream.call.write(rpcTask("delayed-result"));
       await until(() => harness.invocationCount === 1);
       if (shutdown !== "Stop drain") {
@@ -929,7 +929,7 @@ test("close drains a task, then force-cancels and waits for a handler that ignor
   try {
     worker.start();
     const stream = await harness.nextStream();
-    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false } } });
+    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck: false } } });
     stream.call.write(rpcTask("blocked"));
     await until(() => harness.invocationCount === 1);
     let hasClosed = false;
@@ -1029,7 +1029,7 @@ function rpcTask(taskId: string, deadline?: Date): PollWorkerTaskResponse {
 }
 
 function registered(supportsUnknownNameRejection: boolean): PollWorkerTaskResponse {
-  return { frame: { $case: "registered", value: { supportsUnknownNameRejection } } };
+  return { frame: { $case: "registered", value: { supportsUnknownNameRejection, supportsAttemptStartedAck: false } } };
 }
 
 function unknownStepTask(taskId: string): PollWorkerTaskResponse {
@@ -1233,4 +1233,93 @@ test("Context heartbeat rejects without synchronous throws after its task stream
     await worker.close();
     await harness.close();
   }
+});
+
+class MarkingStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public outcomes: string[] = [];
+  public finished = false;
+
+  public getStepType(): string { return "MarkingStep"; }
+
+  public async execute(context: AsyncContext, _input: string): Promise<StepDecision> {
+    const marks = await Promise.allSettled([context.markAttemptStarted(), context.markAttemptStarted()]);
+    this.outcomes = marks.map((mark) => mark.status === "fulfilled"
+      ? "acknowledged"
+      : mark.reason instanceof AttemptStartedNotAcknowledgedError
+        ? `not acknowledged${mark.reason.isUnsupportedServer ? " (unsupported)" : ""}`
+        : `other: ${String(mark.reason)}`);
+    this.finished = true;
+    return gracefulComplete();
+  }
+}
+
+async function runMarkingTask(
+  supportsAttemptStartedAck: boolean,
+  answer: (stream: Awaited<ReturnType<Awaited<ReturnType<typeof startHarness>>["nextStream"]>>) => Promise<void>,
+): Promise<{ step: MarkingStep; marks: number }> {
+  const step = new MarkingStep();
+  const flow: Flow<string> = {
+    getFlowType: () => "MarkingFlow",
+    getSteps: () => StepList.startStep(step),
+  };
+  const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, () => 3);
+  const harness = await startHarness();
+  const worker = harness.workerWithDispatcher(dispatcher);
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, supportsAttemptStartedAck } } });
+    stream.call.write({ frame: { $case: "task", value: {
+      taskId: "marked-task", deadline: undefined,
+      request: { $case: "execute", value: InvokeExecuteMethodRequest.create({
+        context: ProtoContext.create({ flowId: "marking-flow", stepExecutionId: "step-1" }),
+        flowType: flow.getFlowType(), stepType: step.getStepType(), stepInput: encodeValue(stringCodec, "input"),
+      }) },
+    } } });
+    await answer(stream);
+    await until(() => step.finished);
+    await until(() => Reflect.get(worker, "busyTaskCount") === 0);
+    const marks = stream.frames.filter((request) => request.frame?.$case === "taskFrame"
+      && request.frame.value.output?.$case === "execute"
+      && request.frame.value.output.value.output?.$case === "attemptStarted").length;
+    return { step, marks };
+  } finally {
+    await worker.close();
+    await harness.close();
+  }
+}
+
+test("concurrent marks of one attempt send one frame and share its acknowledgement", async () => {
+  const { step, marks } = await runMarkingTask(true, async (stream) => {
+    await stream.frame("taskFrame");
+    stream.call.write({ frame: { $case: "attemptStartedAck", value: { taskId: "another-task" } } });
+    stream.call.write({ frame: { $case: "attemptStartedAck", value: { taskId: "marked-task" } } });
+  });
+  assert.deepEqual(step.outcomes, ["acknowledged", "acknowledged"]);
+  assert.equal(marks, 1);
+});
+
+test("a mark on a Dex Server without acknowledgements rejects as unsupported without sending", async () => {
+  const { step, marks } = await runMarkingTask(false, async () => {});
+  assert.deepEqual(step.outcomes, ["not acknowledged (unsupported)", "not acknowledged (unsupported)"]);
+  assert.equal(marks, 0);
+});
+
+test("a cancelled task rejects every waiting mark and frees its task slot", async () => {
+  const { step, marks } = await runMarkingTask(true, async (stream) => {
+    await stream.frame("taskFrame");
+    stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "marked-task" } } });
+  });
+  assert.deepEqual(step.outcomes, ["not acknowledged", "not acknowledged"]);
+  assert.equal(marks, 1);
+});
+
+test("a closed task stream rejects every waiting mark and frees its task slot", async () => {
+  const { step } = await runMarkingTask(true, async (stream) => {
+    await stream.frame("taskFrame");
+    stream.call.emit("error", { code: status.UNAVAILABLE, details: "stream closed" });
+  });
+  assert.deepEqual(step.outcomes, ["not acknowledged", "not acknowledged"]);
 });

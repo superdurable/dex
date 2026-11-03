@@ -15,16 +15,17 @@ use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, ValueId, parse_run_key,
 };
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, MethodSnapshotRecord, RunRecord, StepInvocationKey, ValueRecord, command_reply,
-    flow_command::Command, inbox_message_command, stored_value,
+    FlowCommand, MethodSnapshotRecord, RunRecord, StepAttemptFailedCommand, StepInvocationKey,
+    StepInvocationRecord, ValueRecord, command_reply, flow_command::Command, inbox_message_command,
+    stored_value,
 };
 use prost::Message;
 
 use crate::invalid_client_inputs::{check_invalid_client_input_rejected, invalid_client_input};
 use crate::invariants::{
     CheckerMemory, CloseBarrierCounts, InvariantViolation, WindowPointState, check_close_barrier,
-    check_flow, check_fresh_snapshot, check_outbox_writes, check_window_value_content,
-    remember_ack, remember_window_points,
+    check_flow, check_fresh_snapshot, check_outbox_writes, check_retried_attempt_progress,
+    check_window_value_content, remember_ack, remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunSelection};
@@ -165,6 +166,11 @@ impl ApplyChecker {
             None
         };
         let retained_snapshot = self.retained_snapshot(command)?;
+        let failed_invocation = if is_applied {
+            self.failed_invocation(command, &touched_runs)?
+        } else {
+            None
+        };
         self.state.commit(&outcome.writes);
         self.applied_commands += 1;
         self.redecoded_state
@@ -192,6 +198,10 @@ impl ApplyChecker {
         self.record_window_point_spans(&view, pruned_points);
         if is_applied {
             self.check_command_effects(command, &outcome, &view, retained_snapshot.as_ref())?;
+            if let Some(Command::StepAttemptFailed(failure)) = &command.command {
+                let after = invocation_of(&view, &command.run_id, failure);
+                check_retried_attempt_progress(failure, failed_invocation.as_ref(), after)?;
+            }
         }
         check_flow(&command.flow_id, &view, &self.memory)?;
         check_window_value_content(
@@ -449,6 +459,19 @@ impl ApplyChecker {
         Ok(())
     }
 
+    /// Returns the failed attempt's invocation before the failure applies, or `None`.
+    fn failed_invocation(
+        &self,
+        command: &FlowCommand,
+        touched_runs: &BTreeSet<RunId>,
+    ) -> Result<Option<StepInvocationRecord>, InvariantViolation> {
+        let Some(Command::StepAttemptFailed(failure)) = &command.command else {
+            return Ok(None);
+        };
+        let view = self.view(&command.flow_id, RunSelection::Only(touched_runs))?;
+        Ok(invocation_of(&view, &command.run_id, failure).cloned())
+    }
+
     fn read_traveled_attributes(
         &self,
         command: &FlowCommand,
@@ -574,6 +597,21 @@ impl ApplyChecker {
 }
 
 /// Runs whose rows the outcome wrote; only they can have changed.
+fn invocation_of<'view>(
+    view: &'view FlowView,
+    run_id: &[u8],
+    failure: &StepAttemptFailedCommand,
+) -> Option<&'view StepInvocationRecord> {
+    let run_id = RunId::from_slice(run_id).ok()?;
+    let step_execution_id = &failure.invocation.as_ref()?.step_execution_id;
+    view.runs
+        .get(&run_id)?
+        .step_executions
+        .get(step_execution_id)?
+        .invocation
+        .as_ref()
+}
+
 fn touched_runs(outcome: &ApplyOutcome) -> BTreeSet<RunId> {
     let mut run_ids: BTreeSet<RunId> = outcome.run_id.into_iter().collect();
     for write in &outcome.writes {

@@ -19,4 +19,14 @@ public interface PollWorkerTaskRegisteredOrBuilder extends
    * @return The supportsUnknownNameRejection.
    */
   boolean getSupportsUnknownNameRejection();
+
+  /**
+   * <pre>
+   * Allows a Step task on this stream to send StepMethodAttemptStarted and wait for its ack.
+   * </pre>
+   *
+   * <code>bool supports_attempt_started_ack = 2;</code>
+   * @return The supportsAttemptStartedAck.
+   */
+  boolean getSupportsAttemptStartedAck();
 }

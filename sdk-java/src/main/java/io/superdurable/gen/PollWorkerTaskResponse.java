@@ -63,6 +63,7 @@ private static final long serialVersionUID = 0L;
     CANCEL_TASK(3),
     RECONNECT(4),
     PING(5),
+    ATTEMPT_STARTED_ACK(6),
     FRAME_NOT_SET(0);
     private final int value;
     private FrameCase(int value) {
@@ -85,6 +86,7 @@ private static final long serialVersionUID = 0L;
         case 3: return CANCEL_TASK;
         case 4: return RECONNECT;
         case 5: return PING;
+        case 6: return ATTEMPT_STARTED_ACK;
         case 0: return FRAME_NOT_SET;
         default: return null;
       }
@@ -315,6 +317,49 @@ private static final long serialVersionUID = 0L;
     return io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance();
   }
 
+  public static final int ATTEMPT_STARTED_ACK_FIELD_NUMBER = 6;
+  /**
+   * <pre>
+   * Confirms that Dex stored the attempt-started mark of the assigned task.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+   * @return Whether the attemptStartedAck field is set.
+   */
+  @java.lang.Override
+  public boolean hasAttemptStartedAck() {
+    return frameCase_ == 6;
+  }
+  /**
+   * <pre>
+   * Confirms that Dex stored the attempt-started mark of the assigned task.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+   * @return The attemptStartedAck.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.PollWorkerTaskAttemptStartedAck getAttemptStartedAck() {
+    if (frameCase_ == 6) {
+       return (io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_;
+    }
+    return io.superdurable.gen.PollWorkerTaskAttemptStartedAck.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * Confirms that Dex stored the attempt-started mark of the assigned task.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.PollWorkerTaskAttemptStartedAckOrBuilder getAttemptStartedAckOrBuilder() {
+    if (frameCase_ == 6) {
+       return (io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_;
+    }
+    return io.superdurable.gen.PollWorkerTaskAttemptStartedAck.getDefaultInstance();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -344,6 +389,9 @@ private static final long serialVersionUID = 0L;
     if (frameCase_ == 5) {
       output.writeMessage(5, (io.superdurable.gen.PollWorkerTaskPing) frame_);
     }
+    if (frameCase_ == 6) {
+      output.writeMessage(6, (io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -367,6 +415,10 @@ private static final long serialVersionUID = 0L;
     if (frameCase_ == 5) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(5, (io.superdurable.gen.PollWorkerTaskPing) frame_);
+    }
+    if (frameCase_ == 6) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(6, (io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_);
     }
     return size;
   }
@@ -414,6 +466,10 @@ private static final long serialVersionUID = 0L;
         if (!getPing()
             .equals(other.getPing())) return false;
         break;
+      case 6:
+        if (!getAttemptStartedAck()
+            .equals(other.getAttemptStartedAck())) return false;
+        break;
       case 0:
       default:
     }
@@ -448,6 +504,10 @@ private static final long serialVersionUID = 0L;
       case 5:
         hash = (37 * hash) + PING_FIELD_NUMBER;
         hash = (53 * hash) + getPing().hashCode();
+        break;
+      case 6:
+        hash = (37 * hash) + ATTEMPT_STARTED_ACK_FIELD_NUMBER;
+        hash = (53 * hash) + getAttemptStartedAck().hashCode();
         break;
       case 0:
       default:
@@ -602,6 +662,9 @@ private static final long serialVersionUID = 0L;
       if (pingBuilder_ != null) {
         pingBuilder_.clear();
       }
+      if (attemptStartedAckBuilder_ != null) {
+        attemptStartedAckBuilder_.clear();
+      }
       frameCase_ = 0;
       frame_ = null;
       return this;
@@ -663,6 +726,10 @@ private static final long serialVersionUID = 0L;
           pingBuilder_ != null) {
         result.frame_ = pingBuilder_.build();
       }
+      if (frameCase_ == 6 &&
+          attemptStartedAckBuilder_ != null) {
+        result.frame_ = attemptStartedAckBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -696,6 +763,10 @@ private static final long serialVersionUID = 0L;
         }
         case PING: {
           mergePing(other.getPing());
+          break;
+        }
+        case ATTEMPT_STARTED_ACK: {
+          mergeAttemptStartedAck(other.getAttemptStartedAck());
           break;
         }
         case FRAME_NOT_SET: {
@@ -763,6 +834,13 @@ private static final long serialVersionUID = 0L;
               frameCase_ = 5;
               break;
             } // case 42
+            case 50: {
+              input.readMessage(
+                  internalGetAttemptStartedAckFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              frameCase_ = 6;
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1683,6 +1761,184 @@ private static final long serialVersionUID = 0L;
       frameCase_ = 5;
       onChanged();
       return pingBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.PollWorkerTaskAttemptStartedAck, io.superdurable.gen.PollWorkerTaskAttemptStartedAck.Builder, io.superdurable.gen.PollWorkerTaskAttemptStartedAckOrBuilder> attemptStartedAckBuilder_;
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     * @return Whether the attemptStartedAck field is set.
+     */
+    @java.lang.Override
+    public boolean hasAttemptStartedAck() {
+      return frameCase_ == 6;
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     * @return The attemptStartedAck.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.PollWorkerTaskAttemptStartedAck getAttemptStartedAck() {
+      if (attemptStartedAckBuilder_ == null) {
+        if (frameCase_ == 6) {
+          return (io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_;
+        }
+        return io.superdurable.gen.PollWorkerTaskAttemptStartedAck.getDefaultInstance();
+      } else {
+        if (frameCase_ == 6) {
+          return attemptStartedAckBuilder_.getMessage();
+        }
+        return io.superdurable.gen.PollWorkerTaskAttemptStartedAck.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     */
+    public Builder setAttemptStartedAck(io.superdurable.gen.PollWorkerTaskAttemptStartedAck value) {
+      if (attemptStartedAckBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        frame_ = value;
+        onChanged();
+      } else {
+        attemptStartedAckBuilder_.setMessage(value);
+      }
+      frameCase_ = 6;
+      return this;
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     */
+    public Builder setAttemptStartedAck(
+        io.superdurable.gen.PollWorkerTaskAttemptStartedAck.Builder builderForValue) {
+      if (attemptStartedAckBuilder_ == null) {
+        frame_ = builderForValue.build();
+        onChanged();
+      } else {
+        attemptStartedAckBuilder_.setMessage(builderForValue.build());
+      }
+      frameCase_ = 6;
+      return this;
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     */
+    public Builder mergeAttemptStartedAck(io.superdurable.gen.PollWorkerTaskAttemptStartedAck value) {
+      if (attemptStartedAckBuilder_ == null) {
+        if (frameCase_ == 6 &&
+            frame_ != io.superdurable.gen.PollWorkerTaskAttemptStartedAck.getDefaultInstance()) {
+          frame_ = io.superdurable.gen.PollWorkerTaskAttemptStartedAck.newBuilder((io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          frame_ = value;
+        }
+        onChanged();
+      } else {
+        if (frameCase_ == 6) {
+          attemptStartedAckBuilder_.mergeFrom(value);
+        } else {
+          attemptStartedAckBuilder_.setMessage(value);
+        }
+      }
+      frameCase_ = 6;
+      return this;
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     */
+    public Builder clearAttemptStartedAck() {
+      if (attemptStartedAckBuilder_ == null) {
+        if (frameCase_ == 6) {
+          frameCase_ = 0;
+          frame_ = null;
+          onChanged();
+        }
+      } else {
+        if (frameCase_ == 6) {
+          frameCase_ = 0;
+          frame_ = null;
+        }
+        attemptStartedAckBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     */
+    public io.superdurable.gen.PollWorkerTaskAttemptStartedAck.Builder getAttemptStartedAckBuilder() {
+      return internalGetAttemptStartedAckFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.PollWorkerTaskAttemptStartedAckOrBuilder getAttemptStartedAckOrBuilder() {
+      if ((frameCase_ == 6) && (attemptStartedAckBuilder_ != null)) {
+        return attemptStartedAckBuilder_.getMessageOrBuilder();
+      } else {
+        if (frameCase_ == 6) {
+          return (io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_;
+        }
+        return io.superdurable.gen.PollWorkerTaskAttemptStartedAck.getDefaultInstance();
+      }
+    }
+    /**
+     * <pre>
+     * Confirms that Dex stored the attempt-started mark of the assigned task.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerTaskAttemptStartedAck attempt_started_ack = 6;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.PollWorkerTaskAttemptStartedAck, io.superdurable.gen.PollWorkerTaskAttemptStartedAck.Builder, io.superdurable.gen.PollWorkerTaskAttemptStartedAckOrBuilder> 
+        internalGetAttemptStartedAckFieldBuilder() {
+      if (attemptStartedAckBuilder_ == null) {
+        if (!(frameCase_ == 6)) {
+          frame_ = io.superdurable.gen.PollWorkerTaskAttemptStartedAck.getDefaultInstance();
+        }
+        attemptStartedAckBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.PollWorkerTaskAttemptStartedAck, io.superdurable.gen.PollWorkerTaskAttemptStartedAck.Builder, io.superdurable.gen.PollWorkerTaskAttemptStartedAckOrBuilder>(
+                (io.superdurable.gen.PollWorkerTaskAttemptStartedAck) frame_,
+                getParentForChildren(),
+                isClean());
+        frame_ = null;
+      }
+      frameCase_ = 6;
+      onChanged();
+      return attemptStartedAckBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.PollWorkerTaskResponse)

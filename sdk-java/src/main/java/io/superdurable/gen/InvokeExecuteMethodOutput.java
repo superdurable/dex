@@ -57,6 +57,7 @@ private static final long serialVersionUID = 0L;
     HEARTBEAT(1),
     STREAM_WRITE(2),
     RESULT(3),
+    ATTEMPT_STARTED(4),
     OUTPUT_NOT_SET(0);
     private final int value;
     private OutputCase(int value) {
@@ -77,6 +78,7 @@ private static final long serialVersionUID = 0L;
         case 1: return HEARTBEAT;
         case 2: return STREAM_WRITE;
         case 3: return RESULT;
+        case 4: return ATTEMPT_STARTED;
         case 0: return OUTPUT_NOT_SET;
         default: return null;
       }
@@ -185,6 +187,37 @@ private static final long serialVersionUID = 0L;
     return io.superdurable.gen.InvokeExecuteMethodResponse.getDefaultInstance();
   }
 
+  public static final int ATTEMPT_STARTED_FIELD_NUMBER = 4;
+  /**
+   * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+   * @return Whether the attemptStarted field is set.
+   */
+  @java.lang.Override
+  public boolean hasAttemptStarted() {
+    return outputCase_ == 4;
+  }
+  /**
+   * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+   * @return The attemptStarted.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodAttemptStarted getAttemptStarted() {
+    if (outputCase_ == 4) {
+       return (io.superdurable.gen.StepMethodAttemptStarted) output_;
+    }
+    return io.superdurable.gen.StepMethodAttemptStarted.getDefaultInstance();
+  }
+  /**
+   * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodAttemptStartedOrBuilder getAttemptStartedOrBuilder() {
+    if (outputCase_ == 4) {
+       return (io.superdurable.gen.StepMethodAttemptStarted) output_;
+    }
+    return io.superdurable.gen.StepMethodAttemptStarted.getDefaultInstance();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -208,6 +241,9 @@ private static final long serialVersionUID = 0L;
     if (outputCase_ == 3) {
       output.writeMessage(3, (io.superdurable.gen.InvokeExecuteMethodResponse) output_);
     }
+    if (outputCase_ == 4) {
+      output.writeMessage(4, (io.superdurable.gen.StepMethodAttemptStarted) output_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -223,6 +259,10 @@ private static final long serialVersionUID = 0L;
     if (outputCase_ == 3) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(3, (io.superdurable.gen.InvokeExecuteMethodResponse) output_);
+    }
+    if (outputCase_ == 4) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(4, (io.superdurable.gen.StepMethodAttemptStarted) output_);
     }
     return size;
   }
@@ -262,6 +302,10 @@ private static final long serialVersionUID = 0L;
         if (!getResult()
             .equals(other.getResult())) return false;
         break;
+      case 4:
+        if (!getAttemptStarted()
+            .equals(other.getAttemptStarted())) return false;
+        break;
       case 0:
       default:
     }
@@ -288,6 +332,10 @@ private static final long serialVersionUID = 0L;
       case 3:
         hash = (37 * hash) + RESULT_FIELD_NUMBER;
         hash = (53 * hash) + getResult().hashCode();
+        break;
+      case 4:
+        hash = (37 * hash) + ATTEMPT_STARTED_FIELD_NUMBER;
+        hash = (53 * hash) + getAttemptStarted().hashCode();
         break;
       case 0:
       default:
@@ -432,6 +480,9 @@ private static final long serialVersionUID = 0L;
       if (resultBuilder_ != null) {
         resultBuilder_.clear();
       }
+      if (attemptStartedBuilder_ != null) {
+        attemptStartedBuilder_.clear();
+      }
       outputCase_ = 0;
       output_ = null;
       return this;
@@ -485,6 +536,10 @@ private static final long serialVersionUID = 0L;
           resultBuilder_ != null) {
         result.output_ = resultBuilder_.build();
       }
+      if (outputCase_ == 4 &&
+          attemptStartedBuilder_ != null) {
+        result.output_ = attemptStartedBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -510,6 +565,10 @@ private static final long serialVersionUID = 0L;
         }
         case RESULT: {
           mergeResult(other.getResult());
+          break;
+        }
+        case ATTEMPT_STARTED: {
+          mergeAttemptStarted(other.getAttemptStarted());
           break;
         }
         case OUTPUT_NOT_SET: {
@@ -563,6 +622,13 @@ private static final long serialVersionUID = 0L;
               outputCase_ = 3;
               break;
             } // case 26
+            case 34: {
+              input.readMessage(
+                  internalGetAttemptStartedFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              outputCase_ = 4;
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1019,6 +1085,148 @@ private static final long serialVersionUID = 0L;
       outputCase_ = 3;
       onChanged();
       return resultBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodAttemptStarted, io.superdurable.gen.StepMethodAttemptStarted.Builder, io.superdurable.gen.StepMethodAttemptStartedOrBuilder> attemptStartedBuilder_;
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     * @return Whether the attemptStarted field is set.
+     */
+    @java.lang.Override
+    public boolean hasAttemptStarted() {
+      return outputCase_ == 4;
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     * @return The attemptStarted.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StepMethodAttemptStarted getAttemptStarted() {
+      if (attemptStartedBuilder_ == null) {
+        if (outputCase_ == 4) {
+          return (io.superdurable.gen.StepMethodAttemptStarted) output_;
+        }
+        return io.superdurable.gen.StepMethodAttemptStarted.getDefaultInstance();
+      } else {
+        if (outputCase_ == 4) {
+          return attemptStartedBuilder_.getMessage();
+        }
+        return io.superdurable.gen.StepMethodAttemptStarted.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     */
+    public Builder setAttemptStarted(io.superdurable.gen.StepMethodAttemptStarted value) {
+      if (attemptStartedBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        output_ = value;
+        onChanged();
+      } else {
+        attemptStartedBuilder_.setMessage(value);
+      }
+      outputCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     */
+    public Builder setAttemptStarted(
+        io.superdurable.gen.StepMethodAttemptStarted.Builder builderForValue) {
+      if (attemptStartedBuilder_ == null) {
+        output_ = builderForValue.build();
+        onChanged();
+      } else {
+        attemptStartedBuilder_.setMessage(builderForValue.build());
+      }
+      outputCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     */
+    public Builder mergeAttemptStarted(io.superdurable.gen.StepMethodAttemptStarted value) {
+      if (attemptStartedBuilder_ == null) {
+        if (outputCase_ == 4 &&
+            output_ != io.superdurable.gen.StepMethodAttemptStarted.getDefaultInstance()) {
+          output_ = io.superdurable.gen.StepMethodAttemptStarted.newBuilder((io.superdurable.gen.StepMethodAttemptStarted) output_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          output_ = value;
+        }
+        onChanged();
+      } else {
+        if (outputCase_ == 4) {
+          attemptStartedBuilder_.mergeFrom(value);
+        } else {
+          attemptStartedBuilder_.setMessage(value);
+        }
+      }
+      outputCase_ = 4;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     */
+    public Builder clearAttemptStarted() {
+      if (attemptStartedBuilder_ == null) {
+        if (outputCase_ == 4) {
+          outputCase_ = 0;
+          output_ = null;
+          onChanged();
+        }
+      } else {
+        if (outputCase_ == 4) {
+          outputCase_ = 0;
+          output_ = null;
+        }
+        attemptStartedBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     */
+    public io.superdurable.gen.StepMethodAttemptStarted.Builder getAttemptStartedBuilder() {
+      return internalGetAttemptStartedFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StepMethodAttemptStartedOrBuilder getAttemptStartedOrBuilder() {
+      if ((outputCase_ == 4) && (attemptStartedBuilder_ != null)) {
+        return attemptStartedBuilder_.getMessageOrBuilder();
+      } else {
+        if (outputCase_ == 4) {
+          return (io.superdurable.gen.StepMethodAttemptStarted) output_;
+        }
+        return io.superdurable.gen.StepMethodAttemptStarted.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodAttemptStarted, io.superdurable.gen.StepMethodAttemptStarted.Builder, io.superdurable.gen.StepMethodAttemptStartedOrBuilder> 
+        internalGetAttemptStartedFieldBuilder() {
+      if (attemptStartedBuilder_ == null) {
+        if (!(outputCase_ == 4)) {
+          output_ = io.superdurable.gen.StepMethodAttemptStarted.getDefaultInstance();
+        }
+        attemptStartedBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.StepMethodAttemptStarted, io.superdurable.gen.StepMethodAttemptStarted.Builder, io.superdurable.gen.StepMethodAttemptStartedOrBuilder>(
+                (io.superdurable.gen.StepMethodAttemptStarted) output_,
+                getParentForChildren(),
+                isClean());
+        output_ = null;
+      }
+      outputCase_ = 4;
+      onChanged();
+      return attemptStartedBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.InvokeExecuteMethodOutput)

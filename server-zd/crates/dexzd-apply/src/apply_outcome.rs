@@ -100,6 +100,8 @@ pub enum ApplyEffect {
         method_timeout_seconds: i32,
         /// Absolute deadline of the method's retry policy.
         retry_deadline_micros: i64,
+        /// True when recovery or time travel dispatches an attempt that a Worker may already hold.
+        is_redispatch: bool,
     },
     /// A running attempt ended without a result (canceled, Flow closed, time travel); tell the
     /// Worker to stop.

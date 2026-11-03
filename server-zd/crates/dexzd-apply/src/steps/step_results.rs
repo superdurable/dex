@@ -12,13 +12,13 @@ use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::{timer_index_key, timer_key};
 use dexzd_protocol::dex::{
     DispatchTaskErrorReason, ErrorSubStatus, ExecuteMethodFailurePolicy, FlowErrorType,
-    RecoveryErrorInfo, ServiceErrorResponse, StepMethodFailure, Value, WaitForMethodFailurePolicy,
-    WorkerErrorResponse, value,
+    RecoveryErrorInfo, ServiceErrorResponse, StepAttemptProgress, StepMethodFailure, Value,
+    WaitForMethodFailurePolicy, WorkerErrorResponse, value,
 };
 use dexzd_protocol::dexzd::v1::{
     RetryBackoffTimerId, StepAttemptFailedCommand, StepAttemptFailureKind,
-    StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepExecutionPhase,
-    StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    StepAttemptHeartbeatCommand, StepAttemptMarkedStartedCommand, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
     StepMethodCompletedCommand, TimerId, TimerRecord, step_attempt_heartbeat_command,
     step_method_completed_command, timer_id,
 };
@@ -203,6 +203,32 @@ pub(crate) fn apply_attempt_heartbeat(
     Ok(StepCommandOutcome::Applied(ok_reply()))
 }
 
+/// Records that the running attempt's Worker marked it started; the owner acknowledges the
+/// mark to the Worker only after this commits.
+pub(crate) fn apply_attempt_marked_started(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    command: &StepAttemptMarkedStartedCommand,
+) -> Result<StepCommandOutcome, ApplyError> {
+    let Some(mut step) = load_invocation(
+        transaction,
+        cursor,
+        command.invocation.as_ref(),
+        command.attempt,
+        StepInvocationPhase::Running,
+    )?
+    else {
+        return Ok(StepCommandOutcome::Ignored(stale_reply(
+            "the attempt is no longer running",
+        )));
+    };
+    if let Some(invocation) = step.invocation.as_mut() {
+        invocation.marked_started_attempt = command.attempt;
+    }
+    cursor.rows.put_step_execution(transaction, &step);
+    Ok(StepCommandOutcome::Applied(ok_reply()))
+}
+
 pub(crate) fn apply_attempt_failed(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -220,6 +246,7 @@ pub(crate) fn apply_attempt_failed(
         return Ok(StepCommandOutcome::Ignored(ok_reply()));
     };
     let worker_error = command.worker_error.clone().unwrap_or_default();
+    let attempt_progress = furthest_attempt_progress(&step, command);
     let dispatch_reason = dispatch_failure_reason(command);
     let failure = StepMethodFailure {
         backend_error: if command.server_detail.is_empty() {
@@ -284,6 +311,7 @@ pub(crate) fn apply_attempt_failed(
                 invocation.attempt = next_attempt;
                 invocation.backoff_fires_at_micros = fires_at_micros;
                 invocation.last_failure = Some(failure);
+                invocation.furthest_attempt_progress = attempt_progress as i32;
             }
             arm_retry_timer(transaction, cursor, &key, next_attempt, fires_at_micros);
             cursor.rows.put_step_execution(transaction, &step);
@@ -308,8 +336,12 @@ pub(crate) fn apply_attempt_failed(
                 && options.wait_for_failure_policy
                     == WaitForMethodFailurePolicy::ProceedOnFailure as i32
             {
-                step.recovery_error =
-                    Some(recovery_error(command, &worker_error, application_text));
+                step.recovery_error = Some(recovery_error(
+                    command,
+                    &worker_error,
+                    application_text,
+                    attempt_progress,
+                ));
                 step.condition_results = Some(dexzd_protocol::dexzd::v1::ConditionResultsRecord {
                     wait_for_failed: true,
                     ..Default::default()
@@ -371,8 +403,12 @@ pub(crate) fn apply_attempt_failed(
                     )?;
                 }
                 recovery_step.input = input;
-                recovery_step.recovery_error =
-                    Some(recovery_error(command, &worker_error, application_text));
+                recovery_step.recovery_error = Some(recovery_error(
+                    command,
+                    &worker_error,
+                    application_text,
+                    attempt_progress,
+                ));
                 cursor.rows.put_step_execution(transaction, &recovery_step);
                 finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
             } else {
@@ -437,6 +473,7 @@ fn flow_error_type_for_attempt_failure(command: &StepAttemptFailedCommand) -> Fl
         | StepAttemptFailureKind::MethodTimeout
         | StepAttemptFailureKind::HeartbeatTimeout
         | StepAttemptFailureKind::RetryDeadline
+        | StepAttemptFailureKind::StartedAttemptInterrupted
         | StepAttemptFailureKind::ValueTooLarge
         | StepAttemptFailureKind::UnsupportedFeature
         | StepAttemptFailureKind::Unspecified => FlowErrorType::WorkerApiFail,
@@ -538,10 +575,51 @@ fn validation_message(server_detail: &str) -> Option<&str> {
     is_field_path.then_some(message)
 }
 
+/// Returns the furthest progress of the method's attempts, including the failed one.
+///
+/// An unknown progress ranks above `Assigned`, since the work may have run; a marked attempt
+/// is always `Started`. Attempts before the first one with a record count as unknown.
+fn furthest_attempt_progress(
+    step: &StepExecutionRecord,
+    command: &StepAttemptFailedCommand,
+) -> StepAttemptProgress {
+    let invocation = step.invocation.as_ref();
+    let is_marked = invocation.is_some_and(|invocation| {
+        command.attempt > 0 && invocation.marked_started_attempt == command.attempt
+    });
+    let failed_attempt = if is_marked {
+        StepAttemptProgress::Started
+    } else {
+        StepAttemptProgress::try_from(command.attempt_progress)
+            .unwrap_or(StepAttemptProgress::Unspecified)
+    };
+    if command.attempt <= 1 {
+        return failed_attempt;
+    }
+    let earlier_attempts = invocation.map_or(StepAttemptProgress::Unspecified, |invocation| {
+        StepAttemptProgress::try_from(invocation.furthest_attempt_progress)
+            .unwrap_or(StepAttemptProgress::Unspecified)
+    });
+    std::cmp::max_by_key(failed_attempt, earlier_attempts, |progress| {
+        attempt_progress_rank(*progress)
+    })
+}
+
+/// Orders progress by how likely the work ran; unknown counts as possibly run.
+fn attempt_progress_rank(progress: StepAttemptProgress) -> u8 {
+    match progress {
+        StepAttemptProgress::NotAssigned => 0,
+        StepAttemptProgress::Assigned => 1,
+        StepAttemptProgress::Unspecified => 2,
+        StepAttemptProgress::Started => 3,
+    }
+}
+
 fn recovery_error(
     command: &StepAttemptFailedCommand,
     worker_error: &WorkerErrorResponse,
     detail: String,
+    attempt_progress: StepAttemptProgress,
 ) -> RecoveryErrorInfo {
     let kind = StepAttemptFailureKind::try_from(command.kind)
         .unwrap_or(StepAttemptFailureKind::Unspecified);
@@ -556,6 +634,7 @@ fn recovery_error(
         StepAttemptFailureKind::MethodTimeout => "StartToClose",
         StepAttemptFailureKind::HeartbeatTimeout => "Heartbeat",
         StepAttemptFailureKind::RetryDeadline => "ScheduleToClose",
+        StepAttemptFailureKind::StartedAttemptInterrupted => "StartedAttemptInterrupted",
         StepAttemptFailureKind::DispatchError
         | StepAttemptFailureKind::InvalidResponse
         | StepAttemptFailureKind::RequestTooLarge => {
@@ -568,6 +647,7 @@ fn recovery_error(
     RecoveryErrorInfo {
         detail,
         error_type: error_type.to_owned(),
+        attempt_progress: attempt_progress as i32,
     }
 }
 

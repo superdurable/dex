@@ -232,6 +232,30 @@ export class InvalidStepResultError extends FlowDefinitionError {
   }
 }
 
+/**
+ * Reports that Dex did not acknowledge an attempt-started mark.
+ *
+ * {@link AsyncContext.markAttemptStarted} rejects with this error when the Dex Server does not
+ * support the mark, or when the Worker task was cancelled or its stream closed before Dex
+ * acknowledged the mark. The Step must not start its external effect after this error. Let the
+ * error fail the attempt, so the retry policy or the failure route handles it.
+ */
+export class AttemptStartedNotAcknowledgedError extends Error {
+  /**
+   * Creates the error.
+   *
+   * An application that must also run against older Dex Servers can check
+   * `isUnsupportedServer` and fall back to its earlier behavior. When it is `false`, the task was
+   * cancelled or lost its stream, and the effect must not start.
+   * @param detail - Why the mark was not acknowledged.
+   * @param isUnsupportedServer - True when the Dex Server does not support the mark.
+   */
+  public constructor(public readonly detail: string, public readonly isUnsupportedServer = false) {
+    super(`Dex did not acknowledge the attempt-started mark: ${detail}`);
+    this.name = new.target.name;
+  }
+}
+
 /** Reports an application value encoding, decoding, or hydration failure. */
 export class ValueMappingError extends Error {
   /**

@@ -12,7 +12,7 @@ import asyncio
 import logging
 import re
 import threading
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
@@ -47,6 +47,7 @@ from dex import (
     rpc,
 )
 from dex._pull_worker import PullStream, PullWorkerRuntime, generate_app_worker_id
+from dex.runtime_errors import AttemptStartedNotAcknowledgedError
 from dex._worker_dispatcher import WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
@@ -809,9 +810,11 @@ async def _unimplemented_logs_once_and_retries_after_one_minute(
         runtime._stopping.set()
         raise asyncio.TimeoutError
 
-    with caplog.at_level(logging.ERROR), patch(
-        "dex._pull_worker.asyncio.wait_for", new=capture_wait
-    ), patch("dex._pull_worker.random.uniform", return_value=0):
+    with (
+        caplog.at_level(logging.ERROR),
+        patch("dex._pull_worker.asyncio.wait_for", new=capture_wait),
+        patch("dex._pull_worker.random.uniform", return_value=0),
+    ):
         for _ in range(2):
             runtime._stopping = asyncio.Event()
             stream = PullStream(runtime, None, "old-server-worker")
@@ -854,9 +857,11 @@ async def _transient_reconnect_uses_exponential_backoff() -> None:
             runtime._stopping.set()
         raise asyncio.TimeoutError
 
-    with patch("dex._pull_worker.asyncio.wait_for", new=capture_wait), patch(
-        "dex._pull_worker.random.uniform", return_value=0
-    ), patch.object(stream, "_poll", new_callable=AsyncMock) as poll_mock:
+    with (
+        patch("dex._pull_worker.asyncio.wait_for", new=capture_wait),
+        patch("dex._pull_worker.random.uniform", return_value=0),
+        patch.object(stream, "_poll", new_callable=AsyncMock) as poll_mock,
+    ):
         poll_mock.side_effect = FakeRpcError(grpc.StatusCode.UNAVAILABLE)
         await stream.run()
     assert timeouts == [0.1, 0.2]
@@ -905,9 +910,11 @@ async def _server_reconnect_waits_for_backoff_and_jitter(
         virtual_time += timeout
         raise asyncio.TimeoutError
 
-    with patch("dex._pull_worker.asyncio.wait_for", new=capture_wait), patch(
-        "dex._pull_worker.random.uniform", return_value=0.025
-    ) as jitter_mock, patch.object(stream, "_poll", new=poll):
+    with (
+        patch("dex._pull_worker.asyncio.wait_for", new=capture_wait),
+        patch("dex._pull_worker.random.uniform", return_value=0.025) as jitter_mock,
+        patch.object(stream, "_poll", new=poll),
+    ):
         await stream.run()
 
     assert poll_count == 2
@@ -1057,9 +1064,10 @@ async def _busy_keepalive_pong_stops_before_rpc_result() -> None:
         if request.WhichOneof("frame") == "pong":
             pong_written.set()
 
-    with patch(
-        "dex._pull_worker._BUSY_PULL_STREAM_KEEPALIVE_SECONDS", 0.05
-    ), patch.object(call, "write", new=record_request):
+    with (
+        patch("dex._pull_worker._BUSY_PULL_STREAM_KEEPALIVE_SECONDS", 0.05),
+        patch.object(call, "write", new=record_request),
+    ):
         polling = asyncio.create_task(stream._poll())
         await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
         await asyncio.wait_for(pong_written.wait(), timeout=1)
@@ -1138,6 +1146,7 @@ class UnknownTaskDispatcher:
         request: pb.InvokeWaitForMethodRequest,
         is_active: Callable[[], bool],
         deadline: datetime | None = None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
     ) -> Any:
         if is_active():
             raise LookupError(f"Step {request.step_type} is not registered")
@@ -1562,11 +1571,12 @@ async def _fatal_registration_drains_and_stop_stays_safe(has_registered: bool) -
         None,
     )
     channel = AsyncMock()
-    with patch(
-        "dex._pull_worker.outbound_worker_task_channel", return_value=channel
-    ), patch(
-        "dex._pull_worker.dex_pb2_grpc.WorkerTaskServiceStub",
-        return_value=FakeStub(cast(FakeCall, call)),
+    with (
+        patch("dex._pull_worker.outbound_worker_task_channel", return_value=channel),
+        patch(
+            "dex._pull_worker.dex_pb2_grpc.WorkerTaskServiceStub",
+            return_value=FakeStub(cast(FakeCall, call)),
+        ),
     ):
         running = asyncio.create_task(runtime.run())
         if has_registered:
@@ -1720,8 +1730,9 @@ async def _transport_creation_failure_preserves_start_error_and_allows_stop() ->
         asyncio.run(worker._pull.run())
 
     try:
-        with patch.object(worker, "_start", side_effect=run_pull), patch(
-            "dex._pull_worker.outbound_worker_task_channel", side_effect=failure
+        with (
+            patch.object(worker, "_start", side_effect=run_pull),
+            patch("dex._pull_worker.outbound_worker_task_channel", side_effect=failure),
         ):
             with pytest.raises(RuntimeError) as started:
                 await asyncio.to_thread(worker.start)
@@ -1847,6 +1858,7 @@ async def _reserve_pressure_is_queue_local_and_expires() -> None:
             request: pb.InvokeExecuteMethodRequest,
             is_active: Callable[[], bool],
             deadline: datetime | None = None,
+            attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
         ) -> AsyncIterator[pb.InvokeExecuteMethodResponse]:
             await self.gate.wait()
             yield pb.InvokeExecuteMethodResponse()
@@ -2180,12 +2192,192 @@ def test_reserved_rpc_default_and_warning(
         None,
     )
     assert runtime.reserved_rpc_tasks == (1 if capacity >= 2 else 0)
-    with caplog.at_level(logging.WARNING), patch(
-        "dex._pull_worker.outbound_worker_task_channel",
-        side_effect=RuntimeError("test stop"),
+    with (
+        caplog.at_level(logging.WARNING),
+        patch(
+            "dex._pull_worker.outbound_worker_task_channel",
+            side_effect=RuntimeError("test stop"),
+        ),
     ):
         with pytest.raises(RuntimeError, match="test stop"):
             asyncio.run(runtime.run())
     assert sum("RPCs may wait" in record.message for record in caplog.records) == int(
         capacity == 1
     )
+
+
+class MarkingDispatcher:
+    """Runs one Execute task that marks its attempt started `mark_count` times at once."""
+
+    def __init__(self, mark_count: int) -> None:
+        self.mark_count = mark_count
+        self.outcomes: list[BaseException | None] = []
+
+    async def invoke_execute(
+        self,
+        request: pb.InvokeExecuteMethodRequest,
+        is_active: Callable[[], bool],
+        deadline: datetime | None = None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
+    ) -> AsyncIterator[pb.InvokeExecuteMethodOutput]:
+        assert attempt_started_marker is not None
+
+        async def mark_once() -> None:
+            try:
+                await attempt_started_marker()
+            except BaseException as error:
+                self.outcomes.append(error)
+                raise
+            self.outcomes.append(None)
+
+        await asyncio.gather(
+            *(mark_once() for _ in range(self.mark_count)), return_exceptions=True
+        )
+        yield pb.InvokeExecuteMethodOutput(result=pb.InvokeExecuteMethodResponse())
+
+
+class MarkCall(QueueCall):
+    """Answers an attempt-started frame with `reply`: "ack", "cancel", or "close"."""
+
+    def __init__(self, supports_attempt_started_ack: bool, reply: str) -> None:
+        super().__init__(
+            [
+                pb.PollWorkerTaskResponse(
+                    registered=pb.PollWorkerTaskRegistered(
+                        supports_attempt_started_ack=supports_attempt_started_ack
+                    )
+                ),
+                pb.PollWorkerTaskResponse(
+                    task=pb.PollWorkerTask(
+                        task_id="marked-task", execute=pb.InvokeExecuteMethodRequest()
+                    )
+                ),
+            ]
+        )
+        self.reply = reply
+
+    def marks(self) -> int:
+        return sum(
+            1
+            for request in self.requests
+            if request.WhichOneof("frame") == "task_frame"
+            and request.task_frame.execute.WhichOneof("output") == "attempt_started"
+        )
+
+    async def write(self, request: pb.PollWorkerTaskRequest) -> None:
+        await super().write(request)
+        if request.WhichOneof("frame") != "task_frame":
+            return
+        output = request.task_frame.WhichOneof("output")
+        if output == "worker_error" or (
+            output == "execute"
+            and request.task_frame.execute.WhichOneof("output") == "result"
+        ):
+            self.frames.put_nowait(getattr(grpc.aio, "EOF"))
+            return
+        if request.task_frame.execute.WhichOneof("output") != "attempt_started":
+            return
+        if self.reply == "delayed-ack":
+            asyncio.get_running_loop().call_later(
+                0.2,
+                self.frames.put_nowait,
+                pb.PollWorkerTaskResponse(
+                    attempt_started_ack=pb.PollWorkerTaskAttemptStartedAck(
+                        task_id="marked-task"
+                    )
+                ),
+            )
+        elif self.reply == "ack":
+            for task_id in ("another-task", "marked-task"):
+                self.frames.put_nowait(
+                    pb.PollWorkerTaskResponse(
+                        attempt_started_ack=pb.PollWorkerTaskAttemptStartedAck(
+                            task_id=task_id
+                        )
+                    )
+                )
+        elif self.reply == "cancel":
+            self.frames.put_nowait(
+                pb.PollWorkerTaskResponse(
+                    cancel_task=pb.PollWorkerTaskCancelTask(task_id="marked-task")
+                )
+            )
+        else:
+            self.frames.put_nowait(getattr(grpc.aio, "EOF"))
+
+
+async def _run_marked_task(
+    call: MarkCall, dispatcher: MarkingDispatcher
+) -> list[BaseException | None]:
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        cast(Any, dispatcher),
+        PullWorkerOptions(app_worker_id="mark-worker"),
+        "localhost:8801",
+        None,
+    )
+    runtime._stopping = asyncio.Event()
+    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "mark-worker")
+    await asyncio.wait_for(stream._poll(), timeout=2)
+    return dispatcher.outcomes
+
+
+def test_concurrent_marks_share_one_acknowledgement() -> None:
+    call = MarkCall(supports_attempt_started_ack=True, reply="ack")
+    outcomes = asyncio.run(_run_marked_task(call, MarkingDispatcher(mark_count=2)))
+    assert outcomes == [None, None]
+    assert call.marks() == 1
+
+
+def test_mark_on_a_server_without_acks_raises_unsupported_without_sending() -> None:
+    call = MarkCall(supports_attempt_started_ack=False, reply="ack")
+    outcomes = asyncio.run(_run_marked_task(call, MarkingDispatcher(mark_count=1)))
+    assert isinstance(outcomes[0], AttemptStartedNotAcknowledgedError)
+    assert outcomes[0].is_unsupported_server
+    assert call.marks() == 0
+
+
+@pytest.mark.parametrize("reply", ["cancel", "close"])
+def test_a_mark_whose_ack_never_arrives_raises_for_every_waiter(reply: str) -> None:
+    call = MarkCall(supports_attempt_started_ack=True, reply=reply)
+    outcomes = asyncio.run(_run_marked_task(call, MarkingDispatcher(mark_count=2)))
+    assert len(outcomes) == 2
+    for outcome in outcomes:
+        # Either error stops the effect: the handler task is canceled as the ack fails.
+        assert isinstance(
+            outcome, (AttemptStartedNotAcknowledgedError, asyncio.CancelledError)
+        )
+        if isinstance(outcome, AttemptStartedNotAcknowledgedError):
+            assert not outcome.is_unsupported_server
+
+
+class FirstWaiterCanceledDispatcher(MarkingDispatcher):
+    """Cancels the first of two marks before the ack arrives; the second keeps waiting."""
+
+    def __init__(self) -> None:
+        super().__init__(mark_count=2)
+
+    async def invoke_execute(
+        self,
+        request: pb.InvokeExecuteMethodRequest,
+        is_active: Callable[[], bool],
+        deadline: datetime | None = None,
+        attempt_started_marker: Callable[[], Awaitable[None]] | None = None,
+    ) -> AsyncIterator[pb.InvokeExecuteMethodOutput]:
+        assert attempt_started_marker is not None
+        first: asyncio.Future[None] = asyncio.ensure_future(attempt_started_marker())
+        await asyncio.sleep(0)
+        second: asyncio.Future[None] = asyncio.ensure_future(attempt_started_marker())
+        await asyncio.sleep(0.05)
+        first.cancel()
+        outcomes = await asyncio.gather(first, second, return_exceptions=True)
+        self.outcomes = list(outcomes)
+        yield pb.InvokeExecuteMethodOutput(result=pb.InvokeExecuteMethodResponse())
+
+
+def test_canceling_one_waiting_mark_does_not_strand_the_others() -> None:
+    call = MarkCall(supports_attempt_started_ack=True, reply="delayed-ack")
+    outcomes = asyncio.run(_run_marked_task(call, FirstWaiterCanceledDispatcher()))
+    assert isinstance(outcomes[0], asyncio.CancelledError)
+    assert outcomes[1] is None
+    assert call.marks() == 1

@@ -55,5 +55,20 @@ public interface InvokeWaitForMethodOutputOrBuilder extends
    */
   io.superdurable.gen.InvokeWaitForMethodResponseOrBuilder getResultOrBuilder();
 
+  /**
+   * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+   * @return Whether the attemptStarted field is set.
+   */
+  boolean hasAttemptStarted();
+  /**
+   * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+   * @return The attemptStarted.
+   */
+  io.superdurable.gen.StepMethodAttemptStarted getAttemptStarted();
+  /**
+   * <code>.dex.StepMethodAttemptStarted attempt_started = 4;</code>
+   */
+  io.superdurable.gen.StepMethodAttemptStartedOrBuilder getAttemptStartedOrBuilder();
+
   io.superdurable.gen.InvokeWaitForMethodOutput.OutputCase getOutputCase();
 }

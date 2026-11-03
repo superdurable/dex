@@ -9,6 +9,7 @@
 //! Seeded pull Workers behind the engine's dispatch ports, without the matching layer.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -220,17 +221,20 @@ impl SimulatedWorkers {
         drop(state);
         let (event_sender, event_receiver) = mpsc::channel(script.len().max(1));
         let (cancel_sender, cancel_receiver) = watch::channel(false);
+        let delivered = Arc::new(AtomicBool::new(false));
         let worker_task = tokio::spawn(play_script(
             script,
             event_sender,
             cancel_receiver,
             self.hold.subscribe(),
+            Arc::clone(&delivered),
         ));
         // The session owns the task: dropping the session ends the script.
         Ok(Box::new(SimulatedDispatchSession {
             events: event_receiver,
             cancel: cancel_sender,
             worker_task,
+            delivered,
         }))
     }
 
@@ -594,6 +598,7 @@ async fn play_script(
     events: mpsc::Sender<DispatchEvent>,
     mut cancel: watch::Receiver<bool>,
     mut hold: watch::Receiver<bool>,
+    delivered: Arc<AtomicBool>,
 ) {
     for scripted in script {
         let is_canceled_while_held = scripted.should_wait_for_release
@@ -618,6 +623,9 @@ async fn play_script(
                 DispatchEvent::Completed(DispatchOutcome::Cancelled)
             }
         };
+        if matches!(event, DispatchEvent::Assigned { .. }) {
+            delivered.store(true, Ordering::SeqCst);
+        }
         let is_final = matches!(event, DispatchEvent::Completed(_));
         // A failed send means the engine dropped the session; the script ends either way.
         if events.send(event).await.is_err() || is_final {
@@ -630,6 +638,7 @@ struct SimulatedDispatchSession {
     events: mpsc::Receiver<DispatchEvent>,
     cancel: watch::Sender<bool>,
     worker_task: tokio::task::JoinHandle<()>,
+    delivered: Arc<AtomicBool>,
 }
 
 impl MethodDispatchSession for SimulatedDispatchSession {
@@ -639,6 +648,15 @@ impl MethodDispatchSession for SimulatedDispatchSession {
 
     fn cancel(&self) {
         self.cancel.send_replace(true);
+    }
+
+    fn finish(&mut self) -> BoxFuture<'_, bool> {
+        self.cancel();
+        Box::pin(async move {
+            // The script ends on cancellation and drops its sender, which ends this drain.
+            while self.events.recv().await.is_some() {}
+            self.delivered.load(Ordering::SeqCst)
+        })
     }
 }
 

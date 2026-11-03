@@ -12,10 +12,11 @@ import {
   requireHardDeleteOnNullValueKind,
 } from "./attribute-hard-delete.js";
 import { mapAttributeStoreSync } from "./attribute-store-sync.js";
-import type { AsyncContext, RecoveryErrorInfo } from "./context.js";
+import type { AsyncContext, RecoveryErrorInfo, StepAttemptProgress } from "./context.js";
 import {
   ConditionStatus,
   IndexType as ProtoIndexType,
+  StepAttemptProgress as ProtoStepAttemptProgress,
   type AttributeWrite,
   type ChannelInfo,
   type ChannelMessage as ProtoChannelMessage,
@@ -44,6 +45,7 @@ export type InvocationMethod = "waitFor" | "execute" | "rpc";
 
 export interface StepOutputEmitter {
   recordHeartbeat(value: Value | undefined): Promise<void>;
+  markAttemptStarted(): Promise<void>;
   writeStream(write: StepStreamWrite): void;
 }
 
@@ -105,7 +107,11 @@ export class InvocationContext implements AsyncContext {
     this.flowStartedAt = secondsDate(metadata.flowStartedTimestamp);
     this.stepExecutionId = metadata.stepExecutionId;
     this.fromStepExecutionId = metadata.fromStepExecutionId;
-    this.recoveryError = metadata.recoveryError;
+    this.recoveryError = metadata.recoveryError === undefined ? undefined : {
+      detail: metadata.recoveryError.detail,
+      errorType: metadata.recoveryError.errorType,
+      attemptProgress: stepAttemptProgress(metadata.recoveryError.attemptProgress),
+    };
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;
     this.deadline = method === "rpc" ? undefined : deadline;
@@ -139,6 +145,13 @@ export class InvocationContext implements AsyncContext {
     return this.stepOutput.recordHeartbeat(
       value === undefined ? undefined : encodeValue(codecOrJson(codec), value),
     );
+  }
+
+  public async markAttemptStarted(): Promise<void> {
+    if (this.stepOutput === undefined || (this.method !== "waitFor" && this.method !== "execute")) {
+      throw new TypeError("Attempt-started marks require an async Step Context");
+    }
+    return this.stepOutput.markAttemptStarted();
   }
 
   public writeStream<T>(stream: Stream<T>, value: T): void {
@@ -521,4 +534,17 @@ function secondsDate(seconds: bigint): Date {
     throw new RangeError("Context timestamp exceeds JavaScript's safe Date range");
   }
   return new Date(milliseconds);
+}
+
+function stepAttemptProgress(progress: ProtoStepAttemptProgress): StepAttemptProgress {
+  switch (progress) {
+    case ProtoStepAttemptProgress.STEP_ATTEMPT_PROGRESS_NOT_ASSIGNED:
+      return "notAssigned";
+    case ProtoStepAttemptProgress.STEP_ATTEMPT_PROGRESS_ASSIGNED:
+      return "assigned";
+    case ProtoStepAttemptProgress.STEP_ATTEMPT_PROGRESS_STARTED:
+      return "started";
+    default:
+      return "unspecified";
+  }
 }

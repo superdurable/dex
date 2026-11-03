@@ -1819,6 +1819,7 @@ mod tests {
                 let registered = PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: false,
+                        supports_attempt_started_ack: false,
                     })),
                 };
                 if sender.send(Ok(registered)).await.is_err() {
@@ -1955,6 +1956,7 @@ mod tests {
                 let registered = PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: false,
+                        supports_attempt_started_ack: false,
                     })),
                 };
                 if sender.send(Ok(registered)).await.is_err() {
@@ -2123,6 +2125,7 @@ mod tests {
                 .send(Ok(PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection,
+                        supports_attempt_started_ack: false,
                     })),
                 }))
                 .await
@@ -2406,6 +2409,7 @@ mod tests {
                 .send(Ok(PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: false,
+                        supports_attempt_started_ack: false,
                     })),
                 }))
                 .await
@@ -2645,6 +2649,7 @@ mod tests {
             let registered = PollWorkerTaskResponse {
                 frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                     supports_unknown_name_rejection: false,
+                    supports_attempt_started_ack: false,
                 })),
             };
             sender
