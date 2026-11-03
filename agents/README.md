@@ -22,6 +22,7 @@ adapter depends on the published core instead.
 | [`python/google-adk`](python/google-adk) | [`dex-agents-google-adk`](https://pypi.org/project/dex-agents-google-adk/) | Google ADK |
 | [`python/claude-agent-sdk`](python/claude-agent-sdk) | [`dex-agents-claude-agent-sdk`](https://pypi.org/project/dex-agents-claude-agent-sdk/) | Claude Agent SDK |
 | [`typescript/core`](typescript/core) | [`@superdurable/dex-agents`](https://www.npmjs.com/package/@superdurable/dex-agents) | Shared session Flow, Stepwise mode (`/stepwise`), the AI SDK model client (`/ai-sdk`, optional peer `ai`), and `/testing` |
+| [`go/core`](go/core) | `github.com/superdurable/dex/agents/go/core` (package `dexagents`), not tagged yet | Shared session Flow, Stepwise mode (`stepwise`), the OpenAI and Anthropic model clients (`openaimodel`, `anthropicmodel`), and `agentstest` |
 | [`typescript/vercel-ai`](typescript/vercel-ai) | [`@superdurable/dex-agents-vercel-ai`](https://www.npmjs.com/package/@superdurable/dex-agents-vercel-ai) | Vercel AI SDK |
 | [`typescript/openai-agents`](typescript/openai-agents) | [`@superdurable/dex-agents-openai-agents`](https://www.npmjs.com/package/@superdurable/dex-agents-openai-agents) | OpenAI Agents SDK |
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |

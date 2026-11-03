@@ -79,11 +79,18 @@ jobs:
           python-version: "3.11"
           working-directory: ${{ matrix.package.path }}
           enable-cache: ${{ matrix.package.language == 'python' }}
+      # A Go package's cross-language tests run the TypeScript core too.
       - name: Install Node
-        if: matrix.package.language == 'typescript'
+        if: matrix.package.language == 'typescript' || matrix.package.language == 'go'
         uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Install Go
+        if: matrix.package.language == 'go'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.package.path }}/go.mod
+          cache-dependency-path: ${{ matrix.package.path }}/go.sum
       - name: Download and verify dexcli
         env:
           GH_TOKEN: ${{ github.token }}
