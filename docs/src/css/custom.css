@@ -1398,6 +1398,7 @@ code {
   background: rgba(18, 43, 28, 0.4);
 }
 
+[data-theme='dark'] .exec-node-accent,
 [data-theme='dark'] .exec-server {
   background: linear-gradient(145deg, rgba(18, 43, 28, 0.85), rgba(47, 111, 58, 0.35));
 }
