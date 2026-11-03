@@ -11,12 +11,17 @@ Dex Connector Contributor is a specialist sub-skill for creating, verifying,
 and upstreaming one reviewable capability in the official
 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library).
 
-:::caution Go SDK only
+:::note Language requirements
 
-The Connector library and this contribution workflow currently support only
-the Dex Go SDK. Applications that use Connectors must use the Go SDK. If you
-need Connector support for Python, Java, TypeScript, or Rust,
-[open a Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new).
+A new official Connector requires a Go implementation. The Go implementation is
+the verified reference. Python and TypeScript packages are optional. They may
+implement a subset of capabilities. They must replay the Go-recorded
+conformance scenarios.
+
+Applications can consume released Connectors from Go, Python, and TypeScript.
+Java and Rust do not support Connectors yet. The detailed rules are in the
+library's [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) and
+[docs/](https://github.com/superdurable/dex-connectors-library/tree/main/docs).
 
 :::
 
