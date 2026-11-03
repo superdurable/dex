@@ -8,6 +8,15 @@
 
 use dexzd_keyspace::row_keys::length_prefixed_name;
 
+const ATTEMPT_SNAPSHOT_HOLDER_KIND: u8 = 0x08;
+/// Bytes of the value ID that starts every holder row key suffix.
+const HOLDER_ROW_VALUE_ID_BYTES: usize = 12;
+
+/// Whether a holder row key suffix (value ID, then holder) names an attempt snapshot pin.
+pub(crate) fn is_attempt_snapshot_holder_row(suffix: &[u8]) -> bool {
+    suffix.get(HOLDER_ROW_VALUE_ID_BYTES) == Some(&ATTEMPT_SNAPSHOT_HOLDER_KIND)
+}
+
 /// Something that keeps a value alive. Its encoding is part of the holder row key, so the
 /// kind bytes are permanent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,7 +136,7 @@ impl ValueHolder {
                 method,
                 attempt,
             } => {
-                encoded.push(0x08);
+                encoded.push(ATTEMPT_SNAPSHOT_HOLDER_KIND);
                 encoded.extend_from_slice(&length_prefixed_name(step_execution_id));
                 encoded.extend_from_slice(&method.to_be_bytes());
                 encoded.extend_from_slice(&attempt.to_be_bytes());

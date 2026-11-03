@@ -49,6 +49,8 @@ use prost::Message;
 
 #[path = "apply_backbone/retry_snapshots.rs"]
 mod retry_snapshots;
+#[path = "apply_backbone/run_state_limit.rs"]
+mod run_state_limit;
 
 #[derive(Default)]
 struct MemoryState {
@@ -387,7 +389,8 @@ impl Harness {
             if !key.starts_with(&prefix) {
                 continue;
             }
-            let table = parse_run_key(key).expect("valid run key").table;
+            let parsed = parse_run_key(key).expect("valid run key");
+            let table = parsed.table;
             match column_family {
                 ColumnFamily::Flow => {
                     if table == RunTable::HistoryRowMetadata {
@@ -395,6 +398,7 @@ impl Harness {
                     } else {
                         usage.state_row_bytes += (key.len() + value.len()) as u64;
                     }
+                    usage.attempt_state_bytes += attempt_state_row_bytes(&parsed, key, value);
                     if table == RunTable::ValueBirth {
                         birth_bytes += ValueBirthRecord::decode(value.as_slice())
                             .expect("valid birth row")
@@ -516,6 +520,36 @@ impl Harness {
     }
 }
 
+/// Recounts the attempt state of one Flow row: lock rows, snapshot pins, and Step attempt fields.
+fn attempt_state_row_bytes(
+    parsed: &dexzd_keyspace::ParsedRunKey<'_>,
+    key: &[u8],
+    value: &[u8],
+) -> u64 {
+    const ATTEMPT_SNAPSHOT_HOLDER_KIND: u8 = 0x08;
+    match parsed.table {
+        RunTable::LockTable => (key.len() + value.len()) as u64,
+        RunTable::ValueHolder if parsed.suffix[12] == ATTEMPT_SNAPSHOT_HOLDER_KIND => {
+            (key.len() + value.len()) as u64
+        }
+        RunTable::StepExecution => {
+            let mut record = StepExecutionRecord::decode(value).expect("valid Step row");
+            let Some(invocation) = record.invocation.as_mut() else {
+                return 0;
+            };
+            invocation.snapshot = None;
+            invocation.task_id.clear();
+            invocation.pull_routing = None;
+            invocation.attempt_started_at_micros = 0;
+            invocation.retry_started_at_micros = 0;
+            invocation.last_failure = None;
+            invocation.backoff_fires_at_micros = 0;
+            (value.len() - record.encoded_len()) as u64
+        }
+        _ => 0,
+    }
+}
+
 fn value_id_from_suffix(suffix: &[u8]) -> (u64, u32) {
     (
         u64::from_be_bytes(suffix[..8].try_into().expect("value seq")),
@@ -536,6 +570,7 @@ fn settings() -> RunSettings {
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
+        max_child_flow_result_bytes: 16 << 20,
     }
 }
 

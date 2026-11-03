@@ -34,7 +34,7 @@ use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::step_commands::{StepHandlerResult, apply_step_command};
 use crate::state_access::{FlowTransaction, RunRows};
-use crate::values::{active_run_storage_bytes, total_run_storage_bytes};
+use crate::values::{active_run_storage_bytes_without_attempts, total_run_storage_bytes};
 use crate::{ApplyContext, ApplyError, ApplyOutcome, BehaviorVersion, FlowStateReader};
 
 /// Result of a command handler.
@@ -215,8 +215,10 @@ fn apply_in_scope(
                     .run_record(&previous_transaction)?
                     .and_then(|previous| previous.storage)
                     .as_ref()
-                    .map_or(0, active_run_storage_bytes);
-                if total_bytes > max_bytes && active_run_storage_bytes(usage) > previous_active {
+                    .map_or(0, active_run_storage_bytes_without_attempts);
+                if total_bytes > max_bytes
+                    && active_run_storage_bytes_without_attempts(usage) > previous_active
+                {
                     let detail = format!(
                         "run state of {total_bytes} bytes exceeds the maximum of {max_bytes} bytes"
                     );
@@ -257,18 +259,34 @@ fn apply_in_scope(
 
 fn should_enforce_run_state_limit(body: &Command) -> bool {
     match body {
-        Command::AttributesSet(command) => command.request.as_ref().is_some_and(|request| {
-            request
-                .attributes
-                .iter()
-                .any(|attribute| !crate::values::is_null_value(attribute.value.as_ref()))
+        Command::AttributesSet(command) => command
+            .request
+            .as_ref()
+            .is_some_and(|request| has_attribute_value(&request.attributes)),
+        // Reads and deletions stay available on a full run, as for AttributesSet.
+        Command::RpcCommitted(command) => command.response.as_ref().is_some_and(|response| {
+            has_attribute_value(&response.upsert_attributes)
+                || !response.publish_to_channel.is_empty()
+                || response
+                    .step_decision
+                    .as_ref()
+                    .is_some_and(|decision| !decision.next_steps.is_empty())
         }),
         Command::FlowStart(_)
         | Command::ChannelPublish(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepMethodCompleted(_) => true,
+        // The parent's checked command counted a child start's values in its outbox row.
+        // Outbox delivery retries rejections forever; a child result has its own size limit.
+        Command::InboxMessage(_) => false,
         _ => false,
     }
+}
+
+fn has_attribute_value(writes: &[dexzd_protocol::dex::AttributeWrite]) -> bool {
+    writes
+        .iter()
+        .any(|attribute| !crate::values::is_null_value(attribute.value.as_ref()))
 }
 
 fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAttemptFailedCommand> {

@@ -9,14 +9,15 @@
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, RunTable, parse_run_key, run_prefix, run_table_prefix};
 use dexzd_protocol::dexzd::v1::{
-    AttributeSyncOutboxRecord, HistoryRowMetadata, RunRecord, RunStorageUsage, ValueBirthRecord,
-    ValueGarbageRecord,
+    AttributeSyncOutboxRecord, HistoryRowMetadata, RunRecord, RunStorageUsage, StepExecutionRecord,
+    ValueBirthRecord, ValueGarbageRecord,
 };
 use prost::Message;
 
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::{FlowTransaction, StateRowChange};
+use crate::values::value_holder::is_attempt_snapshot_holder_row;
 
 // The RunRecord size can change when its byte totals cross protobuf varint boundaries.
 const MAX_RUN_RECORD_SIZE_PASSES: usize = 12;
@@ -40,10 +41,12 @@ pub(crate) fn reconcile_run_storage(
         .ok_or_else(|| ApplyError::InvariantViolation {
             detail: "run storage accounting has no buffered run record".to_owned(),
         })?;
+    // Step rows can hold large snapshots, so they are decoded once, not on every pass.
+    let attempt_state_delta = attempt_state_delta(&changes)?;
     for _ in 0..MAX_RUN_RECORD_SIZE_PASSES {
         cursor.rows.put_run_record(transaction, &cursor.record);
         changes[record_change].current = Some(cursor.record.encode_to_vec());
-        let usage = usage_after_changes(&changes, cursor)?;
+        let usage = usage_after_changes(&changes, cursor, attempt_state_delta)?;
         if cursor.record.storage.as_ref() == Some(&usage) {
             return Ok(());
         }
@@ -57,6 +60,7 @@ pub(crate) fn reconcile_run_storage(
 fn usage_after_changes(
     changes: &[StateRowChange],
     cursor: &RunCursor,
+    attempt_state_delta: i128,
 ) -> Result<RunStorageUsage, ApplyError> {
     let record_key = run_singleton_key(
         cursor.rows.flow_hash,
@@ -121,7 +125,64 @@ fn usage_after_changes(
         )?,
         superseded_value_bytes: add_delta(committed_usage.superseded_value_bytes, garbage_delta)?,
         history_bytes: add_delta(committed_usage.history_bytes, history_delta)?,
+        attempt_state_bytes: add_attempt_state_delta(
+            committed_usage.attempt_state_bytes,
+            attempt_state_delta,
+        ),
     })
+}
+
+/// Returns the change of attempt state bytes: rows and Step fields that exist only while a
+/// method attempt is started or retrying, and that an unchecked command writes.
+fn attempt_state_delta(changes: &[StateRowChange]) -> Result<i128, ApplyError> {
+    let mut delta = 0_i128;
+    for change in changes {
+        let parsed =
+            parse_run_key(&change.key).map_err(|error| ApplyError::InvariantViolation {
+                detail: format!("buffered run key is invalid: {error}"),
+            })?;
+        delta += match parsed.table {
+            RunTable::LockTable => {
+                row_size(change.current.as_ref(), &change.key)
+                    - row_size(change.previous.as_ref(), &change.key)
+            }
+            RunTable::ValueHolder if is_attempt_snapshot_holder_row(parsed.suffix) => {
+                row_size(change.current.as_ref(), &change.key)
+                    - row_size(change.previous.as_ref(), &change.key)
+            }
+            RunTable::StepExecution => {
+                step_attempt_state_size(change.current.as_ref())?
+                    - step_attempt_state_size(change.previous.as_ref())?
+            }
+            _ => 0,
+        };
+    }
+    Ok(delta)
+}
+
+fn step_attempt_state_size(value: Option<&Vec<u8>>) -> Result<i128, ApplyError> {
+    let Some(bytes) = value else {
+        return Ok(0);
+    };
+    let record = decode_record::<StepExecutionRecord>(bytes, "Step execution")?;
+    Ok(i128::from(attempt_scoped_step_bytes(record)))
+}
+
+/// Returns the encoded bytes of a Step execution that only its started or retrying attempt
+/// needs: the snapshot and the fields that attempt starts and failures write.
+pub(crate) fn attempt_scoped_step_bytes(mut record: StepExecutionRecord) -> u64 {
+    let full_size = record.encoded_len();
+    let Some(invocation) = record.invocation.as_mut() else {
+        return 0;
+    };
+    invocation.snapshot = None;
+    invocation.task_id.clear();
+    invocation.pull_routing = None;
+    invocation.attempt_started_at_micros = 0;
+    invocation.retry_started_at_micros = 0;
+    invocation.last_failure = None;
+    invocation.backoff_fires_at_micros = 0;
+    u64::try_from(full_size - record.encoded_len()).expect("encoded sizes fit a u64")
 }
 
 /// Projects superseded bytes before final RunRecord storage reconciliation.
@@ -214,10 +275,22 @@ fn add_delta(current: u64, delta: i128) -> Result<u64, ApplyError> {
     })
 }
 
+/// Saturates at zero: older records omit attempt bytes, yet their attempts release them later.
+fn add_attempt_state_delta(current: u64, delta: i128) -> u64 {
+    let sum = (i128::from(current) + delta).clamp(0, i128::from(u64::MAX));
+    u64::try_from(sum).expect("the sum is clamped to the u64 range")
+}
+
 pub(crate) fn total_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
     active_run_storage_bytes(usage).saturating_add(usage.superseded_value_bytes)
 }
 
-pub(crate) fn active_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
+/// Returns the run's current storage without attempt state, which unchecked commands write and
+/// method ends release. The run state limit compares it before and after a command.
+pub(crate) fn active_run_storage_bytes_without_attempts(usage: &RunStorageUsage) -> u64 {
+    active_run_storage_bytes(usage).saturating_sub(usage.attempt_state_bytes)
+}
+
+fn active_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
     usage.state_row_bytes.saturating_add(usage.live_value_bytes)
 }

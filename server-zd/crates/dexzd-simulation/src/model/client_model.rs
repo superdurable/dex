@@ -57,6 +57,7 @@ pub(crate) fn run_settings() -> RunSettings {
         request_dedup_capacity: 4,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
+        max_child_flow_result_bytes: 16 * 1024 * 1024,
     }
 }
 

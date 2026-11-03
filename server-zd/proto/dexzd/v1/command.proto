@@ -97,6 +97,9 @@ message RunSettings {
   uint64 max_run_state_bytes = 10;
   // Largest number of Step executions in the current attempt (default 10000).
   uint32 max_active_step_executions = 11;
+  // Largest total size of the result outputs a child Flow delivers to its parent (default
+  // 16 MiB). Zero, as in records of older binaries, means no limit.
+  uint64 max_child_flow_result_bytes = 12;
 }
 
 // A hard-delete Attribute value that the owner uploaded as its own object before proposing.
