@@ -17,10 +17,14 @@ on Workers of any other.
    suite of golden wire files fixes every value that crosses a language
    boundary: every Attribute, Channel, RPC, and event value, every
    persistence name, and every model-visible text. Every core must decode
-   each file and re-encode it byte for byte, and must produce the same values
-   from the same scripted turns. The suite lives in `agents/conformance/`,
-   is generated from the Python and TypeScript cores, and replaces the manual
-   value-by-value checks done in M2 reviews. Generating the cores from a spec
+   each file, re-encode it, and match the expected value in canonical JSON
+   (sorted keys, no whitespace, non-ASCII escaped). Each core may store its
+   own byte form, and all cores decode each other's. Model-visible text is
+   the exception: it must match byte for byte. Every core must also produce
+   the same transcripts from the same scripted turns. The suite lives in
+   `agents/conformance/`. It is generated from the Python core, checked
+   against the TypeScript core, and replaces the manual value-by-value
+   checks done in M2 reviews. Generating the cores from a spec
    was rejected: Step and Flow code does not generate well.
 
 2. **The built-in loop first, framework adapters later.** Each language
