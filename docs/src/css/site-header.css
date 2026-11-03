@@ -199,6 +199,40 @@ html .anchor {
   color: var(--sd-accent);
 }
 
+.sd-github-link {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: 2rem;
+  border: 1px solid var(--sd-rule-strong);
+  border-radius: 999px;
+  color: var(--sd-text);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.sd-github-link:hover {
+  border-color: var(--sd-text);
+  background: var(--sd-bg-alt);
+}
+
+.sd-github-link-name,
+.sd-github-link-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.75rem;
+}
+
+.sd-github-link-stars {
+  border-left: 1px solid var(--sd-rule-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.sd-github-link-stars svg {
+  color: #e3b341;
+}
+
 /* The spec collapses at 1080 px; the docs locale switch needs about 80 px more. */
 @media (max-width: 1160px) {
   .sd-nav,

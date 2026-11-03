@@ -14,9 +14,12 @@ import {useThemeConfig} from '@docusaurus/theme-common';
 import {splitNavbarItems} from '@docusaurus/theme-common/internal';
 import {translate} from '@docusaurus/Translate';
 import NavbarItem, {type Props as NavbarItemConfig} from '@theme/NavbarItem';
+import DexRepositoryGitHubLink from '@site/src/components/DexRepositoryGitHubLink';
 import {useDismissibleDetails} from '@site/src/components/useDismissibleDetails';
 
 type HeaderNavbarItem = ReturnType<typeof useThemeConfig>['navbar']['items'][number];
+
+const dexRepositoryGitHubUrl = 'https://github.com/superdurable/dex';
 
 // The shared Super Durable header row. Items come from themeConfig, so navbar.json translates them.
 export default function NavbarContent(): ReactNode {
@@ -95,6 +98,9 @@ function HeaderLink({item, className}: {item: HeaderNavbarItem; className?: stri
 function HeaderAction({item, isMobile}: {item: HeaderNavbarItem; isMobile: boolean}): ReactNode {
   if (item.type === 'localeDropdown') {
     return <NavbarItem {...(item as NavbarItemConfig)} mobile={isMobile} />;
+  }
+  if (!isMobile && item.href === dexRepositoryGitHubUrl) {
+    return <DexRepositoryGitHubLink href={dexRepositoryGitHubUrl} label={item.label} />;
   }
   const buttonClassName = typeof item.className === 'string' ? item.className : undefined;
   if (buttonClassName !== undefined) {

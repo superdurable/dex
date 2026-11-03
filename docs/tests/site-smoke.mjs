@@ -120,7 +120,14 @@ assert.equal((desktopSites.match(/aria-current="page"/g) ?? []).length, 1);
 assert.match(desktopSites, /aria-current="page">Dex Docs</);
 const desktopActions = header.match(/<div class="sd-header-actions">[\s\S]*?<\/div><details class="sd-mobile-menu">/)?.[0] ?? '';
 assert.match(desktopActions, /^<div class="sd-header-actions"><details class="sd-locale">/);
-assert.deepEqual(headerLinks(desktopActions.replace(/<details class="sd-locale">[\s\S]*?<\/details>/, '')), actionLinks);
+const githubPillPattern =
+  /<a class="sd-github-link" href="https:\/\/github\.com\/superdurable\/dex"><span class="sd-github-link-name"><svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="16" height="16">[\s\S]*?<\/svg>GitHub<\/span><\/a>/;
+assert.match(desktopActions, /<\/details><a class="sd-github-link" href="https:\/\/github\.com\/superdurable\/dex">/);
+assert.match(desktopActions, githubPillPattern);
+assert.deepEqual(
+  headerLinks(desktopActions.replace(/<details class="sd-locale">[\s\S]*?<\/details>/, '').replace(githubPillPattern, '')),
+  actionLinks.filter(([label]) => label !== 'GitHub'),
+);
 assert.doesNotMatch(home, /dex\.superdurable\.io\/register|>Sign up<|Book a call/);
 const mobileMenu = header.match(/<details class="sd-mobile-menu">[\s\S]*?<\/details>/)?.[0] ?? '';
 assert.match(mobileMenu, /<summary>Menu<\/summary>/);
@@ -156,6 +163,11 @@ assert.ok(buildWithAIPosition > primitivesPosition);
 assert.ok(designPatternsPosition > buildWithAIPosition);
 
 const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
+// The browser fills in the star count, so static HTML must hold neither the count nor its label.
+for (const page of [home, zhHome, cron, zhCron]) {
+  assert.match(page, githubPillPattern);
+  assert.doesNotMatch(page, /sd-github-link-stars|<a class="sd-github-link"[^>]*aria-label/);
+}
 assert.match(zhHome, /English/);
 assert.match(zhHome, /简体中文/);
 assert.doesNotMatch(zhHome, /superdurable\.ai/);

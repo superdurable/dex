@@ -19,6 +19,14 @@
     "message": "语言",
     "description": "The ARIA label of the header locale switch"
   },
+  "shell.header.githubStarsAriaLabel": {
+    "message": "GitHub，{starCount} 个星标",
+    "description": "The accessible name of the header GitHub link with the repository star count as shown"
+  },
+  "shell.header.githubOneStarAriaLabel": {
+    "message": "GitHub，{starCount} 个星标",
+    "description": "The accessible name of the header GitHub link when the repository has one star"
+  },
   "shell.docsSidebar.toggleLabel": {
     "message": "文档目录",
     "description": "The label of the button that opens the docs sidebar on narrow screens"
