@@ -65,7 +65,7 @@ final FlowTimeoutHandlerOptions timeoutOptions =
 
 ## Cancellation selectors
 
-Use `withCancelingSiblingSteps` for branches created by the same predecessor and `withCancelingSteps` for all executions of a Step type. Cancellation applies after the successful decision and excludes Steps created by that same decision. Make target handlers interruption-aware and their effects idempotent.
+Use `withCancelingSiblingSteps` for branches created by the same predecessor and `withCancelingSteps` for all executions of a Step type. Cancellation applies after the successful decision and excludes Steps created by that same decision. An RPC returns `RPCResult.of(output, movement).withCancelingSteps(...)` for Flow-wide selection; it has no sibling lineage. Make target handlers interruption-aware and their effects idempotent. [Pinned `RPCResult`](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/main/java/io/superdurable/dex/RPCResult.java). For a user's Stop in an Agent, follow [stop a turn](../core/ai-agents.md#stop-a-turn-with-canceling-steps).
 
 ## StepOptions and Flow durability
 

@@ -49,6 +49,7 @@ CORE_TOPICS = {
     "ai-agents.md",
     "bundle-baselines.md",
     "data-handling.md",
+    "design-review.md",
     "error-handling.md",
     "getting-started.md",
     "modeling.md",

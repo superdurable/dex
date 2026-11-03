@@ -55,6 +55,7 @@ Then load only the references required by the task:
 | Task | Core reference | Language reference |
 | --- | --- | --- |
 | First application or architecture | [Getting started](references/core/getting-started.md) and [Error handling](references/core/error-handling.md) | language entry and **error-handling.md** |
+| Designing or reviewing the design of an application or library | [Design review checklist](references/core/design-review.md), then [Modeling](references/core/modeling.md) and [Patterns](references/core/patterns.md) | selected language's **advanced-features.md** |
 | Go FDG, Summary/Display, Start forms or Actions | [Go FDG authoring](../dex-app-builder/references/fdg-authoring.md) | Read this focused syntax reference before parser source |
 | Flow boundary or state model | [Modeling](references/core/modeling.md) | selected language's **primitives.md** |
 | Primitive selection or exact API | [Primitives](references/core/primitives.md) | selected language's **primitives.md** |
@@ -82,7 +83,7 @@ The language directory is the routing unit. Do not load all five languages.
 
 ## Model before implementation
 
-For non-trivial work, first state the Flow identity and lifecycle, typed start input and completion output, Steps and transitions, Flow-level durability default, method-level StepOptions, durable state, messages, synchronous RPCs, best-effort Streams, timers, retries, timeouts, recovery, and SubFlow boundaries.
+For non-trivial work, run the [design review checklist](references/core/design-review.md), then state the Flow identity and lifecycle, typed start input and completion output, Steps and transitions, Flow-level durability default, method-level StepOptions, durable state, messages, synchronous RPCs, best-effort Streams, timers, retries, timeouts, recovery, and SubFlow boundaries.
 
 Name every RPC handler and explicit RPC with a concrete action verb. Use complete domain names such as `get_queued_messages` or `move_queued_message_to_prioritized_messages`, not noun-only names, placeholders, or generic names such as `Get`, `Update`, `Manager`, `Data`, or `Handler`. Apply the same preference for complete, precise names to APIs, interfaces, classes, types, methods, functions, fields, variables, and constants. Brevity is not a goal; a name should communicate its operation and subject at the call site or registration boundary.
 

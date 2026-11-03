@@ -4,6 +4,10 @@ Read the sibling [Dex SDK skill](../../dex-sdk/SKILL.md) completely, then follow
 
 Dex SDK supplies the public SDK guidance. The App Builder constraints in this skill are stricter and take precedence: use only the Go SDK, keep external effects in `Execute`, keep `WaitFor` free of provider or Dex mutations, and require strict FDG 2.0 rendering.
 
+Answer the Dex SDK [design review
+checklist](../../dex-sdk/references/core/design-review.md) in the
+application's design documentation before implementation.
+
 Read [Flow modeling](../../dex-sdk/references/core/modeling.md), [pattern
 selection](../../dex-sdk/references/core/patterns.md), and [Go FDG
 authoring](fdg-authoring.md) before editing a Flow. State the Flow identity,
