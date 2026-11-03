@@ -266,7 +266,7 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         Command::RpcCommitted(command) => command
             .response
             .as_ref()
-            .is_some_and(rpc_committed::is_checked_by_run_state_limit),
+            .is_some_and(rpc_committed::is_mutating_rpc_response),
         Command::FlowStart(_)
         | Command::ChannelPublish(_)
         | Command::StepAttemptHeartbeat(_)

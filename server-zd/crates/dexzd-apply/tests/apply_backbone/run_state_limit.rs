@@ -488,6 +488,119 @@ fn over_budget_rpc_that_deletes_and_returns_output_is_checked() {
     assert_eq!(harness.state.rows, before);
 }
 
+fn is_rpc_reply(reply: &CommandReply) -> bool {
+    matches!(reply.reply, Some(command_reply::Reply::Rpc(_)))
+}
+
+#[test]
+fn over_budget_read_rpcs_keep_no_request_id_for_any_output() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.set_max_run_state_bytes(1);
+    let before = harness.run_record().storage.expect("storage is accounted");
+    let retained_before = harness.retained_reply_rows();
+    let outputs = [
+        None,
+        Some(Value { kind: None }),
+        Some(Value {
+            kind: Some(value::Kind::NullValue(0)),
+        }),
+        Some(string_value(&"o".repeat(10_000))),
+    ];
+    for is_transactional in [false, true] {
+        for (index, output) in outputs.iter().enumerate() {
+            // A non-transactional read reaches the commit path only when it records an event.
+            let response = InvokeWorkerRpcResponse {
+                output: output.clone(),
+                record_events: if is_transactional {
+                    Vec::new()
+                } else {
+                    vec![Kv {
+                        key: "read".to_owned(),
+                        value: Some(string_value("event")),
+                    }]
+                },
+                ..InvokeWorkerRpcResponse::default()
+            };
+            let request_id = format!("{}-{index}-{is_transactional}", "r".repeat(10_000));
+            let first = harness.commit_rpc_with_transaction(
+                &request_id,
+                response.clone(),
+                is_transactional,
+            );
+            assert!(is_rpc_reply(&first.reply), "{:?}", first.reply);
+            let retry =
+                harness.commit_rpc_with_transaction(&request_id, response, is_transactional);
+            assert!(is_rpc_reply(&retry.reply), "{:?}", retry.reply);
+            assert!(
+                !retry.writes.is_empty(),
+                "a retry runs again instead of replaying"
+            );
+        }
+    }
+    let after = harness.run_record().storage.expect("storage is accounted");
+    assert_eq!(after.live_value_bytes, before.live_value_bytes);
+    assert_eq!(harness.retained_reply_rows(), retained_before);
+    // Only run record counters and the sticky Worker ID can change its size.
+    assert!(after.state_row_bytes < before.state_row_bytes + 64);
+}
+
+#[test]
+fn transactional_attribute_delete_retry_replays_after_recreation() {
+    for output in [Some(string_value("deleted")), None] {
+        let mut harness = Harness::new("order-1");
+        harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+        harness.set_max_run_state_bytes(1);
+        let delete = InvokeWorkerRpcResponse {
+            output,
+            upsert_attributes: vec![delete_message(0), delete_message(1)],
+            ..InvokeWorkerRpcResponse::default()
+        };
+        let first = harness.commit_rpc_with_transaction("delete-id", delete.clone(), true);
+        assert!(is_rpc_reply(&first.reply), "{:?}", first.reply);
+        assert!(harness.attribute(&message_key(0)).is_none());
+
+        harness.set_max_run_state_bytes(1 << 30);
+        harness.set_attribute(&message_key(0), string_value("recreated"), "recreate-0");
+        harness.set_max_run_state_bytes(1);
+        let retry = harness.commit_rpc_with_transaction("delete-id", delete, true);
+        assert_eq!(retry.reply, first.reply);
+        assert!(retry.writes.is_empty());
+        assert!(harness.attribute(&message_key(0)).is_some());
+    }
+}
+
+#[test]
+fn over_budget_attribute_delete_with_output_is_admitted_only_when_it_shrinks() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.set_max_run_state_bytes(1);
+    let before = harness.state.rows.clone();
+    let growing = harness.commit_rpc(
+        "delete-one-with-large-output",
+        InvokeWorkerRpcResponse {
+            output: Some(string_value(&"g".repeat(10_000))),
+            upsert_attributes: vec![delete_message(0)],
+            ..InvokeWorkerRpcResponse::default()
+        },
+    );
+    assert!(is_error(&growing.reply, 8), "{:?}", growing.reply);
+    assert!(growing.writes.is_empty());
+    assert_eq!(harness.state.rows, before);
+
+    let shrinking = harness.commit_rpc(
+        "delete-three-with-small-output",
+        InvokeWorkerRpcResponse {
+            output: Some(string_value("deleted")),
+            upsert_attributes: vec![delete_message(0), delete_message(1), delete_message(2)],
+            ..InvokeWorkerRpcResponse::default()
+        },
+    );
+    assert!(is_rpc_reply(&shrinking.reply), "{:?}", shrinking.reply);
+    assert!(harness.attribute(&message_key(0)).is_none());
+    assert!(harness.attribute(&message_key(2)).is_none());
+}
+
 impl Harness {
     /// Edits the run record in place and keeps its own row size in `state_row_bytes`.
     fn rewrite_run_record(&mut self, edit: impl FnOnce(&mut RunRecord)) {

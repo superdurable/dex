@@ -29,15 +29,15 @@ use crate::command_handlers::flow_data::{
     apply_attribute_writes, apply_channel_deletions, apply_channel_publications,
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor, flow_not_found_reply};
-use crate::command_handlers::{CommandScope, HandlerResult, has_attribute_value};
+use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::projections::history_event_links::StepEventLink;
 use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, cancel_steps_by_type, create_step_execution, wait_conditions,
 };
 use crate::values::{
-    ValueHolder, ValueRejection, complete_worker_value, is_null_value, is_run_over_state_budget,
-    store_value, validate_value,
+    ValueHolder, ValueRejection, complete_worker_value, is_run_over_state_budget, store_value,
+    validate_value,
 };
 
 pub(crate) fn apply_rpc_committed(
@@ -155,10 +155,9 @@ pub(crate) fn apply_rpc_committed(
     if is_transactional && !command.app_worker_id.is_empty() {
         cursor.record.sticky_app_worker_id = command.app_worker_id.clone();
     }
-    // A full run neither stores a read's output nor remembers its request ID.
-    let should_retain_reply = !is_run_over_state_budget(&cursor.record)
-        || is_null_value(response.output.as_ref())
-        || is_checked_by_run_state_limit(response);
+    // A full run keeps no reply or request ID for a read; mutations keep both for retries.
+    let should_retain_reply =
+        is_mutating_rpc_response(response) || !is_run_over_state_budget(&cursor.record);
     let output = if !scope.is_replay
         && let Some(value) = response.output.as_ref()
     {
@@ -228,27 +227,19 @@ pub(crate) fn apply_rpc_committed(
     )?))
 }
 
-/// Returns whether the run state limit checks this RPC response.
+/// Returns whether this RPC response changes Flow state; otherwise the RPC is a read.
 ///
-/// It checks responses that write Flow state, and responses that keep an output beside deletions
-/// or cancellations, whose replies request deduplication must keep for retries.
-pub(crate) fn is_checked_by_run_state_limit(response: &InvokeWorkerRpcResponse) -> bool {
-    let writes_flow_state = has_attribute_value(&response.upsert_attributes)
+/// Attribute writes and deletions, Channel publications and deletions, new or canceled Steps, and
+/// permission mappings are changes. The run state limit checks every change, and request
+/// deduplication always keeps its reply so that a retry replays instead of changing state again.
+pub(crate) fn is_mutating_rpc_response(response: &InvokeWorkerRpcResponse) -> bool {
+    !response.upsert_attributes.is_empty()
         || !response.publish_to_channel.is_empty()
-        || response
-            .step_decision
-            .as_ref()
-            .is_some_and(|decision| !decision.next_steps.is_empty())
-        || response
-            .action_permission_mappings
-            .as_ref()
-            .is_some_and(|mappings| !mappings.mappings.is_empty());
-    let changes_flow_state = !response.delete_from_channel.is_empty()
-        || response
-            .step_decision
-            .as_ref()
-            .is_some_and(|decision| !decision.cancel_step_types.is_empty());
-    writes_flow_state || (changes_flow_state && !is_null_value(response.output.as_ref()))
+        || !response.delete_from_channel.is_empty()
+        || response.action_permission_mappings.is_some()
+        || response.step_decision.as_ref().is_some_and(|decision| {
+            !decision.next_steps.is_empty() || !decision.cancel_step_types.is_empty()
+        })
 }
 
 /// Returns the reply output: stored for request deduplication, or complete and unstored.

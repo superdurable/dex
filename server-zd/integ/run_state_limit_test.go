@@ -50,6 +50,7 @@ type runStateLimitHandler struct {
 	mu                  sync.Mutex
 	lastLoadedMessages  int
 	completedTurnsCount int
+	countRPCCalls       int
 }
 
 func (h *runStateLimitHandler) InvokeWaitForMethod(
@@ -110,10 +111,19 @@ func (h *runStateLimitHandler) InvokeWorkerRPC(
 			},
 		}, nil
 	case runStateLimitCountRPC:
+		h.mu.Lock()
+		h.countRPCCalls++
+		h.mu.Unlock()
 		return &dexpb.InvokeWorkerRPCResponse{Output: stringValue(runStateLimitCountOutput())}, nil
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unexpected RPC %q", request.GetRpcName())
 	}
+}
+
+func (h *runStateLimitHandler) countRPCCallCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.countRPCCalls
 }
 
 func (h *runStateLimitHandler) turnCounts() (int, int) {
@@ -200,7 +210,7 @@ func testRunStateLimitFailsGrowingTurns(t *testing.T) {
 
 // testRunStateLimitRejectsGrowingRPCs appends one message per RPC until the run is over budget.
 func testRunStateLimitRejectsGrowingRPCs(t *testing.T) {
-	runtime, workerTarget, _ := startRunStateLimitService(t)
+	runtime, workerTarget, handler := startRunStateLimitService(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	flowID := runStateLimitFlowType + "-rpc-" + uuid.NewString()
@@ -212,6 +222,9 @@ func testRunStateLimitRejectsGrowingRPCs(t *testing.T) {
 		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
+
+	// Under budget, a transactional read keeps its reply, so a retry replays without the Worker.
+	requireCountRPCCalls(t, ctx, runtime, handler, flowID, 1)
 
 	acceptedAppends := 0
 	var rejection error
@@ -234,19 +247,52 @@ func testRunStateLimitRejectsGrowingRPCs(t *testing.T) {
 	requireRunStateLimitMessage(t, status.Convert(rejection).Message())
 	require.Greater(t, acceptedAppends*runStateLimitMessageBytes, runStateLimitMaxFlowStateBytes/4)
 
-	// RPCs that write no Flow state still run on a full run and return outputs the run does not keep.
-	for range 3 {
-		countResponse, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			FlowId:    flowID,
-			RpcName:   runStateLimitCountRPC,
-			RequestId: newRequestID(),
-		})
-		require.NoError(t, err)
-		require.Equal(t, runStateLimitCountOutput(), countResponse.GetOutput().GetStringValue())
-	}
+	// The rejected append left the run just under its budget; a kept read reply crosses it.
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		FlowId:          flowID,
+		RpcName:         runStateLimitCountRPC,
+		RequestId:       newRequestID(),
+		IsTransactional: true,
+	})
+	require.NoError(t, err)
+	// Over budget, a transactional read keeps no reply or request ID, so its retry runs again.
+	requireCountRPCCalls(t, ctx, runtime, handler, flowID, 2)
+	// A non-transactional read returns its Worker response directly.
+	directResponse, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		FlowId:    flowID,
+		RpcName:   runStateLimitCountRPC,
+		RequestId: newRequestID(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, runStateLimitCountOutput(), directResponse.GetOutput().GetStringValue())
 	summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_RUNNING, summary.GetFlowStatus())
+}
+
+// requireCountRPCCalls sends one transactional read twice with the same request ID and checks the Worker calls.
+func requireCountRPCCalls(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	handler *runStateLimitHandler,
+	flowID string,
+	expectedWorkerCalls int,
+) {
+	t.Helper()
+	callsBefore := handler.countRPCCallCount()
+	requestID := newRequestID()
+	for range 2 {
+		response, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+			FlowId:          flowID,
+			RpcName:         runStateLimitCountRPC,
+			RequestId:       requestID,
+			IsTransactional: true,
+		})
+		require.NoError(t, err)
+		require.Equal(t, runStateLimitCountOutput(), response.GetOutput().GetStringValue())
+	}
+	require.Equal(t, expectedWorkerCalls, handler.countRPCCallCount()-callsBefore)
 }
 
 func requireRunStateLimitMessage(t *testing.T, message string) {
