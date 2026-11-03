@@ -110,7 +110,7 @@ func (h *runStateLimitHandler) InvokeWorkerRPC(
 			},
 		}, nil
 	case runStateLimitCountRPC:
-		return &dexpb.InvokeWorkerRPCResponse{Output: stringValue("counted")}, nil
+		return &dexpb.InvokeWorkerRPCResponse{Output: stringValue(runStateLimitCountOutput())}, nil
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unexpected RPC %q", request.GetRpcName())
 	}
@@ -120,6 +120,11 @@ func (h *runStateLimitHandler) turnCounts() (int, int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.lastLoadedMessages, h.completedTurnsCount
+}
+
+// runStateLimitCountOutput is larger than the wire inline threshold, so a stored copy would be a table value.
+func runStateLimitCountOutput() string {
+	return "counted-" + strings.Repeat("c", 10_000)
 }
 
 func runStateLimitMessage(name string) *dexpb.AttributeWrite {
@@ -229,14 +234,16 @@ func testRunStateLimitRejectsGrowingRPCs(t *testing.T) {
 	requireRunStateLimitMessage(t, status.Convert(rejection).Message())
 	require.Greater(t, acceptedAppends*runStateLimitMessageBytes, runStateLimitMaxFlowStateBytes/4)
 
-	// An RPC that writes no Flow state still runs on a full run.
-	countResponse, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		FlowId:    flowID,
-		RpcName:   runStateLimitCountRPC,
-		RequestId: newRequestID(),
-	})
-	require.NoError(t, err)
-	require.Equal(t, "counted", countResponse.GetOutput().GetStringValue())
+	// RPCs that write no Flow state still run on a full run and return outputs the run does not keep.
+	for range 3 {
+		countResponse, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+			FlowId:    flowID,
+			RpcName:   runStateLimitCountRPC,
+			RequestId: newRequestID(),
+		})
+		require.NoError(t, err)
+		require.Equal(t, runStateLimitCountOutput(), countResponse.GetOutput().GetStringValue())
+	}
 	summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_RUNNING, summary.GetFlowStatus())

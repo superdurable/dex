@@ -275,10 +275,20 @@ fn add_delta(current: u64, delta: i128) -> Result<u64, ApplyError> {
     })
 }
 
-/// Saturates at zero: older records omit attempt bytes, yet their attempts release them later.
+/// Older records omit attempt bytes; attempts concurrent with theirs may each escape one check.
+/// Exact once they end.
 fn add_attempt_state_delta(current: u64, delta: i128) -> u64 {
     let sum = (i128::from(current) + delta).clamp(0, i128::from(u64::MAX));
     u64::try_from(sum).expect("the sum is clamped to the u64 range")
+}
+
+/// Returns whether the run's committed storage already exceeds its state budget.
+pub(crate) fn is_run_over_state_budget(record: &RunRecord) -> bool {
+    let max_run_state_bytes = record.settings.unwrap_or_default().max_run_state_bytes;
+    record
+        .storage
+        .as_ref()
+        .is_some_and(|usage| total_run_storage_bytes(usage) > max_run_state_bytes)
 }
 
 pub(crate) fn total_run_storage_bytes(usage: &RunStorageUsage) -> u64 {

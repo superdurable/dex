@@ -263,19 +263,10 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
             .request
             .as_ref()
             .is_some_and(|request| has_attribute_value(&request.attributes)),
-        // Reads and deletions stay available on a full run, as for AttributesSet.
-        Command::RpcCommitted(command) => command.response.as_ref().is_some_and(|response| {
-            has_attribute_value(&response.upsert_attributes)
-                || !response.publish_to_channel.is_empty()
-                || response
-                    .step_decision
-                    .as_ref()
-                    .is_some_and(|decision| !decision.next_steps.is_empty())
-                || response
-                    .action_permission_mappings
-                    .as_ref()
-                    .is_some_and(|mappings| !mappings.mappings.is_empty())
-        }),
+        Command::RpcCommitted(command) => command
+            .response
+            .as_ref()
+            .is_some_and(rpc_committed::is_checked_by_run_state_limit),
         Command::FlowStart(_)
         | Command::ChannelPublish(_)
         | Command::StepAttemptHeartbeat(_)

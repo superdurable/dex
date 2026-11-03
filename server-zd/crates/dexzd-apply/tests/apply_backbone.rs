@@ -160,6 +160,8 @@ struct Harness {
     now_micros: i64,
     flow_id: String,
     run_id: Vec<u8>,
+    /// False while a test simulates storage totals that an older binary wrote.
+    is_storage_recount_checked: bool,
 }
 
 const SECOND: i64 = 1_000_000;
@@ -177,6 +179,7 @@ impl Harness {
             now_micros: 1_800_000_000 * SECOND,
             flow_id: flow_id.to_owned(),
             run_id: Vec::new(),
+            is_storage_recount_checked: true,
         }
     }
 
@@ -209,10 +212,12 @@ impl Harness {
         assert_eq!(outcome.writes, again.writes, "apply must be deterministic");
         self.state.commit(&outcome);
         if !self.run_id.is_empty() && !outcome.writes.is_empty() {
-            assert_eq!(
-                self.run_record().storage.expect("run storage is accounted"),
-                self.recount_storage()
-            );
+            if self.is_storage_recount_checked {
+                assert_eq!(
+                    self.run_record().storage.expect("run storage is accounted"),
+                    self.recount_storage()
+                );
+            }
             self.assert_value_table_invariant();
         }
         outcome

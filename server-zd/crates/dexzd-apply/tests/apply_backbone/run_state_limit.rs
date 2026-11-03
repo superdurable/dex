@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use super::*;
-use dexzd_protocol::dex::{InvokeRpcRequest, InvokeWorkerRpcResponse};
+use dexzd_protocol::dex::{ChannelMessageDeletion, InvokeRpcRequest, InvokeWorkerRpcResponse};
 use dexzd_protocol::dexzd::v1::RpcCommittedCommand;
 
 const SEEDED_MESSAGES: usize = 40;
@@ -316,6 +316,176 @@ fn attempt_state_missing_from_an_older_record_saturates_at_zero() {
             .attempt_state_bytes,
         0
     );
+}
+
+/// An attempt that runs beside one an older binary started may escape the limit once.
+#[test]
+fn attempt_concurrent_with_an_older_attempt_escapes_the_limit_at_most_once() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.start_attempt("TurnStep-1", StepMethod::Execute, 1);
+    harness.complete_turn("TurnStep-1", Vec::new(), next_turn(2));
+    harness.start_attempt("TurnStep-2", StepMethod::Execute, 1);
+    harness.set_max_run_state_bytes(1);
+    harness.rewrite_run_record(|record| {
+        record
+            .storage
+            .as_mut()
+            .expect("storage is accounted")
+            .attempt_state_bytes = 0;
+    });
+    harness.is_storage_recount_checked = false;
+    harness.start_attempt("TurnStep-3", StepMethod::Execute, 1);
+    harness.complete_turn("TurnStep-2", Vec::new(), StepDecision::default());
+    let erased = harness.run_record().storage.expect("storage is accounted");
+    assert_eq!(erased.attempt_state_bytes, 0);
+    assert!(harness.recount_storage().attempt_state_bytes > 0);
+
+    harness.complete_turn(
+        "TurnStep-3",
+        vec![append_message(SEEDED_MESSAGES)],
+        next_turn(1),
+    );
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+    assert!(harness.attribute(&message_key(SEEDED_MESSAGES)).is_some());
+    assert_eq!(
+        harness.run_record().storage.expect("storage is accounted"),
+        harness.recount_storage()
+    );
+
+    harness.is_storage_recount_checked = true;
+    harness.start_attempt("TurnStep-4", StepMethod::Execute, 1);
+    harness.complete_turn(
+        "TurnStep-4",
+        vec![append_message(SEEDED_MESSAGES + 1)],
+        next_turn(1),
+    );
+    harness.assert_failed_by_state_limit();
+}
+
+fn read_output(reply: &CommandReply) -> Value {
+    let Some(command_reply::Reply::Rpc(rpc)) = &reply.reply else {
+        panic!("expected an RPC reply, got {reply:?}");
+    };
+    match rpc.output.as_ref().and_then(|output| output.kind.as_ref()) {
+        Some(stored_value::Kind::InlineValue(value)) => value.clone(),
+        other => panic!("expected a complete inline output, got {other:?}"),
+    }
+}
+
+fn read_response(output: Value) -> InvokeWorkerRpcResponse {
+    InvokeWorkerRpcResponse {
+        output: Some(output),
+        ..InvokeWorkerRpcResponse::default()
+    }
+}
+
+impl Harness {
+    /// Flow rows that a read RPC must not add to: value bookkeeping and request deduplication.
+    fn retained_reply_rows(&self) -> Vec<(ColumnFamily, Vec<u8>)> {
+        let run_id = RunId::from_slice(&self.run_id).expect("started run");
+        let prefix = run_prefix(self.context.flow_hash, run_id);
+        self.state
+            .rows
+            .keys()
+            .filter(|(column_family, key)| {
+                key.starts_with(&prefix)
+                    && (*column_family == ColumnFamily::Value
+                        || matches!(
+                            parse_run_key(key).expect("valid run key").table,
+                            RunTable::ValueBirth
+                                | RunTable::ValueHolder
+                                | RunTable::RequestDedup
+                                | RunTable::RequestDedupOrder
+                        ))
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+#[test]
+fn over_budget_read_rpcs_return_outputs_without_storing_them() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.set_max_run_state_bytes(1);
+    let before = harness.run_record().storage.expect("storage is accounted");
+    let retained_before = harness.retained_reply_rows();
+    for (index, output) in [
+        string_value("inline output"),
+        string_value(&"t".repeat(10_000)),
+        string_value("inline output"),
+        string_value(&"u".repeat(10_000)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let read = harness.commit_rpc(&format!("read-{index}"), read_response(output.clone()));
+        assert_eq!(read_output(&read.reply), output);
+    }
+    let after = harness.run_record().storage.expect("storage is accounted");
+    assert_eq!(after.live_value_bytes, before.live_value_bytes);
+    assert_eq!(after.superseded_value_bytes, before.superseded_value_bytes);
+    assert_eq!(harness.retained_reply_rows(), retained_before);
+    // Only the run record's own counters can change its size.
+    assert!(after.state_row_bytes <= before.state_row_bytes + 4);
+}
+
+#[test]
+fn over_budget_read_rpc_retry_runs_again_instead_of_replaying() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.set_max_run_state_bytes(1);
+    let first = harness.commit_rpc("read-again", read_response(string_value("first")));
+    assert_eq!(read_output(&first.reply), string_value("first"));
+    let second = harness.commit_rpc("read-again", read_response(string_value("second")));
+    assert_eq!(read_output(&second.reply), string_value("second"));
+}
+
+#[test]
+fn under_budget_read_rpc_retry_replays_its_stored_reply() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    let large_output = string_value(&"v".repeat(10_000));
+    let before = harness.run_record().storage.expect("storage is accounted");
+    let first = harness.commit_rpc("read-once", read_response(large_output.clone()));
+    let Some(command_reply::Reply::Rpc(first_reply)) = &first.reply.reply else {
+        panic!("expected an RPC reply, got {:?}", first.reply);
+    };
+    assert!(matches!(
+        first_reply
+            .output
+            .as_ref()
+            .and_then(|output| output.kind.as_ref()),
+        Some(stored_value::Kind::TableValue(_))
+    ));
+    let after = harness.run_record().storage.expect("storage is accounted");
+    assert!(after.live_value_bytes > before.live_value_bytes);
+    let replayed = harness.commit_rpc("read-once", read_response(string_value("second")));
+    assert_eq!(replayed.reply, first.reply);
+    assert!(replayed.writes.is_empty());
+}
+
+#[test]
+fn over_budget_rpc_that_deletes_and_returns_output_is_checked() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.set_max_run_state_bytes(1);
+    let before = harness.state.rows.clone();
+    let rejected = harness.commit_rpc(
+        "delete-and-read",
+        InvokeWorkerRpcResponse {
+            output: Some(string_value(&"w".repeat(10_000))),
+            delete_from_channel: vec![ChannelMessageDeletion {
+                channel_name: "missing".to_owned(),
+                message_id: "missing".to_owned(),
+            }],
+            ..InvokeWorkerRpcResponse::default()
+        },
+    );
+    assert!(is_error(&rejected.reply, 8), "{:?}", rejected.reply);
+    assert!(rejected.writes.is_empty());
+    assert_eq!(harness.state.rows, before);
 }
 
 impl Harness {

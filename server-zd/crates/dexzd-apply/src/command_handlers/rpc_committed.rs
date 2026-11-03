@@ -13,10 +13,11 @@ use std::collections::BTreeMap;
 use dexzd_keyspace::row_keys::RequestKind;
 use dexzd_protocol::dex::{
     ChannelMessageDeletion, ErrorSubStatus, FlowStatus, InvokeWorkerRpcResponse,
-    RpcExecutionCompletedEvent, flow_history_event,
+    RpcExecutionCompletedEvent, Value, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
-    CommandReply, RequestDedupRecord, RpcCommittedCommand, RpcReply, command_reply,
+    CommandReply, RequestDedupRecord, RpcCommittedCommand, RpcReply, StoredValue, command_reply,
+    stored_value,
 };
 
 use crate::ApplyError;
@@ -28,13 +29,16 @@ use crate::command_handlers::flow_data::{
     apply_attribute_writes, apply_channel_deletions, apply_channel_publications,
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor, flow_not_found_reply};
-use crate::command_handlers::{CommandScope, HandlerResult};
+use crate::command_handlers::{CommandScope, HandlerResult, has_attribute_value};
 use crate::projections::history_event_links::StepEventLink;
 use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, cancel_steps_by_type, create_step_execution, wait_conditions,
 };
-use crate::values::{ValueHolder, ValueRejection, store_value, validate_value};
+use crate::values::{
+    ValueHolder, ValueRejection, complete_worker_value, is_null_value, is_run_over_state_budget,
+    store_value, validate_value,
+};
 
 pub(crate) fn apply_rpc_committed(
     transaction: &mut FlowTransaction<'_>,
@@ -151,22 +155,21 @@ pub(crate) fn apply_rpc_committed(
     if is_transactional && !command.app_worker_id.is_empty() {
         cursor.record.sticky_app_worker_id = command.app_worker_id.clone();
     }
+    // A full run neither stores a read's output nor remembers its request ID.
+    let should_retain_reply = !is_run_over_state_budget(&cursor.record)
+        || is_null_value(response.output.as_ref())
+        || is_checked_by_run_state_limit(response);
     let output = if !scope.is_replay
         && let Some(value) = response.output.as_ref()
     {
-        let holder = ValueHolder::RpcReply {
-            request_id: request.request_id.clone(),
-        };
-        let limits = cursor.value_limits();
-        match store_value(
+        match retained_or_complete_output(
             transaction,
-            cursor.rows,
-            limits,
-            &mut cursor.values,
+            &mut cursor,
+            &request.request_id,
             value,
-            &holder,
+            should_retain_reply,
         )? {
-            Ok(stored) => Some(stored),
+            Ok(output) => Some(output),
             Err(rejection) => return Ok(reject_value(rejection)),
         }
     } else {
@@ -208,7 +211,7 @@ pub(crate) fn apply_rpc_committed(
     let reply = CommandReply {
         reply: Some(command_reply::Reply::Rpc(RpcReply { output })),
     };
-    if !scope.is_replay {
+    if !scope.is_replay && should_retain_reply {
         remember_reply(
             transaction,
             &cursor,
@@ -223,6 +226,60 @@ pub(crate) fn apply_rpc_committed(
         reply,
         HistoryKind::EXTERNAL_INPUT,
     )?))
+}
+
+/// Returns whether the run state limit checks this RPC response.
+///
+/// It checks responses that write Flow state, and responses that keep an output beside deletions
+/// or cancellations, whose replies request deduplication must keep for retries.
+pub(crate) fn is_checked_by_run_state_limit(response: &InvokeWorkerRpcResponse) -> bool {
+    let writes_flow_state = has_attribute_value(&response.upsert_attributes)
+        || !response.publish_to_channel.is_empty()
+        || response
+            .step_decision
+            .as_ref()
+            .is_some_and(|decision| !decision.next_steps.is_empty())
+        || response
+            .action_permission_mappings
+            .as_ref()
+            .is_some_and(|mappings| !mappings.mappings.is_empty());
+    let changes_flow_state = !response.delete_from_channel.is_empty()
+        || response
+            .step_decision
+            .as_ref()
+            .is_some_and(|decision| !decision.cancel_step_types.is_empty());
+    writes_flow_state || (changes_flow_state && !is_null_value(response.output.as_ref()))
+}
+
+/// Returns the reply output: stored for request deduplication, or complete and unstored.
+fn retained_or_complete_output(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    request_id: &str,
+    value: &Value,
+    should_retain_reply: bool,
+) -> Result<Result<StoredValue, ValueRejection>, ApplyError> {
+    let limits = cursor.value_limits();
+    if !should_retain_reply {
+        return Ok(
+            complete_worker_value(transaction, cursor.rows, limits, value)?.map(|complete| {
+                StoredValue {
+                    kind: Some(stored_value::Kind::InlineValue(complete)),
+                }
+            }),
+        );
+    }
+    let holder = ValueHolder::RpcReply {
+        request_id: request_id.to_owned(),
+    };
+    store_value(
+        transaction,
+        cursor.rows,
+        limits,
+        &mut cursor.values,
+        value,
+        &holder,
+    )
 }
 
 fn first_missing_deletion<'a>(
