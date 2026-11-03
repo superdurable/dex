@@ -94,10 +94,9 @@ cargo add dex-sdk
 
 ## 🎉Communityto connect with use and other users!💬
 
-* [Discord](https://discord.gg/TetzsMpYb) 
-* WeChat Community: please add **prclqz**   (龙全正) or **MUJIzz** (Zane) first
+* **Discord**: Join the community on [Discord](https://discord.gg/TetzsMpYb)
+* **WeChat**: Scan to add add **prclqz** (龙全正) or **MUJIzz** (Zane) first:
 <img width="300" height="300" alt="Dex WeChat Group" src="https://github.com/user-attachments/assets/3069ad7c-a905-4ab6-a174-2005ad8d45d5" />
-
 
 
 ## Repository layout
