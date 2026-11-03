@@ -35,4 +35,10 @@ type serverZDTestConfig struct {
 	LazyLoading *bool
 	// Default zero keeps server limits; positive values cap both per-node and per-Flow waiters.
 	ServerZDMaxLongPollWaiters int
+	// Default zero keeps the server's 16 MiB value limit; positive values set values.maxValueBytes.
+	ServerZDMaxValueBytes int64
+	// Default zero keeps the server's run state budget; positive values set limits.maxFlowStateBytes.
+	ServerZDMaxFlowStateBytes int64
+	// Default zero keeps the server's 16 MiB limit; positive values set limits.maxChildFlowResultBytes.
+	ServerZDMaxChildFlowResultBytes int64
 }
