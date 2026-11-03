@@ -6,9 +6,13 @@ Use this guide when Dex owns an Agent's conversation, model calls, tools, approv
 
 Persist provider-neutral user, assistant, tool-call, and tool-result messages. Rebuild the model input for every call from a configured system prompt, a cumulative summary, and recent messages. Do not depend on a provider conversation ID when the application must support multiple LLM APIs.
 
-Use an AttributeMap with monotonic sequence keys for independently stored messages. Keep the next sequence, retained range, summarized range, pending calls, and active status in a small Attribute. Do not enumerate an unbounded AttributeMap to paginate history; track the sequence range and read known keys.
+Store messages in a [sequentially chunked AttributeMap](patterns.md#partitioned-attributemap-state). Append to one bounded `current` instance; when it reaches the fixed chunk size, archive it under the zero-padded first sequence and install a new `current` in the same commit. Keep the next sequence, retained chunk range, summarized range, pending calls, and active status in a small Attribute. Read known chunk keys from that range; never enumerate an unbounded AttributeMap to paginate history. [Data handling](data-handling.md#use-attributemap-deliberately) and the [sequential chunking design pattern](https://docs.superdurable.io/design-patterns/sequentially-chunked-attribute-map) give the layout.
 
-Compaction changes the model context, not the durable truth. Commit a summary that covers an explicit sequence range before deleting any covered message instances. If old messages only need Flow-history retention, bound the current AttributeMap and document that they are unavailable through the application after deletion.
+Bound retention behind the summary. Compaction changes the model context, not the durable truth: commit a summary that covers an explicit sequence range, then delete only whole archived chunks that the summary covers. Never delete a chunk the summary does not cover. Document that deleted messages are no longer available through the application.
+
+## Keep session configuration in its own Attribute
+
+Store per-session configuration, such as the model choice, reasoning effort, or tool policy, in its own Attribute, apart from message history and turn state. Change it through a typed RPC. The first Step of a turn copies the configuration into the turn state, and later Steps of that turn read the copy, so a change takes effect at the next turn. Store references such as a model ID or a connection name, never API keys, tokens, or other secrets; the Worker resolves credentials from its own configuration.
 
 ## Make plans durable
 
@@ -61,9 +65,19 @@ Use one Channel for queued user messages and another for steered messages. While
 
 Implement Steer with a transactional RPC that explicitly loads the queued Channel. Send only the selected message ID, find its original Value in the loaded snapshot, then stage its deletion and publication to the steered Channel. Treat a missing ID as stale UI state and refresh the queue. Do not copy queued messages into conversation history until the Agent consumes them.
 
-Apply steered messages at safe Step boundaries. Do not cancel an in-flight model or tool invocation. Before the next model call, tool call, approval continuation, or timer continuation, drain steered messages, persist structured cancellation results for abandoned calls, clear stale approval or timer state, and let the model replan.
+Apply steered messages at safe Step boundaries. Steering never abandons a started side effect: let a running model call or tool finish and commit. Before the next model call, tool call, approval continuation, or timer continuation, drain steered messages, persist structured cancellation results for planned calls that never started, clear stale approval or timer state, and let the model replan.
 
-Only steered messages should interrupt a pending approval or durable Timer. A queued message remains editable and does not alter active work until the Agent becomes idle or the user chooses Steer.
+Only steered messages and a Stop should interrupt a pending approval or durable Timer. A queued message remains editable and does not alter active work until the Agent becomes idle or the user chooses Steer.
+
+## Stop a turn with canceling steps
+
+A user's Stop ends the current turn now, so it may cancel running Steps; steering may not. Implement Stop as a transactional RPC that records the stop request, bound to the turn ID, in the turn state Attribute. Its result cancels Steps with canceling steps and schedules one Step that resolves the turn: Python `RPCResult(...).with_canceling_steps(...)`, Go `RPCResult.CancelSteps`, TypeScript `cancelingSteps`, Java `RPCResult.withCancelingSteps`, and Rust `RpcResult::cancel_step`. Dex applies the selection after the RPC commits and before the next Steps are queued. server-zd ends the selected Step's active attempt, and the Worker cancels the task. The canceled attempt's late decision, writes, retries, and recovery Steps are discarded. The selection is Flow-wide by Step type; an RPC cannot select siblings. See the language's **advanced-features.md**.
+
+- Cancel only Step types that have no external effect or are only waiting: model calls, Timer waits, and approval or input waits.
+- Never select a Step type that runs a non-idempotent tool. A started non-idempotent tool runs to the end and commits its result. Its Step reads the stop request when it finishes and routes to turn resolution instead of the next model call.
+- Resolve the turn in the follow-up Step from committed state, not from what the Stop RPC saw.
+
+The RPC handler sees a snapshot, and a Step can commit between that snapshot and the RPC commit. A model Step that commits its assistant message first is no longer active, so canceling it is a no-op, and the Step it chose may already be queued. Resolve the race in two places. Every Step of the Agent loop checks the stop request at its boundary and ends its branch instead of starting new work. The resolution Step reloads committed messages and pending calls, keeps every committed assistant message and tool result, writes a structured canceled result for each call without one, clears pending approval and Timer state, and marks the turn stopped. Make that Step idempotent so a repeated Stop is harmless. Declare the same turn state lock on the Stop RPC and on every Step that writes turn state so their commits serialize.
 
 Expose one read-only application snapshot RPC for the browser. Explicitly load the conversation AttributeMap and both pending-message Channels, then return application history, Agent description, queued messages, and steered messages from that invocation. Include a Run ID only when a consumer must pin or correlate one exact execution across Flow ID reuse. This history is the application's durable message history, not Dex execution history. A retained terminal run can serve the query, so RPC success does not prove the Agent is active. Use a lifecycle API when the response must include current execution status. Reconcile after mutations and live events, on focus or reconnect, and with a low-frequency fallback poll.
 
@@ -75,4 +89,4 @@ To support explicit interruption, race the Timer against the steered-message Cha
 
 ## Verification
 
-Integration-test context reconstruction after Worker replacement, compaction before deletion, approval after page reload, retry exhaustion, Stream loss recovery, Timer firing, and user interruption.
+Integration-test context reconstruction after Worker replacement, compaction before deletion, approval after page reload, retry exhaustion, Stream loss recovery, Timer firing, user interruption, a configuration change that waits for the next turn, and Stop during a model call, during a Timer, during a non-idempotent tool, and racing a model Step commit.

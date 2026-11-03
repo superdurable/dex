@@ -22,6 +22,10 @@ Dex cancellation becomes observable through `Context::is_cancelled`. Long-runnin
 
 For interruptible orchestration, store the interrupt request in an Attribute through an RPC, have concurrent Steps read it at safe points, and choose a deliberate graceful or forced terminal decision. See the runnable [Interruptible Flow](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/patterns/interruptible/flow.rs).
 
+## Cancellation selectors
+
+A `StepDecision` takes `cancel_sibling_step(&step)` for branches from the same predecessor and `cancel_step(&step)` for every current execution of a registered Step type; chain the builders to select several types. An RPC returns `RpcResult::new(output).cancel_step(&step)`, which can be combined with `then(movement)`; it selects Flow-wide only, because an RPC has no Step lineage. Dex resolves the selection after the decision or RPC commits and before its next Steps are queued. Steps created by the same result are excluded, and completed, already-canceled, and absent executions are no-ops. A canceled attempt's late decision, writes, retries, and recovery Steps are discarded, so check `Context::is_cancelled` and keep external effects idempotent. For a user's Stop in an Agent, follow [stop a turn](../core/ai-agents.md#stop-a-turn-with-canceling-steps). [Pinned `RpcResult`](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/crates/dex-sdk/src/rpc.rs) · [Rust SDK README](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/README.md)
+
 ## Buffered Stream durability
 
 `buffered_text` and `buffered_text_with_options` emit progressive text without blocking for each frame's storage acknowledgment. The buffer interval and soft byte threshold trade latency for overhead. Check handler cancellation and always propagate writer errors. Use durable Attributes or a terminal result for state that must be committed before the Step succeeds.

@@ -39,6 +39,10 @@ Set a short-operation Flow default with `StartFlowOptions(config_override=FlowCo
 
 `StepOptions` also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a long method timeout. Read [core StepOptions guidance](../core/step-options.md) for the replay-risk versus latency trade-off and the child-deadline requirement.
 
+## Cancellation selectors
+
+A Step decision such as `go_to(...)` takes `.with_canceling_sibling_steps(...)` for branches from the same predecessor and `.with_canceling_steps(...)` for every current execution of a Step type. An RPC returns `RPCResult(output, next_steps=...).with_canceling_steps(...)`; it selects Flow-wide only, because an RPC has no Step lineage. Each target is a registered instance, a `StepRef`, or an unambiguous class. Dex resolves the selection after the decision or RPC commits and before its next Steps are queued. Steps created by the same result are excluded, and completed, already-canceled, and absent executions are no-ops. A canceled attempt's late decision, writes, retries, and recovery Steps are discarded, so check `context.is_cancellation_requested()` in long work and keep external effects idempotent. For a user's Stop in an Agent, follow [stop a turn](../core/ai-agents.md#stop-a-turn-with-canceling-steps). [Pinned `RPCResult`](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/dex/flow.py) · [Pinned `StepDecision`](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/dex/step.py) · [Python SDK README](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/README.md)
+
 ## Timeout handler and BlobCache
 
 Timeout handler options separately control timeout, retry, durability, locks, and selected loads. It obeys normal commit rules.

@@ -41,7 +41,7 @@ Implement `handleTimeout` when a soft deadline needs a business decision or comp
 
 ## Cancellation selectors
 
-Wrap a successful decision with `withCancelingSiblingSteps` for same-parent branches or `withCancelingSteps` for all executions of a Step type. Targets are resolved from the current snapshot; Steps created by that decision are excluded. RPCs may request Flow-wide cancellation but have no sibling lineage.
+Wrap a successful decision with `withCancelingSiblingSteps` for same-parent branches or `withCancelingSteps` for all executions of a Step type. Targets are resolved from the current snapshot; Steps created by that decision are excluded. An RPC result requests Flow-wide cancellation with `cancelingSteps` beside `output` and `nextSteps`; it has no sibling lineage. [Pinned `RPCResult`](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/sdk-typescript/src/rpc.ts). For a user's Stop in an Agent, follow [stop a turn](../core/ai-agents.md#stop-a-turn-with-canceling-steps).
 
 ## Step-execution local data
 
