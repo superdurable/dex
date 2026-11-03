@@ -11,11 +11,14 @@ Dex Connector Contributor 是一个专用 sub-skill，用于在官方
 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
 中创建、验证并提交一个便于 review 的 capability。
 
-:::caution 当前仅支持 Go SDK
+:::note 语言要求
 
-Connector library 和该贡献工作流目前只支持 Dex Go SDK。使用 Connector 构建 Dex
-应用时必须使用 Go SDK。如果需要 Python、Java、TypeScript 或 Rust 的 Connector 支持，
-请[提交 Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new)。
+新的官方 Connector 必须有 Go 实现。Go 实现是经过验证的参考实现。Python 和 TypeScript
+package 是可选的，可以只实现部分 capability，并且必须重放 Go 录制的 conformance 场景。
+
+应用可以在 Go、Python 和 TypeScript 中使用已发布的 Connector。Java 和 Rust 暂不支持
+Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) 和
+[docs/](https://github.com/superdurable/dex-connectors-library/tree/main/docs)。
 
 :::
 

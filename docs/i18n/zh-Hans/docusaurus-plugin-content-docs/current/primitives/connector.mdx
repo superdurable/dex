@@ -13,10 +13,24 @@ provider credential 写入持久化 Flow state。
 
 官方 Connector 与 Dex 分别发布。
 
-:::caution 当前仅支持 Go SDK
+:::note 语言支持
 
-目前只有使用 Dex Go SDK 的应用可以集成 Connector。Python、Java、TypeScript 和 Rust
-暂不支持 Connector。如果需要其他语言，请
+Connector 支持 Go、Python 和 TypeScript。Java 和 Rust 暂不支持 Connector。
+
+支持按 Connector 和 capability 区分。每个语言 package 只实现该 Connector 为该语言列出的
+operation 和 Trigger。请使用 [Connector 目录](https://connectors.superdurable.io/) 中的语言筛选，查看每个 Connector
+在 Go、Python 和 TypeScript 中提供的内容。
+
+Go package 是每个 Connector 的 Go module。Python package 发布在 PyPI，名称为
+**dex-connector-&lt;slug&gt;**；TypeScript package 发布在 npm，名称为
+**@superdurable/connector-&lt;slug&gt;**。每个 Python 和 TypeScript package 都会重放经过 Go
+验证的 provider 场景。
+
+可运行示例位于 Connectors library：NewsAPI 的
+[Python 示例](https://github.com/superdurable/dex-connectors-library/tree/connectors/newsapi/python/v0.1.0/connectors/newsapi/python/examples/company_news)
+和
+[TypeScript 示例](https://github.com/superdurable/dex-connectors-library/tree/connectors/newsapi/typescript/v0.1.0/connectors/newsapi/typescript/examples/company-news)。
+Go 示例位于 **connectors/&lt;directory&gt;/go/examples/**。如果需要其他语言，请
 [提交 Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new)。
 
 :::

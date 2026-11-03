@@ -14,12 +14,27 @@ Flow state.
 
 Official Connectors are released separately from Dex.
 
-:::caution Go SDK only
+:::note Language support
 
-Connector-based Dex applications currently support only the Dex Go SDK.
-Connector integration is not yet available for Python, Java, TypeScript, or
-Rust. If you need another language,
-[open a Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new).
+Connectors support Go, Python, and TypeScript. Java and Rust do not support
+Connectors yet.
+
+Support is per Connector and per capability. Each language package implements
+only the operations and Triggers that the Connector lists for that language. Use
+the language filter in the [Connector directory](https://connectors.superdurable.io/) to see what each
+Connector offers in Go, Python, and TypeScript.
+
+Go packages are the Go module of each Connector. Python packages are on PyPI as
+**dex-connector-&lt;slug&gt;**, and TypeScript packages are on npm as
+**@superdurable/connector-&lt;slug&gt;**. Every Python and TypeScript package replays the
+Go-verified provider scenarios.
+
+Runnable examples are in the Connectors library: the NewsAPI
+[Python example](https://github.com/superdurable/dex-connectors-library/tree/connectors/newsapi/python/v0.1.0/connectors/newsapi/python/examples/company_news)
+and
+[TypeScript example](https://github.com/superdurable/dex-connectors-library/tree/connectors/newsapi/typescript/v0.1.0/connectors/newsapi/typescript/examples/company-news).
+Go examples are under **connectors/&lt;directory&gt;/go/examples/**. If you need
+another language, [open a Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new).
 
 :::
 
