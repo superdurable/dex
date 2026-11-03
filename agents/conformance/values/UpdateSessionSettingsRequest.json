@@ -1,0 +1,31 @@
+{
+  "type": "UpdateSessionSettingsRequest",
+  "wire_kind": "json",
+  "description": "Input of the update_session_settings RPC.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "New settings.",
+      "wire": "{\"session_settings\":{\"credential\":{\"name\":\"support-openai\"},\"fallback_model\":null,\"max_turns\":12,\"model\":\"gpt-5-mini\",\"persona\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"temperature\":0.25,\"tools\":[\"lookup_order\",\"send_email\"],\"verbose\":false}}",
+      "canonical": "{\"session_settings\":{\"credential\":{\"name\":\"support-openai\"},\"fallback_model\":null,\"max_turns\":12,\"model\":\"gpt-5-mini\",\"persona\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"temperature\":0.25,\"tools\":[\"lookup_order\",\"send_email\"],\"verbose\":false}}"
+    },
+    {
+      "name": "empty",
+      "description": "Clear the settings.",
+      "wire": "{\"session_settings\":{}}",
+      "canonical": "{\"session_settings\":{}}"
+    },
+    {
+      "name": "null",
+      "description": "No settings: the RPC returns false and changes nothing.",
+      "wire": "{\"session_settings\":null}",
+      "canonical": "{\"session_settings\":null}"
+    },
+    {
+      "name": "without-session-settings",
+      "description": "A request without the field reads as null settings.",
+      "wire": "{}",
+      "canonical": "{\"session_settings\":null}"
+    }
+  ]
+}

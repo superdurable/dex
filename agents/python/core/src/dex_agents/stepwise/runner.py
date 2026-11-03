@@ -96,6 +96,10 @@ CONTEXT_SUMMARY_INSTRUCTIONS = (
 CONTEXT_SUMMARY_REQUEST = "[Dex] Summarize the conversation above. Reply with the summary only."
 
 
+_FORCED_PLANNING_TOOL_CHOICE_UNSUPPORTED = (
+    "planning_tool_choice='required' needs a model that accepts a forced tool "
+    "choice, and this model client reports that its model does not; use 'auto'"
+)
 _UNKNOWN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
 # An unlisted name never reaches a source, so it fails without asking anyone to approve it.
 _UNLISTED_SOURCE_TOOL_POLICY = ToolPolicy(ToolEffect.UNCLASSIFIED, requires_approval=False)
@@ -155,6 +159,9 @@ class InstructionContext:
         plan: The session's plan before this model call, or ``None``. The
             runner already shows it to the model; use it to adapt the
             instructions. Defaults to ``None``.
+        session_settings: The settings the turn started with, as
+            ``AgentTurnContext.session_settings`` has them, such as a persona
+            or prompt name. Empty when the session has none.
     """
 
     flow_id: str
@@ -162,6 +169,7 @@ class InstructionContext:
     attempt: int
     interaction_mode: InteractionMode = InteractionMode.CHAT
     plan: AgentPlan | None = None
+    session_settings: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -184,12 +192,45 @@ class AgentDefinition:
         >>> flow = stepwise_agent_session_flow(support_agent, flow_type="SupportAgent")
         >>> registry = Registry([flow], allow_async_handlers=True)
 
+    To let each session choose its model, map the session settings to a
+    model client the Worker allows:
+
+        >>> models = {name: LiteLLMModelClient(name)
+        ...           for name in ("openai/gpt-5-mini", "openai/gpt-5")}
+        >>> AgentDefinition(
+        ...     name="support",
+        ...     instructions="You help customers with their orders.",
+        ...     model=models["openai/gpt-5-mini"],
+        ...     resolve_model=lambda settings: models.get(
+        ...         str(settings.get("model")), models["openai/gpt-5-mini"]),
+        ... )
+
     Attributes:
         name: Agent name, used in events and spans. It must not be blank.
         instructions: System instructions, or a function of
             ``InstructionContext`` that returns them. A function runs in every
             ``RunModel``, so a deploy changes the next model call.
-        model: The model client.
+        model: The model client. It serves every model call unless
+            ``resolve_model`` is set.
+        resolve_model: A function that maps the turn's
+            ``AgentTurnContext.session_settings`` to the model client of each
+            model call, including the calls that write and size a summary.
+            It is called on every ``RunModel`` and ``CompactContext``
+            attempt, so keep it fast and free of I/O: look the model up in
+            clients the Worker built at startup. The settings come from the
+            application's start input or ``update_session_settings``, so
+            choose only from models the Worker allows. A session without
+            settings passes an empty mapping. An exception fails that
+            attempt like a model error, and its text becomes the turn's
+            ``last_turn_error``, which snapshots show, so never put the
+            settings in an exception message. ``None``, the default, uses
+            ``model`` for every call. Building the definition checks
+            ``planning_tool_choice="required"`` against ``model``; a resolved
+            client that reports it cannot force a tool choice fails the
+            planning model call with the same ``ValueError``. Only model calls
+            see the settings: tool calls do not receive them, and the
+            compaction policy's ``context_window_tokens`` is one value for
+            every resolved model, so set it for the smallest window.
         model_settings: Settings for every model call. Defaults to
             ``ModelSettings()``.
         tools: Function tools, with unique names. Defaults to none.
@@ -274,6 +315,7 @@ class AgentDefinition:
     compaction: CompactionPolicy | None = None
     tool_sources: Sequence[ToolSource] = ()
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT
+    resolve_model: Callable[[Mapping[str, Any]], ModelClient] | None = None
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -298,10 +340,7 @@ class AgentDefinition:
         if self.planning_tool_choice == "required" and not _supports_forced_tool_choice(
             self.model, self.model_settings
         ):
-            raise ValueError(
-                "planning_tool_choice='required' needs a model that accepts a forced tool "
-                "choice, and this model client reports that its model does not; use 'auto'"
-            )
+            raise ValueError(_FORCED_PLANNING_TOOL_CHOICE_UNSUPPORTED)
         for source in self.tool_sources:
             missing = [
                 name for name in _TOOL_SOURCE_METHODS if not callable(getattr(source, name, None))
@@ -416,7 +455,13 @@ class StepwiseAgentRunner:
         request = self._model_request(
             turn, unstored_results, model_calls, is_tool_budget_spent, source_tools
         )
-        response = await self._definition.model.call_model(request, turn.events)
+        model = self._resolve_model(turn.session_settings)
+        if isinstance(request.tool_choice, NamedToolChoice) and not _supports_forced_tool_choice(
+            model, request.settings
+        ):
+            # The definition checks only ``model``; a resolved client is checked when it is used.
+            raise ValueError(_FORCED_PLANNING_TOOL_CHOICE_UNSUPPORTED)
+        response = await model.call_model(request, turn.events)
         usage = replace(response.usage, model_calls=1)
         new_messages = [
             *(encode_stepwise_message(result) for result in unstored_results),
@@ -561,7 +606,7 @@ class StepwiseAgentRunner:
             model_calls >= self._definition.max_model_calls_per_turn,
             self._cached_source_tools(),
         )
-        return self._definition.model.estimate_input_tokens(request)
+        return self._resolve_model(turn.session_settings).estimate_input_tokens(request)
 
     def select_compaction_cutoff(
         self, turn: AgentTurnContext, retained_token_budget: int
@@ -625,6 +670,7 @@ class StepwiseAgentRunner:
             ValueError: If the model returned no text.
             Exception: What the model client raises.
         """
+        model = self._resolve_model(request.session_settings)
         range_items = [decode_stepwise_message(message) for message in request.messages]
         omitted_count = 0
         budget = request.input_token_budget
@@ -633,7 +679,7 @@ class StepwiseAgentRunner:
             budget -= self._definition.model_settings.max_output_tokens or 0
             # Estimate by parts, then leave out the oldest items up to the first cut that fits.
             item_tokens = [self._estimate_summary_item(request, item) for item in range_items]
-            tokens = self._definition.model.estimate_input_tokens(
+            tokens = model.estimate_input_tokens(
                 self._summary_request(request, [], omitted_count=len(range_items))
             ) + sum(item_tokens)
             # A cut never splits a model response or separates a tool call from its result.
@@ -645,7 +691,7 @@ class StepwiseAgentRunner:
         model_request = self._summary_request(
             request, range_items[omitted_count:], omitted_count=omitted_count
         )
-        response = await self._definition.model.call_model(model_request, _DISCARDED_MODEL_OUTPUT)
+        response = await model.call_model(model_request, _DISCARDED_MODEL_OUTPUT)
         if not response.text.strip():
             raise ValueError("the summary model call returned no text")
         return ContextSummaryResult(
@@ -681,7 +727,7 @@ class StepwiseAgentRunner:
         )
 
     def _estimate_summary_item(self, request: ContextSummaryRequest, item: ModelInputItem) -> int:
-        return self._definition.model.estimate_input_tokens(
+        return self._resolve_model(request.session_settings).estimate_input_tokens(
             replace(
                 self._summary_request(request, [], omitted_count=0),
                 instructions="",
@@ -729,7 +775,7 @@ class StepwiseAgentRunner:
     def _estimate_items(self, turn: AgentTurnContext, items: Sequence[ModelInputItem]) -> int:
         if not items:
             return 0
-        return self._definition.model.estimate_input_tokens(
+        return self._resolve_model(turn.session_settings).estimate_input_tokens(
             ModelRequest(
                 instructions="",
                 input_items=items,
@@ -756,8 +802,22 @@ class StepwiseAgentRunner:
                 attempt=turn.attempt,
                 interaction_mode=turn.interaction_mode,
                 plan=turn.plan,
+                session_settings=turn.session_settings,
             )
         )
+
+    def _resolve_model(self, session_settings: Mapping[str, Any]) -> ModelClient:
+        resolve_model = self._definition.resolve_model
+        if resolve_model is None:
+            return self._definition.model
+        model = resolve_model(session_settings)
+        if not callable(getattr(model, "call_model", None)) or not callable(
+            getattr(model, "estimate_input_tokens", None)
+        ):
+            raise TypeError(
+                f"resolve_model of agent {self._definition.name} must return a ModelClient"
+            )
+        return model
 
     def _tool_definitions(
         self,

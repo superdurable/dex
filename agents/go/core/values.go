@@ -304,12 +304,46 @@ func (resolution *QuestionResolution) UnmarshalText(text []byte) error {
 // The Flow ID you choose is the session ID.
 //
 //	initialMessage := "Summarize my open tickets"
-//	_, err := client.StartFlow(ctx, flow, "session-42",
-//		dexagents.AgentSessionStartInput{InitialMessage: &initialMessage}, dex.StartFlowOptions{})
+//	_, err := client.StartFlow(ctx, flow, "session-42", dexagents.AgentSessionStartInput{
+//		InitialMessage:  &initialMessage,
+//		SessionSettings: map[string]any{"model": "gpt-5-mini"},
+//	}, dex.StartFlowOptions{})
 type AgentSessionStartInput struct {
 	// InitialMessage is the text of the first user message. Nil or whitespace-only text starts
 	// the session in AwaitUserMessage.
 	InitialMessage *string `json:"initial_message"`
+	// SessionSettings are the session's settings, a JSON object that every turn's
+	// AgentTurnContext.SessionSettings carries until update_session_settings replaces them, such
+	// as the model to use. Nil starts without settings. Settings are stored in the session and
+	// get_agent_snapshot returns them, so never put a secret in them; put a reference, such as a
+	// credential name, that the Worker resolves. Settings the session refuses fail the session at
+	// once; check them first with ValidateSessionSettings. Start sessions with settings only after
+	// every Worker of the Flow type runs dex-agents 0.2.0.
+	SessionSettings map[string]any `json:"session_settings"`
+}
+
+// UpdateSessionSettingsRequest replaces the session's settings through the update_session_settings RPC.
+//
+// The new settings apply from the next turn that starts; a running turn keeps
+// the settings it started with.
+type UpdateSessionSettingsRequest struct {
+	// SessionSettings are the complete new settings. They replace the old settings; nothing is
+	// merged, and an empty map clears them. Never put a secret in them. Nil, which a missing
+	// field or JSON null decodes to, makes the RPC return false and change nothing.
+	SessionSettings map[string]any `json:"session_settings"`
+}
+
+// TurnSessionSettings holds the settings one turn started with, in the TurnSessionSettings Attribute.
+//
+// The Step that starts a turn writes it in the commit that starts the turn.
+// The session reads it only while TurnID is AgentState.ActiveTurnID, so a
+// copy that an earlier turn left, such as when a Worker without session
+// settings began the current turn, reads as no settings.
+type TurnSessionSettings struct {
+	// TurnID is "turn-<n>" of the turn that started with these settings.
+	TurnID string `json:"turn_id"`
+	// SessionSettings are the settings, a non-empty JSON object.
+	SessionSettings map[string]any `json:"session_settings"`
 }
 
 // AgentState describes the current position of one agent session.
@@ -850,6 +884,9 @@ type AgentSnapshot struct {
 	SteeredMessages []PendingUserMessage `json:"steered_messages"`
 	// ContextSummary is the current summary, or nil.
 	ContextSummary *ContextSummary `json:"context_summary"`
+	// SessionSettings are the settings the next turn starts with, or nil when the session has
+	// none. The active turn may still run with the settings it started with.
+	SessionSettings map[string]any `json:"session_settings"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [].

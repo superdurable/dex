@@ -13,10 +13,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from typing import Any
 
 from dex import AsyncClient, RpcLockConflictError, StartFlowOptions, StreamMessage
 
 from dex_agents.session_flow import AgentSessionFlow
+from dex_agents.session_settings import validate_session_settings
 from dex_agents.values import (
     AgentEvent,
     AgentMessagesPage,
@@ -30,6 +32,7 @@ from dex_agents.values import (
     ListAgentMessagesRequest,
     ResolveInterruptRequest,
     SteerUserMessageRequest,
+    UpdateSessionSettingsRequest,
 )
 
 _LOCK_CONFLICT_RETRY_INTERVAL_SECONDS = 0.05
@@ -87,26 +90,73 @@ class AgentSessionClient:
         session_id: str,
         initial_message: str | None = None,
         options: StartFlowOptions | None = None,
+        *,
+        session_settings: dict[str, Any] | None = None,
     ) -> str:
         """Start one agent session.
+
+        Example:
+            >>> await sessions.start_session(
+            ...     "session-42", "Hello", session_settings={"model": "gpt-5-mini"})
 
         Args:
             session_id: Flow ID of the new session.
             initial_message: Optional first user message.
             options: Start options, such as a Request ID for an idempotent start.
                 ``None`` uses ``StartFlowOptions()``.
+            session_settings: The session's settings, which every turn's
+                ``AgentTurnContext.session_settings`` carries until
+                ``update_session_settings`` replaces them. ``None``, the
+                default, starts without settings. Never put a secret in them.
 
         Returns:
             The server-assigned run ID.
 
         Raises:
+            ValueError: If ``session_settings`` is not a JSON object or is
+                larger than ``MAX_SESSION_SETTINGS_BYTES``. Nothing is started.
             FlowAlreadyStartedError: If the Flow ID is already in use.
         """
+        if session_settings is not None:
+            validate_session_settings(session_settings)
         return await self._client.start_flow(
             self._flow,
             session_id,
-            AgentSessionStartInput(initial_message=initial_message),
+            AgentSessionStartInput(
+                initial_message=initial_message, session_settings=session_settings
+            ),
             options or StartFlowOptions(),
+        )
+
+    async def update_session_settings(
+        self, session_id: str, session_settings: dict[str, Any]
+    ) -> bool:
+        """Replace the session's settings from the next turn on.
+
+        A running turn keeps the settings it started with. The settings
+        replace the old ones; ``{}`` clears them.
+
+        Example:
+            >>> await sessions.update_session_settings("session-42", {"model": "gpt-5"})
+
+        Args:
+            session_id: Running session.
+            session_settings: The complete new settings. Never put a secret in them.
+
+        Returns:
+            ``True`` when stored; ``False`` when the session has not
+            initialized yet.
+
+        Raises:
+            ValueError: If ``session_settings`` is not a JSON object or is
+                larger than ``MAX_SESSION_SETTINGS_BYTES``. Nothing is sent.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        validate_session_settings(session_settings)
+        return await self._client.invoke_rpc(
+            self._flow.update_session_settings,
+            session_id,
+            UpdateSessionSettingsRequest(session_settings=session_settings),
         )
 
     async def send_user_message(

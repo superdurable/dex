@@ -49,6 +49,9 @@ import type {
   TurnCancellationRequest,
   TurnControlKind,
   TurnControlRequest,
+  SessionSettings,
+  TurnSessionSettings,
+  UpdateSessionSettingsRequest,
 } from "./agent-session-values.js";
 
 // Wire values are snake_case JSON shared with the Python core; TypeScript values are camelCase.
@@ -203,15 +206,54 @@ class WireRecordReader {
 }
 
 export function encodeAgentSessionStartInput(value: AgentSessionStartInput): unknown {
-  return { initial_message: value.initialMessage };
+  return { initial_message: value.initialMessage, session_settings: value.sessionSettings ?? null };
 }
 
 export function decodeAgentSessionStartInput(value: unknown): AgentSessionStartInput {
   if (value === null || value === undefined) {
-    return { initialMessage: null };
+    return { initialMessage: null, sessionSettings: null };
   }
   const reader = new WireRecordReader(value, "AgentSessionStartInput");
-  return { initialMessage: reader.readNullableString("initial_message") };
+  const sessionSettings = reader.readObject("session_settings");
+  return {
+    initialMessage: reader.readNullableString("initial_message"),
+    // Kept as sent: StartAgentSession refuses a value that is not an object, failing the session at once.
+    sessionSettings: sessionSettings == null ? null : (sessionSettings as SessionSettings),
+  };
+}
+
+export function encodeSessionSettings(value: SessionSettings): unknown {
+  return value;
+}
+
+export function decodeSessionSettings(value: unknown): SessionSettings {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("SessionSettings must be a JSON object");
+  }
+  return value as SessionSettings;
+}
+
+export function encodeUpdateSessionSettingsRequest(value: UpdateSessionSettingsRequest): unknown {
+  return { session_settings: value.sessionSettings };
+}
+
+export function decodeUpdateSessionSettingsRequest(value: unknown): UpdateSessionSettingsRequest {
+  const reader = new WireRecordReader(value, "UpdateSessionSettingsRequest");
+  const sessionSettings = reader.readObject("session_settings");
+  // Kept as sent: the RPC returns false for null or a value that is not an object.
+  return { sessionSettings: sessionSettings == null ? null : (sessionSettings as SessionSettings) };
+}
+
+export function encodeTurnSessionSettings(value: TurnSessionSettings): unknown {
+  return { turn_id: value.turnId, session_settings: value.sessionSettings };
+}
+
+export function decodeTurnSessionSettings(value: unknown): TurnSessionSettings {
+  const reader = new WireRecordReader(value, "TurnSessionSettings");
+  return {
+    turnId: reader.readString("turn_id"),
+    sessionSettings: decodeSessionSettings(reader.readObject("session_settings")),
+  };
 }
 
 export function encodeAgentState(value: AgentState): unknown {
@@ -630,6 +672,7 @@ export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
       value.contextSummary === undefined || value.contextSummary === null
         ? null
         : encodeContextSummary(value.contextSummary),
+    session_settings: value.sessionSettings ?? null,
   };
 }
 
@@ -649,6 +692,10 @@ export function decodeAgentSnapshot(value: unknown): AgentSnapshot {
       reader.readObject("context_summary") == null
         ? null
         : decodeContextSummary(reader.readObject("context_summary")),
+    sessionSettings:
+      reader.readObject("session_settings") == null
+        ? null
+        : decodeSessionSettings(reader.readObject("session_settings")),
   };
 }
 
@@ -795,6 +842,21 @@ export const agentMessagesPageCodec = snakeCaseJsonCodec(
   "AgentMessagesPage",
   encodeAgentMessagesPage,
   decodeAgentMessagesPage,
+);
+export const sessionSettingsCodec = snakeCaseJsonCodec(
+  "SessionSettings",
+  encodeSessionSettings,
+  decodeSessionSettings,
+);
+export const turnSessionSettingsCodec = snakeCaseJsonCodec(
+  "TurnSessionSettings",
+  encodeTurnSessionSettings,
+  decodeTurnSessionSettings,
+);
+export const updateSessionSettingsRequestCodec = snakeCaseJsonCodec(
+  "UpdateSessionSettingsRequest",
+  encodeUpdateSessionSettingsRequest,
+  decodeUpdateSessionSettingsRequest,
 );
 export const contextSummaryCodec = snakeCaseJsonCodec(
   "ContextSummary",

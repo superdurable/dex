@@ -1,0 +1,19 @@
+{
+  "type": "SessionSettings",
+  "wire_kind": "json",
+  "description": "The SessionSettings Attribute: one JSON object.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "Every JSON kind, nested.",
+      "wire": "{\"credential\":{\"name\":\"support-openai\"},\"fallback_model\":null,\"max_turns\":12,\"model\":\"gpt-5-mini\",\"persona\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"temperature\":0.25,\"tools\":[\"lookup_order\",\"send_email\"],\"verbose\":false}",
+      "canonical": "{\"credential\":{\"name\":\"support-openai\"},\"fallback_model\":null,\"max_turns\":12,\"model\":\"gpt-5-mini\",\"persona\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"temperature\":0.25,\"tools\":[\"lookup_order\",\"send_email\"],\"verbose\":false}"
+    },
+    {
+      "name": "model-only",
+      "description": "Only a model name.",
+      "wire": "{\"model\":\"gpt-5-mini\"}",
+      "canonical": "{\"model\":\"gpt-5-mini\"}"
+    }
+  ]
+}

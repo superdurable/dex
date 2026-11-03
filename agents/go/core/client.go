@@ -96,6 +96,50 @@ func (sessions *AgentSessionClient) StartSession(
 	return sessions.client.StartFlow(ctx, sessions.flow, sessionID, AgentSessionStartInput{InitialMessage: initialMessage}, options)
 }
 
+// StartSessionWithSettings starts one agent session with session settings.
+//
+// It is StartSession with AgentSessionStartInput.SessionSettings set; see
+// that field. It returns an error without starting anything when the
+// settings are larger than MaxSessionSettingsBytes.
+//
+//	runID, err := sessions.StartSessionWithSettings(ctx, "session-42", nil,
+//		map[string]any{"model": "gpt-5-mini"}, dex.StartFlowOptions{})
+func (sessions *AgentSessionClient) StartSessionWithSettings(
+	ctx context.Context,
+	sessionID string,
+	initialMessage *string,
+	sessionSettings map[string]any,
+	options dex.StartFlowOptions,
+) (string, error) {
+	if err := ValidateSessionSettings(sessionSettings); err != nil {
+		return "", err
+	}
+	input := AgentSessionStartInput{InitialMessage: initialMessage, SessionSettings: sessionSettings}
+	return sessions.client.StartFlow(ctx, sessions.flow, sessionID, input, options)
+}
+
+// UpdateSessionSettings replaces the session's settings from the next turn on through
+// update_session_settings.
+//
+// A running turn keeps the settings it started with; an empty map clears
+// them, and a nil map is refused, so the RPC returns false. It returns an
+// error without calling the RPC when the settings are larger than
+// MaxSessionSettingsBytes, and false when the session has not initialized
+// yet.
+func (sessions *AgentSessionClient) UpdateSessionSettings(
+	ctx context.Context,
+	sessionID string,
+	sessionSettings map[string]any,
+) (bool, error) {
+	if err := ValidateSessionSettings(sessionSettings); err != nil {
+		return false, err
+	}
+	var isStored bool
+	request := UpdateSessionSettingsRequest{SessionSettings: sessionSettings}
+	err := sessions.client.InvokeRPC(ctx, sessionID, sessions.flow.UpdateSessionSettings, request, &isStored)
+	return isStored, err
+}
+
 // SendUserMessage queues one user message through send_user_message.
 //
 // It returns true when the message was queued and false for blank text.

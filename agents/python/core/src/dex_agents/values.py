@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class AgentSessionStatus(StrEnum):
@@ -242,14 +243,28 @@ class AgentSessionStartInput:
 
     Example:
         >>> await client.start_flow(flow, "session-42", AgentSessionStartInput(
-        ...     initial_message="Summarize my open tickets"))
+        ...     initial_message="Summarize my open tickets",
+        ...     session_settings={"model": "gpt-5-mini"}))
 
     Attributes:
         initial_message: Text of the first user message. ``None`` or
             whitespace-only text starts the session in ``AwaitUserMessage``.
+        session_settings: The session's settings, a JSON object the runner
+            reads from ``AgentTurnContext.session_settings``, such as the
+            model to use. ``None``, the default, starts without settings.
+            Settings are stored in the session, so never put a secret in
+            them; put a reference, such as a credential name, that the
+            Worker resolves. ``get_agent_snapshot`` and the browser snapshot
+            JSON return them. The compact JSON text must fit in
+            ``MAX_SESSION_SETTINGS_BYTES``; ``AgentSessionClient.start_session``
+            checks it before it starts the Flow, and ``StartAgentSession``
+            fails the session at once, with no retry, for settings it
+            refuses. Start sessions with settings only after every Worker of
+            the Flow type runs dex-agents 0.2.0: a 0.1.0 Worker drops them.
     """
 
     initial_message: str | None = None
+    session_settings: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -761,6 +776,42 @@ class CancelTurnRequest:
 
 
 @dataclass(frozen=True, kw_only=True)
+class UpdateSessionSettingsRequest:
+    """Replace the session's settings through the ``update_session_settings`` RPC.
+
+    The new settings apply from the next turn that starts. A turn that is
+    running keeps the settings it started with.
+
+    Attributes:
+        session_settings: The complete new settings, a JSON object. They
+            replace the old settings; nothing is merged. An empty object
+            clears them. Never put a secret in them. ``None``, as a missing
+            field or an explicit JSON ``null`` decodes, makes the RPC return
+            ``False`` and change nothing.
+    """
+
+    session_settings: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnSessionSettings:
+    """Hold the settings one turn started with, in the ``TurnSessionSettings`` Attribute.
+
+    The Step that starts a turn writes it in the commit that starts the turn.
+    The session reads it only while ``turn_id`` is ``AgentState.active_turn_id``,
+    so a copy that an earlier turn left, such as when a Worker without
+    session settings started the current turn, reads as no settings.
+
+    Attributes:
+        turn_id: ``"turn-<n>"`` of the turn that started with these settings.
+        session_settings: The settings, a non-empty JSON object.
+    """
+
+    turn_id: str
+    session_settings: dict[str, Any]
+
+
+@dataclass(frozen=True, kw_only=True)
 class TurnControlRequest:
     """Wake a waiting session Step through the internal ``TurnControlRequests`` Channel.
 
@@ -912,6 +963,9 @@ class AgentSnapshot:
         context_summary: The current ``ContextSummary``, or ``None`` when the
             session never compacted. ``messages`` still holds the summarized
             messages.
+        session_settings: The ``SessionSettings`` Attribute: the settings the
+            next turn starts with, or ``None`` when the session has none.
+            The active turn may still run with the settings it started with.
     """
 
     state: AgentState | None
@@ -924,6 +978,7 @@ class AgentSnapshot:
     queued_messages: list[PendingUserMessage] = field(default_factory=list)
     steered_messages: list[PendingUserMessage] = field(default_factory=list)
     context_summary: ContextSummary | None = None
+    session_settings: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -11,8 +11,9 @@ conversation, the message queue, steering, approvals, questions, durable
 waits, plans, context compaction, and live events. The example adds four
 things:
 
-- **Worker configuration**: the model, the system prompt, the context window,
-  and the trusted MCP servers.
+- **Worker configuration**: the models a session may pick, the system prompt,
+  the context window, and the trusted MCP servers. The start form picks one
+  allowed model, and the session's settings carry only its name.
 - **MCP tools**: the library's MCP tool source, passed to the agent as a tool
   source, offers each server's tools and three tools that read MCP resources
   and prompts.
@@ -144,13 +145,17 @@ Press **Command/Ctrl+Enter** or **Alt+Enter** to send.
 
 ## Worker configuration
 
-The model, the prompt, and the MCP servers are Worker configuration, shared by
-every session. Sessions do not choose them, so no credential or server command
-ever comes from a browser or from Flow input.
+The allowed models, the prompt, and the MCP servers are Worker configuration,
+shared by every session. A session picks one allowed model when it starts:
+the start form sends its name, the server checks it against the list, and the
+session stores `{"model": "<name>"}` as its session settings. The Worker maps
+the name to a model client with `AgentDefinition.resolve_model`, so no
+credential or server command ever comes from a browser or from Flow input.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DEX_AGENT_MODEL` | `mock/dex` | A LiteLLM model name, such as `openai/gpt-5-mini`, or `mock/dex` |
+| `DEX_AGENT_MODEL` | `mock/dex` | The default model: a LiteLLM model name, such as `openai/gpt-5-mini`, or a `mock/` demo model |
+| `DEX_AGENT_MODELS` | `mock/dex-mini` with the demo default, else none | More models a session may pick, separated by commas |
 | `DEX_AGENT_SYSTEM_PROMPT` | a general prompt | The agent's instructions |
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | The context window that compaction keeps the model input under |
 | `DEX_AGENT_MCP_CONFIG` | none | The MCP server file |

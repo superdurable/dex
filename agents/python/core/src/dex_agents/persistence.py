@@ -20,6 +20,8 @@ Example:
 
 from __future__ import annotations
 
+from typing import Any
+
 from dex import Attribute, AttributeMap, Channel, ChannelMap
 
 from dex_agents.values import (
@@ -37,6 +39,7 @@ from dex_agents.values import (
     ToolCallCompleted,
     TurnCancellationRequest,
     TurnControlRequest,
+    TurnSessionSettings,
 )
 
 #: Current session position. Unset until ``StartAgentSession`` commits.
@@ -106,6 +109,16 @@ PENDING_PLAN_EXECUTION: Attribute[PlanExecutionRequest] = Attribute(
 #: Summary of the earlier messages that compaction left out of the model input; only
 #: ``CompactContext`` writes it.
 CONTEXT_SUMMARY: Attribute[ContextSummary] = Attribute("ContextSummary", ContextSummary)
+
+#: The settings the next turn starts with: the start input's ``session_settings``, then
+#: each ``update_session_settings``. Unset when the session has none.
+SESSION_SETTINGS: Attribute[dict[str, Any]] = Attribute("SessionSettings", dict[str, Any])
+
+#: The settings a turn started with, tagged with its turn, copied from ``SessionSettings``
+#: when the turn began. A copy from an earlier turn reads as no settings.
+TURN_SESSION_SETTINGS: Attribute[TurnSessionSettings] = Attribute(
+    "TurnSessionSettings", TurnSessionSettings
+)
 
 #: Default ``AgentEvents`` Stream capacity: 10 MiB.
 DEFAULT_AGENT_EVENTS_CAPACITY_BYTES = 10 * 1024 * 1024

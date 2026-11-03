@@ -918,6 +918,90 @@ ways, each covered by a test in both cores:
   commits `waiting_for_task`. Checkpoints are lossy, so a Worker that dies in
   that window can start a second task on a `CallTool` retry; see "Deferred".
 
+### A9. Session settings
+
+Added after the owner review of the M2 decisions
+([open question 7](#open-questions),
+[review](https://github.com/superdurable/dex/pull/1178#issuecomment-6592361866)):
+choosing a model per session is a common need, and Worker-only configuration
+forces a separate Worker pool or Flow type per model.
+
+**As built (#1222).** The section was written with the code, so the text is
+the built behavior, including the fixes from the PR review:
+
+- `AgentSessionStartInput.session_settings` is an optional JSON object.
+  `StartAgentSession` stores it in the `SessionSettings` Attribute. Absent,
+  `null`, and `{}` all mean no settings, and the Attribute stays unset.
+  Settings it refuses (not an object, or over the session limit below) fail
+  the session at once with `force_fail`, since every retry would fail the
+  same way; the reason starts with
+  `dex-agents: the start input's session_settings are not valid session
+  settings`.
+- `update_session_settings(UpdateSessionSettingsRequest(session_settings))`
+  replaces the settings; nothing is merged, and `{}` clears them. It is
+  transactional and locks nothing: two updates commit in order and the last
+  wins. It returns `false` before `StartAgentSession` committed, which also
+  means the start Step can never overwrite an update, and for a missing or
+  `null` `session_settings`.
+- **Boundary rule.** The turn-start Steps (`StartAgentSession`,
+  `AwaitUserMessage`, and `ApplyTurnControl` for a steered turn) copy
+  `SessionSettings` into `TurnSessionSettings` as `{turn_id,
+  session_settings}` in the commit that starts the turn, the same boundary at
+  which `plan_mode` takes effect. A copy whose `turn_id` is not the active
+  turn reads as `{}`: during a rolling deploy, a turn that a 0.1.0 Worker
+  started leaves the previous turn's copy, which must not apply. `RunModel` and
+  `CompactContext` read only `TurnSessionSettings`, so every model call,
+  retry, and compaction of one turn sees one value. An update that commits
+  while a Step is starting a turn applies to the next turn.
+- The runner reads `AgentTurnContext.session_settings`, an empty mapping
+  when there are none; `ContextSummaryRequest.session_settings` and Stepwise's
+  `InstructionContext.session_settings` carry the same value.
+- Stepwise: `AgentDefinition.resolve_model` (TypeScript `resolveModel`, Go
+  `WithModelResolver`) maps the settings to a `ModelClient` for each model
+  call, including the summary call and token estimates. Without it, `model`
+  serves every call. Instructions functions read the settings from
+  `InstructionContext`, so no second resolver is needed.
+- **No secrets.** Settings are Flow state and `get_agent_snapshot` returns
+  them (`AgentSnapshot.session_settings`, the next turn's settings), so they
+  hold only references, such as a model or credential name, that the Worker
+  resolves. A resolver chooses only from clients the Worker built.
+- **Size limit.** `MAX_SESSION_SETTINGS_BYTES` (TypeScript
+  `MAX_SESSION_SETTINGS_BYTES`, Go `MaxSessionSettingsBytes`) is 16,384
+  bytes of compact JSON text in UTF-8, with non-ASCII unescaped. Each core
+  measures its own JSON text, and they differ for floats (Python writes
+  `1e+16` and `1.0`, TypeScript and Go every digit and `1`) and for U+2028
+  and U+2029 (Go escapes them). Canonicalizing numbers the same way in three
+  languages was not simple, so the Clients check the exact limit and the
+  session's own checks accept `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES` (1,024)
+  more; settings that one core's Client accepted never fail a session on
+  another core's Worker. `validate_session_settings` and
+  `session_settings_size` are public in every core, and the conformance suite
+  has each core's size for the divergent cases.
+- Only model calls see the settings; tool Steps do not receive them. The
+  snapshot shows the next turn's settings, and the browser snapshot JSON
+  includes them. A resolver's exception text becomes `last_turn_error`.
+  Python checks a resolved model against `planning_tool_choice="required"`
+  when the planning call runs; TypeScript, which cannot check the model at
+  all, documents it.
+- **Rollout.** Start sessions with settings and call `update_session_settings`
+  only after every Worker of the Flow type runs 0.2.0: a 0.1.0 Worker drops
+  start settings and starts turns without them. The deployment guide says
+  so.
+- 0.1.0 sessions have neither Attribute, so their turns run with empty
+  settings until an update; a turn that a 0.1.0 Worker began keeps empty
+  settings even when an update lands mid-turn.
+- Go decodes, stores, and exposes the settings, serves the RPC, and has the
+  Stepwise resolver. Go needs no new unsupported-session guard.
+- Tests in each core: start with settings, an update between turns, a running
+  turn keeping its settings, the resolver and instructions, the size limit
+  and tolerance, a `null` update, a refused start that fails the session on
+  its first attempt, a 0.1.0 session (Python runs the released 0.1.0 Worker;
+  TypeScript and Go start with the 0.1.0 input shape), a stale copy from an
+  earlier turn (Python with a released Worker between two new ones;
+  TypeScript and Go on the selection function), and a SIGKILL of the Worker
+  during a model call after an update committed, whose retry keeps the
+  turn's model.
+
 ### Session Steps after M2
 
 | Step type | Input | Wait | Next |
@@ -1070,7 +1154,8 @@ New `AgentSessionOptions` fields: `built_in_tools`, `plan_mode_enabled`,
 | `RunModel` Execute | new interrupts, records, plan, messages | none, unchanged: it adds interrupts only when every earlier one is resolved |
 | `steer_user_message`, `delete_queued_message`, `execute_plan` | Channels only | none, transactional |
 | `cancel_turn` | `TurnCancellationRequest`, `TurnControlRequests` | none, transactional; the only writer of that Attribute |
-| `CompactContext`, `ApplyTurnControl`, `AwaitUserMessage` | main-path state | none: the main path is sequential |
+| `update_session_settings` | `SessionSettings` | none, transactional; the turn-start Steps only read it |
+| `CompactContext`, `ApplyTurnControl`, `AwaitUserMessage` | main-path state, `TurnSessionSettings` at turn start | none: the main path is sequential |
 
 No long-running Step takes a lock, so no RPC waits on a model call.
 
@@ -1228,7 +1313,9 @@ Changes users of the example see:
   `resolve_interrupt`, `get_history` becomes `list_agent_messages`, and
   `get_snapshot` and `describe` become `get_agent_snapshot`.
 - The model, prompt, and MCP servers become Worker configuration instead of
-  per-session start options (open question 7).
+  per-session start options (open question 7). After A9, the start form
+  picks the session's model again, from the models the Worker allows; the
+  session settings carry only the model name.
 - `dex-python-sdk` moves from 1.29.0 to the version `dex-agents` requires.
 
 `examples/python/tests/integ/test_ai_agent.py` and
@@ -1474,7 +1561,8 @@ a Stop button that calls `cancel_turn`, and plan review with Execute.
    optional `session_settings` JSON object kept in its own Attribute and
    exposed on `AgentTurnContext`. Recommendation: leave it out of M2 and move
    these choices to Worker configuration in the example, unless the owner
-   wants it in this contract.
+   wants it in this contract. **Resolved:** the owner asked for it in 0.2.0;
+   see [A9](#a9-session-settings).
 
 ## Deferred: exactly-once limits of single-attempt tools
 

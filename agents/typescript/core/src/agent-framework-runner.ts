@@ -16,6 +16,7 @@ import type {
   AgentToolCallStatus,
   AgentUsage,
   ContextSummary,
+  SessionSettings,
   FrameworkMessage,
   InteractionMode,
   QuestionAnswer,
@@ -225,6 +226,14 @@ export interface AgentTurnContext {
    * treat `undefined` as no summary.
    */
   readonly contextSummary?: ContextSummary | null;
+  /**
+   * The {@link SessionSettings} this turn started with, such as `{ model: "gpt-5-mini" }`. Use them to choose
+   * the model or the instructions of each model call. `update_session_settings` changes them from the next turn
+   * on, so every model call of one turn sees the same value, retries included. Empty when the session has no
+   * settings, such as a session started on dex-agents 0.1.0. The session always sets it; it is optional for the
+   * same reason as {@link enabledBuiltInTools}, so treat `undefined` as `{}`.
+   */
+  readonly sessionSettings?: SessionSettings;
   /**
    * Returns the effective policy of a tool; see {@link resolveToolPolicy} for the precedence.
    * Pass it unchanged in {@link DeferredToolCall.policy}.

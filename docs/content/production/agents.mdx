@@ -436,6 +436,15 @@ session can run on different versions.
 See [Versioning Flow code](/production/application-operations#versioning-flow-code)
 for the general rules.
 
+### Session settings during a rollout {#session-settings-rollout}
+
+Start sessions with session settings, and call **update_session_settings**, only
+after every Worker of the Flow type runs agents 0.2.0. A 0.1.0 Worker drops the
+settings of a session that it starts, and it neither writes nor reads the copy
+of the settings that a turn keeps. A turn that a 0.1.0 Worker starts runs
+without settings, so it can use the Worker's default model for some of its
+model calls.
+
 ## Credentials {#credentials}
 
 Keep model API keys and tool credentials in the Worker's environment or in a
@@ -444,7 +453,10 @@ model key from the environment, such as **OPENAI_API_KEY**, **GOOGLE_API_KEY**,
 or **ANTHROPIC_API_KEY**. The adapters add no credential handling.
 
 Never pass a credential in the session's start input, a user message, a tool
-argument, a tool output, or an Attribute. Dex stores them in Flow history and
+argument, a tool output, or an Attribute. Session settings are part of the start
+input and of the session's state, and **get_agent_snapshot** and the browser
+snapshot JSON return them, so they hold only references, such as a model or a
+credential name, that the Worker resolves. Dex stores them in Flow history and
 state. Dex Web shows them, history keeps superseded values for time travel, and
 a stopped session stays readable for the retention period. Any authorized
 Client can read **AgentEvents**.

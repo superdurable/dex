@@ -12,7 +12,7 @@ import type {
   DeferredToolOutcome,
   ModelCallMetadata,
 } from "./agent-framework-runner.js";
-import type { AgentMessage, AgentUsage, ContextSummary } from "./agent-session-values.js";
+import type { AgentMessage, AgentUsage, ContextSummary, SessionSettings } from "./agent-session-values.js";
 
 /**
  * When a session summarizes its earlier messages so the model input stays under the context window, passed
@@ -85,6 +85,11 @@ export interface ContextSummaryRequest {
    * leave out its oldest part rather than send an over-window request that fails every turn.
    */
   readonly inputTokenBudget?: number;
+  /**
+   * The {@link SessionSettings} the running turn started with, as `AgentTurnContext.sessionSettings` has them.
+   * Use them to choose the model that writes the summary. The session always sets it; treat `undefined` as `{}`.
+   */
+  readonly sessionSettings?: SessionSettings;
   /**
    * Records a heartbeat. The session already records one every 20 seconds while the summary runs.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.

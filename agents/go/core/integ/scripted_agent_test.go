@@ -29,6 +29,7 @@ const (
 	scriptedAgentFlowType   = "ScriptedAgent"
 	deadlineAgentFlowType   = "DeadlineAgent"
 	checkpointAgentFlowType = "CheckpointAgent"
+	settingsAgentFlowType   = "SettingsAgent"
 	approvalDeadline        = 2 * time.Second
 )
 
@@ -100,7 +101,95 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []dex.Flow{scripted, deadline, checkpoint}, nil
+	settings, err := newSettingsAgentFlow(script, coordinationDir)
+	if err != nil {
+		return nil, err
+	}
+	return []dex.Flow{scripted, deadline, checkpoint, settings}, nil
+}
+
+// newSettingsAgentFlow builds an agent whose model resolver picks the model the session settings name.
+//
+// The models are "default", "alpha", and "beta". "which-model" answers "model <name>: <instructions>",
+// and the first attempt of "think slowly" blocks after it wrote marker "settings-model-attempt-1".
+func newSettingsAgentFlow(script scriptedConversation, coordinationDir string) (dex.Flow, error) {
+	models := map[string]stepwise.ModelClient{}
+	for _, name := range []string{"default", "alpha", "beta"} {
+		models[name] = namedModelClient{
+			name: name, scripted: agentstest.NewScriptedModelClient(script.respond), coordinationDir: coordinationDir,
+		}
+	}
+	resolveModel := func(sessionSettings map[string]any) (stepwise.ModelClient, error) {
+		name, hasName := sessionSettings["model"].(string)
+		if !hasName {
+			name = "default"
+		}
+		model, isAllowed := models[name]
+		if !isAllowed {
+			return nil, fmt.Errorf("model %q is not allowed", name)
+		}
+		return model, nil
+	}
+	instructions := func(instructionContext stepwise.InstructionContext) (string, error) {
+		if persona, hasPersona := instructionContext.SessionSettings["persona"]; hasPersona {
+			return fmt.Sprintf("You are the settings agent. Persona: %v.", persona), nil
+		}
+		return "You are the settings agent.", nil
+	}
+	definition, err := stepwise.NewAgentDefinition("settings", "unused", models["default"],
+		stepwise.WithModelResolver(resolveModel), stepwise.WithInstructionsFunction(instructions))
+	if err != nil {
+		return nil, err
+	}
+	return stepwise.NewStepwiseAgentSessionFlow(definition, settingsAgentFlowType)
+}
+
+// namedModelClient answers "which-model" and "think slowly" with its own name.
+type namedModelClient struct {
+	name            string
+	scripted        *agentstest.ScriptedModelClient
+	coordinationDir string
+}
+
+func (client namedModelClient) CallModel(
+	ctx context.Context,
+	request stepwise.ModelRequest,
+	output stepwise.ModelOutputWriter,
+) (stepwise.ModelResponse, error) {
+	userTexts := agentstest.UserTexts(request)
+	switch lastText := userTexts[len(userTexts)-1]; {
+	case lastText == "which-model":
+		return client.reply(ctx, request, output, fmt.Sprintf("model %s: %s", client.name, request.Instructions))
+	case lastText == "think slowly" && request.Metadata.Attempt == 1:
+		if err := output.WriteTextDelta("thinking"); err != nil {
+			return stepwise.ModelResponse{}, err
+		}
+		writeMarker(client.coordinationDir, "settings-model-attempt-1")
+		// The test SIGKILLs this Worker while the model call runs.
+		<-ctx.Done()
+		return stepwise.ModelResponse{}, ctx.Err()
+	case lastText == "think slowly":
+		return client.reply(ctx, request, output,
+			fmt.Sprintf("answered on attempt %d by %s", request.Metadata.Attempt, client.name))
+	default:
+		return client.scripted.CallModel(ctx, request, output)
+	}
+}
+
+func (client namedModelClient) reply(
+	ctx context.Context,
+	request stepwise.ModelRequest,
+	output stepwise.ModelOutputWriter,
+	text string,
+) (stepwise.ModelResponse, error) {
+	answer := agentstest.NewScriptedModelClient(func(stepwise.ModelRequest) (agentstest.ScriptedModelReply, error) {
+		return agentstest.ScriptedModelReply{Text: text}, nil
+	})
+	return answer.CallModel(ctx, request, output)
+}
+
+func (client namedModelClient) EstimateInputTokens(request stepwise.ModelRequest) int64 {
+	return client.scripted.EstimateInputTokens(request)
 }
 
 // checkpointRunner saves a heartbeat checkpoint on attempt 1, fails attempts 1 and 2, and records

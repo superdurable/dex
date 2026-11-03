@@ -88,7 +88,8 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         except McpToolListingError:
             mcp_tools = []
         return jsonify(
-            model=config.agent_model,
+            model=config.agent_models[0],
+            models=list(config.agent_models),
             system_prompt=config.agent_system_prompt,
             context_window_tokens=config.agent_context_tokens,
             mcp_servers=[server.name for server in app_state.ai_agent_mcp_servers],
@@ -101,9 +102,16 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/sessions")
     async def start_session() -> Response:
+        body = await request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise BadRequest("the request body must be a JSON object")
+        model = body.get("model", app_state.config.agent_models[0])
+        if model not in app_state.config.agent_models:
+            raise BadRequest("model must be one of the models in /settings")
         # The server picks the session ID, so a caller cannot claim an existing session.
         session_id = f"ai-agent-{uuid.uuid4()}"
-        await sessions().start_session(session_id)
+        # Settings carry only the model name; the Worker resolves it, and keys stay on the Worker.
+        await sessions().start_session(session_id, session_settings={"model": model})
         session_token = sign_session_id(app_state.config.agent_session_key, session_id)
         return jsonify(session_id=session_id, session_token=session_token)
 

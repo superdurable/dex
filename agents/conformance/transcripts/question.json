@@ -245,6 +245,7 @@
         "plan": null,
         "queued_message_count": 0,
         "queued_messages": [],
+        "session_settings": null,
         "state": {
           "accepts_turn_control": true,
           "active_turn_id": "turn-1",
@@ -358,6 +359,7 @@
         "plan": null,
         "queued_message_count": 0,
         "queued_messages": [],
+        "session_settings": null,
         "state": {
           "accepts_turn_control": false,
           "active_turn_id": null,

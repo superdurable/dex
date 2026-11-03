@@ -33,6 +33,8 @@ const (
 	GetAgentSnapshotRPCName = "get_agent_snapshot"
 	// ListAgentMessagesRPCName is the protocol name of AgentSessionFlow.ListAgentMessages.
 	ListAgentMessagesRPCName = "list_agent_messages"
+	// UpdateSessionSettingsRPCName is the protocol name of AgentSessionFlow.UpdateSessionSettings.
+	UpdateSessionSettingsRPCName = "update_session_settings"
 )
 
 // The persistence definitions that every agent session Flow type registers.
@@ -88,6 +90,13 @@ var (
 	PendingPlanExecutionAttribute = dex.DefineAttribute[PlanExecutionRequest]("PendingPlanExecution")
 	// ContextSummaryAttribute is the summary that compaction wrote.
 	ContextSummaryAttribute = dex.DefineAttribute[ContextSummary]("ContextSummary")
+	// SessionSettingsAttribute holds the settings the next turn starts with: the start input's
+	// SessionSettings, then each update_session_settings. It is unset when the session has none.
+	SessionSettingsAttribute = dex.DefineAttribute[map[string]any]("SessionSettings")
+	// TurnSessionSettingsAttribute holds the settings a turn started with, tagged with its turn,
+	// copied from SessionSettingsAttribute when the turn began. A copy from an earlier turn reads
+	// as no settings.
+	TurnSessionSettingsAttribute = dex.DefineAttribute[TurnSessionSettings]("TurnSessionSettings")
 )
 
 const (
@@ -322,6 +331,7 @@ func (flow *AgentSessionFlow) GetRPCs() []dex.RPCDef {
 			Name:              ListAgentMessagesRPCName,
 			LoadAttributeMaps: []dex.AttributeDef{AgentMessagesAttributeMap},
 		}),
+		dex.DefineRPC(flow.UpdateSessionSettings, &dex.RPCOptions{Name: UpdateSessionSettingsRPCName, IsTransactional: true}),
 	}
 }
 
@@ -343,6 +353,8 @@ func (flow *AgentSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			AgentPlanAttribute,
 			PendingPlanExecutionAttribute,
 			ContextSummaryAttribute,
+			SessionSettingsAttribute,
+			TurnSessionSettingsAttribute,
 		},
 		Channels: []dex.ChannelDef{
 			QueuedUserMessagesChannel,
@@ -467,7 +479,41 @@ func (flow *AgentSessionFlow) GetAgentSnapshot(ctx dex.Context, _ dex.None) (*de
 	if snapshot.ContextSummary, err = readOptionalAttribute(ctx, ContextSummaryAttribute); err != nil {
 		return nil, err
 	}
+	if snapshot.SessionSettings, err = readSessionSettings(ctx, SessionSettingsAttribute); err != nil {
+		return nil, err
+	}
 	return &dex.RPCResult[AgentSnapshot]{Output: snapshot}, nil
+}
+
+// UpdateSessionSettings replaces the session's settings from the next turn on; its RPC name is
+// update_session_settings.
+//
+// The new settings apply when the next turn starts. A running turn keeps the
+// settings it started with for every model call and retry, so one turn never
+// mixes two models. The settings replace the old ones; nothing is merged, and
+// an empty map clears them, so get_agent_snapshot returns nil. Never put a
+// secret in them. The RPC is transactional and locks nothing: when two updates
+// race, the one that commits last wins.
+//
+//	isStored, err := sessions.UpdateSessionSettings(ctx, "session-42", map[string]any{"model": "gpt-5"})
+//
+// It returns true when the settings are stored, and false before
+// StartAgentSession committed, or when the settings are nil (a missing or null
+// field) or larger than MaxSessionSettingsBytes plus
+// SessionSettingsSizeToleranceBytes. Call the RPC only after every Worker of
+// the Flow type runs dex-agents 0.2.0.
+func (flow *AgentSessionFlow) UpdateSessionSettings(ctx dex.Context, input UpdateSessionSettingsRequest) (*dex.RPCResult[bool], error) {
+	state, err := readOptionalAttribute(ctx, AgentStateAttribute)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || input.SessionSettings == nil || checkStoredSessionSettings(input.SessionSettings) != nil {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	if err := writeSessionSettings(ctx, SessionSettingsAttribute, input.SessionSettings); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[bool]{Output: true}, nil
 }
 
 // ListAgentMessages returns one page of stored messages, oldest first; its RPC name is list_agent_messages.
@@ -554,10 +600,17 @@ func (step StartAgentSession) Execute(ctx dex.Context, input AgentSessionStartIn
 	if err := PendingInterruptsAttribute.Set(ctx, []AgentInterrupt{}); err != nil {
 		return nil, err
 	}
+	if err := checkStoredSessionSettings(input.SessionSettings); err != nil {
+		// Every retry would fail the same way, so the session fails now.
+		return dex.ForceFail(fmt.Sprintf("%s: %v", InvalidStartSessionSettingsReason, err)), nil
+	}
+	if err := writeSessionSettings(ctx, SessionSettingsAttribute, input.SessionSettings); err != nil {
+		return nil, err
+	}
 	if input.InitialMessage == nil || isBlankText(*input.InitialMessage) {
 		return dex.GoTo(AwaitUserMessage{session: step.session}, nil), nil
 	}
-	if err := step.session.beginTurn(ctx, state, *input.InitialMessage); err != nil {
+	if err := step.session.beginTurn(ctx, state, *input.InitialMessage, input.SessionSettings); err != nil {
 		return nil, err
 	}
 	return dex.GoTo(RunModel{session: step.session}, (*CompactContextInput)(nil)), nil
@@ -610,7 +663,11 @@ func (step AwaitUserMessage) Execute(ctx dex.Context, _ dex.None) (*dex.StepDeci
 	if err != nil {
 		return nil, err
 	}
-	if err := step.session.beginTurn(ctx, state, messages[0].Text); err != nil {
+	sessionSettings, err := readSessionSettings(ctx, SessionSettingsAttribute)
+	if err != nil {
+		return nil, err
+	}
+	if err := step.session.beginTurn(ctx, state, messages[0].Text, sessionSettings); err != nil {
 		return nil, err
 	}
 	return dex.GoTo(RunModel{session: step.session}, (*CompactContextInput)(nil)), nil
@@ -1088,9 +1145,13 @@ func recoveryStepOptions(loads []dex.AttributeDef) *dex.StepOptions {
 	}
 }
 
-// beginTurn stores the turn's user message and makes it the active turn.
-func (flow *AgentSessionFlow) beginTurn(ctx dex.Context, state AgentState, text string) error {
+// beginTurn stores the turn's user message and makes it the active turn with these settings.
+func (flow *AgentSessionFlow) beginTurn(ctx dex.Context, state AgentState, text string, sessionSettings map[string]any) error {
 	turnID := fmt.Sprintf("turn-%d", state.TurnCount+1)
+	// The turn keeps these until it ends; later updates wait for the next turn.
+	if err := writeTurnSessionSettings(ctx, turnID, sessionSettings); err != nil {
+		return err
+	}
 	sequence := state.NextMessageSequence
 	userMessage, err := flow.runner.BuildUserMessage(text)
 	if err != nil {
@@ -1193,6 +1254,11 @@ func (flow *AgentSessionFlow) turnContext(
 	for _, toolCall := range toolCalls {
 		recordsByID[toolCall.ToolCallID] = toolCall
 	}
+	storedTurnSettings, err := readOptionalAttribute(ctx, TurnSessionSettingsAttribute)
+	if err != nil {
+		return AgentTurnContext{}, err
+	}
+	sessionSettings := selectTurnSessionSettings(storedTurnSettings, state.ActiveTurnID)
 	return AgentTurnContext{
 		FlowID:            ctx.FlowID(),
 		TurnID:            turnID,
@@ -1205,6 +1271,7 @@ func (flow *AgentSessionFlow) turnContext(
 		Events:            events,
 		Heartbeat:         func() error { return ctx.RecordHeartbeat(nil) },
 		InteractionMode:   state.InteractionMode,
+		SessionSettings:   sessionSettings,
 	}, nil
 }
 
@@ -1932,6 +1999,39 @@ func readOptionalAttribute[Value any](ctx dex.Context, attribute dex.Attribute[V
 		return nil, err
 	}
 	return &value, nil
+}
+
+// writeTurnSessionSettings tags non-empty settings with the turn, and deletes the copy for empty ones.
+func writeTurnSessionSettings(ctx dex.Context, turnID string, sessionSettings map[string]any) error {
+	if len(sessionSettings) > 0 {
+		return TurnSessionSettingsAttribute.Set(ctx, TurnSessionSettings{TurnID: turnID, SessionSettings: sessionSettings})
+	}
+	stored, err := readOptionalAttribute(ctx, TurnSessionSettingsAttribute)
+	if err != nil || stored == nil {
+		return err
+	}
+	return TurnSessionSettingsAttribute.Delete(ctx)
+}
+
+// readSessionSettings returns the settings an Attribute holds, or nil when it is unset.
+func readSessionSettings(ctx dex.Context, attribute dex.Attribute[map[string]any]) (map[string]any, error) {
+	sessionSettings, err := readOptionalAttribute(ctx, attribute)
+	if err != nil || sessionSettings == nil {
+		return nil, err
+	}
+	return *sessionSettings, nil
+}
+
+// writeSessionSettings stores non-empty settings and deletes the Attribute for empty ones.
+func writeSessionSettings(ctx dex.Context, attribute dex.Attribute[map[string]any], sessionSettings map[string]any) error {
+	if len(sessionSettings) > 0 {
+		return attribute.Set(ctx, sessionSettings)
+	}
+	stored, err := readOptionalAttribute(ctx, attribute)
+	if err != nil || stored == nil {
+		return err
+	}
+	return attribute.Delete(ctx)
 }
 
 func requireAgentState(ctx dex.Context) (AgentState, error) {

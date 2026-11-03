@@ -21,6 +21,7 @@ import pytest
 
 from dex_agents import (
     DEFAULT_MAX_DURABLE_WAIT,
+    MAX_SESSION_SETTINGS_BYTES,
     AgentSessionFlow,
     BuiltInTool,
     ListAgentMessagesRequest,
@@ -28,6 +29,12 @@ from dex_agents import (
     build_plan_execution_message,
 )
 from dex_agents.session_flow import ALL_PENDING_MESSAGES, MESSAGE_PAGE_LIMIT, SNAPSHOT_MESSAGE_LIMIT
+from dex_agents.session_settings import (
+    SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+    check_stored_session_settings,
+    session_settings_size,
+    validate_session_settings,
+)
 from dex_agents.stepwise import DEFAULT_MAX_MODEL_CALLS_PER_TURN
 from dex_agents.stepwise.runner import _read_tool_source_envelope, _write_tool_source_envelope
 
@@ -124,6 +131,27 @@ def test_the_python_core_reads_every_core_s_tool_source_envelope() -> None:
         assert generate.canonicalize_json(json.loads(own)) == case["canonical"]
 
 
+def test_session_settings_sizes_and_the_limit_match_the_python_core() -> None:
+    sizes = json.loads((SUITE_DIR / "names.json").read_text(encoding="utf-8"))[
+        "session_settings_sizes"
+    ]
+    for example in sizes["examples"]:
+        expected = example.get("bytes_by_core", {}).get("python", example["bytes"])
+        assert session_settings_size(example["settings"]) == expected, example["name"]
+    for case in sizes["limit"]:
+        settings = {"note": "x" * case["note_length"]}
+        assert session_settings_size(settings) == case["bytes"]
+        for check, is_accepted in (
+            (validate_session_settings, case["is_accepted"]),
+            (check_stored_session_settings, case["is_accepted_by_session"]),
+        ):
+            if is_accepted:
+                check(settings)
+            else:
+                with pytest.raises(ValueError):
+                    check(settings)
+
+
 def test_limits_and_final_statuses_match_the_python_constants() -> None:
     names = json.loads((SUITE_DIR / "names.json").read_text(encoding="utf-8"))
     assert names["limits"] == {
@@ -133,6 +161,8 @@ def test_limits_and_final_statuses_match_the_python_constants() -> None:
         "default_max_durable_wait_seconds": int(DEFAULT_MAX_DURABLE_WAIT.total_seconds()),
         "turn_control_at_most": ALL_PENDING_MESSAGES,
         "stepwise_default_max_model_calls_per_turn": DEFAULT_MAX_MODEL_CALLS_PER_TURN,
+        "max_session_settings_bytes": MAX_SESSION_SETTINGS_BYTES,
+        "session_settings_size_tolerance_bytes": SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
     }
     assert names["final_tool_call_statuses"] == [
         str(status) for status in ToolCallStatus if status.is_final

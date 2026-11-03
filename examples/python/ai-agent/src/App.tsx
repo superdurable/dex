@@ -91,6 +91,8 @@ interface AgentSnapshot {
   queued_messages: PendingUserMessage[];
   steered_messages: PendingUserMessage[];
   context_summary: { generation: number; last_sequence: number } | null;
+  // The session's settings hold only the model name the start form picked.
+  session_settings?: { model?: string } | null;
 }
 
 interface AgentEvent {
@@ -103,6 +105,7 @@ interface AgentEvent {
 
 interface WorkerSettings {
   model: string;
+  models: string[];
   system_prompt: string;
   context_window_tokens: number;
   mcp_servers: string[];
@@ -214,6 +217,7 @@ const App: React.FC = () => {
     () => new URLSearchParams(window.location.search).get('session_id') ?? '',
   );
   const [settings, setSettings] = useState<WorkerSettings | null>(null);
+  const [model, setModel] = useState('');
   const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(null);
   const [resumeToken, setResumeToken] = useState<string | null>(null);
   const [streamAttempt, setStreamAttempt] = useState(0);
@@ -233,7 +237,9 @@ const App: React.FC = () => {
     void fetch(`${API_BASE}/settings`)
       .then(async (response) => {
         if (!response.ok) throw new Error(await response.text());
-        setSettings(await response.json());
+        const workerSettings = await response.json() as WorkerSettings;
+        setSettings(workerSettings);
+        setModel(workerSettings.model);
       })
       .catch((reason) => setError(String(reason)));
   }, []);
@@ -371,7 +377,7 @@ const App: React.FC = () => {
 
   const startSession = async () => {
     await run(async () => {
-      const started = await postJson('/sessions', {}) as { session_id: string; session_token: string };
+      const started = await postJson('/sessions', { model }) as { session_id: string; session_token: string };
       saveSessionToken(started.session_id, started.session_token);
       window.history.replaceState({}, '', `${window.location.pathname}?session_id=${started.session_id}`);
       setSessionId(started.session_id);
@@ -398,13 +404,18 @@ const App: React.FC = () => {
           <p style={styles.eyebrow}>Dex Agents</p>
           <h1 style={styles.title}>AI Agent</h1>
           <p style={styles.muted}>
-            The model, system prompt, context window, and MCP servers are Worker configuration.
-            Change them in <code>examples/.env</code> and the MCP file, then restart the Worker.
+            Each session picks one of the models the Worker allows. The allowed models, system prompt,
+            context window, and MCP servers are Worker configuration. Change them in{' '}
+            <code>examples/.env</code> and the MCP file, then restart the Worker.
           </p>
           {settings && (
             <dl style={styles.settings}>
               <dt>Model</dt>
-              <dd><code>{settings.model}</code></dd>
+              <dd>
+                <select style={styles.select} value={model} onChange={(event) => setModel(event.target.value)}>
+                  {settings.models.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </dd>
               <dt>System prompt</dt>
               <dd>{settings.system_prompt}</dd>
               <dt>Context window</dt>
@@ -443,7 +454,7 @@ const App: React.FC = () => {
     <main style={styles.page}>
       <header style={styles.header}>
         <div>
-          <p style={styles.eyebrow}>AIAgentSession</p>
+          <p style={styles.eyebrow}>AIAgentSession · {snapshot?.session_settings?.model ?? 'default model'}</p>
           <h1 style={styles.sessionTitle}>{sessionId}</h1>
         </div>
         <div style={styles.headerActions}>
@@ -725,6 +736,7 @@ const styles: Record<string, React.CSSProperties> = {
   sectionTitle: { margin: '0 0 10px', fontSize: 16 },
   muted: { color: '#5b6b8c', fontSize: 14 },
   settings: { display: 'grid', gridTemplateColumns: '160px 1fr', rowGap: 10, margin: '18px 0' },
+  select: { font: 'inherit', padding: '4px 8px', borderRadius: 6 },
   pills: { display: 'flex', flexWrap: 'wrap', gap: 6, margin: 0 },
   pill: { background: '#eef1f8', borderRadius: 999, padding: '3px 10px', fontSize: 13 },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' },

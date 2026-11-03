@@ -162,6 +162,10 @@ def agent_snapshot_to_json(snapshot: AgentSnapshot) -> dict[str, Any]:
     ``tool_source_reference``, ``trace_context``, ``input_continuation``,
     ``input_answers``, and ``task_answer_pending``.
 
+    ``session_settings`` is included as stored, so the browser sees the
+    settings the next turn starts with. Keep anything a browser must not see
+    out of session settings, or remove the key before serving the JSON.
+
     Args:
         snapshot: The ``get_agent_snapshot`` result.
 

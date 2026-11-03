@@ -62,7 +62,7 @@ ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 
 This view is simplified. The [Dex Agents README](https://github.com/superdurable/dex/tree/main/agents/python/core) lists every Step, its retries, and its failure route.
 
-The model, the system prompt, the context window, and the MCP servers are Worker configuration, shared by every session. Sessions do not choose them, so no credential or server command comes from a browser or from Flow input. A changed prompt or model takes effect at the next model call of every session, including a turn that is waiting, because Dex does not replay a Flow.
+The allowed models, the system prompt, the context window, and the MCP servers are Worker configuration, shared by every session. Each session picks one allowed model when it starts. Its session settings hold only the model name, and the Worker maps the name to a model client, so no credential or server command comes from a browser or from Flow input. A changed prompt or model client takes effect at the next model call of every session, including a turn that is waiting, because Dex does not replay a Flow.
 
 ## Durable context
 
@@ -128,7 +128,7 @@ The page first loads the session snapshot with the resume token to open the Stre
 
 ## Session access
 
-A session ID is not a secret: it appears in the page URL. So every route that names a session also checks the session's token before it calls Dex. **POST /sessions** picks a new session ID and returns its token. The token is an HMAC-SHA256 of the session ID under **DEX_AGENT_SESSION_KEY**, so the example stores no token, and every process with the same key accepts it. A route that gets a missing or different **X-Agent-Session-Token** header answers 403.
+A session ID is not a secret: it appears in the page URL. So every route that names a session also checks the session's token before it calls Dex. **POST /sessions** checks the requested model against the models the Worker allows, picks a new session ID, and returns its token. The token is an HMAC-SHA256 of the session ID under **DEX_AGENT_SESSION_KEY**, so the example stores no token, and every process with the same key accepts it. A route that gets a missing or different **X-Agent-Session-Token** header answers 403.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
 <SdkSnippet lang="python">
@@ -143,9 +143,16 @@ A session ID is not a secret: it appears in the page URL. So every route that na
 
     @blueprint.post("/sessions")
     async def start_session() -> Response:
+        body = await request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise BadRequest("the request body must be a JSON object")
+        model = body.get("model", app_state.config.agent_models[0])
+        if model not in app_state.config.agent_models:
+            raise BadRequest("model must be one of the models in /settings")
         # The server picks the session ID, so a caller cannot claim an existing session.
         session_id = f"ai-agent-{uuid.uuid4()}"
-        await sessions().start_session(session_id)
+        # Settings carry only the model name; the Worker resolves it, and keys stay on the Worker.
+        await sessions().start_session(session_id, session_settings={"model": model})
         session_token = sign_session_id(app_state.config.agent_session_key, session_id)
         return jsonify(session_id=session_id, session_token=session_token)
 ```
@@ -161,7 +168,7 @@ Without **DEX_AGENT_SESSION_KEY**, the process picks a random key when it starts
 
 The Flow and HTTP routes are under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent). The React UI, the MCP configuration examples, and the run instructions are under [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent).
 
-The first page shows the Worker's model, prompt, context window, and MCP tools. Set **DEX_AGENT_MODEL** to a LiteLLM model name, add its credential to **examples/.env**, and restart the Worker to use a real model. The default local demo model needs no credential and reads slash commands such as **/ask**, **/choose**, **/wait**, and **/tool**, so every feature can be tried without a key.
+The first page shows the Worker's model, prompt, context window, and MCP tools. The start form picks the session's model from the models the Worker allows. Set **DEX_AGENT_MODEL** to a LiteLLM model name, list more in **DEX_AGENT_MODELS**, add their credentials to **examples/.env**, and restart the Worker to use real models. The default local demo model needs no credential and reads slash commands such as **/ask**, **/choose**, **/wait**, and **/tool**, so every feature can be tried without a key.
 
 ## Related
 

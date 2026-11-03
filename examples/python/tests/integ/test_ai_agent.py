@@ -576,3 +576,28 @@ async def test_ai_agent_routes_need_the_token_of_the_session_they_name(
     preflight = await http_client.options("/products/ai-agent/interrupts/resolve")
     assert "Access-Control-Allow-Origin" not in preflight.headers
     await wait_for_message_text(sessions, session_id, "Local demo response: published:token")
+
+
+async def test_ai_agent_session_runs_the_model_its_start_form_picked(
+    app: ExampleApp,
+    sessions: AgentSessionClient,
+) -> None:
+    http_client = create_app(app).test_client()
+    settings = await (await http_client.get("/products/ai-agent/settings")).get_json()
+    assert settings["models"] == ["mock/dex", "mock/dex-mini"]
+    assert settings["model"] == "mock/dex"
+    for body in ({"model": "openai/gpt-5"}, ["mock/dex"], "mock/dex"):
+        refused = await http_client.post("/products/ai-agent/sessions", json=body)
+        assert refused.status_code == 400, body
+
+    picked = await (
+        await http_client.post("/products/ai-agent/sessions", json={"model": "mock/dex-mini"})
+    ).get_json()
+    default = await (await http_client.post("/products/ai-agent/sessions", json={})).get_json()
+    for started, model in ((picked, "mock/dex-mini"), (default, "mock/dex")):
+        session_id = started["session_id"]
+        await send_user_message(sessions, session_id, "/model")
+        await wait_for_message_text(sessions, session_id, f"Local demo response: {model}")
+        snapshot = await sessions.get_agent_snapshot(session_id)
+        # Only the model name is stored; the Worker owns the client and its key.
+        assert snapshot.session_settings == {"model": model}

@@ -43,6 +43,8 @@ import {
   type AgentUsage,
   type AgentUserMessage,
   type ContextSummary,
+  type SessionSettings,
+  type TurnSessionSettings,
   type FrameworkMessage,
   type InteractionMode,
   type ToolCallCancellationReason,
@@ -141,6 +143,19 @@ export class AgentSessionTransitions {
 
   public readAgentUsage(context: Context): AgentUsage {
     return (this.persistence.agentUsage.get(context) as AgentUsage | undefined) ?? emptyAgentUsage();
+  }
+
+  /** The settings the next turn starts with, or `null` when the session has none. */
+  public readSessionSettings(context: Context): SessionSettings | null {
+    return (this.persistence.sessionSettings.get(context) as SessionSettings | undefined) ?? null;
+  }
+
+  /** The settings the active turn started with; see {@link selectTurnSessionSettings}. */
+  public readTurnSessionSettings(context: Context): SessionSettings {
+    return selectTurnSessionSettings(
+      (this.persistence.turnSessionSettings.get(context) as TurnSessionSettings | undefined) ?? null,
+      this.readOptionalAgentState(context)?.activeTurnId ?? null,
+    );
   }
 
   public readContextSummary(context: Context): ContextSummary | null {
@@ -323,6 +338,7 @@ export class AgentSessionTransitions {
       interactionMode: state.interactionMode ?? "chat",
       plan: this.readOptionalAgentPlan(context),
       contextSummary,
+      sessionSettings: this.readTurnSessionSettings(context),
       toolPolicies: this.config.toolPolicies,
       defaultToolEffect: this.config.defaultToolEffect,
       resolveToolPolicy: (toolName, frameworkEffect) => this.resolveToolPolicy(toolName, frameworkEffect),
@@ -406,8 +422,15 @@ export class AgentSessionTransitions {
     interactionMode: InteractionMode = "chat",
     executedPlan?: AgentPlan,
     wasPlanDraft = false,
+    sessionSettings: SessionSettings | null = this.readSessionSettings(context),
   ): StepDecision {
     const turnId = `turn-${state.turnCount + 1}`;
+    // The turn keeps these until it ends; later updates wait for the next turn.
+    if (sessionSettings !== null && Object.keys(sessionSettings).length > 0) {
+      this.persistence.turnSessionSettings.set(context, { turnId, sessionSettings });
+    } else if (this.persistence.turnSessionSettings.get(context) !== undefined) {
+      this.persistence.turnSessionSettings.delete(context);
+    }
     const sequence = state.nextMessageSequence;
     return this.tracer.traceUserMessageActivation(
       context,
@@ -635,4 +658,16 @@ function usagePayload(usage: AgentUsage): Record<string, number> {
     cached_input_tokens: usage.cachedInputTokens,
     reasoning_tokens: usage.reasoningTokens,
   };
+}
+
+/**
+ * Returns the settings of the active turn from its stored copy: the copy's settings while it belongs to that
+ * turn, else `{}`. A turn that a Worker without session settings started, such as 0.1.0, leaves an earlier
+ * turn's copy in place, which must not apply.
+ */
+export function selectTurnSessionSettings(
+  stored: TurnSessionSettings | null,
+  activeTurnId: string | null,
+): SessionSettings {
+  return stored !== null && activeTurnId !== null && stored.turnId === activeTurnId ? stored.sessionSettings : {};
 }

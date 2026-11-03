@@ -83,7 +83,8 @@ BROWSER_SNAPSHOT_JSON = (
     '"tasks":[{"content":"Refund the order","status":"in_progress"}],'
     '"updated_at":"2026-11-01T12:00:02.000Z"},"queued_messages":[],"steered_messages":[],'
     '"context_summary":{"generation":1,"first_sequence":1,"last_sequence":2,'
-    '"text":"The user asked to refund order 42.","created_at":"2026-11-01T12:00:03.000Z"}}'
+    '"text":"The user asked to refund order 42.","created_at":"2026-11-01T12:00:03.000Z"},'
+    '"session_settings":{"model":"gpt-5-mini"}}'
 )
 
 
@@ -517,6 +518,7 @@ def test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use() -> Non
             text="The user asked to refund order 42.",
             created_at="2026-11-01T12:00:03.000Z",
         ),
+        session_settings={"model": "gpt-5-mini"},
     )
 
     snapshot_json = agent_snapshot_to_json(snapshot)

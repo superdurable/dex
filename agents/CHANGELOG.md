@@ -444,6 +444,46 @@ compaction policy.
   `DEX_AGENTS_LONG_TESTS=1`, TypeScript with `npm run test:long`. `Agents CI`
   runs a 300-turn guard in each core instead.
 
+### Session settings
+
+- `AgentSessionStartInput.session_settings` (`sessionSettings`, Go
+  `SessionSettings`): an optional JSON object of per-session settings, such
+  as `{"model": "gpt-5-mini"}`, stored in the new `SessionSettings`
+  Attribute. `update_session_settings` replaces them; the change takes effect
+  when the next turn starts, and a running turn keeps the settings it started
+  with, stored in `TurnSessionSettings` and tagged with the turn, for every
+  model call and retry. A copy that an earlier turn left reads as no settings.
+- Runners read `AgentTurnContext.session_settings`, an empty mapping when
+  there are none; `ContextSummaryRequest` and Stepwise's `InstructionContext`
+  carry them too, and `AgentSnapshot.session_settings` returns the next
+  turn's settings.
+- Stepwise: `AgentDefinition.resolve_model` (`resolveModel`, Go
+  `stepwise.WithModelResolver`) maps the settings to the model client of each
+  model call, including summary calls and token estimates.
+- Settings are Flow state, and the snapshot and the browser snapshot JSON
+  return them, so they hold references the Worker resolves, never secrets.
+  Only model calls see them; tool calls do not. Their compact JSON text in
+  UTF-8 is at most `MAX_SESSION_SETTINGS_BYTES` (16,384, Go
+  `MaxSessionSettingsBytes`); `validate_session_settings` and
+  `session_settings_size` (`validateSessionSettings`, `sessionSettingsSize`)
+  check it, and `AgentSessionClient.start_session(..., session_settings=...)`,
+  `AgentSessionClient.update_session_settings`, the TypeScript
+  `AgentSessionTestClient.startSession`, and Go's `StartSessionWithSettings`
+  and `UpdateSessionSettings` call them first. The cores measure floats and
+  U+2028/U+2029 differently, so the session's own checks accept
+  `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES` (1,024) more.
+- `StartAgentSession` fails the session at once, with no retry, for start
+  settings it refuses, with a reason that starts with
+  `INVALID_START_SESSION_SETTINGS_REASON`. `update_session_settings` returns
+  false for a missing or `null` `session_settings`.
+- Stepwise in Python checks a resolved model against
+  `planning_tool_choice="required"` when the planning call runs.
+- Sessions started on 0.1.0 have no settings and keep running with an empty
+  mapping until an update. Start sessions with settings, and call
+  `update_session_settings`, only after every Worker of the Flow type runs
+  0.2.0: a 0.1.0 Worker drops the start settings and starts turns without
+  them.
+
 ### Go core
 
 - New module `github.com/superdurable/dex/agents/go/core` (package

@@ -30,6 +30,7 @@ from tests.plan_agent import build_plan_agent_flow
 from tests.scripted_agent import (
     IDEMPOTENCY_KEY_LOG_NAME,
     INVOCATION_LOG_NAME,
+    SESSION_SETTINGS_LOG_NAME,
     STATE_DIR_ENVIRONMENT_VARIABLE,
     build_scripted_agent_flow,
 )
@@ -70,6 +71,10 @@ class ScriptedAgentHarness:
     @property
     def idempotency_keys(self) -> InvocationLog:
         return InvocationLog(self.state_dir / IDEMPOTENCY_KEY_LOG_NAME)
+
+    @property
+    def session_settings_log(self) -> InvocationLog:
+        return InvocationLog(self.state_dir / SESSION_SETTINGS_LOG_NAME)
 
     def gate(self, name: str) -> FileGate:
         return FileGate(self.state_dir, name)

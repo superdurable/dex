@@ -23,9 +23,9 @@ Compaction changes the model input, not the record: every message stays in
 from __future__ import annotations
 
 import math
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from dex_agents.events import AgentEventWriter
 from dex_agents.runner import AgentTurnContext, ModelCallMetadata
@@ -119,6 +119,9 @@ class ContextSummaryRequest:
             The range can be larger after the window shrank or when
             compaction starts on a long session; leave out its oldest part
             rather than send an over-window request that fails every turn.
+        session_settings: The settings the running turn started with, as
+            ``AgentTurnContext.session_settings`` has them. Use them to choose
+            the model that writes the summary. Empty when the session has none.
     """
 
     flow_id: str
@@ -130,6 +133,7 @@ class ContextSummaryRequest:
     events: AgentEventWriter
     heartbeat: Callable[[], Awaitable[None]]
     input_token_budget: int | None = None
+    session_settings: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, kw_only=True)
