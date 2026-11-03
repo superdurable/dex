@@ -36,12 +36,15 @@ from dex import (
     WorkerOptions,
     open_blob_cache,
 )
+from mcp import MCPError
+from mcp_types import CONNECTION_CLOSED, INVALID_PARAMS, REQUEST_TIMEOUT
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
+    TURN_CANCELLED_NOTE_HEADER,
     AgentEvent,
     AgentEventType,
     AgentEventWriter,
@@ -77,12 +80,15 @@ from dex_agents.mcp import (
 )
 from dex_agents.mcp._tasks import GetMcpTaskRequest, PolledMcpTask, UpdateMcpTaskRequest
 from dex_agents.mcp._tool_source import (
+    _cancel_task,
     _McpToolCall,
     _McpToolCallReporter,
     _McpToolTarget,
     _task_question,
     _TaskAsked,
     _TaskPending,
+    _ToolCallInterrupted,
+    _ToolCallSucceeded,
 )
 from dex_agents.stepwise import (
     ScriptedModelClient,
@@ -513,6 +519,34 @@ async def test_an_http_task_is_polled_by_poll_tool_task_on_a_timer(
         "ResumeTurn",
         "RunModel",
     ]
+
+
+async def test_cancel_turn_cancels_a_running_http_task_and_ends_the_turn_at_once(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, 'call remote__long_report {"topic": "q4", "gate": "report-gate"}'
+    )
+    await mcp_harness.gate("report-gate").wait_until_reached()
+
+    cancelled_at = time.monotonic()
+    assert await mcp_harness.sessions.cancel_turn(session_id)
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+    assert time.monotonic() - cancelled_at < 15
+
+    (task_id,) = [
+        json.loads(event.payload)["task_id"]
+        for event in await _agent_events(mcp_harness, session_id)
+        if event.type == AgentEventType.TOOL_TASK_STARTED
+    ]
+    names = InvocationLog(mcp_harness.state_dir / INVOCATION_LOG_NAME).names()
+    assert names.count(f"cancel {task_id}") == 1
+    assert (snapshot.messages[-1].text or "").startswith(TURN_CANCELLED_NOTE_HEADER)
+    assert OUTCOME_UNKNOWN_TOOL_RESULT in (snapshot.messages[-1].text or "")
+    steps = await mcp_harness.executed_step_types(session_id)
+    assert steps[-3:] == ["CancelToolTask", "ResumeTurn", "ApplyTurnControl"]
 
 
 async def test_a_stdio_task_is_polled_inside_its_tool_step(mcp_harness: McpAgentHarness) -> None:
@@ -960,6 +994,25 @@ async def test_a_retried_poll_never_delivers_an_old_answer_to_a_new_question() -
     ), "the answer to 'Which format?' was sent to 'Delete the production table too?'"
     assert isinstance(outcome, _TaskAsked)
     assert outcome.question.question == "Delete the production table too?"
+
+
+@pytest.mark.parametrize(
+    ("code", "is_answer"),
+    [(CONNECTION_CLOSED, False), (REQUEST_TIMEOUT, False), (INVALID_PARAMS, True)],
+)
+async def test_tasks_cancel_counts_only_a_server_answer_as_done(code: int, is_answer: bool) -> None:
+    """A dropped connection or timeout is retried; an error the server answered ends it."""
+
+    class _FailingSession:
+        async def send_request(self, request: object, result_type: object) -> object:
+            raise MCPError(code, "tasks/cancel failed")
+
+    class _Client:
+        session = _FailingSession()
+
+    outcome = await _cancel_task(_Client(), "t1")  # type: ignore[arg-type]
+
+    assert isinstance(outcome, _ToolCallSucceeded if is_answer else _ToolCallInterrupted)
 
 
 _FORMAT_REQUEST: dict[str, Any] = {

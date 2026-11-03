@@ -405,11 +405,18 @@ await sessions.delete_queued_message("session-42", snapshot.queued_messages[1].m
 await sessions.cancel_turn("session-42", snapshot.state.active_turn_id)
 ```
 
-A steered or cancelled turn ends at its next safe Step boundary. The session
-never interrupts a model call or a tool call that has started: a running model
-call finishes, and a final answer it returns completes the turn as usual; a
-tool that has started runs to the end, and so does a tool task it started,
-questions included. A call that has not started records
+A steered turn ends at its next safe Step boundary. Steering never interrupts
+a model call or a tool call that has started: a running model call finishes,
+and a final answer it returns completes the turn as usual; a tool that has
+started runs to the end, and so does a tool task it started, questions
+included. `cancel_turn` stops the turn now instead: it cancels a running model
+call or compaction, whose answer is dropped, and every wait for an approval, an
+answer, a durable wait's Timer, or a tool task's next poll. A tool call Step
+that has started still runs to the end, and the turn ends after it. A started
+tool task is abandoned: its call records `outcome_unknown` with
+`cancellation_reason` `turn_cancelled`, and a runner that implements
+`ToolTaskCanceller` is asked to cancel the task, best-effort; a result the
+task returns later is dropped. A call that has not started records
 `rejected` with `cancellation_reason` `steered` or `turn_cancelled`, and the
 model later sees
 `{"status":"cancelled","reason":"superseded_by_steered_user_message"}` or
@@ -440,12 +447,14 @@ at once.
   runs, the RPC raises `ChannelMessageNotFoundError` and changes nothing;
   reload the snapshot and let the user choose again.
 - `cancel_turn` returns `True` when the request is recorded. The turn may still
-  complete first, for example when its model call is already producing the
-  final answer.
+  complete first, when its model call committed the final answer before the
+  RPC committed. A second call for the same turn returns `True` and changes
+  nothing.
 - `steer_user_message` and `delete_queued_message` lock nothing. `cancel_turn`
-  locks only `TurnCancellationRequest`, which no Step locks, so concurrent
-  cancels apply in order; `AgentSessionClient.cancel_turn` retries the rare
-  `RpcLockConflictError`. None of them waits for a running Step.
+  locks `TurnCancellationRequest` and `PendingInterrupts`, which only short
+  Steps lock, so concurrent cancels apply in order and none of them waits for
+  a model call; `AgentSessionClient.cancel_turn` retries the rare
+  `RpcLockConflictError`.
 - `resolve_interrupt` or `answer_question` racing a steer either commits
   first or returns `False`. An approval or a tool's answer that commits first
   moves its call on, and the tool Step then records it cancelled before the
@@ -785,10 +794,22 @@ handle when `heartbeat_checkpoint` holds one. Dex may drop a heartbeat
 checkpoint, so an attempt that dies before its checkpoint is saved and before
 the tool Step commits can still start the work twice; pass the idempotency key
 on so the remote system can drop the duplicate. `PollToolTask` owns the record
-until it is final, takes no lock, and is never cancelled: steering and turn
-cancellation wait for a started task, its questions included, and a call with
-`task_id` is never recorded `rejected`. `DeferredToolExecution.supports_tool_tasks`
-tells a tool whether the runner polls tasks. A runner without `poll_tool_task`
+until it is final and takes no lock. Steering waits for a started task, its
+questions included, and a call with `task_id` is never recorded `rejected`.
+`cancel_turn` abandons the task instead, so Stop never waits for it: it
+cancels `PollToolTask`, drops whatever a running poll returns, and records the
+call `outcome_unknown` with `cancellation_reason` `turn_cancelled` in
+`CancelToolTask`. Implement `ToolTaskCanceller.cancel_tool_task` to stop the
+remote work best-effort; make it idempotent by `task_id`, because a crash or a
+failed attempt calls it again. When it keeps failing, the call is still
+recorded and the turn ends:
+
+```python
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        await reports.cancel(cancellation.tool_call.task_id)
+```
+
+`DeferredToolExecution.supports_tool_tasks` tells a tool whether the runner polls tasks. A runner without `poll_tool_task`
 that returns `ToolTaskStarted` anyway gets `failed` for a `read` call and
 `outcome_unknown` otherwise, with `MISSING_TOOL_TASK_POLLER`.
 
@@ -816,8 +837,10 @@ whose policy requires approval runs only after `AwaitToolApproval` approves it.
 
 ```text
 StartAgentSession -> AwaitUserMessage -> RunModel
-AwaitUserMessage -> steer or cancel_turn -> ApplyTurnControl
+AwaitUserMessage -> steer -> ApplyTurnControl
 RunModel -> steered or cancelled -> ApplyTurnControl
+cancel_turn -> cancels RunModel, CompactContext, and the waiting Steps -> FinishTurnCancellation(turn_id)
+FinishTurnCancellation -> ApplyTurnControl, or CancelToolTask(id) per abandoned task
 RunModel -> TurnCompleted -> AwaitUserMessage
 RunModel -> CompactContext(through_sequence) -> RunModel             with a compaction policy
 RunModel -> ToolCallsRequested -> go_to_many(
@@ -836,20 +859,22 @@ ApplyTurnControl -> RunModel with steered messages, else AwaitUserMessage
 | Step (input) | What it does | Next |
 | --- | --- | --- |
 | `StartAgentSession` (`AgentSessionStartInput`) | Start Step. Initializes state, usage, interrupts, and `SessionSettings`. | `RunModel` with a non-blank `initial_message`, else `AwaitUserMessage` |
-| `AwaitUserMessage` (none) | Waits for any of, in this order, `TurnControlRequests`, `QueuedUserMessages.for_one()`, and, while the plan is `draft` or `active`, `PlanExecutions.for_one(<revision>)`. A steer or cancellation: moves to `ApplyTurnControl`. A message: stores it and starts a `chat` or `planning` turn. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. | `ApplyTurnControl`, `RunModel`, or itself for a stale approval |
-| `RunModel` (none) | Moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts; records `write_todos` calls, and every call but `write_todos` of a planning turn, final in this commit. | `AwaitUserMessage`, `ApplyTurnControl`, `CompactContext`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
+| `AwaitUserMessage` (none) | Waits for any of, in this order, `TurnControlRequests`, `QueuedUserMessages.for_one()`, and, while the plan is `draft` or `active`, `PlanExecutions.for_one(<revision>)`. Locks `TurnCancellationRequest` in Execute, so no turn starts while `cancel_turn` decides. A steer: moves to `ApplyTurnControl`. A message: stores it and starts a `chat` or `planning` turn. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. | `ApplyTurnControl`, `RunModel`, or itself for a stale approval |
+| `RunModel` (none) | Ends the turn and moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts; records `write_todos` calls, and every call but `write_todos` of a planning turn, final in this commit. | `AwaitUserMessage`, `ApplyTurnControl`, `CompactContext`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
 | `CompactContext` (`CompactContextInput`) | Calls `summarize_context` once and stores `ContextSummary`. `RunModel`'s timeouts, attempts, and failure route. | `RunModel` |
 | `AwaitToolApproval` (tool call ID) | Waits for `ToolCallCancellations.for_one(id)` or `InterruptResolutions.for_one(id)`, plus a Timer at the deadline, rounded up to whole seconds, while the interrupt is pending. Approved: marks the record `approved`. Rejected or expired: records `rejected` and publishes `ToolCallResults`. A Timer that fires before the deadline waits again. A cancellation records `rejected` with its reason. | `CallTool` or `CallSingleAttemptTool`, or ends |
-| `AwaitQuestionAnswer` (tool call ID) | Waits for `ToolCallCancellations.for_one(id)` or `InterruptResolutions.for_one(interrupt_id)`, plus a deadline Timer while the question is pending, or a zero Timer while a tool's question is not raised yet. Locks `PendingInterrupts` in Execute, where it raises a tool's question. Records the answer, decline, or deadline and publishes `ToolCallResults`, or returns a tool question's call to its tool Step, or a task's question to `PollToolTask`. Steering and `cancel_turn` never cancel a task's question. | Ends, the tool Step, `PollToolTask`, or itself |
+| `AwaitQuestionAnswer` (tool call ID) | Waits for `ToolCallCancellations.for_one(id)` or `InterruptResolutions.for_one(interrupt_id)`, plus a deadline Timer while the question is pending, or a zero Timer while a tool's question is not raised yet. Locks `PendingInterrupts` in Execute, where it raises a tool's question. Records the answer, decline, or deadline and publishes `ToolCallResults`, or returns a tool question's call to its tool Step, or a task's question to `PollToolTask`. Steering never cancels a task's question; `cancel_turn` cancels the wait and abandons the task. | Ends, the tool Step, `PollToolTask`, `FinishTurnCancellation`, or itself |
 | `AwaitTimer` (tool call ID) | Waits on a Timer for the whole seconds until `wait_until`, or `ToolCallCancellations.for_one(id)`. Records `succeeded`, or `rejected` when cancelled, and publishes `ToolCallResults`. | Ends |
 | `CallTool` (tool call ID) | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started`. 3 attempts, failure route `RecordToolFailure`. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result raises a question instead, and a `ToolTaskStarted` result records `waiting_for_task` and writes `tool_task_started`. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
 | `CallSingleAttemptTool` (tool call ID) | Runs one `non_idempotent_write` or `unclassified` call. 1 attempt, failure route `RecordToolOutcomeUnknown`. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
-| `PollToolTask` (tool call ID) | Waits on a Timer for `task_poll_interval_seconds`, or a zero Timer while `task_answer_pending`, then calls `poll_tool_task`. 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls and `RecordToolOutcomeUnknown` otherwise. No lock, no cancellation: steering and `cancel_turn` wait for the task's result. Records the result and publishes `ToolCallResults`, stores the next interval and continuation, or records the task's question. | Ends, itself, or `AwaitQuestionAnswer` |
+| `PollToolTask` (tool call ID) | Waits on a Timer for `task_poll_interval_seconds`, or a zero Timer while `task_answer_pending`, then calls `poll_tool_task`. 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls and `RecordToolOutcomeUnknown` otherwise. No lock: steering waits for the task's result, and `cancel_turn` cancels the poll and drops its result. Records the result and publishes `ToolCallResults`, stores the next interval and continuation, or records the task's question. | Ends, itself, `AwaitQuestionAnswer`, or `FinishTurnCancellation` |
 | `RecordToolFailure` (tool call ID) | Records `failed` for a read and `outcome_unknown` for a write, with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
 | `RecordToolOutcomeUnknown` (tool call ID) | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
-| `ResumeTurn` (expected result count) | Waits for `ToolCallResults.for_n(count)` or `TurnControlRequests`. Locks `PendingInterrupts` in Execute. A steer or cancellation wake cancels the pending interrupts of the turn's approvals and of questions no task asked, and wakes each such approval, question, and durable wait through `ToolCallCancellations`, then waits again. | `RunModel`, `ApplyTurnControl` when steered or cancelled, or itself |
+| `ResumeTurn` (expected result count) | Waits for `ToolCallResults.for_n(count)` or `TurnControlRequests`. Locks `PendingInterrupts` in Execute. A steer wake cancels the pending interrupts of the turn's approvals and of questions no task asked, and wakes each such approval, question, and durable wait through `ToolCallCancellations`, then waits again. | `RunModel`, `ApplyTurnControl` when steered or cancelled, or itself |
 | `ApplyTurnControl` (none) | Consumes every steered message and stale wake. Ends an active steered or cancelled turn with the runner's unfinished-turn messages or a note, and writes `turn_steered` or `turn_cancelled`. | `RunModel` with the steered messages, else `AwaitUserMessage` |
 | `RecordTurnFailure` (the failing Step's input, ignored) | Records `last_turn_error`. Appends the runner's unfinished-turn messages when it implements `build_unfinished_turn_messages`. When the turn has final tool call records, appends one turn-failure note. Clears the turn's records and run state. | `AwaitUserMessage` |
+| `FinishTurnCancellation` (turn ID) | Locks `TurnCancellationRequest` and `PendingInterrupts`. When `cancel_turn` cancelled the model call or compaction, moves to `ApplyTurnControl`. While tool calls run, records each call whose wait was cancelled as `rejected`, hands each started task to `CancelToolTask`, and ends; `ResumeTurn` then ends the turn. | Ends, `ApplyTurnControl`, `CancelToolTask`, or a waiting Step whose answer committed first |
+| `CancelToolTask` (tool call ID) | Calls `cancel_tool_task` when the runner implements `ToolTaskCanceller`, then records `outcome_unknown` and publishes `ToolCallResults`. 3 attempts in 2 min, 30 s timeout, failure route `RecordToolOutcomeUnknown`. | Ends |
 
 Every Step sets `wait_for` and `execute` durability to SYNC explicitly, so a
 `FlowConfig(step_durability=ASYNC)` never replays a Step result. Each tool
@@ -900,7 +925,7 @@ RPCs:
 | `execute_plan` | `ExecutePlanRequest` | `bool` | Locks `PendingPlanExecution`; `True` only while the session waits for a user message, the plan has this revision and is `draft` or `active`, no execution of it is pending, and nothing is queued, steered, or pending. `AgentSessionClient` retries lock conflicts. |
 | `steer_user_message` | `SteerUserMessageRequest` | `bool` | Transactional, locks nothing. Moves a queued message by `message_id`, or steers with new `text`; while no turn is active, queues `text`. `False` for both or neither, blank text, a message no longer queued, or a turn that does not accept steering; `ChannelMessageNotFoundError` when it was consumed while the RPC ran. |
 | `delete_queued_message` | `DeleteQueuedMessageRequest` | `bool` | Transactional, locks nothing. `False` for a message no longer queued. |
-| `cancel_turn` | `CancelTurnRequest` | `bool` | Locks `TurnCancellationRequest`, which only `cancel_turn` locks. `False` when no turn is active, `turn_id` names another turn, or the turn does not accept cancellation. |
+| `cancel_turn` | `CancelTurnRequest` | `bool` | Locks `TurnCancellationRequest` and `PendingInterrupts`. Cancels the turn's model call, compaction, and waiting Steps, and moves to `FinishTurnCancellation`. `False` when no turn is active, `turn_id` names another turn, or the turn does not accept cancellation. |
 | `resolve_interrupt` | `ResolveInterruptRequest` | `bool` | Locks `PendingInterrupts`; `False` when not pending or past its deadline; removes the interrupt and publishes the answer in one commit. On a question, `approved=False` declines it and `approved=True` returns `False`. A concurrent Step can raise `RpcLockConflictError`; `AgentSessionClient` retries it for 5 seconds. |
 | `answer_question` | `AnswerQuestionRequest` | `bool` | Locks `PendingInterrupts`; `False` when the interrupt is not a pending question, is past its deadline, or the answer is blank or not an allowed choice; removes it and publishes the answer in one commit. `AgentSessionClient.answer_question` retries lock conflicts like `resolve_interrupt`. |
 | `get_agent_snapshot` | none | `AgentSnapshot` | State, last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, and the queued and steered messages with their IDs. Serves retained closed sessions. |
@@ -1101,7 +1126,10 @@ without `poll_tool_task` gets every task polled inside the tool Step, as
 below. A server that no longer knows the task, or
 cannot be reached for three poll attempts, records `failed` for a `read` tool
 and `outcome_unknown` otherwise; the source never calls the tool again from a
-poll.
+poll. `cancel_turn` abandons the task, and `cancel_tool_task` sends
+`tasks/cancel`; forward it from your runner's `cancel_tool_task`, as the
+Stepwise runner does. Any answer from the server ends the cancellation, so a
+retried one is harmless.
 
 A stdio task lives in its server process, which ends with the request. The
 tool Step polls it on the call's own connection, with a heartbeat per poll,
@@ -1661,8 +1689,9 @@ The plan records each of these decisions too.
   messages after the summary in each `RunModel` movement would cost run storage
   on every model call. Very long sessions load more on every call.
 - Each model call and tool call adds a Step round trip.
-- Steering and `cancel_turn` never stop a model call or a tool call that has
-  started; they apply at the next safe Step boundary.
+- Steering never stops a model call or a tool call that has started; it
+  applies at the next safe Step boundary. `cancel_turn` stops a model call
+  but never a tool call Step that has started.
 - Interrupt deadlines use the Worker clock.
 - One `text_delta` call writes one Stream message; batch very small chunks.
 - Tool call IDs that are empty or contain `/` fail the turn.

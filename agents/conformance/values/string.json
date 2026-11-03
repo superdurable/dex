@@ -1,13 +1,19 @@
 {
   "type": "string",
   "wire_kind": "string",
-  "description": "String Values: FrameworkRunState, AgentTraceContext, and the tool call ID input of the tool Steps.",
+  "description": "String Values: FrameworkRunState, AgentTraceContext, the tool call ID input of the tool Steps and CancelToolTask, and the turn ID input of FinishTurnCancellation.",
   "cases": [
     {
       "name": "tool-call-id",
       "description": "A tool call ID.",
       "wire": "call-7",
       "canonical": "call-7"
+    },
+    {
+      "name": "turn-id",
+      "description": "A turn ID.",
+      "wire": "turn-3",
+      "canonical": "turn-3"
     },
     {
       "name": "framework-run-state",

@@ -397,6 +397,29 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     assert.ok(steps.filter((step) => step === "PollToolTask").length >= 2);
   });
 
+  test("cancel_turn cancels a running task of a stateless server and ends the turn at once", async () => {
+    await startWorker();
+    const sessionId = `mcp-task-cancel-${randomUUID()}`;
+    const gateName = `report-${randomUUID()}`;
+    await sessions.startSession(sessionId, `call remote__long_report {"topic": "q5", "gate": "${gateName}"}`);
+    await new FileGate(stateDirectory, gateName).waitUntilReached();
+
+    const cancelledAt = Date.now();
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.ok(Date.now() - cancelledAt < 15_000);
+
+    const [taskId] = (await eventPayloads(sessionId, "tool_task_started")).map((payload) => payload["task_id"]);
+    assert.equal(typeof taskId, "string");
+    assert.equal(
+      new InvocationLog(join(stateDirectory, fakeMcpInvocationLogName)).names().filter((line) => line === `cancel ${taskId}`)
+        .length,
+      1,
+    );
+    assert.ok((await lastMessageText(sessionId))?.includes(outcomeUnknownToolResult));
+    assert.deepEqual((await executedStepTypes(sessionId)).slice(-3), ["CancelToolTask", "ResumeTurn", "ApplyTurnControl"]);
+  });
+
   test("a stdio server's task is polled inside its tool Step", async () => {
     await startWorker();
     const sessionId = `mcp-stdio-task-${randomUUID()}`;

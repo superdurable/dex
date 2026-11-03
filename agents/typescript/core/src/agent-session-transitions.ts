@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import {
+  StepMovement,
   StepRef,
   goTo,
   stringCodec,
@@ -30,6 +31,7 @@ import { messageSequenceKey, type AgentSessionPersistence } from "./agent-sessio
 import type { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
   addAgentUsage,
+  buildToolCallNote,
   emptyAgentUsage,
   isFinalToolCallStatus,
   type AgentInterrupt,
@@ -51,6 +53,8 @@ import {
   type ToolEffect,
   toolCallCancelledBySteeringResult,
   toolCallCancelledByTurnCancellationResult,
+  turnCancelledNoteHeader,
+  turnSteeredNoteHeader,
   type TurnCancellationRequest,
 } from "./agent-session-values.js";
 import type { ResolvedAgentTracingOptions } from "./agent-tracing-options.js";
@@ -71,6 +75,8 @@ export const agentSessionStepTypes = {
   resumeTurn: "ResumeTurn",
   applyTurnControl: "ApplyTurnControl",
   recordTurnFailure: "RecordTurnFailure",
+  finishTurnCancellation: "FinishTurnCancellation",
+  cancelToolTask: "CancelToolTask",
 } as const;
 
 /** Consumes every pending message of a Channel at once; the plan's MAX. */
@@ -477,12 +483,76 @@ export class AgentSessionTransitions {
     return isPlanModeRequested || this.readOptionalAgentPlan(context)?.status === "draft" ? "planning" : "chat";
   }
 
+  /** Ends a steered or cancelled turn with its unfinished-turn messages, or with a note; returns the new state. */
+  public endControlledTurn(
+    context: Context,
+    initialState: AgentState,
+    turnId: string,
+    steeredMessageCount: number,
+  ): AgentState {
+    const transitions = this;
+    const persistence = this.persistence;
+    const toolCalls = transitions.readTurnToolCalls(context, turnId);
+    const openToolCall = toolCalls.find((toolCall) => !isFinalToolCallStatus(toolCall.status));
+    if (openToolCall !== undefined) {
+      throw new Error(`${turnId} ended before tool call ${openToolCall.toolCallId} finished`);
+    }
+    const isCancelled = transitions.readTurnControlReason(context, turnId) === "turn_cancelled";
+    const storedMessageCount = countMessagesAfterUserMessages(
+      transitions.readMessages(context, 1, initialState.nextMessageSequence),
+      turnId,
+    );
+    let messages = transitions.buildUnfinishedTurnMessages(context, initialState, turnId, toolCalls);
+    if (messages === null) {
+      messages = [];
+      if (toolCalls.length > 0) {
+        // The records are deleted below; the note keeps the next model from repeating them.
+        const note = transitions.runner.buildUserMessage(
+          buildToolCallNote(isCancelled ? turnCancelledNoteHeader : turnSteeredNoteHeader, toolCalls),
+        );
+        if (note.role !== "user") {
+          throw new TypeError("buildUserMessage must return a message with role user");
+        }
+        messages = [note];
+      }
+    }
+    const stateWithMessages = transitions.appendMessages(context, initialState, turnId, messages);
+    for (const toolCall of toolCalls) {
+      persistence.agentToolCalls.delete(context, toolCall.toolCallId);
+    }
+    persistence.frameworkRunState.delete(context);
+    const endedState: AgentState = {
+      ...stateWithMessages,
+      status: "waiting_for_user_message",
+      turnCount: stateWithMessages.turnCount + 1,
+      activeTurnId: null,
+      lastTurnError: null,
+      acceptsTurnControl: false,
+    };
+    transitions.writeAgentState(context, endedState);
+    const messageCount = storedMessageCount + messages.length;
+    transitions.writeEvents(context, turnId, (events) =>
+      isCancelled
+        ? events.writeEvent("turn_cancelled", { message_count: messageCount })
+        : events.writeEvent("turn_steered", {
+            steered_message_count: steeredMessageCount,
+            message_count: messageCount,
+          }),
+    );
+    return endedState;
+  }
+
   public goToAwaitUserMessage(): StepDecision {
     return goTo(new StepRef(agentSessionStepTypes.awaitUserMessage), undefined);
   }
 
   public goToApplyTurnControl(): StepDecision {
     return goTo(new StepRef(agentSessionStepTypes.applyTurnControl), undefined);
+  }
+
+  /** Reports whether `cancel_turn` stopped this turn; reads committed state only. */
+  public isTurnCancelled(context: Context, turnId: string | null): boolean {
+    return this.readTurnControlReason(context, turnId) === "turn_cancelled";
   }
 
   public resolveToolPolicy(toolName: string, frameworkEffect?: ToolEffect): ResolvedToolPolicy {
@@ -588,6 +658,19 @@ function isFrameworkMessage(value: unknown): value is FrameworkMessage {
     isNullableString(message.toolName) &&
     isNullableString(message.toolArguments) &&
     isNullableString(message.toolOutput)
+  );
+}
+
+/** Moves to `FinishTurnCancellation` for one turn; its locks come from the Step's own options. */
+export function finishTurnCancellationMovement(turnId: string): StepMovement<string> {
+  return StepMovement.of(new StepRef(agentSessionStepTypes.finishTurnCancellation), turnId);
+}
+
+/** Reports whether `cancel_turn` abandons this call's started task. */
+export function isAbandonedToolTask(toolCall: AgentToolCallRecord): boolean {
+  return (
+    (toolCall.taskId ?? null) !== null &&
+    (toolCall.status === "waiting_for_task" || toolCall.status === "awaiting_answer")
   );
 }
 

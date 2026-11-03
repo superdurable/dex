@@ -11,6 +11,7 @@ import type {
   DeferredToolCall,
   DeferredToolExecution,
   DeferredToolOutcome,
+  ToolTaskCancellation,
   ToolTaskPoll,
   ToolTaskPollOutcome,
 } from "../agent-framework-runner.js";
@@ -113,4 +114,11 @@ export interface ToolSource {
    * @returns The cached tools, or none.
    */
   cachedTools?(): readonly SourceToolDefinition[];
+  /**
+   * Optional: cancels a task that `cancel_turn` abandoned, as {@link AgentFrameworkRunner.cancelToolTask}
+   * describes. A source without it leaves the task running. `McpToolSource` sends `tasks/cancel`.
+   * @param cancellation - The abandoned call's record.
+   * @returns A Promise that resolves once the remote system took the cancellation.
+   */
+  cancelToolTask?(cancellation: ToolTaskCancellation): Promise<void>;
 }

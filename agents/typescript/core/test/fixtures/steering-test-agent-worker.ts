@@ -9,7 +9,9 @@
 import { runAgentWorkerProcess } from "../../src/testing/index.js";
 import {
   createSteeringTestAgentFlow,
+  gateFinishTurnCancellation,
   steeringBuilderGateVariable,
+  steeringFinishCancellationGateVariable,
   steeringMarkerDirectoryVariable,
 } from "./steering-test-agent.js";
 
@@ -18,6 +20,10 @@ if (markerDirectory === undefined || markerDirectory === "") {
   throw new Error(`${steeringMarkerDirectoryVariable} is not set`);
 }
 const builderGate = process.env[steeringBuilderGateVariable];
+const finishCancellationGate = process.env[steeringFinishCancellationGateVariable];
+if (finishCancellationGate !== undefined) {
+  gateFinishTurnCancellation(markerDirectory, finishCancellationGate);
+}
 await runAgentWorkerProcess([
   createSteeringTestAgentFlow(markerDirectory, builderGate === undefined ? {} : { builderGate }),
 ]);

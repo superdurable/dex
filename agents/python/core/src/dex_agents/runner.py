@@ -81,6 +81,11 @@ TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT = (
     '{"status":"cancelled","reason":"turn_cancelled_by_user"}'
 )
 
+#: Error of an ``outcome_unknown`` record whose task ``cancel_turn`` abandoned.
+TOOL_TASK_ABANDONED_ERROR = (
+    "the turn was cancelled while the tool's task was running; the task may have taken effect"
+)
+
 
 @dataclass(frozen=True)
 class ToolPolicy:
@@ -624,8 +629,9 @@ class ToolTaskStarted:
     Dex may drop a heartbeat checkpoint, though, so an attempt that dies before
     its checkpoint is saved and before the tool Step commits can still start
     the work a second time on a ``CallTool`` retry; pass the idempotency key to
-    the remote system so it can drop the duplicate. Steering and turn
-    cancellation never abandon a started task: the session waits for it.
+    the remote system so it can drop the duplicate. Steering waits for a
+    started task. ``cancel_turn`` abandons it: the session records
+    ``outcome_unknown`` and asks a ``ToolTaskCanceller`` runner to cancel it.
 
     Example:
         >>> async def execute_deferred_tool_call(self, call):
@@ -712,6 +718,30 @@ class ToolTaskPoll:
     events: AgentEventWriter
     heartbeat: Callable[[], Awaitable[None]]
     pending_answer: QuestionAnswer | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolTaskCancellation:
+    """Give ``cancel_tool_task`` one task that ``cancel_turn`` abandoned.
+
+    Attributes:
+        flow_id: Session ID, which is the Flow ID.
+        tool_call: The call's record with ``task_id`` and
+            ``tool_source_reference``. Its ``cancellation_reason`` is
+            ``TURN_CANCELLED``.
+        idempotency_key: ``"<flow_id>/<turn_id>/<tool_call_id>"``, the key the
+            tool Step passed when it started the task.
+        attempt: One-based ``CancelToolTask`` attempt. Each cancellation gets
+            up to three attempts.
+        heartbeat: Coroutine function that records Step liveness. The session
+            already heartbeats in the background.
+    """
+
+    flow_id: str
+    tool_call: AgentToolCall
+    idempotency_key: str
+    attempt: int
+    heartbeat: Callable[[], Awaitable[None]]
 
 
 #: The result of one ``execute_deferred_tool_call`` call.
@@ -946,7 +976,8 @@ class ToolTaskPoller(Protocol):
 
         Polling must only read the task, and deliver ``poll.pending_answer``
         when it is set, because the session may poll again after a crash.
-        Steering and cancellation never stop a poll.
+        Steering never stops a poll. ``cancel_turn`` cancels a running poll,
+        and the session drops whatever it returns.
 
         Args:
             poll: The call's record and its idempotency key.
@@ -965,5 +996,42 @@ class ToolTaskPoller(Protocol):
             Exception: Any other exception fails the poll attempt. After three
                 attempts the record becomes ``FAILED`` for a ``READ`` call and
                 ``OUTCOME_UNKNOWN`` otherwise, because the task may still run.
+        """
+        ...
+
+
+@runtime_checkable
+class ToolTaskCanceller(Protocol):
+    """Let a runner that polls tool tasks cancel one that ``cancel_turn`` abandoned.
+
+    Implement it next to ``ToolTaskPoller``. ``cancel_turn`` does not wait for
+    a started task: the session records the call ``outcome_unknown`` with
+    ``cancellation_reason`` ``TURN_CANCELLED``, and the ``CancelToolTask``
+    Step calls ``cancel_tool_task`` best-effort before it records the call. A
+    runner without the method leaves the task running. Steering never
+    cancels a task.
+
+    Example:
+        >>> class MyRunner:
+        ...     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        ...         await reports.cancel(cancellation.tool_call.task_id)
+    """
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        """Ask the remote system to stop one task.
+
+        The session may call it more than once for one task, after a crash or
+        a failed attempt, so make it idempotent by ``task_id``. A task that
+        already finished or that the remote system no longer knows is
+        cancelled: return normally. The call's record is final whatever this
+        method does, and a result the task returns later is dropped.
+
+        Args:
+            cancellation: The abandoned call's record and its idempotency key.
+
+        Raises:
+            Exception: The cancellation did not reach the remote system. The
+                session retries it up to three times, then records the call
+                ``outcome_unknown`` anyway, so the turn always ends.
         """
         ...

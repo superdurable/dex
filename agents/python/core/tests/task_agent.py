@@ -27,7 +27,12 @@ for every poll. Arguments:
   repeats it in heartbeats for 2 seconds, and waits at this ``FileGate``.
 * ``poll_gate``: every poll marks this gate, and the task finishes only once
   it is released.
-* ``block_gate``: every poll waits at this gate.
+* ``block_gate``: every poll waits at this gate. With
+  ``ignores_cancellation``, a poll keeps waiting when ``cancel_turn``
+  cancels it, records ``poll <call> cancelled``, and once the gate is released
+  records ``poll <call> returned`` and finishes the task.
+* ``fail_cancel``: every ``cancel_tool_task`` raises. Every call records
+  ``cancel-task <call> attempt <n> <status> <cancellation_reason>``.
 * ``ask``: the first poll asks ``Which format?`` with the choices ``pdf`` and
   ``html``; the poll after the answer records ``deliver <call> <answer>``. A
   declined or expired question records ``cancel <call>`` and the poll raises,
@@ -74,6 +79,7 @@ from dex_agents import (
     ToolExecutionResult,
     ToolInputRequested,
     ToolPolicy,
+    ToolTaskCancellation,
     ToolTaskPending,
     ToolTaskPoll,
     ToolTaskPollOutcome,
@@ -194,6 +200,10 @@ class TaskPollingRunner(TaskStartingRunner):
             self._invocations.record(
                 f"continuation {record.tool_call_id} {record.input_continuation or 'none'}"
             )
+        if "block_gate" in arguments and arguments.get("ignores_cancellation"):
+            await self._wait_through_cancellation(record.tool_call_id, str(arguments["block_gate"]))
+            self._invocations.record(f"poll {record.tool_call_id} returned")
+            return ToolExecutionResult(output=f"report on {arguments['topic']}")
         if "block_gate" in arguments:
             await _wait_at_gate(self._state_dir, str(arguments["block_gate"]))
         if arguments.get("fail_polls"):
@@ -238,6 +248,29 @@ class TaskPollingRunner(TaskStartingRunner):
             )
         suffix = "" if task["answer"] is None else f" as {task['answer']}"
         return ToolExecutionResult(output=f"report on {arguments['topic']}{suffix}")
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        record = cancellation.tool_call
+        self._invocations.record(
+            f"cancel-task {record.tool_call_id} attempt {cancellation.attempt} "
+            f"{record.status} {record.cancellation_reason}"
+        )
+        assert record.task_id is not None
+        task = self._read_task(record.task_id)
+        if task["arguments"].get("fail_cancel"):
+            raise RuntimeError("the task server refused the cancellation")
+        task["cancelled"] = True
+        self._write_task(record.task_id, task)
+
+    async def _wait_through_cancellation(self, tool_call_id: str, gate_name: str) -> None:
+        gate = FileGate(self._state_dir, gate_name)
+        gate.mark_reached()
+        while not gate.is_released():
+            try:
+                await asyncio.sleep(0.05)
+            except asyncio.CancelledError:
+                # A poll that ignores cancellation returns its result after the turn ended.
+                self._invocations.record(f"poll {tool_call_id} cancelled")
 
 
 def build_task_agent_flow(

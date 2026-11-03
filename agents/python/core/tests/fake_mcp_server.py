@@ -27,6 +27,7 @@ real tool run appends ``<tool> <idempotency key>`` to the ``InvocationLog`` in
   ``tasks/update`` answers it; each update logs ``update <task> <format>``.
   A ``decline`` or ``cancel`` response logs ``update <task> <action>``, and
   the task completes as ``report on <topic> without a format (<action>)``.
+  ``tasks/cancel`` logs ``cancel <task>`` and cancels a known task.
   With ``"batches": n``, it asks the identical request once per batch and
   completes as ``report on <topic> as <format>, <format>``. With
   ``"update_gate"``, the first update stores its answer, then waits at that
@@ -182,6 +183,9 @@ class _FakeTasksExtension(Extension):
             raise MCPError(INVALID_PARAMS, f"unknown task {params.task_id}")
         stored["polls"] += 1
         task = {key: value for key, value in stored.items() if key not in _TASK_STORE_KEYS}
+        if stored.get("cancelled"):
+            task["status"] = "cancelled"
+            return {"resultType": "complete", **task}
         if stored.get("declined") is not None:
             task["status"] = "completed"
             text = f"report on {stored['topic']} without a format ({stored['declined']})"
@@ -230,6 +234,10 @@ class _FakeTasksExtension(Extension):
         self, ctx: ServerRequestContext[Any, Any], params: _TaskIdParams
     ) -> HandlerResult:
         _invocations().record(f"cancel {params.task_id}")
+        stored = self._tasks.get(params.task_id)
+        if stored is None:
+            raise MCPError(INVALID_PARAMS, f"unknown task {params.task_id}")
+        stored["cancelled"] = True
         return {}
 
 

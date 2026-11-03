@@ -205,11 +205,13 @@ class PlanTaskStatus(StrEnum):
 
 
 class ToolCallCancellationReason(StrEnum):
-    """Name why steering or cancellation abandoned a tool call before it started.
+    """Name why steering or cancellation abandoned a tool call.
 
     A ``REJECTED`` record that steering or ``cancel_turn`` abandoned carries
-    one in ``AgentToolCall.cancellation_reason``. Its ``rejection_message`` is
-    the structured result the model sees, such as
+    one in ``AgentToolCall.cancellation_reason``, and so does the
+    ``OUTCOME_UNKNOWN`` record of a task that ``cancel_turn`` abandoned. A
+    ``REJECTED`` record's ``rejection_message`` is the structured result the
+    model sees, such as
     ``{"status":"cancelled","reason":"superseded_by_steered_user_message"}``.
     The values are JSON strings on the wire.
 
@@ -228,6 +230,7 @@ class TurnControlKind(StrEnum):
     Attributes:
         STEER: ``steer_user_message`` published a steered message.
         CANCEL_TURN: ``cancel_turn`` recorded a ``TurnCancellationRequest``.
+            dex-agents 0.2.0 no longer publishes it; Workers still accept it.
     """
 
     STEER = "steer"
@@ -409,7 +412,9 @@ class AgentToolCall:
         status: Lifecycle state of the call.
         output: Tool output text after ``SUCCEEDED``.
         error: The ``ToolExecutionError`` message after ``FAILED``, or the
-            recovery detail of the failed Step after ``OUTCOME_UNKNOWN``.
+            recovery detail of the failed Step after ``OUTCOME_UNKNOWN``, or
+            ``TOOL_TASK_ABANDONED_ERROR`` for a task that ``cancel_turn``
+            abandoned.
         rejection_message: Message after ``REJECTED``, or ``None`` when the
             person gave none.
         deferral_order: Zero-based order in which the turn deferred the call.
@@ -441,6 +446,9 @@ class AgentToolCall:
             accepts free text. ``True`` when no tool question is pending.
         cancellation_reason: Why steering or ``cancel_turn`` abandoned the
             call before it started, on a ``REJECTED`` record, or ``None``.
+            ``TURN_CANCELLED`` on a ``WAITING_FOR_TASK`` or
+            ``OUTCOME_UNKNOWN`` record means ``cancel_turn`` abandoned the
+            call's started task.
         task_id: The remote task ID from the tool's ``ToolTaskStarted``, or
             ``None`` for a call that started no task. It stays on the record
             after the task finishes.

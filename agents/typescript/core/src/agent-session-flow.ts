@@ -8,6 +8,7 @@
 
 import {
   StepList,
+  StepRef,
   booleanCodec,
   rpc,
   type Channel,
@@ -63,10 +64,12 @@ import {
   ToolCallStep,
 } from "./agent-session-steps.js";
 import { AgentSessionTracer } from "./agent-session-tracer.js";
+import { CancelToolTaskStep, FinishTurnCancellationStep } from "./agent-session-cancellation-steps.js";
 import { AwaitQuestionAnswerStep, AwaitTimerStep, PollToolTaskStep } from "./agent-session-wait-steps.js";
 import {
   AgentSessionTransitions,
   agentSessionStepTypes,
+  finishTurnCancellationMovement,
   type AgentSessionConfig,
 } from "./agent-session-transitions.js";
 import type {
@@ -203,10 +206,11 @@ export interface ResolvedAgentSessionOptions {
  * `update_session_settings`, `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never completes on its
  * own: it waits for the next user message after every turn. Stop it with `Client.stopFlow`.
  *
- * `steer_user_message` and `cancel_turn` end the running turn at its next safe Step boundary. Neither interrupts a
- * model call or a tool call that has already started. The calls that have not started record `rejected` with a
- * `cancellationReason`, and `ApplyTurnControl` ends the turn. A steered turn is followed by a new turn with the
- * steered messages.
+ * `steer_user_message` ends the running turn at its next safe Step boundary. It never interrupts a model call or a
+ * tool call that has already started. `cancel_turn` aborts the running model call and every wait for a person, a
+ * Timer, or a remote task too, but a tool call Step that has started still runs to the end. The calls that have
+ * not started record `rejected` with a `cancellationReason`, an abandoned task records `outcome_unknown`, and
+ * `ApplyTurnControl` ends the turn. A steered turn is followed by a new turn with the steered messages.
  *
  * The Flow's persistence definitions are properties of the Flow; pass them to `Client.getAttributes`
  * or the Stream reads.
@@ -315,19 +319,25 @@ export interface AgentSessionFlow<
    */
   deleteQueuedMessage(context: Context, input: DeleteQueuedMessageRequest): RPCResult<boolean>;
   /**
-   * RPC `cancel_turn`: stops the running turn at its next safe Step boundary, with no new turn.
+   * RPC `cancel_turn`: stops the running turn now, with no new turn.
    *
-   * Cancellation works like steering without a steered message. A model call that is running finishes, and a
-   * final answer it returns completes the turn as usual. Tool calls that have started run to the end. The calls
-   * that have not started record `rejected` with `cancellationReason` `"turn_cancelled"`. Then the session waits
-   * for the next user message. The RPC locks only `TurnCancellationRequest`, which no Step locks, so it never
-   * waits for a running Step. Two calls at once can make one fail with `RpcLockConflictError`, which is safe to
-   * retry.
+   * The RPC cancels the turn's running model call or compaction, and every Step that waits for an approval, an
+   * answer, a `durable_wait` Timer, or a remote task's next poll. A cancelled model call's `cancellationSignal`
+   * aborts at once and its answer is dropped. A tool call Step that has started runs to the end, and the turn ends
+   * after it. The calls that have not started record `rejected` with `cancellationReason` `"turn_cancelled"`. A
+   * started remote task is abandoned: the call records `outcome_unknown`, and a runner that implements
+   * {@link AgentFrameworkRunner.cancelToolTask} is asked to cancel the task. Then the session waits for the next
+   * user message.
+   *
+   * The RPC locks `TurnCancellationRequest` and `PendingInterrupts`. No long-running Step locks them, so it never
+   * waits for a model call. It can fail with `RpcLockConflictError` while a short Step holds a lock, which is safe
+   * to retry. A second call for the same turn changes nothing and returns `true`.
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - The turn to stop, or `turnId` `null` for the active turn.
-   * @returns `true` when the request is recorded, although the turn may still complete before it applies;
-   * `false` when no turn is active, `turnId` names another turn, or the active turn does not accept cancellation.
+   * @returns `true` when the request is recorded, although a turn whose model call already committed its final
+   * answer completes instead; `false` when no turn is active, `turnId` names another turn, or the active turn does
+   * not accept cancellation.
    */
   cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean>;
   /**
@@ -362,8 +372,8 @@ export interface AgentSessionFlow<
    *
    * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
    * one call succeeds per interrupt. It locks `PendingInterrupts`, so a call that races
-   * `AwaitToolApproval` or `AwaitQuestionAnswer` can fail with `RpcLockConflictError`, which is safe to
-   * retry. The rejection message is dropped when `approved` is `true`. A question needs an answer, so
+   * `AwaitToolApproval`, `AwaitQuestionAnswer`, `ResumeTurn`, `FinishTurnCancellation`, or `cancel_turn` can fail
+   * with `RpcLockConflictError`, which is safe to retry. The rejection message is dropped when `approved` is `true`. A question needs an answer, so
    * `approved` `true` on a `question` interrupt is refused; answer it with {@link answerQuestion}.
    *
    * @param context - RPC Context supplied by Dex.
@@ -528,6 +538,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       new ResumeTurnStep(transitions),
       new ApplyTurnControlStep(transitions),
       new RecordTurnFailureStep(transitions),
+      new FinishTurnCancellationStep(transitions),
+      new CancelToolTaskStep(transitions),
     );
 
     public getFlowType(): string {
@@ -672,12 +684,12 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       return { output: true };
     }
 
-    // Only this RPC locks it: concurrent cancels apply in order, so a stale one cannot win.
+    // PendingInterrupts orders it with ResumeTurn, and TurnCancellationRequest with turn starts.
     @rpc<CancelTurnRequest, boolean>({
       name: "cancel_turn",
       inputCodec: cancelTurnRequestCodec,
       outputCodec: booleanCodec,
-      lockAttributes: [persistence.turnCancellationRequest.lock()],
+      lockAttributes: [persistence.turnCancellationRequest.lock(), persistence.pendingInterrupts.lock()],
     })
     public cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean> {
       const state = transitions.readOptionalAgentState(context);
@@ -689,12 +701,27 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       ) {
         return { output: false };
       }
+      if (transitions.isTurnCancelled(context, activeTurnId)) {
+        return { output: true };
+      }
       persistence.turnCancellationRequest.set(context, {
         turnId: activeTurnId,
         requestedAt: new Date().toISOString(),
       });
-      persistence.turnControlRequests.publish(context, { kind: "cancel_turn" });
-      return { output: true };
+      // Each cancelled Step has no outside effect or only waits; the model call's answer is lost.
+      return {
+        output: true,
+        nextSteps: [finishTurnCancellationMovement(activeTurnId)],
+        cancelingSteps: [
+          agentSessionStepTypes.runModel,
+          agentSessionStepTypes.compactContext,
+          agentSessionStepTypes.recordTurnFailure,
+          agentSessionStepTypes.awaitToolApproval,
+          agentSessionStepTypes.awaitQuestionAnswer,
+          agentSessionStepTypes.awaitTimer,
+          agentSessionStepTypes.pollToolTask,
+        ].map((stepType) => new StepRef(stepType)),
+      };
     }
 
     @rpc<UpdateSessionSettingsRequest, boolean>({

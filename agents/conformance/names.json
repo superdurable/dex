@@ -75,6 +75,16 @@
       "name": "RecordTurnFailure",
       "input": "TurnFailureRouteInput",
       "is_start_step": false
+    },
+    {
+      "name": "FinishTurnCancellation",
+      "input": "string",
+      "is_start_step": false
+    },
+    {
+      "name": "CancelToolTask",
+      "input": "string",
+      "is_start_step": false
     }
   ],
   "rpcs": [
@@ -95,6 +105,7 @@
       "output": "bool",
       "is_transactional": false,
       "locks": [
+        "PendingInterrupts",
         "TurnCancellationRequest"
       ],
       "load_attribute_maps": [],

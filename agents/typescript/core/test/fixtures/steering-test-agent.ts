@@ -8,6 +8,8 @@
 
 import { join } from "node:path";
 
+import { booleanCodec, rpc, type Context, type RPCResult, type StepDecision } from "@superdurable/dex";
+
 import {
   createAgentSessionFlow,
   type AgentFrameworkRunner,
@@ -16,8 +18,11 @@ import {
   type AgentTurnOutcome,
   type DeferredToolExecution,
   type DeferredToolOutcome,
+  type CancelTurnRequest,
   type FrameworkMessage,
 } from "../../src/index.js";
+import { FinishTurnCancellationStep } from "../../src/agent-session-cancellation-steps.js";
+import { cancelTurnRequestCodec } from "../../src/agent-session-codecs.js";
 import {
   StepwiseAgentRunner,
   functionTool,
@@ -40,6 +45,8 @@ export const steeringNoteAgentFlowType = "SteeringNoteAgent";
 export const steeringMarkerDirectoryVariable = "STEERING_AGENT_MARKER_DIRECTORY";
 /** Environment variable naming a FileGate that `buildUnfinishedTurnMessages` waits at, blocking the Worker. */
 export const steeringBuilderGateVariable = "STEERING_AGENT_BUILDER_GATE";
+/** Environment variable naming a FileGate that `FinishTurnCancellation` waits at, blocking the Worker. */
+export const steeringFinishCancellationGateVariable = "STEERING_AGENT_FINISH_CANCELLATION_GATE";
 
 /** Options of the steering test agent. */
 export interface SteeringTestAgentOptions {
@@ -139,7 +146,15 @@ function createSteeringAgentDefinition(markerDirectory: string): AgentDefinition
   const waitAtGate = async (name: string, signal: AbortSignal): Promise<void> => {
     const gate = new FileGate(markerDirectory, name);
     gate.markReached();
-    await gate.waitForRelease(signal);
+    try {
+      await gate.waitForRelease(signal);
+    } catch (error: unknown) {
+      if (signal.aborted) {
+        // cancel_turn aborted this model call or tool Step.
+        invocations.record(`gate ${name} cancelled`);
+      }
+      throw error;
+    }
   };
   const respond = async (request: ModelRequest): Promise<ScriptedModelReply> => {
     const command = ScriptedModelClient.userTexts(request).at(-1) ?? "";
@@ -284,4 +299,51 @@ function createSteeringAgentDefinition(markerDirectory: string): AgentDefinition
 function splitOnce(text: string): [string, string] {
   const index = text.indexOf(" ");
   return index === -1 ? [text, ""] : [text.slice(0, index), text.slice(index + 1)];
+}
+
+/**
+ * Creates the steering test agent whose `cancel_turn` waits at the FileGate `<cancelRpcGate>-<flowId>` after it
+ * decided and before it commits, so a test can land a commit of another Step between the RPC's read and its commit.
+ */
+export function createCancelRpcGatedSteeringFlow(
+  markerDirectory: string,
+  cancelRpcGate: string,
+): AgentSessionFlow<StepwiseAgentRunner> {
+  const flow = createSteeringTestAgentFlow(markerDirectory);
+  // The gated handler is async, which the AgentSessionFlow interface does not declare.
+  const flowClass = flow.constructor as new () => {
+    cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean> | Promise<RPCResult<boolean>>;
+  };
+  class CancelRpcGatedFlow extends flowClass {
+    @rpc<CancelTurnRequest, boolean>({
+      name: "cancel_turn",
+      inputCodec: cancelTurnRequestCodec,
+      outputCodec: booleanCodec,
+      timeoutMs: 120_000,
+      lockAttributes: [flow.turnCancellationRequest.lock(), flow.pendingInterrupts.lock()],
+    })
+    public override async cancelTurn(context: Context, input: CancelTurnRequest): Promise<RPCResult<boolean>> {
+      const result = await super.cancelTurn(context, input);
+      const gate = new FileGate(markerDirectory, `${cancelRpcGate}-${context.flowId}`);
+      gate.markReached();
+      await gate.waitForRelease();
+      return result;
+    }
+  }
+  return new CancelRpcGatedFlow() as unknown as AgentSessionFlow<StepwiseAgentRunner>;
+}
+
+/** Makes every `FinishTurnCancellation` of this process block the Worker at a FileGate before it decides. */
+export function gateFinishTurnCancellation(markerDirectory: string, gateName: string): void {
+  const execute = FinishTurnCancellationStep.prototype.execute;
+  FinishTurnCancellationStep.prototype.execute = function (context: Context, turnId: string): StepDecision {
+    const gate = new FileGate(markerDirectory, gateName);
+    gate.markReached();
+    // The method is synchronous, so the Worker blocks here until the test kills it.
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    while (!gate.isReleased()) {
+      Atomics.wait(pause, 0, 0, 50);
+    }
+    return execute.call(this, context, turnId);
+  };
 }

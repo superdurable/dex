@@ -38,6 +38,7 @@ from dex_agents import (
     ToolCallsRequested,
     ToolEffect,
     ToolPolicy,
+    ToolTaskCancellation,
     ToolTaskPoll,
     ToolTaskPollOutcome,
     TurnCompleted,
@@ -101,6 +102,9 @@ class McpScriptedRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
         return await self._tools.poll_tool_task(poll)
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        await self._tools.cancel_tool_task(cancellation)
 
     def _answer_with_results(
         self, turn: AgentTurnContext, calls: list[list[str]]

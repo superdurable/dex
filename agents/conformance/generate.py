@@ -61,6 +61,7 @@ from dex_agents import (
     SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
+    TOOL_TASK_ABANDONED_ERROR,
     TURN_CANCELLED_NOTE_HEADER,
     TURN_FAILURE_NOTE_FOOTER,
     TURN_FAILURE_NOTE_HEADER,
@@ -980,10 +981,11 @@ def build_value_documents() -> list[dict[str, Any]]:
     documents.append(
         ValueCases(
             "string",
-            "String Values: FrameworkRunState, AgentTraceContext, and the tool call ID input of "
-            "the tool Steps.",
+            "String Values: FrameworkRunState, AgentTraceContext, the tool call ID input of "
+            "the tool Steps and CancelToolTask, and the turn ID input of FinishTurnCancellation.",
         )
         .value("tool-call-id", "A tool call ID.", "call-7")
+        .value("turn-id", "A turn ID.", "turn-3")
         .value("framework-run-state", "Opaque framework JSON.", '{"model_calls":2}')
         .value("non-ascii", "Text with every escape-sensitive character.", TRICKY_TEXT)
     )
@@ -1464,6 +1466,7 @@ def build_texts() -> dict[str, Any]:
         "planning_turn_instruction": PLANNING_TURN_INSTRUCTION,
         "blank_tool_task_id": BLANK_TOOL_TASK_ID,
         "invalid_tool_task_poll_interval": INVALID_TOOL_TASK_POLL_INTERVAL,
+        "tool_task_abandoned_error": TOOL_TASK_ABANDONED_ERROR,
         "stepwise_context_summary_note_header": CONTEXT_SUMMARY_NOTE_HEADER,
         "stepwise_context_summary_instructions": CONTEXT_SUMMARY_INSTRUCTIONS,
         "stepwise_context_summary_request": CONTEXT_SUMMARY_REQUEST,

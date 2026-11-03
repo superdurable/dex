@@ -267,7 +267,12 @@ class ScriptedRunner(AgentFrameworkRunner):
         turn.events.write_text_delta(f"thinking before {gate_name}")
         gate = FileGate(self._state_dir, gate_name)
         gate.mark_reached()
-        await gate.wait_for_release()
+        try:
+            await gate.wait_for_release()
+        except asyncio.CancelledError:
+            # cancel_turn cancelled this model call.
+            self._invocations.record(f"model cancelled at {gate_name}")
+            raise
 
 
 def build_scripted_agent_flow(
