@@ -8,20 +8,33 @@
     "node": "^22.0.0 || ^24.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json && npm run build:ai-agent-ui",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p src/products/ai-agent/ui/tsconfig.json",
     "start": "npm run build && node dist/src/main.js",
     "test": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/workflow/**/*.test.js'",
     "test:integ": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/integ/*.test.js'",
-    "smoke": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/flow-smoke.test.js'"
+    "smoke": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/flow-smoke.test.js'",
+    "build:ai-agent-ui": "esbuild src/products/ai-agent/ui/chat-app.tsx src/products/ai-agent/ui/index.html --bundle --format=esm --minify --loader:.html=copy --outdir=dist/src/products/ai-agent/ui --log-level=warning"
   },
   "dependencies": {
-    "@superdurable/dex": "1.29.0",
-    "express": "^5.1.0"
+    "@ai-sdk/openai": "4.0.106",
+    "@ai-sdk/react": "4.0.163",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@superdurable/dex": "1.30.0",
+    "@superdurable/dex-agents": "file:../../agents/typescript/core",
+    "ai": "7.0.159",
+    "express": "^5.1.0",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "yaml": "2.8.1",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
     "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "0.25.12",
     "typescript": "^5.9.0"
   }
 }

@@ -1,6 +1,15 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@1.29.0`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@1.30.0`](https://www.npmjs.com/package/@superdurable/dex).
+
+The [AI Agent](./src/products/ai-agent) also depends on the Dex Agents library,
+[`@superdurable/dex-agents`](../../agents/typescript/core). Until its 0.2.0
+release is on npm, `package.json` installs it from this repository, so build it
+before `npm install`:
+
+```bash
+(cd ../../agents/typescript/core && npm ci && npm run build)
+```
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. Step `execute` / `waitFor` / RPC handlers may
@@ -72,7 +81,7 @@ npm run smoke            # every product + pattern HTTP route
 ```
 
 The integration suite starts and verifies Money Transfer, Order Processing,
-Engagement, Microservice, Subscription, and Failure Recovery Flows.
+Engagement, Microservice, Subscription, Failure Recovery, and AI Agent Flows.
 
 The tests use server-zd by default. `DEX_INTEG_ENGINE=zd` remains accepted. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
@@ -89,6 +98,7 @@ after E2E tests for manual HTTP exploration.
 - [User onboarding process](./src/products/signup)
 - [Job posting](./src/products/job-post)
 - [Deal DSL](./src/products/deal-dsl)
+- [AI Agent](./src/products/ai-agent)
 
 ## Patterns
 

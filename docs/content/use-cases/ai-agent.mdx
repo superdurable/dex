@@ -4,9 +4,9 @@ title: AI Agent
 
 # AI Agent
 
-This Python application is a general, long-running AI Agent. It chats with a user, calls trusted MCP tools, waits for approval before external writes, asks the user questions, suspends itself on a durable Timer, and drafts plans for review before it runs them.
+This application is a general, long-running AI Agent, in Python and TypeScript. It chats with a user, calls trusted MCP tools, waits for approval before external writes, asks the user questions, suspends itself on a durable Timer, and drafts plans for review before it runs them.
 
-It is built on Dex Agents, the **dex-agents** package. The agent is a Stepwise agent: the library's built-in agent loop, with no agent framework. Dex owns the conversation. Every model call is one **RunModel** Step and rebuilds the model input from durable state, so the agent does not depend on an LLM provider's conversation API. Every tool call is its own Step, so a crash repeats at most the one call that was running.
+It is built on Dex Agents: the **dex-agents** package in Python and **@superdurable/dex-agents** in TypeScript. The agent is a Stepwise agent: the library's built-in agent loop, with no agent framework. Dex owns the conversation. Every model call is one **RunModel** Step and rebuilds the model input from durable state, so the agent does not depend on an LLM provider's conversation API. Every tool call is its own Step, so a crash repeats at most the one call that was running.
 
 ## Agent frameworks
 
@@ -16,7 +16,11 @@ An agent already written with an agent framework such as Pydantic AI, LangGraph,
 
 The application declares the agent in Dex terms and builds its Flow. The Flow type is **AIAgentSession**. One Flow execution is one session, and the Flow ID is the session ID.
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py'}}>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py',
+    typescript: 'examples/typescript/src/products/ai-agent/ai-agent-flow.ts',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -39,6 +43,31 @@ def build_ai_agent_session_flow(
         compaction=CompactionPolicy(context_window_tokens=context_window_tokens),
     )
     return stepwise_agent_session_flow(definition, flow_type=AI_AGENT_SESSION_FLOW_TYPE)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createAiAgentFlow(config: AiAgentConfig): AiAgentFlow {
+  const clients = new Map(config.models.map((model) => [model, createModelClient(model)]));
+  const defaultClient = clients.get(config.models[0]!)!;
+  return createStepwiseAgentSessionFlow(
+    {
+      name: "ai-agent",
+      instructions: config.systemPrompt,
+      model: defaultClient,
+      // Settings hold only a model name; an unknown one gets the default, never a new client.
+      resolveModel: (settings) => clients.get(String(settings.model)) ?? defaultClient,
+      // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
+      toolSources: [new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true })],
+      builtInTools: ["ask_user", "durable_wait", "write_todos"],
+      planModeEnabled: true,
+      compaction: { contextWindowTokens: config.contextWindowTokens },
+    },
+    "AIAgentSession",
+  );
+}
 ```
 
 </SdkSnippet>
@@ -96,9 +125,13 @@ With **resource_and_prompt_tools_enabled**, the tool source also offers three re
 
 ## Live events
 
-Text, reasoning summaries, tool activity, approvals, and plan updates arrive on the session's **AgentEvents** [Stream](/primitives/stream). The example serves it to the browser as Server-Sent Events with the library's browser stream helpers.
+Text, reasoning summaries, tool activity, approvals, and plan updates arrive on the session's **AgentEvents** [Stream](/primitives/stream). The Python example serves it to the browser as Server-Sent Events with the library's browser stream helpers. The TypeScript example serves it as an AI SDK UI message stream for **useChat**: a route sends the user message or the tool approvals and streams the turn into the browser's chat.
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/http_routes.py',
+    typescript: 'examples/typescript/src/products/ai-agent/controller.ts',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -122,6 +155,26 @@ Text, reasoning summaries, tool activity, approvals, and plan updates arrive on 
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/api/chat", async (request, response) => {
+    const body = requireBody(request);
+    const flowId = authorizeSession(request, requireString(body, "id"));
+    const lastMessage = Array.isArray(body.messages) ? (body.messages.at(-1) as JsonBody | undefined) : undefined;
+    const signal = abortSignalOf(response);
+    if (lastMessage?.role === "assistant") {
+      const approvals = readAgentToolApprovalResponses(lastMessage);
+      await sendFetchResponse(response, resolveAgentToolApprovalsWithUIMessageStream({ ...session, flowId, approvals, signal }));
+      return;
+    }
+    const parts = (Array.isArray(lastMessage?.parts) ? lastMessage.parts : []) as JsonBody[];
+    const text = parts.map((part) => (part.type === "text" ? String(part.text) : "")).join("");
+    await sendFetchResponse(response, sendAgentUserMessageWithUIMessageStream({ ...session, flowId, text, signal }));
+  });
+```
+
+</SdkSnippet>
 </SdkTabs>
 
 The page first loads the session snapshot with the resume token to open the Stream from. A reconnecting browser resumes from the last event it saw. Stream delivery is best effort, so the page reloads the snapshot after every turn and every eight seconds. The conversation always comes from the snapshot, which holds the newest 200 messages. **Load older messages** pages back through **list_agent_messages**.
@@ -130,7 +183,11 @@ The page first loads the session snapshot with the resume token to open the Stre
 
 A session ID is not a secret: it appears in the page URL. So every route that names a session also checks the session's token before it calls Dex. **POST /sessions** checks the requested model against the models the Worker allows, picks a new session ID, and returns its token. The token is an HMAC-SHA256 of the session ID under **DEX_AGENT_SESSION_KEY**, so the example stores no token, and every process with the same key accepts it. A route that gets a missing or different **X-Agent-Session-Token** header answers 403.
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/http_routes.py',
+    typescript: 'examples/typescript/src/products/ai-agent/controller.ts',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -158,9 +215,41 @@ A session ID is not a secret: it appears in the page URL. So every route that na
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  const issueSessionToken = (sessionId: string) => createHmac("sha256", sessionKey).update(sessionId).digest("hex");
+  const authorizeSession = (request: Request, sessionId: string): string => {
+    const expected = Buffer.from(issueSessionToken(sessionId));
+    const presented = Buffer.from(request.header(sessionTokenHeaderName) ?? "");
+    if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+      throw new HttpError(403, "this browser has no token for the AI Agent session");
+    }
+    return sessionId;
+  };
+  const sessionIdOf = (request: Request) => authorizeSession(request, String(request.params.id));
+  router.use("/", express.static(fileURLToPath(new URL("./ui/", import.meta.url))));
+
+  router.get("/settings", (_request, response) => {
+    response.json({ model: models[0], models });
+  });
+  router.post("/sessions", async (request, response) => {
+    const model = requireBody(request).model ?? models[0];
+    if (typeof model !== "string" || !models.includes(model)) {
+      throw new HttpError(400, "model must be one of the models in /settings");
+    }
+    // The server picks the session ID, and settings carry only the model name the Worker resolves.
+    const sessionId = `ai-agent-${randomUUID()}`;
+    const start = { initialMessage: null, sessionSettings: { model } };
+    await client.startFlow(flow, sessionId, start, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+```
+
+</SdkSnippet>
 </SdkTabs>
 
-The browser keeps each token in local storage and sends the header with every request. It reads the event stream with **fetch** instead of **EventSource**, which cannot send a header. The AI Agent routes send no CORS headers, so a page on another origin cannot call them.
+Both pages keep each token in local storage, keyed by the session ID, and put only the session ID in the page URL, so a copied URL does not grant access. Each sends the header with every request. The Python page reads the event stream with **fetch** instead of **EventSource**, which cannot send a header. The TypeScript page passes the header to the **useChat** transport, both for its requests and for its reconnects. The AI Agent routes send no CORS headers, so a page on another origin cannot call them.
 
 Without **DEX_AGENT_SESSION_KEY**, the process picks a random key when it starts, and a restart ends access to the sessions started before it. A real application replaces the token with its own sign-in and checks that the user may use the session.
 
@@ -169,6 +258,8 @@ Without **DEX_AGENT_SESSION_KEY**, the process picks a random key when it starts
 The Flow and HTTP routes are under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent). The React UI, the MCP configuration examples, and the run instructions are under [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent).
 
 The first page shows the Worker's model, prompt, context window, and MCP tools. The start form picks the session's model from the models the Worker allows. Set **DEX_AGENT_MODEL** to a LiteLLM model name, list more in **DEX_AGENT_MODELS**, add their credentials to **examples/.env**, and restart the Worker to use real models. The default local demo model needs no credential and reads slash commands such as **/ask**, **/choose**, **/wait**, and **/tool**, so every feature can be tried without a key.
+
+The TypeScript example's Flow, routes, and React UI are under [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent). It reads the same **DEX_AGENT_MODEL**, **DEX_AGENT_MODELS**, **DEX_AGENT_SYSTEM_PROMPT**, **DEX_AGENT_CONTEXT_TOKENS**, and **DEX_AGENT_MCP_CONFIG** settings and the same MCP configuration file, and its start form picks the session's model the same way. A real model is an AI SDK model such as **openai/gpt-5-mini**. The default **mock/dex** and **mock/dex-mini** demo models read the same slash commands, and **/model** names the session's model. Its routes check a per-session token before they call Dex.
 
 ## Related
 

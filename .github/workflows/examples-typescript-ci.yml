@@ -6,11 +6,15 @@ on:
     paths:
       - "examples/typescript/**"
       - "examples/entity-store/**"
+      # The AI Agent example builds this library until @superdurable/dex-agents 0.2.0 is on npm.
+      - "agents/typescript/core/**"
       - ".github/workflows/examples-typescript-ci.yml"
   pull_request:
     paths:
       - "examples/typescript/**"
       - "examples/entity-store/**"
+      # The AI Agent example builds this library until @superdurable/dex-agents 0.2.0 is on npm.
+      - "agents/typescript/core/**"
       - ".github/workflows/examples-typescript-ci.yml"
   workflow_dispatch:
 
@@ -35,7 +39,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: examples/typescript/package-lock.json
+          cache-dependency-path: |
+            examples/typescript/package-lock.json
+            agents/typescript/core/package-lock.json
+      - name: Build the unreleased Dex Agents library
+        # The AI Agent example installs @superdurable/dex-agents from agents/typescript/core until 0.2.0 is on npm.
+        working-directory: agents/typescript/core
+        run: npm ci && npm run build
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -99,6 +109,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
+            agents/typescript/core/package-lock.json
             web/package-lock.json
       - uses: actions/setup-go@v7
         with:
@@ -106,6 +117,10 @@ jobs:
           cache-dependency-path: |
             cli/go.sum
             web/go.sum
+      - name: Build the unreleased Dex Agents library
+        # The AI Agent example installs @superdurable/dex-agents from agents/typescript/core until 0.2.0 is on npm.
+        working-directory: agents/typescript/core
+        run: npm ci && npm run build
       - name: Install dependencies
         run: npm ci
       - name: Integration tests with dexcli dev
