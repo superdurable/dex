@@ -1,0 +1,31 @@
+{
+  "type": "AgentInterruptResolution",
+  "wire_kind": "json",
+  "description": "One InterruptResolutions Channel message.",
+  "cases": [
+    {
+      "name": "approved",
+      "description": "An approval.",
+      "wire": "{\"answer\":null,\"approved\":true,\"rejection_message\":null}",
+      "canonical": "{\"answer\":null,\"approved\":true,\"rejection_message\":null}"
+    },
+    {
+      "name": "rejected",
+      "description": "A rejection with a message.",
+      "wire": "{\"answer\":null,\"approved\":false,\"rejection_message\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}",
+      "canonical": "{\"answer\":null,\"approved\":false,\"rejection_message\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}"
+    },
+    {
+      "name": "answered",
+      "description": "A question answer.",
+      "wire": "{\"answer\":\"checking\",\"approved\":true,\"rejection_message\":null}",
+      "canonical": "{\"answer\":\"checking\",\"approved\":true,\"rejection_message\":null}"
+    },
+    {
+      "name": "released-0.1.0",
+      "description": "As dex-agents 0.1.0 wrote it.",
+      "wire": "{\"approved\":false,\"rejection_message\":\"not today\"}",
+      "canonical": "{\"answer\":null,\"approved\":false,\"rejection_message\":\"not today\"}"
+    }
+  ]
+}

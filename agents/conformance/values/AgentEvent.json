@@ -1,0 +1,133 @@
+{
+  "type": "AgentEvent",
+  "wire_kind": "json",
+  "description": "One AgentEvents Stream message per event type. wire.payload is the Python event writer's text; canonical.payload is that JSON in canonical form.",
+  "cases": [
+    {
+      "name": "type-turn_started",
+      "description": "A turn_started event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"sequence\\\": 7}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_started\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"sequence\\\":7}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_started\"}"
+    },
+    {
+      "name": "type-turn_completed",
+      "description": "A turn_completed event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"message_count\\\": 3}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_completed\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"message_count\\\":3}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_completed\"}"
+    },
+    {
+      "name": "type-turn_failed",
+      "description": "A turn_failed event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"error\\\": \\\"RuntimeError: the model call failed\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_failed\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"error\\\":\\\"RuntimeError: the model call failed\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_failed\"}"
+    },
+    {
+      "name": "type-turn_steered",
+      "description": "A turn_steered event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"message_count\\\": 4, \\\"steered_message_count\\\": 2}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_steered\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"message_count\\\":4,\\\"steered_message_count\\\":2}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_steered\"}"
+    },
+    {
+      "name": "type-turn_cancelled",
+      "description": "A turn_cancelled event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"message_count\\\": 1}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_cancelled\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"message_count\\\":1}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"turn_cancelled\"}"
+    },
+    {
+      "name": "type-text_delta",
+      "description": "A text_delta event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"text\\\": \\\"Gr\\u00fc\\u00dfe \\\\\\\"quoted\\\\\\\" \\\\\\\\ back\\\\nline\\\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"text_delta\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"text\\\":\\\"Gr\\\\u00fc\\\\u00dfe \\\\\\\"quoted\\\\\\\" \\\\\\\\ back\\\\nline\\\\ttab \\\\u2615 \\\\ud83d\\\\ude00 </script> & <ok>\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"text_delta\"}"
+    },
+    {
+      "name": "type-reasoning_delta",
+      "description": "A reasoning_delta event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"text\\\": \\\"thinking\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"reasoning_delta\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"text\\\":\\\"thinking\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"reasoning_delta\"}"
+    },
+    {
+      "name": "type-tool_call_started",
+      "description": "A tool_call_started event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"tool_call_id\\\": \\\"call-7\\\", \\\"tool_name\\\": \\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_call_started\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"tool_call_id\\\":\\\"call-7\\\",\\\"tool_name\\\":\\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_call_started\"}"
+    },
+    {
+      "name": "type-tool_call_finished",
+      "description": "A tool_call_finished event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"status\\\": \\\"succeeded\\\", \\\"tool_call_id\\\": \\\"call-7\\\", \\\"tool_name\\\": \\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_call_finished\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"status\\\":\\\"succeeded\\\",\\\"tool_call_id\\\":\\\"call-7\\\",\\\"tool_name\\\":\\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_call_finished\"}"
+    },
+    {
+      "name": "type-tool_call_deferred",
+      "description": "A tool_call_deferred event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"effect\\\": \\\"non_idempotent_write\\\", \\\"requires_approval\\\": true, \\\"tool_call_id\\\": \\\"call-7\\\", \\\"tool_name\\\": \\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_call_deferred\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"effect\\\":\\\"non_idempotent_write\\\",\\\"requires_approval\\\":true,\\\"tool_call_id\\\":\\\"call-7\\\",\\\"tool_name\\\":\\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_call_deferred\"}"
+    },
+    {
+      "name": "type-interrupt_raised",
+      "description": "A interrupt_raised event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"allows_free_text\\\": false, \\\"choices\\\": [\\\"EUR\\\", \\\"USD\\\"], \\\"deadline\\\": \\\"2026-11-02T09:45:30.125Z\\\", \\\"interrupt_id\\\": \\\"call-7-input-3\\\", \\\"kind\\\": \\\"question\\\", \\\"question\\\": \\\"Which currency?\\\", \\\"tool_call_id\\\": \\\"call-7\\\", \\\"tool_name\\\": \\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"interrupt_raised\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"allows_free_text\\\":false,\\\"choices\\\":[\\\"EUR\\\",\\\"USD\\\"],\\\"deadline\\\":\\\"2026-11-02T09:45:30.125Z\\\",\\\"interrupt_id\\\":\\\"call-7-input-3\\\",\\\"kind\\\":\\\"question\\\",\\\"question\\\":\\\"Which currency?\\\",\\\"tool_call_id\\\":\\\"call-7\\\",\\\"tool_name\\\":\\\"transfer_funds\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"interrupt_raised\"}"
+    },
+    {
+      "name": "type-interrupt_resolved",
+      "description": "A interrupt_resolved event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"answered\\\": false, \\\"approved\\\": false, \\\"cancellation_reason\\\": \\\"steered\\\", \\\"interrupt_id\\\": \\\"call-2\\\", \\\"kind\\\": \\\"tool_approval\\\", \\\"rejection_message\\\": \\\"{\\\\\\\"status\\\\\\\":\\\\\\\"cancelled\\\\\\\",\\\\\\\"reason\\\\\\\":\\\\\\\"superseded_by_steered_user_message\\\\\\\"}\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"interrupt_resolved\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"answered\\\":false,\\\"approved\\\":false,\\\"cancellation_reason\\\":\\\"steered\\\",\\\"interrupt_id\\\":\\\"call-2\\\",\\\"kind\\\":\\\"tool_approval\\\",\\\"rejection_message\\\":\\\"{\\\\\\\"status\\\\\\\":\\\\\\\"cancelled\\\\\\\",\\\\\\\"reason\\\\\\\":\\\\\\\"superseded_by_steered_user_message\\\\\\\"}\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"interrupt_resolved\"}"
+    },
+    {
+      "name": "type-usage_recorded",
+      "description": "A usage_recorded event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"recorded\\\": {\\\"cached_input_tokens\\\": 0, \\\"input_tokens\\\": 10, \\\"model_calls\\\": 1, \\\"output_tokens\\\": 5, \\\"reasoning_tokens\\\": 0}, \\\"session\\\": {\\\"cached_input_tokens\\\": 0, \\\"input_tokens\\\": 10, \\\"model_calls\\\": 1, \\\"output_tokens\\\": 5, \\\"reasoning_tokens\\\": 0}}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"usage_recorded\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"recorded\\\":{\\\"cached_input_tokens\\\":0,\\\"input_tokens\\\":10,\\\"model_calls\\\":1,\\\"output_tokens\\\":5,\\\"reasoning_tokens\\\":0},\\\"session\\\":{\\\"cached_input_tokens\\\":0,\\\"input_tokens\\\":10,\\\"model_calls\\\":1,\\\"output_tokens\\\":5,\\\"reasoning_tokens\\\":0}}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"usage_recorded\"}"
+    },
+    {
+      "name": "type-timer_started",
+      "description": "A timer_started event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"reason\\\": \\\"the build runs\\\", \\\"tool_call_id\\\": \\\"call-9\\\", \\\"wait_until\\\": \\\"2026-11-02T09:45:30.125Z\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"timer_started\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"reason\\\":\\\"the build runs\\\",\\\"tool_call_id\\\":\\\"call-9\\\",\\\"wait_until\\\":\\\"2026-11-02T09:45:30.125Z\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"timer_started\"}"
+    },
+    {
+      "name": "type-plan_updated",
+      "description": "A plan_updated event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"revision\\\": 3, \\\"status\\\": \\\"active\\\", \\\"task_count\\\": 3}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"plan_updated\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"revision\\\":3,\\\"status\\\":\\\"active\\\",\\\"task_count\\\":3}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"plan_updated\"}"
+    },
+    {
+      "name": "type-plan_execution_started",
+      "description": "A plan_execution_started event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"revision\\\": 3}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"plan_execution_started\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"revision\\\":3}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"plan_execution_started\"}"
+    },
+    {
+      "name": "type-tool_task_started",
+      "description": "A tool_task_started event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"task_id\\\": \\\"task-42\\\", \\\"tool_call_id\\\": \\\"call-8\\\", \\\"tool_name\\\": \\\"start_report\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_task_started\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"task_id\\\":\\\"task-42\\\",\\\"tool_call_id\\\":\\\"call-8\\\",\\\"tool_name\\\":\\\"start_report\\\"}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"tool_task_started\"}"
+    },
+    {
+      "name": "type-compaction_started",
+      "description": "A compaction_started event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"through_sequence\\\": 40}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"compaction_started\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"through_sequence\\\":40}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"compaction_started\"}"
+    },
+    {
+      "name": "type-compaction_finished",
+      "description": "A compaction_finished event.",
+      "wire": "{\"attempt\":2,\"payload\":\"{\\\"generation\\\": 2, \\\"through_sequence\\\": 40}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"compaction_finished\"}",
+      "canonical": "{\"attempt\":2,\"payload\":\"{\\\"generation\\\":2,\\\"through_sequence\\\":40}\",\"step_execution_id\":\"RunModel-4\",\"turn_id\":\"turn-3\",\"type\":\"compaction_finished\"}"
+    },
+    {
+      "name": "outside-a-turn",
+      "description": "An event without a turn.",
+      "wire": "{\"attempt\":1,\"payload\":\"{}\",\"step_execution_id\":\"\",\"turn_id\":null,\"type\":\"openai_agents.handoff\"}",
+      "canonical": "{\"attempt\":1,\"payload\":\"{}\",\"step_execution_id\":\"\",\"turn_id\":null,\"type\":\"openai_agents.handoff\"}"
+    },
+    {
+      "name": "without-step-execution-id",
+      "description": "Written before step_execution_id existed; reads as an empty string.",
+      "wire": "{\"type\":\"turn_started\",\"turn_id\":\"turn-1\",\"attempt\":1,\"payload\":\"{\\\"sequence\\\":1}\"}",
+      "canonical": "{\"attempt\":1,\"payload\":\"{\\\"sequence\\\":1}\",\"step_execution_id\":\"\",\"turn_id\":\"turn-1\",\"type\":\"turn_started\"}"
+    }
+  ]
+}

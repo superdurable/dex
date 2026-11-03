@@ -88,9 +88,9 @@ import {
   type ResolvedAgentTracingOptions,
 } from "./agent-tracing-options.js";
 
-const snapshotMessageLimit = 200;
-const defaultMaxDurableWaitMs = 365 * 24 * 60 * 60 * 1_000;
-const messagePageLimit = 200;
+export const snapshotMessageLimit = 200;
+export const defaultMaxDurableWaitMs = 365 * 24 * 60 * 60 * 1_000;
+export const messagePageLimit = 200;
 const toolEffects: readonly ToolEffect[] = [
   "read",
   "idempotent_write",
@@ -540,6 +540,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       name: "send_user_message",
       inputCodec: agentUserMessageCodec,
       outputCodec: booleanCodec,
+      isTransactional: true,
     })
     public sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean> {
       const planMode = message.planMode ?? false;

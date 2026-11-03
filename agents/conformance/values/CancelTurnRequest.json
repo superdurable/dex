@@ -1,0 +1,19 @@
+{
+  "type": "CancelTurnRequest",
+  "wire_kind": "json",
+  "description": "Input of the cancel_turn RPC.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "Cancel a named turn.",
+      "wire": "{\"turn_id\":\"turn-4\"}",
+      "canonical": "{\"turn_id\":\"turn-4\"}"
+    },
+    {
+      "name": "defaults",
+      "description": "Cancel the active turn.",
+      "wire": "{\"turn_id\":null}",
+      "canonical": "{\"turn_id\":null}"
+    }
+  ]
+}

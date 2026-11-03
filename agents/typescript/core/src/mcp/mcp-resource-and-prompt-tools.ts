@@ -10,7 +10,6 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 
 import { ToolExecutionError } from "../agent-framework-runner.js";
-import { serializeJsonWithSpacedSeparators } from "../stepwise/json-schema-validation.js";
 
 /** Name of the read tool that lists a server's resources, resource templates, and prompts. */
 export const mcpListResourcesAndPromptsToolName = "mcp_list_resources_and_prompts";
@@ -148,24 +147,39 @@ export async function runResourceAndPromptTool(
   return serializeToolOutputJson(output);
 }
 
-/** Serializes with sorted keys and spaced separators, as the Python core's `json.dumps(sort_keys=True)`. */
+/**
+ * Serializes with sorted keys and spaced separators, as the Python core's `json.dumps(sort_keys=True)`.
+ * Keys sort by code point while the text is written, never through an object, because JavaScript objects
+ * put integer-like keys first.
+ */
 export function serializeToolOutputJson(value: unknown): string {
-  return serializeJsonWithSpacedSeparators(sortJsonKeys(value));
-}
-
-function sortJsonKeys(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(sortJsonKeys);
+    return `[${value.map((item) => serializeToolOutputJson(item === undefined ? null : item)).join(", ")}]`;
   }
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([, nested]) => nested !== undefined)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([key, nested]) => [key, sortJsonKeys(nested)]),
-    );
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, nested]) => nested !== undefined)
+      .sort(([left], [right]) => compareByCodePoint(left, right));
+    return `{${entries.map(([key, nested]) => `${JSON.stringify(key)}: ${serializeToolOutputJson(nested)}`).join(", ")}}`;
   }
-  return value;
+  const text = JSON.stringify(value);
+  if (text === undefined) {
+    throw new TypeError(`a ${typeof value} value cannot be serialized as JSON`);
+  }
+  return text;
+}
+
+/** JavaScript's `<` compares UTF-16 code units, which orders characters above U+FFFF before U+E000. */
+function compareByCodePoint(left: string, right: string): number {
+  const leftCodePoints = Array.from(left, (character) => character.codePointAt(0) ?? 0);
+  const rightCodePoints = Array.from(right, (character) => character.codePointAt(0) ?? 0);
+  for (let index = 0; index < Math.min(leftCodePoints.length, rightCodePoints.length); index += 1) {
+    const difference = (leftCodePoints[index] ?? 0) - (rightCodePoints[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
 }
 
 async function listAll<Field extends string>(

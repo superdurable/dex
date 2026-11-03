@@ -484,7 +484,7 @@ class StepwiseAgentRunner:
         if tool is None:
             routed = self._route_to_tool_source(record)
             if routed is None:
-                raise ToolExecutionError(f"unknown tool {record.tool_name}")
+                raise ToolExecutionError(build_unknown_tool_error(record.tool_name))
             source, reference = routed
             return await source.execute_deferred_tool_call(
                 replace(call, tool_call=replace(record, tool_source_reference=reference))
@@ -864,11 +864,12 @@ class StepwiseAgentRunner:
                 arguments=arguments,
                 listed_tool=listed.tool,
             )
-            envelope = {
-                _TOOL_SOURCE_NAME_KEY: listed.source.source_name,
-                _TOOL_SOURCE_REFERENCE_KEY: built.tool_source_reference,
-            }
-            return replace(built, tool_source_reference=json.dumps(envelope))
+            return replace(
+                built,
+                tool_source_reference=_write_tool_source_envelope(
+                    listed.source.source_name, built.tool_source_reference
+                ),
+            )
         is_unlisted = (
             bool(self._definition.tool_sources)
             and tool_name not in self._tools_by_name
@@ -979,6 +980,23 @@ def _refuse_declared_tool_name_collisions(
             _refuse_source_tool_name(tool_name, function_tool_names, built_in_tools, declared)
             own[tool_name] = source
         declared.update(own)
+
+
+def build_unknown_tool_error(tool_name: str) -> str:
+    """Return the error of a call to a tool that no function tool or source listing offers.
+
+    Args:
+        tool_name: The tool name the model called.
+
+    Returns:
+        ``unknown tool <tool_name>``; the model sees it after ``The tool call failed: ``.
+    """
+    return f"unknown tool {tool_name}"
+
+
+def _write_tool_source_envelope(source_name: str, reference: str | None) -> str:
+    envelope = {_TOOL_SOURCE_NAME_KEY: source_name, _TOOL_SOURCE_REFERENCE_KEY: reference}
+    return json.dumps(envelope)
 
 
 def _read_tool_source_envelope(tool_source_reference: str | None) -> tuple[str, str | None] | None:

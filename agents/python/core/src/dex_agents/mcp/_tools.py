@@ -150,15 +150,36 @@ def build_agent_tool_name(server_name: str, mcp_tool_name: str) -> str:
 
 
 def render_tool_result_text(result: CallToolResult) -> str:
-    """Join text blocks; other content blocks and structured content render as JSON."""
+    """Join text blocks; other content blocks and structured content render as JSON.
+
+    The JSON is ``serialize_tool_output_json`` text, as the TypeScript core writes it.
+    """
     parts: list[str] = []
     for block in result.content:
         if isinstance(block, TextContent):
             parts.append(block.text)
         else:
             parts.append(
-                json.dumps(block.model_dump(mode="json", by_alias=True, exclude_none=True))
+                serialize_tool_output_json(
+                    block.model_dump(mode="json", by_alias=True, exclude_none=True)
+                )
             )
     if not parts and result.structured_content is not None:
-        parts.append(json.dumps(result.structured_content))
+        parts.append(serialize_tool_output_json(result.structured_content))
     return "\n".join(parts)
+
+
+def serialize_tool_output_json(value: Any) -> str:
+    """Serialize with sorted keys, as the TypeScript core does, so both cores show the same text."""
+    return json.dumps(_write_whole_floats_as_integers(value), sort_keys=True, ensure_ascii=False)
+
+
+def _write_whole_floats_as_integers(value: Any) -> Any:
+    # JavaScript writes 1.0 as 1; the SDK's float fields, such as priority, turn 1 into 1.0.
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, list):
+        return [_write_whole_floats_as_integers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _write_whole_floats_as_integers(item) for key, item in value.items()}
+    return value

@@ -1,0 +1,37 @@
+{
+  "type": "AgentPlan",
+  "wire_kind": "json",
+  "description": "The AgentPlan Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "Tasks in every status.",
+      "wire": "{\"revision\":3,\"status\":\"active\",\"tasks\":[{\"content\":\"Look up the order\",\"status\":\"completed\"},{\"content\":\"Refund the order\",\"status\":\"in_progress\"},{\"content\":\"Tell the user \\u2615\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:45:30.125Z\"}",
+      "canonical": "{\"revision\":3,\"status\":\"active\",\"tasks\":[{\"content\":\"Look up the order\",\"status\":\"completed\"},{\"content\":\"Refund the order\",\"status\":\"in_progress\"},{\"content\":\"Tell the user \\u2615\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:45:30.125Z\"}"
+    },
+    {
+      "name": "status-draft",
+      "description": "Status draft.",
+      "wire": "{\"revision\":1,\"status\":\"draft\",\"tasks\":[{\"content\":\"Refund the order\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}",
+      "canonical": "{\"revision\":1,\"status\":\"draft\",\"tasks\":[{\"content\":\"Refund the order\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}"
+    },
+    {
+      "name": "status-active",
+      "description": "Status active.",
+      "wire": "{\"revision\":1,\"status\":\"active\",\"tasks\":[{\"content\":\"Refund the order\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}",
+      "canonical": "{\"revision\":1,\"status\":\"active\",\"tasks\":[{\"content\":\"Refund the order\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}"
+    },
+    {
+      "name": "status-completed",
+      "description": "Status completed.",
+      "wire": "{\"revision\":1,\"status\":\"completed\",\"tasks\":[{\"content\":\"Refund the order\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}",
+      "canonical": "{\"revision\":1,\"status\":\"completed\",\"tasks\":[{\"content\":\"Refund the order\",\"status\":\"pending\"}],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}"
+    },
+    {
+      "name": "status-cleared",
+      "description": "Status cleared.",
+      "wire": "{\"revision\":1,\"status\":\"cleared\",\"tasks\":[],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}",
+      "canonical": "{\"revision\":1,\"status\":\"cleared\",\"tasks\":[],\"updated_at\":\"2026-11-02T09:30:00.000Z\"}"
+    }
+  ]
+}

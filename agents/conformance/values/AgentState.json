@@ -1,0 +1,73 @@
+{
+  "type": "AgentState",
+  "wire_kind": "json",
+  "description": "The AgentState Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "Every field set away from its default.",
+      "wire": "{\"accepts_turn_control\":true,\"active_turn_id\":\"turn-4\",\"interaction_mode\":\"planning\",\"last_turn_error\":\"RuntimeError: the model call failed\",\"next_message_sequence\":12,\"status\":\"running_tools\",\"turn_count\":3}",
+      "canonical": "{\"accepts_turn_control\":true,\"active_turn_id\":\"turn-4\",\"interaction_mode\":\"planning\",\"last_turn_error\":\"RuntimeError: the model call failed\",\"next_message_sequence\":12,\"status\":\"running_tools\",\"turn_count\":3}"
+    },
+    {
+      "name": "defaults",
+      "description": "Every optional field at its default.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"waiting_for_user_message\",\"turn_count\":0}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"waiting_for_user_message\",\"turn_count\":0}"
+    },
+    {
+      "name": "status-waiting_for_user_message",
+      "description": "Status waiting_for_user_message.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"waiting_for_user_message\",\"turn_count\":1}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"waiting_for_user_message\",\"turn_count\":1}"
+    },
+    {
+      "name": "status-running_model",
+      "description": "Status running_model.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"running_model\",\"turn_count\":1}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"running_model\",\"turn_count\":1}"
+    },
+    {
+      "name": "status-running_tools",
+      "description": "Status running_tools.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"running_tools\",\"turn_count\":1}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"running_tools\",\"turn_count\":1}"
+    },
+    {
+      "name": "status-compacting_context",
+      "description": "Status compacting_context.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"compacting_context\",\"turn_count\":1}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"compacting_context\",\"turn_count\":1}"
+    },
+    {
+      "name": "interaction-mode-chat",
+      "description": "Interaction mode chat.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"running_model\",\"turn_count\":0}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"running_model\",\"turn_count\":0}"
+    },
+    {
+      "name": "interaction-mode-planning",
+      "description": "Interaction mode planning.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"planning\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"running_model\",\"turn_count\":0}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"planning\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"running_model\",\"turn_count\":0}"
+    },
+    {
+      "name": "interaction-mode-executing",
+      "description": "Interaction mode executing.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"executing\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"running_model\",\"turn_count\":0}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"executing\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"running_model\",\"turn_count\":0}"
+    },
+    {
+      "name": "released-0.1.0",
+      "description": "As dex-agents 0.1.0 wrote it.",
+      "wire": "{\"status\":\"running_model\",\"turn_count\":2,\"active_turn_id\":\"turn-3\",\"next_message_sequence\":5,\"last_turn_error\":null}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-3\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":5,\"status\":\"running_model\",\"turn_count\":2}"
+    },
+    {
+      "name": "explicit-null-interaction-mode",
+      "description": "An explicit null interaction_mode reads as chat.",
+      "wire": "{\"status\":\"running_model\",\"turn_count\":2,\"active_turn_id\":\"turn-3\",\"next_message_sequence\":5,\"last_turn_error\":null,\"interaction_mode\":null}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-3\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":5,\"status\":\"running_model\",\"turn_count\":2}"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "type": "AnswerQuestionRequest",
+  "wire_kind": "json",
+  "description": "Input of the answer_question RPC.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "An answer.",
+      "wire": "{\"answer\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"interrupt_id\":\"call-7-input-1\"}",
+      "canonical": "{\"answer\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"interrupt_id\":\"call-7-input-1\"}"
+    }
+  ]
+}

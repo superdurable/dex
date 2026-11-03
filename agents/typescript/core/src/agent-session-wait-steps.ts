@@ -20,6 +20,7 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
+import { buildDurableWaitCompletedOutput, buildQuestionAnsweredOutput } from "./agent-built-in-tools.js";
 import {
   ToolExecutionError,
   type ToolTaskPending,
@@ -252,7 +253,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       transitions.finishToolCall(context, {
         ...toolCall,
         status: "succeeded",
-        output: JSON.stringify({ status: "answered", answer }),
+        output: buildQuestionAnsweredOutput(answer),
       });
       return deadEnd();
     }
@@ -479,7 +480,7 @@ export class AwaitTimerStep implements Step<string> {
     transitions.finishToolCall(context, {
       ...toolCall,
       status: "succeeded",
-      output: JSON.stringify({ status: "completed", waited_seconds: Math.trunc(waitedSeconds), reason }),
+      output: buildDurableWaitCompletedOutput(Math.trunc(waitedSeconds), reason),
     });
     return deadEnd();
   }

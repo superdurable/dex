@@ -491,6 +491,25 @@ compaction policy.
   show `env` and `headers` names with every value replaced by `***`. In
   TypeScript, `util.inspect` and `console.log` of an `McpToolSource` show its
   servers the same way. The values sent to the servers are unchanged.
+- TypeScript: `send_user_message` is a transactional RPC, as the contract and
+  the Python core declare it.
+- Python: `ScriptedModelClient` writes non-ASCII text in tool arguments and
+  output items unescaped, as the TypeScript client and Python function tools
+  do.
+- Both cores: the text a model sees for an MCP tool result renders structured
+  content and non-text content blocks with sorted keys, `json.dumps` spacing,
+  and non-ASCII unescaped, as the MCP resource and prompt tools already did.
+  Python wrote them with escaped non-ASCII, and TypeScript wrote them compactly.
+- TypeScript: MCP resource and prompt tool output sorts integer-like keys by
+  code point, as Python does. It put them first, in numeric order.
+- Python: the test engine in `dex_agents.testing` tries three times on new
+  free ports when another process takes its port, as the TypeScript one does.
+
+### Conformance suite
+
+- `agents/conformance/` holds golden wire values, the names manifest, the
+  model-visible text table, and scripted-turn transcripts that every core
+  must reproduce. Both cores run it in their CI suites.
 
 ### Compatibility
 

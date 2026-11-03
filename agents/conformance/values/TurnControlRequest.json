@@ -1,0 +1,19 @@
+{
+  "type": "TurnControlRequest",
+  "wire_kind": "json",
+  "description": "One TurnControlRequests Channel message.",
+  "cases": [
+    {
+      "name": "kind-steer",
+      "description": "Kind steer.",
+      "wire": "{\"kind\":\"steer\"}",
+      "canonical": "{\"kind\":\"steer\"}"
+    },
+    {
+      "name": "kind-cancel_turn",
+      "description": "Kind cancel_turn.",
+      "wire": "{\"kind\":\"cancel_turn\"}",
+      "canonical": "{\"kind\":\"cancel_turn\"}"
+    }
+  ]
+}

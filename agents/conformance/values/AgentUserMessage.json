@@ -1,0 +1,31 @@
+{
+  "type": "AgentUserMessage",
+  "wire_kind": "json",
+  "description": "QueuedUserMessages and SteeredUserMessages Channel messages, and the send_user_message RPC input.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A plan-mode message.",
+      "wire": "{\"plan_mode\":true,\"text\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}",
+      "canonical": "{\"plan_mode\":true,\"text\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}"
+    },
+    {
+      "name": "defaults",
+      "description": "An ordinary message.",
+      "wire": "{\"plan_mode\":false,\"text\":\"hello\"}",
+      "canonical": "{\"plan_mode\":false,\"text\":\"hello\"}"
+    },
+    {
+      "name": "released-0.1.0",
+      "description": "As dex-agents 0.1.0 wrote it.",
+      "wire": "{\"text\":\"hello\"}",
+      "canonical": "{\"plan_mode\":false,\"text\":\"hello\"}"
+    },
+    {
+      "name": "explicit-null-plan-mode",
+      "description": "An explicit null plan_mode reads as false.",
+      "wire": "{\"text\":\"hello\",\"plan_mode\":null}",
+      "canonical": "{\"plan_mode\":false,\"text\":\"hello\"}"
+    }
+  ]
+}

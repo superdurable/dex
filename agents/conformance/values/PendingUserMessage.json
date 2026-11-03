@@ -1,0 +1,13 @@
+{
+  "type": "PendingUserMessage",
+  "wire_kind": "json",
+  "description": "One element of AgentSnapshot.queued_messages.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A pending message with its Channel message ID.",
+      "wire": "{\"message\":{\"plan_mode\":true,\"text\":\"later\"},\"message_id\":\"msg-3\"}",
+      "canonical": "{\"message\":{\"plan_mode\":true,\"text\":\"later\"},\"message_id\":\"msg-3\"}"
+    }
+  ]
+}

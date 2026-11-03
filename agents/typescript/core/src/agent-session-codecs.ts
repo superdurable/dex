@@ -439,7 +439,7 @@ export function encodeAgentPlan(value: AgentPlan): unknown {
   return {
     revision: value.revision,
     status: value.status,
-    tasks: value.tasks.map((task: AgentPlanTask) => ({ content: task.content, status: task.status })),
+    tasks: value.tasks.map(encodeAgentPlanTask),
     updated_at: value.updatedAt,
   };
 }
@@ -449,12 +449,18 @@ export function decodeAgentPlan(value: unknown): AgentPlan {
   return {
     revision: reader.readInteger("revision"),
     status: reader.readEnum("status", planStatuses),
-    tasks: reader.readArrayOrEmpty("tasks").map((task): AgentPlanTask => {
-      const taskReader = new WireRecordReader(task, "AgentPlanTask");
-      return { content: taskReader.readString("content"), status: taskReader.readEnum("status", planTaskStatuses) };
-    }),
+    tasks: reader.readArrayOrEmpty("tasks").map(decodeAgentPlanTask),
     updatedAt: reader.readString("updated_at"),
   };
+}
+
+export function encodeAgentPlanTask(value: AgentPlanTask): unknown {
+  return { content: value.content, status: value.status };
+}
+
+export function decodeAgentPlanTask(value: unknown): AgentPlanTask {
+  const reader = new WireRecordReader(value, "AgentPlanTask");
+  return { content: reader.readString("content"), status: reader.readEnum("status", planTaskStatuses) };
 }
 
 export function encodePlanRevisionRequest(value: ExecutePlanRequest | PlanExecutionRequest): unknown {

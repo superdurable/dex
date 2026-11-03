@@ -1,0 +1,25 @@
+{
+  "type": "AgentPlanTask",
+  "wire_kind": "json",
+  "description": "One element of AgentPlan.tasks.",
+  "cases": [
+    {
+      "name": "status-pending",
+      "description": "Status pending.",
+      "wire": "{\"content\":\"Refund the order\",\"status\":\"pending\"}",
+      "canonical": "{\"content\":\"Refund the order\",\"status\":\"pending\"}"
+    },
+    {
+      "name": "status-in_progress",
+      "description": "Status in_progress.",
+      "wire": "{\"content\":\"Refund the order\",\"status\":\"in_progress\"}",
+      "canonical": "{\"content\":\"Refund the order\",\"status\":\"in_progress\"}"
+    },
+    {
+      "name": "status-completed",
+      "description": "Status completed.",
+      "wire": "{\"content\":\"Refund the order\",\"status\":\"completed\"}",
+      "canonical": "{\"content\":\"Refund the order\",\"status\":\"completed\"}"
+    }
+  ]
+}

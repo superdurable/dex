@@ -1,0 +1,13 @@
+{
+  "type": "TurnCancellationRequest",
+  "wire_kind": "json",
+  "description": "The TurnCancellationRequest Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A request for one turn.",
+      "wire": "{\"requested_at\":\"2026-11-02T09:30:00.000Z\",\"turn_id\":\"turn-4\"}",
+      "canonical": "{\"requested_at\":\"2026-11-02T09:30:00.000Z\",\"turn_id\":\"turn-4\"}"
+    }
+  ]
+}

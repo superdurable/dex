@@ -1,0 +1,13 @@
+{
+  "type": "int64",
+  "wire_kind": "int64",
+  "description": "The expected result count input of ResumeTurn.",
+  "cases": [
+    {
+      "name": "count",
+      "description": "Three results.",
+      "wire": "3",
+      "canonical": "3"
+    }
+  ]
+}

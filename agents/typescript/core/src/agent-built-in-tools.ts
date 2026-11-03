@@ -261,6 +261,16 @@ export function buildPlanClearedOutput(revision: number): string {
   return JSON.stringify({ status: "cleared", revision });
 }
 
+/** Tool output after the user answered `ask_user`: `{"status":"answered","answer":"<answer>"}`. */
+export function buildQuestionAnsweredOutput(answer: string): string {
+  return JSON.stringify({ status: "answered", answer });
+}
+
+/** Tool output after a `durable_wait` Timer ended: `{"status":"completed","waited_seconds":<n>,"reason":"<reason>"}`. */
+export function buildDurableWaitCompletedOutput(waitedSeconds: number, reason: string): string {
+  return JSON.stringify({ status: "completed", waited_seconds: waitedSeconds, reason });
+}
+
 function invalidTodos(reason: string): { readonly isValid: false; readonly error: string } {
   return { isValid: false, error: `invalid todos: ${reason}` };
 }

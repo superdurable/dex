@@ -1,0 +1,19 @@
+{
+  "type": "AgentSessionStartInput",
+  "wire_kind": "json",
+  "description": "Input of StartAgentSession, the session Flow's start Step.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "With an initial message.",
+      "wire": "{\"initial_message\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}",
+      "canonical": "{\"initial_message\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}"
+    },
+    {
+      "name": "defaults",
+      "description": "Without an initial message.",
+      "wire": "{\"initial_message\":null}",
+      "canonical": "{\"initial_message\":null}"
+    }
+  ]
+}
