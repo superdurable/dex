@@ -32,12 +32,13 @@ Java SDK v1.20.0 **ClientOptions** and **WorkerOptions** have no FlowService TLS
 
 ## Connector runtime support
 
-The Connector SDK's `projectconfig.LoadFromEnvironment` loader and the generated `NewProjectConnection` API are Go-only, and no equivalent Java SDK exists today. Do not invent a Java loader or deserialize Dex Web's credential file into Flow state. For a Java application, keep provider credentials behind an application-owned secret/runtime adapter until an official Java Connector SDK exposes the same contract.
+The official Connector SDKs exist only for Go, Python, and TypeScript, so the `projectconfig` loader and the generated `NewProjectConnection` API have no equivalent Java SDK today. Do not invent a Java loader or deserialize Dex Web's credential file into Flow state. For a Java application, keep provider credentials behind an application-owned secret/runtime adapter until an official Java Connector SDK exposes the same contract.
 
 ## Deployed configuration and recovery boundary
 
-Dex provides no deployed Connector configuration or credential store. A deployed Go
-application reads its connections with the Connector SDK's `sdkgo/projectconfig`, but
+Dex provides no deployed Connector configuration or credential store. Deployed Go,
+Python, and TypeScript applications read their connections with their Connector SDK's
+`projectconfig` package (Go: `sdkgo/projectconfig`), but
 no equivalent Java SDK exists today; see
 [deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
 Keep credentials behind the deployment's secret management; a browser, Flow input,

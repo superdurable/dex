@@ -9,7 +9,7 @@ This repository publishes one plugin with three root-level skills:
 - `dex-sdk` owns public Dex SDK implementation guidance and its Core and
   language references.
 - `dex-app-builder` owns the business-first product workflow and its stricter
-  Go-only application constraints. It links to `dex-sdk` instead of copying SDK
+  Go backend constraints. It links to `dex-sdk` instead of copying SDK
   references.
 - `dex-connector-contributor` is the thin bootstrap for official
   connector-library work. It resolves the checkout and then follows that

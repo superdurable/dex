@@ -94,8 +94,9 @@ application's owning documentation.
 
 Read release-tagged connector files in this order: the web view of the
 component tag; then a local clone of the official connector library, after
-`git tag -l <directory>/<version>` confirms the tag, through
-`git show <directory>/<version>:<directory>/<file>`, never the working tree or
+`git tag -l <directory>/go/<version>` (`<directory>/<version>` through v0.22.x)
+confirms the tag, through
+`git show <that tag>:<directory>/<file>`, never the working tree or
 `main`; otherwise record a `blocked` verification row and write no design
 fields for that operation. Record which source you used. In zsh, write a tag
 held in a variable as `"${TAG}:path"`, because `$TAG:` is parsed as a modifier:

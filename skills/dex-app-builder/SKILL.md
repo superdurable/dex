@@ -46,7 +46,8 @@ compiler, strict FDG or provider diagnostics drive further investigation.
 
 For external products, search the [official catalog](https://connectors.superdurable.io/catalog.yaml)
 using a bounded catalog tool when available. Select a released operation and
-kind, then inspect that exact module's `connector.yaml`, generated operation factory and
+kind, then require `go` in its `languages` map and in the operation's or
+Trigger's `languages` list. Then inspect that exact module's `connector.yaml`, generated operation factory and
 input/output types. Return only matching catalog entries to model context.
 The catalog identifies capabilities and current releases; it is not provider
 business data or a historical release feed. Do not guess APIs or substitute
@@ -57,8 +58,9 @@ configuration. A missing module is resolved at its exact released version.
 
 ## Essential product constraints
 
-- Go backend only; strict FDG 2.0 only. The FDG 2.0 analyzer and the
-  application Connector SDK are Go-only.
+- Go backend only, by product decision; strict FDG 2.0 only, whose Dex Web v2
+  metadata comes only from the Go analyzer. Connectors also ship for Python and
+  TypeScript, but App Builder uses the Go packages.
 - Dex Web owns Runs, Work Queue, Actions, edits, history and diagnostics:
   `dexcli dev` locally, the standalone `dex-web` binary or image when deployed. Do not
   recreate management APIs or UI. A separate participant interaction is a valid

@@ -51,7 +51,7 @@ Before debugging code, verify:
 - the Worker and Client use compatible payload codecs and blob cache/storage
 - all Attributes and Channels used by handlers are in the Flow persistence schema
 - Indexed Attributes are synchronized before the Worker starts serving
-- local Go Connector applications start with the configuration their pinned connector release reads, as described in [Local Connector credentials](operations.md#local-connector-credentials)
+- local Connector applications start with the configuration their pinned connector release reads, as described in [Local Connector credentials](operations.md#local-connector-credentials)
 
 ## Source material
 

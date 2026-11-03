@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.65.0 - 2026-11-02
+
+- Correct the claim that official Connectors are Go-only. Connector SDKs are released for Go, Python (`dex-connectors-sdk`), and TypeScript (`@superdurable/connectors-sdk`), and Java and Rust have none. The Python and TypeScript references now describe `load_from_environment` and `loadFromEnvironment`, `new_project_connection` and `newProjectConnection`, and the `dex-connector-<slug>` and `@superdurable/connector-<slug>` packages, verified at `sdkpython/v0.1.0`, `sdkts/v0.1.1`, and the NewsAPI packages. Tell readers to check the per-language `languages` data of each connector, operation, and Trigger in the catalog, and give the `<directory>/go/<version>` tag form. Keep the Go backend, Dex Web v2, and FDG 2.0 limits of `dex-app-builder`. State the new-connector rule in `dex-connector-contributor`: Go is required, and Python and TypeScript are optional and must replay the Go conformance scenarios.
+
 ## 0.64.0 - 2026-11-02
 
 - Document server-zd v0.1.16 in Core operations. A process that steps down and then takes its own lease back now serves instead of exiting, which fixes #1174. A step down ends public calls that are still running after the lease release with UNAVAILABLE, and these calls are safe to retry; calls that finish before the release keep their answers. The stepped-down process waits up to 60 seconds for its old local store to close, and exits with status 1 without taking the lease if a stuck task still holds it. Only the newest gRPC server instance accepts new connections, so a client no longer sees "the node is starting" after readiness reports SERVING, or an h2 GoAway error on its first call. Record known issue #1210: after a take-back, readiness can report SERVING for up to about 250 ms on the old stepped-down instance. Correct the v0.1.15 note on #1174 to say that v0.1.16 fixes it.

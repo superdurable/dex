@@ -1,6 +1,6 @@
 {
   "name": "superdurable-dex",
-  "version": "0.64.0",
+  "version": "0.65.0",
   "description": "Build Dex process products in a repository-backed coding workspace.",
   "author": {
     "name": "Super Durable"

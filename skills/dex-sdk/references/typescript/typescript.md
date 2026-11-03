@@ -30,13 +30,20 @@ TypeScript SDK v1.20.0 **ClientOptions** and **WorkerOptions** have no FlowServi
 
 ## Connector runtime support
 
-The Connector SDK's `projectconfig.LoadFromEnvironment` loader and the generated `NewProjectConnection` API are Go-only, and no equivalent TypeScript SDK exists today. Do not invent a TypeScript loader or deserialize Dex Web's credential file into Flow state. For a TypeScript application, keep provider credentials behind an application-owned secret/runtime adapter until an official TypeScript Connector SDK exposes the same contract.
+A TypeScript application can use an official Connector only where the published catalog lists `typescript` in that connector's `languages` map and in the `languages` list of every operation and Trigger the application needs. A package implements only the capabilities that list its language. Java and Rust have no Connector SDK.
+
+Install the connector package from npm as `@superdurable/connector-<slug>`, for example `@superdurable/connector-newsapi`. It requires `@superdurable/connectors-sdk`. Use the version that `languages.typescript` gives for the connector, and use Node.js 22 or 24 for the Worker.
+
+At startup, call `await loadFromEnvironment()` from `@superdurable/connectors-sdk/projectconfig` once ([loader](https://github.com/superdurable/dex-connectors-library/blob/sdkts/v0.1.1/sdkts/src/projectconfig/environment.ts), read at `sdkts/v0.1.1`). Open each connection with the connector package's `newProjectConnection(project, connectionName)`. Pass that connection to the operation-specific step factory, such as `newSearchArticlesStep(...)`. Register the Flow in a `Registry` and run it with the Dex `Worker`. The runnable [NewsAPI company news Worker](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/typescript/v0.1.0/connectors/newsapi/typescript/examples/company-news/worker.ts) and [integration test](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/typescript/v0.1.0/connectors/newsapi/typescript/examples/company-news/integration.ts) show this at `connectors/newsapi/typescript/v0.1.0`.
+
+Do not write your own loader or deserialize Dex Web's credential file into Flow state.
 
 ## Deployed configuration and recovery boundary
 
-Dex provides no deployed Connector configuration or credential store. A deployed Go
-application reads its connections with the Connector SDK's `sdkgo/projectconfig`, but
-no equivalent TypeScript SDK exists today; see
+Dex provides no deployed Connector configuration or credential store. A deployed
+TypeScript application reads its connections with `loadFromEnvironment` from the Connector
+SDK's `@superdurable/connectors-sdk/projectconfig`, the TypeScript counterpart of the Go
+`sdkgo/projectconfig`; see
 [deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
 Keep credentials behind the deployment's secret management; a browser, Flow input,
 or ordinary Attribute cannot select secret storage.

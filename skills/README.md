@@ -302,7 +302,9 @@ operations, Work Queue discovers actionable Runs, and timeline/graph views show
 progress and failures. A request for an admin backend is not itself a reason
 for Custom UI; discovery must record a specific Dex Web v2 capability gap.
 
-The backend is Go-only and must satisfy strict Dex Web v2 / FDG 2.0 rendering.
+The backend is Go-only by product decision and must satisfy strict Dex Web v2 / FDG 2.0 rendering.
+Official Connectors are not Go-only: the catalog lists the languages of each connector and
+of each operation and Trigger, and `dex-sdk` describes Python and TypeScript use.
 An existing application keeps its pinned Go, Dex SDK, `dexcli`, and frontend
 versions. An effectively empty repository becomes a Go module on an exact
 released Dex Go SDK paired with the installed `dexcli`. App Builder does not
@@ -324,8 +326,8 @@ mock backend or mock controls.
 Connector integrations reuse released dedicated connectors from
 `superdurable/dex-connectors-library`. Selection starts from the canonical
 published [`catalog.yaml`](https://connectors.superdurable.io/catalog.yaml),
-then verifies every exact Trigger, Query, Mutation, or UI capability against the
-selected component tag's immutable `connector.yaml`. If the catalog or release
+then verifies every exact Trigger, Query, Mutation, or UI capability, and its
+`go` language support, against the selected component tag's immutable `connector.yaml`. If the catalog or release
 manifest cannot be verified, App Builder stops connector-dependent
 implementation instead of guessing from memory or falling back to a provider
 SDK. Query/Mutation factories become Connector Steps, Triggers start typed
