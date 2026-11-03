@@ -21,8 +21,8 @@ pub(crate) use garbage::enforce_superseded_byte_cap;
 #[expect(unused_imports, reason = "Available to window maintenance handlers.")]
 pub(crate) use garbage::{prune_garbage, superseded_bytes_over_cap};
 pub(crate) use storage_accounting::{
-    active_run_storage_bytes, projected_superseded_value_bytes, reconcile_run_storage,
-    total_run_storage_bytes,
+    active_run_storage_bytes_without_attempts, is_run_over_state_budget,
+    projected_superseded_value_bytes, reconcile_run_storage, total_run_storage_bytes,
 };
 pub(crate) use time_travel::rewrite_holders_for_time_travel;
 pub(crate) use value_holder::ValueHolder;
@@ -32,8 +32,8 @@ use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId, ValueRefe
 use dexzd_protocol::dex::Value;
 use dexzd_protocol::dex::value::Kind;
 use dexzd_protocol::dexzd::v1::{
-    StoredValue, StoredValueId, StoredValueReference, ValueBirthRecord, ValueGarbageRecord,
-    ValueRecord, stored_value,
+    StoredStepCompletionOutput, StoredValue, StoredValueId, StoredValueReference, ValueBirthRecord,
+    ValueGarbageRecord, ValueRecord, stored_value,
 };
 use prost::Message;
 
@@ -51,6 +51,11 @@ pub(crate) enum ValueRejection {
     },
     /// The value is a reference that does not name a live value of this run.
     UnknownReference { reference: String },
+    /// The child Flow's result outputs would exceed the run's maximum child Flow result size.
+    ChildFlowResultTooLarge {
+        result_bytes: u64,
+        max_child_flow_result_bytes: u64,
+    },
 }
 
 impl ValueRejection {
@@ -65,6 +70,13 @@ impl ValueRejection {
             Self::UnknownReference { reference } => {
                 format!("value reference {reference:?} does not name a value of this run")
             }
+            Self::ChildFlowResultTooLarge {
+                result_bytes,
+                max_child_flow_result_bytes,
+            } => format!(
+                "child Flow result of {result_bytes} bytes exceeds the maximum of \
+                 {max_child_flow_result_bytes} bytes (limits.maxChildFlowResultBytes)"
+            ),
         }
     }
 }
@@ -328,8 +340,8 @@ fn load_stored_value_with(
     }
 }
 
-/// Resolves a Worker's run-local value reference for a complete outbox payload.
-pub(crate) fn complete_value_for_outbox(
+/// Resolves a Worker's run-local value reference for a complete outbox payload or RPC reply.
+pub(crate) fn complete_worker_value(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
     limits: ValueLimits,
@@ -363,7 +375,7 @@ pub(crate) fn complete_value_for_outbox(
     );
     let complete = load_stored_value(transaction, rows, &stored)?.ok_or_else(|| {
         ApplyError::InvariantViolation {
-            detail: "live SubFlow reference has no value row".to_owned(),
+            detail: "live value reference has no value row".to_owned(),
         }
     })?;
     Ok(Ok(complete))
@@ -379,6 +391,15 @@ pub(crate) fn stored_value_size(stored: &StoredValue) -> u64 {
         Some(stored_value::Kind::HardDeleteObject(object)) => object.size_bytes,
         None => 0,
     }
+}
+
+/// Returns the total size of a Flow's collected result outputs.
+pub(crate) fn flow_result_output_bytes(results: &[StoredStepCompletionOutput]) -> u64 {
+    results
+        .iter()
+        .filter_map(|output| output.completed_step_output.as_ref())
+        .map(stored_value_size)
+        .fold(0, u64::saturating_add)
 }
 
 /// Loads a wire reference; invalid, foreign, hard-delete, or collected references return `None`; state failures return errors.

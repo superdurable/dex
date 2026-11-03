@@ -26,7 +26,7 @@ use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::FlowTransaction;
 use crate::steps::arm_timer;
 use crate::values::{
-    ValueHolder, ValueRejection, complete_value_for_outbox, load_stored_value, release_stored_value,
+    ValueHolder, ValueRejection, complete_worker_value, load_stored_value, release_stored_value,
 };
 
 const OUTBOX_RETENTION_MICROS: i64 = 24 * 60 * 60 * 1_000_000;
@@ -95,7 +95,7 @@ pub(crate) fn start_child_flows(
         );
         let mut complete_condition = condition.clone();
         if let Some(value) = condition.step_input.as_ref() {
-            let complete = match complete_value_for_outbox(
+            let complete = match complete_worker_value(
                 transaction,
                 cursor.rows,
                 cursor.value_limits(),
@@ -109,7 +109,7 @@ pub(crate) fn start_child_flows(
         if let Some(options) = complete_condition.options.as_mut() {
             for write in &mut options.attributes {
                 if let Some(value) = write.value.as_ref() {
-                    let complete = match complete_value_for_outbox(
+                    let complete = match complete_worker_value(
                         transaction,
                         cursor.rows,
                         cursor.value_limits(),

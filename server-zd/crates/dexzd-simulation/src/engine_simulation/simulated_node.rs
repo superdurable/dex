@@ -563,6 +563,8 @@ fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfil
     let mut settings = RunSettings {
         retention_after_close_micros: duration_micros(retention_after_close),
         request_dedup_capacity: 64,
+        // Zero (no limit) keeps the pinned canonical command bytes of the regression seeds.
+        max_child_flow_result_bytes: 0,
         ..default_run_settings()
     };
     if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {

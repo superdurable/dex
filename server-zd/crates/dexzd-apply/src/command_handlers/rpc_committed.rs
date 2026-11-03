@@ -13,10 +13,11 @@ use std::collections::BTreeMap;
 use dexzd_keyspace::row_keys::RequestKind;
 use dexzd_protocol::dex::{
     ChannelMessageDeletion, ErrorSubStatus, FlowStatus, InvokeWorkerRpcResponse,
-    RpcExecutionCompletedEvent, flow_history_event,
+    RpcExecutionCompletedEvent, Value, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
-    CommandReply, RequestDedupRecord, RpcCommittedCommand, RpcReply, command_reply,
+    CommandReply, RequestDedupRecord, RpcCommittedCommand, RpcReply, StoredValue, command_reply,
+    stored_value,
 };
 
 use crate::ApplyError;
@@ -34,7 +35,10 @@ use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, cancel_steps_by_type, create_step_execution, wait_conditions,
 };
-use crate::values::{ValueHolder, ValueRejection, store_value, validate_value};
+use crate::values::{
+    ValueHolder, ValueRejection, complete_worker_value, is_run_over_state_budget, store_value,
+    validate_value,
+};
 
 pub(crate) fn apply_rpc_committed(
     transaction: &mut FlowTransaction<'_>,
@@ -151,22 +155,20 @@ pub(crate) fn apply_rpc_committed(
     if is_transactional && !command.app_worker_id.is_empty() {
         cursor.record.sticky_app_worker_id = command.app_worker_id.clone();
     }
+    // A full run keeps no reply or request ID for a read; mutations keep both for retries.
+    let should_retain_reply =
+        is_mutating_rpc_response(response) || !is_run_over_state_budget(&cursor.record);
     let output = if !scope.is_replay
         && let Some(value) = response.output.as_ref()
     {
-        let holder = ValueHolder::RpcReply {
-            request_id: request.request_id.clone(),
-        };
-        let limits = cursor.value_limits();
-        match store_value(
+        match retained_or_complete_output(
             transaction,
-            cursor.rows,
-            limits,
-            &mut cursor.values,
+            &mut cursor,
+            &request.request_id,
             value,
-            &holder,
+            should_retain_reply,
         )? {
-            Ok(stored) => Some(stored),
+            Ok(output) => Some(output),
             Err(rejection) => return Ok(reject_value(rejection)),
         }
     } else {
@@ -208,7 +210,7 @@ pub(crate) fn apply_rpc_committed(
     let reply = CommandReply {
         reply: Some(command_reply::Reply::Rpc(RpcReply { output })),
     };
-    if !scope.is_replay {
+    if !scope.is_replay && should_retain_reply {
         remember_reply(
             transaction,
             &cursor,
@@ -223,6 +225,52 @@ pub(crate) fn apply_rpc_committed(
         reply,
         HistoryKind::EXTERNAL_INPUT,
     )?))
+}
+
+/// Returns whether this RPC response changes Flow state; otherwise the RPC is a read.
+///
+/// Attribute writes and deletions, Channel publications and deletions, new or canceled Steps, and
+/// permission mappings are changes. The run state limit checks every change, and request
+/// deduplication always keeps its reply so that a retry replays instead of changing state again.
+pub(crate) fn is_mutating_rpc_response(response: &InvokeWorkerRpcResponse) -> bool {
+    !response.upsert_attributes.is_empty()
+        || !response.publish_to_channel.is_empty()
+        || !response.delete_from_channel.is_empty()
+        || response.action_permission_mappings.is_some()
+        || response.step_decision.as_ref().is_some_and(|decision| {
+            !decision.next_steps.is_empty() || !decision.cancel_step_types.is_empty()
+        })
+}
+
+/// Returns the reply output: stored for request deduplication, or complete and unstored.
+fn retained_or_complete_output(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    request_id: &str,
+    value: &Value,
+    should_retain_reply: bool,
+) -> Result<Result<StoredValue, ValueRejection>, ApplyError> {
+    let limits = cursor.value_limits();
+    if !should_retain_reply {
+        return Ok(
+            complete_worker_value(transaction, cursor.rows, limits, value)?.map(|complete| {
+                StoredValue {
+                    kind: Some(stored_value::Kind::InlineValue(complete)),
+                }
+            }),
+        );
+    }
+    let holder = ValueHolder::RpcReply {
+        request_id: request_id.to_owned(),
+    };
+    store_value(
+        transaction,
+        cursor.rows,
+        limits,
+        &mut cursor.values,
+        value,
+        &holder,
+    )
 }
 
 fn first_missing_deletion<'a>(

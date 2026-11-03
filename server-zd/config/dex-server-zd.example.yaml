@@ -151,6 +151,7 @@ limits:
   maxInFlightRpcsPerNode: 1000
   maxRequestIdsPerRun: 1000
   maxFlowIdBytes: 1000
+  maxChildFlowResultBytes: 16777216
 attributeStore:
   # Empty disables Attribute synchronization. Keys match the Go Dex Server; only type postgres is supported:
   #   orders:

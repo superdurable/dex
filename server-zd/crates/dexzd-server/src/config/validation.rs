@@ -518,6 +518,11 @@ impl Config {
             "limits.maxFlowIdBytes",
             "must be positive",
         )?;
+        ensure(
+            self.limits.max_child_flow_result_bytes > 0,
+            "limits.maxChildFlowResultBytes",
+            "must be positive",
+        )?;
         Ok(())
     }
 }

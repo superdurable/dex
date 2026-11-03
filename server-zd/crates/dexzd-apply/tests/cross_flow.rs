@@ -54,6 +54,9 @@ const SECOND_CHILD_RUN: [u8; 16] = [3; 16];
 const START_MESSAGE: [u8; 16] = [4; 16];
 const CHILD_ID: &str = "SubFlow:parent-StartStep-1-0";
 
+#[path = "cross_flow/child_result_limit.rs"]
+mod child_result_limit;
+
 #[derive(Default)]
 struct MemoryState {
     rows: BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>,

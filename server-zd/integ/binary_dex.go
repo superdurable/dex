@@ -161,11 +161,27 @@ func binaryDexConfig(testConfig serverZDTestConfig) (map[string]any, string) {
 			configuration["matching"] = matchingConfig
 		}
 	}
-	if testConfig.ServerZDMaxLongPollWaiters > 0 {
-		configuration["limits"] = map[string]any{
-			"maxLongPollWaitersPerNode": testConfig.ServerZDMaxLongPollWaiters,
-			"maxLongPollWaitersPerFlow": testConfig.ServerZDMaxLongPollWaiters,
+	if testConfig.ServerZDMaxValueBytes > 0 {
+		valuesConfig, ok := configuration["values"].(map[string]any)
+		if !ok {
+			valuesConfig = make(map[string]any)
+			configuration["values"] = valuesConfig
 		}
+		valuesConfig["maxValueBytes"] = testConfig.ServerZDMaxValueBytes
+	}
+	limitsConfig := make(map[string]any)
+	if testConfig.ServerZDMaxLongPollWaiters > 0 {
+		limitsConfig["maxLongPollWaitersPerNode"] = testConfig.ServerZDMaxLongPollWaiters
+		limitsConfig["maxLongPollWaitersPerFlow"] = testConfig.ServerZDMaxLongPollWaiters
+	}
+	if testConfig.ServerZDMaxFlowStateBytes > 0 {
+		limitsConfig["maxFlowStateBytes"] = testConfig.ServerZDMaxFlowStateBytes
+	}
+	if testConfig.ServerZDMaxChildFlowResultBytes > 0 {
+		limitsConfig["maxChildFlowResultBytes"] = testConfig.ServerZDMaxChildFlowResultBytes
+	}
+	if len(limitsConfig) > 0 {
+		configuration["limits"] = limitsConfig
 	}
 	configuration["streamStore"] = binaryStreamStoreConfig(testConfig.StreamStore)
 	if testConfig.Auth != nil {

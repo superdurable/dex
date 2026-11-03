@@ -79,6 +79,21 @@ func TestBinaryDexConfigMapping(t *testing.T) {
 	require.Equal(t, map[string]any{"backend": testconfig.StreamStoreBackendMemory, "maxReadMessages": int32(25)}, configuration["streamStore"])
 }
 
+func TestBinaryDexConfigRunLimitMapping(t *testing.T) {
+	configuration, unsupportedSetting := binaryDexConfig(serverZDTestConfig{
+		ServerZDMaxValueBytes:           65536,
+		ServerZDMaxFlowStateBytes:       131072,
+		ServerZDMaxChildFlowResultBytes: 1024,
+	})
+	require.Empty(t, unsupportedSetting)
+	require.Equal(t, map[string]any{"maxValueBytes": int64(65536)}, configuration["values"])
+	require.Equal(
+		t,
+		map[string]any{"maxFlowStateBytes": int64(131072), "maxChildFlowResultBytes": int64(1024)},
+		configuration["limits"],
+	)
+}
+
 func TestBinaryDexConfigAttributeStoreMapping(t *testing.T) {
 	configuration, unsupportedSetting := binaryDexConfig(serverZDTestConfig{
 

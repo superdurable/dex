@@ -183,6 +183,8 @@ message RunStorageUsage {
   uint64 live_value_bytes = 2;
   uint64 superseded_value_bytes = 3;
   uint64 history_bytes = 4;
+  // Part of state_row_bytes held by started or retrying attempts; zero in older records.
+  uint64 attempt_state_bytes = 5;
 }
 
 // Small Flow row indexed by history seq, kind, and attempt for bounded window scans and accounting.

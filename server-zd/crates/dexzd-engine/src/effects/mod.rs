@@ -144,6 +144,7 @@ impl Default for EffectsConfig {
                 request_dedup_capacity: 1_000,
                 max_run_state_bytes: 1024 * 1024 * 1024,
                 max_active_step_executions: 10_000,
+                max_child_flow_result_bytes: 16 * 1024 * 1024,
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
         }

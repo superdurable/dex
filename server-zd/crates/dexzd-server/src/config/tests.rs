@@ -13,7 +13,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use dexzd_engine::LocalStoreConfig;
+use dexzd_engine::{EffectsConfig, LocalStoreConfig};
 
 use super::{
     AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
@@ -121,6 +121,37 @@ fn blocking_state_read_limit_parses_defaults_and_rejects_zero() {
             ..
         })
     ));
+}
+
+#[test]
+fn run_limits_and_the_child_result_limit_reach_run_settings() {
+    assert_eq!(
+        Config::default().limits.max_child_flow_result_bytes,
+        16 * 1024 * 1024
+    );
+    let parsed = Config::parse_yaml(
+        "values:\n  maxValueBytes: 1048576\nlimits:\n  maxFlowStateBytes: 4194304\n  maxChildFlowResultBytes: 2048\n",
+    )
+    .expect("parse run limits");
+    let mut configuration = valid_config();
+    configuration.values.max_value_bytes = parsed.values.max_value_bytes;
+    configuration.limits.max_flow_state_bytes = parsed.limits.max_flow_state_bytes;
+    configuration.limits.max_child_flow_result_bytes = parsed.limits.max_child_flow_result_bytes;
+    configuration.validate().expect("valid run limits");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    let run_settings = components.flow_coordination.run_settings;
+    assert_eq!(run_settings.max_run_state_bytes, 4 * 1024 * 1024);
+    assert_eq!(run_settings.max_value_bytes, 1024 * 1024);
+    assert_eq!(run_settings.max_child_flow_result_bytes, 2048);
+    let child_run_settings = components.effects.child_run_settings;
+    assert_eq!(child_run_settings.max_child_flow_result_bytes, 2048);
+    assert_eq!(
+        child_run_settings.max_run_state_bytes,
+        EffectsConfig::default()
+            .child_run_settings
+            .max_run_state_bytes
+    );
 }
 
 #[test]
@@ -718,6 +749,9 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("limits.maxRequestIdsPerRun", |config| {
             config.limits.max_request_ids_per_run = 0
+        }),
+        ("limits.maxChildFlowResultBytes", |config| {
+            config.limits.max_child_flow_result_bytes = 0
         }),
         ("limits.maxFlowIdBytes", |config| {
             config.limits.max_flow_id_bytes = 0
