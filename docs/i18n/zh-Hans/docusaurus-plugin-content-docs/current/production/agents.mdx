@@ -347,13 +347,22 @@ session 的两个 Step 可能运行在不同版本上。
 
 通用规则见 [Flow 代码版本控制](/production/application-operations#versioning-flow-code)。
 
+### 滚动部署期间的 session settings {#session-settings-rollout}
+
+只有在该 Flow type 的每个 Worker 都运行 agents 0.2.0 之后，才用 session settings 启动
+session，或调用 **update_session_settings**。0.1.0 的 Worker 会丢弃它启动的 session 的
+settings，也不会写入或读取一轮所保留的 settings 副本。由 0.1.0 Worker 启动的一轮没有
+settings，所以它的部分模型调用可能使用 Worker 的默认模型。
+
 ## 凭证 {#credentials}
 
 把模型 API key 和 tool 凭证放在 Worker 的环境中，或放在 Worker 调用时读取的 secret store
 中。每个 framework 都从环境中读取自己的模型 key，比如 **OPENAI_API_KEY**、
 **GOOGLE_API_KEY** 或 **ANTHROPIC_API_KEY**。adapter 本身不处理凭证。
 
-不要在 session 的启动输入、用户消息、tool 参数、tool 输出或 Attribute 中传递凭证。Dex 会把
+不要在 session 的启动输入、用户消息、tool 参数、tool 输出或 Attribute 中传递凭证。Session
+settings 属于启动输入和 session 状态，**get_agent_snapshot** 和浏览器 snapshot JSON 都会
+返回它们，所以其中只放 Worker 能解析的引用，比如 model 名称或凭证名称。Dex 会把
 它们保存在 Flow history 和状态中。Dex Web 会显示它们，history 会为 time travel 保留被替换
 的值，已停止的 session 在保留期内仍可读取。任何获得授权的 Client 都能读取 **AgentEvents**。
 

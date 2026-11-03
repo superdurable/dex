@@ -23,6 +23,8 @@ from the user message:
   for two tool batches in the first two model calls, then answers or fails.
 * ``chain-reusing-ids ...`` does the same, but repeats the first batch's tool
   call IDs in the second batch.
+* Every model call records ``<turn_id>:<session settings JSON>`` in
+  ``session-settings.log``.
 * ``call-incremental <tool> <json>`` asks for the call and stores its item at
   once through ``ToolCallsRequested.new_messages``, which this runner may not do.
 
@@ -71,6 +73,7 @@ INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SEC
 BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
 INVOCATION_LOG_NAME = "invocations.log"
 IDEMPOTENCY_KEY_LOG_NAME = "idempotency-keys.log"
+SESSION_SETTINGS_LOG_NAME = "session-settings.log"
 MODEL_CALL_USAGE = AgentUsage(model_calls=1, input_tokens=10, output_tokens=5)
 TOOL_POLICIES = {
     "lookup": ToolPolicy(ToolEffect.READ),
@@ -92,6 +95,7 @@ class ScriptedRunner(AgentFrameworkRunner):
         self._state_dir = state_dir
         self._invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
         self._idempotency_keys = InvocationLog(state_dir / IDEMPOTENCY_KEY_LOG_NAME)
+        self._session_settings = InvocationLog(state_dir / SESSION_SETTINGS_LOG_NAME)
 
     def build_user_message(self, text: str) -> FrameworkMessage:
         return FrameworkMessage(
@@ -101,6 +105,9 @@ class ScriptedRunner(AgentFrameworkRunner):
         )
 
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        # The released 0.1.0 AgentTurnContext has no session_settings.
+        settings = dict(getattr(turn, "session_settings", {}))
+        self._session_settings.record(f"{turn.turn_id}:{json.dumps(settings, sort_keys=True)}")
         if turn.framework_run_state is not None:
             return await self._continue_after_tool_calls(turn, turn.framework_run_state)
         self._invocations.record(f"model:{turn.turn_id}:1")

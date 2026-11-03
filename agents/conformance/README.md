@@ -127,8 +127,18 @@ sweep an enum. The `AgentEvent` cases have one event per event type.
 - `keys`, `ids`, and `timestamps`: map instance keys, turn and interrupt ID
   formats, and the RFC 3339 format with examples;
 - `limits`: snapshot and page limits, the default list page size, the default
-  durable wait and Stepwise model call limits, and the channel read limit,
+  durable wait and Stepwise model call limits, the channel read limit,
+  `max_session_settings_bytes`, and `session_settings_size_tolerance_bytes`,
   each taken from the Python core's constants;
+- `session_settings_sizes`: settings with the size every core's
+  `session_settings_size` must compute (UTF-8 bytes of the core's own compact
+  JSON text, non-ASCII unescaped). `bytes` is every core's size unless
+  `bytes_by_core` gives one per core: Python writes floats in shortest form
+  (`1.0`, `1e+16`) where TypeScript and Go write `1` and every digit, and Go
+  escapes U+2028 and U+2029. The `limit` cases stand for
+  `{"note": "x" * note_length}`, so the file stays small; `is_accepted` is the
+  Client check at `max_session_settings_bytes`, and `is_accepted_by_session`
+  the session's check with `session_settings_size_tolerance_bytes` more;
 - `final_tool_call_statuses`: the statuses a record keeps;
 - `mcp_resource_and_prompt_tool_names`: the read tools an MCP tool source
   offers for resources and prompts;
@@ -259,7 +269,11 @@ A new core, such as Go at `agents/go/core`, passes the suite like this:
    constants: Step types in order, RPC names, transactional flags, locks and
    loads, persistence names and kinds, event types, enum values, final
    statuses, key examples, interrupt ID formats, and every `limits` entry
-   against the core's own constants.
+   against the core's own constants. Compute each `session_settings_sizes`
+   size with the core's own function, using the core's own entry in
+   `bytes_by_core` when there is one, and check that the core's Client and
+   session checks accept and refuse the limit cases as `is_accepted` and
+   `is_accepted_by_session` say.
 5. Render every `texts.json` constant and template with the core's own
    functions and compare byte for byte, with no canonicalization. Do the same
    for the MCP resource and prompt tool definitions and argument errors.

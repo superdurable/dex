@@ -20,6 +20,8 @@ import {
   agentUserMessageCodec,
   planExecutionRequestCodec,
   contextSummaryCodec,
+  sessionSettingsCodec,
+  turnSessionSettingsCodec,
   toolCallCancellationCodec,
   toolCallCompletedCodec,
   turnCancellationRequestCodec,
@@ -37,6 +39,8 @@ import type {
   AgentUserMessage,
   PlanExecutionRequest,
   ContextSummary,
+  SessionSettings,
+  TurnSessionSettings,
   ToolCallCancellation,
   ToolCallCompleted,
   TurnCancellationRequest,
@@ -121,6 +125,16 @@ export interface AgentSessionPersistence {
    * set once the session compacts. Only `CompactContext` writes it.
    */
   readonly contextSummary: Attribute<ContextSummary>;
+  /**
+   * The `SessionSettings` Attribute: the settings the next turn starts with, from the start input and then each
+   * `update_session_settings`. Unset when the session has none.
+   */
+  readonly sessionSettings: Attribute<SessionSettings>;
+  /**
+   * The `TurnSessionSettings` Attribute: the settings a turn started with, tagged with its turn, copied from
+   * `SessionSettings` when the turn began. A copy from an earlier turn reads as no settings.
+   */
+  readonly turnSessionSettings: Attribute<TurnSessionSettings>;
 }
 
 export function createAgentSessionPersistence(
@@ -146,6 +160,8 @@ export function createAgentSessionPersistence(
     planExecutions: new ChannelMap("PlanExecutions", planExecutionRequestCodec),
     pendingPlanExecution: new Attribute("PendingPlanExecution", planExecutionRequestCodec),
     contextSummary: new Attribute("ContextSummary", contextSummaryCodec),
+    sessionSettings: new Attribute("SessionSettings", sessionSettingsCodec),
+    turnSessionSettings: new Attribute("TurnSessionSettings", turnSessionSettingsCodec),
   };
 }
 

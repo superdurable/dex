@@ -54,11 +54,13 @@ from dex_agents.persistence import (
     PENDING_PLAN_EXECUTION,
     PLAN_EXECUTIONS,
     QUEUED_USER_MESSAGES,
+    SESSION_SETTINGS,
     STEERED_USER_MESSAGES,
     TOOL_CALL_CANCELLATIONS,
     TOOL_CALL_RESULTS,
     TURN_CANCELLATION_REQUEST,
     TURN_CONTROL_REQUESTS,
+    TURN_SESSION_SETTINGS,
     message_sequence_key,
     plan_execution_key,
 )
@@ -107,10 +109,17 @@ from dex_agents.runner import (
 )
 from dex_agents.session_flow import (
     BLANK_TOOL_TASK_ID,
+    INVALID_START_SESSION_SETTINGS_REASON,
     INVALID_TOOL_TASK_POLL_INTERVAL,
     MISSING_TOOL_TASK_POLLER,
     AgentSessionFlow,
     AgentSessionOptions,
+)
+from dex_agents.session_settings import (
+    MAX_SESSION_SETTINGS_BYTES,
+    SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+    session_settings_size,
+    validate_session_settings,
 )
 from dex_agents.tracing import AgentTracingOptions, GenAISemanticConventionsVersion
 from dex_agents.values import (
@@ -154,6 +163,8 @@ from dex_agents.values import (
     TurnCancellationRequest,
     TurnControlKind,
     TurnControlRequest,
+    TurnSessionSettings,
+    UpdateSessionSettingsRequest,
 )
 
 __all__ = [
@@ -172,7 +183,9 @@ __all__ = [
     "DEFAULT_REJECTION_TOOL_RESULT",
     "FRAMEWORK_RUN_STATE",
     "INTERRUPT_RESOLUTIONS",
+    "INVALID_START_SESSION_SETTINGS_REASON",
     "INVALID_TOOL_TASK_POLL_INTERVAL",
+    "MAX_SESSION_SETTINGS_BYTES",
     "MISSING_TOOL_TASK_POLLER",
     "NO_PLAN_NOTE",
     "OUTCOME_UNKNOWN_TOOL_RESULT",
@@ -184,6 +197,8 @@ __all__ = [
     "QUESTION_DEADLINE_PASSED",
     "QUESTION_DECLINED_TOOL_RESULT",
     "QUEUED_USER_MESSAGES",
+    "SESSION_SETTINGS",
+    "SESSION_SETTINGS_SIZE_TOLERANCE_BYTES",
     "STEERED_USER_MESSAGES",
     "TOOL_CALL_CANCELLATIONS",
     "TOOL_CALL_CANCELLED_BY_STEERING_RESULT",
@@ -194,6 +209,7 @@ __all__ = [
     "TURN_CONTROL_REQUESTS",
     "TURN_FAILURE_NOTE_FOOTER",
     "TURN_FAILURE_NOTE_HEADER",
+    "TURN_SESSION_SETTINGS",
     "TURN_STEERED_NOTE_HEADER",
     "WRITE_TODOS_CALLED_MORE_THAN_ONCE",
     "AgentEvent",
@@ -269,7 +285,9 @@ __all__ = [
     "TurnCompleted",
     "TurnControlKind",
     "TurnControlRequest",
+    "TurnSessionSettings",
     "UnfinishedTurnMessageBuilder",
+    "UpdateSessionSettingsRequest",
     "build_plan_execution_message",
     "build_plan_note",
     "build_turn_failure_note",
@@ -278,4 +296,6 @@ __all__ = [
     "plan_execution_key",
     "plan_status_after_write",
     "resolve_tool_policy",
+    "session_settings_size",
+    "validate_session_settings",
 ]

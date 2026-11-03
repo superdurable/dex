@@ -28,6 +28,8 @@ from dex_examples.products.ai_agent.ai_agent_session import (
     DEMO_MODEL,
 )
 
+DEMO_MINI_MODEL = "mock/dex-mini"
+
 DEFAULT_TIMEOUT = timedelta(hours=1)
 
 
@@ -36,7 +38,8 @@ class ExamplesConfig:
     server_address: str
     http_address: str
     blob_cache_dir: Path
-    agent_model: str = DEMO_MODEL
+    # Models a session may pick when it starts; the first is the default.
+    agent_models: tuple[str, ...] = (DEMO_MODEL, DEMO_MINI_MODEL)
     agent_system_prompt: str = DEFAULT_SYSTEM_PROMPT
     agent_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
     agent_mcp_config: Path | None = None
@@ -54,7 +57,10 @@ class ExamplesConfig:
                     "/tmp/dex-examples-python-blob-cache",
                 )
             ),
-            agent_model=os.environ.get("DEX_AGENT_MODEL", DEMO_MODEL),
+            agent_models=_agent_models(
+                os.environ.get("DEX_AGENT_MODEL", DEMO_MODEL),
+                os.environ.get("DEX_AGENT_MODELS", ""),
+            ),
             agent_system_prompt=os.environ.get(
                 "DEX_AGENT_SYSTEM_PROMPT",
                 DEFAULT_SYSTEM_PROMPT,
@@ -77,3 +83,11 @@ class ExamplesConfig:
 
 def start_options() -> StartFlowOptions:
     return StartFlowOptions(timeout=DEFAULT_TIMEOUT)
+
+
+def _agent_models(default_model: str, other_models: str) -> tuple[str, ...]:
+    """Returns the default model first, then the comma-separated others, without repeats."""
+    others = [model.strip() for model in other_models.split(",") if model.strip()]
+    if not others and default_model == DEMO_MODEL:
+        others = [DEMO_MINI_MODEL]
+    return tuple(dict.fromkeys([default_model, *others]))

@@ -214,7 +214,7 @@ class ExampleApp:
         self.processing = ProcessingFlow(client_provider, lambda: self.controller)
         self.ai_agent_mcp_servers = load_mcp_servers(config.agent_mcp_config)
         self.ai_agent = build_ai_agent_session_flow(
-            config.agent_model,
+            config.agent_models,
             config.agent_system_prompt,
             config.agent_context_tokens,
             self.ai_agent_mcp_servers,

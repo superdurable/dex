@@ -24,7 +24,9 @@ The model reads the current turn's user text:
   A first task ``stall <gate>`` waits at that gate before the lookup.
 
 Every model call records its request as JSON in ``model-requests.log``.
-``PLAN_AGENT_PLANNING_TOOL_CHOICE`` sets ``planning_tool_choice``.
+``PLAN_AGENT_PLANNING_TOOL_CHOICE`` sets ``planning_tool_choice``. A session
+whose settings set ``"refuses_forced_tool_choice"`` resolves a model client that
+reports it cannot force a tool choice.
 ``PLAN_AGENT_USER_MESSAGE_GATE`` set to ``<block|fail>:<text prefix>`` makes
 ``build_user_message`` wait at the ``user-message`` gate, or fail, for user
 text with that prefix until the gate is released.
@@ -37,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +51,7 @@ from dex_agents import (
 )
 from dex_agents.stepwise import (
     AgentDefinition,
+    ModelClient,
     ModelRequest,
     NamedToolChoice,
     PlanningToolChoice,
@@ -168,10 +172,17 @@ def build_plan_agent_flow(
             return ScriptedModelReply(text=f"stalled at {rest}")
         return ScriptedModelReply(text=f"said: {command}")
 
+    model = ScriptedModelClient(respond)
+    refusing_model = _RefusesForcedToolChoiceClient(model)
+
+    def resolve_model(session_settings: Mapping[str, Any]) -> ModelClient:
+        return refusing_model if session_settings.get("refuses_forced_tool_choice") else model
+
     definition = AgentDefinition(
         name="plan-test",
         instructions="You are a scripted planning agent.",
-        model=ScriptedModelClient(respond),
+        model=model,
+        resolve_model=resolve_model,
         tools=[lookup_order, publish_note],
         built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.WRITE_TODOS}),
         plan_mode_enabled=True,
@@ -238,3 +249,19 @@ def _write_todos(todos: list[dict[str, str]]) -> ScriptedModelReply:
 
 def _write_todos_call(todos: list[dict[str, str]]) -> ScriptedToolCall:
     return ScriptedToolCall(tool_name=BuiltInTool.WRITE_TODOS, arguments={"todos": todos})
+
+
+class _RefusesForcedToolChoiceClient:
+    """Delegates to a scripted client but reports that its model cannot force a tool choice."""
+
+    def __init__(self, scripted: ScriptedModelClient) -> None:
+        self._scripted = scripted
+
+    async def call_model(self, request: ModelRequest, output: Any) -> Any:
+        return await self._scripted.call_model(request, output)
+
+    def estimate_input_tokens(self, request: ModelRequest) -> int:
+        return self._scripted.estimate_input_tokens(request)
+
+    def supports_forced_tool_choice(self, settings: object) -> bool:
+        return False

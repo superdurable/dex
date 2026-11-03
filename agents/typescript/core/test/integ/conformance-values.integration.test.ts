@@ -60,6 +60,13 @@ import {
 } from "../../src/agent-session-codecs.js";
 import { defaultMaxDurableWaitMs, messagePageLimit, snapshotMessageLimit } from "../../src/agent-session-flow.js";
 import { defaultAgentEventsCapacityBytes, messageSequenceKey, planExecutionKey } from "../../src/agent-session-persistence.js";
+import {
+  MAX_SESSION_SETTINGS_BYTES,
+  SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+  checkStoredSessionSettings,
+  sessionSettingsSize,
+  validateSessionSettings,
+} from "../../src/agent-session-settings.js";
 import { questionInterruptId } from "../../src/agent-session-steps.js";
 import { allPendingMessages } from "../../src/agent-session-transitions.js";
 import {
@@ -145,6 +152,21 @@ interface NamesManifest {
   readonly final_tool_call_statuses: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
   readonly mcp_resource_and_prompt_tool_names: readonly string[];
+  readonly session_settings_sizes: {
+    readonly examples: readonly {
+      readonly name: string;
+      readonly settings: Readonly<Record<string, unknown>>;
+      readonly bytes: number;
+      readonly bytes_by_core?: Readonly<Record<string, number>>;
+    }[];
+    readonly limit: readonly {
+      readonly name: string;
+      readonly note_length: number;
+      readonly bytes: number;
+      readonly is_accepted: boolean;
+      readonly is_accepted_by_session: boolean;
+    }[];
+  };
   readonly stepwise_tool_source_reference: {
     readonly cases: readonly {
       readonly source_name: string;
@@ -421,6 +443,27 @@ describe("the conformance suite's names manifest", () => {
     );
   });
 
+  test("session settings sizes and the limit match the TypeScript core", () => {
+    for (const example of names.session_settings_sizes.examples) {
+      const expected = example.bytes_by_core?.["typescript"] ?? example.bytes;
+      assert.equal(sessionSettingsSize(example.settings), expected, example.name);
+    }
+    for (const limitCase of names.session_settings_sizes.limit) {
+      const settings = { note: "x".repeat(limitCase.note_length) };
+      assert.equal(sessionSettingsSize(settings), limitCase.bytes, limitCase.name);
+      for (const [check, isAccepted] of [
+        [validateSessionSettings, limitCase.is_accepted],
+        [checkStoredSessionSettings, limitCase.is_accepted_by_session],
+      ] as const) {
+        if (isAccepted) {
+          check(settings);
+        } else {
+          assert.throws(() => check(settings), RangeError, limitCase.name);
+        }
+      }
+    }
+  });
+
   test("limits and final statuses match the TypeScript constants", () => {
     assert.deepEqual(names.limits, {
       snapshot_message_limit: snapshotMessageLimit,
@@ -429,6 +472,8 @@ describe("the conformance suite's names manifest", () => {
       default_max_durable_wait_seconds: defaultMaxDurableWaitMs / 1_000,
       turn_control_at_most: allPendingMessages,
       stepwise_default_max_model_calls_per_turn: defaultMaxModelCallsPerTurn,
+      max_session_settings_bytes: MAX_SESSION_SETTINGS_BYTES,
+      session_settings_size_tolerance_bytes: SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
     });
     assert.deepEqual(
       Object.keys(enums["ToolCallStatus"] ?? {}).filter((status) =>

@@ -20,7 +20,9 @@ import type {
   AgentState,
   AgentToolCallRecord,
   PendingUserMessage,
+  SessionSettings,
 } from "../agent-session-values.js";
+import { validateSessionSettings } from "../agent-session-settings.js";
 import { pollUntil } from "./polling.js";
 
 const lockConflictRetryTimeoutMs = 30_000;
@@ -67,14 +69,30 @@ export class AgentSessionTestClient {
    * @param sessionId - Flow ID of the new session.
    * @param initialMessage - First user message, or `null` to start idle. Defaults to `null`.
    * @param startFlowOptions - Start options, such as a `configOverride` with `stepDurability`.
+   * @param sessionSettings - The session's settings, or `null` to start without settings. Defaults to `null`.
    * @returns A Promise that resolves after Dex accepted the start.
+   * @throws {TypeError | RangeError} From `validateSessionSettings`, before anything is sent.
    */
   public async startSession(
     sessionId: string,
     initialMessage: string | null = null,
     startFlowOptions: StartFlowOptions = {},
+    sessionSettings: SessionSettings | null = null,
   ): Promise<void> {
-    await this.client.startFlow(this.flow, sessionId, { initialMessage }, startFlowOptions);
+    if (sessionSettings !== null) {
+      validateSessionSettings(sessionSettings);
+    }
+    await this.client.startFlow(this.flow, sessionId, { initialMessage, sessionSettings }, startFlowOptions);
+  }
+
+  /**
+   * Calls `update_session_settings`.
+   * @param sessionId - Session Flow ID.
+   * @param sessionSettings - The complete new settings; `{}` clears them.
+   * @returns The RPC result: `false` before the session initialized or for settings over the limit.
+   */
+  public updateSessionSettings(sessionId: string, sessionSettings: SessionSettings): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.updateSessionSettings, sessionId, { sessionSettings });
   }
 
   /**

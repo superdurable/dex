@@ -104,11 +104,28 @@ export interface PlanExecutionRequest {
 }
 
 /**
+ * A session's settings: one JSON object that the application chooses, such as `{ model: "gpt-5-mini" }`.
+ *
+ * Set them in {@link AgentSessionStartInput.sessionSettings} and replace them with the
+ * `update_session_settings` RPC. A runner reads the settings of the running turn from
+ * `AgentTurnContext.sessionSettings`; a Stepwise agent maps them to a model client with
+ * `AgentDefinition.resolveModel`. Keys keep their spelling on the wire; nothing is converted to snake_case.
+ *
+ * Settings are stored in the session and returned by `get_agent_snapshot`, so never put a secret in them. Put a
+ * reference, such as a credential name, that the Worker resolves. Their compact JSON text must fit in
+ * `MAX_SESSION_SETTINGS_BYTES`; see `validateSessionSettings`.
+ */
+export type SessionSettings = Readonly<Record<string, unknown>>;
+
+/**
  * Input of the `StartAgentSession` Step, passed to `Client.startFlow`.
  *
  * @example
  * ```ts
- * await client.startFlow(flow, "session-42", { initialMessage: "Summarize my inbox" });
+ * await client.startFlow(flow, "session-42", {
+ *   initialMessage: "Summarize my inbox",
+ *   sessionSettings: { model: "gpt-5-mini" },
+ * });
  * ```
  */
 export interface AgentSessionStartInput {
@@ -117,6 +134,15 @@ export interface AgentSessionStartInput {
    * Blank text is treated as `null`. Wire field: `initial_message`.
    */
   readonly initialMessage: string | null;
+  /**
+   * The session's {@link SessionSettings}, which every turn's `AgentTurnContext.sessionSettings` carries until
+   * `update_session_settings` replaces them. Absent or `null` starts without settings. Settings that the session
+   * refuses, because they are not a JSON object or are too large, fail the session at once with no retry; check
+   * them first with `validateSessionSettings`. Never put a secret in them: `get_agent_snapshot` and the browser
+   * snapshot JSON return them. Start sessions with settings only after every Worker of the Flow type runs
+   * dex-agents 0.2.0, because a 0.1.0 Worker drops them. Wire field: `session_settings`.
+   */
+  readonly sessionSettings?: SessionSettings | null;
 }
 
 /** Small durable summary of an agent session, stored in the `AgentState` Attribute. */
@@ -606,6 +632,37 @@ export interface CancelTurnRequest {
   readonly turnId: string | null;
 }
 
+/**
+ * Input of the `update_session_settings` RPC, which replaces the session's settings from the next turn on.
+ *
+ * @example
+ * ```ts
+ * await client.invokeRpc(flow.updateSessionSettings, "session-42", { sessionSettings: { model: "gpt-5" } });
+ * ```
+ */
+export interface UpdateSessionSettingsRequest {
+  /**
+   * The complete new {@link SessionSettings}. They replace the old settings; nothing is merged, and `{}` clears
+   * them. Never put a secret in them. `null`, which a missing field also decodes to, makes the RPC return
+   * `false` and change nothing. Wire field: `session_settings`.
+   */
+  readonly sessionSettings: SessionSettings | null;
+}
+
+/**
+ * The settings one turn started with, stored in the `TurnSessionSettings` Attribute.
+ *
+ * The Step that starts a turn writes it in the commit that starts the turn. The session reads it only while
+ * {@link turnId} is `AgentState.activeTurnId`, so a copy an earlier turn left, such as when a Worker without
+ * session settings started the current turn, reads as no settings.
+ */
+export interface TurnSessionSettings {
+  /** Turn ID of the turn that started with these settings. Wire field: `turn_id`. */
+  readonly turnId: string;
+  /** The settings, a non-empty JSON object. Wire field: `session_settings`. */
+  readonly sessionSettings: SessionSettings;
+}
+
 /** Name of the RPC that published one {@link TurnControlRequest}. */
 export type TurnControlKind = "steer" | "cancel_turn";
 
@@ -828,6 +885,12 @@ export interface AgentSnapshot {
    * optional so that 0.1.0 code that builds a snapshot keeps compiling.
    */
   readonly contextSummary?: ContextSummary | null;
+  /**
+   * The `SessionSettings` Attribute: the settings the next turn starts with, or `null` when the session has
+   * none. The active turn may still run with the settings it started with. Wire field: `session_settings`. The
+   * RPC always sets it; it is optional so that 0.1.0 code that builds a snapshot keeps compiling.
+   */
+  readonly sessionSettings?: SessionSettings | null;
 }
 
 /** Input of the `list_agent_messages` RPC. */

@@ -40,6 +40,7 @@ import {
   listAgentMessagesInputCodec,
   resolveInterruptInputCodec,
   steerUserMessageRequestCodec,
+  updateSessionSettingsRequestCodec,
 } from "./agent-session-codecs.js";
 import {
   createAgentSessionPersistence,
@@ -47,6 +48,7 @@ import {
   planExecutionKey,
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
+import { checkStoredSessionSettings } from "./agent-session-settings.js";
 import {
   ApplyTurnControlStep,
   AwaitToolApprovalStep,
@@ -81,6 +83,7 @@ import type {
   ResolveInterruptInput,
   SteerUserMessageRequest,
   ToolEffect,
+  UpdateSessionSettingsRequest,
 } from "./agent-session-values.js";
 import {
   genAISemanticConventionsSchemaUrls,
@@ -197,7 +200,7 @@ export interface ResolvedAgentSessionOptions {
  * Create one per agent with {@link createAgentSessionFlow}, register it in the process `Registry`, and
  * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `steer_user_message`,
  * `delete_queued_message`, `cancel_turn`, `resolve_interrupt`, `answer_question`, `execute_plan`,
- * `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never completes on its
+ * `update_session_settings`, `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never completes on its
  * own: it waits for the next user message after every turn. Stop it with `Client.stopFlow`.
  *
  * `steer_user_message` and `cancel_turn` end the running turn at its next safe Step boundary. Neither interrupts a
@@ -327,6 +330,33 @@ export interface AgentSessionFlow<
    * `false` when no turn is active, `turnId` names another turn, or the active turn does not accept cancellation.
    */
   cancelTurn(context: Context, input: CancelTurnRequest): RPCResult<boolean>;
+  /**
+   * RPC `update_session_settings`: replaces the session's settings from the next turn on.
+   *
+   * The new settings apply when the next turn starts, the same boundary at which a `planMode` message takes
+   * effect. A running turn keeps the settings it started with for every model call, retry, and compaction, so one
+   * turn never mixes two models. The settings replace the old ones; nothing is merged, and `{}` clears them, so
+   * `get_agent_snapshot` returns `null`.
+   *
+   * Settings are stored in the session and returned by `get_agent_snapshot`, and the browser snapshot JSON of
+   * `@superdurable/dex-agents/ui-stream` includes them. Never put a secret or anything a browser must not see in
+   * them; put a reference, such as a credential name, that the Worker resolves. Call the RPC only after every
+   * Worker of the Flow type runs dex-agents 0.2.0.
+   *
+   * The RPC locks nothing. When two updates race, the one that commits last wins. A turn that starts between
+   * this RPC's read and its commit runs with the earlier settings, and the next turn gets these.
+   *
+   * @example
+   * ```ts
+   * await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings: { model: "gpt-5" } });
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - The complete new settings.
+   * @returns `true` when the settings are stored; `false` before `StartAgentSession` committed, or when the
+   * settings are `null` (a missing or `null` field), are not a JSON object, or are larger than
+   * `MAX_SESSION_SETTINGS_BYTES` plus `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES`.
+   */
+  updateSessionSettings(context: Context, input: UpdateSessionSettingsRequest): RPCResult<boolean>;
   /**
    * RPC `resolve_interrupt`: approves or rejects one pending tool approval, or declines one question.
    *
@@ -475,6 +505,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly planExecutions = persistence.planExecutions;
     public readonly pendingPlanExecution = persistence.pendingPlanExecution;
     public readonly contextSummary = persistence.contextSummary;
+    public readonly sessionSettings = persistence.sessionSettings;
+    public readonly turnSessionSettings = persistence.turnSessionSettings;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
@@ -522,6 +554,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.agentPlan,
           persistence.pendingPlanExecution,
           persistence.contextSummary,
+          persistence.sessionSettings,
+          persistence.turnSessionSettings,
         ],
         channels: [
           persistence.queuedUserMessages,
@@ -663,6 +697,30 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       return { output: true };
     }
 
+    @rpc<UpdateSessionSettingsRequest, boolean>({
+      name: "update_session_settings",
+      inputCodec: updateSessionSettingsRequestCodec,
+      outputCodec: booleanCodec,
+      isTransactional: true,
+    })
+    public updateSessionSettings(context: Context, input: UpdateSessionSettingsRequest): RPCResult<boolean> {
+      const sessionSettings = input.sessionSettings;
+      if (transitions.readOptionalAgentState(context) === null || sessionSettings === null) {
+        return { output: false };
+      }
+      try {
+        checkStoredSessionSettings(sessionSettings);
+      } catch {
+        return { output: false };
+      }
+      if (Object.keys(sessionSettings).length > 0) {
+        persistence.sessionSettings.set(context, sessionSettings);
+      } else if (transitions.readSessionSettings(context) !== null) {
+        persistence.sessionSettings.delete(context);
+      }
+      return { output: true };
+    }
+
     @rpc<ResolveInterruptInput, boolean>({
       name: "resolve_interrupt",
       inputCodec: resolveInterruptInputCodec,
@@ -743,6 +801,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
             queuedMessages: [],
             steeredMessages: [],
             contextSummary: null,
+            sessionSettings: null,
           },
         };
       }
@@ -759,6 +818,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           queuedMessages: readPendingUserMessages(context, persistence.queuedUserMessages),
           steeredMessages: readPendingUserMessages(context, persistence.steeredUserMessages),
           contextSummary: transitions.readContextSummary(context),
+          sessionSettings: transitions.readSessionSettings(context),
         },
       };
     }

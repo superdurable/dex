@@ -14,13 +14,16 @@
 
 """The AIAgentSession Flow: a Dex Agents Stepwise agent with the Worker's MCP tools.
 
-The model, the system prompt, the context window, and the MCP servers are
-Worker configuration, shared by every session of this Worker. The model
-"mock/dex" is a local demo model that needs no provider key. It replies
-"Local demo response: <text>" and reads slash commands, so the UI and the tests
-reach every feature: /tool <name> <json>, /ask <question>, /ask-many <question>,
-/choose <question> | <choice> | <choice>, /wait <seconds> <reason>,
-/slow <seconds> <text>, /plan-stop <objective>, and /plan-clear.
+The models the Worker allows, the system prompt, the context window, and the
+MCP servers are Worker configuration, shared by every session of this Worker.
+Each session picks one of the allowed models when it starts: its session
+settings carry only the model name, and the Worker maps the name to a model
+client. A "mock/..." model, such as "mock/dex", is a local demo model that
+needs no provider key. It replies "Local demo response: <text>" and reads
+slash commands, so the UI and the tests reach every feature: /tool <name>
+<json>, /ask <question>, /ask-many <question>, /choose <question> | <choice> |
+<choice>, /wait <seconds> <reason>, /slow <seconds> <text>, /plan-stop
+<objective>, /plan-clear, and /model, which names the model.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 
 import yaml
@@ -36,12 +39,14 @@ from dex_agents import AgentSessionFlow, BuiltInTool, CompactionPolicy
 from dex_agents.litellm import LiteLLMModelClient
 from dex_agents.mcp import McpServerConfig, McpStdioServerConfig, McpStreamableHttpServerConfig
 from dex_agents.mcp import McpToolSource
-from dex_agents.stepwise import CONTEXT_SUMMARY_INSTRUCTIONS, AgentDefinition, ModelRequest
+from dex_agents.stepwise import CONTEXT_SUMMARY_INSTRUCTIONS, AgentDefinition, ModelClient
+from dex_agents.stepwise import ModelRequest
 from dex_agents.stepwise import ScriptedModelClient, ScriptedModelReply, ScriptedToolCall
 from dex_agents.stepwise import stepwise_agent_session_flow
 
 AI_AGENT_SESSION_FLOW_TYPE = "AIAgentSession"
 DEMO_MODEL = "mock/dex"
+DEMO_MODEL_PREFIX = "mock/"
 DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful durable AI agent. Use tools when they help, explain "
     "important actions, and never claim a tool succeeded unless its result says so."
@@ -54,18 +59,19 @@ MCP_SERVER_KEYS = frozenset(
 
 
 def build_ai_agent_session_flow(
-    model: str,
+    models: Sequence[str],
     system_prompt: str,
     context_window_tokens: int,
     mcp_servers: Sequence[McpServerConfig],
 ) -> AgentSessionFlow:
+    """Builds the agent; ``models`` are the allowed model names, and the first is the default."""
+    clients = {model: _model_client(model) for model in models}
     definition = AgentDefinition(
         name="ai-agent",
         instructions=system_prompt,
-        # LiteLLM reads the provider key from the Worker's environment, never from Flow state.
-        model=ScriptedModelClient(reply_as_demo_model)
-        if model == DEMO_MODEL
-        else LiteLLMModelClient(model),
+        model=clients[models[0]],
+        # Settings hold only a model name; an unknown one gets the default, never a new client.
+        resolve_model=lambda settings: clients.get(str(settings.get("model")), clients[models[0]]),
         tool_sources=[McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)]
         if mcp_servers
         else [],
@@ -74,6 +80,17 @@ def build_ai_agent_session_flow(
         compaction=CompactionPolicy(context_window_tokens=context_window_tokens),
     )
     return stepwise_agent_session_flow(definition, flow_type=AI_AGENT_SESSION_FLOW_TYPE)
+
+
+def _model_client(model: str) -> ModelClient:
+    if model.startswith(DEMO_MODEL_PREFIX):
+        return ScriptedModelClient(_demo_model_reply(model))
+    # LiteLLM reads the provider key from the Worker's environment, never from Flow state.
+    return LiteLLMModelClient(model)
+
+
+def _demo_model_reply(model: str) -> Callable[[ModelRequest], Awaitable[ScriptedModelReply]]:
+    return lambda request: reply_as_demo_model(request, model)
 
 
 def load_mcp_servers(path: Path | None) -> list[McpServerConfig]:
@@ -124,11 +141,11 @@ APPROVED_PLAN_PREFIX = "[Dex] The user approved plan revision"
 DEMO_COMMAND_USAGE = (
     "Usage: /tool <name> <json>, /ask <question>, /ask-many <question>, "
     "/choose <question> | <choice> | <choice>, /wait <seconds> <reason>, "
-    "/slow <seconds> <text>, /plan-stop <objective>, or /plan-clear."
+    "/slow <seconds> <text>, /plan-stop <objective>, /plan-clear, or /model."
 )
 
 
-async def reply_as_demo_model(request: ModelRequest) -> ScriptedModelReply:
+async def reply_as_demo_model(request: ModelRequest, model: str = DEMO_MODEL) -> ScriptedModelReply:
     if request.instructions == CONTEXT_SUMMARY_INSTRUCTIONS:
         return ScriptedModelReply(text=f"Summary of {len(request.input_items)} earlier items.")
     user_texts = ScriptedModelClient.user_texts(request)
@@ -149,7 +166,7 @@ async def reply_as_demo_model(request: ModelRequest) -> ScriptedModelReply:
             return ScriptedModelReply(tool_calls=tool_calls)
         answered_count -= len(tool_calls)
     if not results:
-        return ScriptedModelReply(text=DEMO_REPLY_PREFIX + objective)
+        return ScriptedModelReply(text=DEMO_REPLY_PREFIX + (model if objective == "/model" else objective))
     outputs = "; ".join(_readable_tool_output(result.output) for result in results)
     return ScriptedModelReply(text=DEMO_REPLY_PREFIX + outputs)
 

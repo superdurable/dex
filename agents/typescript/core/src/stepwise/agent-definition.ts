@@ -9,7 +9,7 @@
 import type { BuiltInTool } from "../agent-built-in-tools.js";
 import type { CompactionPolicy } from "../agent-context-compaction.js";
 import type { ToolPolicy } from "../agent-framework-runner.js";
-import type { AgentPlan, InteractionMode, ToolEffect } from "../agent-session-values.js";
+import type { AgentPlan, InteractionMode, SessionSettings, ToolEffect } from "../agent-session-values.js";
 import type { FunctionTool } from "./function-tool.js";
 import type { ModelClient, ModelSettings } from "./model-client.js";
 import type { ToolSource } from "./tool-source.js";
@@ -35,6 +35,11 @@ export interface InstructionContext {
    * adapt the instructions. The runner always sets it.
    */
   readonly plan?: AgentPlan | null;
+  /**
+   * The {@link SessionSettings} the turn started with, such as a persona or prompt name. Empty when the session
+   * has none. The runner always sets it; treat `undefined` as `{}`.
+   */
+  readonly sessionSettings?: SessionSettings;
 }
 
 /**
@@ -71,8 +76,41 @@ export interface AgentDefinition {
    * it can depend on the turn; it must not have side effects.
    */
   readonly instructions: string | ((context: InstructionContext) => string | Promise<string>);
-  /** The model client, such as `createAiSdkModelClient(model)`. */
+  /**
+   * The model client, such as `createAiSdkModelClient(model)`. It serves every model call unless
+   * {@link resolveModel} is set.
+   */
   readonly model: ModelClient;
+  /**
+   * Maps the turn's `AgentTurnContext.sessionSettings` to the model client of each model call, including the
+   * calls that write and size a summary.
+   *
+   * It runs on every `RunModel` and `CompactContext` attempt, so keep it fast and free of I/O: look the model up
+   * in clients the Worker built at startup. The settings come from the application's start input or
+   * `update_session_settings`, so choose only from models the Worker allows. A session without settings passes
+   * `{}`. An exception fails that attempt like a model error, and its message becomes the turn's
+   * `lastTurnError`, which snapshots show, so never put the settings in an error message. Absent, {@link model}
+   * serves every call. Only model calls see the settings: tool calls do not receive them, and the compaction
+   * policy's `contextWindowTokens` is one value for every resolved model, so set it for the smallest window. This
+   * core does not check whether a resolved model accepts a forced tool choice; see {@link planningToolChoice}.
+   *
+   * @example
+   * ```ts
+   * const models: Record<string, ModelClient> = {
+   *   "gpt-5-mini": createAiSdkModelClient(openai("gpt-5-mini")),
+   *   "gpt-5": createAiSdkModelClient(openai("gpt-5")),
+   * };
+   * const definition: AgentDefinition = {
+   *   name: "support",
+   *   instructions: "You help customers with their orders.",
+   *   model: models["gpt-5-mini"],
+   *   resolveModel: (settings) => models[String(settings.model)] ?? models["gpt-5-mini"],
+   * };
+   * ```
+   * @param sessionSettings - The settings the turn started with.
+   * @returns The model client for this call.
+   */
+  readonly resolveModel?: (sessionSettings: SessionSettings) => ModelClient;
   /** Temperature, maximum output tokens, reasoning effort, and provider options. Defaults to none. */
   readonly modelSettings?: ModelSettings;
   /** Function tools from {@link functionTool}. Defaults to none. */

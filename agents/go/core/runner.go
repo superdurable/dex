@@ -314,6 +314,12 @@ type AgentTurnContext struct {
 	Heartbeat func() error
 	// InteractionMode is the turn's AgentState.InteractionMode. This Go core runs chat turns.
 	InteractionMode InteractionMode
+	// SessionSettings are the settings this turn started with, such as {"model": "gpt-5-mini"}.
+	// Use them to choose the model or the instructions of each model call.
+	// update_session_settings changes them from the next turn on, so every model call of one
+	// turn sees the same value, retries included. The map is empty, never nil, when the session
+	// has no settings. Treat it as read-only. JSON numbers decode as float64.
+	SessionSettings map[string]any
 }
 
 // IsResuming reports whether this model call continues the turn after tool calls.

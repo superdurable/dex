@@ -14,6 +14,7 @@ import {
   Timer,
   Wait,
   deadEnd,
+  forceFail,
   goTo,
   goToMany,
   stringCodec,
@@ -77,6 +78,7 @@ import {
   planExecutionKey,
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
+import { checkStoredSessionSettings } from "./agent-session-settings.js";
 import type { ToolCallSpan } from "./agent-session-tracer.js";
 import {
   approvalDeadlinePassed,
@@ -126,6 +128,10 @@ const expectedResultCountCodec: Codec<number> = {
   decode: (value) => requirePositiveResultCount(Number(int64Codec.decode(value))),
 };
 
+/** Start of the Flow failure reason when `StartAgentSession` refuses the start input's settings. */
+export const invalidStartSessionSettingsReason =
+  "dex-agents: the start input's session_settings are not valid session settings";
+
 export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
   public readonly inputCodec = agentSessionStartInputCodec;
 
@@ -149,6 +155,18 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
       lastTurnError: null,
       acceptsTurnControl: false,
     };
+    const sessionSettings = input.sessionSettings ?? null;
+    if (sessionSettings !== null) {
+      try {
+        checkStoredSessionSettings(sessionSettings);
+      } catch (error: unknown) {
+        // Every retry would fail the same way, so the session fails now.
+        return forceFail(`${invalidStartSessionSettingsReason}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (Object.keys(sessionSettings).length > 0) {
+        persistence.sessionSettings.set(context, sessionSettings);
+      }
+    }
     this.transitions.writeAgentState(context, state);
     persistence.agentUsage.set(context, emptyAgentUsage());
     persistence.pendingInterrupts.set(context, []);
@@ -156,7 +174,16 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
     if (initialMessage === null || isBlankText(initialMessage)) {
       return this.transitions.goToAwaitUserMessage();
     }
-    return this.transitions.beginTurn(context, state, [{ text: initialMessage }], this.getStepType());
+    return this.transitions.beginTurn(
+      context,
+      state,
+      [{ text: initialMessage }],
+      this.getStepType(),
+      "chat",
+      undefined,
+      false,
+      sessionSettings,
+    );
   }
 }
 
@@ -712,6 +739,7 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
             cancellationSignal: context.cancellationSignal,
             deadline: context.deadline,
             ...(policy === undefined ? {} : { inputTokenBudget: policy.contextWindowTokens }),
+            sessionSettings: transitions.readTurnSessionSettings(context),
             heartbeat: () => transitions.recordHeartbeat(context),
           }),
         );

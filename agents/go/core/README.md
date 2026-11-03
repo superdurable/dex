@@ -34,6 +34,8 @@ Supported:
 - the turn-failure note;
 - incremental turn messages (A1: `ToolCallsRequested.NewMessages` and
   `UnfinishedTurnMessageBuilder`);
+- session settings and `update_session_settings`, with the Stepwise model
+  resolver;
 - Stepwise mode, with function tools;
 - the OpenAI (`openai-go`) and Anthropic (`anthropic-sdk-go`) model clients.
 
@@ -167,7 +169,8 @@ the outcome-unknown text.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `WithInstructionsFunction` | the fixed text | Instructions computed in every `RunModel` |
+| `WithInstructionsFunction` | the fixed text | Instructions computed in every `RunModel`; `InstructionContext.SessionSettings` carries the turn's settings |
+| `WithModelResolver` | the `model` argument | The model client of each model call, chosen from the turn's session settings |
 | `WithModelSettings` | `ModelSettings{}` | Temperature, maximum output tokens, reasoning effort, and provider options |
 | `WithFunctionTools` | none | Function tools, with unique names |
 | `WithToolPolicies` | none | `dexagents.ToolPolicy` by tool name, overriding a tool's own effect and approval |
@@ -208,6 +211,41 @@ request. Credentials come from the provider client, which reads
 `ModelSettings.ProviderOptions` set top-level request fields last. The
 Anthropic client sends `max_tokens` 4096 unless `MaxOutputTokens` is set, and
 takes extended thinking through provider options.
+
+### Session settings
+
+Session settings let one Flow type serve sessions that differ, such as by
+model. They are one JSON object, `map[string]any`, set at start and replaced
+with `update_session_settings`:
+
+```go
+runID, err := sessions.StartSessionWithSettings(ctx, "session-42", nil,
+	map[string]any{"model": "gpt-5"}, dex.StartFlowOptions{})
+isStored, err := sessions.UpdateSessionSettings(ctx, "session-42", map[string]any{"model": "gpt-5-mini"})
+```
+
+`StartAgentSession` stores them in the `SessionSettings` Attribute; an empty
+map clears them, and a nil map makes the RPC return false. A change takes
+effect when the next turn starts: the Step that starts a turn copies them into
+`TurnSessionSettings`, tagged with the turn, and the turn's model calls and
+retries read only that copy; a copy that an earlier turn left reads as no
+settings. Runners read `AgentTurnContext.SessionSettings`, an empty map when
+there are none, and `WithModelResolver` maps them to a model client the Worker
+built. Only model calls see them; tool calls do not. `get_agent_snapshot`
+returns the next turn's settings, not the running turn's.
+
+They are Flow state that `get_agent_snapshot` returns, so never put a secret,
+or anything a browser must not see, in them; put a reference that the Worker
+resolves. An error from the resolver becomes the turn's `LastTurnError`, which
+snapshots show, so keep the settings out of its message. Their compact JSON
+text is at most `MaxSessionSettingsBytes` (16 KiB); `ValidateSessionSettings`
+checks it, and `StartSessionWithSettings` and `UpdateSessionSettings` call it.
+Go escapes U+2028 and U+2029 and the Python core writes floats in shortest
+form, so the cores' sizes can differ by a few bytes; the session's own checks
+accept `SessionSettingsSizeToleranceBytes` (1 KiB) more, and a start beyond
+that fails the session at once, with no retry, with a reason that starts with
+`InvalidStartSessionSettingsReason`. Start sessions with settings only after
+every Worker of the Flow type runs 0.2.0. JSON numbers decode as `float64`.
 
 ## The runner contract
 

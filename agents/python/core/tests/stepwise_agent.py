@@ -42,6 +42,12 @@ The model reads the current turn's user text:
 blocking the Worker, before it returns the messages.
 
 After its tool results arrive, the model answers ``<tool_name>: <output>``.
+
+``AgentDefinition.resolve_model`` picks a scripted model named by the session
+settings' ``"model"``, ``alpha`` or ``beta``, or ``default`` without one. Every
+call records ``model-name:<turn_id>:<round>:<name>``, and ``which-model``
+answers ``model <name>: <instructions>``. A ``"persona"`` setting adds ``Persona: <persona>.`` to
+the instructions.
 """
 
 from __future__ import annotations
@@ -49,10 +55,10 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from dex_agents import (
     AgentSessionFlow,
@@ -65,6 +71,7 @@ from dex_agents import (
 from dex_agents.stepwise import (
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
     AgentDefinition,
+    InstructionContext,
     ModelRequest,
     StepwiseAgentRunner,
     ToolCallContext,
@@ -87,6 +94,7 @@ MAX_MODEL_CALLS_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_MAX_MODEL_CALLS"
 UNFINISHED_BUILDER_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_UNFINISHED_BUILDER"
 INVOCATION_LOG_NAME = "invocations.log"
 INSTRUCTIONS = "You are a scripted test agent."
+MODEL_NAMES = ("default", "alpha", "beta")
 
 
 class BrokenUnfinishedTurnBuilderRunner(StepwiseAgentRunner):
@@ -167,12 +175,15 @@ def build_stepwise_agent_flow(
         continued_amount = json.loads(context.input_continuation or "{}")["amount"]
         return f"moved {continued_amount} from {account}"
 
-    async def respond(request: ModelRequest) -> ScriptedModelReply:
+    async def respond(model_name: str, request: ModelRequest) -> ScriptedModelReply:
         command = ScriptedModelClient.user_texts(request)[-1]
         results = ScriptedModelClient.tool_results(request)
         turn_round = len(results) + 1
         invocations.record(f"model:{request.metadata.turn_id}:{turn_round}")
+        invocations.record(f"model-name:{request.metadata.turn_id}:{turn_round}:{model_name}")
         verb, _, rest = command.partition(" ")
+        if verb == "which-model":
+            return ScriptedModelReply(text=f"model {model_name}: {request.instructions}")
         if verb == "loop":
             mode, query = rest.split(" ", 1)
             if request.tools or mode == "defy":
@@ -281,10 +292,20 @@ def build_stepwise_agent_flow(
             return _call("transfer_funds", transfer_arguments)
         raise ValueError(f"unknown scripted command {command!r}")
 
+    models = {name: ScriptedModelClient(_named_respond(respond, name)) for name in MODEL_NAMES}
+
+    def resolve_model(session_settings: Mapping[str, Any]) -> ScriptedModelClient:
+        return models[str(session_settings.get("model", "default"))]
+
+    def instructions(context: InstructionContext) -> str:
+        persona = context.session_settings.get("persona")
+        return INSTRUCTIONS if persona is None else f"{INSTRUCTIONS} Persona: {persona}."
+
     definition = AgentDefinition(
         name="stepwise-test",
-        instructions=INSTRUCTIONS,
-        model=ScriptedModelClient(respond),
+        instructions=instructions,
+        model=models["default"],
+        resolve_model=resolve_model,
         tools=[lookup_order, publish_note, slow_write, transfer_funds],
         built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.DURABLE_WAIT}),
         interrupt_deadline=interrupt_deadline,
@@ -307,6 +328,12 @@ def build_stepwise_agent_flow_from_environment() -> AgentSessionFlow:
         int(os.environ.get(MAX_MODEL_CALLS_ENVIRONMENT_VARIABLE, DEFAULT_MAX_MODEL_CALLS_PER_TURN)),
         os.environ.get(UNFINISHED_BUILDER_ENVIRONMENT_VARIABLE),
     )
+
+
+def _named_respond(
+    respond: Callable[[str, ModelRequest], Awaitable[ScriptedModelReply]], model_name: str
+) -> Callable[[ModelRequest], Awaitable[ScriptedModelReply]]:
+    return lambda request: respond(model_name, request)
 
 
 def _call(tool_name: str, arguments: dict[str, object], text: str = "") -> ScriptedModelReply:

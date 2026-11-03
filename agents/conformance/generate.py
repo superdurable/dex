@@ -51,12 +51,14 @@ from dex_agents import (
     DEFAULT_MAX_DURABLE_WAIT,
     DEFAULT_REJECTION_TOOL_RESULT,
     INVALID_TOOL_TASK_POLL_INTERVAL,
+    MAX_SESSION_SETTINGS_BYTES,
     NO_PLAN_NOTE,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     PLANNING_TURN_INSTRUCTION,
     PLANNING_TURN_TOOL_REJECTION,
     QUESTION_DEADLINE_PASSED,
     QUESTION_DECLINED_TOOL_RESULT,
+    SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
     TURN_CANCELLED_NOTE_HEADER,
@@ -108,12 +110,15 @@ from dex_agents import (
     TurnCancellationRequest,
     TurnControlKind,
     TurnControlRequest,
+    TurnSessionSettings,
+    UpdateSessionSettingsRequest,
     build_plan_execution_message,
     build_plan_note,
     build_turn_failure_note,
     describe_tool_call_outcome,
     message_sequence_key,
     plan_execution_key,
+    session_settings_size,
 )
 from dex_agents.built_in_tools import (
     BuiltInToolArgumentsError,
@@ -168,6 +173,17 @@ MANIFEST_FLOW_TYPE = "ConformanceAgent"
 # Text that pins canonical escaping: quotes, backslash, control characters,
 # non-ASCII, an astral character, and the HTML characters Go escapes by default.
 TRICKY_TEXT = 'Grüße "quoted" \\ back\nline\ttab ☕ 😀 </script> & <ok>'
+# Settings that pin nesting, every JSON kind, and key order.
+FULL_SESSION_SETTINGS: dict[str, Any] = {
+    "model": "gpt-5-mini",
+    "persona": TRICKY_TEXT,
+    "temperature": 0.25,
+    "max_turns": 12,
+    "tools": ["lookup_order", "send_email"],
+    "credential": {"name": "support-openai"},
+    "verbose": False,
+    "fallback_model": None,
+}
 CREATED_AT = "2026-11-02T09:30:00.000Z"
 LATER = "2026-11-02T09:45:30.125Z"
 
@@ -198,6 +214,9 @@ VALUE_TYPES: dict[str, object] = {
     "CancelTurnRequest": CancelTurnRequest,
     "TurnControlRequest": TurnControlRequest,
     "TurnCancellationRequest": TurnCancellationRequest,
+    "SessionSettings": dict[str, Any],
+    "UpdateSessionSettingsRequest": UpdateSessionSettingsRequest,
+    "TurnSessionSettings": TurnSessionSettings,
     "ToolCallCancellation": ToolCallCancellation,
     "ToolCallCompleted": ToolCallCompleted,
     "AgentPlanTask": AgentPlanTask,
@@ -550,9 +569,18 @@ def build_value_documents() -> list[dict[str, Any]]:
             "AgentSessionStartInput", "Input of StartAgentSession, the session Flow's start Step."
         )
         .value(
-            "full", "With an initial message.", AgentSessionStartInput(initial_message=TRICKY_TEXT)
+            "full",
+            "With an initial message and session settings.",
+            AgentSessionStartInput(
+                initial_message=TRICKY_TEXT, session_settings=FULL_SESSION_SETTINGS
+            ),
         )
-        .value("defaults", "Without an initial message.", AgentSessionStartInput())
+        .value("defaults", "Without an initial message or settings.", AgentSessionStartInput())
+        .wire(
+            "released-0.1.0",
+            "As dex-agents 0.1.0 wrote it, without session_settings.",
+            {"initial_message": "hello"},
+        )
     )
 
     state = ValueCases("AgentState", "The AgentState Attribute.")
@@ -761,6 +789,45 @@ def build_value_documents() -> list[dict[str, Any]]:
         .value("defaults", "Cancel the active turn.", CancelTurnRequest())
     )
 
+    documents.append(
+        ValueCases(
+            "SessionSettings",
+            "The SessionSettings Attribute: one JSON object.",
+        )
+        .value("full", "Every JSON kind, nested.", FULL_SESSION_SETTINGS)
+        .value("model-only", "Only a model name.", {"model": "gpt-5-mini"})
+    )
+    documents.append(
+        ValueCases(
+            "TurnSessionSettings",
+            "The TurnSessionSettings Attribute: the settings one turn started with, "
+            "tagged with that turn.",
+        ).value(
+            "full",
+            "Every JSON kind, nested.",
+            TurnSessionSettings(turn_id="turn-4", session_settings=FULL_SESSION_SETTINGS),
+        )
+    )
+    documents.append(
+        ValueCases("UpdateSessionSettingsRequest", "Input of the update_session_settings RPC.")
+        .value(
+            "full",
+            "New settings.",
+            UpdateSessionSettingsRequest(session_settings=FULL_SESSION_SETTINGS),
+        )
+        .value("empty", "Clear the settings.", UpdateSessionSettingsRequest(session_settings={}))
+        .value(
+            "null",
+            "No settings: the RPC returns false and changes nothing.",
+            UpdateSessionSettingsRequest(session_settings=None),
+        )
+        .wire(
+            "without-session-settings",
+            "A request without the field reads as null settings.",
+            {},
+        )
+    )
+
     turn_control = ValueCases("TurnControlRequest", "One TurnControlRequests Channel message.")
     for kind in TurnControlKind:
         turn_control.value(f"kind-{kind}", f"Kind {kind}.", TurnControlRequest(kind=kind))
@@ -870,6 +937,7 @@ def build_value_documents() -> list[dict[str, Any]]:
                 PendingUserMessage(message_id="msg-4", message=AgentUserMessage(text="stop"))
             ],
             context_summary=full_summary(),
+            session_settings={"model": "gpt-5-mini"},
         ),
     )
     snapshots.value("defaults", "Before StartAgentSession commits.", AgentSnapshot(state=None))
@@ -1171,6 +1239,7 @@ def build_names() -> dict[str, Any]:
             tool.name for tool in build_resource_and_prompt_tools(MCP_SERVER_NAMES)
         ],
         "stepwise_tool_source_reference": build_tool_source_envelope_cases(),
+        "session_settings_sizes": build_session_settings_size_cases(),
         "limits": {
             "snapshot_message_limit": SNAPSHOT_MESSAGE_LIMIT,
             "list_agent_messages_default_limit": ListAgentMessagesRequest().limit,
@@ -1178,7 +1247,62 @@ def build_names() -> dict[str, Any]:
             "default_max_durable_wait_seconds": int(DEFAULT_MAX_DURABLE_WAIT.total_seconds()),
             "turn_control_at_most": ALL_PENDING_MESSAGES,
             "stepwise_default_max_model_calls_per_turn": DEFAULT_MAX_MODEL_CALLS_PER_TURN,
+            "max_session_settings_bytes": MAX_SESSION_SETTINGS_BYTES,
+            "session_settings_size_tolerance_bytes": SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
         },
+    }
+
+
+def build_session_settings_size_cases() -> dict[str, Any]:
+    """Return settings with the size each core's limit check must compute.
+
+    Each core measures its own compact JSON text, so a few inputs measure differently:
+    Python writes floats in shortest form (``1.0``, ``1e+16``), TypeScript and Go write
+    ``1`` and every digit, and Go escapes U+2028 and U+2029. ``bytes`` is every core's size
+    unless ``bytes_by_core`` names one. A ``limit`` case stands for
+    ``{"note": "x" * note_length}``, so the file stays small.
+    """
+    examples: list[tuple[str, dict[str, Any], dict[str, int]]] = [
+        ("model-only", {"model": "gpt-5-mini"}, {}),
+        ("non-ascii", {"persona": "Grüße ☕ 😀"}, {}),
+        ("nested", {"credential": {"name": "support-openai"}, "tools": ["a", "b"], "n": 3}, {}),
+        ("html-characters", {"s": "<>&"}, {}),
+        ("whole-float", {"n": 1.0}, {"typescript": 7, "go": 7}),
+        ("large-float", {"n": 1e16}, {"typescript": 23, "go": 23}),
+        ("line-separator", {"s": "\u2028"}, {"go": 14}),
+    ]
+    at_the_limit = MAX_SESSION_SETTINGS_BYTES - len('{"note":""}')
+    session_limit = MAX_SESSION_SETTINGS_BYTES + SESSION_SETTINGS_SIZE_TOLERANCE_BYTES
+    cases: list[dict[str, Any]] = []
+    for name, settings, other_cores in examples:
+        size = session_settings_size(settings)
+        case: dict[str, Any] = {"name": name, "settings": settings, "bytes": size}
+        if other_cores:
+            case["bytes_by_core"] = {"python": size, "typescript": size, "go": size, **other_cores}
+        cases.append(case)
+    return {
+        "format": "UTF-8 bytes of compact JSON text, non-ASCII unescaped",
+        "examples": cases,
+        "limit": [
+            {
+                "name": name,
+                "note_length": note_length,
+                "bytes": session_settings_size({"note": "x" * note_length}),
+                "is_accepted": session_settings_size({"note": "x" * note_length})
+                <= MAX_SESSION_SETTINGS_BYTES,
+                "is_accepted_by_session": session_settings_size({"note": "x" * note_length})
+                <= session_limit,
+            }
+            for name, note_length in (
+                ("at-the-limit", at_the_limit),
+                ("over-the-limit", at_the_limit + 1),
+                ("at-the-session-limit", at_the_limit + SESSION_SETTINGS_SIZE_TOLERANCE_BYTES),
+                (
+                    "over-the-session-limit",
+                    at_the_limit + SESSION_SETTINGS_SIZE_TOLERANCE_BYTES + 1,
+                ),
+            )
+        ],
     }
 
 

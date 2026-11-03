@@ -55,6 +55,7 @@ from dex import (
     Timer,
     Wait,
     dead_end,
+    force_fail,
     go_to,
     go_to_many,
     rpc,
@@ -99,11 +100,13 @@ from dex_agents.persistence import (
     PENDING_PLAN_EXECUTION,
     PLAN_EXECUTIONS,
     QUEUED_USER_MESSAGES,
+    SESSION_SETTINGS,
     STEERED_USER_MESSAGES,
     TOOL_CALL_CANCELLATIONS,
     TOOL_CALL_RESULTS,
     TURN_CANCELLATION_REQUEST,
     TURN_CONTROL_REQUESTS,
+    TURN_SESSION_SETTINGS,
     message_sequence_key,
     plan_execution_key,
 )
@@ -139,6 +142,7 @@ from dex_agents.runner import (
     build_tool_call_note,
     build_turn_failure_note,
 )
+from dex_agents.session_settings import check_stored_session_settings
 from dex_agents.tracing import AgentTracingOptions
 from dex_agents.values import (
     AgentEvent,
@@ -179,6 +183,8 @@ from dex_agents.values import (
     TurnCancellationRequest,
     TurnControlKind,
     TurnControlRequest,
+    TurnSessionSettings,
+    UpdateSessionSettingsRequest,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -189,6 +195,10 @@ MISSING_UNFINISHED_TURN_MESSAGE_BUILDER = (
 #: Error recorded when a tool returns ``ToolTaskStarted`` to a runner that cannot poll it.
 MISSING_TOOL_TASK_POLLER = (
     "the tool started a task, but the runner does not implement poll_tool_task"
+)
+#: Start of the Flow failure reason when ``StartAgentSession`` refuses the start input's settings.
+INVALID_START_SESSION_SETTINGS_REASON = (
+    "dex-agents: the start input's session_settings are not valid session settings"
 )
 #: Error recorded when ``ToolTaskStarted`` has a blank ``task_id``.
 BLANK_TOOL_TASK_ID = "the tool started a task without a task ID"
@@ -376,6 +386,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         pending_plan_execution: The ``PendingPlanExecution`` Attribute.
         context_summary: The ``ContextSummary`` Attribute, set once the
             session compacts.
+        session_settings: The ``SessionSettings`` Attribute: the settings
+            the next turn starts with.
+        turn_session_settings: The ``TurnSessionSettings`` Attribute: the
+            settings the active turn started with.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -398,6 +412,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     plan_executions = PLAN_EXECUTIONS
     pending_plan_execution = PENDING_PLAN_EXECUTION
     context_summary = CONTEXT_SUMMARY
+    session_settings = SESSION_SETTINGS
+    turn_session_settings = TURN_SESSION_SETTINGS
 
     def __init__(
         self,
@@ -511,7 +527,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
         ``AgentTraceContext`` and ``ContextSummary`` are always registered, so
         Workers with and without tracing or compaction can serve the same Flow
-        type.
+        type. ``SessionSettings`` and ``TurnSessionSettings`` hold the
+        per-session settings.
 
         Returns:
             The persistence schema shared by every agent session Flow type.
@@ -535,6 +552,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             PLAN_EXECUTIONS,
             PENDING_PLAN_EXECUTION,
             CONTEXT_SUMMARY,
+            SESSION_SETTINGS,
+            TURN_SESSION_SETTINGS,
             self.agent_events,
         )
 
@@ -699,6 +718,59 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         QUEUED_USER_MESSAGES.delete(context, queued.message_id)
         return RPCResult(True)
 
+    @rpc(is_transactional=True)
+    def update_session_settings(
+        self,
+        context: Context,
+        input: UpdateSessionSettingsRequest,
+    ) -> RPCResult[bool]:
+        """Replace the session's settings from the next turn on.
+
+        The new settings apply when the next turn starts, the same boundary
+        at which a ``plan_mode`` message takes effect. A running turn keeps
+        the settings it started with for every model call, retry, and
+        compaction, so one turn never mixes two models. The settings replace
+        the old ones; nothing is merged, and ``{}`` clears them, so
+        ``get_agent_snapshot`` returns ``None``.
+
+        Settings are stored in the session and returned by
+        ``get_agent_snapshot``, and the browser snapshot JSON of
+        ``dex_agents.ui_stream`` includes them. Never put a secret or anything
+        a browser must not see in them; put a reference, such as a credential
+        name, that the Worker resolves. Call the RPC only after every Worker
+        of the Flow type runs dex-agents 0.2.0.
+
+        The RPC locks nothing. When two updates race, the one that commits
+        last wins. A turn that starts between this RPC's read and its commit
+        runs with the earlier settings, and the next turn gets these.
+
+        Example:
+            >>> await client.invoke_rpc(flow.update_session_settings, "session-42",
+            ...     UpdateSessionSettingsRequest(session_settings={"model": "gpt-5"}))
+
+        Args:
+            context: RPC Context supplied by Dex.
+            input: The complete new settings.
+
+        Returns:
+            ``True`` when the settings are stored; ``False`` before
+            ``StartAgentSession`` committed, or when the settings are ``None``
+            (a missing or ``null`` field), are not a JSON object, or are larger
+            than ``MAX_SESSION_SETTINGS_BYTES`` plus
+            ``SESSION_SETTINGS_SIZE_TOLERANCE_BYTES``.
+        """
+        if _optional_agent_state(context) is None or input.session_settings is None:
+            return RPCResult(False)
+        try:
+            check_stored_session_settings(input.session_settings)
+        except ValueError:
+            return RPCResult(False)
+        if input.session_settings:
+            SESSION_SETTINGS.set(context, input.session_settings)
+        elif _session_settings(context) is not None:
+            SESSION_SETTINGS.delete(context)
+        return RPCResult(True)
+
     # Only this RPC locks it: concurrent cancels apply in order, so a stale one cannot win.
     @rpc(lock_attributes=(TURN_CANCELLATION_REQUEST.lock(),))
     def cancel_turn(self, context: Context, input: CancelTurnRequest) -> RPCResult[bool]:
@@ -855,8 +927,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         Returns:
             State, the last 200 messages, pending interrupts, the active turn's
             tool calls, usage, the queued message count, the plan, and the
-            queued and steered messages with their Channel message IDs, and the
-            context summary. Summarized messages stay in ``messages``.
+            queued and steered messages with their Channel message IDs, the
+            context summary, and the settings the next turn starts with.
+            Summarized messages stay in ``messages``.
         """
         state = _optional_agent_state(context)
         if state is None:
@@ -874,6 +947,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 queued_messages=_pending_user_messages(context, QUEUED_USER_MESSAGES),
                 steered_messages=_pending_user_messages(context, STEERED_USER_MESSAGES),
                 context_summary=_context_summary(context),
+                session_settings=_session_settings(context),
             )
         )
 
@@ -919,10 +993,19 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         interaction_mode: InteractionMode = InteractionMode.CHAT,
         executed_plan: AgentPlan | None = None,
         was_plan_draft: bool = False,
+        *,
+        session_settings: dict[str, Any] | None,
     ) -> StepDecision:
         """Store the turn's user messages, in order, and move to RunModel."""
         state = _require_agent_state(context)
         turn_id = f"turn-{state.turn_count + 1}"
+        # The turn keeps these until it ends; later updates wait for the next turn.
+        if session_settings:
+            TURN_SESSION_SETTINGS.set(
+                context, TurnSessionSettings(turn_id=turn_id, session_settings=session_settings)
+            )
+        elif TURN_SESSION_SETTINGS.get(context) is not None:
+            TURN_SESSION_SETTINGS.delete(context)
         sequence = state.next_message_sequence
         text = "\n".join(message.text for message in messages)
         with self._session_tracer.trace_user_message_activation(
@@ -969,7 +1052,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self, context: AsyncContext, messages: Sequence[AgentUserMessage], step_type: str
     ) -> StepDecision:
         mode = self._interaction_mode_for_user_messages(context, messages)
-        return self._begin_turn(context, messages, step_type, mode)
+        return self._begin_turn(
+            context, messages, step_type, mode, session_settings=_session_settings(context)
+        )
 
     def _wait_for_user_message(self, context: Context) -> Wait:
         # Dex selects Channel conditions in argument order: a steer, a queued message, a plan.
@@ -1014,6 +1099,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             InteractionMode.EXECUTING,
             plan,
             was_plan_draft,
+            session_settings=_session_settings(context),
         )
 
     async def _run_model_step(self, context: AsyncContext) -> StepDecision:
@@ -1087,6 +1173,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             interaction_mode=_interaction_mode(state),
             plan=_optional_agent_plan(context),
             context_summary=context_summary,
+            session_settings=_turn_session_settings(context),
         )
 
     def _runner_context_summary(self, context: Context) -> ContextSummary | None:
@@ -1180,6 +1267,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 if self._options.compaction is None
                 else self._options.compaction.context_window_tokens
             ),
+            session_settings=_turn_session_settings(context),
         )
         with self._session_tracer.trace_context_summary(
             context,
@@ -2214,13 +2302,24 @@ class StartAgentSession(Step[AgentSessionStartInput]):
         context: AsyncContext,
         input: AgentSessionStartInput,
     ) -> StepDecision:
+        if input.session_settings is not None:
+            try:
+                check_stored_session_settings(input.session_settings)
+            except ValueError as error:
+                # Every retry would fail the same way, so the session fails now.
+                return force_fail(f"{INVALID_START_SESSION_SETTINGS_REASON}: {error}")
+            if input.session_settings:
+                SESSION_SETTINGS.set(context, input.session_settings)
         AGENT_STATE.set(context, AgentState(status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE))
         AGENT_USAGE.set(context, AgentUsage())
         PENDING_INTERRUPTS.set(context, [])
         if input.initial_message is None or not input.initial_message.strip():
             return go_to(self._session._await_user_message, None)
         return self._session._begin_turn(
-            context, [AgentUserMessage(text=input.initial_message)], self.get_step_type()
+            context,
+            [AgentUserMessage(text=input.initial_message)],
+            self.get_step_type(),
+            session_settings=input.session_settings,
         )
 
 
@@ -3091,3 +3190,17 @@ def _agent_usage(context: Context) -> AgentUsage:
 
 def _context_summary(context: Context) -> ContextSummary | None:
     return cast(ContextSummary | None, CONTEXT_SUMMARY.get(context))
+
+
+def _session_settings(context: Context) -> dict[str, Any] | None:
+    return cast(dict[str, Any] | None, SESSION_SETTINGS.get(context))
+
+
+def _turn_session_settings(context: Context) -> dict[str, Any]:
+    stored = cast(TurnSessionSettings | None, TURN_SESSION_SETTINGS.get(context))
+    state = _optional_agent_state(context)
+    # A turn that a Worker without settings started, such as 0.1.0, has none, even
+    # when an earlier turn left its copy.
+    if stored is None or state is None or stored.turn_id != state.active_turn_id:
+        return {}
+    return stored.session_settings

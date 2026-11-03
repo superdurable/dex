@@ -49,6 +49,9 @@ const workerOnlyToolCallFieldNames: ReadonlySet<string> = new Set([
  * framework's replay data, which can hold the agent's instructions. Tool calls leave out
  * `tool_source_reference`, `trace_context`, `input_continuation`, `input_answers`, and `task_answer_pending`.
  *
+ * `session_settings` is included as stored, so the browser sees the settings the next turn starts with. Keep
+ * anything a browser must not see out of session settings, or remove the key before serving the JSON.
+ *
  * @param snapshot - Output of the `get_agent_snapshot` RPC.
  * @returns A new JSON object with `state`, `messages`, `pending_interrupts`, `tool_calls`, `usage`, and
  * `queued_message_count`.

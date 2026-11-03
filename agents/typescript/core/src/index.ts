@@ -119,6 +119,8 @@ export {
   type QuestionAnswer,
   type QuestionResolution,
   type ResolveInterruptInput,
+  type SessionSettings,
+  type TurnSessionSettings,
   type SteerUserMessageRequest,
   type ToolCallCancellation,
   type ToolCallCancellationReason,
@@ -127,7 +129,15 @@ export {
   type TurnCancellationRequest,
   type TurnControlKind,
   type TurnControlRequest,
+  type UpdateSessionSettingsRequest,
 } from "./agent-session-values.js";
+export {
+  MAX_SESSION_SETTINGS_BYTES,
+  SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+  sessionSettingsSize,
+  validateSessionSettings,
+} from "./agent-session-settings.js";
+export { invalidStartSessionSettingsReason } from "./agent-session-steps.js";
 export {
   genAISemanticConventionsSchemaUrls,
   type AgentTracingOptions,

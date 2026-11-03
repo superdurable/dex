@@ -178,6 +178,15 @@
       "load_channels": [
         "QueuedUserMessages"
       ]
+    },
+    {
+      "name": "update_session_settings",
+      "input": "UpdateSessionSettingsRequest",
+      "output": "bool",
+      "is_transactional": true,
+      "locks": [],
+      "load_attribute_maps": [],
+      "load_channels": []
     }
   ],
   "persistence": [
@@ -252,6 +261,11 @@
       "value_type": "AgentUserMessage"
     },
     {
+      "name": "SessionSettings",
+      "kind": "attribute",
+      "value_type": "SessionSettings"
+    },
+    {
       "name": "SteeredUserMessages",
       "kind": "channel",
       "value_type": "AgentUserMessage"
@@ -275,6 +289,11 @@
       "name": "TurnControlRequests",
       "kind": "channel",
       "value_type": "TurnControlRequest"
+    },
+    {
+      "name": "TurnSessionSettings",
+      "kind": "attribute",
+      "value_type": "TurnSessionSettings"
     }
   ],
   "agent_events_default_capacity_bytes": 10485760,
@@ -462,12 +481,120 @@
       }
     ]
   },
+  "session_settings_sizes": {
+    "format": "UTF-8 bytes of compact JSON text, non-ASCII unescaped",
+    "examples": [
+      {
+        "name": "model-only",
+        "settings": {
+          "model": "gpt-5-mini"
+        },
+        "bytes": 22
+      },
+      {
+        "name": "non-ascii",
+        "settings": {
+          "persona": "Grüße ☕ 😀"
+        },
+        "bytes": 30
+      },
+      {
+        "name": "nested",
+        "settings": {
+          "credential": {
+            "name": "support-openai"
+          },
+          "tools": [
+            "a",
+            "b"
+          ],
+          "n": 3
+        },
+        "bytes": 64
+      },
+      {
+        "name": "html-characters",
+        "settings": {
+          "s": "<>&"
+        },
+        "bytes": 11
+      },
+      {
+        "name": "whole-float",
+        "settings": {
+          "n": 1.0
+        },
+        "bytes": 9,
+        "bytes_by_core": {
+          "python": 9,
+          "typescript": 7,
+          "go": 7
+        }
+      },
+      {
+        "name": "large-float",
+        "settings": {
+          "n": 1e+16
+        },
+        "bytes": 11,
+        "bytes_by_core": {
+          "python": 11,
+          "typescript": 23,
+          "go": 23
+        }
+      },
+      {
+        "name": "line-separator",
+        "settings": {
+          "s": " "
+        },
+        "bytes": 11,
+        "bytes_by_core": {
+          "python": 11,
+          "typescript": 11,
+          "go": 14
+        }
+      }
+    ],
+    "limit": [
+      {
+        "name": "at-the-limit",
+        "note_length": 16373,
+        "bytes": 16384,
+        "is_accepted": true,
+        "is_accepted_by_session": true
+      },
+      {
+        "name": "over-the-limit",
+        "note_length": 16374,
+        "bytes": 16385,
+        "is_accepted": false,
+        "is_accepted_by_session": true
+      },
+      {
+        "name": "at-the-session-limit",
+        "note_length": 17397,
+        "bytes": 17408,
+        "is_accepted": false,
+        "is_accepted_by_session": true
+      },
+      {
+        "name": "over-the-session-limit",
+        "note_length": 17398,
+        "bytes": 17409,
+        "is_accepted": false,
+        "is_accepted_by_session": false
+      }
+    ]
+  },
   "limits": {
     "snapshot_message_limit": 200,
     "list_agent_messages_default_limit": 50,
     "list_agent_messages_maximum_limit": 200,
     "default_max_durable_wait_seconds": 31536000,
     "turn_control_at_most": 2147483647,
-    "stepwise_default_max_model_calls_per_turn": 100
+    "stepwise_default_max_model_calls_per_turn": 100,
+    "max_session_settings_bytes": 16384,
+    "session_settings_size_tolerance_bytes": 1024
   }
 }

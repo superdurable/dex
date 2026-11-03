@@ -521,6 +521,74 @@ it. The AI SDK UI message stream sends
 the compaction events and the summary call's `usage_recorded` as event data,
 outside the assistant message's steps.
 
+## Session settings
+
+Session settings let one Flow type serve sessions that differ, such as by
+model, without a Worker pool per model. They are one JSON object that the
+application sets when it starts the session and can replace later:
+
+```ts
+const models: Record<string, ModelClient> = {
+  "gpt-5-mini": createAiSdkModelClient(openai("gpt-5-mini")),
+  "gpt-5": createAiSdkModelClient(openai("gpt-5")),
+};
+const flow = createStepwiseAgentSessionFlow(
+  {
+    name: "support",
+    instructions: "You help customers with their orders.",
+    model: models["gpt-5-mini"],
+    // Choose only from clients the Worker built; the settings come from the application.
+    resolveModel: (settings) => models[String(settings.model)] ?? models["gpt-5-mini"],
+  },
+  "SupportAgent",
+);
+
+validateSessionSettings({ model: "gpt-5" });
+await client.startFlow(flow, sessionId, { initialMessage: "Hello", sessionSettings: { model: "gpt-5" } });
+await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings: { model: "gpt-5-mini" } });
+```
+
+- `StartAgentSession` stores `AgentSessionStartInput.sessionSettings` in the
+  `SessionSettings` Attribute. `update_session_settings` replaces it; nothing
+  is merged, and `{}` clears it. It returns `false` before the session
+  initialized.
+- A change takes effect when the next turn starts, the same boundary as
+  `planMode`. The Step that starts a turn copies the settings into
+  `TurnSessionSettings`, tagged with the turn, and the turn's model calls,
+  retries, and compaction read only that copy, so a running turn keeps the
+  settings it started with, even across a Worker crash. A copy that an earlier
+  turn left reads as no settings.
+- A runner reads `AgentTurnContext.sessionSettings`, `{}` when there are
+  none, such as in a session started on 0.1.0. `ContextSummaryRequest` carries
+  the same value. Stepwise's `AgentDefinition.resolveModel` maps it to the
+  `ModelClient` of each model call, including summary calls and token
+  estimates, and `InstructionContext.sessionSettings` passes it to an
+  instructions function.
+- `get_agent_snapshot` returns the next turn's settings as
+  `AgentSnapshot.sessionSettings`, not the running turn's: right after an
+  update, the running turn may still use the earlier settings.
+- Only model calls see the settings. Tool calls do not receive them, and the
+  compaction policy's `contextWindowTokens` is one value for every resolved
+  model. This core does not check whether a resolved model accepts the forced
+  tool choice of `planningToolChoice: "required"`.
+- **Never put a secret, or anything a browser must not see, in settings.**
+  They are Flow state that `get_agent_snapshot` returns, and the UI stream's
+  browser snapshot JSON includes them as stored. Put a reference, such as a
+  model or credential name, and let the Worker resolve it. An error that
+  `resolveModel` throws becomes the turn's `lastTurnError`, which snapshots
+  also show, so keep the settings out of its message.
+- The compact JSON text, UTF-8, is at most `MAX_SESSION_SETTINGS_BYTES` (16
+  KiB). `validateSessionSettings` and `sessionSettingsSize` check it, and
+  `AgentSessionTestClient.startSession` calls it. The cores write some floats
+  and U+2028/U+2029 differently, so the session's own checks accept
+  `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES` (1 KiB) more:
+  `update_session_settings` returns `false` beyond that, or for `null`, and
+  `StartAgentSession` fails the session at once, with no retry, with a reason
+  that starts with `invalidStartSessionSettingsReason`.
+- Start sessions with settings, and call `update_session_settings`, only after
+  every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
+  settings and starts turns without them.
+
 ## The runner contract
 
 The session runs in **Step mode**: every model call and every tool call is its
@@ -1367,7 +1435,9 @@ The snapshot JSON is the `get_agent_snapshot` wire format without the fields
 only the session's Steps use. Messages leave out `framework_item`, the
 framework's replay data, which can hold the agent's instructions. Tool calls
 leave out `tool_source_reference`, `trace_context`, `input_continuation`,
-`input_answers`, and `task_answer_pending`. Read them with `getAgentSnapshot` on the server when needed.
+`input_answers`, and `task_answer_pending`. Read them with `getAgentSnapshot` on the server when needed. It
+includes `session_settings` as stored, so keep anything a browser must not see out of session settings, or
+remove the key.
 
 ### UI stream limits
 

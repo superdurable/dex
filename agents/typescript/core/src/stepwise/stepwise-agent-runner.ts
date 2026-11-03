@@ -25,11 +25,13 @@ import {
   describeToolCallOutcome,
   type ContextSummary,
   type FrameworkMessage,
+  type SessionSettings,
 } from "../agent-session-values.js";
 import type { AgentDefinition } from "./agent-definition.js";
 import type { FunctionTool, ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
 import type {
+  ModelClient,
   ModelInputItem,
   ModelOutputItem,
   ModelOutputWriter,
@@ -163,6 +165,9 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     if (typeof definition.model?.callModel !== "function" || typeof definition.model.estimateInputTokens !== "function") {
       throw new TypeError("AgentDefinition.model must be a ModelClient");
     }
+    if (definition.resolveModel !== undefined && typeof definition.resolveModel !== "function") {
+      throw new TypeError("AgentDefinition.resolveModel must be a function");
+    }
     const enabledBuiltInTools = new Set<string>(definition.builtInTools ?? []);
     const functionToolsByName = new Map<string, FunctionTool>();
     for (const tool of definition.tools ?? []) {
@@ -253,7 +258,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       isToolBudgetSpent,
       sourceTools,
     );
-    const response = await this.definition.model.callModel(request, turn.events);
+    const response = await this.resolveModel(turn.sessionSettings).callModel(request, turn.events);
     requireModelResponse(response);
     const usage = { ...response.usage, modelCalls: 1 };
     const newMessages = [...unstoredToolResults, ...response.outputItems].map(toStepwiseFrameworkMessage);
@@ -393,7 +398,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       isToolBudgetSpent,
       this.readCachedSourceTools(),
     );
-    return this.definition.model.estimateInputTokens(request);
+    return this.resolveModel(turn.sessionSettings).estimateInputTokens(request);
   }
 
   /**
@@ -444,6 +449,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * @throws {Error} When the model returned no text, or any error of the model call.
    */
   public async summarizeContext(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+    const model = this.resolveModel(request.sessionSettings);
     const rangeItems = request.messages.map(readStoredModelInputItem);
     let omittedCount = 0;
     const budget =
@@ -453,7 +459,6 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
           request.inputTokenBudget - (this.definition.modelSettings?.maxOutputTokens ?? 0);
     if (budget !== undefined) {
       // Estimate by parts, then leave out the oldest items up to the first cut that fits.
-      const model = this.definition.model;
       const itemTokens = rangeItems.map((item) =>
         model.estimateInputTokens({ ...this.buildSummaryRequest(request, [], 0), instructions: "", inputItems: [item] }),
       );
@@ -469,7 +474,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
         omittedCount = cut;
       }
     }
-    const response = await this.definition.model.callModel(
+    const response = await model.callModel(
       this.buildSummaryRequest(request, rangeItems.slice(omittedCount), omittedCount),
       discardedModelOutput,
     );
@@ -543,7 +548,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     if (items.length === 0) {
       return 0;
     }
-    return this.definition.model.estimateInputTokens({
+    return this.resolveModel(turn.sessionSettings).estimateInputTokens({
       instructions: "",
       inputItems: items,
       tools: [],
@@ -686,6 +691,18 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       : { effect: policy.effect, requiresApproval: tool.requiresApproval };
   }
 
+  private resolveModel(sessionSettings: SessionSettings | undefined): ModelClient {
+    const resolveModel = this.definition.resolveModel;
+    if (resolveModel === undefined) {
+      return this.definition.model;
+    }
+    const model = resolveModel(sessionSettings ?? {});
+    if (typeof model?.callModel !== "function" || typeof model.estimateInputTokens !== "function") {
+      throw new TypeError(`resolveModel of agent ${this.definition.name} must return a ModelClient`);
+    }
+    return model;
+  }
+
   private async resolveInstructions(turn: AgentTurnContext): Promise<string> {
     const instructions = this.definition.instructions;
     if (typeof instructions === "string") {
@@ -697,6 +714,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       attempt: turn.attempt,
       interactionMode: turn.interactionMode ?? "chat",
       plan: turn.plan ?? null,
+      sessionSettings: turn.sessionSettings ?? {},
     });
     if (typeof resolved !== "string") {
       throw new TypeError(`the instructions of agent ${this.definition.name} must resolve to a string`);

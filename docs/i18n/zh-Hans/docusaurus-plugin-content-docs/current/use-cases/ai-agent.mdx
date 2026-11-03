@@ -63,7 +63,7 @@ ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 
 这里是简化视图。[Dex Agents README](https://github.com/superdurable/dex/tree/main/agents/python/core) 列出了每个 Step 及其重试与 failure route。
 
-Model、system prompt、context window 与 MCP server 都是 Worker 配置，由所有 session 共享。Session 不能选择它们，因此 credential 和 server command 永远不会来自 browser 或 Flow input。修改后的 prompt 或 model 会在每个 session 的下一次模型调用时生效，包括正在等待的 turn，因为 Dex 不会重放 Flow。
+允许的 model、system prompt、context window 与 MCP server 都是 Worker 配置，由所有 session 共享。每个 session 在启动时从允许的 model 中选择一个。它的 session settings 只保存 model 名称，由 Worker 把名称映射到 model client，因此 credential 和 server command 永远不会来自 browser 或 Flow input。修改后的 prompt 或 model client 会在每个 session 的下一次模型调用时生效，包括正在等待的 turn，因为 Dex 不会重放 Flow。
 
 ## Durable context
 
@@ -129,7 +129,7 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 
 ## Session 访问 {#session-access}
 
-Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 session 的 route 在调用 Dex 之前，都会先检查该 session 的 token。**POST /sessions** 会选择新的 session ID，并返回它的 token。Token 是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC-SHA256，因此 example 不存储任何 token，使用同一个 key 的每个进程都接受它。如果请求缺少 **X-Agent-Session-Token** header，或 header 不匹配，route 返回 403。
+Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 session 的 route 在调用 Dex 之前，都会先检查该 session 的 token。**POST /sessions** 会检查所请求的 model 是否在 Worker 允许的 model 之中，选择新的 session ID，并返回它的 token。Token 是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC-SHA256，因此 example 不存储任何 token，使用同一个 key 的每个进程都接受它。如果请求缺少 **X-Agent-Session-Token** header，或 header 不匹配，route 返回 403。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
 <SdkSnippet lang="python">
@@ -144,9 +144,16 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 
     @blueprint.post("/sessions")
     async def start_session() -> Response:
+        body = await request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise BadRequest("the request body must be a JSON object")
+        model = body.get("model", app_state.config.agent_models[0])
+        if model not in app_state.config.agent_models:
+            raise BadRequest("model must be one of the models in /settings")
         # The server picks the session ID, so a caller cannot claim an existing session.
         session_id = f"ai-agent-{uuid.uuid4()}"
-        await sessions().start_session(session_id)
+        # Settings carry only the model name; the Worker resolves it, and keys stay on the Worker.
+        await sessions().start_session(session_id, session_settings={"model": model})
         session_token = sign_session_id(app_state.config.agent_session_key, session_id)
         return jsonify(session_id=session_id, session_token=session_token)
 ```
@@ -162,7 +169,7 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 
 Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent)。React UI、MCP 配置示例与运行说明位于 [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent)。
 
-第一页会显示 Worker 的 model、prompt、context window 与 MCP tool。要使用真实模型，把 **DEX_AGENT_MODEL** 设为 LiteLLM model 名称，把它的 credential 加到 **examples/.env**，然后重启 Worker。默认的本地 demo model 不需要 credential，并支持 **/ask**、**/choose**、**/wait** 与 **/tool** 等斜杠命令，因此无需 key 就能体验所有功能。
+第一页会显示 Worker 的 model、prompt、context window 与 MCP tool。启动表单从 Worker 允许的 model 中为 session 选择 model。要使用真实模型，把 **DEX_AGENT_MODEL** 设为 LiteLLM model 名称，在 **DEX_AGENT_MODELS** 中列出更多 model，把它们的 credential 加到 **examples/.env**，然后重启 Worker。默认的本地 demo model 不需要 credential，并支持 **/ask**、**/choose**、**/wait** 与 **/tool** 等斜杠命令，因此无需 key 就能体验所有功能。
 
 ## 相关内容
 

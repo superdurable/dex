@@ -277,7 +277,7 @@ languages.
 
 | Step type | Input | Kind | Next |
 | --- | --- | --- | --- |
-| `StartAgentSession` | `AgentSessionStartInput` | Start Step. Initializes `AgentState` (`next_message_sequence` 1), `AgentUsage`, and an empty `PendingInterrupts`. With a non-blank `initial_message`, appends it as the turn's user message. | `RunModel` when `initial_message` is set and not blank, else `AwaitUserMessage` |
+| `StartAgentSession` | `AgentSessionStartInput` | Start Step. Initializes `AgentState` (`next_message_sequence` 1), `AgentUsage`, and an empty `PendingInterrupts`, and stores non-empty `session_settings` in `SessionSettings`; settings it refuses force-fail the session with a reason starting `dex-agents: the start input's session_settings are not valid session settings`. With a non-blank `initial_message`, appends it as the turn's user message. | `RunModel` when `initial_message` is set and not blank, else `AwaitUserMessage` |
 | `AwaitUserMessage` | none | WaitFor any of `TurnControlRequests.for_range(at_least=1, at_most=MAX)`, `QueuedUserMessages.for_one()`, and, while `AgentPlan` is `draft` or `active`, `PlanExecutions.for_one(<revision>)`, in that order; Dex selects Channel conditions in argument order, so a steer beats a queued message, which beats a plan execution. A control wake: Execute moves to `ApplyTurnControl`. A message: Execute appends it and starts a turn whose `interaction_mode` is `planning` when plan mode is enabled and the message has `plan_mode` or a `draft` plan exists, else `chat`. An approval: Execute deletes `PendingPlanExecution`; unless the plan still has that revision and is `draft` or `active`, it waits again; otherwise it marks the plan `active`, appends `[Dex] The user approved plan revision <n>. Execute it and keep the task statuses current with write_todos.` through `build_user_message`, and starts an `executing` turn, writing `turn_started` then `plan_execution_started`. | `ApplyTurnControl` on a control wake, else `RunModel`, or itself |
 | `RunModel` | none | Async Execute. Before the model call, when the turn is steered or cancelled, it moves to `ApplyTurnControl` without a model call. Otherwise, with `AgentSessionOptions.compaction`, it asks the runner for `estimate_input_tokens`; at `trigger_ratio` of the window it asks for `select_compaction_cutoff`, and a cutoff after the current `ContextSummary` makes it set status `compacting_context` and move to `CompactContext` with no model call. These are its only decision points, in that order. Otherwise it calls `run_model_step` for one model call. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | Compaction: `CompactContext({through_sequence})`. `TurnCompleted`: appends `new_messages`, clears the turn, `AwaitUserMessage`. `ToolCallsRequested`: appends `new_messages`, stores `FrameworkRunState`, one `AgentToolCalls` record per call, and the interrupts, then `go_to_many` with one Step per call plus `ResumeTurn(<call count>)`. A runner that sets `new_messages` without implementing `build_unfinished_turn_messages` fails the turn in this commit, with `last_turn_error` `a runner that sets ToolCallsRequested.new_messages must implement build_unfinished_turn_messages` (TypeScript names `newMessages` and `buildUnfinishedTurnMessages`) and no retry. It records the model call's usage first. An `ask_user` call is recorded `awaiting_answer` with a `question` interrupt and goes to `AwaitQuestionAnswer`; a `durable_wait` call is recorded `waiting_for_timer` with `wait_until`, writes `timer_started`, and goes to `AwaitTimer`; a `write_todos` call replaces `AgentPlan`, writes `plan_updated`, and records `succeeded`; an invalid built-in call records `failed`; in a `planning` turn every call but `write_todos` records `rejected` with `The tool call was not run: a planning turn can only call write_todos.`. A call that becomes final here publishes its result in this commit, and `ResumeTurn` still counts it |
 | `CompactContext` | `CompactContextInput` | Async Execute with `RunModel`'s options and failure route. Loads only the messages it summarizes. Writes `compaction_started`, calls `summarize_context` once with the previous summary and the messages after it through `through_sequence`, then in one commit writes `ContextSummary` (generation + 1, `first_sequence` 1, `last_sequence` `through_sequence`), records the call's usage, sets status `running_model`, and writes `compaction_finished`. A crash reruns only the summary call. A blank summary fails the attempt. | `RunModel` |
@@ -360,6 +360,17 @@ Rules:
   `RunModel` still loads the whole map: listing the instances in each
   movement's load options would store about 22 bytes of run state per listed
   message on every model call, which grows with the context window.
+- Session settings change at turn boundaries only. `StartAgentSession`
+  stores `AgentSessionStartInput.session_settings` in `SessionSettings`, and
+  `update_session_settings` replaces it. The Step that starts a turn copies
+  `SessionSettings` into `TurnSessionSettings` in the same commit, and
+  `RunModel` and `CompactContext` read only `TurnSessionSettings`, so a running
+  turn keeps the settings it started with, retries included. Settings hold no
+  secrets, only references the Worker resolves, and their compact JSON text in
+  UTF-8 is at most `MAX_SESSION_SETTINGS_BYTES` (16,384) bytes, which Clients
+  check; the session's own checks accept `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES`
+  (1,024) more, because the cores write some floats and U+2028/U+2029
+  differently. Tool Steps do not receive the settings.
   `CompactContext` lists the messages it summarizes, once per message over the
   session's life. `RunModel` compacts only when the cutoff
   advances past the summary, and no message is appended between
@@ -511,12 +522,19 @@ plan shows nothing.
 | `PlanExecutions` | ChannelMap, key = revision as decimal | `PlanExecutionRequest` |
 | `PendingPlanExecution` | Attribute | `PlanExecutionRequest`; the approval `execute_plan` accepted that `AwaitUserMessage` has not consumed |
 | `ContextSummary` | Attribute | `ContextSummary`; set once the session compacts; only `CompactContext` writes it |
+| `SessionSettings` | Attribute | JSON object; the settings the next turn starts with; `StartAgentSession` and `update_session_settings` write it; unset when there are none |
+| `TurnSessionSettings` | Attribute | `TurnSessionSettings`; the settings a turn started with, tagged with its turn; the turn-start Steps write it; a copy whose `turn_id` is not the active turn reads as `{}` |
 | `AgentEvents` | Stream, capacity 10 MiB by default, configurable | `AgentEvent` |
 
 Value types:
 
 ```text
-AgentSessionStartInput { initial_message: str | null }
+AgentSessionStartInput {
+  initial_message: str | null
+  session_settings: JSON object | null = null   # absent in 0.1.0; {} means none
+}
+UpdateSessionSettingsRequest { session_settings: JSON object | null = null }   # replaces; {} clears; null is refused
+TurnSessionSettings { turn_id: str, session_settings: JSON object }
 AgentState {
   status: "waiting_for_user_message" | "running_model" | "running_tools" | "compacting_context"
   turn_count: int            # completed or failed turns
@@ -613,6 +631,7 @@ AgentSnapshot {
   queued_messages: list of PendingUserMessage = []   # oldest first
   steered_messages: list of PendingUserMessage = []  # not applied yet, oldest first
   context_summary: ContextSummary | null = null
+  session_settings: JSON object | null = null   # the next turn's settings
 }
 ContextSummary {
   generation: int            # summaries written, starting at 1
@@ -635,9 +654,10 @@ AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | 
 | `steer_user_message` | `SteerUserMessageRequest` | bool | Transactional, loads `QueuedUserMessages`, locks nothing. While no turn is active, it queues `text` like `send_user_message`, and a `message_id` still queued stays queued (true). False when the active turn's `accepts_turn_control` is false. With `message_id`, deletes that queued message and publishes it to `SteeredUserMessages`; with `text`, publishes a new steered message. Then publishes `TurnControlRequest(kind="steer")`. False when both or neither field is set, the text is blank, or the message ID is not pending. A message consumed between the read and the commit fails the RPC with CHANNEL_MESSAGE_NOT_FOUND, and nothing commits |
 | `delete_queued_message` | `DeleteQueuedMessageRequest` | bool | Transactional, loads `QueuedUserMessages`; deletes the message; false when it is not pending; CHANNEL_MESSAGE_NOT_FOUND as for `steer_user_message` |
 | `cancel_turn` | `CancelTurnRequest` | bool | Locks `TurnCancellationRequest`, which no Step locks, so concurrent cancels apply in order. False when no turn is active, `turn_id` names another turn, or the turn's `accepts_turn_control` is false. Otherwise writes `TurnCancellationRequest(turn_id, requested_at)` and publishes `TurnControlRequest(kind="cancel_turn")`. True means the request is recorded; the turn may still complete first. It never aborts a running model call |
+| `update_session_settings` | `UpdateSessionSettingsRequest` | bool | Transactional, locks nothing; the last update to commit wins. False before `StartAgentSession` committed, or when the settings are null or missing, are not a JSON object, or exceed `MAX_SESSION_SETTINGS_BYTES` plus `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES` (1,024). Otherwise sets `SessionSettings`, or deletes it for `{}`. Takes effect when the next turn starts; the active turn keeps `TurnSessionSettings` |
 | `resolve_interrupt` | `ResolveInterruptRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not pending or its deadline has passed; removes it and publishes the resolution in one commit, dropping `rejection_message` on approval. On a `question`, `approved=false` declines it and `approved=true` returns false |
 | `answer_question` | `AnswerQuestionRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not a pending `question`, is past its deadline, or the answer is blank or not one of `choices` while free text is not allowed; removes it and publishes `AgentInterruptResolution(approved=true, answer)` in one commit |
-| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages` and `AgentToolCalls`, and the `QueuedUserMessages` and `SteeredUserMessages` messages; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, and the queued and steered messages with their IDs |
+| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages` and `AgentToolCalls`, and the `QueuedUserMessages` and `SteeredUserMessages` messages; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, the queued and steered messages with their IDs, the context summary, and `SessionSettings` |
 | `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first. `before_sequence` null starts after the newest message. Limit clamped to 1..200. `next_before_sequence` is the page's first sequence, or null when the page starts at 1 |
 
 TypeScript uses the same RPC names.
@@ -774,6 +794,13 @@ Optional additions, all inert for a runner that ignores them:
   implement it too, so a steered turn keeps its exact transcript.
 - `AgentTurnContext.enabled_built_in_tools` names the enabled built-ins. A
   runner offers their `BUILT_IN_TOOL_DEFINITIONS` to its model like any tool.
+- `AgentTurnContext.session_settings` (TypeScript `sessionSettings`, Go
+  `SessionSettings`) holds `TurnSessionSettings`, an empty object when there
+  are none, and `ContextSummaryRequest.session_settings` the same. A runner
+  chooses the model or instructions from it. Stepwise's
+  `AgentDefinition.resolve_model` (`resolveModel`, Go `WithModelResolver`)
+  maps it to the `ModelClient` of each model call, and
+  `InstructionContext.session_settings` passes it to an instructions function.
 - `AgentTurnContext.interaction_mode` and `AgentTurnContext.plan` carry the
   turn's mode and the committed plan. A runner that sets `supports_plan_mode`
   (`PlanModeRunner`; TypeScript `supportsPlanMode`) offers only `write_todos`

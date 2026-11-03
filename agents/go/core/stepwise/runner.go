@@ -38,7 +38,33 @@ type InstructionContext struct {
 	Attempt int64
 	// InteractionMode is the turn's mode.
 	InteractionMode dexagents.InteractionMode
+	// SessionSettings are the settings the turn started with, such as a persona or prompt name.
+	// The map is empty, never nil, when the session has none.
+	SessionSettings map[string]any
 }
+
+// ModelResolver maps the turn's AgentTurnContext.SessionSettings to the model client of one
+// model call.
+//
+// It runs in every RunModel attempt, so keep it fast and free of I/O: look
+// the model up in clients the Worker built at startup. The settings come from
+// the application, so choose only from models the Worker allows. The map is
+// empty when the session has no settings. An error fails the attempt like a
+// model error, and its text becomes the turn's LastTurnError, which snapshots
+// show, so never put the settings in an error message. Only model calls see
+// the settings: tool calls do not receive them.
+//
+//	models := map[string]stepwise.ModelClient{
+//		"gpt-5-mini": openaimodel.NewResponsesModelClient(client, "gpt-5-mini"),
+//		"gpt-5":      openaimodel.NewResponsesModelClient(client, "gpt-5"),
+//	}
+//	resolveModel := func(sessionSettings map[string]any) (stepwise.ModelClient, error) {
+//		if model, isAllowed := models[fmt.Sprint(sessionSettings["model"])]; isAllowed {
+//			return model, nil
+//		}
+//		return models["gpt-5-mini"], nil
+//	}
+type ModelResolver func(sessionSettings map[string]any) (ModelClient, error)
 
 // InstructionsFunction returns the system instructions of one model call.
 //
@@ -61,6 +87,16 @@ func (option agentDefinitionOptionFunc) applyAgentDefinition(definition *AgentDe
 func WithInstructionsFunction(instructions InstructionsFunction) AgentDefinitionOption {
 	return agentDefinitionOptionFunc(func(definition *AgentDefinition) {
 		definition.instructionsFunction = instructions
+	})
+}
+
+// WithModelResolver chooses the model client of each model call from the session settings.
+//
+// Without it, the model passed to NewAgentDefinition serves every call. See
+// ModelResolver.
+func WithModelResolver(resolveModel ModelResolver) AgentDefinitionOption {
+	return agentDefinitionOptionFunc(func(definition *AgentDefinition) {
+		definition.resolveModel = resolveModel
 	})
 }
 
@@ -138,6 +174,7 @@ type AgentDefinition struct {
 	instructions             string
 	instructionsFunction     InstructionsFunction
 	model                    ModelClient
+	resolveModel             ModelResolver
 	modelSettings            ModelSettings
 	tools                    []*FunctionTool
 	toolPolicies             map[string]dexagents.ToolPolicy
@@ -268,7 +305,11 @@ func (runner *StepwiseAgentRunner) RunModelStep(
 	if err != nil {
 		return nil, err
 	}
-	response, err := runner.definition.model.CallModel(ctx, request, turn.Events)
+	model, err := runner.resolveModel(turn)
+	if err != nil {
+		return nil, err
+	}
+	response, err := model.CallModel(ctx, request, turn.Events)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +463,22 @@ func (runner *StepwiseAgentRunner) instructions(turn dexagents.AgentTurnContext)
 	}
 	return runner.definition.instructionsFunction(InstructionContext{
 		FlowID: turn.FlowID, TurnID: turn.TurnID, Attempt: turn.Attempt, InteractionMode: turn.InteractionMode,
+		SessionSettings: turn.SessionSettings,
 	})
+}
+
+func (runner *StepwiseAgentRunner) resolveModel(turn dexagents.AgentTurnContext) (ModelClient, error) {
+	if runner.definition.resolveModel == nil {
+		return runner.definition.model, nil
+	}
+	model, err := runner.definition.resolveModel(turn.SessionSettings)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, fmt.Errorf("the model resolver of agent %s returned no model client", runner.definition.name)
+	}
+	return model, nil
 }
 
 func (runner *StepwiseAgentRunner) toolPolicy(turn dexagents.AgentTurnContext, toolName string) dexagents.ToolPolicy {

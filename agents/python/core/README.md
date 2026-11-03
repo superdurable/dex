@@ -506,6 +506,69 @@ its result whole, and says so with
 Each `CompactContext` attempt emits a `chat` span for the summary call, as
 `RunModel` does; return `ContextSummaryResult.model_call_metadata` to name it.
 
+## Session settings
+
+Session settings let one Flow type serve sessions that differ, such as by
+model, without a Worker pool per model. They are one JSON object that the
+application sets when it starts the session and can replace later:
+
+```python
+models = {name: LiteLLMModelClient(name) for name in ("openai/gpt-5-mini", "openai/gpt-5")}
+definition = AgentDefinition(
+    name="support",
+    instructions="You help customers with their orders.",
+    model=models["openai/gpt-5-mini"],
+    # Choose only from clients the Worker built; the settings come from the application.
+    resolve_model=lambda settings: models.get(
+        str(settings.get("model")), models["openai/gpt-5-mini"]
+    ),
+)
+
+await sessions.start_session("session-42", "Hello", session_settings={"model": "openai/gpt-5"})
+await sessions.update_session_settings("session-42", {"model": "openai/gpt-5-mini"})
+```
+
+- `StartAgentSession` stores `AgentSessionStartInput.session_settings` in the
+  `SessionSettings` Attribute. `update_session_settings` replaces it; nothing
+  is merged, and `{}` clears it. It returns `False` before the session
+  initialized.
+- A change takes effect when the next turn starts, the same boundary as
+  `plan_mode`. The Step that starts a turn copies the settings into
+  `TurnSessionSettings`, tagged with the turn, and the turn's model calls,
+  retries, and compaction read only that copy, so a running turn keeps the
+  settings it started with, even across a Worker crash. A copy that an earlier
+  turn left reads as no settings.
+- A runner reads `AgentTurnContext.session_settings`, an empty mapping when
+  there are none, such as in a session started on 0.1.0.
+  `ContextSummaryRequest.session_settings` carries the same value. Stepwise's
+  `AgentDefinition.resolve_model` maps it to the `ModelClient` of each model
+  call, including summary calls and token estimates, and
+  `InstructionContext.session_settings` passes it to an instructions function.
+- `get_agent_snapshot` returns the next turn's settings as
+  `AgentSnapshot.session_settings`, not the running turn's: right after an
+  update, the running turn may still use the earlier settings.
+- Only model calls see the settings. Tool calls do not receive them, and the
+  compaction policy's `context_window_tokens` is one value for every resolved
+  model.
+- **Never put a secret, or anything a browser must not see, in settings.**
+  They are Flow state that `get_agent_snapshot` returns, and
+  `dex_agents.ui_stream`'s browser snapshot JSON includes them as stored. Put
+  a reference, such as a model or credential name, and let the Worker resolve
+  it. An exception that `resolve_model` raises becomes the turn's
+  `last_turn_error`, which snapshots also show, so keep the settings out of
+  its message.
+- The compact JSON text, UTF-8 with non-ASCII unescaped, is at most
+  `MAX_SESSION_SETTINGS_BYTES` (16 KiB). `validate_session_settings` and
+  `session_settings_size` check it, and `AgentSessionClient` checks before it
+  sends. The cores write some floats and U+2028/U+2029 differently, so the
+  session's own checks accept `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES` (1 KiB)
+  more: `update_session_settings` returns `False` beyond that, or for `None`,
+  and `StartAgentSession` fails the session at once, with no retry, with a
+  reason that starts with `INVALID_START_SESSION_SETTINGS_REASON`.
+- Start sessions with settings, and call `update_session_settings`, only after
+  every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
+  settings and starts turns without them.
+
 ## The runner contract
 
 An adapter implements three methods. The session calls them from Steps, so
@@ -772,7 +835,7 @@ ApplyTurnControl -> RunModel with steered messages, else AwaitUserMessage
 
 | Step (input) | What it does | Next |
 | --- | --- | --- |
-| `StartAgentSession` (`AgentSessionStartInput`) | Start Step. Initializes state, usage, and interrupts. | `RunModel` with a non-blank `initial_message`, else `AwaitUserMessage` |
+| `StartAgentSession` (`AgentSessionStartInput`) | Start Step. Initializes state, usage, interrupts, and `SessionSettings`. | `RunModel` with a non-blank `initial_message`, else `AwaitUserMessage` |
 | `AwaitUserMessage` (none) | Waits for any of, in this order, `TurnControlRequests`, `QueuedUserMessages.for_one()`, and, while the plan is `draft` or `active`, `PlanExecutions.for_one(<revision>)`. A steer or cancellation: moves to `ApplyTurnControl`. A message: stores it and starts a `chat` or `planning` turn. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. | `ApplyTurnControl`, `RunModel`, or itself for a stale approval |
 | `RunModel` (none) | Moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts; records `write_todos` calls, and every call but `write_todos` of a planning turn, final in this commit. | `AwaitUserMessage`, `ApplyTurnControl`, `CompactContext`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
 | `CompactContext` (`CompactContextInput`) | Calls `summarize_context` once and stores `ContextSummary`. `RunModel`'s timeouts, attempts, and failure route. | `RunModel` |
@@ -1124,7 +1187,8 @@ Dex and no web framework. An application mounts two endpoints:
   the framework's replay data, which can hold the agent's instructions, and
   `tool_source_reference`, `trace_context`, `input_continuation`,
   `input_answers`, and `task_answer_pending` on tool calls. Read them with `get_agent_snapshot` on the
-  server when needed.
+  server when needed. It includes `session_settings` as stored, so keep
+  anything a browser must not see out of session settings, or remove the key.
 - **Events.** `await stream_agent_event_frames(client, flow, session_id,
   resume_token=...)` checks the token with one short read, then returns a
   generator of Server-Sent Event frames. Each frame's `id` is the event's Dex

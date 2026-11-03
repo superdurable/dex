@@ -117,6 +117,79 @@ async def test_a_session_started_on_the_released_worker_continues_on_this_one(
     assert "AwaitQuestionAnswer" in await harness.executed_step_types(session_id)
 
 
+async def test_a_released_session_runs_without_settings_until_one_is_set(
+    harness: ScriptedAgentHarness,
+    released_python: str,
+) -> None:
+    released_worker = await harness.stack.start_worker(python_executable=released_python)
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call publish {"message": "upgrade"}')
+    interrupt = await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: next(iter(snapshot.pending_interrupts), None),
+        description="the approval raised by the released Worker",
+    )
+    released_worker.kill()
+    await harness.stack.start_worker()
+    assert (await harness.sessions.get_agent_snapshot(session_id)).session_settings is None
+
+    # The update lands mid-turn: the released turn finishes without settings.
+    assert await harness.sessions.update_session_settings(session_id, {"model": "alpha"})
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    await harness.wait_for_turns(session_id, 1)
+    assert await harness.sessions.send_user_message(session_id, "say upgraded")
+    second = await harness.wait_for_turns(session_id, 2)
+
+    assert second.messages[-1].text == "said: upgraded"
+    assert second.session_settings == {"model": "alpha"}
+    assert harness.session_settings_log.names() == [
+        "turn-1:{}",
+        "turn-1:{}",
+        'turn-2:{"model": "alpha"}',
+    ]
+
+
+async def test_a_turn_a_released_worker_began_ignores_an_earlier_turns_settings(
+    harness: ScriptedAgentHarness,
+    released_python: str,
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, "say first", session_settings={"model": "alpha"}
+    )
+    await harness.wait_for_turns(session_id, 1)
+    worker.kill()
+
+    # The released Worker begins turn-2 without writing its settings copy.
+    released_worker = await harness.stack.start_worker(python_executable=released_python)
+    assert await harness.sessions.send_user_message(
+        session_id, 'call publish {"message": "rollout"}'
+    )
+    interrupt = await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: next(iter(snapshot.pending_interrupts), None),
+        description="the approval raised by the released Worker",
+    )
+    released_worker.kill()
+    await harness.stack.start_worker()
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    await harness.wait_for_turns(session_id, 2)
+
+    # turn-1's copy is stale, so turn-2 runs without settings on every Worker.
+    assert harness.session_settings_log.names() == [
+        'turn-1:{"model": "alpha"}',
+        "turn-2:{}",
+        "turn-2:{}",
+    ]
+
+
 def public_api_breaks(released: dict[str, Any], current: dict[str, Any]) -> list[str]:
     """Return every way the current API breaks code written for the released one."""
     breaks: list[str] = []

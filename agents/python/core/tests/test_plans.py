@@ -262,6 +262,25 @@ async def test_a_required_planning_tool_choice_forces_write_todos_until_a_draft_
     assert (revising["tools"], revising["tool_choice"]) == (["write_todos"], "auto")
 
 
+async def test_a_resolved_model_that_cannot_force_a_tool_choice_fails_the_planning_turn(
+    plan_harness: ScriptedAgentHarness,
+) -> None:
+    await plan_harness.stack.start_worker({PLANNING_TOOL_CHOICE_ENVIRONMENT_VARIABLE: "required"})
+    session_id = plan_harness.new_session_id()
+    await plan_harness.sessions.start_session(
+        session_id, session_settings={"refuses_forced_tool_choice": True}
+    )
+    assert await plan_harness.sessions.send_user_message(
+        session_id, "plan Look up the order", plan_mode=True
+    )
+    snapshot = await plan_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.state is not None and snapshot.state.last_turn_error is not None
+    assert "planning_tool_choice='required' needs a model" in snapshot.state.last_turn_error
+    # The check runs before the request, so the model never sees a forced choice.
+    assert _requests(plan_harness, session_id, "turn-1") == []
+
+
 async def test_a_planning_turn_rejects_every_tool_but_write_todos(
     plan_harness: ScriptedAgentHarness,
 ) -> None:

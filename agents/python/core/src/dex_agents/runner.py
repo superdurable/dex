@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
@@ -435,6 +435,13 @@ class AgentTurnContext:
             ``None``. Only a runner that implements
             ``ContextCompactionRunner`` receives one; put its text before
             ``messages`` in the model input.
+        session_settings: The settings this turn started with, such as
+            ``{"model": "gpt-5-mini"}``. Use them to choose the model or the
+            instructions of each model call. ``update_session_settings``
+            changes them from the next turn on, so every model call of one
+            turn sees the same value, retries included. Empty when the
+            session has no settings, such as a session started on
+            dex-agents 0.1.0. Treat the mapping as read-only.
     """
 
     flow_id: str
@@ -451,6 +458,7 @@ class AgentTurnContext:
     interaction_mode: InteractionMode = InteractionMode.CHAT
     plan: AgentPlan | None = None
     context_summary: ContextSummary | None = None
+    session_settings: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def is_resuming(self) -> bool:
