@@ -1010,6 +1010,10 @@ export const blankToolTaskId = "the tool started a task without a task ID";
 /** Error recorded when a task's poll interval is not a number; the same text as the Python core. */
 export const invalidToolTaskPollInterval = "the tool task's poll interval is not a number";
 
+/** Error of an `outcome_unknown` record whose task `cancel_turn` abandoned; the same text as the Python core. */
+export const toolTaskAbandonedError =
+  "the turn was cancelled while the tool's task was running; the task may have taken effect";
+
 /**
  * Returns the note text that tells the model what a failed turn already did.
  *

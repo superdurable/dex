@@ -26,6 +26,7 @@ import {
   type BuiltInTool,
   type DeferredToolOutcome,
   type FrameworkMessage,
+  type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
 } from "../../src/index.js";
@@ -109,6 +110,11 @@ interface ScriptedRunState {
  * throws, and `broken_report_task` fails with `the report failed`. `continuing_report_task` records
  * `<flowId> continuation <toolCallId> <text|none>` for the `inputContinuation` every poll reads, returns the
  * continuation `pending-<poll>` from each odd-numbered poll that does not finish, and finishes on its fourth.
+ * `endless_report_task` and `endless_publish_task` (a single-attempt write) never finish, and neither does
+ * `uncancellable_report_task`, whose cancellation always throws. `stubborn_report_task` waits at its FileGate in
+ * every poll, ignores the poll's cancellation signal, records `<flowId> returned <toolCallId>` once the gate is
+ * released, and finishes. `cancelToolTask` records
+ * `<flowId> cancel-task <toolCallId> attempt <n> <status> <cancellationReason>` on every call.
  *
  * `buildUnfinishedTurnMessages` always throws, so the failure tests prove the note is still stored.
  */
@@ -283,6 +289,10 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       case "failing_publish_task":
       case "broken_report_task":
       case "continuing_report_task":
+      case "endless_report_task":
+      case "endless_publish_task":
+      case "uncancellable_report_task":
+      case "stubborn_report_task":
         return this.startReportTask(call);
       case "sync_inventory":
         throw new Error("inventory service unavailable");
@@ -317,6 +327,14 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
         gate.markReached();
         await gate.waitForRelease(poll.cancellationSignal);
         break;
+      }
+      case "stubborn_report_task": {
+        const gate = new FileGate(this.markerDirectory, `stubborn_report_task-${poll.flowId}`);
+        gate.markReached();
+        // A poll that ignores cancellation returns its result after the turn ended.
+        await gate.waitForRelease();
+        this.invocationLog("task-runs").record(`${poll.flowId} returned ${toolCall.toolCallId}`);
+        return { output: "report ready" };
       }
       case "failing_report_task":
       case "failing_publish_task":
@@ -365,6 +383,17 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       };
     }
     return { output: task.answer === null ? "report ready" : `report ready as ${task.answer}` };
+  }
+
+  public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    const toolCall = cancellation.toolCall;
+    this.invocationLog("task-runs").record(
+      `${cancellation.flowId} cancel-task ${toolCall.toolCallId} attempt ${cancellation.attempt} ` +
+        `${toolCall.status} ${toolCall.cancellationReason ?? null}`,
+    );
+    if (toolCall.toolName === "uncancellable_report_task") {
+      throw new Error("the task server refused the cancellation");
+    }
   }
 
   private async startReportTask(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
@@ -430,6 +459,10 @@ function finishingPollOfReportTask(toolName: string): number {
       return 1;
     case "start_gated_report_task":
       return 2;
+    case "endless_report_task":
+    case "endless_publish_task":
+    case "uncancellable_report_task":
+      return Number.POSITIVE_INFINITY;
     case "continuing_report_task":
       return 4;
     default:
@@ -495,6 +528,10 @@ export function createScriptedAgentFlow(
       failing_publish_task: { effect: "non_idempotent_write", requiresApproval: false },
       broken_report_task: { effect: "read" },
       continuing_report_task: { effect: "read" },
+      endless_report_task: { effect: "read" },
+      endless_publish_task: { effect: "non_idempotent_write", requiresApproval: false },
+      uncancellable_report_task: { effect: "read" },
+      stubborn_report_task: { effect: "read" },
     },
   });
 }

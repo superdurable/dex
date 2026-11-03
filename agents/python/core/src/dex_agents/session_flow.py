@@ -16,11 +16,14 @@ of their results before the next ``RunModel``. A call to an enabled built-in
 tool runs in the built-in's own Step instead: ``AwaitQuestionAnswer`` for
 ``ask_user`` and ``AwaitTimer`` for ``durable_wait``. ``RunModel`` records a
 ``write_todos`` call in its own commit, and ``execute_plan`` starts a turn that
-runs an approved plan from ``AwaitUserMessage``. Steering and ``cancel_turn``
-end a turn at its next safe Step boundary through ``ApplyTurnControl``. A tool
-that starts remote work returns ``ToolTaskStarted``, and ``PollToolTask`` polls
-it on a Timer. With a compaction policy, ``CompactContext`` summarizes earlier
-messages before a model call whose input would cross the threshold.
+runs an approved plan from ``AwaitUserMessage``. Steering ends a turn at its
+next safe Step boundary through ``ApplyTurnControl``. ``cancel_turn`` also
+cancels the running model call and the Steps that wait, and
+``FinishTurnCancellation`` decides from committed state how the turn ends. A
+tool that starts remote work returns ``ToolTaskStarted``, and ``PollToolTask``
+polls it on a Timer; ``cancel_turn`` abandons it through ``CancelToolTask``.
+With a compaction policy, ``CompactContext`` summarizes earlier messages before
+a model call whose input would cross the threshold.
 """
 
 from __future__ import annotations
@@ -119,6 +122,7 @@ from dex_agents.runner import (
     APPROVAL_DEADLINE_PASSED,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
+    TOOL_TASK_ABANDONED_ERROR,
     TURN_CANCELLED_NOTE_HEADER,
     TURN_STEERED_NOTE_HEADER,
     AgentFrameworkRunner,
@@ -132,6 +136,8 @@ from dex_agents.runner import (
     ToolExecutionResult,
     ToolInputRequested,
     ToolPolicy,
+    ToolTaskCancellation,
+    ToolTaskCanceller,
     ToolTaskPending,
     ToolTaskPoll,
     ToolTaskPoller,
@@ -348,10 +354,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     for the next user message after every turn. Stop it with
     ``AsyncClient.stop_flow``.
 
-    ``steer_user_message`` and ``cancel_turn`` end the running turn at its next
-    safe Step boundary. Neither interrupts a model call or a tool call that has
-    already started. The calls that have not started record ``REJECTED`` with
-    a ``cancellation_reason``, and ``ApplyTurnControl`` ends the turn. A steered
+    ``steer_user_message`` ends the running turn at its next safe Step
+    boundary. It never interrupts a model call or a tool call that has already
+    started. ``cancel_turn`` stops the running model call and every wait for a
+    person, a Timer, or a remote task too, but a tool call Step that has
+    started still runs to the end. The calls that have not started record
+    ``REJECTED`` with a ``cancellation_reason``, an abandoned task records
+    ``OUTCOME_UNKNOWN``, and ``ApplyTurnControl`` ends the turn. A steered
     turn is followed by a new turn with the steered messages.
 
     Example:
@@ -472,6 +481,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self._resume_turn = ResumeTurn(self)
         self._apply_turn_control = ApplyTurnControl(self)
         self._record_turn_failure = RecordTurnFailure(self)
+        self._finish_turn_cancellation = FinishTurnCancellation(self)
+        self._cancel_tool_task = CancelToolTask(self)
 
     @property
     def runner(self) -> AgentFrameworkRunner[DeferredToolOutcome]:
@@ -520,6 +531,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             self._resume_turn,
             self._apply_turn_control,
             self._record_turn_failure,
+            self._finish_turn_cancellation,
+            self._cancel_tool_task,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
@@ -771,44 +784,62 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             SESSION_SETTINGS.delete(context)
         return RPCResult(True)
 
-    # Only this RPC locks it: concurrent cancels apply in order, so a stale one cannot win.
-    @rpc(lock_attributes=(TURN_CANCELLATION_REQUEST.lock(),))
+    # PendingInterrupts orders it with ResumeTurn, and TurnCancellationRequest with turn starts.
+    @rpc(lock_attributes=(TURN_CANCELLATION_REQUEST.lock(), PENDING_INTERRUPTS.lock()))
     def cancel_turn(self, context: Context, input: CancelTurnRequest) -> RPCResult[bool]:
-        """Stop the running turn at its next safe Step boundary, with no new turn.
+        """Stop the running turn now, with no new turn.
 
-        Cancellation works like steering without a steered message. A model
-        call that is running finishes, and a final answer it returns completes
-        the turn as usual. Tool calls that have started run to the end. The
-        calls that have not started record ``REJECTED`` with
-        ``cancellation_reason`` ``TURN_CANCELLED``. Then the session waits for
-        the next user message. The RPC locks only ``TurnCancellationRequest``,
-        which no Step locks, so it never waits for a running Step. Two calls at
-        once can make one raise ``RpcLockConflictError``, which is safe to
-        retry; ``AgentSessionClient.cancel_turn`` retries it.
+        The RPC cancels the turn's running model call or compaction, and every
+        Step that waits for an approval, an answer, a ``durable_wait`` Timer,
+        or a remote task's next poll. A cancelled model call stops at once and
+        its answer is dropped. A tool call Step that has started runs to the
+        end, and the turn ends after it. The calls that have not started
+        record ``REJECTED`` with ``cancellation_reason`` ``TURN_CANCELLED``. A
+        started remote task is abandoned: the call records ``OUTCOME_UNKNOWN``,
+        and a runner that implements ``ToolTaskCanceller`` is asked to cancel
+        the task. Then the session waits for the next user message.
+
+        The RPC locks ``TurnCancellationRequest`` and ``PendingInterrupts``.
+        No long-running Step locks them, so it never waits for a model call.
+        It can raise ``RpcLockConflictError`` while a short Step holds a lock,
+        which is safe to retry; ``AgentSessionClient.cancel_turn`` retries it.
+        A second call for the same turn changes nothing and returns ``True``.
 
         Args:
             context: RPC Context supplied by Dex.
             input: The turn to stop, or ``None`` for the active turn.
 
         Returns:
-            ``True`` when the request is recorded, although the turn may still
-            complete before it applies; ``False`` when no turn is active,
-            ``turn_id`` names another turn, or the active turn does not accept
-            cancellation.
+            ``True`` when the request is recorded, although a turn whose model
+            call already committed its final answer completes instead;
+            ``False`` when no turn is active, ``turn_id`` names another turn, or
+            the active turn does not accept cancellation.
         """
         state = _optional_agent_state(context)
         if state is None or state.active_turn_id is None or not state.accepts_turn_control:
             return RPCResult(False)
-        if input.turn_id is not None and input.turn_id != state.active_turn_id:
+        turn_id = state.active_turn_id
+        if input.turn_id is not None and input.turn_id != turn_id:
             return RPCResult(False)
+        if _turn_control_reason(context, turn_id) is ToolCallCancellationReason.TURN_CANCELLED:
+            return RPCResult(True)
         TURN_CANCELLATION_REQUEST.set(
             context,
-            TurnCancellationRequest(
-                turn_id=state.active_turn_id, requested_at=_rfc3339(datetime.now(UTC))
-            ),
+            TurnCancellationRequest(turn_id=turn_id, requested_at=_rfc3339(datetime.now(UTC))),
         )
-        TURN_CONTROL_REQUESTS.publish(context, TurnControlRequest(kind=TurnControlKind.CANCEL_TURN))
-        return RPCResult(True)
+        # Each cancelled Step has no outside effect or only waits; the model call's answer is lost.
+        return RPCResult(
+            True,
+            next_steps=(StepMovement.of(self._finish_turn_cancellation, turn_id),),
+        ).with_canceling_steps(
+            self._run_model,
+            self._compact_context,
+            self._record_turn_failure,
+            self._await_tool_approval,
+            self._await_question_answer,
+            self._await_timer,
+            self._poll_tool_task,
+        )
 
     @rpc(lock_attributes=(PENDING_INTERRUPTS.lock(),))
     def resolve_interrupt(
@@ -1145,9 +1176,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         """Return RunModel's move instead of a model call, or None to call the model."""
         # Execute state is fixed at the first attempt, so this and the compaction
         # check are RunModel's decision points.
-        if _turn_control_reason(context, turn_id) is not None:
-            return go_to(self._apply_turn_control, None)
-        return None
+        if _turn_control_reason(context, turn_id) is None:
+            return None
+        # Ending the turn in this commit leaves FinishTurnCancellation no pending turn end to race.
+        self._end_controlled_turn(
+            context, _require_agent_state(context), STEERED_USER_MESSAGES.size(context)
+        )
+        return go_to(self._apply_turn_control, None)
 
     def _turn_context(
         self,
@@ -1599,6 +1634,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     tool_call,
                     status=ToolCallStatus.APPROVED,
                     trace_context=activation.traceparent,
+                    cancellation_reason=None,
                 )
                 AGENT_TOOL_CALLS.set(context, approved.tool_call_id, approved)
                 return go_to_many(self._tool_call_movement(approved))
@@ -1606,6 +1642,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 tool_call,
                 status=ToolCallStatus.REJECTED,
                 rejection_message=resolution.rejection_message,
+                cancellation_reason=None,
             )
             return _finish_tool_call(context, rejected, events)
 
@@ -1666,6 +1703,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             raise RuntimeError(f"the question wait for {interrupt_id} completed without an answer")
         if _is_tool_question_unraised(context, tool_call, interrupt_id):
             reason = _turn_control_reason(context, tool_call.turn_id)
+            if (
+                reason is ToolCallCancellationReason.TURN_CANCELLED
+                and tool_call.task_id is not None
+            ):
+                # cancel_turn abandons a started task instead of asking its question.
+                return go_to_many(self._finish_turn_cancellation_movement(tool_call.turn_id))
             if reason is not None and _is_cancellable_by_turn_control(tool_call):
                 # The turn is steered or cancelled, so the tool's question is never asked.
                 return _finish_tool_call(context, _cancelled_tool_call(tool_call, reason), events)
@@ -1728,6 +1771,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 tool_call,
                 status=ToolCallStatus.REJECTED,
                 rejection_message=resolution.rejection_message or QUESTION_DECLINED_TOOL_RESULT,
+                cancellation_reason=None,
                 **_NO_PENDING_TOOL_QUESTION,
             )
             return _finish_tool_call(context, rejected, events)
@@ -1736,6 +1780,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 tool_call,
                 status=ToolCallStatus.SUCCEEDED,
                 output=build_question_answered_output(resolution.answer),
+                cancellation_reason=None,
             )
             return _finish_tool_call(context, answered, events)
         answer = QuestionAnswer(
@@ -1745,6 +1790,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             tool_call,
             status=ToolCallStatus.APPROVED,
             input_answers=[*tool_call.input_answers, answer],
+            cancellation_reason=None,
             **_NO_PENDING_TOOL_QUESTION,
         )
         AGENT_TOOL_CALLS.set(context, approved.tool_call_id, approved)
@@ -1777,6 +1823,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             status=ToolCallStatus.WAITING_FOR_TASK,
             input_answers=[*tool_call.input_answers, resolved],
             task_answer_pending=True,
+            cancellation_reason=None,
             **_NO_PENDING_TOOL_QUESTION,
         )
         AGENT_TOOL_CALLS.set(context, waiting.tool_call_id, waiting)
@@ -1913,8 +1960,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     def _wait_for_tool_task_poll(self, context: Context, tool_call_id: str) -> Wait:
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
-        # A resolved question reaches the task at once, not after a backed-off interval.
-        interval = 0 if tool_call.task_answer_pending else tool_call.task_poll_interval_seconds or 1
+        # A resolved question, or a cancelled turn, reaches the task at once.
+        interval = (
+            0
+            if tool_call.task_answer_pending or _is_turn_cancelled(context, tool_call.turn_id)
+            else tool_call.task_poll_interval_seconds or 1
+        )
         return Wait.until(Timer.by_duration(timedelta(seconds=interval)))
 
     async def _poll_task_once(self, context: AsyncContext, tool_call_id: str) -> StepDecision:
@@ -1923,6 +1974,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             return dead_end()
         if tool_call.status is not ToolCallStatus.WAITING_FOR_TASK or tool_call.task_id is None:
             raise RuntimeError(f"tool call {tool_call_id} is not waiting for a task")
+        if _is_turn_cancelled(context, tool_call.turn_id):
+            # This poll started after cancel_turn committed, so it abandons the task instead.
+            return go_to_many(self._finish_turn_cancellation_movement(tool_call.turn_id))
         events = self._event_writer(context, tool_call.turn_id)
         if not isinstance(self._runner, ToolTaskPoller):
             # A Worker whose runner lost the method; the task may still run.
@@ -1999,7 +2053,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         if tool_call.status.is_final:
             return dead_end()
-        finished = replace(tool_call, status=status, error=_recovery_detail(context))
+        # An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
+        error = (
+            TOOL_TASK_ABANDONED_ERROR
+            if _is_abandoned_tool_task(tool_call) and tool_call.cancellation_reason is not None
+            else _recovery_detail(context)
+        )
+        finished = replace(tool_call, status=status, error=error)
         return _finish_tool_call(context, finished, self._event_writer(context, tool_call.turn_id))
 
     def _resume_turn_after_tool_calls(
@@ -2010,7 +2070,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_calls = _turn_tool_calls(context, turn_id)
         reason = _turn_control_reason(context, turn_id)
         if TURN_CONTROL_REQUESTS.results(context):
-            if reason is not None:
+            # FinishTurnCancellation, not this wake, ends the waits of a cancelled turn.
+            if reason is ToolCallCancellationReason.STEERED:
                 self._wake_waiting_tool_calls(
                     context, tool_calls, reason, self._event_writer(context, turn_id)
                 )
@@ -2067,6 +2128,94 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     if interrupt.interrupt_id not in cancelled_interrupt_ids
                 ],
             )
+
+    def _finish_cancelled_turn(self, context: AsyncContext, turn_id: str) -> StepDecision:
+        """Hand a cancelled turn to the one Step that ends it, deciding from committed state."""
+        state = _optional_agent_state(context)
+        if (
+            state is None
+            or state.active_turn_id != turn_id
+            or not _is_turn_cancelled(context, turn_id)
+        ):
+            # The turn ended before the cancellation applied.
+            return dead_end()
+        if state.status is not AgentSessionStatus.RUNNING_TOOLS:
+            # cancel_turn cancelled the model call or compaction, so no other Step ends the turn.
+            return go_to(self._apply_turn_control, None)
+        # ResumeTurn waits for every result and ends the turn; started tool Steps still finish.
+        events = self._event_writer(context, turn_id)
+        interrupts = _pending_interrupts(context)
+        cancelled_interrupt_ids: set[str] = set()
+        movements: list[StepMovement[str]] = []
+        for tool_call in _turn_tool_calls(context, turn_id):
+            interrupt = _waiting_interrupt(tool_call)
+            if interrupt is not None:
+                interrupt_id, kind = interrupt
+                if INTERRUPT_RESOLUTIONS.size(context, interrupt_id) > 0:
+                    # The answer committed first; a new wait applies it, and its next Step decides.
+                    if tool_call.cancellation_reason is None:
+                        # The mark keeps a later FinishTurnCancellation from starting a second wait.
+                        handed_back = replace(
+                            tool_call, cancellation_reason=ToolCallCancellationReason.TURN_CANCELLED
+                        )
+                        AGENT_TOOL_CALLS.set(context, handed_back.tool_call_id, handed_back)
+                        movements.append(self._waiting_tool_call_movement(handed_back))
+                    continue
+                if any(pending.interrupt_id == interrupt_id for pending in interrupts):
+                    cancelled_interrupt_ids.add(interrupt_id)
+                    _write_interrupt_cancelled(
+                        events, interrupt_id, kind, ToolCallCancellationReason.TURN_CANCELLED
+                    )
+            if _is_abandoned_tool_task(tool_call):
+                if tool_call.cancellation_reason is None:
+                    abandoned = replace(
+                        tool_call,
+                        status=ToolCallStatus.WAITING_FOR_TASK,
+                        cancellation_reason=ToolCallCancellationReason.TURN_CANCELLED,
+                        task_answer_pending=False,
+                        **_NO_PENDING_TOOL_QUESTION,
+                    )
+                    AGENT_TOOL_CALLS.set(context, abandoned.tool_call_id, abandoned)
+                    movements.append(self._cancel_tool_task_movement(abandoned))
+                continue
+            if _is_cancellable_by_turn_control(tool_call):
+                cancelled = _cancelled_tool_call(
+                    tool_call, ToolCallCancellationReason.TURN_CANCELLED
+                )
+                _record_final_tool_call(context, cancelled, events)
+        if cancelled_interrupt_ids:
+            PENDING_INTERRUPTS.set(
+                context,
+                [
+                    interrupt
+                    for interrupt in interrupts
+                    if interrupt.interrupt_id not in cancelled_interrupt_ids
+                ],
+            )
+        return go_to_many(*movements) if movements else dead_end()
+
+    async def _cancel_abandoned_tool_task(
+        self, context: AsyncContext, tool_call_id: str
+    ) -> StepDecision:
+        tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
+        if tool_call.status.is_final:
+            return dead_end()
+        if tool_call.task_id is None or tool_call.cancellation_reason is None:
+            raise RuntimeError(f"tool call {tool_call_id} has no abandoned task")
+        if isinstance(self._runner, ToolTaskCanceller):
+            cancellation = ToolTaskCancellation(
+                flow_id=context.flow_id,
+                tool_call=tool_call,
+                idempotency_key=f"{context.flow_id}/{tool_call.turn_id}/{tool_call.tool_call_id}",
+                attempt=context.attempt,
+                heartbeat=context.heartbeat,
+            )
+            async with _background_heartbeats(context.heartbeat):
+                await self._runner.cancel_tool_task(cancellation)
+        abandoned = replace(
+            tool_call, status=ToolCallStatus.OUTCOME_UNKNOWN, error=TOOL_TASK_ABANDONED_ERROR
+        )
+        return _finish_tool_call(context, abandoned, self._event_writer(context, tool_call.turn_id))
 
     def _apply_turn_control_requests(self, context: AsyncContext) -> StepDecision:
         state = _require_agent_state(context)
@@ -2242,6 +2391,26 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         ).on_execute_failure_proceed_to(recovery_step, recovery_options)
         return StepMovement.of(self._poll_tool_task, tool_call.tool_call_id, options=options)
 
+    def _finish_turn_cancellation_movement(self, turn_id: str) -> StepMovement[str]:
+        return StepMovement.of(self._finish_turn_cancellation, turn_id)
+
+    def _cancel_tool_task_movement(self, tool_call: AgentToolCall) -> StepMovement[str]:
+        # Retries that run out still record the call, so the cancelled turn always ends.
+        options = _with_record_loads(
+            self._cancel_tool_task.get_step_options(), tool_call.tool_call_id
+        ).on_execute_failure_proceed_to(
+            self._record_tool_outcome_unknown,
+            _with_record_loads(
+                self._record_tool_outcome_unknown.get_step_options(), tool_call.tool_call_id
+            ),
+        )
+        return StepMovement.of(self._cancel_tool_task, tool_call.tool_call_id, options=options)
+
+    def _waiting_tool_call_movement(self, tool_call: AgentToolCall) -> StepMovement[str]:
+        if tool_call.status is ToolCallStatus.AWAITING_APPROVAL:
+            return self._tool_approval_movement(tool_call.tool_call_id)
+        return self._question_answer_movement(tool_call)
+
     def _tool_approval_movement(self, tool_call_id: str) -> StepMovement[str]:
         options = replace(
             self._await_tool_approval.get_step_options(),
@@ -2324,15 +2493,17 @@ class StartAgentSession(Step[AgentSessionStartInput]):
 
 
 class AwaitUserMessage(Step[None]):
-    """Wait for a steer, a cancellation, a queued user message, or a plan execution."""
+    """Wait for a steer, a queued user message, or a plan execution."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
 
     def get_step_options(self) -> StepOptions:
+        # The lock keeps a turn from starting while cancel_turn decides about the last one.
         return StepOptions(
             wait_for_durability=StepDurability.SYNC,
             execute_durability=StepDurability.SYNC,
+            execute_lock_attributes=(TURN_CANCELLATION_REQUEST.lock(),),
         )
 
     def wait_for(self, context: Context, input: None) -> Wait:
@@ -2593,9 +2764,9 @@ class RecordToolOutcomeUnknown(Step[str]):
 class ResumeTurn(Step[int]):
     """Wait for every tool call result of the model response, then call the model again.
 
-    A steer or ``cancel_turn`` wakes it early: it cancels the turn's pending
-    interrupts and Timers, waits again, and once every result is in moves to
-    ``ApplyTurnControl`` instead of ``RunModel``.
+    A steer wakes it early: it cancels the turn's pending interrupts and
+    Timers, and waits again. After a steer or ``cancel_turn``, once every
+    result is in, it moves to ``ApplyTurnControl`` instead of ``RunModel``.
     """
 
     def __init__(self, session: AgentSessionFlow) -> None:
@@ -2631,11 +2802,13 @@ class ApplyTurnControl(Step[None]):
         self._session = session
 
     def get_step_options(self) -> StepOptions:
+        # The lock keeps a turn from starting while cancel_turn decides about the last one.
         return StepOptions(
             execute_retry=RECOVERY_RETRY,
             wait_for_durability=StepDurability.SYNC,
             execute_durability=StepDurability.SYNC,
             execute_load_attribute_maps=(AGENT_TOOL_CALLS, AGENT_MESSAGES),
+            execute_lock_attributes=(TURN_CANCELLATION_REQUEST.lock(),),
         )
 
     def wait_for(self, context: Context, input: None) -> Wait:
@@ -2678,6 +2851,62 @@ class RecordTurnFailure(Step[TurnFailureRouteInput]):
         input: TurnFailureRouteInput,
     ) -> StepDecision:
         return self._session._fail_active_turn(context)
+
+
+class FinishTurnCancellation(Step[str]):
+    """Finish a turn that ``cancel_turn`` stopped, from the state that committed.
+
+    ``cancel_turn`` cancels the Steps that call a model or wait, then moves
+    here with the turn ID. When the model call or compaction was cancelled, it
+    moves to ``ApplyTurnControl``. Otherwise ``ResumeTurn`` still waits: this
+    Step records each call whose wait was cancelled, hands each abandoned task
+    to ``CancelToolTask``, and ends, so ``ResumeTurn`` ends the turn once every
+    started tool Step finishes.
+    """
+
+    def __init__(self, session: AgentSessionFlow) -> None:
+        self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        # The cancel_turn RPC holds both locks, so this Step reads the state that RPC committed.
+        return StepOptions(
+            execute_retry=RECOVERY_RETRY,
+            execute_durability=StepDurability.SYNC,
+            execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
+            execute_lock_attributes=(
+                TURN_CANCELLATION_REQUEST.lock(),
+                PENDING_INTERRUPTS.lock(),
+            ),
+        )
+
+    async def execute(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: str,
+    ) -> StepDecision:
+        return self._session._finish_cancelled_turn(context, input)
+
+
+class CancelToolTask(Step[str]):
+    """Ask the runner to cancel one task that ``cancel_turn`` abandoned, then record it."""
+
+    def __init__(self, session: AgentSessionFlow) -> None:
+        self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_method_timeout=timedelta(seconds=30),
+            execute_retry=RetryPolicy(maximum_attempts=3, total_duration=timedelta(minutes=2)),
+            execute_durability=StepDurability.SYNC,
+            execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
+        ).on_execute_failure_proceed_to(self._session._record_tool_outcome_unknown)
+
+    async def execute(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: str,
+    ) -> StepDecision:
+        return await self._session._cancel_abandoned_tool_task(context, input)
 
 
 class _ToolStepHeartbeats:
@@ -2825,6 +3054,27 @@ def _is_cancellable_by_turn_control(tool_call: AgentToolCall) -> bool:
         ToolCallStatus.AWAITING_APPROVAL,
         ToolCallStatus.WAITING_FOR_TIMER,
     ) or (tool_call.status is ToolCallStatus.AWAITING_ANSWER and tool_call.task_id is None)
+
+
+def _is_turn_cancelled(context: Context, turn_id: str) -> bool:
+    return _turn_control_reason(context, turn_id) is ToolCallCancellationReason.TURN_CANCELLED
+
+
+def _is_abandoned_tool_task(tool_call: AgentToolCall) -> bool:
+    """Report whether cancel_turn abandons this call's started task."""
+    return tool_call.task_id is not None and tool_call.status in (
+        ToolCallStatus.WAITING_FOR_TASK,
+        ToolCallStatus.AWAITING_ANSWER,
+    )
+
+
+def _waiting_interrupt(tool_call: AgentToolCall) -> tuple[str, InterruptKind] | None:
+    """Return the interrupt a waiting record's Step waits on, or None."""
+    if tool_call.status is ToolCallStatus.AWAITING_APPROVAL:
+        return tool_call.tool_call_id, InterruptKind.TOOL_APPROVAL
+    if tool_call.status is ToolCallStatus.AWAITING_ANSWER:
+        return _question_interrupt_id(tool_call), InterruptKind.QUESTION
+    return None
 
 
 def _cancelled_tool_call(

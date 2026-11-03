@@ -281,12 +281,14 @@ class AgentSessionClient:
         )
 
     async def cancel_turn(self, session_id: str, turn_id: str | None = None) -> bool:
-        """Stop the running turn at its next safe Step boundary.
+        """Stop the running turn now.
 
-        A running model call or tool call finishes first, so the turn may
-        still complete with an answer. The call retries
-        ``RpcLockConflictError``, which only another ``cancel_turn`` causes,
-        until ``lock_conflict_retry_timeout`` passes.
+        A running model call stops, and waits for an approval, an answer, a
+        Timer, or a remote task end. A tool call that has started runs to the
+        end first. A model call that already committed its final answer
+        completes the turn. The call retries ``RpcLockConflictError``, which
+        another ``cancel_turn`` or a short session Step causes, until
+        ``lock_conflict_retry_timeout`` passes.
 
         Args:
             session_id: Running session.

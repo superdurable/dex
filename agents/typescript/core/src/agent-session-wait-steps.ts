@@ -43,6 +43,7 @@ import {
 import {
   agentSessionStepTypes,
   cancelledToolCall,
+  finishTurnCancellationMovement,
   isCancellableByTurnControl,
   toolStepTypeForEffect,
   type AgentSessionTransitions,
@@ -141,6 +142,10 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       throw new Error(`the question wait for ${interruptId} completed without an answer`);
     }
     if (this.isToolQuestionUnraised(context, toolCall, interruptId)) {
+      if (transitions.isTurnCancelled(context, toolCall.turnId) && (toolCall.taskId ?? null) !== null) {
+        // cancel_turn abandons a started task instead of asking its question.
+        return goToMany(finishTurnCancellationMovement(toolCall.turnId));
+      }
       const reason = transitions.readTurnControlReason(context, toolCall.turnId);
       if (reason !== null && isCancellableByTurnControl(toolCall)) {
         // The turn is steered or cancelled, so the tool's question is never asked.
@@ -245,6 +250,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
         ...toolCall,
         status: "rejected",
         rejectionMessage: declineText(resolution.rejectionMessage),
+        cancellationReason: null,
         ...noPendingToolQuestion,
       });
       return deadEnd();
@@ -254,6 +260,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
         ...toolCall,
         status: "succeeded",
         output: buildQuestionAnsweredOutput(answer),
+        cancellationReason: null,
       });
       return deadEnd();
     }
@@ -264,6 +271,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
         ...toolCall.inputAnswers,
         { interruptId, question: toolCall.inputQuestion, answer, resolution: "answered" },
       ],
+      cancellationReason: null,
       ...noPendingToolQuestion,
     });
     return goToMany(
@@ -296,6 +304,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       status: "waiting_for_task",
       inputAnswers: [...toolCall.inputAnswers, resolved],
       taskAnswerPending: true,
+      cancellationReason: null,
       ...noPendingToolQuestion,
     };
     this.transitions.writeToolCall(context, waiting);
@@ -324,8 +333,11 @@ export class PollToolTaskStep implements Step<string> {
 
   public waitFor(context: Context, toolCallId: string): Wait {
     const toolCall = this.transitions.readToolCall(context, toolCallId);
-    // A resolved question reaches the task at once, not after a backed-off interval.
-    const intervalSeconds = toolCall.taskAnswerPending ? 0 : (toolCall.taskPollIntervalSeconds ?? 1);
+    // A resolved question, or a cancelled turn, reaches the task at once.
+    const intervalSeconds =
+      toolCall.taskAnswerPending === true || this.transitions.isTurnCancelled(context, toolCall.turnId)
+        ? 0
+        : (toolCall.taskPollIntervalSeconds ?? 1);
     return Wait.until(Timer.byDuration(intervalSeconds * 1_000));
   }
 
@@ -337,6 +349,10 @@ export class PollToolTaskStep implements Step<string> {
     }
     if (toolCall.status !== "waiting_for_task" || (toolCall.taskId ?? null) === null) {
       throw new Error(`tool call ${toolCallId} is not waiting for a task`);
+    }
+    if (transitions.isTurnCancelled(context, toolCall.turnId)) {
+      // This poll started after cancel_turn committed, so it abandons the task instead.
+      return goToMany(finishTurnCancellationMovement(toolCall.turnId));
     }
     const pollToolTask = transitions.runner.pollToolTask;
     const events = transitions.createEventWriter(context, toolCall.turnId);

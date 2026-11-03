@@ -17,6 +17,7 @@ import {
   type DeferredToolExecution,
   type DeferredToolOutcome,
   type ResolvedToolPolicy,
+  type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
 } from "../agent-framework-runner.js";
@@ -125,7 +126,8 @@ const discardedModelOutput: ModelOutputWriter = {
  * every model call shows the plan with {@link buildPlanNote} before the turn's messages. It implements the
  * compaction methods, so a session with a compaction policy starts the model input with the summary. Its
  * {@link pollToolTask} passes a tool task to the {@link ToolSource} that started it; function tools start no
- * tasks.
+ * tasks. Its {@link cancelToolTask} passes a task that `cancel_turn` abandoned to that source's optional
+ * `cancelToolTask`.
  *
  * @example
  * ```ts
@@ -370,6 +372,26 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       throw new RangeError(`no tool source built the call of tool ${poll.toolCall.toolName}`);
     }
     return routed.source.pollToolTask({ ...poll, toolCall: withToolSourceReference(poll.toolCall, routed.reference) });
+  }
+
+  /**
+   * Cancels a tool source's task through the source that built the call; a source without `cancelToolTask` leaves
+   * its task running.
+   * @param cancellation - The abandoned call's record from `CancelToolTask`.
+   * @returns A Promise that resolves once the source took the cancellation.
+   * @throws {RangeError} When no tool source built the call; `CancelToolTask` retries and then records the call
+   * `outcome_unknown`.
+   * @throws Any error of the source.
+   */
+  public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    const routed = this.routeToToolSource(cancellation.toolCall);
+    if (routed === undefined) {
+      throw new RangeError(`no tool source built the call of tool ${cancellation.toolCall.toolName}`);
+    }
+    await routed.source.cancelToolTask?.({
+      ...cancellation,
+      toolCall: withToolSourceReference(cancellation.toolCall, routed.reference),
+    });
   }
 
   /**

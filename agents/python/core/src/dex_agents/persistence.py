@@ -76,7 +76,7 @@ TOOL_CALL_RESULTS: Channel[ToolCallCompleted] = Channel("ToolCallResults", ToolC
 #: Steered user messages that ``ApplyTurnControl`` has not applied yet.
 STEERED_USER_MESSAGES: Channel[AgentUserMessage] = Channel("SteeredUserMessages", AgentUserMessage)
 
-#: Internal wake-ups that ``steer_user_message`` and ``cancel_turn`` publish.
+#: Internal wake-ups that ``steer_user_message`` publishes.
 TURN_CONTROL_REQUESTS: Channel[TurnControlRequest] = Channel(
     "TurnControlRequests", TurnControlRequest
 )

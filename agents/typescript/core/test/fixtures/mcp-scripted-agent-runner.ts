@@ -16,6 +16,7 @@ import {
   type DeferredToolExecution,
   type DeferredToolOutcome,
   type FrameworkMessage,
+  type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
 } from "../../src/index.js";
@@ -89,6 +90,10 @@ export class McpScriptedAgentRunner implements AgentFrameworkRunner<DeferredTool
 
   public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
     return this.tools.pollToolTask(poll);
+  }
+
+  public cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    return this.tools.cancelToolTask(cancellation);
   }
 
   private answerWithResults(turn: AgentTurnContext, calls: readonly RequestedCall[]): AgentTurnOutcome {

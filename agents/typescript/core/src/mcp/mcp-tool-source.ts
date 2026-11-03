@@ -35,6 +35,7 @@ import {
   type McpToolAnnotations,
   type ToolExecutionResult,
   type ToolPolicy,
+  type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
   type ToolTaskStarted,
@@ -323,7 +324,8 @@ const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
  * - A tool whose `execution.taskSupport` is `required` is called as a task. A Streamable HTTP server
  *   without protocol sessions gets {@link ToolTaskStarted}: the tool Step ends, and `PollToolTask` calls
  *   {@link pollToolTask} on a Timer, so no Step or connection is held while the task runs. The source
- *   requests a TTL of `taskTtlMs` for such a task.
+ *   requests a TTL of `taskTtlMs` for such a task. `cancel_turn` abandons the task, and
+ *   {@link cancelToolTask} sends `tasks/cancel`.
  * - A stdio server's task lives in its process, and a server that keeps protocol sessions, as the SDK's
  *   task store does, binds its tasks to the session, which ends with the request. The tool Step polls
  *   such a task with `tasks/get`, with a heartbeat per poll, for at most `taskWaitTimeoutMs` per attempt.
@@ -373,6 +375,9 @@ const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
  *   }
  *   public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
  *     return tools.pollToolTask(poll);
+ *   }
+ *   public cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+ *     return tools.cancelToolTask(cancellation);
  *   }
  * }
  * ```
@@ -744,6 +749,41 @@ export class McpToolSource {
   }
 
   /**
+   * Sends `tasks/cancel` for one MCP task that `cancel_turn` abandoned.
+   *
+   * Call it from `AgentFrameworkRunner.cancelToolTask`. Cancellation is best-effort: the server may finish the
+   * task anyway, and the session drops a result that arrives later. Any answer from the server ends the
+   * cancellation, including an error for a task that already finished or that the server no longer knows, so a
+   * repeated call is harmless.
+   * @param cancellation - The abandoned call's record from `CancelToolTask`.
+   * @returns A Promise that resolves once the server answered.
+   * @throws {McpToolCallInterruptedError} When the server could not be reached or did not answer;
+   * `CancelToolTask` retries, then records the call `outcome_unknown` anyway.
+   */
+  public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    const record = cancellation.toolCall;
+    const taskId = record.taskId ?? null;
+    if (taskId === null) {
+      throw new TypeError(`tool call ${record.toolCallId} has no MCP task`);
+    }
+    const target = await this.resolveTarget(record.toolName, record.toolSourceReference);
+    const call = new McpToolCall(this.connector, this.callLimits(false), target, {}, {
+      toolCallId: record.toolCallId,
+      heartbeat: () => cancellation.heartbeat(),
+      signal: cancellation.cancellationSignal,
+    });
+    const outcome = await call.cancelTask(taskId);
+    if (outcome.kind !== "succeeded") {
+      const detail = "detail" in outcome ? outcome.detail : `unexpected ${outcome.kind}`;
+      throw new McpToolCallInterruptedError(
+        target.server.name,
+        target.mcpToolName,
+        `cancelling MCP task ${taskId}: ${detail}`,
+      );
+    }
+  }
+
+  /**
    * Calls one listed MCP tool once, as a tool Step does.
    *
    * Use it from a framework tool that wraps an MCP tool, when the adapter gives the tool only the
@@ -1059,6 +1099,21 @@ class McpToolCall {
       console.warn(`calling MCP tool ${this.target.mcpToolName} again: ${outcome.detail}`);
     }
     return this.withConnection((connection) => this.sendToolCall(connection));
+  }
+
+  /** Sends `tasks/cancel` for one task, for `CancelToolTask`; a server's error answer counts as done. */
+  public cancelTask(taskId: string): Promise<ToolCallOutcome> {
+    return this.withConnection(async ({ client }) => {
+      try {
+        await client.experimental.tasks.cancelTask(taskId, { timeout: taskCancelTimeoutMs });
+      } catch (error: unknown) {
+        if (!(error instanceof McpError) || noResultErrorCodes.has(error.code)) {
+          return { kind: "interrupted", detail: `tasks/cancel got no answer: ${describeError(error)}` };
+        }
+        // The server answered, as for a finished or unknown task; asking again cannot help.
+      }
+      return { kind: "succeeded", output: "" };
+    });
   }
 
   /** Reads one task once, for `PollToolTask`. */

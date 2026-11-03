@@ -18,6 +18,7 @@ import {
   messageSequenceKey,
   missingToolTaskPoller,
   outcomeUnknownToolResult,
+  turnCancelledNoteHeader,
   type AgentFrameworkRunner,
   type AgentMessage,
   type AgentTurnContext,
@@ -969,64 +970,177 @@ describe("agent session turns with an in-process Worker", () => {
     );
   });
 
-  for (const control of ["steer", "cancel_turn"] as const) {
-    test(`${control} waits for a started task and keeps its question`, async () => {
-      const sessionId = newSessionId(`tool-task-${control.replace("_", "-")}`);
-      await sessions.startSession(sessionId, "call asking_report_task");
-      const question = await sessions.waitForPendingInterrupt(sessionId, "asking_report_task");
+  test("steer waits for a started task and keeps its question", async () => {
+    const sessionId = newSessionId("tool-task-steer");
+    await sessions.startSession(sessionId, "call asking_report_task");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "asking_report_task");
 
-      if (control === "steer") {
-        assert.equal(await sessions.steerUserMessage(sessionId, "say steered"), true);
-      } else {
-        assert.equal(await sessions.cancelTurn(sessionId, "turn-1"), true);
-      }
-      // ResumeTurn takes the control wake and waits again; the task's question stays.
-      await pollUntil(async () => ((await executedStepTypes(sessionId)).includes("ResumeTurn") ? true : undefined), {
-        description: "ResumeTurn to take the control wake",
-      });
-      const steered = await sessions.getAgentSnapshot(sessionId);
-      assert.deepEqual(
-        steered.pendingInterrupts.map((interrupt) => interrupt.interruptId),
-        [question.interruptId],
-      );
-      assert.equal(steered.state?.activeTurnId, "turn-1");
-      assert.deepEqual(
-        steered.toolCalls.map((toolCall) => [toolCall.status, toolCall.cancellationReason ?? null]),
-        [["awaiting_answer", null]],
-      );
-      assert.notEqual(steered.toolCalls[0]?.taskId ?? null, null);
-
-      assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "pdf"), true);
-      await sessions.waitForCompletedTurns(sessionId, control === "steer" ? 2 : 1);
-
-      assert.deepEqual(
-        toolLog("task-runs", sessionId).filter((line) => line.includes(" deliver ") || line.includes(" create ")),
-        [`${sessionId} create turn-1-asking_report_task`, `${sessionId} deliver turn-1-asking_report_task pdf`],
-      );
-      const events = await sessions.listAgentEvents(sessionId);
-      assert.deepEqual(finishedStatuses(events), ["succeeded"]);
-      const finished = events.findIndex((event) => event.type === "tool_call_finished");
-      const ended = events.flatMap((event, index) =>
-        event.type === (control === "steer" ? "turn_steered" : "turn_cancelled") ? [index] : [],
-      );
-      assert.equal(ended.length, 1);
-      assert.ok((ended[0] ?? -1) > finished);
-      assert.equal(
-        events.some(
-          (event) =>
-            event.type === "interrupt_resolved" &&
-            (JSON.parse(event.payload) as { cancellation_reason?: unknown }).cancellation_reason != null,
-        ),
-        false,
-      );
-      // The turn never ran its model again: the steer or cancellation ended it after the result.
-      const texts = (await sessions.getAgentSnapshot(sessionId)).messages.map((message) => message.text);
-      assert.equal(texts.includes("asking_report_task -> report ready as pdf"), false);
-      if (control === "steer") {
-        assert.equal(texts.at(-1), "echo: say steered");
-      }
+    assert.equal(await sessions.steerUserMessage(sessionId, "say steered"), true);
+    // ResumeTurn takes the control wake and waits again; the task's question stays.
+    await pollUntil(async () => ((await executedStepTypes(sessionId)).includes("ResumeTurn") ? true : undefined), {
+      description: "ResumeTurn to take the control wake",
     });
-  }
+    const steered = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      steered.pendingInterrupts.map((interrupt) => interrupt.interruptId),
+      [question.interruptId],
+    );
+    assert.equal(steered.state?.activeTurnId, "turn-1");
+    assert.deepEqual(
+      steered.toolCalls.map((toolCall) => [toolCall.status, toolCall.cancellationReason ?? null]),
+      [["awaiting_answer", null]],
+    );
+    assert.notEqual(steered.toolCalls[0]?.taskId ?? null, null);
+
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "pdf"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+
+    assert.deepEqual(
+      toolLog("task-runs", sessionId).filter((line) => line.includes(" deliver ") || line.includes(" create ")),
+      [`${sessionId} create turn-1-asking_report_task`, `${sessionId} deliver turn-1-asking_report_task pdf`],
+    );
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.deepEqual(finishedStatuses(events), ["succeeded"]);
+    const finished = events.findIndex((event) => event.type === "tool_call_finished");
+    const ended = events.flatMap((event, index) =>
+      event.type === "turn_steered" ? [index] : [],
+    );
+    assert.equal(ended.length, 1);
+    assert.ok((ended[0] ?? -1) > finished);
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "interrupt_resolved" &&
+          (JSON.parse(event.payload) as { cancellation_reason?: unknown }).cancellation_reason != null,
+      ),
+      false,
+    );
+    // The turn never ran its model again: the steer ended it after the result.
+    const texts = (await sessions.getAgentSnapshot(sessionId)).messages.map((message) => message.text);
+    assert.equal(texts.includes("asking_report_task -> report ready as pdf"), false);
+    assert.equal(texts.at(-1), "echo: say steered");
+    assert.deepEqual(
+      toolLog("task-runs", sessionId).filter((line) => line.includes(" cancel-task ")),
+      [],
+    );
+  });
+
+  test("cancel_turn abandons running tasks, asks the runner to cancel them, and ends the turn at once", async () => {
+    const sessionId = newSessionId("tool-task-cancel");
+    await sessions.startSession(sessionId, "call endless_report_task and endless_publish_task");
+    await pollUntil(
+      async () =>
+        toolLog("task-runs", sessionId).filter((line) => line.includes(" poll ")).length >= 2 ? true : undefined,
+      { description: "both tasks polled" },
+    );
+
+    const cancelledAt = Date.now();
+    assert.equal(await sessions.cancelTurn(sessionId, "turn-1"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.ok(Date.now() - cancelledAt < 15_000);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.state?.lastTurnError, null);
+    const note = snapshot.messages.at(-1)?.text ?? "";
+    assert.ok(note.includes(turnCancelledNoteHeader), note);
+    assert.ok(note.includes(`-> outcome_unknown: ${outcomeUnknownToolResult}`), note);
+    for (const toolName of ["endless_report_task", "endless_publish_task"]) {
+      assert.deepEqual(
+        toolLog("task-runs", sessionId).filter((line) => line.includes(` cancel-task turn-1-${toolName} `)),
+        [`${sessionId} cancel-task turn-1-${toolName} attempt 1 waiting_for_task turn_cancelled`],
+      );
+    }
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.deepEqual(finishedStatuses(events), ["outcome_unknown", "outcome_unknown"]);
+    assert.equal(events.filter((event) => event.type === "turn_cancelled").length, 1);
+    const steps = await executedStepTypes(sessionId);
+    assert.equal(steps.filter((stepType) => stepType === "CancelToolTask").length, 2);
+    assert.equal(steps.filter((stepType) => stepType === "FinishTurnCancellation").length, 1);
+    assert.equal(steps.at(-1), "ApplyTurnControl");
+    assert.equal(steps.includes("RecordToolOutcomeUnknown"), false);
+
+    // The next turn starts normally, and the abandoned tasks are never polled again.
+    const polls = toolLog("task-runs", sessionId).filter((line) => line.includes(" poll ")).length;
+    assert.equal(await sessions.sendUserMessage(sessionId, "say after"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    assert.equal(toolLog("task-runs", sessionId).filter((line) => line.includes(" poll ")).length, polls);
+  });
+
+  test("cancel_turn ends the turn when the task cancellation keeps failing", async () => {
+    const sessionId = newSessionId("tool-task-cancel-fails");
+    await sessions.startSession(sessionId, "call uncancellable_report_task");
+    await pollUntil(
+      async () => (toolLog("task-runs", sessionId).some((line) => line.includes(" poll ")) ? true : undefined),
+      { description: "the task polled" },
+    );
+
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.deepEqual(
+      toolLog("task-runs", sessionId).filter((line) => line.includes(" cancel-task ")),
+      [1, 2, 3].map(
+        (attempt) =>
+          `${sessionId} cancel-task turn-1-uncancellable_report_task attempt ${attempt} waiting_for_task turn_cancelled`,
+      ),
+    );
+    const steps = await executedStepTypes(sessionId);
+    assert.ok(steps.includes("RecordToolOutcomeUnknown"));
+    assert.equal(steps.at(-1), "ApplyTurnControl");
+    assert.deepEqual(finishedStatuses(await sessions.listAgentEvents(sessionId)), ["outcome_unknown"]);
+  });
+
+  test("a task result that arrives after cancel_turn is dropped", async () => {
+    const sessionId = newSessionId("tool-task-late-result");
+    const gate = new FileGate(markerDirectory, `stubborn_report_task-${sessionId}`);
+    await sessions.startSession(sessionId, "call stubborn_report_task");
+    await gate.waitUntilReached();
+
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const cancelled = await sessions.getAgentSnapshot(sessionId);
+    gate.release();
+    await pollUntil(
+      async () => (toolLog("task-runs", sessionId).some((line) => line.includes(" returned ")) ? true : undefined),
+      { description: "the cancelled poll to return its result" },
+    );
+    assert.equal(await sessions.sendUserMessage(sessionId, "say after"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+
+    const after = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(after.messages.slice(0, cancelled.messages.length), cancelled.messages);
+    assert.equal(
+      after.messages.some((message) => (message.text ?? "").includes("report ready")),
+      false,
+    );
+    assert.deepEqual(finishedStatuses(await sessions.listAgentEvents(sessionId)), ["outcome_unknown"]);
+    assert.equal((await executedStepTypes(sessionId)).includes("PollToolTask"), false);
+  });
+
+  test("cancel_turn abandons a task that waits for its question", async () => {
+    const sessionId = newSessionId("tool-task-cancel-question");
+    await sessions.startSession(sessionId, "call asking_report_task");
+    const question = await sessions.waitForPendingInterrupt(sessionId, "asking_report_task");
+
+    assert.equal(await sessions.cancelTurn(sessionId, "turn-1"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.pendingInterrupts, []);
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "pdf"), false);
+    assert.deepEqual(
+      toolLog("task-runs", sessionId).filter((line) => line.includes(" cancel-task ")),
+      [`${sessionId} cancel-task turn-1-asking_report_task attempt 1 waiting_for_task turn_cancelled`],
+    );
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.deepEqual(finishedStatuses(events), ["outcome_unknown"]);
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === "interrupt_resolved")
+        .map((event) => (JSON.parse(event.payload) as { cancellation_reason?: unknown }).cancellation_reason),
+      ["turn_cancelled"],
+    );
+  });
 
   test("declining a started write task's question never claims the tool did not run", async () => {
     const sessionId = newSessionId("tool-task-decline-write");

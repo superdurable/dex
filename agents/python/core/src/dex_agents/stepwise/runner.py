@@ -33,6 +33,7 @@ from dex_agents.runner import (
     ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
+    ToolTaskCancellation,
     ToolTaskPoll,
     ToolTaskPollOutcome,
     TurnCompleted,
@@ -379,7 +380,9 @@ class StepwiseAgentRunner:
 
     It also implements ``ToolTaskPoller``: ``poll_tool_task`` passes a tool
     task to the tool source that started it, so a source tool's task is
-    polled by ``PollToolTask`` on a Timer. Function tools start no tasks.
+    polled by ``PollToolTask`` on a Timer. Function tools start no tasks. As a
+    ``ToolTaskCanceller``, it passes a task that ``cancel_turn`` abandoned to
+    that source's optional ``cancel_tool_task``.
 
     Example:
         >>> flow = AgentSessionFlow(StepwiseAgentRunner(definition), flow_type="SupportAgent",
@@ -572,6 +575,31 @@ class StepwiseAgentRunner:
         source, reference = routed
         return await source.poll_tool_task(
             replace(poll, tool_call=replace(record, tool_source_reference=reference))
+        )
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        """Cancel a tool source's task through the source that built the call.
+
+        A source without ``cancel_tool_task`` leaves its task running.
+
+        Args:
+            cancellation: The abandoned call's record from ``CancelToolTask``.
+
+        Raises:
+            LookupError: If no tool source built the call. ``CancelToolTask``
+                retries and then records the call ``outcome_unknown``.
+            Exception: What the source raises.
+        """
+        record = cancellation.tool_call
+        routed = self._route_to_tool_source(record)
+        if routed is None:
+            raise LookupError(f"no tool source built the call of tool {record.tool_name}")
+        source, reference = routed
+        cancel = getattr(source, "cancel_tool_task", None)
+        if cancel is None:
+            return
+        await cancel(
+            replace(cancellation, tool_call=replace(record, tool_source_reference=reference))
         )
 
     def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:

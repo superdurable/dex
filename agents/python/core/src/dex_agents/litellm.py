@@ -16,6 +16,7 @@ thinking blocks and their signatures. Each call makes exactly one request.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
@@ -260,18 +261,21 @@ class LiteLLMModelClient:
         stream = await litellm.aresponses(**options)
         items_by_index: dict[int, dict[str, Any]] = {}
         completed: Any = None
-        async for event in _aiter(stream):
-            event_type = _field(event, "type")
-            if event_type in ("response.output_text.delta", "response.refusal.delta"):
-                output.write_text_delta(str(_field(event, "delta") or ""))
-            elif event_type == "response.reasoning_summary_text.delta":
-                output.write_reasoning_delta(str(_field(event, "delta") or ""))
-            elif event_type == "response.output_item.done":
-                items_by_index[int(_field(event, "output_index"))] = _plain(_field(event, "item"))
-            elif event_type in ("response.completed", "response.incomplete"):
-                completed = _field(event, "response")
-            elif event_type in ("response.failed", "error"):
-                raise RuntimeError(f"the Responses API stream failed: {_plain(event)}")
+        async with _closing_stream(stream):
+            async for event in _aiter(stream):
+                event_type = _field(event, "type")
+                if event_type in ("response.output_text.delta", "response.refusal.delta"):
+                    output.write_text_delta(str(_field(event, "delta") or ""))
+                elif event_type == "response.reasoning_summary_text.delta":
+                    output.write_reasoning_delta(str(_field(event, "delta") or ""))
+                elif event_type == "response.output_item.done":
+                    items_by_index[int(_field(event, "output_index"))] = _plain(
+                        _field(event, "item")
+                    )
+                elif event_type in ("response.completed", "response.incomplete"):
+                    completed = _field(event, "response")
+                elif event_type in ("response.failed", "error"):
+                    raise RuntimeError(f"the Responses API stream failed: {_plain(event)}")
         if completed is None:
             raise RuntimeError("the Responses API stream ended without response.completed")
         items = [
@@ -335,8 +339,9 @@ class LiteLLMModelClient:
         options.update(request.settings.provider_options)
         stream = await litellm.acompletion(**options)
         message = _ChatMessageAssembler()
-        async for chunk in _aiter(stream):
-            message.add_chunk(chunk, output)
+        async with _closing_stream(stream):
+            async for chunk in _aiter(stream):
+                message.add_chunk(chunk, output)
         stored = message.stored_message()
         text = stored.get("content")
         tool_calls = tuple(
@@ -617,6 +622,17 @@ def _provider_name(model: str) -> str:
 async def _aiter(stream: Any) -> AsyncIterator[Any]:
     async for event in stream:
         yield event
+
+
+@contextlib.asynccontextmanager
+async def _closing_stream(stream: Any) -> AsyncIterator[Any]:
+    try:
+        yield stream
+    finally:
+        # A cancelled RunModel closes the response now, not when the garbage collector runs.
+        close = getattr(stream, "aclose", None)
+        if callable(close):
+            await close()
 
 
 def _field(value: Any, name: str) -> Any:

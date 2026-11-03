@@ -352,10 +352,10 @@ Steps and locks, and what adapters must do.
 | A2 | Built-in tool routing | none | none | none | Optional: expose the definitions |
 | A3 | Question interrupts | `AwaitQuestionAnswer` | none | `answer_question` | Optional: expose `ask_user` |
 | A4 | Durable wait | `AwaitTimer` | none | none | Optional: expose `durable_wait` |
-| A5 | Steering and cancellation | `ApplyTurnControl` | `SteeredUserMessages`, `TurnControlRequests`, `TurnCancellationRequest`, `ToolCallCancellations` | `steer_user_message`, `delete_queued_message`, `cancel_turn` | Nothing; optional partial transcript |
+| A5 | Steering and cancellation | `ApplyTurnControl`, `FinishTurnCancellation` | `SteeredUserMessages`, `TurnControlRequests`, `TurnCancellationRequest`, `ToolCallCancellations` | `steer_user_message`, `delete_queued_message`, `cancel_turn` | Nothing; optional partial transcript |
 | A6 | Plans | none | `AgentPlan`, `PlanExecutions` | `execute_plan` | Optional: expose `write_todos`, honor plan mode |
 | A7 | Compaction | `CompactContext` | `ContextSummary` | none | Optional capability |
-| A8 | Tool tasks | `PollToolTask` | none | none | Optional |
+| A8 | Tool tasks | `PollToolTask`, `CancelToolTask` | none | none | Optional |
 
 A1 and A2 are not in the parent design. They came out of reasoning about the
 state machine: today a turn stores its messages only when it completes, so a
@@ -696,6 +696,73 @@ ways, each covered by a test in both cores:
   messages (A6), and `execute_plan` returns false while a steered message is
   pending.
 
+**As built (owner review, item 2: `cancel_turn` aborts).** Owner decision 2
+on #1178 made `cancel_turn` stop the running model call. Steering is
+unchanged and never aborts anything. Each point below has a test in both
+cores:
+
+- `cancel_turn` writes `TurnCancellationRequest` and returns
+  `RPCResult(...).with_canceling_steps(...)` (TypeScript `cancelingSteps`)
+  for `RunModel`, `CompactContext`, `RecordTurnFailure`,
+  `AwaitToolApproval`, `AwaitQuestionAnswer`, `AwaitTimer`, and
+  `PollToolTask`, with next Step `FinishTurnCancellation(turn_id)`. server-zd
+  applies the selection at the RPC's commit: it ends every active Step of
+  those types, cancels a running attempt, and drops that attempt's later
+  result. Python cancels the coroutine; TypeScript aborts
+  `cancellationSignal`. The Python and TypeScript SDKs 1.30.0 both support
+  it. `cancel_turn` no longer publishes `TurnControlRequest`.
+- `FinishTurnCancellation` locks `TurnCancellationRequest` and
+  `PendingInterrupts` and decides from committed state. A turn that already
+  ended: it dead-ends. Status `running_model` or `compacting_context`: the
+  model call or compaction was cancelled, so it moves to `ApplyTurnControl`.
+  Status `running_tools`: `ResumeTurn` still waits, so it never ends the turn
+  itself. It records each call whose waiting Step was cancelled as
+  `rejected`, publishing one `ToolCallResults` each, hands a record whose
+  answer committed first back to its waiting Step, hands each started task
+  to `CancelToolTask` (A8), and dead-ends. `approved` records belong to their
+  tool Steps, which see the flag before `tool_call_started` or run to the
+  end. `ResumeTurn` then ends the turn through `ApplyTurnControl`.
+- Deviation: the plan proposed that `FinishTurnCancellation` end the turn
+  whenever no started tool is unfinished. While the status is
+  `running_tools`, `ResumeTurn` is alive and also ends the turn, so that
+  would end it twice. The status is the committed proof of which Step holds
+  the turn, so exactly one path ends it.
+- Deviation: locks close the races the snapshot leaves open. `cancel_turn`
+  also locks `PendingInterrupts`, so `ResumeTurn`, which locks it, never
+  moves to a `RunModel` between the RPC's read and its commit.
+  `AwaitUserMessage` and `ApplyTurnControl` lock `TurnCancellationRequest`,
+  so no next turn starts in that window. Canceling Steps select by Step type
+  only, so without that lock a model call that commits its final answer in
+  the window, followed by a queued message's turn, would lose that turn's
+  first `RunModel`, and the turn would hang. A test lands exactly that
+  interleaving. The RPC still never waits for a model call; it can see a
+  lock conflict while one of these short Steps runs, which
+  `AgentSessionClient.cancel_turn` retries.
+- Deviation: when `RunModel` finds the turn steered or cancelled before its
+  model call, it now ends the turn in its own commit and then moves to
+  `ApplyTurnControl`, which starts the steered turn. Otherwise a pending
+  `ApplyTurnControl` and `FinishTurnCancellation` would both see an active
+  `running_model` turn. Between those two commits no turn is active, for one
+  Step dispatch: a `steer_user_message` with text then queues as a later
+  turn instead of joining the steer, and `cancel_turn` returns false.
+- Deviation: `RecordTurnFailure` is also cancelled, so a model call that
+  failed just before the cancel ends the turn as cancelled, once.
+- A second `cancel_turn` for a cancelled turn returns true and changes
+  nothing, so one turn gets one `FinishTurnCancellation`.
+- The model clients already honored cancellation, so neither changed: a
+  cancelled coroutine stops the Python LiteLLM call and closes its response
+  stream, which a new test proves, and the TypeScript AI SDK client passes
+  `ModelRequest.cancellationSignal` as `abortSignal`. The adapters pass it on
+  too: the TypeScript adapters give the signal to their framework, and the
+  Python adapters run on asyncio. No adapter changed.
+- The tests cover a `RunModel` that commits between the RPC's read and its
+  commit (a test hook holds the RPC open), a cancel during a model call that
+  stops it within seconds, cancels during an approval, a question, and a
+  durable wait, a sync tool that runs to the end first, a Worker killed in
+  `FinishTurnCancellation`, two cancels at once, a steer that never aborts,
+  and the UI message stream, which ends a cancelled turn with finish reason
+  `other`.
+
 ### A6. Plans
 
 A plan is a short task list that the model replaces as a whole. Plan review
@@ -860,10 +927,16 @@ ways, each covered by a test in both cores:
   600-character answer stores about 2.9 KB of messages and uses about 5.2 KB
   of run budget with compaction; 64 MiB holds about 13,000 such turns. The
   2,000-turn tests run nightly; a 300-turn guard runs on every PR.
-- With dexcli 1.30.0, writes from a TypeScript Worker were not counted
-  against `limits.maxFlowStateBytes` for small and medium values, while a
-  Python Worker crossed the budget where expected. Both cores store the same
-  bytes. This is outside the agents packages and is tracked separately.
+- With dexcli 1.30.0 the engine rejects a command over
+  `limits.maxFlowStateBytes` only when that command grows active storage, and
+  a Step's completion also frees its attempt's snapshot and lock rows. A
+  turn's start then grows active storage by only tens of bytes, or not at
+  all, so a session can run past the budget before a check fires. The
+  TypeScript core already did at the guide's message sizes, and the Python
+  core does too once `AwaitUserMessage` takes its lock (owner review, item
+  2). The Python guard therefore queues 340-character questions, whose turn
+  starts always grow active storage, and checks the measured crossing point
+  for drift. This is outside the agents packages and is tracked separately.
 
 ### A8. Tool tasks
 
@@ -917,6 +990,36 @@ ways, each covered by a test in both cores:
 - The task ID is still saved as a heartbeat checkpoint before the record
   commits `waiting_for_task`. Checkpoints are lossy, so a Worker that dies in
   that window can start a second task on a `CallTool` retry; see "Deferred".
+
+**As built (owner review, item 3: `cancel_turn` abandons tasks).** Owner
+decision 3 on #1178 split steering from `cancel_turn`. Steering still waits
+for a started task. `cancel_turn` abandons it, with a test in both cores for
+each point:
+
+- `cancel_turn` cancels `PollToolTask`, a running poll included, so a result
+  that arrives after the cancel is dropped. A `PollToolTask` that a running
+  tool Step creates after the cancel waits on a zero Timer and moves to
+  `FinishTurnCancellation` without polling, and so does a task's
+  `AwaitQuestionAnswer`.
+- `FinishTurnCancellation` marks each `waiting_for_task` record, and each
+  `awaiting_answer` record with `task_id`, as `waiting_for_task` with
+  `cancellation_reason` `turn_cancelled`, removes the task's pending
+  question, and moves to `CancelToolTask(tool_call_id)`. A marked record is
+  skipped, so each task gets one `CancelToolTask`.
+- `CancelToolTask` calls the runner's optional
+  `cancel_tool_task(ToolTaskCancellation)` (`cancelToolTask`) best-effort,
+  then records `outcome_unknown` with `TOOL_TASK_ABANDONED_ERROR` and
+  publishes the result. It retries 3 times within 2 minutes, with a 30-second
+  method timeout. Its failure route is `RecordToolOutcomeUnknown`, which
+  keeps `cancellation_reason` and records the same error, so a cancellation
+  that keeps failing still ends the turn. The Stepwise runner routes the call to the tool source's
+  optional `cancel_tool_task`, and `McpToolSource` sends `tasks/cancel`; any
+  answer from the server ends it, so it is idempotent by `task_id`.
+- A started synchronous tool Step still runs to the end.
+- Tests: a running MCP task is cancelled and the turn ends promptly, a
+  cancellation that keeps failing still ends the turn, a late result is
+  dropped, a task waiting on its question is abandoned, and a steer waits
+  for a running task.
 
 ### A9. Session settings
 
@@ -1014,11 +1117,13 @@ the built behavior, including the fixes from the PR review:
 | `AwaitQuestionAnswer` | tool call ID | any of `ToolCallCancellations[id]`, `InterruptResolutions[interrupt_id]`, deadline Timer | end, itself, or back to the tool Step or `PollToolTask` |
 | `AwaitTimer` | tool call ID | any of Timer, `ToolCallCancellations[id]` | end or itself |
 | `CallTool`, `CallSingleAttemptTool` | tool call ID | none | end, `AwaitQuestionAnswer`, `PollToolTask` |
-| `PollToolTask` | tool call ID | Timer | end, itself, `AwaitQuestionAnswer` |
+| `PollToolTask` | tool call ID | Timer | end, itself, `AwaitQuestionAnswer`, `FinishTurnCancellation` |
 | `RecordToolFailure`, `RecordToolOutcomeUnknown` | tool call ID | none | end (unchanged) |
 | `ResumeTurn` | expected result count | any of `ToolCallResults.for_n`, `TurnControlRequests` | `RunModel`, `ApplyTurnControl`, itself |
 | `ApplyTurnControl` | none | all of `SteeredUserMessages.at_most`, `TurnControlRequests.at_most` | `RunModel`, `AwaitUserMessage` |
 | `RecordTurnFailure` | none | none | `AwaitUserMessage` (unchanged) |
+| `FinishTurnCancellation` | turn ID | none | end, `ApplyTurnControl`, `CancelToolTask`, a waiting Step |
+| `CancelToolTask` | tool call ID | none | end; failure `RecordToolOutcomeUnknown` |
 
 Every new Step sets its WaitFor and Execute durability to SYNC, as the
 existing Steps do.
@@ -1153,9 +1258,11 @@ New `AgentSessionOptions` fields: `built_in_tools`, `plan_mode_enabled`,
 | `ResumeTurn` Execute (new) | `PendingInterrupts`, `ToolCallCancellations` | `PendingInterrupts` |
 | `RunModel` Execute | new interrupts, records, plan, messages | none, unchanged: it adds interrupts only when every earlier one is resolved |
 | `steer_user_message`, `delete_queued_message`, `execute_plan` | Channels only | none, transactional |
-| `cancel_turn` | `TurnCancellationRequest`, `TurnControlRequests` | none, transactional; the only writer of that Attribute |
+| `cancel_turn` | `TurnCancellationRequest`; cancels Steps | `TurnCancellationRequest`, `PendingInterrupts` (owner review, item 2) |
 | `update_session_settings` | `SessionSettings` | none, transactional; the turn-start Steps only read it |
-| `CompactContext`, `ApplyTurnControl`, `AwaitUserMessage` | main-path state, `TurnSessionSettings` at turn start | none: the main path is sequential |
+| `FinishTurnCancellation` | records, `PendingInterrupts` | `TurnCancellationRequest`, `PendingInterrupts` |
+| `AwaitUserMessage`, `ApplyTurnControl` Execute | turn start and end | `TurnCancellationRequest` (owner review, item 2) |
+| `CompactContext`, `ApplyTurnControl`, `AwaitUserMessage` | main-path state, `TurnSessionSettings` at turn start | none beyond the locks above: the main path is sequential |
 
 No long-running Step takes a lock, so no RPC waits on a model call.
 

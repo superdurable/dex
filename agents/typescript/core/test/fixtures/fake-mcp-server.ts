@@ -41,6 +41,19 @@ class GatedTaskStore extends InMemoryTaskStore {
     this.gatedTasks.set(taskId, { gate, topic });
   }
 
+  public override async updateTaskStatus(
+    taskId: string,
+    status: Parameters<InMemoryTaskStore["updateTaskStatus"]>[1],
+    statusMessage?: string,
+    sessionId?: string,
+  ): Promise<void> {
+    if (status === "cancelled") {
+      invocations().record(`cancel ${taskId}`);
+      this.gatedTasks.delete(taskId);
+    }
+    await super.updateTaskStatus(taskId, status, statusMessage, sessionId);
+  }
+
   public override async getTask(taskId: string, sessionId?: string): ReturnType<InMemoryTaskStore["getTask"]> {
     const gated = this.gatedTasks.get(taskId);
     // A task bound to another protocol session stays invisible, as in the SDK's store.

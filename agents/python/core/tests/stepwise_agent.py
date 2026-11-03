@@ -36,6 +36,10 @@ The model reads the current turn's user text:
 * ``parallel <gate> <query> | <message>`` calls ``lookup_order``, which waits
   at the gate, and ``publish_note`` in one response.
 
+``STEPWISE_AGENT_CANCEL_RPC_GATE`` makes ``cancel_turn`` wait at that gate
+after it decided and before it commits, and
+``STEPWISE_AGENT_FINISH_CANCELLATION_GATE`` makes ``FinishTurnCancellation``
+block the Worker at that gate before it decides.
 ``STEPWISE_AGENT_MAX_MODEL_CALLS`` sets ``max_model_calls_per_turn``, and
 ``STEPWISE_AGENT_UNFINISHED_BUILDER`` set to ``raise`` or ``malformed`` breaks
 ``build_unfinished_turn_messages``; ``gate:<name>`` makes it wait at that gate,
@@ -52,6 +56,7 @@ the instructions.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -60,10 +65,16 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 
+from dex import AsyncContext, Context, RPCResult, StepDecision, rpc
+
 from dex_agents import (
+    PENDING_INTERRUPTS,
+    TURN_CANCELLATION_REQUEST,
     AgentSessionFlow,
+    AgentSessionOptions,
     AgentTurnContext,
     BuiltInTool,
+    CancelTurnRequest,
     FrameworkMessage,
     ToolEffect,
     ToolInputRequested,
@@ -92,6 +103,8 @@ STATE_DIR_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_INTERRUPT_DEADLINE_SECONDS"
 MAX_MODEL_CALLS_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_MAX_MODEL_CALLS"
 UNFINISHED_BUILDER_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_UNFINISHED_BUILDER"
+CANCEL_RPC_GATE_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_CANCEL_RPC_GATE"
+FINISH_CANCELLATION_GATE_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_FINISH_CANCELLATION_GATE"
 INVOCATION_LOG_NAME = "invocations.log"
 INSTRUCTIONS = "You are a scripted test agent."
 MODEL_NAMES = ("default", "alpha", "beta")
@@ -116,18 +129,68 @@ class BrokenUnfinishedTurnBuilderRunner(StepwiseAgentRunner):
         return cast(Sequence[FrameworkMessage], [{"framework_item": "{}"}])
 
 
+class GatedCancellationSessionFlow(AgentSessionFlow):
+    """Hold ``cancel_turn`` or ``FinishTurnCancellation`` at a gate, to land races exactly."""
+
+    def __init__(
+        self,
+        runner: StepwiseAgentRunner,
+        *,
+        options: AgentSessionOptions,
+        state_dir: Path,
+        cancel_rpc_gate: str | None,
+        finish_cancellation_gate: str | None,
+    ) -> None:
+        super().__init__(runner, flow_type=STEPWISE_AGENT_FLOW_TYPE, options=options)
+        self._state_dir = state_dir
+        self._cancel_rpc_gate = cancel_rpc_gate
+        self._finish_cancellation_gate = finish_cancellation_gate
+
+    @rpc(
+        name="cancel_turn",
+        timeout=timedelta(minutes=2),
+        lock_attributes=(TURN_CANCELLATION_REQUEST.lock(), PENDING_INTERRUPTS.lock()),
+    )
+    async def cancel_turn(  # type: ignore[override]
+        self, context: Context, input: CancelTurnRequest
+    ) -> RPCResult[bool]:
+        result = super().cancel_turn(context, input)
+        if self._cancel_rpc_gate is not None:
+            # The RPC read its state; other Steps commit until the gate opens.
+            gate = FileGate(self._state_dir, self._cancel_rpc_gate)
+            gate.mark_reached()
+            await gate.wait_for_release()
+        return result
+
+    def _finish_cancelled_turn(self, context: AsyncContext, turn_id: str) -> StepDecision:
+        if self._finish_cancellation_gate is not None:
+            gate = FileGate(self._state_dir, self._finish_cancellation_gate)
+            gate.mark_reached()
+            # The method is synchronous, so the Worker blocks here until the test kills it.
+            while not gate.is_released():
+                time.sleep(0.05)
+        return super()._finish_cancelled_turn(context, turn_id)
+
+
 def build_stepwise_agent_flow(
     state_dir: Path,
     interrupt_deadline: timedelta | None = None,
     max_model_calls_per_turn: int = DEFAULT_MAX_MODEL_CALLS_PER_TURN,
     unfinished_builder_mode: str | None = None,
+    cancel_rpc_gate: str | None = None,
+    finish_cancellation_gate: str | None = None,
 ) -> AgentSessionFlow:
     invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
 
     async def wait_at_gate(gate_name: str) -> None:
         gate = FileGate(state_dir, gate_name)
         gate.mark_reached()
-        await gate.wait_for_release()
+        try:
+            await gate.wait_for_release()
+        except asyncio.CancelledError:
+            # cancel_turn cancelled this model call or tool Step.
+            invocations.record(f"cancelled at {gate_name}")
+            raise
 
     @function_tool(effect=ToolEffect.READ)
     async def lookup_order(query: str, gate: str | None = None) -> str:
@@ -311,6 +374,14 @@ def build_stepwise_agent_flow(
         interrupt_deadline=interrupt_deadline,
         max_model_calls_per_turn=max_model_calls_per_turn,
     )
+    if cancel_rpc_gate is not None or finish_cancellation_gate is not None:
+        return GatedCancellationSessionFlow(
+            StepwiseAgentRunner(definition),
+            options=stepwise_agent_session_options(definition),
+            state_dir=state_dir,
+            cancel_rpc_gate=cancel_rpc_gate,
+            finish_cancellation_gate=finish_cancellation_gate,
+        )
     if unfinished_builder_mode is None:
         return stepwise_agent_session_flow(definition, flow_type=STEPWISE_AGENT_FLOW_TYPE)
     return AgentSessionFlow(
@@ -327,6 +398,8 @@ def build_stepwise_agent_flow_from_environment() -> AgentSessionFlow:
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
         int(os.environ.get(MAX_MODEL_CALLS_ENVIRONMENT_VARIABLE, DEFAULT_MAX_MODEL_CALLS_PER_TURN)),
         os.environ.get(UNFINISHED_BUILDER_ENVIRONMENT_VARIABLE),
+        os.environ.get(CANCEL_RPC_GATE_ENVIRONMENT_VARIABLE),
+        os.environ.get(FINISH_CANCELLATION_GATE_ENVIRONMENT_VARIABLE),
     )
 
 

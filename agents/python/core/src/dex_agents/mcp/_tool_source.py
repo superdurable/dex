@@ -74,6 +74,7 @@ from dex_agents.runner import (
     ToolExecutionResult,
     ToolInputRequested,
     ToolPolicy,
+    ToolTaskCancellation,
     ToolTaskPending,
     ToolTaskPoll,
     ToolTaskPollOutcome,
@@ -328,7 +329,8 @@ class McpToolSource:
       checkpoint reaches Dex, a retried attempt resumes the same task instead
       of calling again. A task that needs one answer from the user becomes a
       session question, and its answer, decline, or passed deadline goes back
-      with ``tasks/update``.
+      with ``tasks/update``. ``cancel_turn`` abandons the task, and
+      ``cancel_tool_task`` sends ``tasks/cancel``.
     * A stdio server's task lives in its process, and a runner without
       ``poll_tool_task`` cannot poll one, so then the tool Step polls the task
       with ``tasks/get`` and a heartbeat per poll, for at most
@@ -370,6 +372,9 @@ class McpToolSource:
         ...
         ...     async def poll_tool_task(self, poll):
         ...         return await tools.poll_tool_task(poll)
+        ...
+        ...     async def cancel_tool_task(self, cancellation):
+        ...         await tools.cancel_tool_task(cancellation)
     """
 
     def __init__(
@@ -801,6 +806,44 @@ class McpToolSource:
         raise McpToolCallInterruptedError(
             target.server.name, target.mcp_tool_name, f"polling MCP task {task_id}: {detail}"
         )
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        """Send ``tasks/cancel`` for one MCP task that ``cancel_turn`` abandoned.
+
+        Call it from ``ToolTaskCanceller.cancel_tool_task``. Cancellation is
+        best-effort: the server may finish the task anyway, and the session
+        drops a result that arrives later. Any answer from the server ends the
+        cancellation, including an error for a task that already finished or
+        that the server no longer knows, so a repeated call is harmless.
+
+        Args:
+            cancellation: The abandoned call's record from ``CancelToolTask``.
+
+        Raises:
+            McpToolCallInterruptedError: The server could not be reached or did
+                not answer. ``CancelToolTask`` retries, then records the call
+                ``outcome_unknown`` anyway.
+        """
+        record = cancellation.tool_call
+        if record.task_id is None:
+            raise ValueError(f"tool call {record.tool_call_id} has no MCP task")
+        task_id = record.task_id
+        target = await self._resolve_target(record)
+        call = _McpToolCall(
+            source=self,
+            target=target,
+            arguments={},
+            meta={},
+            reporter=_McpToolCallReporter(target.tool_name, record.tool_call_id, None),
+            heartbeat=cancellation.heartbeat,
+            save_heartbeat_checkpoint=None,
+        )
+        outcome = await call.with_connection(lambda client: _cancel_task(client, task_id))
+        if not isinstance(outcome, _ToolCallSucceeded):
+            detail = getattr(outcome, "detail", f"unexpected {type(outcome).__name__}")
+            raise McpToolCallInterruptedError(
+                target.server.name, target.mcp_tool_name, f"cancelling MCP task {task_id}: {detail}"
+            )
 
     async def call_tool(
         self,
@@ -1374,6 +1417,24 @@ async def _refresh_tool_listing(client: Client, mcp_tool_name: str) -> None:
         cursor = page.next_cursor
         if not cursor or any(listed.name == mcp_tool_name for listed in page.tools):
             return
+
+
+async def _cancel_task(client: Client, task_id: str) -> _ToolCallOutcome:
+    try:
+        async with asyncio.timeout(_TASK_CANCEL_TIMEOUT_SECONDS):
+            await client.session.send_request(
+                CancelMcpTaskRequest(params=McpTaskIdParams(task_id=task_id)), Result
+            )
+    except MCPError as error:
+        if error.code in _NO_RESULT_ERROR_CODES:
+            return _ToolCallInterrupted(f"tasks/cancel got no answer: {_describe_exception(error)}")
+        # The server answered, as for a finished or unknown task; asking again cannot help.
+        _LOGGER.info("tasks/cancel for MCP task %s answered %s", task_id, error)
+    except TimeoutError:
+        return _ToolCallInterrupted(
+            f"tasks/cancel got no answer in {_TASK_CANCEL_TIMEOUT_SECONDS}s"
+        )
+    return _ToolCallSucceeded("")
 
 
 async def _cancel_task_quietly(client: Client, task_id: str) -> None:

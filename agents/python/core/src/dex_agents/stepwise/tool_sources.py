@@ -80,11 +80,13 @@ class ToolSource(Protocol):
     A name that no listing offered fails as an unknown tool without an
     approval; it never reaches a source.
 
-    A source may also define two optional methods. ``declared_tool_names()``
+    A source may also define three optional methods. ``declared_tool_names()``
     returns names it always lists, so ``AgentDefinition`` refuses a
     collision when it is built. ``cached_tools()`` returns its last listing
     without I/O, so ``estimate_input_tokens`` counts its tools before this
-    runner has listed them.
+    runner has listed them. ``async cancel_tool_task(cancellation)`` cancels a
+    task that ``cancel_turn`` abandoned, as ``ToolTaskCanceller`` describes; a
+    source without it leaves the task running.
 
     Example:
         >>> tools = McpToolSource([McpStdioServerConfig(name="files", command="mcp-files")])

@@ -18,6 +18,7 @@
     "planning_turn_instruction": "This turn only plans: write or revise the plan with write_todos, and do not do or claim any of its tasks. The user reviews the plan before it runs.",
     "blank_tool_task_id": "the tool started a task without a task ID",
     "invalid_tool_task_poll_interval": "the tool task's poll interval is not a number",
+    "tool_task_abandoned_error": "the turn was cancelled while the tool's task was running; the task may have taken effect",
     "stepwise_context_summary_note_header": "[Dex] Summary of the earlier conversation:",
     "stepwise_context_summary_instructions": "You summarize the earlier part of an agent conversation. The agent continues from your summary and the messages after it, so keep every fact, decision, user request and preference, open task, and tool result that it still needs, including what an earlier summary says. Write plain text.",
     "stepwise_context_summary_request": "[Dex] Summarize the conversation above. Reply with the summary only."

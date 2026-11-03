@@ -63,6 +63,8 @@ class FakeProviderTransport:
     responses: list[tuple[int, list[tuple[str, dict[str, Any]]]]] = field(default_factory=list)
     requests: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     port: int = 0
+    # Status 0 streams the first event, then holds the response open until the client closes it.
+    stalled_stream_closed: asyncio.Event = field(default_factory=asyncio.Event)
 
     @property
     def base_url(self) -> str:
@@ -77,6 +79,17 @@ class FakeProviderTransport:
         body = await reader.readexactly(int(headers.get("content-length", "0")))
         self.requests.append((request_line.split(" ")[1], json.loads(body or b"{}")))
         status, events = self.responses.pop(0)
+        if status == 0:
+            name, data = events[0]
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n"
+                + f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
+            )
+            await writer.drain()
+            await reader.read()
+            self.stalled_stream_closed.set()
+            writer.close()
+            return
         if status != 200:
             payload = json.dumps({"error": {"message": "overloaded", "type": "server_error"}})
             writer.write(
@@ -271,6 +284,37 @@ async def test_a_failed_request_is_not_retried_by_the_client(
         await client.call_model(_request([UserTextItem(text="hi")]), RecordedOutput())
 
     assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize("api", [CHAT_COMPLETIONS_API, RESPONSES_API])
+async def test_a_cancelled_call_stops_at_once_and_closes_its_response_stream(
+    transport: FakeProviderTransport, api: str
+) -> None:
+    """cancel_turn cancels RunModel's coroutine; the stream must not outlive it."""
+    if api == RESPONSES_API:
+        client = LiteLLMModelClient(
+            "openai/gpt-5-mini", api_base=f"{transport.base_url}/v1", api_key_provider=lambda: "sk"
+        )
+        events = _responses_text_stream("never finished")
+    else:
+        client = LiteLLMModelClient(
+            "anthropic/claude-sonnet-4-5",
+            api_base=transport.base_url,
+            api_key_provider=lambda: "sk",
+        )
+        events = _anthropic_text_stream("never finished")
+    transport.responses.append((0, events))
+    call = asyncio.create_task(
+        client.call_model(_request([UserTextItem(text="hi")]), RecordedOutput())
+    )
+    while not transport.requests:
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.2)
+
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(call, timeout=5)
+    await asyncio.wait_for(transport.stalled_stream_closed.wait(), timeout=5)
 
 
 @pytest.mark.parametrize("model", ["anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5"])

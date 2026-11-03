@@ -42,10 +42,12 @@ import { encodeAgentState } from "../../src/agent-session-codecs.js";
 import { streamAgentUIMessageChunks } from "../../src/ui-stream/index.js";
 import { createStepwisePlanAgentFlow, readPlanModelRequests } from "../fixtures/stepwise-plan-agent.js";
 import {
+  createCancelRpcGatedSteeringFlow,
   createSteeringNoteAgentFlow,
   createSteeringTestAgentFlow,
   readSteeringInvocations,
   steeringBuilderGateVariable,
+  steeringFinishCancellationGateVariable,
   steeringMarkerDirectoryVariable,
 } from "../fixtures/steering-test-agent.js";
 
@@ -328,7 +330,7 @@ describe("steering and turn cancellation with an in-process Worker", () => {
     assert.equal(executed.filter((stepType) => stepType === "ApplyTurnControl").length, 1);
   });
 
-  test("A5-7: cancel_turn ends an approval wait, and never aborts a model call", async () => {
+  test("A5-7: cancel_turn ends an approval wait and aborts a running model call", async () => {
     const token = newToken();
     const sessionId = `cancel-approval-${token}`;
     await sessions.startSession(sessionId, "publish launch notes");
@@ -359,56 +361,158 @@ describe("steering and turn cancellation with an in-process Worker", () => {
     assert.equal(await sessions.sendUserMessage(sessionId, `stall-then-call model-${token} order-3 | never`), true);
     await gate.waitUntilReached();
     assert.equal(await sessions.cancelTurn(sessionId), true);
-    gate.release();
     await sessions.waitForCompletedTurns(sessionId, 3);
+    gate.release();
     const cancelled = await sessions.getAgentSnapshot(sessionId);
-    // The model call finished; the calls it asked for never ran.
+    // The model call stopped inside the gate, so it asked for no tool calls.
     assert.equal(countInvocations("model:turn-3:1", sessionId), 1);
+    assert.equal(countGateCancellations(`model-${token}`), 1);
     assert.deepEqual(
-      cancelled.messages
-        .filter((message) => message.turnId === "turn-3" && message.role === "tool")
-        .map((message) => message.toolOutput),
-      [toolCallCancelledByTurnCancellationResult, toolCallCancelledByTurnCancellationResult],
+      cancelled.messages.filter((message) => message.turnId === "turn-3").map((message) => message.role),
+      ["user"],
     );
   });
 
-  test("A5-7, A5-9: a cancelled model call that answers stores the answer, and the stale wake changes nothing", async () => {
+  test("A5-7: cancel_turn stops a running model call at once, and its answer never exists", async () => {
     const token = newToken();
-    const sessionId = `cancel-answer-${token}`;
+    const sessionId = `cancel-model-${token}`;
     const gate = new FileGate(markerDirectory, `model-${token}`);
     await sessions.startSession(sessionId, `stall model-${token}`);
     await gate.waitUntilReached();
+    const cancelledAt = Date.now();
     assert.equal(await sessions.cancelTurn(sessionId), true);
+    const state = await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.ok(Date.now() - cancelledAt < 15_000);
     gate.release();
-    await sessions.waitForCompletedTurns(sessionId, 1);
-    const snapshot = await sessions.getAgentSnapshot(sessionId);
-    assert.equal(snapshot.messages.at(-1)?.text, `stalled at model-${token}`);
 
-    await pollUntil(
-      async () => ((await executedStepTypes(sessionId)).includes("ApplyTurnControl") ? true : undefined),
-      { description: "the stale wake applied" },
+    assert.equal(countGateCancellations(`model-${token}`), 1);
+    assert.equal(countInvocations("model:turn-1:1", sessionId), 1);
+    assert.equal(state.status, "waiting_for_user_message");
+    assert.equal(state.lastTurnError, null);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      snapshot.messages.map((message) => `${message.role} ${message.text}`),
+      [`user stall model-${token}`],
     );
-    const idle = await sessions.getAgentSnapshot(sessionId);
-    assert.deepEqual(idle.state, snapshot.state);
-    assert.deepEqual(idle.messages, snapshot.messages);
-    const turnEvents = (await sessions.listAgentEvents(sessionId))
-      .filter((event) => event.type.startsWith("turn_"))
-      .map((event) => event.type);
-    assert.deepEqual(turnEvents, ["turn_started", "turn_completed"]);
-    assert.deepEqual((await executedStepTypes(sessionId)).slice(-3), [
-      "RunModel",
-      "AwaitUserMessage",
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.deepEqual(
+      events.filter((event) => event.type.startsWith("turn_")).map((event) => event.type),
+      ["turn_started", "turn_cancelled"],
+    );
+    assert.deepEqual(payloadsOf(events, "turn_cancelled"), [{ message_count: 0 }]);
+    // A cancelled RunModel completes no Execute and is never retried.
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "FinishTurnCancellation",
       "ApplyTurnControl",
     ]);
+    assert.equal(await sessions.cancelTurn(sessionId), false);
 
     // With no active turn, a steer is queued, so the idle wait of any Worker version takes it.
     assert.equal(await sessions.steerUserMessage(sessionId, "say idle steer"), true);
     await sessions.waitForCompletedTurns(sessionId, 2);
     const steered = await sessions.getAgentSnapshot(sessionId);
     assert.equal(steered.messages.at(-1)?.text, "said: idle steer");
-    const executed = await executedStepTypes(sessionId);
-    assert.deepEqual(executed.slice(-2), ["AwaitUserMessage", "RunModel"]);
-    assert.equal(executed.filter((stepType) => stepType === "ApplyTurnControl").length, 1);
+    assert.deepEqual((await executedStepTypes(sessionId)).slice(-2), ["AwaitUserMessage", "RunModel"]);
+  });
+
+  test("cancel_turn ends a question and a durable wait at once", async () => {
+    const token = newToken();
+    const sessionId = `cancel-wait-${token}`;
+    await sessions.startSession(sessionId, "wait 3600 the nightly build");
+    await waitForStepMethod(sessionId, "AwaitTimer");
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(await sessions.sendUserMessage(sessionId, "ask Which build? | a | b"), true);
+    const question = await sessions.waitForPendingInterrupt(sessionId, "ask_user");
+    assert.equal(await sessions.cancelTurn(sessionId, "turn-2"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    assert.equal(await sessions.answerQuestion(sessionId, question.interruptId, "a"), false);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      snapshot.messages
+        .filter((message) => message.role === "tool")
+        .map((message) => `${message.turnId} ${message.toolName} ${message.toolOutput}`),
+      [
+        `turn-1 durable_wait ${toolCallCancelledByTurnCancellationResult}`,
+        `turn-2 ask_user ${toolCallCancelledByTurnCancellationResult}`,
+      ],
+    );
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.deepEqual(
+      payloadsOf(events, "interrupt_resolved").map((payload) => `${payload.kind} ${payload.cancellation_reason}`),
+      ["question turn_cancelled"],
+    );
+    assert.equal(events.filter((event) => event.type === "turn_cancelled").length, 2);
+    // Neither wait completed its Execute: cancel_turn cancelled both Steps.
+    const steps = await executedStepTypes(sessionId);
+    assert.equal(steps.includes("AwaitTimer"), false);
+    assert.equal(steps.includes("AwaitQuestionAnswer"), false);
+    assert.equal(steps.filter((stepType) => stepType === "FinishTurnCancellation").length, 2);
+  });
+
+  test("cancel_turn lets a started tool finish first", async () => {
+    const token = newToken();
+    const sessionId = `cancel-tool-${token}`;
+    const gate = new FileGate(markerDirectory, `write-${token}`);
+    await sessions.startSession(sessionId, `slow-write write-${token} the memo`);
+    await gate.waitUntilReached();
+
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    await pollUntil(
+      async () => ((await executedStepTypes(sessionId)).includes("FinishTurnCancellation") ? true : undefined),
+      { description: "FinishTurnCancellation to decide" },
+    );
+    const running = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(running.state?.activeTurnId, "turn-1");
+    assert.deepEqual(running.toolCalls.map((toolCall) => toolCall.status), ["approved"]);
+    gate.release();
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(countGateCancellations(`write-${token}`), 0);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(toolResults(snapshot.messages), ["slow_write wrote the memo"]);
+    // The model is not called after the tool: the cancelled turn ends with its result.
+    assert.equal(snapshot.messages.at(-1)?.role, "tool");
+    assert.deepEqual(
+      payloadsOf(await sessions.listAgentEvents(sessionId), "tool_call_finished").map((payload) => payload.status),
+      ["succeeded"],
+    );
+    const steps = await executedStepTypes(sessionId);
+    assert.deepEqual(steps.slice(-2), ["ResumeTurn", "ApplyTurnControl"]);
+    assert.equal(steps.filter((stepType) => stepType === "RunModel").length, 1);
+  });
+
+  test("cancel_turn twice cancels once", async () => {
+    const token = newToken();
+    const sessionId = `cancel-twice-${token}`;
+    const gate = new FileGate(markerDirectory, `model-${token}`);
+    await sessions.startSession(sessionId, `stall model-${token}`);
+    await gate.waitUntilReached();
+    // The second call finds the request recorded, or the turn already ended.
+    const results = await Promise.all([sessions.cancelTurn(sessionId), sessions.cancelTurn(sessionId)]);
+    assert.ok(results.includes(true));
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    gate.release();
+    const steps = await executedStepTypes(sessionId);
+    assert.equal(steps.filter((stepType) => stepType === "FinishTurnCancellation").length, 1);
+    assert.equal(steps.filter((stepType) => stepType === "ApplyTurnControl").length, 1);
+  });
+
+  test("a steer never aborts a running model call", async () => {
+    const token = newToken();
+    const sessionId = `steer-no-abort-${token}`;
+    const gate = new FileGate(markerDirectory, `model-${token}`);
+    await sessions.startSession(sessionId, `stall-then-call model-${token} order-1 | x`);
+    await gate.waitUntilReached();
+    assert.equal(await sessions.steerUserMessage(sessionId, "say steered"), true);
+    await delay(1_000);
+    gate.release();
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    assert.equal(countGateCancellations(`model-${token}`), 0);
+    assert.equal((await executedStepTypes(sessionId)).includes("FinishTurnCancellation"), false);
   });
 
   test("A5-8: an adapter without unfinished-turn messages gets a note", async () => {
@@ -598,6 +702,40 @@ describe("steering and turn cancellation with an in-process Worker", () => {
     await sessions.waitForCompletedTurns(sessionId, 2);
   });
 
+  test("the UI message stream ends a turn cancelled during its model call with finish other", async () => {
+    const token = newToken();
+    const sessionId = `cancel-ui-${token}`;
+    const gate = new FileGate(markerDirectory, `model-${token}`);
+    await sessions.startSession(sessionId, `stall model-${token}`);
+    await gate.waitUntilReached();
+    const streaming = collectChunks(
+      streamAgentUIMessageChunks({ client: environment.client, flow: sessions.flow, flowId: sessionId, pollTimeoutMs: 1_000 }),
+    );
+    await delay(1_500);
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    const chunks = await streaming;
+    gate.release();
+
+    assert.deepEqual(
+      chunks.filter((chunk) => chunk.type === "finish" || chunk.type === "error"),
+      [{ type: "finish", finishReason: "other" }],
+    );
+    const eventTypes = chunks.flatMap((chunk) => {
+      const data = (chunk as { type: string; data?: { type?: string } }).data;
+      return chunk.type === "data-agent-event" && data?.type !== undefined ? [data.type] : [];
+    });
+    assert.ok(eventTypes.includes("turn_cancelled"), JSON.stringify(eventTypes));
+    // The cancelled call streamed text before the gate; the stream closes that part before it finishes.
+    const textStarts = chunks.filter((chunk) => chunk.type === "text-start").length;
+    assert.equal(chunks.filter((chunk) => chunk.type === "text-end").length, textStarts);
+  });
+
+  function countGateCancellations(gateName: string): number {
+    return readSteeringInvocations(markerDirectory)
+      .names()
+      .filter((recorded) => recorded === `gate ${gateName} cancelled`).length;
+  }
+
   function countInvocations(name: string, sessionId: string): number {
     return readSteeringInvocations(markerDirectory)
       .names()
@@ -650,6 +788,127 @@ describe("steering and turn cancellation with an in-process Worker", () => {
       reason: "steered",
     });
   }
+});
+
+describe("cancel_turn racing a model call that commits", () => {
+  let engine: PrivateDexEngine;
+  let environment: AgentTestEnvironment;
+  let sessions: AgentSessionTestClient;
+  let markerDirectory: string;
+  const rpcGateName = "cancel-rpc";
+
+  before(async () => {
+    engine = await PrivateDexEngine.start();
+    markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
+    const flow = createCancelRpcGatedSteeringFlow(markerDirectory, rpcGateName);
+    environment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [flow],
+      isWorkerInProcess: true,
+    });
+    sessions = new AgentSessionTestClient(environment.client, flow);
+  });
+
+  after(async () => {
+    await environment?.close();
+    await engine?.stop();
+  });
+
+  test("a model call that commits between cancel_turn's read and its commit ends the turn once", async () => {
+    const token = newToken();
+    const sessionId = `cancel-race-${token}`;
+    const modelGate = new FileGate(markerDirectory, `model-${token}`);
+    await sessions.startSession(sessionId, `stall-then-call model-${token} order-3 | launch notes`);
+    await modelGate.waitUntilReached();
+
+    const cancelling = sessions.cancelTurn(sessionId);
+    const rpcGate = new FileGate(markerDirectory, `${rpcGateName}-${sessionId}`);
+    await rpcGate.waitUntilReached();
+    // cancel_turn read a running model call. Now the model call commits its tool calls.
+    modelGate.release();
+    const approval = await sessions.waitForPendingInterrupt(sessionId, "publish_note");
+    await pollUntil(
+      async () =>
+        payloadsOf(await sessions.listAgentEvents(sessionId), "tool_call_finished").some(
+          (payload) => payload.tool_name === "lookup_order",
+        )
+          ? true
+          : undefined,
+      { description: "lookup_order to finish" },
+    );
+    rpcGate.release();
+    assert.equal(await cancelling, true);
+
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    const invocations = readSteeringInvocations(markerDirectory).names();
+    assert.equal(invocations.includes(`gate model-${token} cancelled`), false);
+    assert.equal(invocations.includes(`${sessionId} model:turn-1:2`), false);
+    assert.deepEqual(toolResults(snapshot.messages), [
+      "lookup_order found order-3",
+      `publish_note ${toolCallCancelledByTurnCancellationResult}`,
+    ]);
+    assert.deepEqual(snapshot.pendingInterrupts, []);
+    assert.equal(await sessions.resolveInterrupt(sessionId, approval.interruptId, true), false);
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.equal(events.filter((event) => event.type === "turn_cancelled").length, 1);
+    assert.equal(events.some((event) => event.type === "turn_completed"), false);
+    assert.deepEqual(
+      payloadsOf(events, "interrupt_resolved").map((payload) => payload.cancellation_reason),
+      ["turn_cancelled"],
+    );
+    const steps = (await readStepHistory(engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === executeCompletedEvent)
+      .map((entry) => entry.stepType);
+    // RunModel won the race and committed; the approval wait was cancelled; ResumeTurn ended the turn.
+    assert.equal(steps.filter((stepType) => stepType === "RunModel").length, 1);
+    assert.equal(steps.includes("AwaitToolApproval"), false);
+    assert.equal(steps.filter((stepType) => stepType === "FinishTurnCancellation").length, 1);
+    assert.deepEqual(steps.slice(-2), ["ResumeTurn", "ApplyTurnControl"]);
+  });
+
+  test("a cancel that loses to a final answer never cancels the next queued turn", async () => {
+    const token = newToken();
+    const sessionId = `cancel-race-next-${token}`;
+    const modelGate = new FileGate(markerDirectory, `model-${token}`);
+    await sessions.startSession(sessionId, `stall model-${token}`);
+    await modelGate.waitUntilReached();
+    assert.equal(await sessions.sendUserMessage(sessionId, `stall-then-call next-${token} order-2 | note`), true);
+
+    const cancelling = sessions.cancelTurn(sessionId);
+    const rpcGate = new FileGate(markerDirectory, `${rpcGateName}-${sessionId}`);
+    await rpcGate.waitUntilReached();
+    // cancel_turn read a running model call. Now it commits its final answer.
+    modelGate.release();
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const nextGate = new FileGate(markerDirectory, `next-${token}`);
+    await delay(3_000);
+    // The queued turn waits for the RPC's commit before its model call starts.
+    assert.equal(nextGate.reachedCount(), 0);
+    rpcGate.release();
+    assert.equal(await cancelling, true);
+
+    await nextGate.waitUntilReached();
+    nextGate.release();
+    const approval = await sessions.waitForPendingInterrupt(sessionId, "publish_note");
+    const invocations = readSteeringInvocations(markerDirectory).names();
+    assert.equal(invocations.includes(`gate next-${token} cancelled`), false);
+    const running = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(running.state?.activeTurnId, "turn-2");
+    assert.equal(running.state?.status, "running_tools");
+    assert.equal(
+      (await sessions.listAgentEvents(sessionId)).some((event) => event.type === "turn_cancelled"),
+      false,
+    );
+    assert.equal(await sessions.resolveInterrupt(sessionId, approval.interruptId, false), true);
+    const finished = await sessions.waitForCompletedTurns(sessionId, 2);
+    assert.equal(finished.lastTurnError, null);
+    const steps = (await readStepHistory(engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === executeCompletedEvent)
+      .map((entry) => entry.stepType);
+    assert.equal(steps.filter((stepType) => stepType === "FinishTurnCancellation").length, 1);
+    assert.equal(steps.includes("ApplyTurnControl"), false);
+  });
 });
 
 describe("steering with plans", () => {
@@ -829,6 +1088,51 @@ describe("steering with a Worker killed with SIGKILL", () => {
     assert.deepEqual(payloadsOf(await sessions.listAgentEvents(sessionId), "turn_steered"), [
       { message_count: 2, steered_message_count: 2 },
     ]);
+  });
+
+  test("a Worker killed in FinishTurnCancellation ends the turn once", async () => {
+    const markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
+    const startWorker = async (): Promise<KillableWorkerProcess> => {
+      const worker = await KillableWorkerProcess.start({
+        entryModulePath: workerEntryModulePath,
+        serverAddress: engine.serverAddress,
+        logPath: join(markerDirectory, `worker-${workers.length + 1}.log`),
+        environment: {
+          [steeringMarkerDirectoryVariable]: markerDirectory,
+          [steeringFinishCancellationGateVariable]: "finish",
+        },
+      });
+      workers.push(worker);
+      return worker;
+    };
+    const firstWorker = await startWorker();
+    const sessionId = `cancel-kill-${newToken()}`;
+    await sessions.startSession(sessionId, "publish launch notes");
+    await sessions.waitForPendingInterrupt(sessionId, "publish_note");
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    const finishGate = new FileGate(markerDirectory, "finish");
+    await finishGate.waitUntilReached();
+
+    await firstWorker.kill();
+    finishGate.release();
+    await startWorker();
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    assert.equal(finishGate.reachedCount(), 2);
+    assert.deepEqual(toolResults(snapshot.messages), [`publish_note ${toolCallCancelledByTurnCancellationResult}`]);
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.deepEqual(
+      payloadsOf(events, "tool_call_finished").map((payload) => payload.status),
+      ["rejected"],
+    );
+    assert.equal(events.filter((event) => event.type === "turn_cancelled").length, 1);
+    const history = await readStepHistory(engine.serverAddress, sessionId);
+    const executed = (stepType: string) =>
+      history.filter((entry) => entry.stepType === stepType && entry.eventType === executeCompletedEvent).length;
+    // Dex redelivers the killed attempt, so the decision commits once.
+    assert.equal(executed("FinishTurnCancellation"), 1);
+    assert.equal(executed("ApplyTurnControl"), 1);
   });
 });
 

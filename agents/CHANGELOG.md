@@ -312,10 +312,26 @@ model-visible text. Nothing changes until an application calls the new RPCs.
   the RPC runs fails it with `ChannelMessageNotFoundError`, and nothing
   commits. While no turn is active, `steer_user_message` with `text` queues
   the message. `cancel_turn` (`CancelTurnRequest`) stops the running turn with
-  no new turn; `true` means the request is recorded, and the turn may still
-  complete first. It locks only `TurnCancellationRequest`, so concurrent
-  cancels apply in order.
-- A steered or cancelled turn ends at its next safe Step boundary. A model
+  no new turn; `true` means the request is recorded, and a turn whose model
+  call already committed its final answer still completes. It locks
+  `TurnCancellationRequest` and `PendingInterrupts`, so concurrent cancels
+  apply in order, and a second cancel of the same turn changes nothing.
+- `cancel_turn` cancels the running model call or compaction (Python cancels
+  the coroutine, which stops the LiteLLM call; TypeScript aborts
+  `cancellationSignal`, which the AI SDK client passes as `abortSignal`), and
+  every Step that waits for an approval, an answer, a durable wait, or a
+  task's next poll. The new `FinishTurnCancellation` Step decides from
+  committed state how the turn ends: through `ApplyTurnControl` when the model
+  call was cancelled, or through `ResumeTurn` once every started tool Step
+  finishes. A started tool task is abandoned: the new `CancelToolTask` Step
+  calls the optional `ToolTaskCanceller.cancel_tool_task`
+  (`cancelToolTask`), with `ToolTaskCancellation`, best-effort and records
+  `outcome_unknown` with `cancellation_reason` `turn_cancelled` and
+  `TOOL_TASK_ABANDONED_ERROR`, even when the cancellation keeps failing. The
+  Stepwise runner forwards it to a tool source's optional `cancel_tool_task`,
+  and `McpToolSource` sends `tasks/cancel`. A tool call Step that has started
+  still runs to the end.
+- A steered turn ends at its next safe Step boundary. A model
   call or tool call that has started finishes. Calls that have not started
   record `rejected` with the new `AgentToolCall.cancellation_reason`
   (`steered` or `turn_cancelled`) and the result
@@ -378,9 +394,9 @@ returns the new outcome.
   `ToolTaskPoll.pending_answer` while the new record field
   `task_answer_pending` is set. A poll gets three attempts, then the call's
   failure route by effect. Each poll is an `execute_tool` span. `PollToolTask`
-  takes no lock and is never cancelled, so steering and `cancel_turn` wait
-  for a started task and keep its questions; a call with a task is never
-  recorded `rejected`.
+  takes no lock, so steering waits for a started task and keeps its
+  questions; a call with a task is never recorded `rejected`. `cancel_turn`
+  abandons the task (see Steering and turn cancellation).
 - `DeferredToolExecution.supports_tool_tasks` (`supportsToolTasks`) tells a
   tool whether the runner polls tasks; the MCP sources poll inside the tool
   Step without it.

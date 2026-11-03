@@ -15,11 +15,10 @@ import json
 import time
 from datetime import timedelta
 
-import pytest
-
 from dex_agents import (
     MISSING_TOOL_TASK_POLLER,
     OUTCOME_UNKNOWN_TOOL_RESULT,
+    TURN_CANCELLED_NOTE_HEADER,
     AgentEvent,
     AgentEventType,
     AgentInterrupt,
@@ -265,9 +264,8 @@ async def test_declining_a_started_write_task_question_does_not_claim_the_tool_n
     assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
 
 
-@pytest.mark.parametrize("control", ["steer", "cancel_turn"])
-async def test_steering_or_cancelling_waits_for_a_task_and_keeps_its_question(
-    task_harness: ScriptedAgentHarness, control: str
+async def test_steering_waits_for_a_task_and_keeps_its_question(
+    task_harness: ScriptedAgentHarness,
 ) -> None:
     harness = task_harness
     await harness.stack.start_worker()
@@ -277,10 +275,7 @@ async def test_steering_or_cancelling_waits_for_a_task_and_keeps_its_question(
     )
     question = await _wait_for_pending_interrupt(harness, session_id)
 
-    if control == "steer":
-        assert await harness.sessions.steer_user_message(session_id, text="say steered")
-    else:
-        assert await harness.sessions.cancel_turn(session_id, "turn-1")
+    assert await harness.sessions.steer_user_message(session_id, text="say steered")
     # ResumeTurn takes the control wake and waits again; the task's question stays.
     await wait_until(
         "ResumeTurn to take the control wake", lambda: _resume_turn_ran(harness, session_id)
@@ -295,7 +290,7 @@ async def test_steering_or_cancelling_waits_for_a_task_and_keeps_its_question(
     assert waiting.task_id is not None
 
     assert await harness.sessions.answer_question(session_id, question.interrupt_id, "pdf")
-    snapshot = await harness.wait_for_turns(session_id, 2 if control == "steer" else 1)
+    snapshot = await harness.wait_for_turns(session_id, 2)
 
     assert harness.task_invocations.count(f"deliver {CALL_0} pdf") == 1
     assert harness.task_invocations.count(f"create {CALL_0}") == 1
@@ -306,20 +301,160 @@ async def test_steering_or_cancelling_waits_for_a_task_and_keeps_its_question(
         for index, event in enumerate(events)
         if event.type == AgentEventType.TOOL_CALL_FINISHED
     )
-    ended_type = (
-        AgentEventType.TURN_STEERED if control == "steer" else AgentEventType.TURN_CANCELLED
-    )
-    ended = [index for index, event in enumerate(events) if event.type == ended_type]
+    ended = [
+        index for index, event in enumerate(events) if event.type == AgentEventType.TURN_STEERED
+    ]
     assert len(ended) == 1 and ended[0] > finished
     assert not any(
         event.type == AgentEventType.INTERRUPT_RESOLVED
         and json.loads(event.payload).get("cancellation_reason") is not None
         for event in events
     )
-    # The turn never ran its model again: the steer or cancellation ended it after the result.
+    # The turn never ran its model again: the steer ended it after the result.
     assert not any(message.text == "report: report on q30 as pdf" for message in snapshot.messages)
-    if control == "steer":
-        assert snapshot.messages[-1].text == "steered"
+    assert snapshot.messages[-1].text == "steered"
+    assert not [name for name in harness.task_invocations.names() if name.startswith("cancel-task")]
+
+
+async def test_cancel_turn_abandons_a_running_task_and_the_turn_ends_at_once(
+    task_harness: ScriptedAgentHarness,
+) -> None:
+    """Owner decision 3: Stop never waits for a remote task."""
+    harness = task_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        'call report {"topic": "q40", "poll_gate": "never", "interval": 1}'
+        ' && call publish_report {"topic": "q41", "poll_gate": "never", "interval": 1}',
+    )
+    await harness.gate("never").wait_until_reached()
+
+    cancelled_at = time.monotonic()
+    assert await harness.sessions.cancel_turn(session_id, "turn-1")
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert time.monotonic() - cancelled_at < 15
+
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+    tool_messages = [message for message in snapshot.messages if message.tool_output is not None]
+    assert tool_messages == []
+    note = snapshot.messages[-1].text or ""
+    assert note.startswith(TURN_CANCELLED_NOTE_HEADER)
+    assert f"-> outcome_unknown: {OUTCOME_UNKNOWN_TOOL_RESULT}" in note
+    for tool_call_id in (CALL_0, "turn-1-call-1"):
+        assert (
+            harness.task_invocations.count(
+                f"cancel-task {tool_call_id} attempt 1 waiting_for_task turn_cancelled"
+            )
+            == 1
+        )
+    events = await harness.agent_events(session_id)
+    assert _finished_statuses(events) == ["outcome_unknown", "outcome_unknown"]
+    assert [event.type for event in events].count(AgentEventType.TURN_CANCELLED) == 1
+    steps = await harness.executed_step_types(session_id)
+    assert steps.count("CancelToolTask") == 2
+    assert steps.count("FinishTurnCancellation") == 1
+    assert steps[-1] == "ApplyTurnControl"
+    assert "RecordToolOutcomeUnknown" not in steps
+
+    # The next turn starts normally, and the abandoned tasks are never polled again.
+    polls = len([name for name in harness.task_invocations.names() if name.startswith("poll ")])
+    assert await harness.sessions.send_user_message(session_id, "say after")
+    after = await harness.wait_for_turns(session_id, 2)
+    assert after.messages[-1].text == "after"
+    assert polls == len(
+        [name for name in harness.task_invocations.names() if name.startswith("poll ")]
+    )
+
+
+async def test_cancel_turn_ends_the_turn_when_the_task_cancellation_keeps_failing(
+    task_harness: ScriptedAgentHarness,
+) -> None:
+    harness = task_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        'call publish_report {"topic": "q42", "poll_gate": "never", "fail_cancel": true}',
+    )
+    await harness.gate("never").wait_until_reached()
+
+    assert await harness.sessions.cancel_turn(session_id)
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert harness.task_invocations.names()[-3:] == [
+        f"cancel-task {CALL_0} attempt {attempt} waiting_for_task turn_cancelled"
+        for attempt in (1, 2, 3)
+    ]
+    steps = await harness.executed_step_types(session_id)
+    assert "RecordToolOutcomeUnknown" in steps
+    assert steps[-1] == "ApplyTurnControl"
+    events = await harness.agent_events(session_id)
+    assert _finished_statuses(events) == ["outcome_unknown"]
+    assert (snapshot.messages[-1].text or "").startswith(TURN_CANCELLED_NOTE_HEADER)
+
+
+async def test_a_task_result_that_arrives_after_cancel_turn_is_dropped(
+    task_harness: ScriptedAgentHarness,
+) -> None:
+    harness = task_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        'call report {"topic": "q43", "block_gate": "poll", "ignores_cancellation": true}',
+    )
+    gate = harness.gate("poll")
+    await gate.wait_until_reached()
+
+    assert await harness.sessions.cancel_turn(session_id)
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    await _wait_for_task_invocation(harness, f"poll {CALL_0} cancelled")
+    gate.release()
+    await _wait_for_task_invocation(harness, f"poll {CALL_0} returned")
+    assert await harness.sessions.send_user_message(session_id, "say after")
+    after = await harness.wait_for_turns(session_id, 2)
+
+    assert after.messages[: len(snapshot.messages)] == snapshot.messages
+    assert not any("report on q43" in (message.text or "") for message in after.messages)
+    events = await harness.agent_events(session_id)
+    assert _finished_statuses(events) == ["outcome_unknown"]
+    steps = await harness.executed_step_types(session_id)
+    assert "PollToolTask" not in steps
+
+
+async def test_cancel_turn_abandons_a_task_that_waits_for_its_question(
+    task_harness: ScriptedAgentHarness,
+) -> None:
+    harness = task_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call report {"topic": "q44", "ask": true, "polls": 3}'
+    )
+    question = await _wait_for_pending_interrupt(harness, session_id)
+
+    assert await harness.sessions.cancel_turn(session_id, "turn-1")
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.pending_interrupts == []
+    assert not await harness.sessions.answer_question(session_id, question.interrupt_id, "pdf")
+    assert (
+        harness.task_invocations.count(
+            f"cancel-task {CALL_0} attempt 1 waiting_for_task turn_cancelled"
+        )
+        == 1
+    )
+    events = await harness.agent_events(session_id)
+    assert _finished_statuses(events) == ["outcome_unknown"]
+    resolved = [
+        json.loads(event.payload)
+        for event in events
+        if event.type == AgentEventType.INTERRUPT_RESOLVED
+    ]
+    assert [payload["cancellation_reason"] for payload in resolved] == ["turn_cancelled"]
+    steps = await harness.executed_step_types(session_id)
+    assert "AwaitQuestionAnswer" in steps and steps.count("CancelToolTask") == 1
 
 
 async def _resume_turn_ran(harness: ScriptedAgentHarness, session_id: str) -> bool | None:
@@ -529,3 +664,10 @@ async def _wait_for_step_methods(
         return len(completed) >= count
 
     await wait_until(f"{count} {step_type} {event_type}", has_completed)
+
+
+async def _wait_for_task_invocation(harness: ScriptedAgentHarness, name: str) -> None:
+    async def is_recorded() -> bool | None:
+        return harness.task_invocations.count(name) > 0 or None
+
+    await wait_until(f"the task log to record {name}", is_recorded)

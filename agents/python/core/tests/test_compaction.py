@@ -91,12 +91,15 @@ GUARD_SESSION_SERVER_CONFIG = (
     "values:\n  maxValueBytes: 262144\nlimits:\n  maxFlowStateBytes: 1048576\n"
 )
 GUARD_SESSION_RUN_BUDGET_BYTES = 1024 * 1024
-# Measured 5,433 bytes per turn (193 turns), queued messages included; the band catches drift.
-GUARD_MIN_BYTES_PER_TURN = 4_700
-GUARD_MAX_BYTES_PER_TURN = 6_200
-# Measured about 2,885 bytes per turn in both cores, as the TypeScript guard checks.
-GUARD_MIN_STORED_BYTES_PER_TURN = 2_600
-GUARD_MAX_STORED_BYTES_PER_TURN = 3_200
+# The engine checks the budget only on a command that grows active storage. A turn's start
+# frees its attempt's snapshot and lock rows, so it must store a question long enough to grow.
+GUARD_QUESTION_FILLER_LENGTH = 320
+# Measured 8,322 bytes per turn (126 turns), queued messages included; the band catches drift.
+GUARD_MIN_BYTES_PER_TURN = 7_500
+GUARD_MAX_BYTES_PER_TURN = 9_200
+# Measured about 4,083 bytes per turn with these questions.
+GUARD_MIN_STORED_BYTES_PER_TURN = 3_800
+GUARD_MAX_STORED_BYTES_PER_TURN = 4_400
 LONG_TESTS_ENVIRONMENT_VARIABLE = "DEX_AGENTS_LONG_TESTS"
 LONG_SESSION_TURNS = 2_000
 # The engine refuses a run budget below one maximum-sized value, so both shrink together.
@@ -692,9 +695,16 @@ class PaddedSession:
 
 
 async def _run_padded_session(
-    tmp_path: Path, turns: int, server_config: str, timeout: timedelta
+    tmp_path: Path,
+    turns: int,
+    server_config: str,
+    timeout: timedelta,
+    question_filler_length: int = 80,
 ) -> PaddedSession:
-    """Queue ``turns`` turns of a 100-character question and a 600-character answer, then wait."""
+    """Queue ``turns`` turns of a question and a 600-character answer, then wait.
+
+    The default filler makes a 100-character question, as the deployment guide measures.
+    """
     config_path = tmp_path / "server-zd.yaml"
     config_path.write_text(server_config)
     state_dir = tmp_path / "agent-state"
@@ -717,7 +727,7 @@ async def _run_padded_session(
         harness = CompactionHarness(stack, flow, stack.sessions(flow), state_dir)
         session_id = harness.new_session_id()
         started = time.monotonic()
-        filler = "q" * 80
+        filler = "q" * question_filler_length
         await harness.sessions.start_session(session_id, f"pad 600 turn-0001-{filler}")
         for turn in range(2, turns + 1):
             assert await harness.sessions.send_user_message(
@@ -749,12 +759,16 @@ async def _run_padded_session(
         )
 
 
-async def test_the_run_budget_is_crossed_where_the_guide_says_a_turn_costs_about_5_kb(
+async def test_the_run_budget_stops_a_compacting_session_where_measured(
     tmp_path: Path,
 ) -> None:
-    """Guards the deployment guide's bound: about 5.2 KB of run budget per turn, compaction on."""
+    """Guards where the run budget stops a compacting session; its questions are longer."""
     session = await _run_padded_session(
-        tmp_path, GUARD_SESSION_TURNS, GUARD_SESSION_SERVER_CONFIG, timedelta(minutes=5)
+        tmp_path,
+        GUARD_SESSION_TURNS,
+        GUARD_SESSION_SERVER_CONFIG,
+        timedelta(minutes=5),
+        GUARD_QUESTION_FILLER_LENGTH,
     )
 
     completed_turns = sum(

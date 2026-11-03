@@ -493,8 +493,8 @@ export interface ToolInputRequested {
  * holds one. Once the checkpoint has reached Dex, a retried attempt resumes the same work. Dex may drop a
  * heartbeat checkpoint, though, so an attempt that dies before its checkpoint is saved and before the tool
  * Step commits can still start the work a second time on a `CallTool` retry; pass the idempotency key to
- * the remote system so it can drop the duplicate. Steering and turn cancellation never abandon a started
- * task: the session waits for it.
+ * the remote system so it can drop the duplicate. Steering waits for a started task. `cancel_turn` abandons
+ * it: the session records `outcome_unknown` and asks {@link AgentFrameworkRunner.cancelToolTask} to cancel it.
  *
  * @example
  * ```ts
@@ -565,6 +565,27 @@ export interface ToolTaskPoll {
   readonly cancellationSignal: AbortSignal;
   /** Absolute deadline of the current attempt, or `undefined`. */
   readonly deadline: Date | undefined;
+  /**
+   * Records a heartbeat. The session already records one every 20 seconds.
+   * @returns A Promise that resolves when the Worker accepted the heartbeat.
+   */
+  heartbeat(): Promise<void>;
+}
+
+/** One task that `cancel_turn` abandoned, which `CancelToolTask` asks the runner to cancel. */
+export interface ToolTaskCancellation {
+  /** Flow ID, which is the session ID. */
+  readonly flowId: string;
+  /**
+   * The call's record with `taskId` and `toolSourceReference`. Its `cancellationReason` is `turn_cancelled`.
+   */
+  readonly toolCall: AgentToolCallRecord;
+  /** `<flowId>/<turnId>/<toolCallId>`, the key the tool Step passed when it started the task. */
+  readonly idempotencyKey: string;
+  /** One-based `CancelToolTask` attempt. Each cancellation gets up to three attempts. */
+  readonly attempt: number;
+  /** Signal aborted when Dex cancels the attempt, such as when its method timeout passes. */
+  readonly cancellationSignal: AbortSignal;
   /**
    * Records a heartbeat. The session already records one every 20 seconds.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
@@ -717,7 +738,8 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * Implement it when a tool returns `ToolTaskStarted`. `PollToolTask` calls it once per execution,
    * after a Timer for the call's poll interval, until it returns a result. Polling must only read the
    * task, and deliver `poll.pendingAnswer` when it is set, because the session may poll again after a
-   * crash. Steering and cancellation never stop a poll.
+   * crash. Steering never stops a poll. `cancel_turn` aborts `poll.cancellationSignal` of a running poll,
+   * and the session drops whatever it returns.
    *
    * @example
    * ```ts
@@ -738,6 +760,28 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * for a `read` call and `outcome_unknown` otherwise, because the task may still run.
    */
   pollToolTask?(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome>;
+  /**
+   * Asks the remote system to stop one task that `cancel_turn` abandoned. Optional.
+   *
+   * `cancel_turn` does not wait for a started task: the session records the call `outcome_unknown` with
+   * `cancellationReason` `turn_cancelled`, and the `CancelToolTask` Step calls this method best-effort before
+   * it records the call. A runner without it leaves the task running. Steering never cancels a task. The
+   * session may call it more than once for one task, after a crash or a failed attempt, so make it idempotent
+   * by `taskId`. A task that already finished, or that the remote system no longer knows, is cancelled: return
+   * normally. The record is final whatever this method does, and a result the task returns later is dropped.
+   *
+   * @example
+   * ```ts
+   * public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+   *   await reports.cancel(cancellation.toolCall.taskId!);
+   * }
+   * ```
+   * @param cancellation - The abandoned call's record and its idempotency key.
+   * @returns A Promise that resolves once the remote system took the cancellation.
+   * @throws Any error when the cancellation did not reach the remote system; the session retries it up to
+   * three times, then records the call `outcome_unknown` anyway, so the turn always ends.
+   */
+  cancelToolTask?(cancellation: ToolTaskCancellation): Promise<void>;
   /**
    * Estimates the size of the model input that the next {@link runModelStep} sends. Optional; one of the
    * three compaction methods that {@link AgentSessionOptions.compaction} requires.

@@ -389,7 +389,7 @@ async def test_steering_one_queued_message_twice_at_once_moves_it_once(
     assert executed.count("ApplyTurnControl") == 1
 
 
-async def test_cancel_turn_ends_an_approval_wait_and_never_aborts_a_model_call(
+async def test_cancel_turn_ends_an_approval_wait_and_a_running_model_call(
     stepwise_harness: ScriptedAgentHarness,
 ) -> None:
     """A5-7: cancellation semantics."""
@@ -427,45 +427,32 @@ async def test_cancel_turn_ends_an_approval_wait_and_never_aborts_a_model_call(
     gate = harness.gate("model-gate")
     await gate.wait_until_reached()
     assert await harness.sessions.cancel_turn(session_id)
-    gate.release()
     cancelled = await harness.wait_for_turns(session_id, 3)
-    # The model call finished; the calls it asked for never ran.
+    gate.release()
+    # The model call stopped inside the gate, so it asked for no tool calls.
     assert harness.invocations.count("model:turn-3:1") == 1
+    assert harness.invocations.count("cancelled at model-gate") == 1
     assert harness.invocations.count("lookup_order") == 0
-    assert [
-        message.tool_output
-        for message in cancelled.messages
-        if message.turn_id == "turn-3" and message.role is MessageRole.TOOL
-    ] == [TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT] * 2
+    assert [message.role for message in cancelled.messages if message.turn_id == "turn-3"] == [
+        MessageRole.USER
+    ]
 
 
-async def test_cancel_turn_during_a_model_call_that_answers_stores_the_answer(
+async def test_cancel_turn_after_the_answer_committed_changes_nothing(
     harness: ScriptedAgentHarness,
 ) -> None:
-    """A5-7 and A5-9: the answer wins the race, and the stale cancel wake changes nothing."""
+    """A5-7: an answer that committed first wins, and an idle steer is queued."""
     await harness.stack.start_worker()
     session_id = harness.new_session_id()
     await harness.sessions.start_session(session_id, "stall model-gate")
-    gate = harness.gate("model-gate")
-    await gate.wait_until_reached()
-    assert await harness.sessions.cancel_turn(session_id)
-    gate.release()
+    harness.gate("model-gate").release()
     snapshot = await harness.wait_for_turns(session_id, 1)
     assert snapshot.messages[-1].text == "stalled at model-gate"
-
-    await _wait_for_step_completions(harness, session_id, "ApplyTurnControl", 1)
-    idle = await harness.sessions.get_agent_snapshot(session_id)
-    assert idle.state == snapshot.state
-    assert idle.messages == snapshot.messages
+    assert not await harness.sessions.cancel_turn(session_id, "turn-1")
     events = await harness.agent_events(session_id)
     assert [event.type for event in events if event.type.startswith("turn_")] == [
         AgentEventType.TURN_STARTED,
         AgentEventType.TURN_COMPLETED,
-    ]
-    assert (await harness.executed_step_types(session_id))[-3:] == [
-        "RunModel",
-        "AwaitUserMessage",
-        "ApplyTurnControl",
     ]
 
     # With no active turn, a steer is queued, so the idle wait of any Worker version takes it.
@@ -474,7 +461,8 @@ async def test_cancel_turn_during_a_model_call_that_answers_stores_the_answer(
     assert steered.messages[-1].text == "said: idle steer"
     executed = await harness.executed_step_types(session_id)
     assert executed[-2:] == ["AwaitUserMessage", "RunModel"]
-    assert executed.count("ApplyTurnControl") == 1
+    assert "ApplyTurnControl" not in executed
+    assert "FinishTurnCancellation" not in executed
 
 
 async def test_a_steer_to_a_session_left_idle_by_the_released_worker_starts_a_turn(
