@@ -1165,6 +1165,97 @@ fn the_commit_of_the_last_admitted_rpc_records_a_held_close() {
     ));
 }
 
+impl Harness {
+    /// Commits a transactional read RPC that changes no Flow state.
+    fn transactional_read_rpc(&mut self, request_id: &str, output: Option<Value>) -> ApplyOutcome {
+        self.apply(Command::RpcCommitted(RpcCommittedCommand {
+            request: Some(InvokeRpcRequest {
+                flow_id: FLOW_ID.to_owned(),
+                rpc_name: "getOrder".to_owned(),
+                request_id: request_id.to_owned(),
+                is_transactional: true,
+                ..InvokeRpcRequest::default()
+            }),
+            response: Some(InvokeWorkerRpcResponse {
+                output,
+                ..InvokeWorkerRpcResponse::default()
+            }),
+            app_worker_id: "worker-rpc".to_owned(),
+            request_fingerprint: request_id.as_bytes().to_vec(),
+            is_transactional: true,
+            ..RpcCommittedCommand::default()
+        }))
+    }
+
+    /// Sets the run's state budget in place and keeps its own row size in `state_row_bytes`.
+    fn set_max_run_state_bytes(&mut self, max_run_state_bytes: u64) {
+        let key = run_singleton_key(self.context.flow_hash, self.run(), RunTable::RunRecord);
+        let original = self.state.rows[&(ColumnFamily::Flow, key.clone())].clone();
+        let mut record = RunRecord::decode(original.as_slice()).expect("valid run record");
+        record
+            .settings
+            .as_mut()
+            .expect("run settings exist")
+            .max_run_state_bytes = max_run_state_bytes;
+        let other_state_bytes = record
+            .storage
+            .expect("storage is accounted")
+            .state_row_bytes
+            - original.len() as u64;
+        loop {
+            let new_state_bytes = other_state_bytes + record.encoded_len() as u64;
+            let storage = record.storage.as_mut().expect("storage is accounted");
+            if storage.state_row_bytes == new_state_bytes {
+                break;
+            }
+            storage.state_row_bytes = new_state_bytes;
+        }
+        self.state
+            .rows
+            .insert((ColumnFamily::Flow, key), record.encode_to_vec());
+    }
+}
+
+/// Over budget, a read keeps no reply, so a retry after it completed a held close finds no Flow.
+#[test]
+fn a_read_that_records_a_held_close_replays_only_under_the_state_budget() {
+    for is_over_budget in [false, true] {
+        for output in [None, Some(string_value("order details"))] {
+            let mut harness = Harness::new();
+            harness.start(&[], Vec::new(), 60);
+            harness.start_execute("ChargeStep-1");
+            harness.is_transactional_rpc_in_flight = true;
+            harness.complete_execute("ChargeStep-1", force_complete(), Vec::new());
+            harness.is_transactional_rpc_in_flight = false;
+            assert!(harness.run_record().pending_close.is_some());
+            if is_over_budget {
+                harness.set_max_run_state_bytes(1);
+            }
+
+            let read = harness.transactional_read_rpc("read-order", output.clone());
+            assert!(
+                matches!(read.reply.reply, Some(command_reply::Reply::Rpc(_))),
+                "{:?}",
+                read.reply
+            );
+            assert!(wakes(&read).contains(&WaitableChange::FlowClosed));
+            assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+
+            let retry = harness.transactional_read_rpc("read-order", output);
+            assert!(retry.writes.is_empty());
+            if is_over_budget {
+                assert!(
+                    matches!(&retry.reply.reply, Some(command_reply::Reply::Error(error)) if error.grpc_code == 5),
+                    "{:?}",
+                    retry.reply
+                );
+            } else {
+                assert_eq!(retry.reply, read.reply);
+            }
+        }
+    }
+}
+
 #[test]
 fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
     for is_finalized_by_check in [true, false] {
