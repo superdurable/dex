@@ -21,6 +21,9 @@ import {
   encodeAgentToolCall,
   encodeAgentUserMessage,
 } from "../../src/agent-session-codecs.js";
+import type { Context, StepAttemptProgress } from "@superdurable/dex";
+
+import { isToolNeverStarted } from "../../src/agent-session-steps.js";
 import { isCancellableByTurnControl } from "../../src/agent-session-transitions.js";
 import type { AgentToolCallRecord } from "../../src/index.js";
 
@@ -81,6 +84,7 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       taskId: null,
       taskPollIntervalSeconds: null,
       taskAnswerPending: false,
+      marksAttemptStarted: false,
     });
     assert.deepEqual(decodeAgentInterrupt(interruptOf010), {
       interruptId: "call-1",
@@ -141,6 +145,7 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       taskId: null,
       taskPollIntervalSeconds: null,
       taskAnswerPending: false,
+      marksAttemptStarted: false,
     });
     // A question with no taskId is not a task's question, so steering may still cancel it.
     assert.equal(isCancellableByTurnControl(handBuiltRecord), true);
@@ -164,5 +169,35 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
         assert.deepEqual(valueOf020[field], value, `field ${field}`);
       }
     }
+  });
+});
+
+describe("a never-started call needs a stamped record unless no Worker received it", () => {
+  const record = (marksAttemptStarted: boolean | undefined): AgentToolCallRecord => ({
+    ...decodeAgentToolCall(recordOf010),
+    status: "approved",
+    ...(marksAttemptStarted === undefined ? {} : { marksAttemptStarted }),
+  });
+  const failed = (attemptProgress: StepAttemptProgress): Context =>
+    ({ recoveryError: { detail: "lost", errorType: "FLOW_ERROR_TYPE_WORKER_API_FAIL", attemptProgress } }) as Context;
+
+  test("a record 0.2.0 deferred counts assigned and not assigned as never started", () => {
+    assert.equal(isToolNeverStarted(failed("notAssigned"), record(true)), true);
+    assert.equal(isToolNeverStarted(failed("assigned"), record(true)), true);
+    assert.equal(isToolNeverStarted(failed("started"), record(true)), false);
+    assert.equal(isToolNeverStarted(failed("unspecified"), record(true)), false);
+  });
+
+  test("a record 0.1.0 deferred, which ran its tool without a mark, keeps assigned as possibly run", () => {
+    assert.equal(isToolNeverStarted(failed("assigned"), record(undefined)), false);
+    assert.equal(isToolNeverStarted(failed("assigned"), record(false)), false);
+    assert.equal(isToolNeverStarted(failed("notAssigned"), record(undefined)), true);
+  });
+
+  test("a call waiting for its task is never counted as not run", () => {
+    assert.equal(
+      isToolNeverStarted(failed("notAssigned"), { ...record(true), status: "waiting_for_task", taskId: "task-1" }),
+      false,
+    );
   });
 });

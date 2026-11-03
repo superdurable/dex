@@ -24,6 +24,7 @@ from dex_agents import (
     AGENT_MESSAGE_CHUNKS,
     AGENT_MESSAGE_INDEX,
     AGENT_MESSAGES,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentEventType,
     AgentMessageIndex,
     InterruptKind,
@@ -67,6 +68,28 @@ def test_code_written_for_the_released_api_still_works(released_python: str) -> 
     assert len(released) >= 80
 
     assert public_api_breaks(released, describe_public_api(PUBLIC_MODULES)) == []
+
+
+async def test_a_call_a_released_worker_was_running_at_cutover_keeps_outcome_unknown(
+    harness: ScriptedAgentHarness,
+    released_python: str,
+) -> None:
+    """The released Worker runs its tool without a mark, so ASSIGNED must not mean "never ran"."""
+    released_worker = await harness.stack.start_worker(python_executable=released_python)
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call slow_write {"message": "cutover", "gate": "cutover-gate"}'
+    )
+    gate = harness.gate("cutover-gate")
+    await gate.wait_until_reached()
+
+    released_worker.kill()
+    gate.release()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == f"slow_write: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert harness.invocations.count("slow_write") == 1
 
 
 async def test_a_session_started_on_the_released_worker_continues_on_this_one(

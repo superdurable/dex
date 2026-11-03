@@ -1082,7 +1082,7 @@ statuses appear only in `AgentToolCallRecord`, which snapshots,
 runner never sees a waiting record outside `pollToolTask`. The record gains
 `wait_until`, `input_continuation`, `input_answers`, `input_question`,
 `input_choices`, `input_allows_free_text`, `cancellation_reason`, `task_id`,
-`task_poll_interval_seconds`, and `task_answer_pending`. Wire values are snake_case JSON; TypeScript values are the
+`task_poll_interval_seconds`, `task_answer_pending`, and `marks_attempt_started`. Wire values are snake_case JSON; TypeScript values are the
 same fields in camelCase. Message sequences start at 1 and have no gaps. Turn
 IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 
@@ -1579,7 +1579,7 @@ The snapshot JSON is the `get_agent_snapshot` wire format without the fields
 only the session's Steps use. Messages leave out `framework_item`, the
 framework's replay data, which can hold the agent's instructions. Tool calls
 leave out `tool_source_reference`, `trace_context`, `input_continuation`,
-`input_answers`, and `task_answer_pending`. Read them with `getAgentSnapshot` on the server when needed. It
+`input_answers`, `task_answer_pending`, and `marks_attempt_started`. Read them with `getAgentSnapshot` on the server when needed. It
 includes `session_settings` as stored, so keep anything a browser must not see out of session settings, or
 remove the key.
 
@@ -1891,11 +1891,17 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 - **`deferral_order`.** `AgentToolCall` carries a zero-based `deferral_order`,
   as in the Python core; records and the snapshot list calls in the order the
   model made them.
-- **Output before a single-attempt tool runs.** Dex re-delivers an attempt,
-  with the same attempt number, when its Worker disconnects before sending any
-  output within the dispatch wait. A tool Step therefore writes
-  `tool_call_started` and awaits a heartbeat before calling the runner, so a
-  crash during the tool fails the attempt instead of re-running the tool.
+- **A durable mark before a tool runs.** A tool Step awaits
+  `context.markAttemptStarted()`, then writes `tool_call_started`, before
+  calling the runner. Dex commits the mark first and, within one run attempt,
+  never re-delivers a marked attempt (time travel to a point before the mark
+  runs it again in the new run attempt), so a crash or a Dex Server restart during the tool fails the
+  attempt instead of re-running the tool. On a Dex Server without the mark it
+  awaits a heartbeat instead.
+- **Calls that never started.** When a tool Step fails before any attempt
+  marked itself started, such as when no Worker accepts it within the dispatch
+  wait, its failure route records `failed` with an `error` that starts with
+  `toolCallNotRunErrorPrefix`, instead of `outcome_unknown`.
 - **Background heartbeats.** `RunModel` and the tool Steps heartbeat every 20
   seconds while the runner works, so a silent model or tool call stays within
   the heartbeat timeout. Method timeouts still bound hung calls.

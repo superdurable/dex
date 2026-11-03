@@ -82,6 +82,9 @@ TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT = (
 )
 
 #: Error of an ``outcome_unknown`` record whose task ``cancel_turn`` abandoned.
+TOOL_CALL_NOT_RUN_ERROR_PREFIX = "the tool did not run, so it is safe to call again"
+"""Starts the ``error`` of a call whose tool Step failed before the tool started."""
+
 TOOL_TASK_ABANDONED_ERROR = (
     "the turn was cancelled while the tool's task was running; the task may have taken effect"
 )

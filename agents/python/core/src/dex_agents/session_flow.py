@@ -41,6 +41,7 @@ from typing import Any, cast
 
 from dex import (
     AsyncContext,
+    AttemptStartedNotAcknowledgedError,
     AttributeMap,
     AttributeMapLoad,
     Channel,
@@ -51,6 +52,7 @@ from dex import (
     RetryPolicy,
     RPCResult,
     Step,
+    StepAttemptProgress,
     StepDecision,
     StepDurability,
     StepList,
@@ -133,6 +135,7 @@ from dex_agents.runner import (
     APPROVAL_DEADLINE_PASSED,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
+    TOOL_CALL_NOT_RUN_ERROR_PREFIX,
     TOOL_TASK_ABANDONED_ERROR,
     TURN_CANCELLED_NOTE_HEADER,
     TURN_STEERED_NOTE_HEADER,
@@ -1512,6 +1515,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 deferral_order=len(tool_calls) + index,
                 tool_source_reference=requested.tool_source_reference,
                 trace_context=trace_context,
+                marks_attempt_started=True,
             )
             events.write_event(
                 AgentEventType.TOOL_CALL_DEFERRED,
@@ -2007,10 +2011,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             )
         with self._session_tracer.trace_tool_call(context, step_type, tool_call) as tool_call_span:
             events = self._event_writer(context, tool_call.turn_id)
-            events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
             heartbeats = _ToolStepHeartbeats(context)
-            # Dex may redeliver a task without output to another Worker, at the same attempt.
-            await heartbeats.record()
+            # The event follows the mark, so a call that never started never reports started.
+            await _mark_tool_call_started(context, heartbeats)
+            events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
             execution = DeferredToolExecution(
                 flow_id=context.flow_id,
                 tool_call=tool_call,
@@ -2160,6 +2164,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             if _is_abandoned_tool_task(tool_call) and tool_call.cancellation_reason is not None
             else _recovery_detail(context)
         )
+        if _is_tool_never_started(context, tool_call):
+            status = ToolCallStatus.FAILED
+            error = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {error}"
         finished = replace(tool_call, status=status, error=error)
         return _finish_tool_call(context, finished, self._event_writer(context, tool_call.turn_id))
 
@@ -3060,6 +3067,34 @@ class _ToolStepHeartbeats:
     async def save_checkpoint(self, checkpoint: str) -> None:
         self._checkpoint = checkpoint
         await self.record()
+
+
+async def _mark_tool_call_started(context: AsyncContext, heartbeats: _ToolStepHeartbeats) -> None:
+    """Commit that the tool starts, so Dex never redelivers this attempt and recovery knows."""
+    try:
+        await context.mark_attempt_started()
+    except AttemptStartedNotAcknowledgedError as error:
+        if not error.is_unsupported_server:
+            raise
+        # An older Dex Server: output first, so a Worker lost before it is redelivered.
+        await heartbeats.record()
+
+
+def _is_tool_never_started(context: Context, tool_call: AgentToolCall) -> bool:
+    """Report whether the call's tool Step failed before any attempt marked itself started.
+
+    Tool Steps mark every attempt before the tool runs, so an attempt that reached a Worker
+    without a mark never ran the tool. A started task's poll failure is never this case.
+    """
+    error = context.recovery_error
+    if tool_call.status is not ToolCallStatus.APPROVED or error is None:
+        return False
+    if error.attempt_progress is StepAttemptProgress.NOT_ASSIGNED:
+        return True
+    # A release before 0.2.0 ran the tool without a mark, so ASSIGNED may mean it ran.
+    return (
+        error.attempt_progress is StepAttemptProgress.ASSIGNED and tool_call.marks_attempt_started
+    )
 
 
 @contextlib.asynccontextmanager

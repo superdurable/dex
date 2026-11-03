@@ -18,6 +18,11 @@ import { ChildProcessGroup } from "./child-process-group.js";
 /** Environment variable that carries the Dex Server address into a Worker child process. */
 export const agentWorkerServerAddressVariable = "DEX_AGENTS_SERVER_ADDRESS";
 /**
+ * Environment variable limiting a Worker child process to this many Step tasks at once, for capacity tests.
+ * One more task slot stays reserved for RPCs. When it is unset, the Worker runs up to 8 tasks.
+ */
+export const agentWorkerMaxStepTasksVariable = "DEX_AGENTS_MAX_STEP_TASKS";
+/**
  * Environment variable naming the BlobCache directory of a Worker child process. When it is unset,
  * the child uses a new temporary directory and deletes it on exit.
  */
@@ -137,6 +142,12 @@ export class KillableWorkerProcess {
  * @returns A Promise that never resolves; the process exits on a signal.
  * @throws {Error} When the server address is missing or the Worker cannot register.
  */
+function workerTaskLimits(): { maxConcurrentTasks: number; reservedRpcTasks?: number } {
+  const maxStepTasks = Number(process.env[agentWorkerMaxStepTasksVariable] ?? "0");
+  if (!Number.isInteger(maxStepTasks) || maxStepTasks <= 0) return { maxConcurrentTasks: 8 };
+  return { maxConcurrentTasks: maxStepTasks + 1, reservedRpcTasks: 1 };
+}
+
 export async function runAgentWorkerProcess(flows: readonly Flow<any>[]): Promise<never> {
   const serverAddress = process.env[agentWorkerServerAddressVariable];
   if (serverAddress === undefined || serverAddress === "") {
@@ -153,7 +164,7 @@ export async function runAgentWorkerProcess(flows: readonly Flow<any>[]): Promis
   const worker = new Worker(new Registry(flows), blobCache, {
     serverAddress,
     // Parallel tool Steps must not depend on the CI machine's CPU count.
-    pull: { appWorkerID: `dex-agents-test-worker-${randomUUID()}`, maxConcurrentTasks: 8 },
+    pull: { appWorkerID: `dex-agents-test-worker-${randomUUID()}`, ...workerTaskLimits() },
   });
   const closeAndExit = async (): Promise<void> => {
     try {

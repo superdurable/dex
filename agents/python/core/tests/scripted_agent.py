@@ -32,7 +32,8 @@ The released 0.1.0 Worker imports this module too, so it uses only the 0.1.0
 API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools or
 ``SCRIPTED_AGENT_MESSAGE_WINDOW`` sets ``<window size>,<chunk size>``.
 
-Every tool accepts ``"gate"``, which waits at that ``FileGate`` first, and
+Every tool accepts ``"gate"``, which waits at that ``FileGate`` first,
+``"blocking_gate"``, which waits at that gate while blocking the event loop, and
 ``"fail_attempts"``, which raises on attempts up to that number.
 """
 
@@ -41,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import timedelta
@@ -154,6 +156,12 @@ class ScriptedRunner(AgentFrameworkRunner):
             gate = FileGate(self._state_dir, str(arguments["gate"]))
             gate.mark_reached()
             await gate.wait_for_release()
+        if "blocking_gate" in arguments:
+            # Synchronous work holds back any frame this Worker would still send.
+            blocking_gate = FileGate(self._state_dir, str(arguments["blocking_gate"]))
+            blocking_gate.mark_reached()
+            while not blocking_gate.is_released():
+                time.sleep(0.05)  # noqa: ASYNC251 - blocking the event loop is the behavior under test
         if call.attempt <= int(arguments.get("fail_attempts", 0)):
             raise RuntimeError(f"{record.tool_name} attempt {call.attempt} lost its connection")
         if record.tool_name == "lookup":

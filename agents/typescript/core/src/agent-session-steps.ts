@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import {
+  AttemptStartedNotAcknowledgedError,
   ExecuteFailure,
   StepMovement,
   int64Codec,
@@ -95,6 +96,7 @@ import {
   invalidToolTaskPollInterval,
   isFinalToolCallStatus,
   missingToolTaskPoller,
+  toolCallNotRunErrorPrefix,
   toolTaskAbandonedError,
   type AgentInterrupt,
   type AgentPlan,
@@ -946,10 +948,10 @@ export class ToolCallStep implements Step<string> {
     const events = transitions.createEventWriter(context, toolCall.turnId);
     try {
       return await transitions.tracer.traceToolCall(context, this.stepType, toolCall, async (toolCallSpan) => {
-        events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
         const heartbeats = new ToolStepHeartbeats(context);
-        // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
-        await heartbeats.record();
+        // The event follows the mark, so a call that never started never reports started.
+        await markToolCallStarted(context, heartbeats);
+        events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
         const execution: DeferredToolExecution = {
           flowId: context.flowId,
           toolCall: toRunnerToolCall(toolCall),
@@ -1091,16 +1093,43 @@ export class ToolCallFailureRecordingStep implements Step<string> {
     if (isFinalToolCallStatus(toolCall.status)) {
       return deadEnd();
     }
-    const status =
-      this.isReadFailureRecorded && toolCall.effect === "read" ? "failed" : "outcome_unknown";
     // An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
     const error =
       isAbandonedToolTask(toolCall) && (toolCall.cancellationReason ?? null) !== null
         ? toolTaskAbandonedError
         : readRecoveryDetail(context);
+    if (isToolNeverStarted(context, toolCall)) {
+      transitions.finishToolCall(context, { ...toolCall, status: "failed", error: `${toolCallNotRunErrorPrefix}: ${error}` });
+      return deadEnd();
+    }
+    const status =
+      this.isReadFailureRecorded && toolCall.effect === "read" ? "failed" : "outcome_unknown";
     transitions.finishToolCall(context, { ...toolCall, status, error });
     return deadEnd();
   }
+}
+
+/** Commits that the tool starts, so Dex never redelivers this attempt and its failure route knows. */
+async function markToolCallStarted(context: AsyncContext, heartbeats: ToolStepHeartbeats): Promise<void> {
+  try {
+    await context.markAttemptStarted();
+  } catch (error: unknown) {
+    if (!(error instanceof AttemptStartedNotAcknowledgedError) || !error.isUnsupportedServer) throw error;
+    // An older Dex Server: emit output first, so a Worker lost before it is redelivered.
+    await heartbeats.record();
+  }
+}
+
+/**
+ * Returns whether the call's tool Step failed before any attempt marked itself started. Tool Steps mark every attempt
+ * before the tool runs, so an attempt that reached a Worker without a mark never ran the tool.
+ */
+export function isToolNeverStarted(context: Context, toolCall: AgentToolCallRecord): boolean {
+  const progress = context.recoveryError?.attemptProgress;
+  if (toolCall.status !== "approved") return false;
+  if (progress === "notAssigned") return true;
+  // A release before 0.2.0 ran the tool without a mark, so "assigned" may mean it ran.
+  return progress === "assigned" && toolCall.marksAttemptStarted === true;
 }
 
 /**
@@ -1594,6 +1623,7 @@ function createToolCallRecord(
     taskId: null,
     taskPollIntervalSeconds: null,
     taskAnswerPending: false,
+    marksAttemptStarted: true,
   };
 }
 

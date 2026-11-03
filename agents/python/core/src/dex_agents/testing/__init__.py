@@ -63,6 +63,7 @@ from dex_agents.testing.scripted_model import (
 from dex_agents.testing.stack import AgentTestStack
 from dex_agents.testing.worker import (
     BLOB_CACHE_DIR_ENVIRONMENT_VARIABLE,
+    MAX_STEP_TASKS_ENVIRONMENT_VARIABLE,
     SERVER_ADDRESS_ENVIRONMENT_VARIABLE,
     WORKER_READY_LINE,
     run_agent_worker,
@@ -77,6 +78,7 @@ __all__ = [
     "DEX_SERVER_ZD_ENVIRONMENT_VARIABLE",
     "ENGINE_READY_LINE",
     "EXECUTE_COMPLETED_EVENT",
+    "MAX_STEP_TASKS_ENVIRONMENT_VARIABLE",
     "SCRIPTED_MODEL_API",
     "SCRIPTED_MODEL_PROVIDER",
     "SERVER_ADDRESS_ENVIRONMENT_VARIABLE",

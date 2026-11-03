@@ -88,7 +88,8 @@ interface ScriptedRunState {
  * Tools record `<flowId> <toolCallId> attempt <n>` in the `<tool>.log` InvocationLog on every real
  * run, and `<flowId> <toolName>` in `tool-runs.log` in run order. `charge_card`, `transfer_funds`,
  * `retry_payout`, `lookup_a`, and `lookup_b` then wait at a FileGate: their own, or `lookups` for the two
- * lookups. `retry_payout` then fails its first attempt.
+ * lookups. `retry_payout` then fails its first attempt. `blocking_write` waits at its FileGate while
+ * blocking the event loop, and `slot_write_a` and `slot_write_b` wait at their own FileGates.
  * `confirm_shipment` asks the user `Ship now?` through `ToolInputRequested`, then, once answered, logs
  * the answers in `confirm_shipment-answers.log` and waits at its FileGate. `confirm_return` asks
  * `Return now?` the same way without a gate, and `gated_confirm` waits at its FileGate before it asks.
@@ -219,6 +220,21 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
         gate.markReached();
         await gate.waitForRelease(call.cancellationSignal);
         return { output: "card charged" };
+      }
+      case "blocking_write": {
+        // Synchronous work holds back any frame this Worker would still send.
+        const gate = new FileGate(this.markerDirectory, "blocking_write");
+        gate.markReached();
+        const pause = new Int32Array(new SharedArrayBuffer(4));
+        while (!gate.isReleased()) Atomics.wait(pause, 0, 0, 50);
+        return { output: "blocking write done" };
+      }
+      case "slot_write_a":
+      case "slot_write_b": {
+        const gate = new FileGate(this.markerDirectory, toolCall.toolName);
+        gate.markReached();
+        await gate.waitForRelease(call.cancellationSignal);
+        return { output: `${toolCall.toolName} done` };
       }
       case "refund_order":
         return { output: "refund issued" };
@@ -509,6 +525,9 @@ export function createScriptedAgentFlow(
       lookup_b: { effect: "read" },
       check_stock: { effect: "read" },
       charge_card: { effect: "non_idempotent_write" },
+      blocking_write: { effect: "non_idempotent_write", requiresApproval: false },
+      slot_write_a: { effect: "non_idempotent_write", requiresApproval: false },
+      slot_write_b: { effect: "non_idempotent_write", requiresApproval: false },
       confirm_shipment: { effect: "non_idempotent_write", requiresApproval: false },
       confirm_return: { effect: "non_idempotent_write", requiresApproval: false },
       gated_confirm: { effect: "non_idempotent_write", requiresApproval: false },

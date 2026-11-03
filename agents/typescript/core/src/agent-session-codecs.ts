@@ -344,6 +344,7 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     task_id: value.taskId ?? null,
     task_poll_interval_seconds: value.taskPollIntervalSeconds ?? null,
     task_answer_pending: value.taskAnswerPending ?? false,
+    marks_attempt_started: value.marksAttemptStarted ?? false,
   };
 }
 
@@ -372,6 +373,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     taskId: reader.readNullableString("task_id"),
     taskPollIntervalSeconds: reader.readNullableInteger("task_poll_interval_seconds"),
     taskAnswerPending: reader.readBooleanOrDefault("task_answer_pending", false),
+    marksAttemptStarted: reader.readBooleanOrDefault("marks_attempt_started", false),
     ...(traceContext === null ? {} : { traceContext }),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");

@@ -148,8 +148,8 @@ must fit within it. To grow past it, run more Worker processes.
 
 Keep headroom. When no Worker has a free slot within the 10-second dispatch
 wait, a Step consumes an attempt. **RunModel** fails the turn once its 3
-attempts are used. A single-attempt tool that cannot get a Worker in time
-records **outcome_unknown**, even though it never ran. See
+attempts are used. A tool call that cannot get a Worker in time records
+**failed** with a message that the tool did not run. See
 [Tool call limits](#never-run-outcome-unknown).
 
 ### Long model calls and timeouts {#timeouts}
@@ -349,8 +349,8 @@ A crash repeats at most the one call that was running.
 | A tool the framework cannot defer | The tool runs inside **RunModel** and repeats when **RunModel** runs again. It is at-least-once. |
 | A Claude Agent SDK turn segment | Deferred custom tools run in their own **CallTool** or **CallSingleAttemptTool** Steps, as above. Model calls, inline read tools, and CLI tools such as **Bash**, **Write**, **Edit**, and **Task** run inside **RunModel** and repeat when it runs again. They are at-least-once. |
 
-A single-attempt tool can still run twice in one narrow case. See
-[Tool call limits](#tool-runs-twice).
+A single-attempt tool runs at most once, also when the Worker dies right as
+the tool starts. See [Tool call limits](#tool-runs-twice).
 
 A graceful Worker stop waits for active handlers for the drain timeout, 30
 seconds by default. Then it cancels them. A cancelled model call runs again, and
@@ -363,51 +363,55 @@ above the drain timeout. Wait for the new Workers to
 ## Tool call limits {#tool-call-limits}
 
 A single-attempt tool runs in a **CallSingleAttemptTool** Step. That Step serves
-**non_idempotent_write** and **unclassified** tools. It should run the tool at
-most once, and record **outcome_unknown** when the tool may have run. Two cases
-break that. Plan for both. They follow from how Dex delivers any Step attempt.
-See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
+**non_idempotent_write** and **unclassified** tools. It runs the tool at most
+once, and records **outcome_unknown** only when the tool may have run. This
+follows from how Dex handles a Step attempt that is marked started. See
+[Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
 
-### A single-attempt tool can run twice {#tool-runs-twice}
+### A single-attempt tool runs at most once {#tool-runs-twice}
 
-The tool Step sends a heartbeat to Dex just before it runs the tool. Dex does
-not acknowledge heartbeats, so the tool starts without waiting for it to
-arrive. Suppose the Worker dies, or loses its connection to Dex, after the tool
-starts but before that heartbeat reaches Dex. Dex then sees an attempt that
-produced no output. It delivers the same attempt again, and another Worker runs
-the tool a second time. The session records the second run's result. Nothing
-marks the first run. If no Worker takes the attempt within the dispatch wait,
-the call records **outcome_unknown** instead.
+Before a tool Step runs the tool, it marks its attempt started, and Dex commits
+that mark before the tool starts. Within one run attempt, Dex never delivers a
+marked attempt again. If
+the Worker dies, loses its connection to Dex, or a Dex Server node restarts
+while the tool runs, the attempt fails. The call then records
+**outcome_unknown**, and the tool does not run again. This holds even when the
+tool blocks the event loop, such as a synchronous HTTP client inside an async
+Python tool. Time travel is the exception: time travel to a point before the
+mark runs the attempt again in the new run attempt, like every Step after that
+point.
 
-The window runs from the start of the tool until the heartbeat reaches Dex:
+The mark needs a Dex Server that supports it. With an older Dex Server, the
+tool Step sends a heartbeat before the tool instead. A Worker that dies after
+the tool starts, but before that heartbeat reaches Dex, can then run the tool a
+second time on another Worker.
 
-- A tool that awaits I/O lets the heartbeat go out at its first await. The
-  window is then about one network hop to Dex, typically a few milliseconds or
-  less.
-- A tool that blocks the event loop holds the heartbeat back until the blocking
-  code returns. In Python, a synchronous HTTP client or SDK call inside an async
-  tool puts the whole call inside the window. Run such calls with
-  **asyncio.to_thread**. In TypeScript, synchronous work before the first await
-  has the same effect.
-
-To make a second run harmless, pass the call's idempotency key to the service
-that the tool writes to. Every tool call receives one: the session's Flow ID,
-the turn ID, and the tool call ID, joined by slashes, such as
+To make a second run harmless in any case, pass the call's idempotency key to
+the service that the tool writes to. Every tool call receives one: the
+session's Flow ID, the turn ID, and the tool call ID, joined by slashes, such as
 **session-42/turn-3/call-7**. The key is the same for every attempt and every
 delivery of the call. When the service deduplicates on it, classify the tool as
 **idempotent_write**, so it also retries after a failure.
 
-### A call that never ran can record outcome_unknown {#never-run-outcome-unknown}
+### A call that never ran records failed {#never-run-outcome-unknown}
 
 When no Worker accepts a tool Step within the 10-second dispatch wait, the
 attempt fails without running. This happens when every Worker of the Flow type
-is at its task limit, or when none is running. A single-attempt tool then
-records **outcome_unknown**. So does an idempotent write whose last attempt
-fails this way. The call never ran, but the model is told that its outcome is
-unknown, and the session does not retry it. In the Flow's history, the failed
-attempt shows that no Worker accepted it.
+is at its task limit, or when none is running. The same holds when a Worker
+receives the call and dies before the tool starts. Dex reports how far the
+attempts got, so the session records the call as **failed**, with an error that
+starts with **the tool did not run, so it is safe to call again**. The model
+sees that message and can call the tool again. This applies to single-attempt
+tools and to idempotent writes. A call whose tool may have run still records
+**outcome_unknown**.
 
-Keep tool Steps dispatchable:
+A Worker of an agents release before 0.2.0 does not mark its tool attempts. So
+a call that such a release deferred, such as one still running when you stop
+the old Workers, records **outcome_unknown** as before. Stop every Worker of the
+earlier release before you start 0.2.0 Workers: an earlier Worker that runs a
+call a 0.2.0 Worker deferred does not mark it.
+
+Keep tool Steps dispatchable anyway, so calls do not fail:
 
 - Size each Worker pool as in [Size Workers](#size-workers), with headroom for
   the largest batch of tool calls.

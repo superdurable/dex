@@ -18,6 +18,7 @@ export {
   KillableWorkerProcess,
   agentWorkerBlobCacheDirectoryVariable,
   agentWorkerReadyLine,
+  agentWorkerMaxStepTasksVariable,
   agentWorkerServerAddressVariable,
   runAgentWorkerProcess,
   type KillableWorkerProcessOptions,

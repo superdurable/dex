@@ -35,6 +35,8 @@ from dex import (
 SERVER_ADDRESS_ENVIRONMENT_VARIABLE = "DEX_AGENTS_SERVER_ADDRESS"
 #: Environment variable carrying the BlobCache directory to a Worker child.
 BLOB_CACHE_DIR_ENVIRONMENT_VARIABLE = "DEX_AGENTS_BLOB_CACHE_DIR"
+#: Environment variable limiting a Worker child to this many Step tasks at once, for capacity tests.
+MAX_STEP_TASKS_ENVIRONMENT_VARIABLE = "DEX_AGENTS_MAX_STEP_TASKS"
 #: Line a Worker child prints once every pull queue registered.
 WORKER_READY_LINE = "dex-agents test Worker ready"
 TEST_BLOB_CACHE_BYTES = 64 * 1024 * 1024
@@ -79,7 +81,7 @@ async def serve_agent_worker(
         blob_cache,
         WorkerOptions(
             server_address=address,
-            pull=PullWorkerOptions(stop_drain_timeout=timedelta(seconds=5)),
+            pull=_pull_worker_options(),
         ),
     )
     serving = asyncio.create_task(worker.start())
@@ -94,6 +96,18 @@ async def serve_agent_worker(
         with contextlib.suppress(asyncio.CancelledError):
             await serving
         blob_cache.close()
+
+
+def _pull_worker_options() -> PullWorkerOptions:
+    max_step_tasks = int(os.environ.get(MAX_STEP_TASKS_ENVIRONMENT_VARIABLE, "0"))
+    if max_step_tasks <= 0:
+        return PullWorkerOptions(stop_drain_timeout=timedelta(seconds=5))
+    # One more slot stays reserved for RPCs, so RPCs still run while Steps fill the Worker.
+    return PullWorkerOptions(
+        stop_drain_timeout=timedelta(seconds=5),
+        max_concurrent_tasks=max_step_tasks + 1,
+        reserved_rpc_tasks=1,
+    )
 
 
 def run_agent_worker(flows: Sequence[Flow[Any]]) -> None:

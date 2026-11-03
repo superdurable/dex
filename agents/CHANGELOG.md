@@ -6,6 +6,29 @@ for the Dex SDK and framework versions each release supports.
 
 ## 0.2.0 (Unreleased)
 
+### Exactly-once tool calls
+
+- Every tool Step (`CallTool` and `CallSingleAttemptTool`) marks its attempt
+  started with the Dex SDK's `mark_attempt_started()` (`markAttemptStarted()`)
+  before it calls the tool. Dex commits the mark first and, within one run
+  attempt, never delivers a marked attempt again, so a single-attempt tool runs
+  at most once even when its Worker dies, loses its stream, or a Dex Server
+  node restarts as the tool starts. Time travel to a point before the mark runs
+  the attempt again in the new run attempt, like every Step after that point. On a Dex Server without the mark, the Step heartbeats first as
+  before. Requires a Dex SDK release with the mark (#1232).
+- A tool call whose Step failed before any attempt marked itself started, such
+  as when no Worker accepted it within the dispatch wait, records `failed`
+  with an `error` that starts with the new `TOOL_CALL_NOT_RUN_ERROR_PREFIX`
+  (`toolCallNotRunErrorPrefix`), instead of `outcome_unknown` (#1233). A
+  failure that reached a Worker counts as never started only for a call that
+  `RunModel` stamped with the new `marks_attempt_started` field, so a call that
+  0.1.x deferred, such as one running when the 0.1.x Workers stop, keeps
+  `outcome_unknown`. The Go core keeps the field when it rewrites a record.
+- `tool_call_started` is now written after the mark, so a call that never
+  started never reports started.
+- `dex_agents.testing` and the TypeScript testing module read
+  `DEX_AGENTS_MAX_STEP_TASKS` to limit a test Worker's Step tasks.
+
 ### MCP tool source
 
 - `dex_agents.mcp` (extra `dex-agents[mcp]`, `mcp>=2.3,<3`) and

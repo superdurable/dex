@@ -126,35 +126,47 @@ The idempotency key passed to `execute_deferred_tool_call` is
 be non-empty, contain no `/`, and be unique within one turn; they may repeat
 across turns.
 
-### Known limits
+### Exactly once for single-attempt tools
 
 The table promises that a `CallSingleAttemptTool` call runs at most once and
-records `outcome_unknown` when it may have run. Two cases break that promise.
-Both are documented for operators in the
-[deployment guide](../../content/production/agents.mdx#tool-call-limits), and
-their fix is deferred until after M2.
+records `outcome_unknown` only when it may have run. Two gaps broke that
+promise until the engine gained durable attempt-started marks (#1232, #1233).
+The deployment guide covers what operators see in
+[Tool call limits](../../content/production/agents.mdx#tool-call-limits).
 
-- **A single-attempt call can run twice.** The tool Step heartbeats before it
-  calls the tool, so that Dex sees output before any effect. Dex redelivers an
-  attempt at the same attempt number when its Worker's stream ends with no
-  output. The heartbeat is not acknowledged: at SDK 1.30.0 both SDKs queue it
-  and return at once, and the pull protocol has no acknowledgement frame. A
-  Worker that dies, or loses its stream, after the tool starts but before the
-  heartbeat frame reaches the server therefore runs the tool again on another
-  Worker. The window lasts from the tool's start until that frame arrives. It
-  is about one network hop when the tool awaits I/O. It covers the whole
-  blocking section when tool code blocks the event loop. A heartbeat checkpoint
-  cannot serve as a "started" marker either: server-zd batches checkpoints and
-  treats a lost one as harmless, so a later attempt may not see it.
-- **A call that never ran records `outcome_unknown`.** When no Worker accepts
-  the tool Step within the dispatch wait, because every Worker is at its task
-  limit or none is running, the attempt fails without running and still
-  consumes an attempt. `CallSingleAttemptTool` has one attempt, so
-  `RecordToolOutcomeUnknown` records `outcome_unknown`. `RecordToolFailure`
-  does the same for an `idempotent_write` whose last attempt fails this way.
-  The failure route cannot tell this apart from a Worker that disconnected
-  after the tool started: both reach it with the recovery error type
-  `FLOW_ERROR_TYPE_WORKER_API_FAIL`, and only the detail text differs.
+- **A started call is never redelivered.** Before it calls the tool, every
+  tool Step, `CallTool` and `CallSingleAttemptTool`, calls
+  `AsyncContext.mark_attempt_started()` (`markAttemptStarted()`). It returns
+  only after Dex committed the mark. Within one run attempt, Dex then never
+  dispatches that attempt again at the same attempt number: a Worker that dies
+  fails the attempt, and a Dex Server restart or failover fails it with
+  `StartedAttemptInterrupted`. Time travel to a point before the mark runs the
+  attempt again in the new run attempt, like every Step after that point.
+  `CallSingleAttemptTool` has one attempt, so its failure route records
+  `outcome_unknown`, and the tool ran at most once. On a Dex Server without
+  the mark (`AttemptStartedNotAcknowledgedError.is_unsupported_server`), the
+  Step falls back to the earlier heartbeat before the tool, which leaves the
+  old window.
+- **A call that never started records `failed`.** The recovery error carries
+  `attempt_progress`. `RecordToolFailure` and `RecordToolOutcomeUnknown`
+  record `failed`, with an `error` that starts with
+  `TOOL_CALL_NOT_RUN_ERROR_PREFIX` (`the tool did not run, so it is safe to call again`), when the record is
+  still `approved` and the progress is `NOT_ASSIGNED` or `ASSIGNED`: no
+  attempt marked itself started, so the tool never ran. This covers a tool
+  Step that no Worker accepted within the dispatch wait, and one whose Worker
+  died before the mark. The model sees the failure and may call the tool
+  again. `STARTED` and `UNSPECIFIED` keep `outcome_unknown` for writes. A
+  failure of `PollToolTask` or `CancelToolTask` is never this case, because
+  the record is then `waiting_for_task`.
+- **Only stamped calls read `ASSIGNED` as never run.** A Worker of a release
+  before 0.2.0 does not mark its attempts, so `ASSIGNED` from such a Worker
+  does not prove that the tool did not run. `RunModel` therefore stamps every
+  call it defers with `marks_attempt_started: true` (`marksAttemptStarted`),
+  and only a stamped call reads `ASSIGNED` as never run. A call that a 0.1.x
+  `RunModel` deferred, such as one still running when the 0.1.x Workers stop,
+  keeps `outcome_unknown` unless its progress is `NOT_ASSIGNED`. Do not run
+  0.1.x and 0.2.0 Workers side by side: a 0.1.x Worker that runs a stamped
+  call does not mark it.
 
 ## MCP tool source
 
@@ -197,7 +209,7 @@ optional peer dependency. Neither core's main entry point imports an MCP SDK.
   heartbeat of the attempt repeats it, and a retried attempt reads it as
   `heartbeat_checkpoint` and returns the same task without calling again. Once
   that checkpoint reaches Dex, a Worker kill after `tools/call` creates no
-  second task. Dex may drop a heartbeat checkpoint (see Known limits), so an
+  second task. Dex may drop a heartbeat checkpoint (see the Step failure and redelivery docs), so an
   attempt that dies before its checkpoint is saved and before the tool Step
   commits can send `tools/call` again on a `CallTool` retry; the idempotency
   key in `_meta` lets the server drop the duplicate. Each source reads only a
@@ -308,13 +320,13 @@ Rules:
   commit that makes its record final. A tool Step whose record is already final
   ends without running or publishing.
 - Before a tool Step calls `execute_deferred_tool_call`, it writes
-  `tool_call_started` and awaits a heartbeat. Dex can redeliver a task to
-  another Worker at the same attempt when the first Worker disconnects before
-  Dex receives any output; that output narrows the window before the tool
-  runs. Awaiting the heartbeat only queues the frame on the Worker. If the
-  Worker dies before the frame leaves it, or after it left but before Dex
-  received it, Dex can still redeliver the attempt, so a small residual window
-  remains.
+  `tool_call_started` after it marks the attempt started with
+  `mark_attempt_started()` (`markAttemptStarted()`), which returns only after
+  Dex committed the mark. Within one run attempt, Dex never redelivers a marked
+  attempt at the same attempt number; time travel to a point before the mark
+  runs it again in the new run attempt. On a Dex Server without the mark, it awaits a heartbeat
+  instead, which leaves a small window in which Dex can still redeliver the
+  attempt.
 - `ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
   the error message and is not retried. Any other error fails the attempt.
 - A record with `task_id` belongs to remote work that started. Nothing but the
@@ -658,6 +670,7 @@ AgentToolCall {
   task_id: str | null = null                 # from ToolTaskStarted; kept after the task ends
   task_poll_interval_seconds: int | null = null  # whole seconds, at least 1, until the next poll
   task_answer_pending: bool = false          # input_answers[-1] has not reached the task yet
+  marks_attempt_started: bool = false        # deferred by a core whose tool Steps mark attempts started
 }
 QuestionAnswer { interrupt_id: str, question: str, answer: str,
                  resolution: "answered" | "declined" | "deadline_passed" = "answered" }

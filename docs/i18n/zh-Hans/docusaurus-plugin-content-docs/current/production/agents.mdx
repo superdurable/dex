@@ -123,8 +123,8 @@ server-zd 默认为每个 app Worker ID 允许 256 个 stream
 这个范围内。需要更多时，运行更多 Worker 进程。
 
 留出余量。在 10 秒的分发等待内没有 Worker 有空闲 slot 时，Step 会消耗一次 attempt。
-**RunModel** 用完 3 次 attempt 后，这一轮失败。单次尝试的 tool 如果没能及时拿到 Worker，
-会记录 **outcome_unknown**，即使它根本没有运行。见
+**RunModel** 用完 3 次 attempt 后，这一轮失败。tool call 如果没能及时拿到 Worker，会记录
+**failed**，并说明 tool 没有运行。见
 [Tool call 的限制](#never-run-outcome-unknown)。
 
 ### 长时间模型调用和超时 {#timeouts}
@@ -278,7 +278,7 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 | framework 无法推迟的 tool | tool 在 **RunModel** 内部运行，**RunModel** 重跑时它也会重复，属于至少一次。 |
 | Claude Agent SDK 的一段轮次 | 被推迟的自定义 tool 在各自的 **CallTool** 或 **CallSingleAttemptTool** Step 中运行，规则同上。模型调用、inline 读取 tool，以及 **Bash**、**Write**、**Edit**、**Task** 等 CLI tool 在 **RunModel** 内部运行，**RunModel** 重跑时会重复，属于至少一次。 |
 
-单次尝试的 tool 只有一种很窄的情况会运行两次。见
+单次尝试的 tool 最多运行一次，即使 Worker 恰好在 tool 开始时停掉也是如此。见
 [Tool call 的限制](#tool-runs-twice)。
 
 优雅停止 Worker 时，它会在 drain 超时内等待正在运行的 handler，默认 30 秒，然后取消它们。
@@ -290,40 +290,41 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 ## Tool call 的限制 {#tool-call-limits}
 
 单次尝试的 tool 在 **CallSingleAttemptTool** Step 中运行。这个 Step 负责
-**non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
-已经运行过时记录 **outcome_unknown**。有两种情况会打破这一点，两种都要提前准备。它们源于
-Dex 投递任何 Step attempt 的方式。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
+**non_idempotent_write** 和 **unclassified** tool。它最多运行一次 tool，只有在 tool 可能已经
+运行过时才记录 **outcome_unknown**。这来自 Dex 处理已标记为开始的 Step attempt 的方式。见
+[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
 
-### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
+### 单次尝试的 tool 最多运行一次 {#tool-runs-twice}
 
-tool Step 在运行 tool 之前会先向 Dex 发送一次 heartbeat。Dex 不会确认 heartbeat，所以 tool
-不等它送达就开始运行。假设 Worker 在 tool 开始之后、这次 heartbeat 到达 Dex 之前停掉，或者
-断开了与 Dex 的连接，Dex 看到的就是一个没有任何输出的 attempt。它会再次投递同一个 attempt，
-另一个 Worker 会再运行一次 tool。session 记录第二次运行的结果，第一次运行不会留下任何标记。
-如果在分发等待内没有 Worker 接手这个 attempt，这次调用会改为记录 **outcome_unknown**。
+tool Step 在运行 tool 之前，会把它的 attempt 标记为已开始，Dex 会在 tool 开始之前提交这个标记。
+在同一个 run attempt 内，Dex 不会再投递已标记的 attempt。如果 tool 运行期间 Worker 停掉、断开了与 Dex 的连接，或者
+Dex Server 节点重启，这个 attempt 会失败。这次调用随后记录 **outcome_unknown**，tool 不会再次
+运行。即使 tool 阻塞了 event loop，例如 async Python tool 中的同步 HTTP 客户端，也是如此。
+Time travel 是例外：Time travel 到标记之前的某个点，会在新的 run attempt 中再次运行这个 attempt，与该点之后的每个 Step 一样。
 
-这个窗口从 tool 开始运行，持续到 heartbeat 到达 Dex：
+这个标记需要支持它的 Dex Server。在较旧的 Dex Server 上，tool Step 会改为在 tool 之前发送一次
+heartbeat。如果 Worker 在 tool 开始之后、这次 heartbeat 到达 Dex 之前停掉，tool 就可能在另一个
+Worker 上再运行一次。
 
-- 等待 I/O 的 tool 会在第一次 await 时把 heartbeat 发出去。这时窗口大约是到 Dex 的一次网络
-  传输，通常只有几毫秒或更短。
-- 阻塞 event loop 的 tool 会让 heartbeat 一直等到阻塞代码返回。在 Python 中，async tool 里的
-  同步 HTTP 客户端或 SDK 调用会让整个调用都落在窗口内。用 **asyncio.to_thread** 运行这类调用。
-  在 TypeScript 中，第一次 await 之前的同步工作也有同样的效果。
+无论哪种情况，要让第二次运行无害，都把这次调用的幂等键传给 tool 写入的服务。每个 tool call 都会
+收到一个幂等键：session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如
+**session-42/turn-3/call-7**。同一次调用的每次 attempt、每次投递都使用同一个键。服务按这个键去重
+时，把这个 tool 归类为 **idempotent_write**，这样它失败后也会重试。
 
-要让第二次运行无害，把这次调用的幂等键传给 tool 写入的服务。每个 tool call 都会收到一个幂等键：
-session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **session-42/turn-3/call-7**。
-同一次调用的每次 attempt、每次投递都使用同一个键。服务按这个键去重时，把这个 tool 归类为
-**idempotent_write**，这样它失败后也会重试。
-
-### 从未运行的调用也可能记录 outcome_unknown {#never-run-outcome-unknown}
+### 从未运行的调用记录 failed {#never-run-outcome-unknown}
 
 如果在 10 秒的分发等待内没有 Worker 接收 tool Step，这次 attempt 会在没有运行的情况下失败。
 当这个 Flow 类型的每个 Worker 都达到 task 上限，或者一个 Worker 都没有运行时，就会这样。
-单次尝试的 tool 随后记录 **outcome_unknown**。最后一次 attempt 以这种方式失败的幂等写入也一样。
-这次调用从未运行，但模型会被告知结果未知，session 也不会重试它。在 Flow 的 history 中，失败的
-attempt 会显示没有 Worker 接收它。
+Worker 收到调用后在 tool 开始之前停掉，也是一样。Dex 会报告 attempt 进行到了哪一步，所以 session
+把这次调用记录为 **failed**，错误信息以 **the tool did not run, so it is safe to call again**
+开头。模型会看到这条信息，并可以再次调用这个 tool。这适用于单次尝试的 tool 和幂等写入。tool 可能
+已经运行过的调用仍然记录 **outcome_unknown**。
 
-让 tool Step 始终能被分发：
+0.2.0 之前的 agents 版本的 Worker 不会标记它的 tool attempt。所以由这样的版本推迟的调用，例如在你停止
+旧 Worker 时仍在运行的调用，仍像以前一样记录 **outcome_unknown**。启动 0.2.0 Worker 之前，先停止旧版本的
+所有 Worker：旧 Worker 运行由 0.2.0 Worker 推迟的调用时，不会标记它。
+
+仍然要让 tool Step 始终能被分发，避免调用失败：
 
 - 按[规划 Worker 容量](#size-workers)规划每个 Worker 池，并为最大的一批 tool call 留出余量。
 - 每个 agent Flow 类型至少保持一个 Worker 在运行。Worker 池缩容到零时，在 Worker 启动期间到达的

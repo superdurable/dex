@@ -73,6 +73,7 @@ _WORKER_ONLY_TOOL_CALL_FIELD_NAMES = frozenset(
         "input_continuation",
         "input_answers",
         "task_answer_pending",
+        "marks_attempt_started",
     }
 )
 
@@ -160,7 +161,8 @@ def agent_snapshot_to_json(snapshot: AgentSnapshot) -> dict[str, Any]:
     the TypeScript core. Messages leave out ``framework_item``, the framework's
     replay data, which can hold the agent's instructions. Tool calls leave out
     ``tool_source_reference``, ``trace_context``, ``input_continuation``,
-    ``input_answers``, and ``task_answer_pending``.
+    ``input_answers``, ``task_answer_pending``, and
+    ``marks_attempt_started``.
 
     ``session_settings`` is included as stored, so the browser sees the
     settings the next turn starts with. Keep anything a browser must not see

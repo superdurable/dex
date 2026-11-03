@@ -1735,24 +1735,26 @@ a Stop button that calls `cancel_turn`, and plan review with Execute.
    wants it in this contract. **Resolved:** the owner asked for it in 0.2.0;
    see [A9](#a9-session-settings).
 
-## Deferred: exactly-once limits of single-attempt tools
+## Resolved: exactly-once limits of single-attempt tools
 
-Two gaps in the M1 contract surfaced during M2. Both are documented in
-`agent-framework-adapters.md` and the agent deployment guide, and the fix is
-deferred until after M2:
+Two gaps in the M1 contract surfaced during M2:
 
-1. **A single-attempt tool can run twice.** The tool Step heartbeats before
-   it runs the tool, but heartbeats are not acknowledged and the server
-   treats checkpoints as lossy. A Worker that dies after starting the tool and
-   before its first heartbeat frame reaches the server gets its attempt
-   redelivered at the same attempt number.
-2. **A call no Worker picked up records `outcome_unknown`.** When no Worker is
-   available within the dispatch wait, the attempt fails with the same error
-   type as a Worker that disconnected mid-call, so the failure route cannot
-   tell that the tool never ran.
+1. **A single-attempt tool could run twice.** The tool Step heartbeated
+   before it ran the tool, but heartbeats are not acknowledged and the server
+   treats checkpoints as lossy. A Worker that died after starting the tool and
+   before its first heartbeat frame reached the server got its attempt
+   redelivered at the same attempt number. A node restart or failover also
+   redispatched every running attempt.
+2. **A call no Worker picked up recorded `outcome_unknown`.** When no Worker
+   was available within the dispatch wait, the attempt failed with the same
+   error type as a Worker that disconnected mid-call.
 
-Candidate fixes: a "started" entry written through a transactional session
-RPC before the tool runs (existing primitives, one round trip per call), or
-an engine change: acknowledged heartbeats, or the dispatch reason in the
-recovery error.
-
+The fix is in the engine, not an agents-only RPC marker, because every Dex
+application with a non-idempotent single-attempt Step has the same gaps
+(#1232, #1233). A Step calls `mark_attempt_started()` before its external
+effect; Dex commits the mark before it acknowledges it, and recovery fails a
+marked attempt instead of redispatching it. The recovery error carries
+`attempt_progress`, so the tool Steps' failure routes record `failed` with
+`TOOL_CALL_NOT_RUN_ERROR_PREFIX` for a call that never started, and keep
+`outcome_unknown` for one that may have run. See
+`agent-framework-adapters.md`, "Exactly once for single-attempt tools".

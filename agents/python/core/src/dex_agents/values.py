@@ -106,7 +106,10 @@ class ToolCallStatus(StrEnum):
         REJECTED: The user or an expired deadline rejected the call. It never ran.
         SUCCEEDED: The tool ran and returned ``output``.
         FAILED: The tool raised ``ToolExecutionError``; ``error`` holds the
-            message for the model to see.
+            message for the model to see. A call whose tool Step failed before
+            the tool started, such as when no Worker took it, is also
+            ``FAILED``; its ``error`` starts with
+            ``TOOL_CALL_NOT_RUN_ERROR_PREFIX``.
         OUTCOME_UNKNOWN: The tool Step ended without a result, through a
             Worker crash, a timeout, or another exception after its attempts
             ran out, so the effect may or may not have happened.
@@ -461,6 +464,12 @@ class AgentToolCall:
             yet. ``AwaitQuestionAnswer`` sets it, ``PollToolTask`` then polls at
             once and hands that entry to the runner, and the poll's commit
             clears it.
+        marks_attempt_started: Whether the session that deferred the call marks
+            every tool Step attempt started before the tool runs. A failed tool
+            Step reports progress ``ASSIGNED`` without a mark only when that
+            attempt never started the tool, so only such a call records
+            ``FAILED`` with ``TOOL_CALL_NOT_RUN_ERROR_PREFIX``. ``False`` on a
+            record from a release before 0.2.0.
     """
 
     tool_call_id: str
@@ -486,6 +495,7 @@ class AgentToolCall:
     task_id: str | None = None
     task_poll_interval_seconds: int | None = None
     task_answer_pending: bool = False
+    marks_attempt_started: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -13,7 +13,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { outcomeUnknownToolResult } from "../../src/index.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+import { outcomeUnknownToolResult, toolCallNotRunErrorPrefix } from "../../src/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -21,6 +24,7 @@ import {
   InvocationLog,
   KillableWorkerProcess,
   PrivateDexEngine,
+  agentWorkerMaxStepTasksVariable,
   pollUntil,
   readStepHistory,
   waitForCompletedEvent,
@@ -62,12 +66,15 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     await engine?.stop();
   });
 
-  async function startWorker(markerDirectory: string): Promise<KillableWorkerProcess> {
+  async function startWorker(
+    markerDirectory: string,
+    environment: Readonly<Record<string, string>> = {},
+  ): Promise<KillableWorkerProcess> {
     const worker = await KillableWorkerProcess.start({
       entryModulePath: workerEntryModulePath,
       serverAddress: engine.serverAddress,
       logPath: join(markerDirectory, "worker.log"),
-      environment: { [scriptedAgentMarkerDirectoryVariable]: markerDirectory },
+      environment: { [scriptedAgentMarkerDirectoryVariable]: markerDirectory, ...environment },
     });
     workers.push(worker);
     return worker;
@@ -133,6 +140,58 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     assert.deepEqual(
       finishedEvents.map((payload) => payload.status),
       ["outcome_unknown"],
+    );
+  });
+
+  test("a Worker killed while a blocking single-attempt write starts records outcome_unknown and never reruns it", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `blocking-write-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call blocking_write");
+    const gate = new FileGate(markerDirectory, "blocking_write");
+    // The tool blocks the event loop from its first line, so no later frame leaves this Worker.
+    await gate.waitUntilReached();
+
+    await firstWorker.kill();
+    gate.release();
+    await startWorker(markerDirectory);
+
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, `blocking_write -> ${outcomeUnknownToolResult}`);
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "blocking_write.log")).names(), [
+      `${sessionId} turn-1-blocking_write attempt 1`,
+    ]);
+    assert.equal(gate.reachedCount(), 1);
+  });
+
+  test("a single-attempt write that no Worker accepts records that it did not run", async () => {
+    const markerDirectory = newMarkerDirectory();
+    await startWorker(markerDirectory, { [agentWorkerMaxStepTasksVariable]: "1" });
+    const sessionId = `no-worker-${randomUUID()}`;
+    // Whichever call takes the Worker's only Step slot holds it past the other's dispatch wait.
+    await sessions.startSession(sessionId, "call slot_write_a and slot_write_b");
+    const gates = [new FileGate(markerDirectory, "slot_write_a"), new FileGate(markerDirectory, "slot_write_b")];
+    await pollUntil(async () => gates.some((gate) => gate.reachedCount() > 0) || undefined, {
+      description: "one call to take the Step slot",
+    });
+    await pollUntil(async () => (await hasFailedExecute(engine.serverAddress, sessionId)) || undefined, {
+      description: "the other tool Step to fail without a Worker",
+      timeoutMs: 60_000,
+    });
+
+    for (const gate of gates) gate.release();
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(gates.reduce((count, gate) => count + gate.reachedCount(), 0), 1);
+    const outputs = (await sessions.getAgentSnapshot(sessionId)).messages
+      .filter((message) => message.role === "tool")
+      .map((message) => message.toolOutput ?? "")
+      .sort();
+    assert.equal(outputs.length, 2);
+    assert.ok(outputs.some((output) => output === "slot_write_a done" || output === "slot_write_b done"));
+    assert.ok(
+      outputs.some((output) => output.includes(toolCallNotRunErrorPrefix)),
+      `no not-run result in ${JSON.stringify(outputs)}`,
     );
   });
 
@@ -382,3 +441,14 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     );
   }
 });
+
+const execFileAsync = promisify(execFile);
+
+/** Returns whether the Flow's history has a failed Execute, read through `dexcli` as readStepHistory does. */
+async function hasFailedExecute(serverAddress: string, flowId: string): Promise<boolean> {
+  const { stdout } = await execFileAsync(process.env.DEXCLI ?? "dexcli", [
+    "flow", "history", flowId, "--server", serverAddress, "--all", "--output", "json",
+  ]);
+  const history = JSON.parse(stdout) as { events: readonly { type: string }[] };
+  return history.events.some((event) => event.type === "StepExecuteFailed");
+}

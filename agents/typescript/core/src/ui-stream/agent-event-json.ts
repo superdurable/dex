@@ -39,6 +39,7 @@ const workerOnlyToolCallFieldNames: ReadonlySet<string> = new Set([
   "input_continuation",
   "input_answers",
   "task_answer_pending",
+  "marks_attempt_started",
 ]);
 
 /**
@@ -47,7 +48,8 @@ const workerOnlyToolCallFieldNames: ReadonlySet<string> = new Set([
  * Use it when a browser shared with Python backends reads the snapshot. It is the `get_agent_snapshot` wire
  * format without the fields only the session's Steps use. Messages leave out `framework_item`, the
  * framework's replay data, which can hold the agent's instructions. Tool calls leave out
- * `tool_source_reference`, `trace_context`, `input_continuation`, `input_answers`, and `task_answer_pending`.
+ * `tool_source_reference`, `trace_context`, `input_continuation`, `input_answers`, `task_answer_pending`, and
+ * `marks_attempt_started`.
  *
  * `session_settings` is included as stored, so the browser sees the settings the next turn starts with. Keep
  * anything a browser must not see out of session settings, or remove the key before serving the JSON.

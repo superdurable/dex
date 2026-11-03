@@ -406,6 +406,14 @@ export interface AgentToolCall {
    * the same reason as {@link waitUntil}.
    */
   readonly taskAnswerPending?: boolean;
+  /**
+   * Whether the session that deferred the call marks every tool Step attempt started before the tool
+   * runs. A failed tool Step reports progress `"assigned"` without a mark only when that attempt never
+   * started the tool, so only such a call records `failed` with {@link toolCallNotRunErrorPrefix}.
+   * `false` on a record from a release before 0.2.0. Wire field: `marks_attempt_started`. Optional for
+   * the same reason as {@link waitUntil}.
+   */
+  readonly marksAttemptStarted?: boolean;
 }
 
 /**
@@ -1086,6 +1094,12 @@ export const blankToolTaskId = "the tool started a task without a task ID";
 
 /** Error recorded when a task's poll interval is not a number; the same text as the Python core. */
 export const invalidToolTaskPollInterval = "the tool task's poll interval is not a number";
+
+/**
+ * Start of the `error` of a `failed` record whose tool Step failed before the tool started; the same text as the
+ * Python core.
+ */
+export const toolCallNotRunErrorPrefix = "the tool did not run, so it is safe to call again";
 
 /** Error of an `outcome_unknown` record whose task `cancel_turn` abandoned; the same text as the Python core. */
 export const toolTaskAbandonedError =

@@ -661,6 +661,10 @@ type AgentToolCall struct {
 	TaskPollIntervalSeconds *int64 `json:"task_poll_interval_seconds"`
 	// TaskAnswerPending reports whether the last answer has not reached the task yet.
 	TaskAnswerPending bool `json:"task_answer_pending"`
+	// MarksAttemptStarted reports whether the session that deferred the call marks every tool Step
+	// attempt started before the tool runs. The Go core does not mark yet, so it keeps the value it
+	// reads and never sets it on a call it defers.
+	MarksAttemptStarted bool `json:"marks_attempt_started"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [] rather than null.
