@@ -13,7 +13,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use dexzd_engine::LocalStoreConfig;
+use dexzd_engine::{EffectsConfig, LocalStoreConfig};
 
 use super::{
     AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
@@ -124,7 +124,7 @@ fn blocking_state_read_limit_parses_defaults_and_rejects_zero() {
 }
 
 #[test]
-fn run_limits_reach_client_and_child_run_settings() {
+fn run_limits_and_the_child_result_limit_reach_run_settings() {
     assert_eq!(
         Config::default().limits.max_child_flow_result_bytes,
         16 * 1024 * 1024
@@ -144,7 +144,14 @@ fn run_limits_reach_client_and_child_run_settings() {
     assert_eq!(run_settings.max_run_state_bytes, 4 * 1024 * 1024);
     assert_eq!(run_settings.max_value_bytes, 1024 * 1024);
     assert_eq!(run_settings.max_child_flow_result_bytes, 2048);
-    assert_eq!(components.effects.child_run_settings, run_settings);
+    let child_run_settings = components.effects.child_run_settings;
+    assert_eq!(child_run_settings.max_child_flow_result_bytes, 2048);
+    assert_eq!(
+        child_run_settings.max_run_state_bytes,
+        EffectsConfig::default()
+            .child_run_settings
+            .max_run_state_bytes
+    );
 }
 
 #[test]

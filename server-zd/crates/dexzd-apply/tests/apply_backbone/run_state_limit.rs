@@ -96,16 +96,27 @@ impl Harness {
     }
 
     fn commit_rpc(&mut self, request_id: &str, response: InvokeWorkerRpcResponse) -> ApplyOutcome {
+        self.commit_rpc_with_transaction(request_id, response, false)
+    }
+
+    fn commit_rpc_with_transaction(
+        &mut self,
+        request_id: &str,
+        response: InvokeWorkerRpcResponse,
+        is_transactional: bool,
+    ) -> ApplyOutcome {
         self.apply(Command::RpcCommitted(RpcCommittedCommand {
             request: Some(InvokeRpcRequest {
                 flow_id: self.flow_id.clone(),
                 rpc_name: "appendMessage".to_owned(),
                 request_id: request_id.to_owned(),
+                is_transactional,
                 ..InvokeRpcRequest::default()
             }),
             response: Some(response),
             app_worker_id: "worker-rpc".to_owned(),
             request_fingerprint: request_id.as_bytes().to_vec(),
+            is_transactional,
             ..RpcCommittedCommand::default()
         }))
     }
@@ -244,6 +255,26 @@ fn state_limit_rejects_rpc_growth_but_allows_rpc_reads() {
         read.reply
     );
     assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+}
+
+#[test]
+fn state_limit_rejects_transactional_rpc_growth_without_writes() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.set_max_run_state_bytes(1);
+    let before = harness.state.rows.clone();
+    let rejected = harness.commit_rpc_with_transaction(
+        "append-transactional-1",
+        InvokeWorkerRpcResponse {
+            upsert_attributes: vec![append_message(SEEDED_MESSAGES)],
+            step_decision: Some(next_turn(1)),
+            ..InvokeWorkerRpcResponse::default()
+        },
+        true,
+    );
+    assert!(is_error(&rejected.reply, 8), "{:?}", rejected.reply);
+    assert!(rejected.writes.is_empty());
+    assert_eq!(harness.state.rows, before);
 }
 
 #[test]

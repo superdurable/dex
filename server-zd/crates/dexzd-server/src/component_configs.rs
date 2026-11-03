@@ -16,6 +16,7 @@ use dexzd_engine::{
     RecoveryConfig, SnapshotConfig, default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
+use dexzd_protocol::dexzd::v1::RunSettings;
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::RocksDbStoreOptions;
 use dexzd_stream_store::StreamStoreConfig;
@@ -236,7 +237,11 @@ impl ComponentConfigs {
                 "limits.maxBlockingStateReads",
                 u64::from(config.limits.max_blocking_state_reads),
             )?,
-            child_run_settings: run_settings,
+            // Children keep built-in settings; only this newer limit follows configuration.
+            child_run_settings: RunSettings {
+                max_child_flow_result_bytes: config.limits.max_child_flow_result_bytes,
+                ..EffectsConfig::default().child_run_settings
+            },
             ..EffectsConfig::default()
         };
         let matching = MatchingConfig {
