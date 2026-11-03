@@ -15,7 +15,8 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import secrets
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
@@ -39,6 +40,8 @@ class ExamplesConfig:
     agent_system_prompt: str = DEFAULT_SYSTEM_PROMPT
     agent_context_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
     agent_mcp_config: Path | None = None
+    # Signs AI Agent session tokens. A random key ends every token when the process restarts.
+    agent_session_key: bytes = field(default_factory=lambda: secrets.token_bytes(32), repr=False)
 
     @staticmethod
     def from_env() -> ExamplesConfig:
@@ -63,6 +66,11 @@ class ExamplesConfig:
                 Path(config_path)
                 if (config_path := os.environ.get("DEX_AGENT_MCP_CONFIG"))
                 else None
+            ),
+            agent_session_key=(
+                session_key.encode()
+                if (session_key := os.environ.get("DEX_AGENT_SESSION_KEY"))
+                else secrets.token_bytes(32)
             ),
         )
 

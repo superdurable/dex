@@ -21,6 +21,12 @@ CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Origin, Content-Type, Accept, Authorization",
 }
+# Routes that serve their own page and take a session token answer only same-origin requests.
+SAME_ORIGIN_PATH_PREFIXES = ("/products/ai-agent/",)
+
+
+def allows_cross_origin(path: str) -> bool:
+    return not path.startswith(SAME_ORIGIN_PATH_PREFIXES)
 
 
 def apply_cors_headers(response: Any) -> Any:
@@ -34,13 +40,13 @@ def install_quart_cors(app: Any) -> None:
 
     @app.before_request
     async def handle_cors_preflight() -> Any:
-        if request.method == "OPTIONS":
+        if request.method == "OPTIONS" and allows_cross_origin(request.path):
             return apply_cors_headers(await make_response("", 204))
         return None
 
     @app.after_request
     async def add_cors_headers(response: Any) -> Any:
-        return apply_cors_headers(response)
+        return apply_cors_headers(response) if allows_cross_origin(request.path) else response
 
 
 def install_flask_cors(app: Any) -> None:
@@ -48,10 +54,10 @@ def install_flask_cors(app: Any) -> None:
 
     @app.before_request
     def handle_cors_preflight() -> Any:
-        if request.method == "OPTIONS":
+        if request.method == "OPTIONS" and allows_cross_origin(request.path):
             return apply_cors_headers(make_response("", 204))
         return None
 
     @app.after_request
     def add_cors_headers(response: Any) -> Any:
-        return apply_cors_headers(response)
+        return apply_cors_headers(response) if allows_cross_origin(request.path) else response

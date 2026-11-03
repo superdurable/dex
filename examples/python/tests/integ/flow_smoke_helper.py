@@ -53,16 +53,18 @@ class FlowSmokeHttpClient:
         self,
         path: str,
         query: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
-        return await self._request("GET", path, query, None)
+        return await self._request("GET", path, query, None, headers)
 
     async def post(
         self,
         path: str,
         body: Any = None,
         query: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
-        return await self._request("POST", path, query, body)
+        return await self._request("POST", path, query, body, headers)
 
     async def _request(
         self,
@@ -70,11 +72,13 @@ class FlowSmokeHttpClient:
         path: str,
         query: dict[str, str] | None,
         body: Any,
+        extra_headers: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
         url = self.base_url + path
         if query:
             url += "?" + urlencode(query)
         headers = {"Content-Type": "application/json"} if body is not None else {}
+        headers.update(extra_headers or {})
         payload = None if body is None else json.dumps(body).encode("utf-8")
 
         def do_request() -> tuple[int, str]:

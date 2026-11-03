@@ -105,7 +105,11 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 ```python
     @blueprint.get("/events")
     async def stream_agent_events() -> Response:
-        session_id = required_query("session_id")
+        session_id = authorize_session(required_query("session_id"))
+        try:
+            await sessions().get_agent_snapshot(session_id)
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the AI Agent session is missing or no longer retained") from error
         resume_token = request.headers.get("Last-Event-ID") or request.args.get("resume_token", "")
         try:
             frames = await stream_agent_event_frames(
@@ -122,6 +126,37 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 </SdkTabs>
 
 页面先加载 session snapshot，以及打开 Stream 所需的 resume token。重新连接的浏览器会从它看到的最后一个 event 继续。Stream delivery 是 best effort，因此页面会在每个 turn 结束后以及每八秒重新加载 snapshot。Conversation 始终来自 snapshot，其中包含最新的 200 条 message。**Load older messages** 会通过 **list_agent_messages** 向前翻页。
+
+## Session 访问 {#session-access}
+
+Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 session 的 route 在调用 Dex 之前，都会先检查该 session 的 token。**POST /sessions** 会选择新的 session ID，并返回它的 token。Token 是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC-SHA256，因此 example 不存储任何 token，使用同一个 key 的每个进程都接受它。如果请求缺少 **X-Agent-Session-Token** header，或 header 不匹配，route 返回 403。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
+<SdkSnippet lang="python">
+
+```python
+    def authorize_session(session_id: str) -> str:
+        # Every route that names a session checks its token before any Dex call.
+        expected = sign_session_id(app_state.config.agent_session_key, session_id)
+        if not hmac.compare_digest(request.headers.get(SESSION_TOKEN_HEADER, ""), expected):
+            raise Forbidden("this browser has no token for the AI Agent session")
+        return session_id
+
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"ai-agent-{uuid.uuid4()}"
+        await sessions().start_session(session_id)
+        session_token = sign_session_id(app_state.config.agent_session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+浏览器把每个 token 保存在 local storage 中，并在每个请求中发送这个 header。它用 **fetch** 读取 event stream，而不是 **EventSource**，因为 EventSource 无法发送 header。AI Agent 的 route 不发送 CORS header，因此其他 origin 的页面无法调用它们。
+
+如果没有设置 **DEX_AGENT_SESSION_KEY**，进程会在启动时选择一个随机 key，重启之后，之前启动的 session 就无法再访问。真实的应用会用自己的登录替换这个 token，并检查用户是否可以使用该 session。
 
 ## 运行 example {#run-the-example}
 
