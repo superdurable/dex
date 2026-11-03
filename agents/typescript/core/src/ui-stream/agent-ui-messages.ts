@@ -47,11 +47,13 @@ export interface AgentSessionUIMessages {
  * failed or rejected call appears as `output-available` with that text. A turn-failure note is a stored
  * user message and appears as one.
  *
- * The session stores a turn's messages when the turn ends. For the active turn the function adds the tool
- * calls of `snapshot.toolCalls` to the turn's assistant message: approvals waiting for
- * `resolve_interrupt` are `approval-requested`, running calls are `input-available` or
- * `approval-responded`, and finished calls show their result. The active turn's live text exists only on
- * the Stream; a UI message stream started without a token replays it and replaces this message.
+ * The session stores a turn's messages when the turn ends, or after each model call for a runner such as
+ * the Stepwise runner. For the active turn the function shows each tool call of `snapshot.toolCalls` once in
+ * the turn's assistant message: a stored call without a result takes the record's state, and a call not
+ * stored yet is added. Approvals waiting for `resolve_interrupt` are `approval-requested`, running calls
+ * are `input-available` or `approval-responded`, and finished calls show their result. The active turn's
+ * live text exists only on the Stream; a UI message stream started without a token replays it and
+ * replaces this message.
  *
  * @example
  * ```ts
@@ -164,12 +166,22 @@ class AgentAssistantUIMessageBuilder {
   }
 
   public appendActiveToolCalls(toolCalls: readonly AgentToolCallRecord[]): void {
-    const lastPart = this.message.parts.at(-1);
-    if (lastPart?.type !== "step-start") {
-      this.message.parts.push({ type: "step-start" });
-    }
+    let hasStepStart = this.message.parts.at(-1)?.type === "step-start";
     for (const toolCall of toolCalls) {
-      this.message.parts.push(convertToolCallRecordToUIPart(toolCall));
+      const index = this.message.parts.findIndex(
+        (part) => part.type === "dynamic-tool" && part.toolCallId === toolCall.toolCallId,
+      );
+      const storedPart = this.message.parts[index];
+      if (storedPart === undefined) {
+        if (!hasStepStart) {
+          this.message.parts.push({ type: "step-start" });
+          hasStepStart = true;
+        }
+        this.message.parts.push(convertToolCallRecordToUIPart(toolCall));
+      } else if (storedPart.type === "dynamic-tool" && storedPart.state === "input-available") {
+        // A runner that stores each model call mid-turn already holds the call; only its result is missing.
+        this.message.parts[index] = convertToolCallRecordToUIPart(toolCall);
+      }
     }
   }
 

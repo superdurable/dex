@@ -64,6 +64,7 @@ import {
   createScriptedAgentFlow,
   scriptedAgentMarkerDirectoryVariable,
 } from "../fixtures/scripted-agent-runner.js";
+import { createStepwiseTestAgentFlow } from "../fixtures/stepwise-test-agent.js";
 
 // Compile-time proof that the adapter's types are AI SDK protocol types.
 export const uiMessageChunkCompatibility = (chunk: AgentUIMessageChunk): UIMessageChunk => chunk;
@@ -797,6 +798,80 @@ describe("agent UI streams with an in-process Worker", () => {
       headers: { "last-event-id": otherPage.messages[0]?.resumeToken ?? "" },
     });
     assert.equal(rejected.status, 400);
+  });
+});
+
+describe("agent UI streams of a Stepwise agent that stores its model calls during the turn", () => {
+  let engine: PrivateDexEngine;
+  let environment: AgentTestEnvironment;
+  let sessions: AgentSessionTestClient;
+  let server: AgentUIStreamTestServer;
+
+  before(async () => {
+    engine = await PrivateDexEngine.start();
+    const markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-stepwise-"));
+    const flow = createStepwiseTestAgentFlow(markerDirectory, {
+      flowType: "UIStreamStepwiseAgent",
+    }) as unknown as AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+    environment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [flow],
+      isWorkerInProcess: true,
+    });
+    sessions = new AgentSessionTestClient(environment.client, flow);
+    server = await AgentUIStreamTestServer.start(environment.client, flow);
+  });
+
+  after(async () => {
+    await server?.close();
+    await environment?.close();
+    await engine?.stop();
+  });
+
+  test("a page reload while an approval is pending shows the tool call once, before and after the stream resumes", async () => {
+    const sessionId = newSessionId("stepwise-reload-approval");
+    await sessions.startSession(sessionId, `refund ${sessionId}`);
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "refund_order");
+    // The session stored the model call that asked for the write, so the snapshot holds it.
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.ok(snapshot.messages.some((message) => message.toolCallId === interrupt.toolCallId));
+    const expectedParts = ["step-start", `tool refund_order approval-requested {"order_id":"${sessionId}"}`];
+
+    const initial = await fetchStoredMessages(server, sessionId);
+    assert.notEqual(initial.resumeToken, null);
+    assert.deepEqual(
+      initial.messages.map((message) => message.id),
+      ["message-1", "turn-1-assistant"],
+    );
+    assert.deepEqual(describeUIMessageParts(initial.messages[1]), expectedParts);
+
+    const recordingFetch = new RecordingFetch();
+    const chat = new AgentUIStreamTestChat({
+      sessionId,
+      baseUrl: server.baseUrl,
+      recordingFetch,
+      messages: initial.messages,
+      resumeToken: initial.resumeToken ?? undefined,
+      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    });
+    await chat.resumeStream();
+
+    assert.deepEqual(recordingFetch.responses[0]?.chunks.at(-1), { type: "finish", finishReason: "tool-calls" });
+    assert.deepEqual(
+      chat.messages.map((message) => message.id),
+      ["message-1", "turn-1-assistant"],
+    );
+    assert.deepEqual(describeUIMessageParts(chat.lastMessage), expectedParts);
+
+    await chat.addToolApprovalResponse({ id: readApprovalId(chat.lastMessage, "refund_order"), approved: true });
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const stored = await fetchStoredMessages(server, sessionId);
+    assert.deepEqual(describeUIMessageParts(stored.messages[1]), [
+      "step-start",
+      `tool refund_order output-available {"order_id":"${sessionId}"} -> refund issued for ${sessionId}`,
+      "step-start",
+      `text refund_order: refund issued for ${sessionId}`,
+    ]);
   });
 });
 
