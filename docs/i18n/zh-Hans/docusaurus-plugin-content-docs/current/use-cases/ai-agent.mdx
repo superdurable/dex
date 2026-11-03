@@ -67,9 +67,9 @@ ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 
 ## Durable context
 
-Session 会把每条 user message、模型输出 item 与 tool result 分别保存为一个 **AgentMessages** AttributeMap instance。模型输出 item 会按 provider 返回的原样保存，包括加密的 reasoning item 与 thinking signature，并原样重放。
+Session 会把每条 user message、模型输出 item 与 tool result 分别保存为一条 message。最新的 message 是 **AgentMessages** AttributeMap instance，较早的 message 会移入每个最多含 32 条 message 的不可变 **AgentMessageChunks** instance。模型输出 item 会按 provider 返回的原样保存，包括加密的 reasoning item 与 thinking signature，并原样重放。
 
-当模型输入达到配置的 context window 的 85% 时，**CompactContext** Step 会在下一次模型调用前摘要较早的 message。之后模型收到 summary 与最近的 message。Compaction 不会把 tool call 与它的 result 分开。所有 message 都保留在 session 中，因此 history 始终完整。Compaction 只缩短模型输入，不会删除已保存的 history，因此长 session 的 state 会逐渐接近 Dex Server 的 run budget。上限参见 [部署 Agent](/production/agents#limits)。
+当模型输入达到配置的 context window 的 85% 时，**CompactContext** Step 会在下一次模型调用前摘要较早的 message。之后模型收到 summary 与最近的 message。Compaction 不会把 tool call 与它的 result 分开。保留策略会删除最早的已摘要 chunk，同时始终保留最新的 1,000 条 message，因此长 session 的 state 保持有界。上限以及如何保留完整对话参见 [部署 Agent](/production/agents#compaction)。
 
 ## 排队消息与 Steer {#queued-messages-and-steer}
 

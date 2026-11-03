@@ -58,7 +58,17 @@ import {
   encodePendingUserMessage,
   encodeQuestionAnswer,
 } from "../../src/agent-session-codecs.js";
-import { defaultMaxDurableWaitMs, messagePageLimit, snapshotMessageLimit } from "../../src/agent-session-flow.js";
+import {
+  defaultMaxDurableWaitMs,
+  defaultMessageChunkMaxBytes,
+  defaultMessageChunkSize,
+  defaultMessageWindowSize,
+  defaultRetainedMessageLimit,
+  messagePageLimit,
+  messageRolloverMaxBytesPerCommit,
+  messageRolloverMaxChunksPerCommit,
+  snapshotMessageLimit,
+} from "../../src/agent-session-flow.js";
 import { defaultAgentEventsCapacityBytes, messageSequenceKey, planExecutionKey } from "../../src/agent-session-persistence.js";
 import {
   MAX_SESSION_SETTINGS_BYTES,
@@ -178,6 +188,7 @@ interface NamesManifest {
   };
   readonly keys: {
     readonly AgentMessages: { readonly examples: Readonly<Record<string, string>> };
+    readonly AgentMessageChunks: { readonly examples: Readonly<Record<string, string>> };
     readonly PlanExecutions: { readonly examples: Readonly<Record<string, string>> };
   };
 }
@@ -475,6 +486,12 @@ describe("the conformance suite's names manifest", () => {
       stepwise_default_max_model_calls_per_turn: defaultMaxModelCallsPerTurn,
       max_session_settings_bytes: MAX_SESSION_SETTINGS_BYTES,
       session_settings_size_tolerance_bytes: SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+      default_message_window_size: defaultMessageWindowSize,
+      default_message_chunk_size: defaultMessageChunkSize,
+      default_message_chunk_max_bytes: defaultMessageChunkMaxBytes,
+      message_rollover_max_chunks_per_commit: messageRolloverMaxChunksPerCommit,
+      message_rollover_max_bytes_per_commit: messageRolloverMaxBytesPerCommit,
+      default_retained_message_limit: defaultRetainedMessageLimit,
     });
     assert.deepEqual(
       Object.keys(enums["ToolCallStatus"] ?? {}).filter((status) =>
@@ -486,6 +503,9 @@ describe("the conformance suite's names manifest", () => {
 
   test("map instance keys and interrupt IDs follow the manifest's formats", () => {
     for (const [sequence, key] of Object.entries(names.keys.AgentMessages.examples)) {
+      assert.equal(messageSequenceKey(Number(sequence)), key);
+    }
+    for (const [sequence, key] of Object.entries(names.keys.AgentMessageChunks.examples)) {
       assert.equal(messageSequenceKey(Number(sequence)), key);
     }
     for (const [revision, key] of Object.entries(names.keys.PlanExecutions.examples)) {

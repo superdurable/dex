@@ -66,9 +66,9 @@ The allowed models, the system prompt, the context window, and the MCP servers a
 
 ## Durable context
 
-The session stores each user message, model output item, and tool result as its own **AgentMessages** AttributeMap instance. Model output items are kept exactly as the provider returned them, including encrypted reasoning items and thinking signatures, and replayed unchanged.
+The session stores each user message, model output item, and tool result as a message. The newest messages are **AgentMessages** AttributeMap instances, and older ones move into immutable **AgentMessageChunks** instances of up to 32 messages. Model output items are kept exactly as the provider returned them, including encrypted reasoning items and thinking signatures, and replayed unchanged.
 
-When the model input reaches 85 percent of the configured context window, a **CompactContext** Step summarizes older messages before the next model call. The model then receives the summary and the recent messages. Compaction never separates a tool call from its result. Every message stays in the session, so the history remains complete. Compaction shortens the model input, not the stored history, so a long session's state grows toward the Dex Server's run budget. [Deploy agents](/production/agents#limits) gives the bound.
+When the model input reaches 85 percent of the configured context window, a **CompactContext** Step summarizes older messages before the next model call. The model then receives the summary and the recent messages. Compaction never separates a tool call from its result. Retention then deletes the oldest summarized chunks while keeping the newest 1,000 messages, so a long session's state stays bounded. [Deploy agents](/production/agents#compaction) gives the bound and how to keep the whole transcript.
 
 ## Queued messages and Steer
 

@@ -140,6 +140,7 @@
       "is_transactional": false,
       "locks": [],
       "load_attribute_maps": [
+        "AgentMessageChunks",
         "AgentMessages",
         "AgentToolCalls"
       ],
@@ -155,6 +156,7 @@
       "is_transactional": false,
       "locks": [],
       "load_attribute_maps": [
+        "AgentMessageChunks",
         "AgentMessages"
       ],
       "load_channels": []
@@ -205,6 +207,16 @@
       "name": "AgentEvents",
       "kind": "stream",
       "value_type": "AgentEvent"
+    },
+    {
+      "name": "AgentMessageChunks",
+      "kind": "attribute_map",
+      "value_type": "AgentMessageChunk"
+    },
+    {
+      "name": "AgentMessageIndex",
+      "kind": "attribute",
+      "value_type": "AgentMessageIndex"
     },
     {
       "name": "AgentMessages",
@@ -300,6 +312,11 @@
       "name": "TurnControlRequests",
       "kind": "channel",
       "value_type": "TurnControlRequest"
+    },
+    {
+      "name": "TurnReplySequence",
+      "kind": "attribute",
+      "value_type": "TurnReplySequence"
     },
     {
       "name": "TurnSessionSettings",
@@ -417,6 +434,14 @@
       "examples": {
         "1": "1",
         "12": "12"
+      }
+    },
+    "AgentMessageChunks": {
+      "format": "the chunk's first message sequence as a 12-digit zero-padded decimal",
+      "examples": {
+        "1": "000000000001",
+        "33": "000000000033",
+        "123457": "000000123457"
       }
     },
     "AgentToolCalls": {
@@ -606,6 +631,12 @@
     "turn_control_at_most": 2147483647,
     "stepwise_default_max_model_calls_per_turn": 100,
     "max_session_settings_bytes": 16384,
-    "session_settings_size_tolerance_bytes": 1024
+    "session_settings_size_tolerance_bytes": 1024,
+    "default_message_window_size": 64,
+    "default_message_chunk_size": 32,
+    "default_message_chunk_max_bytes": 1048576,
+    "message_rollover_max_chunks_per_commit": 4,
+    "message_rollover_max_bytes_per_commit": 8388608,
+    "default_retained_message_limit": 1000
   }
 }

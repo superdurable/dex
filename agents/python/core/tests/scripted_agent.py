@@ -29,7 +29,8 @@ from the user message:
   once through ``ToolCallsRequested.new_messages``, which this runner may not do.
 
 The released 0.1.0 Worker imports this module too, so it uses only the 0.1.0
-API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools.
+API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools or
+``SCRIPTED_AGENT_MESSAGE_WINDOW`` sets ``<window size>,<chunk size>``.
 
 Every tool accepts ``"gate"``, which waits at that ``FileGate`` first, and
 ``"fail_attempts"``, which raises on attempts up to that number.
@@ -71,6 +72,7 @@ SCRIPTED_AGENT_FLOW_TYPE = "ScriptedAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SECONDS"
 BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
+MESSAGE_WINDOW_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_MESSAGE_WINDOW"
 INVOCATION_LOG_NAME = "invocations.log"
 IDEMPOTENCY_KEY_LOG_NAME = "idempotency-keys.log"
 SESSION_SETTINGS_LOG_NAME = "session-settings.log"
@@ -279,8 +281,11 @@ def build_scripted_agent_flow(
     state_dir: Path,
     interrupt_deadline: timedelta | None = None,
     built_in_tool_names: Sequence[str] = (),
+    message_window: tuple[int, int] | None = None,
 ) -> AgentSessionFlow:
     options: dict[str, Any] = {}
+    if message_window is not None:
+        options["message_window_size"], options["message_chunk_size"] = message_window
     if built_in_tool_names:
         # Imported here, so the released 0.1.0 Worker can load this module.
         from dex_agents import BuiltInTool
@@ -298,10 +303,13 @@ def build_scripted_agent_flow(
 def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
     deadline_seconds = os.environ.get(INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE)
     built_in_tool_names = os.environ.get(BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE, "")
+    message_window = os.environ.get(MESSAGE_WINDOW_ENVIRONMENT_VARIABLE)
+    window_size, chunk_size = (message_window or "0,0").split(",")
     return build_scripted_agent_flow(
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
         [name for name in built_in_tool_names.split(",") if name],
+        None if message_window is None else (int(window_size), int(chunk_size)),
     )
 
 

@@ -128,8 +128,9 @@ sweep an enum. The `AgentEvent` cases have one event per event type.
   formats, and the RFC 3339 format with examples;
 - `limits`: snapshot and page limits, the default list page size, the default
   durable wait and Stepwise model call limits, the channel read limit,
-  `max_session_settings_bytes`, and `session_settings_size_tolerance_bytes`,
-  each taken from the Python core's constants;
+  `max_session_settings_bytes`, `session_settings_size_tolerance_bytes`, and
+  the default message window size, chunk size, chunk byte cap, chunks moved per
+  commit, and retention limit, each taken from the Python core's constants;
 - `session_settings_sizes`: settings with the size every core's
   `session_settings_size` must compute (UTF-8 bytes of the core's own compact
   JSON text, non-ASCII unescaped). `bytes` is every core's size unless

@@ -79,7 +79,7 @@ class ModelCallSpan:
 
         Args:
             outcome: The runner's outcome.
-            appended_message_keys: ``AgentMessages`` keys of ``TurnCompleted.new_messages``.
+            appended_message_keys: Message sequence keys of ``TurnCompleted.new_messages``.
         """
 
 

@@ -467,6 +467,64 @@ at once.
   during the rollout has ended, because such a turn can hold a wait that an
   earlier Worker began, which a steer never wakes.
 
+## Message storage and retention
+
+> **Upgrade rule: stop every 0.1.0 Worker of a Flow type before any 0.2.0
+> Worker of it starts.** Once a 0.2.0 Worker stores a message in a 0.1.0
+> session, it moves the older messages out of `AgentMessages`. A 0.1.0 Worker
+> that then runs a Step of the session fails the turn, because it cannot read
+> the moved messages.
+
+The newest messages are the window: one `AgentMessages` instance per
+message, so storing a message writes only that message. When the window holds
+more than `message_window_size` messages (64), its oldest messages move into
+immutable `AgentMessageChunks` instances in the same commit. A chunk holds at
+most `message_chunk_size` messages (32) and `message_chunk_max_bytes` of
+encoded JSON (1 MiB, at most 8 MiB), so it stays well under the Server's
+`values.maxValueBytes`. A larger message skips the window and goes straight
+into its own chunk in the Step that stores it, so a message too large for the
+Server fails that Step's turn at once instead of a later rollover. One commit
+moves at most 4 chunks and 8 MiB, so the window can briefly hold more than its
+size. The `AgentMessageIndex` Attribute lists each kept chunk's first and last
+sequence, where the window starts, and the oldest stored message; it changes
+only when chunks are written or deleted. `TurnReplySequence` records where the
+latest turn's replies start. Every Step that stores messages loads the whole window.
+With compaction, `RunModel` loads only the chunks after the summary, through
+per-movement load options. Without compaction, the model input is every
+message, so it loads every chunk.
+
+With compaction, retention keeps Flow state bounded however long the session
+runs. It deletes the oldest chunk while every message in it is at or before
+`ContextSummary.last_sequence` and at least `retained_message_limit` messages
+(1,000) are stored after it, so the newest `retained_message_limit` messages
+and every message after the summary always stay. A deleted message is gone
+from `list_agent_messages` and `get_agent_snapshot`; paging ends at
+`AgentMessageIndex.first_sequence`, and every page's
+`deleted_before_sequence` says where the deleted messages end. An application
+that needs the whole transcript copies new messages out with
+`list_agent_messages` before `retained_message_limit` more are stored after
+them, such as after each `turn_completed`, or sets
+`retained_message_limit=None`. A runner without `ContextCompactionRunner` on
+a session with deleted messages logs a warning on each model call, because
+its input starts after them with no summary.
+
+```python
+from dataclasses import replace
+
+options = replace(
+    stepwise_agent_session_options(definition),
+    message_window_size=64,
+    message_chunk_size=32,
+    message_chunk_max_bytes=1024 * 1024,
+    retained_message_limit=5_000,
+)
+```
+
+A session that dex-agents 0.1.0 stored has every message in `AgentMessages`
+and no index. This release reads it as one large window, and each Step that
+stores messages moves at most 4 chunks, so the older messages leave the
+window over several commits.
+
 ## Compaction
 
 Compaction keeps the model input under the context window. Set
@@ -495,9 +553,8 @@ summary call. From then on the runner receives the messages after the summary
 in `turn.messages` and the summary in `turn.context_summary`. A second estimate
 that is still high finds no new cutoff, so the pair cannot loop.
 
-Messages are never deleted: `list_agent_messages` and `get_agent_snapshot`
-return all of them, and they count toward the Server's run budget. The agent
-deployment guide states the bound. The runner must implement
+Summarized messages stay stored until retention deletes them; see
+[Message storage and retention](#message-storage-and-retention). The runner must implement
 `ContextCompactionRunner`, and `AgentSessionFlow` raises `TypeError` for a
 compaction policy otherwise. `StepwiseAgentRunner` implements it: its input
 starts with `CONTEXT_SUMMARY_NOTE_HEADER`
@@ -891,7 +948,10 @@ Persistence, shared by every agent Flow type and exported from `dex_agents`:
 | Name | Kind | Value |
 | --- | --- | --- |
 | `AgentState` | Attribute `AGENT_STATE` | `AgentState` |
-| `AgentMessages` | AttributeMap `AGENT_MESSAGES`, key `message_sequence_key(n)` (12-digit zero-padded) | `AgentMessage` |
+| `AgentMessages` | AttributeMap `AGENT_MESSAGES`, key `message_sequence_key(n)` (12-digit zero-padded) | `AgentMessage`; only the window, from `AgentMessageIndex.window_first_sequence` |
+| `AgentMessageChunks` | AttributeMap `AGENT_MESSAGE_CHUNKS`, key `message_sequence_key(first sequence)` | `AgentMessageChunk`, immutable, consecutive messages listed in `AgentMessageIndex.chunks` |
+| `AgentMessageIndex` | Attribute `AGENT_MESSAGE_INDEX` | `AgentMessageIndex`; unset until a Step first writes a chunk |
+| `TurnReplySequence` | Attribute `TURN_REPLY_SEQUENCE` | `TurnReplySequence`, written by the Step that starts a turn |
 | `FrameworkRunState` | Attribute `FRAMEWORK_RUN_STATE` | string, set only while a turn waits for tool calls |
 | `AgentToolCalls` | AttributeMap `AGENT_TOOL_CALLS`, key = tool call ID | `AgentToolCall`, deleted when the turn ends |
 | `PendingInterrupts` | Attribute `PENDING_INTERRUPTS` | `list[AgentInterrupt]` |
@@ -928,8 +988,8 @@ RPCs:
 | `cancel_turn` | `CancelTurnRequest` | `bool` | Locks `TurnCancellationRequest` and `PendingInterrupts`. Cancels the turn's model call, compaction, and waiting Steps, and moves to `FinishTurnCancellation`. `False` when no turn is active, `turn_id` names another turn, or the turn does not accept cancellation. |
 | `resolve_interrupt` | `ResolveInterruptRequest` | `bool` | Locks `PendingInterrupts`; `False` when not pending or past its deadline; removes the interrupt and publishes the answer in one commit. On a question, `approved=False` declines it and `approved=True` returns `False`. A concurrent Step can raise `RpcLockConflictError`; `AgentSessionClient` retries it for 5 seconds. |
 | `answer_question` | `AnswerQuestionRequest` | `bool` | Locks `PendingInterrupts`; `False` when the interrupt is not a pending question, is past its deadline, or the answer is blank or not an allowed choice; removes it and publishes the answer in one commit. `AgentSessionClient.answer_question` retries lock conflicts like `resolve_interrupt`. |
-| `get_agent_snapshot` | none | `AgentSnapshot` | State, last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, and the queued and steered messages with their IDs. Serves retained closed sessions. |
-| `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first; limit clamped to 1..200. |
+| `get_agent_snapshot` | none | `AgentSnapshot` | Loads the window and every kept chunk. State, last 200 stored messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, and the queued and steered messages with their IDs. Serves retained closed sessions. |
+| `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Loads the window and every kept chunk. Oldest first; limit clamped to 1..200; the last page starts at `AgentMessageIndex.first_sequence`, and `deleted_before_sequence` is set once retention deleted earlier messages. |
 
 Events on `AgentEvents` (`AgentEventType`): `turn_started` `{"sequence"}`,
 `turn_completed` `{"message_count"}`, `turn_failed` `{"error"}`,
@@ -1491,13 +1551,13 @@ error spans.
 | All | `gen_ai.operation.name` | `invoke_agent`, `chat`, or `execute_tool` |
 | `invoke_agent`, `execute_tool` | `gen_ai.agent.name` | `agent_name` |
 | `invoke_agent` | `dex.agent.activation.trigger` | `user_message`, `interrupt_resolution`, or `interrupt_deadline` |
-| `invoke_agent` | `dex.agent.user_message.key` | `AgentMessages` key of the user message |
+| `invoke_agent` | `dex.agent.user_message.key` | `message_sequence_key` of the user message |
 | `invoke_agent` | `dex.agent.interrupt.id`, `dex.agent.interrupt.approved` | The interrupt and its decision |
 | `chat` | `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.provider.name`, `gen_ai.response.id`, `gen_ai.response.finish_reasons` | From `ModelCallMetadata`, when the runner returns it |
 | `chat` | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | From `usage`, when `model_calls` is 1 and the input or output count is not zero |
 | `chat` | `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.reasoning.output_tokens` | `cached_input_tokens` and `reasoning_tokens`, under the same condition, when not zero |
-| `chat` | `dex.agent.input_messages.last_key` | `AgentMessages` key of the newest stored message the call received; for `CompactContext`, the last message it summarized |
-| `chat` | `dex.agent.output_messages.keys` | `AgentMessages` keys of what this call produced: the `TurnCompleted` messages after the turn's last tool result |
+| `chat` | `dex.agent.input_messages.last_key` | `message_sequence_key` of the newest stored message the call received; for `CompactContext`, the last message it summarized |
+| `chat` | `dex.agent.output_messages.keys` | `message_sequence_key` values of what this call produced: the `TurnCompleted` messages after the turn's last tool result |
 | `chat` | `dex.agent.requested_tool_call.ids` | `AgentToolCalls` keys that a `ToolCallsRequested` created |
 | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id` | The tool and its `AgentToolCalls` key |
 | `execute_tool` | `dex.agent.tool.effect`, `dex.agent.tool_call.status` | The effect and the final status |
@@ -1544,7 +1604,7 @@ processor can never send a write to `outcome_unknown` or rerun a tool.
 ### Message content
 
 Spans carry content by reference by default: the Flow ID, Step execution ID,
-`AgentMessages` keys, and tool call IDs above, because the content is already
+message sequence keys, and tool call IDs above, because the content is already
 durable in Dex. Read it with `get_agent_snapshot`, `list_agent_messages`, or
 `AsyncClient.get_attributes`. With `should_capture_message_content=True`, spans
 also carry content as JSON text in the GenAI message format:
@@ -1562,8 +1622,8 @@ are not captured. Content can be sensitive and large; capture it only where the
 tracing backend may store it.
 
 The spans set no `gen_ai.input.messages_ref` or `gen_ai.output.messages_ref`.
-Those attributes take an absolute URI, and Dex has no URI for an
-`AgentMessages` instance. Use the `dex.agent.*` keys with the Flow ID instead.
+Those attributes take an absolute URI, and Dex has no URI for a stored
+message. Use the `dex.agent.*` keys with the Flow ID instead.
 
 ### Semantic conventions version
 
@@ -1641,9 +1701,10 @@ Each package's `ci.sh` installs locked dependencies, runs lint and type
 checks, and runs the integration tests with `DEXCLI` set. `Agents CI`
 discovers every `agents/*/*/ci.sh`.
 
-The 2,000-turn compaction session behind the agent deployment guide's run
-budget numbers runs for minutes. `pytest` skips it unless
-`DEX_AGENTS_LONG_TESTS=1`, and `ci.sh` runs a 300-turn guard instead. The
+The 2,000-turn compaction session behind the agent deployment guide's storage
+numbers runs for minutes. `pytest` skips it unless
+`DEX_AGENTS_LONG_TESTS=1`, and `ci.sh` runs an 800-turn guard with a retention
+limit of 100 instead. The
 `Agents Long Tests Nightly` workflow runs it every night. Run it by hand with:
 
 ```bash
@@ -1684,10 +1745,10 @@ The plan records each of these decisions too.
 
 ## Limits
 
-- `RunModel` and `get_agent_snapshot` load the whole `AgentMessages` map.
-  Compaction shortens the model input, not the load: listing only the
-  messages after the summary in each `RunModel` movement would cost run storage
-  on every model call. Very long sessions load more on every call.
+- Without compaction, `RunModel` loads every stored message, and nothing is
+  deleted. `get_agent_snapshot`, `list_agent_messages`, and a
+  `RecordTurnFailure` of a runner that builds unfinished-turn messages load
+  every kept chunk; retention bounds that load.
 - Each model call and tool call adds a Step round trip.
 - Steering never stops a model call or a tool call that has started; it
   applies at the next safe Step boundary. `cancel_turn` stops a model call

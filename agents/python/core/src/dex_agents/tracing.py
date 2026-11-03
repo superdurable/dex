@@ -104,7 +104,7 @@ class AgentTracingOptions:
             ``None``, the default, uses the Flow type.
         should_capture_message_content: Whether spans carry message text, tool
             arguments, and tool results. Defaults to ``False``: spans then
-            carry only Dex references, such as ``AgentMessages`` instance keys
+            carry only Dex references, such as message sequence keys
             and tool call IDs, because the content is already durable in Dex.
             Content can be sensitive and large; enable it only where the
             tracing backend may store it.

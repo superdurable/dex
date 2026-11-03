@@ -49,9 +49,15 @@ from dex_agents import (
     BUILT_IN_TOOL_DEFINITIONS,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     DEFAULT_MAX_DURABLE_WAIT,
+    DEFAULT_MESSAGE_CHUNK_MAX_BYTES,
+    DEFAULT_MESSAGE_CHUNK_SIZE,
+    DEFAULT_MESSAGE_WINDOW_SIZE,
     DEFAULT_REJECTION_TOOL_RESULT,
+    DEFAULT_RETAINED_MESSAGE_LIMIT,
     INVALID_TOOL_TASK_POLL_INTERVAL,
     MAX_SESSION_SETTINGS_BYTES,
+    MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
+    MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
     NO_PLAN_NOTE,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     PLANNING_TURN_INSTRUCTION,
@@ -73,6 +79,9 @@ from dex_agents import (
     AgentInterrupt,
     AgentInterruptResolution,
     AgentMessage,
+    AgentMessageChunk,
+    AgentMessageChunkRange,
+    AgentMessageIndex,
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
@@ -111,6 +120,7 @@ from dex_agents import (
     TurnCancellationRequest,
     TurnControlKind,
     TurnControlRequest,
+    TurnReplySequence,
     TurnSessionSettings,
     UpdateSessionSettingsRequest,
     build_plan_execution_message,
@@ -225,6 +235,9 @@ VALUE_TYPES: dict[str, object] = {
     "ExecutePlanRequest": ExecutePlanRequest,
     "PlanExecutionRequest": PlanExecutionRequest,
     "ContextSummary": ContextSummary,
+    "AgentMessageChunk": AgentMessageChunk,
+    "AgentMessageIndex": AgentMessageIndex,
+    "TurnReplySequence": TurnReplySequence,
     "CompactContextInput": CompactContextInput,
     "TurnFailureRouteInput": CompactContextInput | None,
     "AgentEvent": AgentEvent,
@@ -899,6 +912,45 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
     )
     documents.append(
+        ValueCases(
+            "AgentMessageChunk", "One AgentMessageChunks map instance: an immutable archive chunk."
+        ).value(
+            "two-messages",
+            "A chunk of two messages, keyed by its first sequence.",
+            AgentMessageChunk(messages=[user_message(2), tool_message()]),
+        )
+    )
+    documents.append(
+        ValueCases("AgentMessageIndex", "The AgentMessageIndex Attribute.")
+        .value(
+            "full",
+            "Retention deleted the first chunk, a byte-capped chunk is shorter, and an oversized "
+            "message 80 sits alone among the window's messages.",
+            AgentMessageIndex(
+                chunks=[
+                    AgentMessageChunkRange(first_sequence=33, last_sequence=64),
+                    AgentMessageChunkRange(first_sequence=65, last_sequence=71),
+                    AgentMessageChunkRange(first_sequence=72, last_sequence=72),
+                    AgentMessageChunkRange(first_sequence=80, last_sequence=80),
+                ],
+                first_sequence=33,
+                window_first_sequence=73,
+            ),
+        )
+        .value(
+            "defaults",
+            "Nothing archived yet.",
+            AgentMessageIndex(chunks=[], first_sequence=1, window_first_sequence=1),
+        )
+    )
+    documents.append(
+        ValueCases("TurnReplySequence", "The TurnReplySequence Attribute.").value(
+            "full",
+            "Turn 3's replies start after its two user messages, 10 and 11.",
+            TurnReplySequence(turn_id="turn-3", sequence=12),
+        )
+    )
+    documents.append(
         ValueCases("CompactContextInput", "Input of CompactContext.").value(
             "full", "A cutoff sequence.", CompactContextInput(through_sequence=40)
         )
@@ -975,6 +1027,18 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
         .value(
             "last", "The oldest page.", AgentMessagesPage(messages=[], next_before_sequence=None)
+        )
+        .value(
+            "after-retention",
+            "The oldest kept page after retention deleted messages 1 through 32.",
+            AgentMessagesPage(
+                messages=[user_message(33)], next_before_sequence=None, deleted_before_sequence=33
+            ),
+        )
+        .wire(
+            "released-0.1.0",
+            "As dex-agents 0.1.0 wrote it, without deleted_before_sequence.",
+            {"messages": [], "next_before_sequence": None},
         )
     )
 
@@ -1208,6 +1272,12 @@ def build_names() -> dict[str, Any]:
                 "format": "the plan revision as a decimal",
                 "examples": {str(revision): plan_execution_key(revision) for revision in (1, 12)},
             },
+            "AgentMessageChunks": {
+                "format": "the chunk's first message sequence as a 12-digit zero-padded decimal",
+                "examples": {
+                    str(sequence): message_sequence_key(sequence) for sequence in (1, 33, 123457)
+                },
+            },
             "AgentToolCalls": {"format": "the tool call ID"},
             "InterruptResolutions": {"format": "the interrupt ID"},
             "ToolCallCancellations": {"format": "the tool call ID"},
@@ -1251,6 +1321,12 @@ def build_names() -> dict[str, Any]:
             "stepwise_default_max_model_calls_per_turn": DEFAULT_MAX_MODEL_CALLS_PER_TURN,
             "max_session_settings_bytes": MAX_SESSION_SETTINGS_BYTES,
             "session_settings_size_tolerance_bytes": SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+            "default_message_window_size": DEFAULT_MESSAGE_WINDOW_SIZE,
+            "default_message_chunk_size": DEFAULT_MESSAGE_CHUNK_SIZE,
+            "default_message_chunk_max_bytes": DEFAULT_MESSAGE_CHUNK_MAX_BYTES,
+            "message_rollover_max_chunks_per_commit": MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
+            "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
+            "default_retained_message_limit": DEFAULT_RETAINED_MESSAGE_LIMIT,
         },
     }
 

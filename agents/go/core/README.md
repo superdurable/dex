@@ -284,7 +284,63 @@ type AgentFrameworkRunner interface {
 
 `NewAgentSessionFlow(runner, flowType, options...)` takes `WithToolPolicies`,
 `WithDefaultToolEffect` (default `unclassified`), `WithEventStreamCapacityBytes`
-(default 10 MiB), `WithInterruptDeadline` (default none), and `WithLogger`.
+(default 10 MiB), `WithInterruptDeadline` (default none),
+`WithMessageWindowSize` (default 64), `WithMessageChunkSize` (default 32),
+`WithMessageChunkMaxBytes` (default 1 MiB), and `WithLogger`. `stepwise.NewStepwiseAgentSessionFlow` accepts the same options
+after the Flow type.
+
+## Message storage
+
+**Upgrade rule: stop every 0.1.0 Worker of a Flow type before any Worker of
+this release starts.** A 0.1.0 Worker that runs a session after this release
+moved its older messages into chunks fails that session's turns, because it
+reads every message from `AgentMessages`.
+
+Messages live in four persistence names, the same in every core:
+
+| Name | Kind | Holds |
+| --- | --- | --- |
+| `AgentMessages` | AttributeMap, key `MessageSequenceKey(sequence)` | The window: the newest messages, one instance per message |
+| `AgentMessageChunks` | AttributeMap, key `MessageSequenceKey(first sequence)` | Archived messages, written once |
+| `AgentMessageIndex` | Attribute | `chunks` (each kept chunk's `first_sequence` and `last_sequence`), `first_sequence`, and `window_first_sequence`; written only when a chunk is added or deleted |
+| `TurnReplySequence` | Attribute | `turn_id` and `sequence`: where the latest turn's replies start, written when a turn starts |
+
+Every Step that stores messages loads the whole window. When the window holds
+more than `WithMessageWindowSize` messages, its oldest messages move into
+chunks in the same commit. A chunk takes messages until it holds
+`WithMessageChunkSize` messages or the next one would carry its JSON encoding
+past `WithMessageChunkMaxBytes`, so no chunk outgrows server-zd's
+`values.maxValueBytes`. A message whose own chunk, 15 bytes larger than the
+message, would pass that cap skips the window: the Step that stores it writes
+it straight into a single-message chunk. A message too large for
+`values.maxValueBytes` therefore fails the commit that first stores it, and
+the turn fails, instead of a later rollover failing on it. One Step moves at
+most `MessageRolloverMaxChunksPerCommit` (4) chunks and
+`MessageRolloverMaxBytesPerCommit` (8 MiB) of them, so when one commit stores
+many messages the window can briefly hold more than its size. An append writes
+only the new message, so no larger value is rewritten, and an append with no
+messages writes nothing.
+
+The index changes only when a chunk is added or deleted, about once per chunk
+of messages, so an ordinary turn does not rewrite its growing chunk list. Turn
+events count a turn's replies from `TurnReplySequence`; when it names another
+turn, as for a turn a 0.1.0 Worker started, the core counts from the stored
+messages and records it before rolling them over.
+
+The Go core has no compaction, so its model input is every stored message:
+`RunModel`, `get_agent_snapshot`, and `list_agent_messages` load every chunk.
+The window bounds what each append writes and reloads; the conversation still
+grows with the session. Retention, which deletes summarized chunks, needs a
+context summary and runs only in the Python and TypeScript cores. A Go Worker
+that meets a session whose older messages a Python or TypeScript Worker
+deleted logs a warning, because its runner cannot use the summary that covers
+them. `AgentMessagesPage.DeletedBeforeSequence` names the oldest kept message
+when retention deleted earlier ones.
+
+A session without an index, a new one or one that a dex-agents 0.1.0 Worker
+wrote, keeps every message in `AgentMessages`. This release reads it as it is. Each Step that
+stores a message moves up to four chunks of its older messages, so a long
+history migrates over several commits and reads stay whole meanwhile.
 
 ## Flow shape
 
@@ -314,7 +370,7 @@ being chosen per agent at construction.
 
 `agentstest` has what the Python core's `dex_agents.testing` has:
 `ScriptedModelClient`, `PrivateDexEngine` (a `dexcli dev` engine on free
-ports), `KillableProcess` (a child process in its own process group, for
+ports, with an optional dex-server-zd configuration file), `KillableProcess` (a child process in its own process group, for
 SIGKILL tests), `ServeAgentWorker`, and `ReadStepHistory`.
 
 `./ci.sh` with `DEXCLI` set to the `dexcli` binary runs vet, gofmt, the public
@@ -328,7 +384,15 @@ as children of the test binary:
 - SIGKILL during `CallSingleAttemptTool` (`outcome_unknown`) and during
   `RunModel` (only that model call reruns);
 - the turn-failure note after a write ran;
-- snapshot and message paging;
+- snapshot and message paging, including pages across window and chunk
+  boundaries;
+- rollover into many chunks with a SIGKILL during the `RunModel` whose commit
+  rolls over, chunks closed by the byte cap and an oversized message stored
+  straight into its own chunk, a message too large for `values.maxValueBytes`
+  failing the turn that first stores it while the next turn completes, the
+  index written only by Steps that add a chunk, a 50-message session in the
+  0.1.0 layout migrating four chunks per commit, and a 60-turn session whose
+  window never exceeds its size;
 - a Python Client and a TypeScript Client each running a session on a Go
   Worker, and a Go Client running a session on the Python core's Stepwise test
   Worker;
@@ -372,7 +436,9 @@ The model clients are tested against fake HTTP servers; no test needs a key.
 
 ## Limits
 
-- `RunModel` and `get_agent_snapshot` load the whole `AgentMessages` map.
+- Without compaction, `RunModel`, `get_agent_snapshot`, and
+  `list_agent_messages` load every `AgentMessageChunks` instance, and the
+  stored conversation grows with the session.
 - Each model call and tool call adds a Step round trip.
 - Interrupt deadlines use the Worker clock, rounded up to whole seconds.
 - A tool Step's first output narrows Dex's redelivery window but does not

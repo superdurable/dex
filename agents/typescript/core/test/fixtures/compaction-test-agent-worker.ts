@@ -12,6 +12,7 @@ import {
   compactionSummaryPadVariable,
   compactionWindowTokensVariable,
   createCompactionTestAgentFlow,
+  readMessageStorageEnvironment,
 } from "./compaction-test-agent.js";
 
 const markerDirectory = process.env[compactionMarkerDirectoryVariable];
@@ -23,5 +24,6 @@ await runAgentWorkerProcess([
     markerDirectory,
     Number(process.env[compactionWindowTokensVariable] ?? "600"),
     Number(process.env[compactionSummaryPadVariable] ?? "0"),
+    { messageStorage: readMessageStorageEnvironment(process.env) },
   ),
 ]);

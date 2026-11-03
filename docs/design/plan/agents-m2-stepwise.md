@@ -927,6 +927,7 @@ ways, each covered by a test in both cores:
   600-character answer stores about 2.9 KB of messages and uses about 5.2 KB
   of run budget with compaction; 64 MiB holds about 13,000 such turns. The
   2,000-turn tests run nightly; a 300-turn guard runs on every PR.
+  Superseded by the chunked layout below.
 - With dexcli 1.30.0 the engine rejects a command over
   `limits.maxFlowStateBytes` only when that command grows active storage, and
   a Step's completion also frees its attempt's snapshot and lock rows. A
@@ -937,6 +938,68 @@ ways, each covered by a test in both cores:
   2). The Python guard therefore queues 340-character questions, whose turn
   starts always grow active storage, and checks the measured crossing point
   for drift. This is outside the agents packages and is tracked separately.
+  The chunked layout below replaces that guard with one that measures live
+  state.
+
+**As built (chunked messages and retention, item 4 of the
+[owner review](https://github.com/superdurable/dex/pull/1178#issuecomment-6592361866)).**
+Compaction now bounds Flow state, not only the model input:
+
+- Messages are a Sequentially Chunked AttributeMap. `AgentMessages` is the
+  window, one instance per message. Past `message_window_size` (64), the
+  oldest messages move into immutable `AgentMessageChunks` instances keyed by
+  their first sequence, in the commit that stored the newer ones. A chunk
+  holds at most `message_chunk_size` (32) messages and
+  `message_chunk_max_bytes` (1 MiB) of encoded JSON, so it stays well under
+  `values.maxValueBytes`. A message too large to share a chunk skips the
+  window and gets its own chunk in the commit that first stores it, so a
+  message too large for the Server fails that first commit and its turn, and
+  no later rollover can wedge the session on it. `AgentMessageIndex` lists
+  every kept chunk's first and last sequence, the window start, and the
+  oldest kept message, and it is written only when a chunk is written or
+  deleted. `TurnReplySequence`, tagged with the turn ID, records where the
+  turn's replies start, so the per-turn write stays a few bytes. The contract
+  doc's Message storage section has the rules.
+- One commit moves at most 4 chunks and 8 MiB, so a 0.1.0 session, which
+  stores every message in `AgentMessages`, migrates over several commits
+  instead of writing its whole history in one Step result. Readers use the
+  index, so a half-moved session reads correctly.
+- Retention deletes the oldest chunk while its last sequence is at or before
+  `ContextSummary.last_sequence` and at least `retained_message_limit`
+  (1,000) messages are stored after it, so the newest 1,000 messages always
+  stay. Deleted messages leave `list_agent_messages` and `get_agent_snapshot`,
+  and `AgentMessagesPage.deleted_before_sequence` says where they end. The
+  guide tells an application that needs the whole transcript to copy it out
+  first; there is no hook, because a hook would run inside `CompactContext` or
+  `RunModel` and need the deleted chunks loaded there.
+- The current window differs from the pattern's single `current` instance.
+  Each message stays its own instance, so a store never rewrites the window.
+  A rewritten window would leave a superseded copy for every message stored,
+  and superseded values count toward `limits.maxFlowStateBytes` until the
+  history window prunes them. Each message is still written twice: once in
+  the window and once in its chunk.
+- `RunModel` no longer loads the whole map. Movements into `RunModel` and
+  `ApplyTurnControl` list only the chunks after the summary. Without
+  compaction, the model input is every message, and those Steps load every
+  chunk.
+- The snapshot and `list_agent_messages` load the window and every kept chunk;
+  retention bounds them. `RecordTurnFailure` is a failure route without
+  movement options, so for a runner with unfinished-turn messages it loads
+  every kept chunk too.
+- Upgrades stop every 0.1.0 Worker before any 0.2.0 Worker starts; the owner
+  chose this over a gate. A 0.1.0 Worker on an upgraded session fails its
+  turns. Because `TurnReplySequence` names its turn, a turn that a 0.1.0
+  Worker started is counted by scanning its messages, not from a stale value.
+  The tests run the released 0.1.0 Workers from PyPI and npm.
+- Measured bound (A7-5): with a retention limit of 100, the stored messages of
+  the padded session stay between 162 KB and 185 KB, and its whole live state
+  (every Attribute and map instance value) between 167 KB and 191 KB, at turns
+  200, 400, 600, and 800, while the session stores 2.3 MB of messages over its
+  life. The 2,000-turn nightly test checks the default limit the same way.
+  The run budget is not the instrument: the engine checks it only on a
+  command that grows active storage (see above), and an 800-turn session with
+  2.3 MB of live messages ran under a 1 MiB `limits.maxFlowStateBytes`. The
+  guard therefore measures the live state directly.
 
 ### A8. Tool tasks
 
@@ -1572,7 +1635,7 @@ whose edge cases integration tests cannot reach.
 | A7-2 | A Stepwise turn with 60 tool calls compacts mid-turn and never separates a tool call from its result | Long turns, with A1 |
 | A7-3 | SIGKILL during `CompactContext` reruns only the summary call and commits one generation | Exactly-once summary |
 | A7-4 | A failing summary call fails the turn through `RecordTurnFailure`, and the next message compacts again | No loop, clear failure |
-| A7-5 | A 2,000-turn session with compaction reports its storage use against `limits.maxFlowStateBytes` | Calibrates the guide until archiving ships |
+| A7-5 | A 2,000-turn session with compaction keeps its stored message bytes bounded by retention | Calibrates the guide's bound |
 | A8-1 | A tool returns `ToolTaskStarted`; `PollToolTask` polls until done; SIGKILL during the poll wait resumes polling; a task that asks for input raises a question | The task path |
 | U-1 | A session started on a 0.1.0 Worker waits for an approval; the Worker is replaced by 0.2.0; the approval resolves and the next turn uses the new features | In-flight sessions survive the upgrade |
 
@@ -1661,7 +1724,8 @@ a Stop button that calls `cancel_turn`, and plan review with Execute.
 6. **Long sessions before archiving.** Compaction leaves messages in
    `AgentMessages`, so their bytes stay in the run budget until archived
    instances ship in M3. Recommendation: state the bound in the guide, using
-   the A7-5 measurement.
+   the A7-5 measurement. Resolved by the owner review: chunked messages and
+   retention ship in 0.2.0 (A7 "As built").
 7. **Per-session settings.** The example's start form chooses the model,
    prompt, and MCP servers per session. The library has no place for that:
    `AgentSessionStartInput` holds only the initial message. One option is an

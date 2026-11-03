@@ -263,8 +263,14 @@ func NewStepwiseAgentRunner(definition *AgentDefinition) *StepwiseAgentRunner {
 // Register the Flow in a Registry and serve it with a Worker. Call it through
 // dexagents.AgentSessionClient, as for any runner. flowType is the protocol
 // Flow type, unique within the Registry; keep it stable, because running
-// sessions resume by it. It returns the errors of dexagents.NewAgentSessionFlow.
-func NewStepwiseAgentSessionFlow(definition *AgentDefinition, flowType string) (*dexagents.AgentSessionFlow, error) {
+// sessions resume by it. sessionOptions apply after the options the
+// definition derives, such as dexagents.WithMessageWindowSize. It returns the
+// errors of dexagents.NewAgentSessionFlow.
+func NewStepwiseAgentSessionFlow(
+	definition *AgentDefinition,
+	flowType string,
+	sessionOptions ...dexagents.AgentSessionOption,
+) (*dexagents.AgentSessionFlow, error) {
 	options := []dexagents.AgentSessionOption{
 		dexagents.WithToolPolicies(definition.toolPolicies),
 		dexagents.WithDefaultToolEffect(definition.defaultToolEffect),
@@ -275,6 +281,7 @@ func NewStepwiseAgentSessionFlow(definition *AgentDefinition, flowType string) (
 	if definition.eventStreamCapacityBytes != 0 {
 		options = append(options, dexagents.WithEventStreamCapacityBytes(definition.eventStreamCapacityBytes))
 	}
+	options = append(options, sessionOptions...)
 	return dexagents.NewAgentSessionFlow(NewStepwiseAgentRunner(definition), flowType, options...)
 }
 

@@ -34,6 +34,9 @@ from dex_agents.values import (
     AgentInterrupt,
     AgentInterruptResolution,
     AgentMessage,
+    AgentMessageChunk,
+    AgentMessageChunkRange,
+    AgentMessageIndex,
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
@@ -59,6 +62,7 @@ from dex_agents.values import (
     ToolCallCompleted,
     ToolCallStatus,
     ToolEffect,
+    TurnReplySequence,
 )
 
 del DeferredToolCall, ToolPolicy  # imported to fail fast if the public runner names move
@@ -179,6 +183,30 @@ VALUES: list[tuple[str, type, object]] = [
     ("AgentState", AgentState, STATE),
     ("AgentMessage", AgentMessage, MESSAGE),
     *((f"AgentToolCall/{call.tool_call_id}", AgentToolCall, call) for call in TOOL_CALLS),
+    ("AgentMessageChunk", AgentMessageChunk, AgentMessageChunk(messages=[MESSAGE])),
+    (
+        "AgentMessageIndex",
+        AgentMessageIndex,
+        AgentMessageIndex(
+            chunks=[
+                AgentMessageChunkRange(first_sequence=33, last_sequence=64),
+                AgentMessageChunkRange(first_sequence=65, last_sequence=96),
+                AgentMessageChunkRange(first_sequence=99, last_sequence=99),
+            ],
+            first_sequence=33,
+            window_first_sequence=97,
+        ),
+    ),
+    (
+        "TurnReplySequence",
+        TurnReplySequence,
+        TurnReplySequence(turn_id="turn-3", sequence=12),
+    ),
+    (
+        "AgentMessageIndex/before-the-first-turn",
+        AgentMessageIndex,
+        AgentMessageIndex(chunks=[], first_sequence=1, window_first_sequence=1),
+    ),
     ("AgentInterrupt", AgentInterrupt, INTERRUPT),
     ("PendingInterrupts", list[AgentInterrupt], [INTERRUPT]),
     (
@@ -200,6 +228,11 @@ VALUES: list[tuple[str, type, object]] = [
         "AgentMessagesPage",
         AgentMessagesPage,
         AgentMessagesPage(messages=[MESSAGE], next_before_sequence=7),
+    ),
+    (
+        "AgentMessagesPage/after-retention",
+        AgentMessagesPage,
+        AgentMessagesPage(messages=[MESSAGE], next_before_sequence=None, deleted_before_sequence=33),
     ),
     (
         "AgentSnapshot",

@@ -118,6 +118,10 @@ persistence definitions are properties of the Flow (`flow.agentState`,
 | `interruptDeadlineMs` | none | Milliseconds after which a pending approval or question is rejected with `"approval deadline passed"` or `"question deadline passed"` |
 | `builtInTools` | `[]` | Built-in tools the session handles: `"ask_user"`, `"durable_wait"`. An enabled name is reserved; a tool policy for it is refused |
 | `maxDurableWaitMs` | 365 days | Longest `durable_wait`, a positive multiple of 1,000; a longer `duration_seconds` fails the call at once. The Python core's `max_durable_wait` |
+| `messageWindowSize` | 64 | Most messages the `AgentMessages` window holds; at least `messageChunkSize`. See [Message storage and retention](#message-storage-and-retention) |
+| `messageChunkSize` | 32 | Most messages per archive chunk |
+| `messageChunkMaxBytes` | 1 MiB | Most bytes per archive chunk, 1 to 8,388,608; a larger message is stored straight into its own chunk |
+| `retainedMessageLimit` | 1,000 | With `compaction`, the stored messages retention always keeps; `null` keeps every message |
 
 Enable built-in tools and call `answer_question` only after every Worker of the
 Flow type runs 0.2.0, because a 0.1.0 Worker cannot decode the new non-final
@@ -509,9 +513,8 @@ records the call's usage, writes `compaction_started` and
 summary call. From then on the runner receives the messages after the summary
 in `turn.messages` and the summary in `turn.contextSummary`.
 
-Messages are never deleted: `list_agent_messages` and `get_agent_snapshot`
-return all of them, and they count toward the Server's run budget; the agent
-deployment guide states the bound. A compaction policy needs a runner with all
+Summarized messages stay stored until retention deletes them; see
+[Message storage and retention](#message-storage-and-retention). A compaction policy needs a runner with all
 three optional methods, and `createAgentSessionFlow` throws a `TypeError`
 otherwise. `StepwiseAgentRunner` implements them: its input starts with
 `contextSummaryNoteHeader` (`[Dex] Summary of the earlier conversation:`) and
@@ -597,6 +600,112 @@ await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings:
 - Start sessions with settings, and call `update_session_settings`, only after
   every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
   settings and starts turns without them.
+
+## Message storage and retention
+
+> **Upgrading from 0.1.0: stop every 0.1.0 Worker of a Flow type before any
+> 0.2.0 Worker of it starts.** A 0.2.0 Worker moves an upgraded session's older
+> messages out of `AgentMessages` into `AgentMessageChunks`. If a 0.1.0 Worker
+> still runs, it fails the turns it takes on such a session, because it reads
+> every message from `AgentMessages` and cannot read the ones moved into
+> chunks.
+
+A session stores its messages in a small mutable window and immutable
+archive chunks, so neither a Step's load nor Flow state grows with the whole
+session:
+
+- `AgentMessages` is the window: the newest messages, one instance per
+  message, keyed by `messageSequenceKey(sequence)`. Every Step that stores
+  messages loads the whole window, so an append writes only the new instance.
+- When an append takes the window past `messageWindowSize` (default 64), its
+  oldest messages move, in the same commit, into `AgentMessageChunks`
+  instances keyed by `messageSequenceKey` of their first sequence. A chunk
+  closes at `messageChunkSize` messages (default 32) or `messageChunkMaxBytes`
+  (default 1 MiB, measured on the JSON this core writes), whichever comes
+  first. A message whose chunk of one, the message plus 15 bytes, would pass
+  `messageChunkMaxBytes` never enters the window: the Step that stores it
+  writes it straight into its own chunk. So its first store already writes the
+  largest value it will ever need, and a message too large for the server's
+  `values.maxValueBytes` fails that Step, which fails the turn, instead of a
+  later rollover. A chunk is never rewritten.
+- One commit moves at most 4 chunks and 8 MiB
+  (`messageRolloverMaxChunksPerCommit`, `messageRolloverMaxBytesPerCommit`), so
+  a backlog, such as a large 0.1.0 history, moves over several commits, and
+  the window can briefly stay over its size, such as after one commit stores
+  many messages, until it drains.
+- `AgentMessageIndex` records `chunks`, the first and last sequence of every
+  kept chunk in order, `firstSequence` (the oldest stored message), and
+  `windowFirstSequence`. A chunk at or after `windowFirstSequence` holds one
+  oversized message among the window's. The index is written only when a
+  rollover, an oversized message, or retention changes it, not on every turn.
+- `TurnReplySequence` records, for the latest turn, the first sequence after
+  its user messages. The Step that starts a turn writes it, so turn message
+  counts need no old messages. A value for another turn, such as one a 0.1.0
+  Worker started, is ignored, and the count reads the turn's stored messages.
+- `RunModel`, `ApplyTurnControl`, and `CompactContext` load the window plus
+  only the chunks that overlap their model input, the messages after
+  `ContextSummary.lastSequence`, listed in the movement into the Step. Without
+  compaction the model input covers every message, so they load every chunk.
+  `RecordTurnFailure`, a failure route with static options, loads every
+  kept chunk when the runner implements `buildUnfinishedTurnMessages`.
+  `get_agent_snapshot` and `list_agent_messages` load the window and every
+  kept chunk.
+
+Retention bounds Flow state when compaction is on. `retainedMessageLimit`
+(default 1,000, `null` keeps everything) deletes the oldest chunk while every
+message in it is at or before `ContextSummary.lastSequence` and at least
+`retainedMessageLimit` stored messages come after it. So the newest
+`retainedMessageLimit` messages and every message after the summary always
+stay. `CompactContext` and every message append apply it. Deleted messages
+leave `list_agent_messages` and `get_agent_snapshot`; paging ends at
+`AgentMessageIndex.firstSequence`, and every page carries
+`deletedBeforeSequence`, that sequence, once anything was deleted, so a
+client can tell deleted history from the start of the conversation. An
+application that keeps the full transcript copies new messages with
+`list_agent_messages` before more than `retainedMessageLimit` messages follow
+them, such as after each `turn_completed`.
+
+A runner without the compaction methods cannot use the summary. When it meets
+a session whose earlier messages retention deleted, its model input starts at
+the oldest stored message, and the session logs a warning on every model call.
+
+```ts
+const flow = createAgentSessionFlow(runner, "SupportAgent", {
+  compaction: { contextWindowTokens: 400_000 },
+  messageWindowSize: 64,
+  messageChunkSize: 32,
+  messageChunkMaxBytes: 1_048_576,
+  retainedMessageLimit: 1_000,
+});
+```
+
+A session that a 0.1.0 Worker wrote has no index and keeps every message in
+`AgentMessages`, which is also how a new session starts: no index means every
+message is in the window. Its appends on this release move the old messages
+into chunks a few at a time; readers handle the half-moved session.
+
+To read one stored message from outside the Flow, read `AgentMessageIndex`
+first, then the window instance or the chunk that holds it:
+
+```ts
+const sequence = 7;
+const [index] = await client.getAttributes(sessionId, flow.agentMessageIndex);
+let message: AgentMessage | undefined;
+const range = index?.chunks.find((chunk) => chunk.firstSequence <= sequence && sequence <= chunk.lastSequence);
+if (range === undefined) {
+  [message] = await client.getAttributes(sessionId, flow.agentMessages.instance(messageSequenceKey(sequence)));
+} else {
+  const [chunk] = await client.getAttributes(
+    sessionId,
+    flow.agentMessageChunks.instance(messageSequenceKey(range.firstSequence)),
+  );
+  message = chunk?.messages[sequence - range.firstSequence];
+}
+```
+
+A commit between the two reads can move the message into a chunk; read
+again when it is missing, or page with `list_agent_messages`, which reads one
+committed state.
 
 ## The runner contract
 
@@ -941,7 +1050,10 @@ Do not repeat these tool calls unless the user asks again.
 | Persistence name | Kind | Value |
 | --- | --- | --- |
 | `AgentState` | Attribute | `AgentState` |
-| `AgentMessages` | AttributeMap, key = `messageSequenceKey(sequence)` (12-digit zero-padded) | `AgentMessage` |
+| `AgentMessages` | AttributeMap, key = `messageSequenceKey(sequence)` (12-digit zero-padded) | `AgentMessage`; only the window, the messages from `AgentMessageIndex.windowFirstSequence` on |
+| `AgentMessageChunks` | AttributeMap, key = `messageSequenceKey(first sequence)` | `AgentMessageChunk { messages }`, the older messages of one `AgentMessageIndex.chunks` range, immutable |
+| `AgentMessageIndex` | Attribute | `AgentMessageIndex { chunks: [{ first_sequence, last_sequence }], first_sequence, window_first_sequence }`; unset until the first chunk is written, which means every message is in the window |
+| `TurnReplySequence` | Attribute | `TurnReplySequence { turn_id, sequence }`: where the latest turn's replies start; the Step that starts a turn writes it |
 | `FrameworkRunState` | Attribute | string; set only between a turn's model calls |
 | `AgentToolCalls` | AttributeMap, key = tool call ID | `AgentToolCallRecord`; only the active turn's records |
 | `PendingInterrupts` | Attribute | `AgentInterrupt[]` |
@@ -984,7 +1096,7 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 | `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | `false` when not pending, past its deadline, or a question with `approved` `true`; `approved` `false` declines a question; may throw `RpcLockConflictError`, which is safe to retry |
 | `answer_question` | `{ interrupt_id, answer }` | `false` when not pending, not a question, past its deadline, blank, or outside `choices` while free text is not allowed; locks `PendingInterrupts` like `resolve_interrupt` |
 | `get_agent_snapshot` | none | `{ state, messages, pending_interrupts, tool_calls, usage, queued_message_count, plan, queued_messages, steered_messages, context_summary }`; `state` is `null` before the session starts |
-| `list_agent_messages` | `{ before_sequence, limit }` | `{ messages, next_before_sequence }`, oldest first; `limit` clamped to 1..200, default 50 |
+| `list_agent_messages` | `{ before_sequence, limit }` | `{ messages, next_before_sequence, deleted_before_sequence }`, oldest first; `limit` clamped to 1..200, default 50; `deleted_before_sequence` is the oldest stored sequence once retention deleted earlier messages, else null |
 
 | Event type | Payload |
 | --- | --- |
@@ -1593,7 +1705,7 @@ for the full attribute table. In short:
           statements:
             - delete_matching_keys(attributes, "^gen_ai\\.usage\\.") where instrumentation_scope.name == "@superdurable/dex-agents"
   ```
-- **Content by reference.** By default spans carry `AgentMessages` keys
+- **Content by reference.** By default spans carry message sequence keys
   (`dex.agent.input_messages.last_key`, and `dex.agent.output_messages.keys` for
   what this call produced) and tool call IDs (`gen_ai.tool.call.id`,
   `dex.agent.requested_tool_call.ids`), because the content is already durable
@@ -1601,7 +1713,7 @@ for the full attribute table. In short:
   `gen_ai.input.messages`, `gen_ai.output.messages`,
   `gen_ai.tool.call.arguments`, and `gen_ai.tool.call.result`, built from the
   message projections. No `_ref` attributes are set: they take an absolute URI,
-  and Dex has no URI for an `AgentMessages` instance.
+  and Dex has no URI for a stored message.
 - **Failures.** Tracing never fails or retries a Step. Every OpenTelemetry call
   (spans, context, content serialization) is guarded; an error, such as one
   thrown by a span processor, is logged with `console.warn` the first time and
@@ -1678,8 +1790,8 @@ DEXCLI=/path/to/dexcli ./ci.sh
 `ci.sh` runs `npm ci`, `npm run typecheck`, and `npm run test:integration`,
 which builds with `tsc` and runs `node --test` over `dist/test/integ`. It skips
 `test/long`, the 2,000-turn compaction session behind the agent deployment
-guide's run budget numbers, which runs for minutes; `test/integ` has a 300-turn
-guard instead. The `Agents Long Tests Nightly` workflow runs `test/long` every
+guide's run budget numbers, which runs for minutes; `test/integ` has an
+800-turn retention guard instead. The `Agents Long Tests Nightly` workflow runs `test/long` every
 night. Run it by hand with:
 
 ```bash
@@ -1810,10 +1922,9 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 
 ## Limits
 
-- `RunModel`, `get_agent_snapshot`, and `list_agent_messages` load the whole
-  `AgentMessages` map. Compaction shortens the model input, not the load:
-  listing only the messages after the summary in each `RunModel` movement
-  would cost run storage on every model call.
+- `get_agent_snapshot` and `list_agent_messages` load every retained chunk,
+  and so does `RunModel` without compaction. Retention bounds that load only
+  with compaction.
 - Each model call and each tool call adds a Step round trip.
 - A crash in `RunModel` reruns that model call. When the crashed attempt sent
   no output, Dex re-delivers it with the same `attempt`, so `attempt` does not

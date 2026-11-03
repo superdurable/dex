@@ -424,8 +424,8 @@ compaction policy.
   route, and writes the new `ContextSummary` Attribute; a crash reruns only the
   summary call. From then on the runner receives only the messages after the
   summary, plus the summary in `AgentTurnContext.context_summary`
-  (`contextSummary`). Messages stay in `AgentMessages`, so
-  `list_agent_messages` and `get_agent_snapshot` still return all of them.
+  (`contextSummary`). Summarized messages stay stored until retention deletes
+  them; see Chunked messages and retention.
 - Stepwise implements the capability, with `AgentDefinition.compaction`. Its
   model input starts with `[Dex] Summary of the earlier conversation:` and the
   summary text, it cuts only between model responses whose tool calls all have
@@ -458,47 +458,40 @@ compaction policy.
 - The 2,000-turn compaction sessions that calibrate the deployment guide run
   in the new `Agents Long Tests Nightly` workflow: Python with
   `DEX_AGENTS_LONG_TESTS=1`, TypeScript with `npm run test:long`. `Agents CI`
-  runs a 300-turn guard in each core instead.
+  runs an 800-turn guard in each core instead.
 
-### Session settings
+### Chunked messages and retention
 
-- `AgentSessionStartInput.session_settings` (`sessionSettings`, Go
-  `SessionSettings`): an optional JSON object of per-session settings, such
-  as `{"model": "gpt-5-mini"}`, stored in the new `SessionSettings`
-  Attribute. `update_session_settings` replaces them; the change takes effect
-  when the next turn starts, and a running turn keeps the settings it started
-  with, stored in `TurnSessionSettings` and tagged with the turn, for every
-  model call and retry. A copy that an earlier turn left reads as no settings.
-- Runners read `AgentTurnContext.session_settings`, an empty mapping when
-  there are none; `ContextSummaryRequest` and Stepwise's `InstructionContext`
-  carry them too, and `AgentSnapshot.session_settings` returns the next
-  turn's settings.
-- Stepwise: `AgentDefinition.resolve_model` (`resolveModel`, Go
-  `stepwise.WithModelResolver`) maps the settings to the model client of each
-  model call, including summary calls and token estimates.
-- Settings are Flow state, and the snapshot and the browser snapshot JSON
-  return them, so they hold references the Worker resolves, never secrets.
-  Only model calls see them; tool calls do not. Their compact JSON text in
-  UTF-8 is at most `MAX_SESSION_SETTINGS_BYTES` (16,384, Go
-  `MaxSessionSettingsBytes`); `validate_session_settings` and
-  `session_settings_size` (`validateSessionSettings`, `sessionSettingsSize`)
-  check it, and `AgentSessionClient.start_session(..., session_settings=...)`,
-  `AgentSessionClient.update_session_settings`, the TypeScript
-  `AgentSessionTestClient.startSession`, and Go's `StartSessionWithSettings`
-  and `UpdateSessionSettings` call them first. The cores measure floats and
-  U+2028/U+2029 differently, so the session's own checks accept
-  `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES` (1,024) more.
-- `StartAgentSession` fails the session at once, with no retry, for start
-  settings it refuses, with a reason that starts with
-  `INVALID_START_SESSION_SETTINGS_REASON`. `update_session_settings` returns
-  false for a missing or `null` `session_settings`.
-- Stepwise in Python checks a resolved model against
-  `planning_tool_choice="required"` when the planning call runs.
-- Sessions started on 0.1.0 have no settings and keep running with an empty
-  mapping until an update. Start sessions with settings, and call
-  `update_session_settings`, only after every Worker of the Flow type runs
-  0.2.0: a 0.1.0 Worker drops the start settings and starts turns without
-  them.
+- Messages are stored as a sequentially chunked AttributeMap in every core.
+  `AgentMessages` holds only the newest messages, one instance per message.
+  When it holds more than `message_window_size` (`messageWindowSize`,
+  `WithMessageWindowSize` in Go; 64) messages, the oldest move into immutable
+  instances of the new `AgentMessageChunks` AttributeMap, keyed by their first
+  sequence, in the same commit. A chunk holds at most `message_chunk_size`
+  (32) messages and `message_chunk_max_bytes` (`messageChunkMaxBytes`; 1 MiB,
+  at most 8 MiB) of encoded JSON. A larger message skips the window and goes
+  straight into its own chunk when it is stored, so a message too large for
+  the Server fails its turn at once and never wedges a later commit. One
+  commit moves at most 4 chunks and 8 MiB. The new `AgentMessageIndex`
+  Attribute lists every kept chunk's first and last sequence, the window
+  start, and the oldest kept message; it changes only when chunks are written
+  or deleted. The new `TurnReplySequence` Attribute records where the latest
+  turn's replies start.
+- `RunModel` no longer loads the whole message map. With compaction, it loads
+  the window and only the chunks after the summary; the snapshot and
+  `list_agent_messages` load the window and every kept chunk.
+- With compaction, retention deletes the oldest chunk while every message in
+  it is summarized and at least `retained_message_limit`
+  (`retainedMessageLimit`; 1,000; `None`/`null` keeps every message) messages
+  are stored after it, so Flow state stays bounded and the newest 1,000
+  messages always stay. A deleted message leaves `list_agent_messages` and
+  `get_agent_snapshot`. Their last page now starts at the oldest stored
+  message, and the new `AgentMessagesPage.deleted_before_sequence`
+  (`deletedBeforeSequence`) marks the deleted range. Copy messages out first
+  if the application needs the whole transcript. A runner without the
+  compaction capability on a session with deleted messages logs a warning on
+  each model call. The Go core has no compaction, so it never deletes
+  messages.
 
 ### Go core
 
@@ -569,8 +562,18 @@ compaction policy.
 
 ### Compatibility
 
+- **Upgrade rule: stop every 0.1.0 Worker of a Flow type before any 0.2.0
+  Worker of it starts. Do not run them side by side.** Once a 0.2.0 Worker
+  stores a message in a 0.1.0 session, it moves the session's older messages
+  from `AgentMessages` into `AgentMessageChunks`, at most four chunks a Step.
+  If a 0.1.0 Worker then runs a Step of that session, its turns fail,
+  because it cannot read the moved messages. No stored message is lost.
 - Enable the new options and call the new RPCs only after every Worker of the
   Flow type runs 0.2.0. A session started on 0.1.0 continues on 0.2.0.
+- Code that read a message with
+  `get_attributes(AGENT_MESSAGES.instance(message_sequence_key(n)))` finds only
+  the window there; read messages with `list_agent_messages` or
+  `get_agent_snapshot`.
 - `StepwiseAgentRunner` now implements `ToolTaskPoller`, so its
   `DeferredToolExecution.supports_tool_tasks` (`supportsToolTasks`) is true. A
   subclass that already defined `poll_tool_task` keeps its own. Function tools

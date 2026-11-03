@@ -54,8 +54,17 @@ var (
 	// AgentStateAttribute is the current session position. It is unset until StartAgentSession
 	// commits.
 	AgentStateAttribute = dex.DefineAttribute[AgentState]("AgentState")
-	// AgentMessagesAttributeMap holds the conversation, keyed by MessageSequenceKey.
+	// AgentMessagesAttributeMap holds the newest messages of the conversation, the window, keyed by
+	// MessageSequenceKey. Older messages move into AgentMessageChunksAttributeMap.
 	AgentMessagesAttributeMap = dex.DefineAttributeMap[AgentMessage]("AgentMessages")
+	// AgentMessageChunksAttributeMap holds the archived messages, keyed by MessageSequenceKey of each
+	// chunk's first message. Each instance is written once.
+	AgentMessageChunksAttributeMap = dex.DefineAttributeMap[AgentMessageChunk]("AgentMessageChunks")
+	// AgentMessageIndexAttribute says which messages are in the window and which chunks exist. It is
+	// unset until the session first adds a chunk.
+	AgentMessageIndexAttribute = dex.DefineAttribute[AgentMessageIndex]("AgentMessageIndex")
+	// TurnReplySequenceAttribute records where the latest turn's replies start, tagged with the turn.
+	TurnReplySequenceAttribute = dex.DefineAttribute[TurnReplySequence]("TurnReplySequence")
 	// FrameworkRunStateAttribute is opaque framework run state JSON text, set only while a turn
 	// waits for its tool calls.
 	FrameworkRunStateAttribute = dex.DefineAttribute[string]("FrameworkRunState")
@@ -100,9 +109,13 @@ var (
 )
 
 const (
-	snapshotMessageLimit         = 200
-	messagePageLimit             = 200
-	defaultMessagePageLimit      = 50
+	snapshotMessageLimit     = 200
+	messagePageLimit         = 200
+	defaultMessagePageLimit  = 50
+	defaultMessageWindowSize = 64
+	defaultMessageChunkSize  = 32
+	// DefaultMessageChunkMaxBytes is the default of WithMessageChunkMaxBytes: 1 MiB.
+	DefaultMessageChunkMaxBytes  = 1024 * 1024
 	backgroundHeartbeatInterval  = 20 * time.Second
 	modelCallMethodTimeout       = 15 * time.Minute
 	modelCallHeartbeatTimeout    = 2 * time.Minute
@@ -123,6 +136,9 @@ type agentSessionOptions struct {
 	eventStreamCapacityBytes int64
 	interruptDeadline        time.Duration
 	logger                   *slog.Logger
+	messageWindowSize        int64
+	messageChunkSize         int64
+	messageChunkMaxBytes     int64
 }
 
 type agentSessionOptionFunc func(options *agentSessionOptions)
@@ -170,6 +186,45 @@ func WithEventStreamCapacityBytes(capacityBytes int64) AgentSessionOption {
 func WithInterruptDeadline(deadline time.Duration) AgentSessionOption {
 	return agentSessionOptionFunc(func(options *agentSessionOptions) {
 		options.interruptDeadline = deadline
+	})
+}
+
+// WithMessageWindowSize sets the most messages the AgentMessages window holds.
+//
+// Every Step that stores messages loads the whole window. When it holds more
+// than this many messages, its oldest messages move into one immutable
+// AgentMessageChunks instance per chunk, in the same commit. The default is
+// 64. It must be at least the message chunk size.
+func WithMessageWindowSize(windowSize int64) AgentSessionOption {
+	return agentSessionOptionFunc(func(options *agentSessionOptions) {
+		options.messageWindowSize = windowSize
+	})
+}
+
+// WithMessageChunkSize sets the most messages one archived AgentMessageChunks instance holds.
+//
+// AgentMessageIndex records each chunk's first and last sequence, so a change
+// applies to the next chunk. The default is 32. It must be positive.
+func WithMessageChunkSize(chunkSize int64) AgentSessionOption {
+	return agentSessionOptionFunc(func(options *agentSessionOptions) {
+		options.messageChunkSize = chunkSize
+	})
+}
+
+// WithMessageChunkMaxBytes sets the most encoded bytes one archived AgentMessageChunks instance holds.
+//
+// A chunk is one Dex value, which server-zd caps at values.maxValueBytes (16
+// MiB by default). A chunk stops taking messages at the message chunk size or
+// when the next message would carry it past this many bytes of its JSON
+// encoding, whichever comes first. A message whose own chunk, 15 bytes larger
+// than the message, would pass this cap skips the window: the Step that stores
+// it writes it straight into a single-message chunk, so a message too large for
+// values.maxValueBytes fails the commit that first stores it. The default is
+// 1 MiB (1048576). It must be between 1 and 8388608. Lower it when
+// values.maxValueBytes is smaller than the default.
+func WithMessageChunkMaxBytes(chunkMaxBytes int64) AgentSessionOption {
+	return agentSessionOptionFunc(func(options *agentSessionOptions) {
+		options.messageChunkMaxBytes = chunkMaxBytes
 	})
 }
 
@@ -221,8 +276,9 @@ type AgentSessionFlow struct {
 // "TriageAgent"; keep it stable, because running sessions resume by it.
 //
 // It returns an error when flowType is blank, the default tool effect or a
-// tool policy's effect is not a contract value, or the Stream capacity or the
-// interrupt deadline is not positive.
+// tool policy's effect is not a contract value, the Stream capacity or the
+// interrupt deadline is not positive, the message chunk size is not positive,
+// or the message window size is smaller than the message chunk size.
 func NewAgentSessionFlow(
 	runner AgentFrameworkRunner,
 	flowType string,
@@ -239,6 +295,9 @@ func NewAgentSessionFlow(
 		defaultToolEffect:        ToolEffectUnclassified,
 		eventStreamCapacityBytes: DefaultAgentEventsCapacityBytes,
 		logger:                   slog.Default(),
+		messageWindowSize:        defaultMessageWindowSize,
+		messageChunkSize:         defaultMessageChunkSize,
+		messageChunkMaxBytes:     DefaultMessageChunkMaxBytes,
 	}
 	hasInterruptDeadline := false
 	for _, option := range options {
@@ -276,6 +335,15 @@ func validateAgentSessionOptions(options agentSessionOptions, hasInterruptDeadli
 	}
 	if hasInterruptDeadline && options.interruptDeadline <= 0 {
 		return errors.New("interrupt deadline must be positive")
+	}
+	if options.messageChunkSize <= 0 {
+		return errors.New("message chunk size must be positive")
+	}
+	if options.messageWindowSize < options.messageChunkSize {
+		return errors.New("message window size must be at least message chunk size")
+	}
+	if options.messageChunkMaxBytes <= 0 || options.messageChunkMaxBytes > MessageRolloverMaxBytesPerCommit {
+		return fmt.Errorf("message chunk max bytes must be between 1 and %d", MessageRolloverMaxBytesPerCommit)
 	}
 	return nil
 }
@@ -323,13 +391,15 @@ func (flow *AgentSessionFlow) GetRPCs() []dex.RPCDef {
 			LockAttributes: []dex.AttributeLock{dex.LockAttribute(PendingInterruptsAttribute)},
 		}),
 		dex.DefineRPC(flow.GetAgentSnapshot, &dex.RPCOptions{
-			Name:              GetAgentSnapshotRPCName,
-			LoadAttributeMaps: []dex.AttributeDef{AgentMessagesAttributeMap, AgentToolCallsAttributeMap},
-			LoadChannels:      []dex.ChannelDef{QueuedUserMessagesChannel, SteeredUserMessagesChannel},
+			Name: GetAgentSnapshotRPCName,
+			LoadAttributeMaps: []dex.AttributeDef{
+				AgentMessagesAttributeMap, AgentMessageChunksAttributeMap, AgentToolCallsAttributeMap,
+			},
+			LoadChannels: []dex.ChannelDef{QueuedUserMessagesChannel, SteeredUserMessagesChannel},
 		}),
 		dex.DefineRPC(flow.ListAgentMessages, &dex.RPCOptions{
 			Name:              ListAgentMessagesRPCName,
-			LoadAttributeMaps: []dex.AttributeDef{AgentMessagesAttributeMap},
+			LoadAttributeMaps: []dex.AttributeDef{AgentMessagesAttributeMap, AgentMessageChunksAttributeMap},
 		}),
 		dex.DefineRPC(flow.UpdateSessionSettings, &dex.RPCOptions{Name: UpdateSessionSettingsRPCName, IsTransactional: true}),
 	}
@@ -344,6 +414,9 @@ func (flow *AgentSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 		Attributes: []dex.AttributeDef{
 			AgentStateAttribute,
 			AgentMessagesAttributeMap,
+			AgentMessageChunksAttributeMap,
+			AgentMessageIndexAttribute,
+			TurnReplySequenceAttribute,
 			FrameworkRunStateAttribute,
 			AgentToolCallsAttributeMap,
 			PendingInterruptsAttribute,
@@ -434,7 +507,8 @@ func (flow *AgentSessionFlow) ResolveInterrupt(ctx dex.Context, input ResolveInt
 // GetAgentSnapshot returns the session state a UI renders; its RPC name is get_agent_snapshot.
 //
 // The RPC reads committed state without locks, so it also serves a retained
-// closed session. It loads the whole AgentMessages map.
+// closed session. It loads the AgentMessages window and every retained
+// AgentMessageChunks instance.
 //
 // It returns the state, the last 200 messages, pending interrupts, the active
 // turn's tool calls, usage, the queued message count, and the queued and
@@ -454,7 +528,7 @@ func (flow *AgentSessionFlow) GetAgentSnapshot(ctx dex.Context, _ dex.None) (*de
 	}
 	snapshot.State = state
 	end := state.NextMessageSequence
-	if snapshot.Messages, err = readMessages(ctx, max(1, end-snapshotMessageLimit), end); err != nil {
+	if snapshot.Messages, err = readStoredMessages(ctx, end-snapshotMessageLimit, end); err != nil {
 		return nil, err
 	}
 	if snapshot.PendingInterrupts, err = readPendingInterrupts(ctx); err != nil {
@@ -521,7 +595,8 @@ func (flow *AgentSessionFlow) UpdateSessionSettings(ctx dex.Context, input Updat
 // Start without BeforeSequence for the newest page, then pass each page's
 // NextBeforeSequence to walk back. Limit is clamped to 1 through 200. The RPC
 // reads committed state without locks, so it also serves a retained closed
-// session.
+// session. It loads the AgentMessages window and every retained
+// AgentMessageChunks instance.
 //
 // It returns the page and the anchor of the previous page.
 func (flow *AgentSessionFlow) ListAgentMessages(ctx dex.Context, input ListAgentMessagesRequest) (*dex.RPCResult[AgentMessagesPage], error) {
@@ -532,19 +607,27 @@ func (flow *AgentSessionFlow) ListAgentMessages(ctx dex.Context, input ListAgent
 	if state == nil {
 		return &dex.RPCResult[AgentMessagesPage]{Output: AgentMessagesPage{Messages: []AgentMessage{}}}, nil
 	}
+	reader, err := newStoredMessageReader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	first := reader.firstSequence()
 	limit := max(1, min(input.Limit, messagePageLimit))
 	end := state.NextMessageSequence
 	if input.BeforeSequence != nil {
-		end = max(1, min(*input.BeforeSequence, end))
+		end = max(first, min(*input.BeforeSequence, end))
 	}
-	start := max(1, end-limit)
-	messages, err := readMessages(ctx, start, end)
+	start := max(first, end-limit)
+	messages, err := reader.readMessages(start, end)
 	if err != nil {
 		return nil, err
 	}
 	page := AgentMessagesPage{Messages: messages}
-	if start > 1 {
+	if start > first {
 		page.NextBeforeSequence = &start
+	}
+	if first > 1 {
+		page.DeletedBeforeSequence = &first
 	}
 	return &dex.RPCResult[AgentMessagesPage]{Output: page}, nil
 }
@@ -574,7 +657,10 @@ type StartAgentSession struct {
 
 // GetStepOptions makes Execute SYNC, so an ASYNC Flow default never replays the Step result.
 func (StartAgentSession) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+	return &dex.StepOptions{
+		ExecuteDurability:        dex.StepDurabilitySync,
+		ExecuteLoadAttributeMaps: []dex.AttributeDef{AgentMessagesAttributeMap},
+	}
 }
 
 // Execute initializes the session and starts the first turn when InitialMessage is not blank.
@@ -625,9 +711,13 @@ type AwaitUserMessage struct {
 	session *AgentSessionFlow
 }
 
-// GetStepOptions makes WaitFor and Execute SYNC.
+// GetStepOptions makes WaitFor and Execute SYNC and loads the AgentMessages window it appends to.
 func (AwaitUserMessage) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{WaitForDurability: dex.StepDurabilitySync, ExecuteDurability: dex.StepDurabilitySync}
+	return &dex.StepOptions{
+		WaitForDurability:        dex.StepDurabilitySync,
+		ExecuteDurability:        dex.StepDurabilitySync,
+		ExecuteLoadAttributeMaps: []dex.AttributeDef{AgentMessagesAttributeMap},
+	}
 }
 
 // WaitFor waits for one QueuedUserMessages message.
@@ -696,8 +786,11 @@ func (step RunModel) GetStepOptions() *dex.StepOptions {
 			MaximumAttempts: modelCallMaximumAttempts,
 			TotalDuration:   modelCallRetryTotalDuration,
 		},
-		ExecuteDurability:        dex.StepDurabilitySync,
-		ExecuteLoadAttributeMaps: []dex.AttributeDef{AgentMessagesAttributeMap, AgentToolCallsAttributeMap},
+		ExecuteDurability: dex.StepDurabilitySync,
+		// Without compaction, the model input is every stored message, so RunModel loads every chunk.
+		ExecuteLoadAttributeMaps: []dex.AttributeDef{
+			AgentMessagesAttributeMap, AgentMessageChunksAttributeMap, AgentToolCallsAttributeMap,
+		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			RecordTurnFailure{session: step.session},
 			RecordTurnFailure{session: step.session}.GetStepOptions(),
@@ -1043,12 +1136,12 @@ type RecordTurnFailure struct {
 	session *AgentSessionFlow
 }
 
-// GetStepOptions retries quickly and loads the records and, for an incremental runner, the messages.
+// GetStepOptions retries quickly and loads the records, the window, and, for an incremental runner, the chunks.
 func (step RecordTurnFailure) GetStepOptions() *dex.StepOptions {
-	loads := []dex.AttributeDef{AgentToolCallsAttributeMap}
+	loads := []dex.AttributeDef{AgentToolCallsAttributeMap, AgentMessagesAttributeMap}
 	if step.session != nil {
 		if _, isIncremental := step.session.runner.(UnfinishedTurnMessageBuilder); isIncremental {
-			loads = append(loads, AgentMessagesAttributeMap)
+			loads = append(loads, AgentMessageChunksAttributeMap)
 		}
 	}
 	return recoveryStepOptions(loads)
@@ -1160,7 +1253,7 @@ func (flow *AgentSessionFlow) beginTurn(ctx dex.Context, state AgentState, text 
 	if userMessage.Role != MessageRoleUser {
 		return errors.New("BuildUserMessage must return a user message")
 	}
-	state, err = appendMessages(ctx, state, turnID, []FrameworkMessage{userMessage})
+	state, err = flow.appendMessages(ctx, state, turnID, []FrameworkMessage{userMessage}, true)
 	if err != nil {
 		return err
 	}
@@ -1242,7 +1335,17 @@ func (flow *AgentSessionFlow) turnContext(
 	toolCalls []AgentToolCall,
 	events *AgentEventWriter,
 ) (AgentTurnContext, error) {
-	messages, err := readMessages(ctx, 1, state.NextMessageSequence)
+	reader, err := newStoredMessageReader(ctx)
+	if err != nil {
+		return AgentTurnContext{}, err
+	}
+	if reader.firstSequence() > 1 {
+		// This core has no compaction, so its runner never receives the summary that covers them.
+		flow.options.logger.Warn("dex-agents: the session stores no messages before the oldest kept one; "+
+			"retention deleted them, and this runner cannot use the context summary that covers them",
+			"session", ctx.FlowID(), "first_sequence", reader.firstSequence())
+	}
+	messages, err := reader.readMessages(1, state.NextMessageSequence)
 	if err != nil {
 		return AgentTurnContext{}, err
 	}
@@ -1288,7 +1391,7 @@ func (flow *AgentSessionFlow) completeTurn(
 	if err != nil {
 		return err
 	}
-	state, err = appendMessages(ctx, state, turnID, outcome.NewMessages)
+	state, err = flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false)
 	if err != nil {
 		return err
 	}
@@ -1324,7 +1427,7 @@ func (flow *AgentSessionFlow) startToolCalls(
 	if err := validateToolCallsRequested(outcome, toolCalls); err != nil {
 		return nil, err
 	}
-	state, err := appendMessages(ctx, state, turnID, outcome.NewMessages)
+	state, err := flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1604,7 +1707,7 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 		}
 		messages = append(messages, note)
 	}
-	state, err := appendMessages(ctx, state, turnID, messages)
+	state, err := flow.appendMessages(ctx, state, turnID, messages, false)
 	if err != nil {
 		return err
 	}
@@ -1822,34 +1925,6 @@ func writeInterruptRaised(events *AgentEventWriter, interrupt AgentInterrupt) er
 	})
 }
 
-func appendMessages(ctx dex.Context, state AgentState, turnID string, messages []FrameworkMessage) (AgentState, error) {
-	sequence := state.NextMessageSequence
-	createdAt := formatRFC3339(time.Now())
-	for _, message := range messages {
-		stored := AgentMessage{
-			Sequence:      sequence,
-			TurnID:        turnID,
-			Role:          message.Role,
-			Text:          message.Text,
-			ToolCallID:    message.ToolCallID,
-			ToolName:      message.ToolName,
-			ToolArguments: message.ToolArguments,
-			ToolOutput:    message.ToolOutput,
-			FrameworkItem: message.FrameworkItem,
-			CreatedAt:     createdAt,
-		}
-		if err := AgentMessagesAttributeMap.Set(ctx, mustMessageSequenceKey(sequence), stored); err != nil {
-			return state, err
-		}
-		sequence++
-	}
-	state.NextMessageSequence = sequence
-	if err := AgentStateAttribute.Set(ctx, state); err != nil {
-		return state, err
-	}
-	return state, nil
-}
-
 func deleteTurnRecords(ctx dex.Context, toolCalls []AgentToolCall) error {
 	for _, toolCall := range toolCalls {
 		if err := AgentToolCallsAttributeMap.Delete(ctx, toolCall.ToolCallID); err != nil {
@@ -1874,29 +1949,6 @@ func removePendingInterrupt(ctx dex.Context, interruptID string) error {
 		}
 	}
 	return PendingInterruptsAttribute.Set(ctx, remaining)
-}
-
-// countMessagesAfterUserMessages counts the turn's stored messages after the user messages that started it.
-func countMessagesAfterUserMessages(ctx dex.Context, state AgentState, turnID string) (int64, error) {
-	var turnMessages []AgentMessage
-	for sequence := state.NextMessageSequence - 1; sequence > 0; sequence-- {
-		message, err := AgentMessagesAttributeMap.Get(ctx, mustMessageSequenceKey(sequence))
-		if err != nil {
-			return 0, err
-		}
-		if message.TurnID != turnID {
-			break
-		}
-		turnMessages = append([]AgentMessage{message}, turnMessages...)
-	}
-	leadingUserCount := len(turnMessages)
-	for index, message := range turnMessages {
-		if message.Role != MessageRoleUser {
-			leadingUserCount = index
-			break
-		}
-	}
-	return int64(len(turnMessages) - leadingUserCount), nil
 }
 
 func validateToolCallsRequested(outcome *ToolCallsRequested, toolCalls []AgentToolCall) error {
@@ -2087,18 +2139,6 @@ func readAgentUsage(ctx dex.Context) (AgentUsage, error) {
 		return AgentUsage{}, err
 	}
 	return *usage, nil
-}
-
-func readMessages(ctx dex.Context, start int64, end int64) ([]AgentMessage, error) {
-	messages := []AgentMessage{}
-	for sequence := max(1, start); sequence < end; sequence++ {
-		message, err := AgentMessagesAttributeMap.Get(ctx, mustMessageSequenceKey(sequence))
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, message)
-	}
-	return messages, nil
 }
 
 func readTurnToolCalls(ctx dex.Context, turnID *string) ([]AgentToolCall, error) {

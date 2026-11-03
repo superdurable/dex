@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,11 +27,17 @@ import (
 
 // The Flow types the scripted Worker serves.
 const (
-	scriptedAgentFlowType   = "ScriptedAgent"
-	deadlineAgentFlowType   = "DeadlineAgent"
-	checkpointAgentFlowType = "CheckpointAgent"
-	settingsAgentFlowType   = "SettingsAgent"
-	approvalDeadline        = 2 * time.Second
+	scriptedAgentFlowType     = "ScriptedAgent"
+	deadlineAgentFlowType     = "DeadlineAgent"
+	checkpointAgentFlowType   = "CheckpointAgent"
+	settingsAgentFlowType     = "SettingsAgent"
+	chunkedAgentFlowType      = "ChunkedAgent"
+	chunkedWindowSize         = 5
+	chunkedChunkSize          = 2
+	chunkedBytesAgentFlowType = "ChunkedBytesAgent"
+	chunkedBytesChunkSize     = 4
+	chunkedBytesMaxBytes      = 2000
+	approvalDeadline          = 2 * time.Second
 )
 
 type scriptedAgentFlows map[string]*dexagents.AgentSessionFlow
@@ -65,20 +72,37 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 		return nil, err
 	}
 	script := scriptedConversation{coordinationDir: coordinationDir}
-	newFlow := func(flowType string, options ...stepwise.AgentDefinitionOption) (dex.Flow, error) {
+	newFlow := func(
+		flowType string,
+		sessionOptions []dexagents.AgentSessionOption,
+		options ...stepwise.AgentDefinitionOption,
+	) (dex.Flow, error) {
 		definition, err := stepwise.NewAgentDefinition("scripted", "You are a scripted test agent.",
 			slowFirstAttemptModelClient{scripted: agentstest.NewScriptedModelClient(script.respond), coordinationDir: coordinationDir},
 			append([]stepwise.AgentDefinitionOption{stepwise.WithFunctionTools(lookupOrder, refundOrder, chargeCard)}, options...)...)
 		if err != nil {
 			return nil, err
 		}
-		return stepwise.NewStepwiseAgentSessionFlow(definition, flowType)
+		return stepwise.NewStepwiseAgentSessionFlow(definition, flowType, sessionOptions...)
 	}
-	scripted, err := newFlow(scriptedAgentFlowType)
+	scripted, err := newFlow(scriptedAgentFlowType, nil)
 	if err != nil {
 		return nil, err
 	}
-	deadline, err := newFlow(deadlineAgentFlowType, stepwise.WithInterruptDeadline(approvalDeadline))
+	deadline, err := newFlow(deadlineAgentFlowType, nil, stepwise.WithInterruptDeadline(approvalDeadline))
+	if err != nil {
+		return nil, err
+	}
+	chunked, err := newFlow(chunkedAgentFlowType, []dexagents.AgentSessionOption{
+		dexagents.WithMessageWindowSize(chunkedWindowSize), dexagents.WithMessageChunkSize(chunkedChunkSize),
+	})
+	if err != nil {
+		return nil, err
+	}
+	chunkedBytes, err := newFlow(chunkedBytesAgentFlowType, []dexagents.AgentSessionOption{
+		dexagents.WithMessageWindowSize(chunkedWindowSize), dexagents.WithMessageChunkSize(chunkedBytesChunkSize),
+		dexagents.WithMessageChunkMaxBytes(chunkedBytesMaxBytes),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +129,7 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []dex.Flow{scripted, deadline, checkpoint, settings}, nil
+	return []dex.Flow{scripted, deadline, checkpoint, chunked, chunkedBytes, settings}, nil
 }
 
 // newSettingsAgentFlow builds an agent whose model resolver picks the model the session settings name.
@@ -276,6 +300,14 @@ func (script scriptedConversation) respond(request stepwise.ModelRequest) (agent
 			return toolCalls(agentstest.ScriptedToolCall{ToolName: "charge_card", Arguments: `{"amount": 7, "block": true}`}), nil
 		}
 		return agentstest.ScriptedModelReply{Text: "Charge result: " + outputs[0]}, nil
+	case strings.HasPrefix(lastText, "pad "):
+		characters, err := strconv.Atoi(strings.TrimPrefix(lastText, "pad "))
+		if err != nil {
+			return agentstest.ScriptedModelReply{}, err
+		}
+		return agentstest.ScriptedModelReply{Text: strings.Repeat("x", characters)}, nil
+	case lastText == "count user texts":
+		return agentstest.ScriptedModelReply{Text: fmt.Sprintf("I see %d user texts", len(userTexts))}, nil
 	case lastText == "think slowly":
 		return agentstest.ScriptedModelReply{Text: fmt.Sprintf("answered on attempt %d", request.Metadata.Attempt)}, nil
 	default:
