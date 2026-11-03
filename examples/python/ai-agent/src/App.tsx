@@ -118,14 +118,71 @@ interface LiveOutput {
   reasoning: string;
 }
 
+// POST /sessions returns a token for the new session; every session route checks it.
+const SESSION_TOKEN_HEADER = 'X-Agent-Session-Token';
+const sessionTokenKey = (sessionId: string) => `ai-agent-session-token:${sessionId}`;
+
+const readSessionToken = (sessionId: string): string => {
+  try {
+    return window.localStorage.getItem(sessionTokenKey(sessionId)) ?? '';
+  } catch {
+    return '';
+  }
+};
+
+const saveSessionToken = (sessionId: string, token: string) => {
+  try {
+    window.localStorage.setItem(sessionTokenKey(sessionId), token);
+  } catch {
+    // Without storage the session works until the page reloads.
+  }
+};
+
+const sessionHeaders = (sessionId: string): Record<string, string> => ({
+  [SESSION_TOKEN_HEADER]: readSessionToken(sessionId),
+});
+
 const postJson = async (path: string, body: Record<string, unknown>): Promise<{ accepted?: boolean }> => {
+  const sessionId = typeof body.session_id === 'string' ? body.session_id : '';
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(sessionId ? sessionHeaders(sessionId) : {}) },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
+};
+
+class HttpStatusError extends Error {}
+
+/** Reads `id:` and `data:` lines of Server-Sent Events until the response ends or the signal aborts. */
+const readServerSentEvents = async (
+  url: string,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  onMessage: (eventId: string, data: string) => void,
+): Promise<void> => {
+  const response = await fetch(url, { headers, signal });
+  if (!response.ok || response.body === null) throw new HttpStatusError(await response.text());
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffered += value;
+    let frameEnd = buffered.indexOf('\n\n');
+    while (frameEnd >= 0) {
+      let eventId = '';
+      const dataLines: string[] = [];
+      for (const line of buffered.slice(0, frameEnd).split('\n')) {
+        if (line.startsWith('id:')) eventId = line.slice(3).trim();
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+      }
+      if (dataLines.length > 0) onMessage(eventId, dataLines.join('\n'));
+      buffered = buffered.slice(frameEnd + 2);
+      frameEnd = buffered.indexOf('\n\n');
+    }
+  }
 };
 
 const describeEvent = (event: AgentEvent): string => {
@@ -159,6 +216,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<WorkerSettings | null>(null);
   const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(null);
   const [resumeToken, setResumeToken] = useState<string | null>(null);
+  const [streamAttempt, setStreamAttempt] = useState(0);
   const [liveOutputs, setLiveOutputs] = useState<LiveOutput[]>([]);
   const [activity, setActivity] = useState<{ key: string; type: string; detail: string }[]>([]);
   const [input, setInput] = useState('');
@@ -182,7 +240,9 @@ const App: React.FC = () => {
 
   const loadSnapshot = useCallback(async () => {
     if (!sessionId) return;
-    const response = await fetch(`${API_BASE}/snapshot?session_id=${encodeURIComponent(sessionId)}`);
+    const response = await fetch(`${API_BASE}/snapshot?session_id=${encodeURIComponent(sessionId)}`, {
+      headers: sessionHeaders(sessionId),
+    });
     if (!response.ok) throw new Error(await response.text());
     const payload = await response.json() as { snapshot: AgentSnapshot; resume_token: string };
     setSnapshot(payload.snapshot);
@@ -217,9 +277,11 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!sessionId || resumeToken === null) return;
     const query = new URLSearchParams({ session_id: sessionId, resume_token: resumeToken });
-    const events = new EventSource(`${API_BASE}/events?${query}`);
-    events.onmessage = (message) => {
-      const event = JSON.parse(message.data) as AgentEvent;
+    const abort = new AbortController();
+    let lastEventId = '';
+    const onMessage = (eventId: string, data: string) => {
+      lastEventId = eventId;
+      const event = JSON.parse(data) as AgentEvent;
       if (event.type === 'text_delta' || event.type === 'reasoning_delta') {
         const { text } = JSON.parse(event.payload) as { text: string };
         setLiveOutputs((current) => {
@@ -239,16 +301,30 @@ const App: React.FC = () => {
       if (MODEL_CALL_END_EVENTS.has(event.type)) endedModelCalls.current.add(event.step_execution_id);
       setActivity((current) => [
         ...current,
-        { key: message.lastEventId, type: event.type, detail: describeEvent(event) },
+        { key: eventId, type: event.type, detail: describeEvent(event) },
       ].slice(-30));
       if (REFRESH_EVENTS.has(event.type)) requestRefresh();
     };
-    events.onerror = () => {
-      // A rejected resume token closes the stream; reload the snapshot and reopen from its token.
-      if (events.readyState === EventSource.CLOSED) setResumeToken(null);
-    };
-    return () => events.close();
-  }, [sessionId, resumeToken, requestRefresh]);
+    // EventSource cannot send the session token header, so the page reads the stream with fetch.
+    void readServerSentEvents(`${API_BASE}/events?${query}`, sessionHeaders(sessionId), abort.signal, onMessage)
+      .then(
+        () => true,
+        (reason) => !(reason instanceof HttpStatusError),
+      )
+      .then(async (canResume) => {
+        if (abort.signal.aborted) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        if (abort.signal.aborted) return;
+        // Resume after the last event; a rejected request reloads the snapshot and reopens from its token.
+        if (canResume && lastEventId) {
+          setResumeToken(lastEventId);
+          setStreamAttempt((attempt) => attempt + 1);
+        } else {
+          setResumeToken(null);
+        }
+      });
+    return () => abort.abort();
+  }, [sessionId, resumeToken, streamAttempt, requestRefresh]);
 
   useEffect(() => {
     if (sessionId && resumeToken === null && snapshot !== null) {
@@ -284,7 +360,7 @@ const App: React.FC = () => {
     const before = conversation[0]?.sequence;
     if (!before) return;
     const query = new URLSearchParams({ session_id: sessionId, before_sequence: String(before) });
-    const response = await fetch(`${API_BASE}/history?${query}`);
+    const response = await fetch(`${API_BASE}/history?${query}`, { headers: sessionHeaders(sessionId) });
     if (!response.ok) {
       setError(await response.text());
       return;
@@ -294,11 +370,11 @@ const App: React.FC = () => {
   };
 
   const startSession = async () => {
-    const newSessionId = crypto.randomUUID();
     await run(async () => {
-      await postJson('/sessions', { session_id: newSessionId });
-      window.history.replaceState({}, '', `${window.location.pathname}?session_id=${newSessionId}`);
-      setSessionId(newSessionId);
+      const started = await postJson('/sessions', {}) as { session_id: string; session_token: string };
+      saveSessionToken(started.session_id, started.session_token);
+      window.history.replaceState({}, '', `${window.location.pathname}?session_id=${started.session_id}`);
+      setSessionId(started.session_id);
       return {};
     }, '');
   };

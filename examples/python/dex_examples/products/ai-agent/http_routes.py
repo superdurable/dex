@@ -16,6 +16,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -27,7 +30,7 @@ from dex_agents.stepwise import StepwiseAgentRunner
 from dex_agents.ui_stream import AGENT_EVENT_STREAM_HEADERS, InvalidAgentEventResumeTokenError
 from dex_agents.ui_stream import read_agent_event_stream_snapshot, stream_agent_event_frames
 from quart import Blueprint, Response, jsonify, make_response, render_template, request
-from werkzeug.exceptions import BadRequest, Conflict, NotFound
+from werkzeug.exceptions import BadRequest, Conflict, Forbidden, NotFound
 
 from dex_examples.app import ExampleApp
 from dex_examples.shared.query import optional_query, required_query
@@ -35,6 +38,12 @@ from dex_examples.shared.query import optional_query, required_query
 WEB_ROOT = Path(__file__).resolve().parents[3] / "ai-agent"
 TEMPLATE_DIR = WEB_ROOT / "templates"
 STATIC_DIR = WEB_ROOT / "static"
+SESSION_TOKEN_HEADER = "X-Agent-Session-Token"
+
+
+def sign_session_id(session_key: bytes, session_id: str) -> str:
+    """Returns the session token: an HMAC of the session ID, so no token is stored anywhere."""
+    return hmac.new(session_key, session_id.encode(), hashlib.sha256).hexdigest()
 
 
 def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
@@ -42,6 +51,19 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     def sessions() -> AgentSessionClient:
         return AgentSessionClient(app_state.client, app_state.ai_agent)
+
+    def authorize_session(session_id: str) -> str:
+        # Every route that names a session checks its token before any Dex call.
+        expected = sign_session_id(app_state.config.agent_session_key, session_id)
+        if not hmac.compare_digest(request.headers.get(SESSION_TOKEN_HEADER, ""), expected):
+            raise Forbidden("this browser has no token for the AI Agent session")
+        return session_id
+
+    async def session_request() -> tuple[dict[str, Any], str]:
+        body = await request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise BadRequest("the request body must be a JSON object")
+        return body, authorize_session(_required_string(body, "session_id"))
 
     @blueprint.errorhandler(FlowNotActiveOrNotFoundError)
     async def report_closed_session(error: FlowNotActiveOrNotFoundError) -> tuple[str, int]:
@@ -79,13 +101,15 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/sessions")
     async def start_session() -> Response:
-        _, session_id = await _session_request()
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"ai-agent-{uuid.uuid4()}"
         await sessions().start_session(session_id)
-        return jsonify(session_id=session_id)
+        session_token = sign_session_id(app_state.config.agent_session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
 
     @blueprint.get("/snapshot")
     async def get_agent_snapshot() -> Response:
-        session_id = required_query("session_id")
+        session_id = authorize_session(required_query("session_id"))
         try:
             snapshot = await read_agent_event_stream_snapshot(
                 app_state.client, app_state.ai_agent, session_id
@@ -96,7 +120,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/history")
     async def list_agent_messages() -> Response:
-        session_id = required_query("session_id")
+        session_id = authorize_session(required_query("session_id"))
         before_sequence = optional_query("before_sequence", "")
         if before_sequence and not before_sequence.isdigit():
             raise BadRequest("before_sequence must be a message sequence")
@@ -110,7 +134,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/events")
     async def stream_agent_events() -> Response:
-        session_id = required_query("session_id")
+        session_id = authorize_session(required_query("session_id"))
         try:
             await sessions().get_agent_snapshot(session_id)
         except FlowNotActiveOrNotFoundError as error:
@@ -128,7 +152,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/messages")
     async def send_user_message() -> Response:
-        body, session_id = await _session_request()
+        body, session_id = await session_request()
         accepted = await sessions().send_user_message(
             session_id, _required_string(body, "text"), plan_mode=body.get("plan_mode") is True
         )
@@ -136,7 +160,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/messages/steer")
     async def steer_user_message() -> Response:
-        body, session_id = await _session_request()
+        body, session_id = await session_request()
         try:
             accepted = await sessions().steer_user_message(
                 session_id, message_id=body.get("message_id"), text=body.get("text")
@@ -147,7 +171,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/messages/delete")
     async def delete_queued_message() -> Response:
-        body, session_id = await _session_request()
+        body, session_id = await session_request()
         message_id = _required_string(body, "message_id")
         try:
             accepted = await sessions().delete_queued_message(session_id, message_id)
@@ -157,12 +181,12 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/turns/cancel")
     async def cancel_turn() -> Response:
-        body, session_id = await _session_request()
+        body, session_id = await session_request()
         return jsonify(accepted=await sessions().cancel_turn(session_id, body.get("turn_id")))
 
     @blueprint.post("/interrupts/resolve")
     async def resolve_interrupt() -> Response:
-        body, session_id = await _session_request()
+        body, session_id = await session_request()
         interrupt_id = _required_string(body, "interrupt_id")
         if not isinstance(approved := body.get("approved"), bool):
             raise BadRequest("approved must be a boolean")
@@ -171,7 +195,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/questions/answer")
     async def answer_question() -> Response:
-        body, session_id = await _session_request()
+        body, session_id = await session_request()
         interrupt_id = _required_string(body, "interrupt_id")
         answer = await sessions().answer_question(
             session_id, interrupt_id, _required_string(body, "answer")
@@ -180,19 +204,12 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/plans/execute")
     async def execute_plan() -> Response:
-        body, session_id = await _session_request()
+        body, session_id = await session_request()
         if not isinstance(revision := body.get("revision"), int):
             raise BadRequest("revision must be an integer")
         return jsonify(accepted=await sessions().execute_plan(session_id, revision))
 
     return blueprint
-
-
-async def _session_request() -> tuple[dict[str, Any], str]:
-    body = await request.get_json(silent=True)
-    if not isinstance(body, dict):
-        raise BadRequest("the request body must be a JSON object")
-    return body, _required_string(body, "session_id")
 
 
 def _required_string(body: dict[str, Any], name: str) -> str:

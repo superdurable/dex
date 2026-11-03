@@ -49,6 +49,7 @@ from tests.integ.ai_agent_sessions import (
 from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
 from dex_examples.products.ai_agent.ai_agent_session import load_mcp_servers
+from dex_examples.products.ai_agent.http_routes import SESSION_TOKEN_HEADER, sign_session_id
 
 PLANNING_REJECTION = "a planning turn can only call write_todos"
 
@@ -440,15 +441,21 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     monkeypatch.setattr(client, "wait_for_flow", reject_lifecycle_probe)
     http_client = create_app(app).test_client()
     response = await http_client.get(
-        "/products/ai-agent/snapshot", query_string={"session_id": session_id}
+        "/products/ai-agent/snapshot",
+        query_string={"session_id": session_id},
+        headers={SESSION_TOKEN_HEADER: sign_session_id(app.config.agent_session_key, session_id)},
     )
     assert response.status_code == 200
     payload = await response.get_json()
     assert payload["snapshot"]["messages"]
     assert payload["snapshot"]["state"] is not None
+    missing_session_id = new_flow_id("missing-ai-agent")
     missing_response = await http_client.get(
         "/products/ai-agent/snapshot",
-        query_string={"session_id": new_flow_id("missing-ai-agent")},
+        query_string={"session_id": missing_session_id},
+        headers={
+            SESSION_TOKEN_HEADER: sign_session_id(app.config.agent_session_key, missing_session_id)
+        },
     )
     assert missing_response.status_code == 404
 
@@ -515,3 +522,57 @@ async def _wait_for_port(port: int, process: asyncio.subprocess.Process) -> None
         except OSError:
             await asyncio.sleep(0.05)
     raise RuntimeError("MCP HTTP server did not become ready")
+
+
+async def test_ai_agent_routes_need_the_token_of_the_session_they_name(
+    app: ExampleApp,
+    sessions: AgentSessionClient,
+) -> None:
+    http_client = create_app(app).test_client()
+    started = await (await http_client.post("/products/ai-agent/sessions", json={})).get_json()
+    other = await (await http_client.post("/products/ai-agent/sessions", json={})).get_json()
+    session_id, token = started["session_id"], started["session_token"]
+    assert session_id != other["session_id"]
+    await send_user_message(sessions, session_id, '/tool test__publish {"message":"token"}')
+    interrupt = await wait_for_snapshot(
+        sessions,
+        session_id,
+        "MCP write approval",
+        lambda snapshot: pending_interrupt(snapshot, InterruptKind.TOOL_APPROVAL),
+    )
+    approval = {"session_id": session_id, "interrupt_id": interrupt.interrupt_id, "approved": True}
+    query = {"session_id": session_id}
+
+    for headers in ({}, {SESSION_TOKEN_HEADER: "wrong"}, {SESSION_TOKEN_HEADER: other["session_token"]}):
+        for path in ("snapshot", "history", "events"):
+            response = await http_client.get(
+                f"/products/ai-agent/{path}", query_string=query, headers=headers
+            )
+            assert response.status_code == 403, path
+        response = await http_client.post(
+            "/products/ai-agent/interrupts/resolve", json=approval, headers=headers
+        )
+        assert response.status_code == 403
+        response = await http_client.post(
+            "/products/ai-agent/messages", json={**query, "text": "hello"}, headers=headers
+        )
+        assert response.status_code == 403
+    assert pending_interrupt(
+        await sessions.get_agent_snapshot(session_id), InterruptKind.TOOL_APPROVAL
+    )
+
+    response = await http_client.post(
+        "/products/ai-agent/interrupts/resolve",
+        json=approval,
+        headers={SESSION_TOKEN_HEADER: token},
+    )
+    assert response.status_code == 200
+    assert (await response.get_json())["accepted"] is True
+    response = await http_client.get(
+        "/products/ai-agent/snapshot", query_string=query, headers={SESSION_TOKEN_HEADER: token}
+    )
+    assert response.status_code == 200
+    assert "Access-Control-Allow-Origin" not in response.headers
+    preflight = await http_client.options("/products/ai-agent/interrupts/resolve")
+    assert "Access-Control-Allow-Origin" not in preflight.headers
+    await wait_for_message_text(sessions, session_id, "Local demo response: published:token")

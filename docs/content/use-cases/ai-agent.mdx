@@ -104,7 +104,11 @@ Text, reasoning summaries, tool activity, approvals, and plan updates arrive on 
 ```python
     @blueprint.get("/events")
     async def stream_agent_events() -> Response:
-        session_id = required_query("session_id")
+        session_id = authorize_session(required_query("session_id"))
+        try:
+            await sessions().get_agent_snapshot(session_id)
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the AI Agent session is missing or no longer retained") from error
         resume_token = request.headers.get("Last-Event-ID") or request.args.get("resume_token", "")
         try:
             frames = await stream_agent_event_frames(
@@ -121,6 +125,37 @@ Text, reasoning summaries, tool activity, approvals, and plan updates arrive on 
 </SdkTabs>
 
 The page first loads the session snapshot with the resume token to open the Stream from. A reconnecting browser resumes from the last event it saw. Stream delivery is best effort, so the page reloads the snapshot after every turn and every eight seconds. The conversation always comes from the snapshot, which holds the newest 200 messages. **Load older messages** pages back through **list_agent_messages**.
+
+## Session access
+
+A session ID is not a secret: it appears in the page URL. So every route that names a session also checks the session's token before it calls Dex. **POST /sessions** picks a new session ID and returns its token. The token is an HMAC-SHA256 of the session ID under **DEX_AGENT_SESSION_KEY**, so the example stores no token, and every process with the same key accepts it. A route that gets a missing or different **X-Agent-Session-Token** header answers 403.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/http_routes.py'}}>
+<SdkSnippet lang="python">
+
+```python
+    def authorize_session(session_id: str) -> str:
+        # Every route that names a session checks its token before any Dex call.
+        expected = sign_session_id(app_state.config.agent_session_key, session_id)
+        if not hmac.compare_digest(request.headers.get(SESSION_TOKEN_HEADER, ""), expected):
+            raise Forbidden("this browser has no token for the AI Agent session")
+        return session_id
+
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"ai-agent-{uuid.uuid4()}"
+        await sessions().start_session(session_id)
+        session_token = sign_session_id(app_state.config.agent_session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The browser keeps each token in local storage and sends the header with every request. It reads the event stream with **fetch** instead of **EventSource**, which cannot send a header. The AI Agent routes send no CORS headers, so a page on another origin cannot call them.
+
+Without **DEX_AGENT_SESSION_KEY**, the process picks a random key when it starts, and a restart ends access to the sessions started before it. A real application replaces the token with its own sign-in and checks that the user may use the session.
 
 ## Run the example
 

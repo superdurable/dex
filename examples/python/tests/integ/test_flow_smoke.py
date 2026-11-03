@@ -25,6 +25,7 @@ import pytest_asyncio
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
+from dex_examples.products.ai_agent.http_routes import SESSION_TOKEN_HEADER, sign_session_id
 from dex_agents import AgentSessionClient
 from tests.integ.conftest import WAIT_TIMEOUT
 from tests.integ.ai_agent_sessions import (
@@ -121,10 +122,7 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
         ),
         FlowSmokeEntry(
             "products/ai-agent",
-            lambda c: _ai_agent_trigger(
-                c,
-                new_id("ai-agent"),
-            ),
+            lambda c: _ai_agent_trigger(c),
         ),
         FlowSmokeEntry(
             "patterns/polling",
@@ -418,12 +416,16 @@ async def _rpc_only_pattern_trigger(
     return flow_id, run_id
 
 
-async def _ai_agent_trigger(
-    client: FlowSmokeHttpClient,
-    session_id: str,
-) -> tuple[str, str]:
-    await client.post("/products/ai-agent/sessions", {"session_id": session_id})
+async def _ai_agent_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
+    session_id, _ = await _start_ai_agent_session(client)
     return session_id, ""
+
+
+async def _start_ai_agent_session(client: FlowSmokeHttpClient) -> tuple[str, dict[str, str]]:
+    """Starts a session over HTTP; returns its ID and the header that authorizes its routes."""
+    _, _, body = await client.post("/products/ai-agent/sessions", {})
+    started = json.loads(body)
+    return started["session_id"], {SESSION_TOKEN_HEADER: started["session_token"]}
 
 
 async def test_ai_agent_settings_show_the_worker_configuration(
@@ -444,41 +446,47 @@ async def test_ai_agent_http_queue_can_delete_and_steer(
     example_app: ExampleApp,
 ) -> None:
     sessions = AgentSessionClient(example_app.client, example_app.ai_agent)
-    session_id = flow_smoke_http.new_flow_id("ai-agent-queue")
-    await flow_smoke_http.post("/products/ai-agent/sessions", {"session_id": session_id})
+    session_id, token = await _start_ai_agent_session(flow_smoke_http)
     await flow_smoke_http.post(
         "/products/ai-agent/messages",
         {"session_id": session_id, "text": "/wait 30 queue test"},
+        headers=token,
     )
     await wait_for_snapshot(sessions, session_id, "durable wait", is_waiting_for_timer)
     await flow_smoke_http.post(
         "/products/ai-agent/messages",
         {"session_id": session_id, "text": "delete this"},
+        headers=token,
     )
     _, _, snapshot_body = await flow_smoke_http.get(
         "/products/ai-agent/snapshot",
         {"session_id": session_id},
+        headers=token,
     )
     queued = json.loads(snapshot_body)["snapshot"]["queued_messages"]
     assert [message["message"]["text"] for message in queued] == ["delete this"]
     _, _, deleted_body = await flow_smoke_http.post(
         "/products/ai-agent/messages/delete",
         {"session_id": session_id, "message_id": queued[0]["message_id"]},
+        headers=token,
     )
     assert json.loads(deleted_body) == {"accepted": True}
 
     await flow_smoke_http.post(
         "/products/ai-agent/messages",
         {"session_id": session_id, "text": "steer this"},
+        headers=token,
     )
     _, _, snapshot_body = await flow_smoke_http.get(
         "/products/ai-agent/snapshot",
         {"session_id": session_id},
+        headers=token,
     )
     queued = json.loads(snapshot_body)["snapshot"]["queued_messages"]
     _, _, steered_body = await flow_smoke_http.post(
         "/products/ai-agent/messages/steer",
         {"session_id": session_id, "message_id": queued[0]["message_id"]},
+        headers=token,
     )
     assert json.loads(steered_body) == {"accepted": True}
     await wait_for_message_text(sessions, session_id, "Local demo response: steer this")
@@ -490,16 +498,19 @@ async def test_ai_agent_http_history_events_and_closed_sessions(
 ) -> None:
     sessions = AgentSessionClient(example_app.client, example_app.ai_agent)
     http_client = create_app(example_app).test_client()
-    session_id = flow_smoke_http.new_flow_id("ai-agent-history")
-    await flow_smoke_http.post("/products/ai-agent/sessions", {"session_id": session_id})
+    session_id, token = await _start_ai_agent_session(flow_smoke_http)
     for index in range(3):
         await flow_smoke_http.post(
-            "/products/ai-agent/messages", {"session_id": session_id, "text": f"page {index}"}
+            "/products/ai-agent/messages",
+            {"session_id": session_id, "text": f"page {index}"},
+            headers=token,
         )
         await wait_for_message_text(sessions, session_id, f"Local demo response: page {index}")
 
     _, _, history_body = await flow_smoke_http.get(
-        "/products/ai-agent/history", {"session_id": session_id, "before_sequence": "5"}
+        "/products/ai-agent/history",
+        {"session_id": session_id, "before_sequence": "5"},
+        headers=token,
     )
     history = json.loads(history_body)
     assert [message["sequence"] for message in history["messages"]] == [1, 2, 3, 4]
@@ -508,19 +519,25 @@ async def test_ai_agent_http_history_events_and_closed_sessions(
     bad_anchor = await http_client.get(
         "/products/ai-agent/history",
         query_string={"session_id": session_id, "before_sequence": "first"},
+        headers=token,
     )
     assert bad_anchor.status_code == 400
 
+    missing_session_id = flow_smoke_http.new_flow_id("missing-ai-agent")
+    missing_token = sign_session_id(example_app.config.agent_session_key, missing_session_id)
     missing_events = await http_client.get(
         "/products/ai-agent/events",
-        query_string={"session_id": flow_smoke_http.new_flow_id("missing-ai-agent")},
+        query_string={"session_id": missing_session_id},
+        headers={SESSION_TOKEN_HEADER: missing_token},
     )
     assert missing_events.status_code == 404
 
     await example_app.client.stop_flow(session_id)
     await example_app.client.wait_for_flow(session_id, WAIT_TIMEOUT)
     closed = await http_client.post(
-        "/products/ai-agent/messages", json={"session_id": session_id, "text": "too late"}
+        "/products/ai-agent/messages",
+        json={"session_id": session_id, "text": "too late"},
+        headers=token,
     )
     assert closed.status_code == 409
     assert "session is closed" in await closed.get_data(as_text=True)

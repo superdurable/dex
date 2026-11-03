@@ -51,6 +51,25 @@ Events with the library's `dex_agents.ui_stream` helpers. A reconnecting
 browser resumes from the last event it saw. The Stream is best effort: the
 page reloads the snapshot after every turn and every eight seconds.
 
+## Session tokens
+
+A session ID is not a secret: it appears in the page URL. So every route that
+names a session checks the session's token first. `POST /sessions` picks a new
+session ID and returns `session_id` and `session_token`. Every route that
+takes a `session_id` needs that token in the `X-Agent-Session-Token` header,
+and answers 403 without it or with another session's token.
+
+The token is an HMAC-SHA256 of the session ID under `DEX_AGENT_SESSION_KEY`,
+so the example stores no token, and every process with the same key accepts
+it. Without the variable, the process picks a random key when it starts, so a
+restart ends access to the sessions started before it. The UI keeps each
+token in the browser's local storage and reads the event stream with `fetch`,
+because `EventSource` cannot send a header. The AI Agent routes send no CORS
+headers, so only the example's own page can call them.
+
+A real application uses its own sign-in instead and checks that the signed-in
+user may use the session before every call.
+
 ## Features
 
 - **Queue and steer.** A message sent while a turn runs waits in the queue.
@@ -95,6 +114,7 @@ npm ci
 npm run build
 cd ..
 export DEX_AGENT_MCP_CONFIG="$PWD/ai-agent/mcp-servers.local.yaml"
+export DEX_AGENT_SESSION_KEY="$(openssl rand -hex 32)"
 uv run --frozen python main.py
 ```
 
@@ -134,6 +154,7 @@ ever comes from a browser or from Flow input.
 | `DEX_AGENT_SYSTEM_PROMPT` | a general prompt | The agent's instructions |
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | The context window that compaction keeps the model input under |
 | `DEX_AGENT_MCP_CONFIG` | none | The MCP server file |
+| `DEX_AGENT_SESSION_KEY` | random at each start | The key that signs session tokens; keep it set so tokens survive a restart |
 
 Add the provider credential that LiteLLM reads to `examples/.env`, for example
 `OPENAI_API_KEY="..."`, and restart the Worker. The credential stays in the
@@ -185,7 +206,8 @@ are not enabled.
 
 Dex stores the conversation, the plan, and each pending approval, timer, and
 question in the session, so you can hard-kill the engine and the Worker at any
-point:
+point. Restart the Worker in the same shell, so `DEX_AGENT_SESSION_KEY` stays
+the same and the page keeps its session:
 
 ```bash
 kill -9 $(pgrep -f 'dex-server-zd dev')   # the engine; dexcli dev exits with it
