@@ -12,7 +12,9 @@ import {
   agentEventCodec,
   agentInterruptListCodec,
   agentInterruptResolutionCodec,
+  agentMessageChunkCodec,
   agentMessageCodec,
+  agentMessageIndexCodec,
   agentPlanCodec,
   agentStateCodec,
   agentToolCallCodec,
@@ -22,6 +24,7 @@ import {
   contextSummaryCodec,
   sessionSettingsCodec,
   turnSessionSettingsCodec,
+  turnReplySequenceCodec,
   toolCallCancellationCodec,
   toolCallCompletedCodec,
   turnCancellationRequestCodec,
@@ -32,6 +35,8 @@ import type {
   AgentInterrupt,
   AgentInterruptResolution,
   AgentMessage,
+  AgentMessageChunk,
+  AgentMessageIndex,
   AgentPlan,
   AgentState,
   AgentToolCallRecord,
@@ -40,6 +45,7 @@ import type {
   PlanExecutionRequest,
   ContextSummary,
   SessionSettings,
+  TurnReplySequence,
   TurnSessionSettings,
   ToolCallCancellation,
   ToolCallCompleted,
@@ -67,8 +73,21 @@ export const defaultAgentEventsCapacityBytes = 10 * 1024 * 1024;
 export interface AgentSessionPersistence {
   /** The `AgentState` Attribute. It is always set after `StartAgentSession`. */
   readonly agentState: Attribute<AgentState>;
-  /** The `AgentMessages` AttributeMap, keyed by sequence as 12-digit zero-padded decimal. */
+  /**
+   * The `AgentMessages` AttributeMap: the window of the newest messages, one instance per message, keyed by
+   * {@link messageSequenceKey}. Older messages are in {@link agentMessageChunks}; see {@link agentMessageIndex}.
+   */
   readonly agentMessages: AttributeMap<AgentMessage>;
+  /**
+   * The `AgentMessageChunks` AttributeMap: immutable archive chunks of older messages, keyed by
+   * {@link messageSequenceKey} of each chunk's first sequence.
+   */
+  readonly agentMessageChunks: AttributeMap<AgentMessageChunk>;
+  /**
+   * The `AgentMessageIndex` Attribute: where the window and the retained chunks start. A session that a 0.1.0
+   * Worker wrote has none until its first write on this version.
+   */
+  readonly agentMessageIndex: Attribute<AgentMessageIndex>;
   /** The `FrameworkRunState` Attribute: opaque framework JSON, set only while a turn is suspended. */
   readonly frameworkRunState: Attribute<string>;
   /** The `AgentToolCalls` AttributeMap, keyed by tool call ID; holds only the active turn's records. */
@@ -135,6 +154,11 @@ export interface AgentSessionPersistence {
    * `SessionSettings` when the turn began. A copy from an earlier turn reads as no settings.
    */
   readonly turnSessionSettings: Attribute<TurnSessionSettings>;
+  /**
+   * The `TurnReplySequence` Attribute: where the latest turn's replies start, tagged with its turn. The Step
+   * that starts a turn writes it; turn events count the replies from it.
+   */
+  readonly turnReplySequence: Attribute<TurnReplySequence>;
 }
 
 export function createAgentSessionPersistence(
@@ -143,6 +167,8 @@ export function createAgentSessionPersistence(
   return {
     agentState: new Attribute("AgentState", agentStateCodec),
     agentMessages: new AttributeMap("AgentMessages", agentMessageCodec),
+    agentMessageChunks: new AttributeMap("AgentMessageChunks", agentMessageChunkCodec),
+    agentMessageIndex: new Attribute("AgentMessageIndex", agentMessageIndexCodec),
     frameworkRunState: new Attribute("FrameworkRunState", stringCodec),
     agentToolCalls: new AttributeMap("AgentToolCalls", agentToolCallCodec),
     pendingInterrupts: new Attribute("PendingInterrupts", agentInterruptListCodec),
@@ -162,11 +188,16 @@ export function createAgentSessionPersistence(
     contextSummary: new Attribute("ContextSummary", contextSummaryCodec),
     sessionSettings: new Attribute("SessionSettings", sessionSettingsCodec),
     turnSessionSettings: new Attribute("TurnSessionSettings", turnSessionSettingsCodec),
+    turnReplySequence: new Attribute("TurnReplySequence", turnReplySequenceCodec),
   };
 }
 
 /**
- * Returns the `AgentMessages` map instance of a message sequence.
+ * Returns the `AgentMessages` map instance of a message sequence, which is also the `AgentMessageChunks`
+ * instance of a chunk that starts at that sequence.
+ *
+ * A message stays in `AgentMessages` only while it is in the window; read older ones from their chunk, or
+ * page through all of them with `list_agent_messages`.
  *
  * @example
  * ```ts

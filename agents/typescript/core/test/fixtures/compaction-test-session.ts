@@ -13,7 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AgentMessage, AgentSnapshot } from "../../src/index.js";
+import { agentMessageChunkCodec, agentMessageCodec } from "../../src/agent-session-codecs.js";
+import type { Attribute } from "@superdurable/dex";
+
+import { messageSequenceKey, type AgentMessage, type AgentMessageIndex, type AgentSnapshot } from "../../src/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -85,23 +88,42 @@ export function newToken(): string {
   return randomUUID().slice(0, 8);
 }
 
-/** What one storage session left behind: its last snapshot, messages, and Flow status. */
+/** Stored message bytes of a session after a number of turns. */
+export interface StoredMessageMeasurement {
+  readonly turns: number;
+  /** Encoded size of every `AgentMessages` window instance plus every `AgentMessageChunks` instance. */
+  readonly storedBytes: number;
+  /**
+   * Encoded size of every Attribute value and map instance the session holds: the messages above plus the
+   * index, state, usage, summary, plan, interrupts, run state, settings, and trace context. Superseded values
+   * that the history window keeps are not included.
+   */
+  readonly liveStateBytes: number;
+  /** Messages the session still stores. */
+  readonly keptMessages: number;
+}
+
+/** What one storage session left behind: its measurements, last snapshot, messages, and Flow status. */
 export interface PaddedSession {
+  readonly measurements: readonly StoredMessageMeasurement[];
   readonly snapshot: AgentSnapshot;
   readonly messages: readonly AgentMessage[];
+  /** The session's `AgentMessageIndex` at the end. */
+  readonly messageIndex: AgentMessageIndex | undefined;
   readonly flowStatus: string;
   readonly elapsedSeconds: number;
 }
 
 /**
- * Queues `turns` turns of a 100-character question and a 600-character answer on a private engine with
- * the given `dex-server-zd` configuration, or its defaults, then waits for the last turn or a closed
- * session.
+ * Runs turns of a 100-character question and a 600-character answer on a private engine with the given
+ * `dex-server-zd` configuration, or its defaults. It queues the turns up to each milestone, waits for them,
+ * and measures the stored message bytes, until the last milestone or a closed session.
  */
 export async function runPaddedSession(
-  turns: number,
+  milestones: readonly number[],
   serverZdConfig: string | undefined,
   timeoutMs: number,
+  extraWorkerEnvironment: Readonly<Record<string, string>> = {},
 ): Promise<PaddedSession> {
   const configDirectory = mkdtempSync(join(tmpdir(), "dex-agents-storage-session-"));
   const configPath = join(configDirectory, "server-zd.yaml");
@@ -118,6 +140,7 @@ export async function runPaddedSession(
       [compactionWindowTokensVariable]: "8000",
       // A real summary of about 1,000 tokens, so superseded summaries count as they would.
       [compactionSummaryPadVariable]: "4000",
+      ...extraWorkerEnvironment,
     });
     const sessions = connection.sessions;
     const client = connection.environment.client;
@@ -126,23 +149,35 @@ export async function runPaddedSession(
     const filler = "q".repeat(80);
     const turnCommand = (turn: number) => `pad 600 turn-${String(turn).padStart(4, "0")}-${filler}`;
     await sessions.startSession(sessionId, turnCommand(1));
-    for (let turn = 2; turn <= turns; turn += 1) {
-      assert.equal(await sessions.sendUserMessage(sessionId, turnCommand(turn)), true);
+    const measurements: StoredMessageMeasurement[] = [];
+    let queuedTurns = 1;
+    let flowStatus = "running";
+    for (const milestone of milestones) {
+      for (; queuedTurns < milestone; queuedTurns += 1) {
+        assert.equal(await sessions.sendUserMessage(sessionId, turnCommand(queuedTurns + 1)), true);
+      }
+      flowStatus = await pollUntil(
+        async () => {
+          const status = (await client.describeFlow(sessionId)).status;
+          if (status !== "running") {
+            return status;
+          }
+          // AgentState is small; the snapshot RPC would load every message on each poll.
+          const state = await sessions.readAgentState(sessionId);
+          return state !== undefined && state.activeTurnId === null && state.turnCount >= milestone ? status : undefined;
+        },
+        { description: `${milestone} finished turns or a closed session ${sessionId}`, timeoutMs, intervalMs: 1_000 },
+      );
+      if (flowStatus !== "running") {
+        break;
+      }
+      measurements.push({ turns: milestone, ...(await measureStoredMessages(connection, sessionId)) });
     }
-    const flowStatus = await pollUntil(
-      async () => {
-        const status = (await client.describeFlow(sessionId)).status;
-        if (status !== "running") {
-          return status;
-        }
-        // AgentState is small; the snapshot RPC would load every message on each poll.
-        const state = await sessions.readAgentState(sessionId);
-        return state !== undefined && state.activeTurnId === null && state.turnCount >= turns ? status : undefined;
-      },
-      { description: `${turns} finished turns or a closed session ${sessionId}`, timeoutMs, intervalMs: 1_000 },
-    );
     const elapsedSeconds = (Date.now() - startedAt) / 1_000;
+    const [messageIndex] = await client.getAttributes(sessionId, sessions.flow.agentMessageIndex);
     return {
+      measurements,
+      messageIndex,
       snapshot: await sessions.getAgentSnapshot(sessionId),
       messages: await listAllMessages(sessions, sessionId),
       flowStatus,
@@ -155,3 +190,69 @@ export async function runPaddedSession(
     rmSync(configDirectory, { recursive: true, force: true });
   }
 }
+
+/** Sums the encoded size of every message instance, and of every Attribute value, the session holds. */
+async function measureStoredMessages(
+  connection: CompactionTestConnection,
+  sessionId: string,
+): Promise<Omit<StoredMessageMeasurement, "turns">> {
+  const client = connection.environment.client;
+  const flow = connection.sessions.flow;
+  const [[index], [state]] = await Promise.all([
+    client.getAttributes(sessionId, flow.agentMessageIndex),
+    client.getAttributes(sessionId, flow.agentState),
+  ]);
+  assert.ok(index !== undefined && state !== undefined);
+  let storedBytes = 0;
+  for (const range of index.chunks) {
+    const [chunk] = await client.getAttributes(
+      sessionId,
+      flow.agentMessageChunks.instance(messageSequenceKey(range.firstSequence)),
+    );
+    assert.ok(chunk !== undefined, `chunk ${range.firstSequence}`);
+    storedBytes += encodedBytes(agentMessageChunkCodec.encode(chunk).data);
+  }
+  for (let sequence = index.windowFirstSequence; sequence < state.nextMessageSequence; sequence += 1) {
+    const [message] = await client.getAttributes(sessionId, flow.agentMessages.instance(messageSequenceKey(sequence)));
+    assert.ok(message !== undefined, `window message ${sequence}`);
+    storedBytes += encodedBytes(agentMessageCodec.encode(message).data);
+  }
+  let liveStateBytes = storedBytes;
+  const attributes = [
+    flow.agentState,
+    flow.agentMessageIndex,
+    flow.agentUsage,
+    flow.contextSummary,
+    flow.agentPlan,
+    flow.pendingInterrupts,
+    flow.frameworkRunState,
+    flow.sessionSettings,
+    flow.turnSessionSettings,
+    flow.turnCancellationRequest,
+    flow.agentTraceContext,
+  ] as const;
+  for (const attribute of attributes) {
+    const [value] = await client.getAttributes(sessionId, attribute as Attribute<unknown>);
+    if (value !== undefined) {
+      liveStateBytes += encodedBytes((attribute as Attribute<unknown>).codec.encode(value).data);
+    }
+  }
+  return { storedBytes, liveStateBytes, keptMessages: state.nextMessageSequence - index.firstSequence };
+}
+
+function encodedBytes(data: unknown): number {
+  return Buffer.byteLength(String(data), "utf8");
+}
+
+// An 8,000-token window compacts at 6,800 tokens; a turn is about 175 tokens.
+export const guardMaxUnsummarizedMessages = 80;
+
+/** The mean encoded size of the kept messages. */
+export function storedBytesPerMessage(messages: readonly AgentMessage[]): number {
+  const storedBytes = messages.reduce(
+    (total, message) => total + String(agentMessageCodec.encode(message).data).length,
+    0,
+  );
+  return storedBytes / messages.length;
+}
+

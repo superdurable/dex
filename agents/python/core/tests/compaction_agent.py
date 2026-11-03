@@ -21,13 +21,18 @@ Like a provider, the model refuses a request whose input exceeds the context win
 A summary call answers ``commands: <c1> || <c2> ...`` with the newest ten
 commands and ``tool results: <n>``, folding in the previous summary, then
 ``COMPACTION_AGENT_SUMMARY_PAD_CHARACTERS`` characters of padding, so its size
-stays bounded like a real summary's. It waits at the ``summary`` FileGate when a
+stays bounded like a real summary's. A ``pad`` answer whose tag contains
+``gate-model`` waits at the ``model`` FileGate first. It waits at the ``summary`` FileGate when a
 summarized command contains ``gate-summary``, and raises while the file
 ``fail-summary`` exists in the state directory.
 
 Every model call is appended to ``model-requests.jsonl`` before it answers.
 ``COMPACTION_AGENT_WINDOW_TOKENS`` sets the context window; the scripted model
-counts four characters per token.
+counts four characters per token. ``COMPACTION_AGENT_MESSAGE_WINDOW_SIZE``,
+``COMPACTION_AGENT_MESSAGE_CHUNK_SIZE``,
+``COMPACTION_AGENT_MESSAGE_CHUNK_MAX_BYTES``, and
+``COMPACTION_AGENT_RETAINED_MESSAGE_LIMIT`` (``none`` keeps every message) set
+the message storage options.
 """
 
 from __future__ import annotations
@@ -73,6 +78,12 @@ COMPACTION_AGENT_FLOW_TYPE = "CompactionScriptedAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_STATE_DIR"
 WINDOW_TOKENS_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_WINDOW_TOKENS"
 SUMMARY_PAD_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_SUMMARY_PAD_CHARACTERS"
+MESSAGE_WINDOW_SIZE_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_MESSAGE_WINDOW_SIZE"
+MESSAGE_CHUNK_SIZE_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_MESSAGE_CHUNK_SIZE"
+MESSAGE_CHUNK_MAX_BYTES_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_MESSAGE_CHUNK_MAX_BYTES"
+RETAINED_MESSAGE_LIMIT_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_RETAINED_MESSAGE_LIMIT"
+MODEL_GATE_NAME = "model"
+MODEL_GATE_TAG = "gate-model"
 DEFAULT_WINDOW_TOKENS = 600
 MODEL_REQUEST_LOG_NAME = "model-requests.jsonl"
 INVOCATION_LOG_NAME = "invocations.log"
@@ -102,6 +113,7 @@ def build_compaction_agent_flow(
     summary_pad_characters: int = 0,
     tracing: AgentTracingOptions | None = None,
     summary_model_call_metadata: ModelCallMetadata | None = None,
+    message_storage: dict[str, Any] | None = None,
 ) -> AgentSessionFlow:
     invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
 
@@ -122,6 +134,10 @@ def build_compaction_agent_flow(
         verb, _, rest = commands[-1].partition(" ")
         if verb == "pad":
             characters, tag = rest.split(" ", 1)
+            if MODEL_GATE_TAG in tag:
+                gate = FileGate(state_dir, MODEL_GATE_NAME)
+                gate.mark_reached()
+                await gate.wait_for_release()
             return ScriptedModelReply(text=f"{tag}:" + "x" * int(characters))
         if verb == "chain":
             # The summary is the first item, so it and the shown results count every lookup.
@@ -154,6 +170,8 @@ def build_compaction_agent_flow(
     options = stepwise_agent_session_options(definition)
     if tracing is not None:
         options = replace(options, tracing=tracing)
+    if message_storage:
+        options = replace(options, **message_storage)
     runner = (
         StepwiseAgentRunner(definition)
         if summary_model_call_metadata is None
@@ -167,7 +185,22 @@ def build_compaction_agent_flow_from_environment() -> AgentSessionFlow:
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         int(os.environ.get(WINDOW_TOKENS_ENVIRONMENT_VARIABLE, DEFAULT_WINDOW_TOKENS)),
         int(os.environ.get(SUMMARY_PAD_ENVIRONMENT_VARIABLE, "0")),
+        message_storage=_message_storage_from_environment(),
     )
+
+
+def _message_storage_from_environment() -> dict[str, Any]:
+    storage: dict[str, Any] = {}
+    for option, variable in (
+        ("message_window_size", MESSAGE_WINDOW_SIZE_ENVIRONMENT_VARIABLE),
+        ("message_chunk_size", MESSAGE_CHUNK_SIZE_ENVIRONMENT_VARIABLE),
+        ("message_chunk_max_bytes", MESSAGE_CHUNK_MAX_BYTES_ENVIRONMENT_VARIABLE),
+        ("retained_message_limit", RETAINED_MESSAGE_LIMIT_ENVIRONMENT_VARIABLE),
+    ):
+        value = os.environ.get(variable)
+        if value is not None:
+            storage[option] = None if value == "none" else int(value)
+    return storage
 
 
 def read_model_requests(state_dir: Path) -> list[dict[str, Any]]:

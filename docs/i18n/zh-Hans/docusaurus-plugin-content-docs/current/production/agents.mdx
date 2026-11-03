@@ -174,9 +174,13 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 
 包这样保存状态：
 
-- **AgentMessages** 每条消息一个 AttributeMap 实例。每条消息只写一次，所以对话按自身大小
-  增长，而不是因重写而增长。但 **RunModel** 和 **get_agent_snapshot** 仍然加载整个 map。
-  不启用[压缩](#compaction)时，每次模型调用都把完整历史发给模型。
+- **AgentMessages** 保存最新的消息，每条消息一个 AttributeMap 实例。保存一条消息只写这一条。
+  其中超过 64 条消息时，最早的消息移入不再重写的 **AgentMessageChunks** 实例。一个 chunk 最多
+  32 条消息、1 MiB，因此远低于 **values.maxValueBytes**。更大的消息不进入窗口，保存时直接放进
+  自己的 chunk，所以超过 **values.maxValueBytes** 的消息会让它所在的轮次立即失败，和以前一样。
+  **AgentMessageIndex** 记录消息所在的位置，只在写入或删除 chunk 时改变。每条消息写两次：一次在窗口中，一次在
+  它的 chunk 中；history 保留窗口副本期间，它作为被替换值计入预算。启用[压缩](#compaction)时，**RunModel** 只加载
+  摘要之后的消息。不启用压缩时，每次模型调用都加载并发送完整历史，也不会删除任何消息。
 - **FrameworkRunState** 在一轮等待 tool 结果时保存 framework 的状态。每次模型调用请求 tool
   后，**RunModel** 都会重写它。它保存这一轮到目前为止的工作，包括 tool 输出。OpenAI Agents
   SDK 的状态还包含这一轮的输入，Vercel AI SDK 的状态会把每个 tool 输出保存两次。之前的每个值
@@ -215,18 +219,26 @@ tool call 的长轮次会在轮次中途压缩。
 读取 session 快照的客户端也需要 agents 0.2.0：0.1.0 客户端无法读取压缩期间快照中的
 **compacting_context** 状态。
 
-压缩改变的是模型输入，而不是记录。每条消息都留在 **AgentMessages** 中，所以
-**list_agent_messages** 和 **get_agent_snapshot** 仍然返回完整对话，每条消息也仍然计入 run
-预算。每份新摘要替换上一份，被替换的摘要在 history 保留它期间作为被替换值计入预算。因此压缩
-不会释放存储。它让 session 可以一直运行，直到达到上限的是保存的消息，而不是模型窗口。
+压缩也限定了 session 的存储。当最早的 chunk 中每条消息都已被摘要，且它之后至少还保存着
+**retained_message_limit**（默认 1,000）条消息时，保留策略会删除这个 chunk。最新的 1,000 条
+消息和摘要之后的每条消息始终保留，所以无论 session 运行多久，保存的消息都不再增长。在
+**AgentSessionOptions** 中用 **retained_message_limit**、**message_window_size**、
+**message_chunk_size** 和 **message_chunk_max_bytes** 设置上限、窗口大小和 chunk 限制。上限设为
+**None**（TypeScript 中为 **null**）时保留每条消息。如果把 **values.maxValueBytes** 调到约 2 MiB
+以下，也要同时调低 **message_chunk_max_bytes**。
 
-根据保存消息的大小估算 run 预算。在一个实测的 2,000 轮 session 中，每轮保存一个 100 字符的
-问题和一个 600 字符的回答，session 在 8,000 token 的窗口下压缩，每份摘要约 1,000 token。每轮
-保存约 2.9 KB 的消息，占用约 5.2 KB 的 run 预算。不压缩时，同样的轮次每轮约 4.7 KB：消息本身，
-加上约 1.8 KB 的 session 状态更新和 history 保留的被替换值。预算计入的是这些值，而不是 history
-事件本身。每次压缩再增加一份摘要的大小和约 2.5 KB。按这个速度，默认的 64 MiB 大约能容纳
-13,000 个这样的轮次。这个估算偏保守，因为 history 窗口裁剪掉被替换值之后，它就不再计入预算。
-带 tool call 的轮次会运行更多 Step，所以消息之外增加的会超过 1.8 KB。
+被删除的消息不再出现在 **list_agent_messages** 和 **get_agent_snapshot** 中。分页在最早保存的
+消息处结束，每一页的 **deleted_before_sequence** 表示保留策略删除了它之前的消息。如果应用
+需要完整对话，就在消息之后又保存 **retained_message_limit** 条消息之前，用
+**list_agent_messages** 把新消息复制出去。一个简单的做法是在每个 **turn_completed** 事件之后，
+从上次复制到的序号之后开始复制。如果一轮可能保存的消息多于上限，就提高上限或设为 **None**。
+
+根据保留的消息估算 run 预算。在一个实测的 session 中，每轮保存一个 100 字符的问题和一个
+600 字符的回答，约 2.9 KB，session 在 8,000 token 的窗口下压缩。上限为 100 时，在第 200、
+400、600 和 800 轮，保存的消息都在 162 KB 到 185 KB 之间，session 的全部活动状态在 167 KB 到
+191 KB 之间，而 session 一共保存了 2.3 MB 的消息。使用默认上限 1,000 时，按上限乘以一条消息的
+大小，加上摘要之后的消息，再加上 history 窗口保留的被替换值来规划。被删除的 chunk 在 history
+窗口裁剪掉它之前，作为被替换值计入预算。
 
 让长 session 保持在预算之内：
 
@@ -344,6 +356,11 @@ session 的两个 Step 可能运行在不同版本上。
 - 在一轮的各个 Step 之间，**FrameworkRunState** 保存 framework 序列化的状态。新 Worker 上的
   framework 版本必须能恢复它。保持在 adapter 固定的 framework 版本范围内，并且同时升级
   adapter 和 framework。
+- **从 agents 0.1.0 升级时：先停止该 Flow type 的所有 0.1.0 Worker，再启动任何 0.2.0
+  Worker。** 不要让两者同时运行。0.1.0 的 session 把每条消息都保存在 **AgentMessages** 中。
+  0.2.0 Worker 一旦在其中保存消息，就会把较早的消息移入 **AgentMessageChunks**，每个 Step 移动
+  少量 chunk。此后如果 0.1.0 Worker 运行这个 session 的 Step，这一轮会失败，因为它读不到被移走
+  的消息。
 
 通用规则见 [Flow 代码版本控制](/production/application-operations#versioning-flow-code)。
 

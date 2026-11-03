@@ -208,11 +208,19 @@ sessions that start after the server restarts with it.
 
 The packages store state this way:
 
-- **AgentMessages** keeps one AttributeMap instance per message. Each message is
-  written once, so the conversation grows by its own size, not by rewrites.
-  **RunModel** and **get_agent_snapshot** still load the whole map. Without
-  [compaction](#compaction), every model call sends the whole history to the
-  model.
+- **AgentMessages** keeps the newest messages, one AttributeMap instance per
+  message. Storing a message writes only that message. When more than 64
+  messages are in it, the oldest move into **AgentMessageChunks** instances
+  that are never rewritten. A chunk holds at most 32 messages and 1 MiB, so it
+  stays well under **values.maxValueBytes**. A larger message skips the window
+  and goes straight into a chunk of its own when it is stored, so a message too
+  large for **values.maxValueBytes** fails its turn right away, as it did
+  before. **AgentMessageIndex** records where the messages are, and changes
+  only when chunks are written or deleted. Each message is written twice, once in the window
+  and once in its chunk, and the window copy counts as a superseded value
+  while history keeps it. With [compaction](#compaction), **RunModel** loads only the
+  messages after the summary. Without compaction, every model call loads and
+  sends the whole history, and nothing is deleted.
 - **FrameworkRunState** holds the framework's state while a turn waits for
   tool results. **RunModel** rewrites it after every model call that asks for
   tools. It holds the turn's work so far, tool outputs included. The OpenAI
@@ -263,26 +271,37 @@ has the **CompactContext** Step. The clients that read the session's snapshots
 need agents 0.2.0 too: a 0.1.0 client cannot read the **compacting_context**
 status that a snapshot shows during compaction.
 
-Compaction changes the model input, not the record. Every message stays in
-**AgentMessages**, so **list_agent_messages** and **get_agent_snapshot** still
-return the whole conversation, and every message still counts toward the run
-budget. Each new summary replaces the previous one, which then counts as a
-superseded value while history keeps it. Compaction therefore frees no
-storage. It lets a session keep going until the stored messages, not the model
-window, reach the limit.
+Compaction also bounds the session's storage. Retention deletes the oldest
+chunk once every message in it is summarized and at least
+**retained_message_limit** messages, 1,000 by default, are stored after it.
+The newest 1,000 messages and every message after the summary always stay, so
+the stored messages stop growing however long the session runs. Set the limit,
+the window size, and the chunk limits in **AgentSessionOptions** as
+**retained_message_limit**, **message_window_size**, **message_chunk_size**,
+and **message_chunk_max_bytes**. A limit of **None** (**null** in TypeScript)
+keeps every message. If you lower **values.maxValueBytes** below about 2 MiB,
+lower **message_chunk_max_bytes** with it.
 
-Estimate the run budget from the size of the stored messages. In a measured
-2,000-turn session, each turn stored a 100-character question and a
-600-character answer, and the session compacted at an 8,000-token window with
-summaries of about 1,000 tokens. Each turn stored about 2.9 KB of messages and
-used about 5.2 KB of the run budget. Without compaction, the same turns used
-about 4.7 KB each: the messages plus about 1.8 KB of session state updates and
-the superseded values that history keeps. The budget counts those values, not
-the history events themselves. Each compaction added the size of its summary
-plus about 2.5 KB. At that rate, the 64 MiB default holds about 13,000 such
-turns. The estimate is conservative, because a superseded value stops counting
-once the history window prunes it. A turn with tool calls runs more Steps, so
-it adds more than 1.8 KB beyond its messages.
+A deleted message is gone from **list_agent_messages** and
+**get_agent_snapshot**. Paging stops at the oldest stored message, and each
+page's **deleted_before_sequence** says that retention deleted the messages
+before it. If the application needs the whole transcript, copy new messages
+out with **list_agent_messages** before **retained_message_limit** more
+messages are stored after them. A simple rule is to copy after each
+**turn_completed** event, starting after the last sequence you copied. When a
+turn can store more messages than the limit, raise the limit or set it to
+**None**.
+
+Estimate the run budget from the retained messages. In a measured session,
+each turn stored a 100-character question and a 600-character answer, about
+2.9 KB, and the session compacted at an 8,000-token window. With a limit of
+100, the stored messages stayed between 162 KB and 185 KB, and the whole live
+state of the session between 167 KB and 191 KB, at turns 200, 400, 600, and
+800, while the session stored 2.3 MB of messages over its life. With the
+default limit of 1,000, plan for about the limit times the size of a message,
+plus the messages after the summary, plus the superseded values that the
+history window keeps. A deleted chunk counts as a superseded value until the
+history window prunes it.
 
 To keep long sessions within the budget:
 
@@ -432,6 +451,12 @@ session can run on different versions.
   framework serialized. The framework version on the new Worker must restore
   it. Stay within the framework range that the adapter pins, and upgrade the
   adapter and the framework together.
+- **Upgrading from agents 0.1.0: stop every 0.1.0 Worker of the Flow type
+  before any 0.2.0 Worker starts.** Do not run them side by side. A 0.1.0
+  session keeps every message in **AgentMessages**. Once a 0.2.0 Worker stores
+  a message in it, it moves the older messages into **AgentMessageChunks**, a
+  few chunks per Step. If a 0.1.0 Worker then runs a Step of that session, the
+  turn fails, because it cannot read the moved messages.
 
 See [Versioning Flow code](/production/application-operations#versioning-flow-code)
 for the general rules.

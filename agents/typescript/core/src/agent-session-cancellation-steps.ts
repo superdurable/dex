@@ -77,7 +77,7 @@ export class FinishTurnCancellationStep implements Step<string> {
     }
     if (state.status !== "running_tools") {
       // cancel_turn cancelled the model call or compaction, so no other Step ends the turn.
-      return transitions.goToApplyTurnControl();
+      return transitions.goToApplyTurnControl(context);
     }
     // ResumeTurn waits for every result and ends the turn; started tool Steps still finish.
     return this.finishWaitingToolCalls(context, turnId);

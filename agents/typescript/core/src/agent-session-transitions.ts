@@ -7,9 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import {
+  AttributeMapNotLoadedError,
   StepMovement,
   StepRef,
   goTo,
+  goToMany,
   stringCodec,
   type AsyncContext,
   type Context,
@@ -17,8 +19,10 @@ import {
 } from "@superdurable/dex";
 
 import type { BuiltInTool } from "./agent-built-in-tools.js";
+import { agentSessionStepTypes } from "./agent-session-step-types.js";
 import { isContextCompactionRunner, type ResolvedCompactionPolicy } from "./agent-context-compaction.js";
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
+import { encodeAgentMessage } from "./agent-session-codecs.js";
 import {
   resolveToolPolicy,
   type AgentFrameworkRunner,
@@ -28,6 +32,7 @@ import {
   type ToolPolicy,
 } from "./agent-framework-runner.js";
 import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
+import { messageStepOptions, type MessageChunkLoads } from "./agent-session-step-options.js";
 import type { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
   addAgentUsage,
@@ -37,6 +42,9 @@ import {
   type AgentInterrupt,
   type AgentInterruptKind,
   type AgentMessage,
+  type AgentMessageChunk,
+  type AgentMessageChunkRange,
+  type AgentMessageIndex,
   type AgentPlan,
   type AgentState,
   type AgentToolCall,
@@ -56,29 +64,23 @@ import {
   turnCancelledNoteHeader,
   turnSteeredNoteHeader,
   type TurnCancellationRequest,
+  type TurnReplySequence,
 } from "./agent-session-values.js";
 import type { ResolvedAgentTracingOptions } from "./agent-tracing-options.js";
 
-export const agentSessionStepTypes = {
-  startAgentSession: "StartAgentSession",
-  awaitUserMessage: "AwaitUserMessage",
-  runModel: "RunModel",
-  compactContext: "CompactContext",
-  awaitToolApproval: "AwaitToolApproval",
-  awaitQuestionAnswer: "AwaitQuestionAnswer",
-  awaitTimer: "AwaitTimer",
-  callTool: "CallTool",
-  callSingleAttemptTool: "CallSingleAttemptTool",
-  pollToolTask: "PollToolTask",
-  recordToolFailure: "RecordToolFailure",
-  recordToolOutcomeUnknown: "RecordToolOutcomeUnknown",
-  resumeTurn: "ResumeTurn",
-  applyTurnControl: "ApplyTurnControl",
-  recordTurnFailure: "RecordTurnFailure",
-  finishTurnCancellation: "FinishTurnCancellation",
-  cancelToolTask: "CancelToolTask",
-} as const;
+export { agentSessionStepTypes } from "./agent-session-step-types.js";
 
+
+/** Most archive chunks one commit writes, so a large 0.1.0 history migrates over several commits. */
+export const messageRolloverMaxChunksPerCommit = 4;
+/**
+ * Most chunk bytes one commit writes, 8 MiB, which keeps a Step result far under the engine's frame limit. A
+ * single chunk larger than it still moves, alone.
+ */
+export const messageRolloverMaxBytesPerCommit = 8_388_608;
+// `{"messages":[` and `]}` around the comma-separated messages.
+const messageChunkOverheadBytes = 15;
+const utf8Encoder = new TextEncoder();
 /** Consumes every pending message of a Channel at once; the plan's MAX. */
 export const allPendingMessages = 2_147_483_647;
 
@@ -112,6 +114,10 @@ export interface AgentSessionConfig {
   readonly maxDurableWaitMs: number;
   readonly planModeEnabled: boolean;
   readonly compaction: ResolvedCompactionPolicy | undefined;
+  readonly messageWindowSize: number;
+  readonly messageChunkSize: number;
+  readonly messageChunkMaxBytes: number;
+  readonly retainedMessageLimit: number | null;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
@@ -178,26 +184,165 @@ export class AgentSessionTransitions {
     return runState === undefined || runState === "" ? null : runState;
   }
 
-  /** Returns messages with sequences in [start, end); requires the AgentMessages load. */
+  public readMessageIndex(context: Context): AgentMessageIndex | null {
+    return (this.persistence.agentMessageIndex.get(context) as AgentMessageIndex | undefined) ?? null;
+  }
+
+  /** Sequence of the oldest stored message: retention deleted the earlier ones. */
+  public readFirstStoredSequence(context: Context): number {
+    return this.readMessageIndex(context)?.firstSequence ?? 1;
+  }
+
+  /**
+   * Returns the stored messages with sequences in [start, end), from the `AgentMessages` window and the
+   * `AgentMessageChunks` instances. It requires the whole window and every chunk it reads to be loaded.
+   */
   public readMessages(context: Context, start: number, end: number): AgentMessage[] {
+    const index = this.readMessageIndex(context);
     const messages: AgentMessage[] = [];
-    for (let sequence = Math.max(1, start); sequence < end; sequence += 1) {
-      messages.push(this.persistence.agentMessages.get(context, messageSequenceKey(sequence)));
+    const chunks = new Map<number, readonly AgentMessage[]>();
+    for (let sequence = Math.max(index?.firstSequence ?? 1, start); sequence < end; sequence += 1) {
+      const range = index === null ? undefined : findMessageChunkRange(index, sequence);
+      if (range === undefined) {
+        messages.push(this.readWindowMessage(context, sequence));
+        continue;
+      }
+      let chunk = chunks.get(range.firstSequence);
+      if (chunk === undefined) {
+        chunk = this.readChunkMessages(context, range);
+        chunks.set(range.firstSequence, chunk);
+      }
+      messages.push(chunk[sequence - range.firstSequence] as AgentMessage);
     }
     return messages;
   }
 
-  /** Returns the turn's stored messages, the newest ones, read back until another turn's; requires the whole map. */
-  public readTurnMessages(context: Context, state: AgentState, turnId: string): AgentMessage[] {
+  private readWindowMessage(context: Context, sequence: number): AgentMessage {
+    const message = this.persistence.agentMessages.get(context, messageSequenceKey(sequence)) as
+      | AgentMessage
+      | undefined;
+    if (message === undefined) {
+      throw new Error(`AgentMessages has no message ${sequence} in session ${context.flowId}`);
+    }
+    return message;
+  }
+
+  /** Reads one loaded chunk and checks that it holds exactly the messages its range names. */
+  private readChunkMessages(context: Context, range: AgentMessageChunkRange): readonly AgentMessage[] {
+    const key = messageSequenceKey(range.firstSequence);
+    let chunk: AgentMessageChunk | undefined;
+    try {
+      chunk = this.persistence.agentMessageChunks.get(context, key) as AgentMessageChunk | undefined;
+    } catch (error: unknown) {
+      if (error instanceof AttributeMapNotLoadedError) {
+        throw new Error(`AgentMessageChunks instance ${key} is not loaded`);
+      }
+      throw error;
+    }
+    if (chunk === undefined) {
+      throw new Error(`AgentMessageChunks instance ${key} is not loaded`);
+    }
+    if (!isMessageChunkOfRange(chunk, range)) {
+      throw new Error(
+        `AgentMessageChunks instance ${key} does not hold messages ${range.firstSequence} through ${range.lastSequence}`,
+      );
+    }
+    return chunk.messages;
+  }
+
+  /**
+   * Counts the active turn's stored messages after the user messages that started it, before this Step's
+   * appends. A turn without its `TurnReplySequence`, such as one a 0.1.0 Worker started, is counted from its
+   * stored messages instead.
+   */
+  public countStoredTurnReplies(context: Context, state: AgentState, turnId: string): number {
+    return state.nextMessageSequence - this.readTurnReplySequence(context, state, turnId);
+  }
+
+  /** Returns the first sequence after the turn's user messages, from `TurnReplySequence` or the stored messages. */
+  private readTurnReplySequence(context: Context, state: AgentState, turnId: string): number {
+    const stored = this.persistence.turnReplySequence.get(context) as TurnReplySequence | undefined;
+    if (stored !== undefined && stored.turnId === turnId) {
+      return stored.sequence;
+    }
+    const turnMessages = this.readStoredTurnMessages(context, state, turnId);
+    return state.nextMessageSequence - countMessagesAfterUserMessages(turnMessages, turnId);
+  }
+
+  /**
+   * Returns the turn's newest stored messages, read back until another turn's, the oldest stored message, or a
+   * chunk this Step did not load.
+   */
+  private readStoredTurnMessages(context: Context, state: AgentState, turnId: string): AgentMessage[] {
+    const index = this.readMessageIndex(context);
     const turnMessages: AgentMessage[] = [];
-    for (let sequence = state.nextMessageSequence - 1; sequence >= 1; sequence -= 1) {
-      const message = this.persistence.agentMessages.get(context, messageSequenceKey(sequence));
-      if (message.turnId !== turnId) {
+    for (let sequence = state.nextMessageSequence - 1; sequence >= (index?.firstSequence ?? 1); sequence -= 1) {
+      const message = this.readLoadedMessage(context, index, sequence);
+      if (message === undefined || message.turnId !== turnId) {
         break;
       }
       turnMessages.push(message);
     }
     return turnMessages.reverse();
+  }
+
+  /** Reads one stored message from the window or its chunk, or returns `undefined` when its chunk is not loaded. */
+  private readLoadedMessage(context: Context, index: AgentMessageIndex | null, sequence: number): AgentMessage | undefined {
+    const range = index === null ? undefined : findMessageChunkRange(index, sequence);
+    if (range === undefined) {
+      return this.readWindowMessage(context, sequence);
+    }
+    try {
+      return this.readChunkMessages(context, range)[sequence - range.firstSequence];
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.endsWith("is not loaded")) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  /** First sequence of the model input: after the runner's summary, and never before the oldest stored message. */
+  public readModelInputFirstSequence(context: Context, summary: ContextSummary | null): number {
+    return Math.max(this.readFirstStoredSequence(context), summary === null ? 1 : summary.lastSequence + 1);
+  }
+
+  /**
+   * Returns the archive chunks that hold messages in [start, end): every chunk when compaction is off, since
+   * the model input then covers them all, else exact instances.
+   */
+  public messageChunkLoads(context: Context, start: number, end: number = Number.MAX_SAFE_INTEGER): MessageChunkLoads {
+    const index = this.readMessageIndex(context);
+    if (index === null) {
+      return { isWholeMap: false, instances: [] };
+    }
+    const instances = index.chunks
+      .filter((range) => range.lastSequence >= start && range.firstSequence < end)
+      .map((range) => this.persistence.agentMessageChunks.load(messageSequenceKey(range.firstSequence)));
+    return { isWholeMap: false, instances };
+  }
+
+  /** The chunk loads of a Step that rebuilds the model input. */
+  public modelInputChunkLoads(context: Context, summary: ContextSummary | null): MessageChunkLoads {
+    if (this.config.compaction === undefined) {
+      return { isWholeMap: true, instances: [] };
+    }
+    return this.messageChunkLoads(context, this.readModelInputFirstSequence(context, summary));
+  }
+
+  /** Moves to `RunModel`, loading the window and the archive chunks of the model input. */
+  public goToRunModel(context: Context, summary: ContextSummary | null = this.readRunnerContextSummary(context)): StepDecision {
+    return this.goToModelInputStep(context, agentSessionStepTypes.runModel, summary);
+  }
+
+  /** Moves to `ApplyTurnControl`, which may rebuild the model input for unfinished-turn messages. */
+  public goToApplyTurnControl(context: Context): StepDecision {
+    return this.goToModelInputStep(context, agentSessionStepTypes.applyTurnControl, this.readRunnerContextSummary(context));
+  }
+
+  private goToModelInputStep(context: Context, stepType: string, summary: ContextSummary | null): StepDecision {
+    const options = messageStepOptions(this.persistence, stepType, this.modelInputChunkLoads(context, summary));
+    return goToMany(StepMovement.of(new StepRef(stepType), undefined, options));
   }
 
   /** Returns the turn's tool call records in deferral order; requires the AgentToolCalls load. */
@@ -324,6 +469,13 @@ export class AgentSessionTransitions {
     const toolCallsById = new Map(runnerToolCalls.map((toolCall) => [toolCall.toolCallId, toolCall]));
     const frameworkRunState = this.readFrameworkRunState(context);
     const contextSummary = this.readRunnerContextSummary(context);
+    const firstStoredSequence = this.readFirstStoredSequence(context);
+    if (contextSummary === null && firstStoredSequence > 1) {
+      console.warn(
+        `dex-agents: session ${context.flowId} stores no messages before ${firstStoredSequence}; retention ` +
+          "deleted them, and this runner cannot use the context summary that covers them",
+      );
+    }
     return {
       flowId: context.flowId,
       turnId,
@@ -331,7 +483,7 @@ export class AgentSessionTransitions {
       stepExecutionId: context.stepExecutionId,
       messages: this.readMessages(
         context,
-        contextSummary === null ? 1 : contextSummary.lastSequence + 1,
+        this.readModelInputFirstSequence(context, contextSummary),
         state.nextMessageSequence,
       ),
       frameworkRunState,
@@ -389,13 +541,40 @@ export class AgentSessionTransitions {
     return this.config.builtInTools.has(toolName as BuiltInTool);
   }
 
-  /** Appends messages, writes the advanced AgentState, and returns it. */
+  /**
+   * Appends messages, writes the advanced AgentState, and returns it.
+   *
+   * A message goes into the `AgentMessages` window, or, when its own chunk would exceed `messageChunkMaxBytes`,
+   * straight into a chunk of its own, so the first store writes the largest value it ever needs. In the same
+   * commit it moves the oldest window messages into archive chunks while the window is over its size and
+   * applies retention; it writes `AgentMessageIndex` only when one of them changed it. It requires the whole
+   * window to be loaded. With `startsTurn`, `TurnReplySequence` records where the turn's replies begin.
+   */
   public appendMessages(
     context: Context,
     state: AgentState,
     turnId: string,
     frameworkMessages: readonly FrameworkMessage[],
+    startsTurn = false,
   ): AgentState {
+    if (frameworkMessages.length === 0 && !startsTurn) {
+      this.writeAgentState(context, state);
+      return state;
+    }
+    const activeTurnId = state.activeTurnId;
+    if (!startsTurn && activeTurnId !== null && activeTurnId !== undefined) {
+      const stored = this.persistence.turnReplySequence.get(context) as TurnReplySequence | undefined;
+      if (stored === undefined || stored.turnId !== activeTurnId) {
+        // Recorded before a rollover can move the turn's first messages out of reach.
+        this.persistence.turnReplySequence.set(context, {
+          turnId: activeTurnId,
+          sequence: this.readTurnReplySequence(context, state, activeTurnId),
+        });
+      }
+    }
+    const storedIndex = this.readMessageIndex(context);
+    let index = storedIndex ?? emptyMessageIndex();
+    const directChunks: AgentMessageChunkRange[] = [];
     let nextMessageSequence = state.nextMessageSequence;
     const createdAt = new Date().toISOString();
     for (const frameworkMessage of frameworkMessages) {
@@ -411,12 +590,118 @@ export class AgentSessionTransitions {
         frameworkItem: frameworkMessage.frameworkItem,
         createdAt,
       };
-      this.persistence.agentMessages.set(context, messageSequenceKey(nextMessageSequence), message);
+      const key = messageSequenceKey(nextMessageSequence);
+      if (messageChunkOverheadBytes + agentMessageBytes(message) > this.config.messageChunkMaxBytes) {
+        this.persistence.agentMessageChunks.set(context, key, { messages: [message] });
+        directChunks.push({ firstSequence: nextMessageSequence, lastSequence: nextMessageSequence });
+      } else {
+        this.persistence.agentMessages.set(context, key, message);
+      }
       nextMessageSequence += 1;
+    }
+    if (directChunks.length > 0) {
+      index = { ...index, chunks: [...index.chunks, ...directChunks] };
+    }
+    if (startsTurn) {
+      this.persistence.turnReplySequence.set(context, { turnId, sequence: nextMessageSequence });
+    }
+    index = this.rollOverMessageWindow(context, index, nextMessageSequence);
+    index = this.applyMessageRetention(context, index, nextMessageSequence, this.readContextSummary(context));
+    if (!isSameMessageIndex(storedIndex ?? emptyMessageIndex(), index)) {
+      this.persistence.agentMessageIndex.set(context, index);
     }
     const advancedState = { ...state, nextMessageSequence };
     this.writeAgentState(context, advancedState);
     return advancedState;
+  }
+
+  /**
+   * Moves the oldest window messages into immutable chunks while the window holds more than its size. A chunk
+   * closes at `messageChunkSize` messages, at `messageChunkMaxBytes` bytes, or before a message stored in its
+   * own chunk. One commit writes at most {@link messageRolloverMaxChunksPerCommit} chunks and
+   * {@link messageRolloverMaxBytesPerCommit} bytes, so a backlog drains over several commits.
+   */
+  private rollOverMessageWindow(context: Context, index: AgentMessageIndex, nextMessageSequence: number): AgentMessageIndex {
+    const chunks = [...index.chunks];
+    const directStarts = new Set(
+      chunks.filter((range) => range.firstSequence >= index.windowFirstSequence).map((range) => range.firstSequence),
+    );
+    let windowFirstSequence = skipDirectChunks(directStarts, index.windowFirstSequence);
+    const windowMessageCount = (): number =>
+      nextMessageSequence -
+      windowFirstSequence -
+      [...directStarts].filter((sequence) => sequence >= windowFirstSequence).length;
+    let movedChunks = 0;
+    let movedBytes = 0;
+    while (windowMessageCount() > this.config.messageWindowSize && movedChunks < messageRolloverMaxChunksPerCommit) {
+      const messages: AgentMessage[] = [];
+      let chunkBytes = messageChunkOverheadBytes - 1;
+      for (
+        let sequence = windowFirstSequence;
+        sequence < nextMessageSequence && messages.length < this.config.messageChunkSize && !directStarts.has(sequence);
+        sequence += 1
+      ) {
+        const message = this.readWindowMessage(context, sequence);
+        const withMessageBytes = chunkBytes + 1 + agentMessageBytes(message);
+        if (messages.length > 0 && withMessageBytes > this.config.messageChunkMaxBytes) {
+          break;
+        }
+        messages.push(message);
+        chunkBytes = withMessageBytes;
+      }
+      if (movedChunks > 0 && movedBytes + chunkBytes > messageRolloverMaxBytesPerCommit) {
+        break;
+      }
+      for (const message of messages) {
+        this.persistence.agentMessages.delete(context, messageSequenceKey(message.sequence));
+      }
+      this.persistence.agentMessageChunks.set(context, messageSequenceKey(windowFirstSequence), { messages });
+      const lastSequence = windowFirstSequence + messages.length - 1;
+      chunks.push({ firstSequence: windowFirstSequence, lastSequence });
+      windowFirstSequence = skipDirectChunks(directStarts, lastSequence + 1);
+      movedChunks += 1;
+      movedBytes += chunkBytes;
+    }
+    if (windowFirstSequence === index.windowFirstSequence && chunks.length === index.chunks.length) {
+      return index;
+    }
+    chunks.sort((left, right) => left.firstSequence - right.firstSequence);
+    return { chunks, firstSequence: firstStoredSequence(chunks, windowFirstSequence), windowFirstSequence };
+  }
+
+  /**
+   * Deletes the oldest archive chunk while every message in it is summarized and at least `retainedMessageLimit`
+   * stored messages come after it, so the newest `retainedMessageLimit` messages always stay. It runs only with
+   * compaction and a limit.
+   */
+  public applyMessageRetention(
+    context: Context,
+    index: AgentMessageIndex,
+    nextMessageSequence: number,
+    summary: ContextSummary | null,
+  ): AgentMessageIndex {
+    const limit = this.config.retainedMessageLimit;
+    if (this.config.compaction === undefined || limit === null || summary === null) {
+      return index;
+    }
+    let deletedChunks = 0;
+    for (const range of index.chunks) {
+      // Only archived chunks, before the window; a message stored in its own chunk waits for the rollover.
+      if (
+        range.firstSequence >= index.windowFirstSequence ||
+        range.lastSequence > summary.lastSequence ||
+        nextMessageSequence - (range.lastSequence + 1) < limit
+      ) {
+        break;
+      }
+      this.persistence.agentMessageChunks.delete(context, messageSequenceKey(range.firstSequence));
+      deletedChunks += 1;
+    }
+    if (deletedChunks === 0) {
+      return index;
+    }
+    const chunks = index.chunks.slice(deletedChunks);
+    return { ...index, chunks, firstSequence: firstStoredSequence(chunks, index.windowFirstSequence) };
   }
 
   /** Appends the turn's user messages, in order, opens the next turn, and moves to RunModel. */
@@ -449,7 +734,7 @@ export class AgentSessionTransitions {
         if (userMessages.some((userMessage) => userMessage.role !== "user")) {
           throw new TypeError("buildUserMessage must return a message with role user");
         }
-        const stateWithMessage = this.appendMessages(context, state, turnId, userMessages);
+        const stateWithMessage = this.appendMessages(context, state, turnId, userMessages, true);
         this.writeAgentState(context, {
           ...stateWithMessage,
           status: "running_model",
@@ -466,7 +751,7 @@ export class AgentSessionTransitions {
             }
           }
         });
-        return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+        return this.goToRunModel(context);
       },
     );
   }
@@ -498,10 +783,7 @@ export class AgentSessionTransitions {
       throw new Error(`${turnId} ended before tool call ${openToolCall.toolCallId} finished`);
     }
     const isCancelled = transitions.readTurnControlReason(context, turnId) === "turn_cancelled";
-    const storedMessageCount = countMessagesAfterUserMessages(
-      transitions.readMessages(context, 1, initialState.nextMessageSequence),
-      turnId,
-    );
+    const storedMessageCount = transitions.countStoredTurnReplies(context, initialState, turnId);
     let messages = transitions.buildUnfinishedTurnMessages(context, initialState, turnId, toolCalls);
     if (messages === null) {
       messages = [];
@@ -544,10 +826,6 @@ export class AgentSessionTransitions {
 
   public goToAwaitUserMessage(): StepDecision {
     return goTo(new StepRef(agentSessionStepTypes.awaitUserMessage), undefined);
-  }
-
-  public goToApplyTurnControl(): StepDecision {
-    return goTo(new StepRef(agentSessionStepTypes.applyTurnControl), undefined);
   }
 
   /** Reports whether `cancel_turn` stopped this turn; reads committed state only. */
@@ -699,6 +977,76 @@ export function cancelledToolCall(
     inputChoices: [],
     inputAllowsFreeText: true,
   };
+}
+
+/**
+ * Returns the kept chunk that holds a message, found by binary search over the index's ordered ranges, or
+ * `undefined` when the message is in the window.
+ */
+export function findMessageChunkRange(index: AgentMessageIndex, sequence: number): AgentMessageChunkRange | undefined {
+  let low = 0;
+  let high = index.chunks.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const range = index.chunks[middle] as AgentMessageChunkRange;
+    if (sequence < range.firstSequence) {
+      high = middle - 1;
+    } else if (sequence > range.lastSequence) {
+      low = middle + 1;
+    } else {
+      return range;
+    }
+  }
+  if (sequence < index.windowFirstSequence) {
+    throw new Error(`AgentMessageIndex lists no chunk that holds message ${sequence}`);
+  }
+  return undefined;
+}
+
+/** The index of a session whose messages are all in the window, as a new session or a 0.1.0 one stores them. */
+function emptyMessageIndex(): AgentMessageIndex {
+  return { chunks: [], firstSequence: 1, windowFirstSequence: 1 };
+}
+
+/** The oldest stored message: the first archived chunk's first sequence, else the window's first. */
+function firstStoredSequence(chunks: readonly AgentMessageChunkRange[], windowFirstSequence: number): number {
+  const first = chunks[0];
+  return first !== undefined && first.firstSequence < windowFirstSequence ? first.firstSequence : windowFirstSequence;
+}
+
+/** Returns the first sequence at or after `sequence` that is not a message stored in its own chunk. */
+function skipDirectChunks(directStarts: ReadonlySet<number>, sequence: number): number {
+  let next = sequence;
+  while (directStarts.has(next)) {
+    next += 1;
+  }
+  return next;
+}
+
+/** Whether a chunk holds exactly the messages of its range, in order. */
+export function isMessageChunkOfRange(chunk: AgentMessageChunk, range: AgentMessageChunkRange): boolean {
+  return (
+    chunk.messages.length === range.lastSequence - range.firstSequence + 1 &&
+    chunk.messages.every((message, offset) => message.sequence === range.firstSequence + offset)
+  );
+}
+
+/** The UTF-8 bytes of a message's JSON as this core stores it. */
+function agentMessageBytes(message: AgentMessage): number {
+  return utf8Encoder.encode(JSON.stringify(encodeAgentMessage(message))).length;
+}
+
+function isSameMessageIndex(left: AgentMessageIndex, right: AgentMessageIndex): boolean {
+  return (
+    left.firstSequence === right.firstSequence &&
+    left.windowFirstSequence === right.windowFirstSequence &&
+    left.chunks.length === right.chunks.length &&
+    left.chunks.every(
+      (range, offset) =>
+        range.firstSequence === right.chunks[offset]?.firstSequence &&
+        range.lastSequence === right.chunks[offset]?.lastSequence,
+    )
+  );
 }
 
 /** Counts a turn's stored messages after the user messages that started it. */

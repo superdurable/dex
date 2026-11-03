@@ -314,8 +314,9 @@ class AgentState:
 class AgentMessage:
     """Store one framework item of the session conversation.
 
-    The ``AgentMessages`` AttributeMap holds one value per message, keyed by
-    its sequence as a 12-digit zero-padded decimal. ``framework_item`` is the
+    The ``AgentMessages`` AttributeMap holds the newest messages, one value
+    per message, keyed by its sequence as a 12-digit zero-padded decimal.
+    Older messages are in ``AgentMessageChunks``. ``framework_item`` is the
     replay truth: the framework adapter writes it and reads it back unchanged
     to rebuild framework input. The other fields are a display projection.
 
@@ -899,6 +900,99 @@ class AgentEvent:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AgentMessageChunk:
+    """Hold one immutable archive chunk of the session conversation.
+
+    The ``AgentMessageChunks`` AttributeMap holds the session's older
+    messages in chunks of consecutive sequences. A chunk holds at most
+    ``AgentSessionOptions.message_chunk_size`` messages and at most
+    ``message_chunk_max_bytes`` encoded bytes, except that a larger message
+    gets a chunk of its own. Its instance key is its first sequence as a
+    12-digit zero-padded decimal, as ``message_sequence_key`` returns, and
+    ``AgentMessageIndex.chunks`` lists its range. A chunk is never rewritten;
+    retention deletes it whole.
+
+    Example:
+        >>> index = (await client.get_attributes(session_id, AGENT_MESSAGE_INDEX)).get(
+        ...     AGENT_MESSAGE_INDEX
+        ... )
+        >>> first = index.chunks[0]
+        >>> read = AGENT_MESSAGE_CHUNKS.instance(message_sequence_key(first.first_sequence))
+        >>> chunk = (await client.get_attributes(session_id, read)).get(read)
+
+    Attributes:
+        messages: The chunk's messages in sequence order.
+    """
+
+    messages: list[AgentMessage]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentMessageChunkRange:
+    """Name the messages one ``AgentMessageChunks`` instance holds.
+
+    Attributes:
+        first_sequence: Sequence of the chunk's first message, which is also
+            its instance key.
+        last_sequence: Sequence of the chunk's last message.
+    """
+
+    first_sequence: int
+    last_sequence: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentMessageIndex:
+    """Locate the stored messages of one session across the window and the chunks.
+
+    The ``AgentMessageIndex`` Attribute holds one value. The newest messages
+    stay in the ``AgentMessages`` window, one instance per message. When the
+    window holds more than ``AgentSessionOptions.message_window_size``
+    messages, its oldest ones move into ``AgentMessageChunks`` instances. A
+    message too large for a shared chunk skips the window and gets a chunk of
+    its own at once. Retention deletes whole chunks from the oldest end. The
+    index changes only when chunks are written or deleted. A session without
+    an index stores every message in ``AgentMessages``, from sequence 1, as
+    dex-agents 0.1.0 did.
+
+    Attributes:
+        chunks: The range of every kept chunk, oldest first. The archived
+            ones are consecutive from ``first_sequence`` up to
+            ``window_first_sequence``. A range at or after
+            ``window_first_sequence`` is one oversized message among the
+            window's messages.
+        first_sequence: Sequence of the oldest stored message. Retention
+            deleted every earlier one.
+        window_first_sequence: Sequence of the oldest message that has not
+            been archived. Every later message is in ``AgentMessages`` unless
+            a chunk range holds it.
+    """
+
+    chunks: list[AgentMessageChunkRange]
+    first_sequence: int
+    window_first_sequence: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnReplySequence:
+    """Mark where a turn's replies start, after the user messages that started it.
+
+    The ``TurnReplySequence`` Attribute holds one value, written by the Step
+    that starts the turn. ``turn_completed``, ``turn_steered``, and
+    ``turn_cancelled`` count the turn's messages from it, so no Step reads
+    the turn's older messages, which compaction may have summarized and
+    retention deleted.
+
+    Attributes:
+        turn_id: ``"turn-<n>"`` of the turn.
+        sequence: First sequence after the turn's user messages.
+    """
+
+    turn_id: str
+    sequence: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class ContextSummary:
     """Hold the summary that replaces a session's earlier messages in the model input.
 
@@ -907,8 +1001,9 @@ class ContextSummary:
     earlier messages into this text when the next model input would cross the
     threshold. Each new summary folds in the previous one, so it always covers
     the messages from ``first_sequence`` through ``last_sequence``. The
-    messages stay in ``AgentMessages``: ``list_agent_messages`` and
-    ``get_agent_snapshot`` return them as before. Only the model input changes.
+    messages stay stored: ``list_agent_messages`` and ``get_agent_snapshot``
+    return them until retention deletes their chunk; see
+    ``AgentSessionOptions.retained_message_limit``.
 
     Example:
         >>> snapshot = await sessions.get_agent_snapshot("session-42")
@@ -1010,8 +1105,13 @@ class AgentMessagesPage:
     Attributes:
         messages: Messages in sequence order.
         next_before_sequence: Pass as ``before_sequence`` to read the previous
-            page, or ``None`` when this page starts at the first message.
+            page, or ``None`` when this page starts at the oldest stored
+            message.
+        deleted_before_sequence: ``AgentMessageIndex.first_sequence`` when
+            retention deleted every message before it, or ``None`` when the
+            session still stores its first message. Set on every page.
     """
 
     messages: list[AgentMessage]
     next_before_sequence: int | None
+    deleted_before_sequence: int | None = None

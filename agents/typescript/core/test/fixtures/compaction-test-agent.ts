@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
   createAgentSessionFlow,
   type AgentSessionFlow,
+  type AgentSessionOptions,
   type AgentTracingOptions,
   type ContextSummaryRequest,
   type ContextSummaryResult,
@@ -36,6 +37,12 @@ export const compactionMarkerDirectoryVariable = "COMPACTION_AGENT_STATE_DIR";
 export const compactionWindowTokensVariable = "COMPACTION_AGENT_WINDOW_TOKENS";
 /** Environment variable that pads every summary with this many characters. */
 export const compactionSummaryPadVariable = "COMPACTION_AGENT_SUMMARY_PAD_CHARACTERS";
+/** Environment variable that sets `messageWindowSize`. */
+export const compactionMessageWindowSizeVariable = "COMPACTION_AGENT_MESSAGE_WINDOW_SIZE";
+/** Environment variable that sets `messageChunkSize`. */
+export const compactionMessageChunkSizeVariable = "COMPACTION_AGENT_MESSAGE_CHUNK_SIZE";
+/** Environment variable that sets `retainedMessageLimit`; `none` keeps every message. */
+export const compactionRetainedMessageLimitVariable = "COMPACTION_AGENT_RETAINED_MESSAGE_LIMIT";
 /** File in the marker directory whose presence makes every summary call fail. */
 export const failSummaryFileName = "fail-summary";
 /** FileGate a summary call waits at when a summarized command contains `gate-summary`. */
@@ -141,6 +148,7 @@ export function createCompactionTestAgentFlow(
     builtInTools: ["write_todos"],
     compaction: { contextWindowTokens: windowTokens },
     ...(options.tracing === undefined ? {} : { tracing: options.tracing }),
+    ...options.messageStorage,
   });
 }
 
@@ -150,6 +158,27 @@ export interface CompactionTestAgentOptions {
   readonly tracing?: AgentTracingOptions;
   /** Metadata every summary result reports, for the `CompactContext` span. */
   readonly summaryModelCallMetadata?: ModelCallMetadata;
+  /** Window, chunk, and retention options of the stored messages. */
+  readonly messageStorage?: Pick<
+    AgentSessionOptions,
+    "messageWindowSize" | "messageChunkSize" | "retainedMessageLimit"
+  >;
+}
+
+/** Reads the message storage options a Worker child gets from its environment. */
+export function readMessageStorageEnvironment(
+  environment: NodeJS.ProcessEnv,
+): NonNullable<CompactionTestAgentOptions["messageStorage"]> {
+  const windowSize = environment[compactionMessageWindowSizeVariable];
+  const chunkSize = environment[compactionMessageChunkSizeVariable];
+  const retainedLimit = environment[compactionRetainedMessageLimitVariable];
+  return {
+    ...(windowSize === undefined ? {} : { messageWindowSize: Number(windowSize) }),
+    ...(chunkSize === undefined ? {} : { messageChunkSize: Number(chunkSize) }),
+    ...(retainedLimit === undefined
+      ? {}
+      : { retainedMessageLimit: retainedLimit === "none" ? null : Number(retainedLimit) }),
+  };
 }
 
 class SummaryMetadataRunner extends StepwiseAgentRunner {

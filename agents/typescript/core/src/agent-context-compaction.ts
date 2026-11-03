@@ -23,9 +23,9 @@ import type { AgentMessage, AgentUsage, ContextSummary, SessionSettings } from "
  * `CompactContext`, which folds the earlier messages into a {@link ContextSummary}, then back to
  * `RunModel`. The runner must implement {@link AgentFrameworkRunner.estimateInputTokens},
  * {@link AgentFrameworkRunner.selectCompactionCutoff}, and {@link AgentFrameworkRunner.summarizeContext};
- * `createAgentSessionFlow` throws otherwise. Messages stay in `AgentMessages`; only the model input
- * changes. Enable compaction only after every Worker of the Flow type runs a release with the
- * `CompactContext` Step.
+ * `createAgentSessionFlow` throws otherwise. Summarized messages stay stored until
+ * `AgentSessionOptions.retainedMessageLimit` deletes them; only the model input changes. Enable
+ * compaction only after every Worker of the Flow type runs a release with the `CompactContext` Step.
  *
  * @example
  * ```ts

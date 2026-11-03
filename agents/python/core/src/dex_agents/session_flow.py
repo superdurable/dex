@@ -29,6 +29,7 @@ a model call whose input would cross the threshold.
 from __future__ import annotations
 
 import asyncio
+import bisect
 import contextlib
 import json
 import logging
@@ -43,6 +44,7 @@ from dex import (
     AttributeMap,
     AttributeMapLoad,
     Channel,
+    CodecRegistry,
     Context,
     Flow,
     PersistenceSchema,
@@ -89,6 +91,8 @@ from dex_agents.compaction import (
 )
 from dex_agents.events import AgentEventType, AgentEventWriter
 from dex_agents.persistence import (
+    AGENT_MESSAGE_CHUNKS,
+    AGENT_MESSAGE_INDEX,
     AGENT_MESSAGES,
     AGENT_PLAN,
     AGENT_STATE,
@@ -97,8 +101,14 @@ from dex_agents.persistence import (
     AGENT_USAGE,
     CONTEXT_SUMMARY,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    DEFAULT_MESSAGE_CHUNK_MAX_BYTES,
+    DEFAULT_MESSAGE_CHUNK_SIZE,
+    DEFAULT_MESSAGE_WINDOW_SIZE,
+    DEFAULT_RETAINED_MESSAGE_LIMIT,
     FRAMEWORK_RUN_STATE,
     INTERRUPT_RESOLUTIONS,
+    MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
+    MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
     PENDING_INTERRUPTS,
     PENDING_PLAN_EXECUTION,
     PLAN_EXECUTIONS,
@@ -109,6 +119,7 @@ from dex_agents.persistence import (
     TOOL_CALL_RESULTS,
     TURN_CANCELLATION_REQUEST,
     TURN_CONTROL_REQUESTS,
+    TURN_REPLY_SEQUENCE,
     TURN_SESSION_SETTINGS,
     message_sequence_key,
     plan_execution_key,
@@ -155,6 +166,9 @@ from dex_agents.values import (
     AgentInterrupt,
     AgentInterruptResolution,
     AgentMessage,
+    AgentMessageChunk,
+    AgentMessageChunkRange,
+    AgentMessageIndex,
     AgentMessagesPage,
     AgentPlan,
     AgentSessionStartInput,
@@ -189,6 +203,7 @@ from dex_agents.values import (
     TurnCancellationRequest,
     TurnControlKind,
     TurnControlRequest,
+    TurnReplySequence,
     TurnSessionSettings,
     UpdateSessionSettingsRequest,
 )
@@ -298,17 +313,42 @@ class AgentSessionOptions:
             Defaults to ``False``.
         compaction: When to summarize earlier messages so the model input
             stays under the context window. It needs a runner that implements
-            ``ContextCompactionRunner``. Messages stay in ``AgentMessages``;
-            only the model input changes. Enable it only after every Worker of
-            the Flow type runs a version with the ``CompactContext`` Step.
-            ``None``, the default, never compacts.
+            ``ContextCompactionRunner``. Summarized messages stay stored until
+            retention deletes them; see ``retained_message_limit``. Enable it
+            only after every Worker of the Flow type runs a version with the
+            ``CompactContext`` Step. ``None``, the default, never compacts.
+        message_window_size: Most messages the ``AgentMessages`` window holds.
+            When a Step stores a message past it, the window's oldest messages
+            move into immutable ``AgentMessageChunks`` instances in the same
+            commit, at most four chunks and 8 MiB per commit. Every Step that
+            stores messages loads the whole window, so it bounds that load.
+            Defaults to 64.
+        message_chunk_size: Most messages in one archive chunk. Defaults to 32.
+        message_chunk_max_bytes: Most encoded bytes in one archive chunk, so a
+            chunk stays well under the Server's ``values.maxValueBytes``. A
+            larger message gets a chunk of its own, 15 bytes larger than the
+            message. Defaults to 1 MiB; at most 8 MiB.
+        retained_message_limit: With ``compaction``, how many stored messages
+            retention always keeps. Retention deletes the oldest chunk when
+            every message in it is summarized, at or before
+            ``ContextSummary.last_sequence``, and at least this many messages
+            are stored after it. The newest ``retained_message_limit``
+            messages and every message after the summary always stay. Deleted
+            messages leave ``list_agent_messages`` and ``get_agent_snapshot``,
+            so copy them out first if the application needs the full
+            transcript. ``None`` keeps every message. Defaults to 1,000.
+            Without ``compaction`` nothing is deleted.
 
     Raises:
         ValueError: If ``event_stream_capacity_bytes`` or ``interrupt_deadline``
             is not positive, if ``max_durable_wait`` is shorter than one second
             or not whole seconds, if ``built_in_tools`` names an unknown tool,
             if ``tool_policies`` names an enabled built-in tool, or if
-            ``plan_mode_enabled`` is set without ``write_todos``.
+            ``plan_mode_enabled`` is set without ``write_todos``, if
+            ``message_chunk_size`` is not positive, if
+            ``message_window_size`` is smaller than ``message_chunk_size``, if
+            ``message_chunk_max_bytes`` is not between 1 and 8 MiB, or if
+            ``retained_message_limit`` is negative.
     """
 
     tool_policies: Mapping[str, ToolPolicy] = field(default_factory=dict)
@@ -320,8 +360,20 @@ class AgentSessionOptions:
     max_durable_wait: timedelta = DEFAULT_MAX_DURABLE_WAIT
     plan_mode_enabled: bool = False
     compaction: CompactionPolicy | None = None
+    message_window_size: int = DEFAULT_MESSAGE_WINDOW_SIZE
+    message_chunk_size: int = DEFAULT_MESSAGE_CHUNK_SIZE
+    message_chunk_max_bytes: int = DEFAULT_MESSAGE_CHUNK_MAX_BYTES
+    retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT
 
     def __post_init__(self) -> None:
+        if self.message_chunk_size <= 0:
+            raise ValueError("message_chunk_size must be positive")
+        if self.message_window_size < self.message_chunk_size:
+            raise ValueError("message_window_size must be at least message_chunk_size")
+        if not 1 <= self.message_chunk_max_bytes <= MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT:
+            raise ValueError("message_chunk_max_bytes must be between 1 and 8388608")
+        if self.retained_message_limit is not None and self.retained_message_limit < 0:
+            raise ValueError("retained_message_limit must not be negative")
         if self.event_stream_capacity_bytes <= 0:
             raise ValueError("event_stream_capacity_bytes must be positive")
         if self.interrupt_deadline is not None and self.interrupt_deadline <= timedelta(0):
@@ -375,7 +427,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     Attributes:
         agent_state: The ``AgentState`` Attribute.
-        agent_messages: The ``AgentMessages`` AttributeMap.
+        agent_messages: The ``AgentMessages`` AttributeMap: the newest
+            messages, one instance per message.
+        agent_message_chunks: The ``AgentMessageChunks`` AttributeMap: older
+            messages in immutable chunks.
+        agent_message_index: The ``AgentMessageIndex`` Attribute: where the
+            window starts and which chunks are kept.
+        turn_reply_sequence: The ``TurnReplySequence`` Attribute: where the
+            latest turn's replies start.
         framework_run_state: The ``FrameworkRunState`` Attribute.
         agent_tool_calls: The ``AgentToolCalls`` AttributeMap.
         pending_interrupts: The ``PendingInterrupts`` Attribute.
@@ -405,6 +464,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     agent_state = AGENT_STATE
     agent_messages = AGENT_MESSAGES
+    agent_message_chunks = AGENT_MESSAGE_CHUNKS
+    agent_message_index = AGENT_MESSAGE_INDEX
+    turn_reply_sequence = TURN_REPLY_SEQUENCE
     framework_run_state = FRAMEWORK_RUN_STATE
     agent_tool_calls = AGENT_TOOL_CALLS
     pending_interrupts = PENDING_INTERRUPTS
@@ -462,6 +524,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 "AgentSessionOptions.compaction needs a runner that implements "
                 "ContextCompactionRunner"
             )
+        self._message_storage = _MessageStorage(
+            window_size=self._options.message_window_size,
+            chunk_size=self._options.message_chunk_size,
+            chunk_max_bytes=self._options.message_chunk_max_bytes,
+            retained_message_limit=(
+                None if self._options.compaction is None else self._options.retained_message_limit
+            ),
+        )
         self._session_tracer = AgentSessionTracer(self._options.tracing, flow_type)
         self.agent_events: Stream[AgentEvent] = Stream(
             "AgentEvents", AgentEvent, self._options.event_stream_capacity_bytes
@@ -549,6 +619,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         return PersistenceSchema.of(
             AGENT_STATE,
             AGENT_MESSAGES,
+            AGENT_MESSAGE_CHUNKS,
+            AGENT_MESSAGE_INDEX,
+            TURN_REPLY_SEQUENCE,
             FRAMEWORK_RUN_STATE,
             AGENT_TOOL_CALLS,
             PENDING_INTERRUPTS,
@@ -943,24 +1016,26 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         return RPCResult(True)
 
     @rpc(
-        load_attribute_maps=(AGENT_MESSAGES, AGENT_TOOL_CALLS),
+        load_attribute_maps=(AGENT_MESSAGES, AGENT_MESSAGE_CHUNKS, AGENT_TOOL_CALLS),
         load_channels=(QUEUED_USER_MESSAGES, STEERED_USER_MESSAGES),
     )
     def get_agent_snapshot(self, context: Context) -> RPCResult[AgentSnapshot]:
         """Return the session state a UI renders.
 
         The RPC reads committed state without locks, so it also serves a
-        retained closed session. It loads the whole ``AgentMessages`` map.
+        retained closed session. It loads the message window and every
+        retained chunk.
 
         Args:
             context: RPC Context supplied by Dex.
 
         Returns:
-            State, the last 200 messages, pending interrupts, the active turn's
-            tool calls, usage, the queued message count, the plan, and the
+            State, the last 200 stored messages, pending interrupts, the active
+            turn's tool calls, usage, the queued message count, the plan, the
             queued and steered messages with their Channel message IDs, the
             context summary, and the settings the next turn starts with.
-            Summarized messages stay in ``messages``.
+            Summarized messages stay in ``messages`` until retention deletes
+            them.
         """
         state = _optional_agent_state(context)
         if state is None:
@@ -982,7 +1057,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             )
         )
 
-    @rpc(load_attribute_maps=(AGENT_MESSAGES,))
+    @rpc(load_attribute_maps=(AGENT_MESSAGES, AGENT_MESSAGE_CHUNKS))
     def list_agent_messages(
         self,
         context: Context,
@@ -993,6 +1068,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         Start without ``before_sequence`` for the newest page, then pass each
         page's ``next_before_sequence`` to walk back. The RPC reads committed
         state without locks, so it also serves a retained closed session.
+        Paging ends at the oldest stored message: retention may have deleted
+        earlier ones.
 
         Args:
             context: RPC Context supplied by Dex.
@@ -1005,14 +1082,16 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         if state is None:
             return RPCResult(AgentMessagesPage(messages=[], next_before_sequence=None))
         limit = max(1, min(input.limit, MESSAGE_PAGE_LIMIT))
+        first_sequence = _first_stored_sequence(AGENT_MESSAGE_INDEX.get(context))
         end = state.next_message_sequence
         if input.before_sequence is not None:
-            end = max(1, min(input.before_sequence, end))
-        start = max(1, end - limit)
+            end = max(first_sequence, min(input.before_sequence, end))
+        start = max(first_sequence, end - limit)
         return RPCResult(
             AgentMessagesPage(
                 messages=_read_messages(context, start, end),
-                next_before_sequence=start if start > 1 else None,
+                next_before_sequence=start if start > first_sequence else None,
+                deleted_before_sequence=first_sequence if first_sequence > 1 else None,
             )
         )
 
@@ -1045,7 +1124,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             user_messages = [self._runner.build_user_message(message.text) for message in messages]
             if any(user_message.role is not MessageRole.USER for user_message in user_messages):
                 raise ValueError("build_user_message must return a user message")
-            state = _append_messages(context, state, turn_id, user_messages)
+            state = _append_messages(
+                context, state, turn_id, user_messages, self._message_storage, starts_turn=True
+            )
             AGENT_STATE.set(
                 context,
                 replace(
@@ -1064,7 +1145,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 )
                 if was_plan_draft:
                     _write_plan_updated(events, executed_plan)
-        return go_to(self._run_model, None)
+        return self._go_to_message_step(context, self._run_model)
 
     def _interaction_mode_for_user_messages(
         self, context: Context, messages: Sequence[AgentUserMessage]
@@ -1152,10 +1233,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         ) as model_call_span:
             async with _background_heartbeats(context.heartbeat):
                 outcome = await self._runner.run_model_step(turn)
-            # RunModel loads the whole map, so the count includes messages summarized away.
-            stored_turn_message_count = _count_messages_after_user_messages(
-                _read_turn_messages(context, state, turn_id), turn_id
-            )
+            # The index keeps where the turn's replies start, so summarized ones still count.
+            stored_turn_message_count = _count_stored_turn_replies(context, state, turn_id)
             if isinstance(outcome, TurnCompleted):
                 model_call_span.record_outcome(
                     outcome,
@@ -1182,7 +1261,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         self._end_controlled_turn(
             context, _require_agent_state(context), STEERED_USER_MESSAGES.size(context)
         )
-        return go_to(self._apply_turn_control, None)
+        return self._go_to_message_step(context, self._apply_turn_control)
 
     def _turn_context(
         self,
@@ -1192,7 +1271,15 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         events: AgentEventWriter,
     ) -> AgentTurnContext:
         context_summary = self._runner_context_summary(context)
-        first_sequence = 1 if context_summary is None else context_summary.last_sequence + 1
+        index = AGENT_MESSAGE_INDEX.get(context)
+        if context_summary is None and _first_stored_sequence(index) > 1:
+            _LOGGER.warning(
+                "dex-agents: session %s stores no messages before %s; retention deleted them, "
+                "and this runner cannot use the context summary that covers them",
+                context.flow_id,
+                _first_stored_sequence(index),
+            )
+        first_sequence = _model_input_first_sequence(index, context_summary)
         return AgentTurnContext(
             flow_id=context.flow_id,
             turn_id=_require_active_turn_id(state),
@@ -1252,12 +1339,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     ) -> StepDecision:
         # CompactContext commits once, so this commit is where the status becomes visible.
         AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.COMPACTING_CONTEXT))
-        first_sequence = 1 if previous_summary is None else previous_summary.last_sequence + 1
+        index = AGENT_MESSAGE_INDEX.get(context)
+        first_sequence = _model_input_first_sequence(index, previous_summary)
         options = replace(
             self._compact_context.get_step_options(),
-            execute_load_attribute_maps=(),
-            execute_load_attribute_map_instances=_message_loads(
-                first_sequence, through_sequence + 1
+            execute_load_attribute_map_instances=_message_chunk_loads(
+                index, first_sequence, through_sequence + 1
             ),
         )
         return go_to_many(
@@ -1276,7 +1363,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         state = _require_agent_state(context)
         turn_id = _require_active_turn_id(state)
         previous_summary = _context_summary(context)
-        first_sequence = 1 if previous_summary is None else previous_summary.last_sequence + 1
+        index = AGENT_MESSAGE_INDEX.get(context)
+        first_sequence = _model_input_first_sequence(index, previous_summary)
         through_sequence = input.through_sequence
         if not first_sequence <= through_sequence < state.next_message_sequence:
             raise RuntimeError(
@@ -1324,14 +1412,23 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             created_at=_rfc3339(datetime.now(UTC)),
         )
         CONTEXT_SUMMARY.set(context, summary)
+        if index is not None:
+            retained_index = _delete_retired_message_chunks(
+                context,
+                index,
+                state.next_message_sequence,
+                summary,
+                self._message_storage.retained_message_limit,
+            )
+            if retained_index != index:
+                AGENT_MESSAGE_INDEX.set(context, retained_index)
         _record_usage(context, events, result.usage)
         AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_MODEL))
         events.write_event(
             AgentEventType.COMPACTION_FINISHED,
             {"generation": summary.generation, "through_sequence": through_sequence},
         )
-        # RunModel loads the whole map: listing instances in each movement would cost run storage.
-        return go_to(self._run_model, None)
+        return self._go_to_message_step(context, self._run_model)
 
     def _complete_turn(
         self,
@@ -1343,7 +1440,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         stored_turn_message_count: int,
     ) -> StepDecision:
         turn_id = _require_active_turn_id(state)
-        state = _append_messages(context, state, turn_id, outcome.new_messages)
+        state = _append_messages(
+            context, state, turn_id, outcome.new_messages, self._message_storage
+        )
         for tool_call in tool_calls:
             AGENT_TOOL_CALLS.delete(context, tool_call.tool_call_id)
         if FRAMEWORK_RUN_STATE.get(context) is not None:
@@ -1381,7 +1480,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             return self._fail_turn(
                 context, state, tool_calls, events, MISSING_UNFINISHED_TURN_MESSAGE_BUILDER
             )
-        state = _append_messages(context, state, turn_id, outcome.new_messages)
+        state = _append_messages(
+            context, state, turn_id, outcome.new_messages, self._message_storage
+        )
         FRAMEWORK_RUN_STATE.set(context, outcome.framework_run_state)
         now = datetime.now(UTC)
         interrupts = _pending_interrupts(context)
@@ -2082,9 +2183,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             # A consumed result from an earlier turn must not resume this one early.
             return go_to(self._resume_turn, unfinished_count)
         if reason is not None:
-            return go_to(self._apply_turn_control, None)
+            return self._go_to_message_step(context, self._apply_turn_control)
         AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_MODEL))
-        return go_to(self._run_model, None)
+        return self._go_to_message_step(context, self._run_model)
 
     def _wake_waiting_tool_calls(
         self,
@@ -2141,7 +2242,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             return dead_end()
         if state.status is not AgentSessionStatus.RUNNING_TOOLS:
             # cancel_turn cancelled the model call or compaction, so no other Step ends the turn.
-            return go_to(self._apply_turn_control, None)
+            return self._go_to_message_step(context, self._apply_turn_control)
         # ResumeTurn waits for every result and ends the turn; started tool Steps still finish.
         events = self._event_writer(context, turn_id)
         interrupts = _pending_interrupts(context)
@@ -2244,9 +2345,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         is_cancelled = (
             _turn_control_reason(context, turn_id) is ToolCallCancellationReason.TURN_CANCELLED
         )
-        stored_message_count = _count_messages_after_user_messages(
-            _read_messages(context, 1, state.next_message_sequence), turn_id
-        )
+        stored_message_count = _count_stored_turn_replies(context, state, turn_id)
         messages = self._build_unfinished_turn_messages(context, state, tool_calls, events)
         if messages is None:
             messages = []
@@ -2257,7 +2356,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 if note.role is not MessageRole.USER:
                     raise ValueError("build_user_message must return a user message")
                 messages.append(note)
-        state = _append_messages(context, state, turn_id, messages)
+        state = _append_messages(context, state, turn_id, messages, self._message_storage)
         for tool_call in tool_calls:
             AGENT_TOOL_CALLS.delete(context, tool_call.tool_call_id)
         if FRAMEWORK_RUN_STATE.get(context) is not None:
@@ -2307,7 +2406,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             messages.append(
                 self._runner.build_user_message(build_turn_failure_note(finished_tool_calls))
             )
-        state = _append_messages(context, state, turn_id, messages)
+        state = _append_messages(context, state, turn_id, messages, self._message_storage)
         for tool_call in tool_calls:
             AGENT_TOOL_CALLS.delete(context, tool_call.tool_call_id)
         if FRAMEWORK_RUN_STATE.get(context) is not None:
@@ -2448,6 +2547,32 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             options=_with_record_loads(self._await_timer.get_step_options(), tool_call_id),
         )
 
+    def _message_step_map_loads(self) -> tuple[AttributeMap[Any], ...]:
+        """Return the maps RunModel and ApplyTurnControl load whole."""
+        # Without compaction the model input is every stored message, so every chunk loads.
+        if self._options.compaction is None:
+            return (AGENT_MESSAGES, AGENT_TOOL_CALLS, AGENT_MESSAGE_CHUNKS)
+        return (AGENT_MESSAGES, AGENT_TOOL_CALLS)
+
+    def _go_to_message_step(
+        self, context: AsyncContext, step: RunModel | ApplyTurnControl
+    ) -> StepDecision:
+        """Move to a Step that reads the model input, loading only the chunks that input needs."""
+        options = step.get_step_options()
+        # Without compaction the input is every stored message, and the static options load them.
+        if self._options.compaction is not None:
+            index = AGENT_MESSAGE_INDEX.get(context)
+            first_sequence = _model_input_first_sequence(
+                index, self._runner_context_summary(context)
+            )
+            options = replace(
+                options,
+                execute_load_attribute_map_instances=_message_chunk_loads(
+                    index, first_sequence, _require_agent_state(context).next_message_sequence
+                ),
+            )
+        return go_to_many(StepMovement.of(step, None, options=options))
+
     def _event_writer(self, context: AsyncContext, turn_id: str | None) -> AgentEventWriter:
         return AgentEventWriter(
             lambda event: self.agent_events.write(context, event),
@@ -2464,7 +2589,10 @@ class StartAgentSession(Step[AgentSessionStartInput]):
         self._session = session
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_durability=StepDurability.SYNC)
+        return StepOptions(
+            execute_durability=StepDurability.SYNC,
+            execute_load_attribute_maps=(AGENT_MESSAGES,),
+        )
 
     async def execute(  # type: ignore[override]
         self,
@@ -2504,6 +2632,7 @@ class AwaitUserMessage(Step[None]):
             wait_for_durability=StepDurability.SYNC,
             execute_durability=StepDurability.SYNC,
             execute_lock_attributes=(TURN_CANCELLATION_REQUEST.lock(),),
+            execute_load_attribute_maps=(AGENT_MESSAGES,),
         )
 
     def wait_for(self, context: Context, input: None) -> Wait:
@@ -2515,7 +2644,7 @@ class AwaitUserMessage(Step[None]):
         input: None,
     ) -> StepDecision:
         if TURN_CONTROL_REQUESTS.results(context):
-            return go_to(self._session._apply_turn_control, None)
+            return self._session._go_to_message_step(context, self._session._apply_turn_control)
         return self._session._start_user_message_turn(context, self.get_step_type())
 
 
@@ -2530,9 +2659,10 @@ class RunModel(Step[TurnFailureRouteInput]):
         self._session = session
 
     def get_step_options(self) -> StepOptions:
+        # Movements add the chunks of the model input; see AgentSessionFlow._go_to_message_step.
         return replace(
             _MODEL_CALL_STEP_OPTIONS,
-            execute_load_attribute_maps=(AGENT_MESSAGES, AGENT_TOOL_CALLS),
+            execute_load_attribute_maps=self._session._message_step_map_loads(),
         ).on_execute_failure_proceed_to(self._session._record_turn_failure)
 
     async def execute(  # type: ignore[override]
@@ -2807,7 +2937,7 @@ class ApplyTurnControl(Step[None]):
             execute_retry=RECOVERY_RETRY,
             wait_for_durability=StepDurability.SYNC,
             execute_durability=StepDurability.SYNC,
-            execute_load_attribute_maps=(AGENT_TOOL_CALLS, AGENT_MESSAGES),
+            execute_load_attribute_maps=self._session._message_step_map_loads(),
             execute_lock_attributes=(TURN_CANCELLATION_REQUEST.lock(),),
         )
 
@@ -2834,10 +2964,11 @@ class RecordTurnFailure(Step[TurnFailureRouteInput]):
 
     def get_step_options(self) -> StepOptions:
         # An incremental runner reads the turn's stored messages to finish its transcript.
+        # A failure route has no movement options, so it loads every retained chunk.
         loads: tuple[AttributeMap[Any], ...] = (
-            (AGENT_TOOL_CALLS, AGENT_MESSAGES)
+            (AGENT_TOOL_CALLS, AGENT_MESSAGES, AGENT_MESSAGE_CHUNKS)
             if isinstance(self._session.runner, UnfinishedTurnMessageBuilder)
-            else (AGENT_TOOL_CALLS,)
+            else (AGENT_TOOL_CALLS, AGENT_MESSAGES)
         )
         return StepOptions(
             execute_retry=RECOVERY_RETRY,
@@ -3269,60 +3400,309 @@ def _remove_pending_interrupt(context: Context, interrupt_id: str) -> None:
     )
 
 
+@dataclass(frozen=True)
+class _MessageStorage:
+    """The options that decide where messages are stored and when chunks are deleted."""
+
+    window_size: int
+    chunk_size: int
+    chunk_max_bytes: int
+    # None when nothing is deleted: no compaction, or no limit.
+    retained_message_limit: int | None
+
+
+_MESSAGE_CODEC = CodecRegistry().resolve(AgentMessage)
+# The bytes of {"messages":[...]} around the messages, without the commas between them.
+_CHUNK_ENVELOPE_BYTES = len('{"messages":[]}')
+
+
 def _append_messages(
     context: Context,
     state: AgentState,
     turn_id: str,
     messages: Sequence[FrameworkMessage],
+    storage: _MessageStorage,
+    *,
+    starts_turn: bool = False,
 ) -> AgentState:
+    """Store messages, move full chunks out of the window, and apply retention.
+
+    Every caller loads the whole ``AgentMessages`` window. A message too large to
+    share a chunk gets its own chunk at once, so no later commit can fail on it.
+    The index changes only when chunks are written or deleted.
+    """
+    if not messages and not starts_turn:
+        AGENT_STATE.set(context, state)
+        return state
+    stored_index = AGENT_MESSAGE_INDEX.get(context)
+    index = stored_index or _EMPTY_MESSAGE_INDEX
+    if not starts_turn and state.active_turn_id is not None:
+        _record_turn_reply_sequence(context, index, state, state.active_turn_id)
     sequence = state.next_message_sequence
     created_at = _rfc3339(datetime.now(UTC))
+    chunks = list(index.chunks)
     for message in messages:
-        AGENT_MESSAGES.set(
-            context,
-            message_sequence_key(sequence),
-            AgentMessage(
-                sequence=sequence,
-                turn_id=turn_id,
-                role=message.role,
-                text=message.text,
-                tool_call_id=message.tool_call_id,
-                tool_name=message.tool_name,
-                tool_arguments=message.tool_arguments,
-                tool_output=message.tool_output,
-                framework_item=message.framework_item,
-                created_at=created_at,
-            ),
+        stored = AgentMessage(
+            sequence=sequence,
+            turn_id=turn_id,
+            role=message.role,
+            text=message.text,
+            tool_call_id=message.tool_call_id,
+            tool_name=message.tool_name,
+            tool_arguments=message.tool_arguments,
+            tool_output=message.tool_output,
+            framework_item=message.framework_item,
+            created_at=created_at,
         )
+        if _CHUNK_ENVELOPE_BYTES + _message_bytes(stored) > storage.chunk_max_bytes:
+            # The first store writes the largest value this message ever needs.
+            AGENT_MESSAGE_CHUNKS.set(
+                context, message_sequence_key(sequence), AgentMessageChunk(messages=[stored])
+            )
+            chunks.append(AgentMessageChunkRange(first_sequence=sequence, last_sequence=sequence))
+        else:
+            AGENT_MESSAGES.set(context, message_sequence_key(sequence), stored)
         sequence += 1
+    if len(chunks) != len(index.chunks):
+        index = replace(index, chunks=chunks)
     state = replace(state, next_message_sequence=sequence)
     AGENT_STATE.set(context, state)
+    if starts_turn:
+        TURN_REPLY_SEQUENCE.set(context, TurnReplySequence(turn_id=turn_id, sequence=sequence))
+    index = _roll_over_message_window(context, index, sequence, storage)
+    index = _delete_retired_message_chunks(
+        context, index, sequence, _context_summary(context), storage.retained_message_limit
+    )
+    if index != (stored_index or _EMPTY_MESSAGE_INDEX):
+        AGENT_MESSAGE_INDEX.set(context, index)
     return state
 
 
-def _message_loads(start: int, end: int) -> tuple[AttributeMapLoad, ...]:
-    return tuple(
-        AGENT_MESSAGES.load(message_sequence_key(sequence)) for sequence in range(start, end)
+_EMPTY_MESSAGE_INDEX = AgentMessageIndex(chunks=[], first_sequence=1, window_first_sequence=1)
+
+
+def _record_turn_reply_sequence(
+    context: Context, index: AgentMessageIndex, state: AgentState, turn_id: str
+) -> None:
+    """Record where a turn that a 0.1.0 Worker started has its replies, before chunks hide them."""
+    recorded = TURN_REPLY_SEQUENCE.get(context)
+    if recorded is not None and recorded.turn_id == turn_id:
+        return
+    turn_messages = _read_stored_turn_messages(context, index, state, turn_id)
+    TURN_REPLY_SEQUENCE.set(
+        context,
+        TurnReplySequence(
+            turn_id=turn_id,
+            sequence=state.next_message_sequence
+            - _count_messages_after_user_messages(turn_messages, turn_id),
+        ),
     )
 
 
-def _read_turn_messages(context: Context, state: AgentState, turn_id: str) -> list[AgentMessage]:
-    """Return the turn's stored messages; they are the newest, so read back until another turn's."""
+def _message_bytes(message: AgentMessage) -> int:
+    return len(str(_MESSAGE_CODEC.encode(message).data).encode())
+
+
+def _roll_over_message_window(
+    context: Context, index: AgentMessageIndex, next_sequence: int, storage: _MessageStorage
+) -> AgentMessageIndex:
+    """Move the window's oldest messages into immutable chunks, a bounded amount per commit."""
+    window_first = index.window_first_sequence
+    chunks = list(index.chunks)
+    direct_starts = {
+        chunk.first_sequence for chunk in chunks if chunk.first_sequence >= window_first
+    }
+    window_count = next_sequence - window_first - len(direct_starts)
+    moved_bytes = 0
+    moved_chunks = 0
+    while window_first in direct_starts:
+        window_first += 1
+    while (
+        window_count > storage.window_size and moved_chunks < MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT
+    ):
+        messages: list[AgentMessage] = []
+        chunk_bytes = _CHUNK_ENVELOPE_BYTES - 1
+        while (
+            window_first + len(messages) < next_sequence
+            and window_first + len(messages) not in direct_starts
+            and len(messages) < storage.chunk_size
+        ):
+            message = _read_window_message(context, window_first + len(messages))
+            grown_bytes = chunk_bytes + 1 + _message_bytes(message)
+            if messages and grown_bytes > storage.chunk_max_bytes:
+                break
+            messages.append(message)
+            chunk_bytes = grown_bytes
+        if moved_chunks and moved_bytes + chunk_bytes > MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT:
+            break
+        AGENT_MESSAGE_CHUNKS.set(
+            context, message_sequence_key(window_first), AgentMessageChunk(messages=messages)
+        )
+        for message in messages:
+            AGENT_MESSAGES.delete(context, message_sequence_key(message.sequence))
+        last_sequence = window_first + len(messages) - 1
+        bisect.insort(
+            chunks,
+            AgentMessageChunkRange(first_sequence=window_first, last_sequence=last_sequence),
+            key=lambda chunk: chunk.first_sequence,
+        )
+        window_first = last_sequence + 1
+        while window_first in direct_starts:
+            window_first += 1
+        window_count -= len(messages)
+        moved_bytes += chunk_bytes
+        moved_chunks += 1
+    if window_first == index.window_first_sequence and chunks == index.chunks:
+        return index
+    return replace(
+        index,
+        chunks=chunks,
+        first_sequence=_archived_first_sequence(chunks, window_first),
+        window_first_sequence=window_first,
+    )
+
+
+def _archived_first_sequence(chunks: Sequence[AgentMessageChunkRange], window_first: int) -> int:
+    """Return the oldest stored message: the first archived chunk's, else the window's."""
+    if chunks and chunks[0].first_sequence < window_first:
+        return chunks[0].first_sequence
+    return window_first
+
+
+def _delete_retired_message_chunks(
+    context: Context,
+    index: AgentMessageIndex,
+    next_sequence: int,
+    summary: ContextSummary | None,
+    retained_message_limit: int | None,
+) -> AgentMessageIndex:
+    """Delete the oldest fully summarized chunks while at least the limit of messages stays."""
+    if retained_message_limit is None or summary is None:
+        return index
+    chunks = list(index.chunks)
+    while (
+        chunks
+        and chunks[0].first_sequence < index.window_first_sequence
+        and chunks[0].last_sequence <= summary.last_sequence
+        and next_sequence - (chunks[0].last_sequence + 1) >= retained_message_limit
+    ):
+        AGENT_MESSAGE_CHUNKS.delete(context, message_sequence_key(chunks[0].first_sequence))
+        chunks.pop(0)
+    if len(chunks) == len(index.chunks):
+        return index
+    return replace(
+        index,
+        chunks=chunks,
+        first_sequence=_archived_first_sequence(chunks, index.window_first_sequence),
+    )
+
+
+def _first_stored_sequence(index: AgentMessageIndex | None) -> int:
+    return 1 if index is None else index.first_sequence
+
+
+def _model_input_first_sequence(
+    index: AgentMessageIndex | None, summary: ContextSummary | None
+) -> int:
+    """Return the first message of the model input: after the summary, and never a deleted one."""
+    after_summary = 1 if summary is None else summary.last_sequence + 1
+    return max(_first_stored_sequence(index), after_summary)
+
+
+def _find_message_chunk(index: AgentMessageIndex, sequence: int) -> AgentMessageChunkRange | None:
+    """Return the range of the kept chunk that holds a sequence, or None for a window message."""
+    position = bisect.bisect_right([chunk.first_sequence for chunk in index.chunks], sequence) - 1
+    if position < 0 or index.chunks[position].last_sequence < sequence:
+        return None
+    return index.chunks[position]
+
+
+def _message_chunk_loads(
+    index: AgentMessageIndex | None, start: int, end: int
+) -> tuple[AttributeMapLoad, ...]:
+    """Return the loads of the chunks that hold any message with a sequence in [start, end)."""
+    if index is None:
+        return ()
+    return tuple(
+        AGENT_MESSAGE_CHUNKS.load(message_sequence_key(chunk.first_sequence))
+        for chunk in index.chunks
+        if chunk.last_sequence >= start and chunk.first_sequence < end
+    )
+
+
+def _read_window_message(context: Context, sequence: int) -> AgentMessage:
+    message = AGENT_MESSAGES.get(context, message_sequence_key(sequence))
+    if message is None:
+        raise RuntimeError(f"AgentMessages has no message {message_sequence_key(sequence)}")
+    return message
+
+
+def _read_message_chunk(context: Context, chunk_range: AgentMessageChunkRange) -> AgentMessageChunk:
+    key = message_sequence_key(chunk_range.first_sequence)
+    try:
+        chunk = AGENT_MESSAGE_CHUNKS.get(context, key)
+    except Exception as error:
+        raise RuntimeError(f"AgentMessageChunks instance {key} is not loaded") from error
+    expected = list(range(chunk_range.first_sequence, chunk_range.last_sequence + 1))
+    if chunk is None or [message.sequence for message in chunk.messages] != expected:
+        raise RuntimeError(
+            f"AgentMessageChunks instance {key} does not hold messages "
+            f"{chunk_range.first_sequence} through {chunk_range.last_sequence}"
+        )
+    return chunk
+
+
+def _read_stored_turn_messages(
+    context: Context, index: AgentMessageIndex | None, state: AgentState, turn_id: str
+) -> list[AgentMessage]:
+    """Return the turn's newest stored messages, read back until another turn's or a gap."""
     turn_messages: list[AgentMessage] = []
-    for sequence in range(state.next_message_sequence - 1, 0, -1):
-        message = AGENT_MESSAGES.get(context, message_sequence_key(sequence))
+    sequence = state.next_message_sequence - 1
+    while sequence >= _first_stored_sequence(index):
+        try:
+            [message] = _read_messages(context, sequence, sequence + 1)
+        except RuntimeError:
+            # A chunk this Step did not load: the turn's older messages are not needed.
+            break
         if message.turn_id != turn_id:
             break
         turn_messages.append(message)
+        sequence -= 1
     turn_messages.reverse()
     return turn_messages
 
 
+def _count_stored_turn_replies(context: Context, state: AgentState, turn_id: str) -> int:
+    """Count the turn's stored messages after the user messages that started it."""
+    recorded = TURN_REPLY_SEQUENCE.get(context)
+    if recorded is not None and recorded.turn_id == turn_id:
+        return state.next_message_sequence - recorded.sequence
+    # A turn that a 0.1.0 Worker started and no message has been stored in since.
+    index = AGENT_MESSAGE_INDEX.get(context)
+    return _count_messages_after_user_messages(
+        _read_stored_turn_messages(context, index, state, turn_id), turn_id
+    )
+
+
 def _read_messages(context: Context, start: int, end: int) -> list[AgentMessage]:
-    return [
-        AGENT_MESSAGES.get(context, message_sequence_key(sequence))
-        for sequence in range(max(1, start), end)
-    ]
+    """Return the stored messages with sequences in [start, end) from the window and the chunks."""
+    index = AGENT_MESSAGE_INDEX.get(context)
+    start = max(start, _first_stored_sequence(index))
+    messages: list[AgentMessage] = []
+    chunk: AgentMessageChunk | None = None
+    chunk_range: AgentMessageChunkRange | None = None
+    for sequence in range(start, end):
+        if chunk is not None and chunk_range is not None and sequence <= chunk_range.last_sequence:
+            messages.append(chunk.messages[sequence - chunk_range.first_sequence])
+            continue
+        found = None if index is None else _find_message_chunk(index, sequence)
+        if found is None:
+            messages.append(_read_window_message(context, sequence))
+            continue
+        chunk_range = found
+        chunk = _read_message_chunk(context, chunk_range)
+        messages.append(chunk.messages[sequence - chunk_range.first_sequence])
+    return messages
 
 
 def _turn_tool_calls(context: Context, turn_id: str | None) -> list[AgentToolCall]:

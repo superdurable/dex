@@ -392,8 +392,9 @@ func (state *AgentState) UnmarshalJSON(data []byte) error {
 
 // AgentMessage stores one framework item of the session conversation.
 //
-// The AgentMessages AttributeMap holds one value per message, keyed by
-// MessageSequenceKey(Sequence). FrameworkItem is the replay truth: the runner
+// The AgentMessages AttributeMap holds one value per message of the newest
+// messages, keyed by MessageSequenceKey(Sequence); older messages are in
+// AgentMessageChunk values. FrameworkItem is the replay truth: the runner
 // writes it and reads it back unchanged. The other fields are a display
 // projection.
 type AgentMessage struct {
@@ -431,6 +432,145 @@ func (message *AgentMessage) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*message = AgentMessage(decoded)
+	return nil
+}
+
+// AgentMessageChunk holds consecutive archived messages of a session.
+//
+// The AgentMessageChunks AttributeMap holds one value per archive chunk, keyed
+// by MessageSequenceKey of its first message. A chunk is written once, when
+// the oldest messages of the AgentMessages window move into it, or when an
+// oversized message is stored straight into a chunk of its own, and never
+// changes. It holds the messages its AgentMessageChunkRange in
+// AgentMessageIndex.Chunks names: at most the message chunk size, and at most
+// the message chunk max bytes unless one message is larger by itself.
+type AgentMessageChunk struct {
+	// Messages are the chunk's messages in sequence order, without gaps.
+	Messages []AgentMessage `json:"messages"`
+}
+
+// MarshalJSON encodes the wire object, writing an empty Messages as [].
+//
+// It returns an error only when a field cannot be encoded.
+func (chunk AgentMessageChunk) MarshalJSON() ([]byte, error) {
+	type wireAgentMessageChunk AgentMessageChunk
+	encoded := wireAgentMessageChunk(chunk)
+	encoded.Messages = nonNilSlice(encoded.Messages)
+	return json.Marshal(encoded)
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing required field or a wrong JSON type.
+func (chunk *AgentMessageChunk) UnmarshalJSON(data []byte) error {
+	type wireAgentMessageChunk AgentMessageChunk
+	var decoded wireAgentMessageChunk
+	if err := decodeWireObject(data, &decoded, "AgentMessageChunk", "messages"); err != nil {
+		return err
+	}
+	decoded.Messages = nonNilSlice(decoded.Messages)
+	*chunk = AgentMessageChunk(decoded)
+	return nil
+}
+
+// AgentMessageChunkRange names the messages of one archive chunk.
+//
+// The chunk is the AgentMessageChunks instance keyed by
+// MessageSequenceKey(FirstSequence). It holds every message from
+// FirstSequence through LastSequence.
+type AgentMessageChunkRange struct {
+	// FirstSequence is the sequence of the chunk's first message and its instance key.
+	FirstSequence int64 `json:"first_sequence"`
+	// LastSequence is the sequence of the chunk's last message.
+	LastSequence int64 `json:"last_sequence"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing required field or a wrong JSON type.
+func (chunkRange *AgentMessageChunkRange) UnmarshalJSON(data []byte) error {
+	type wireAgentMessageChunkRange AgentMessageChunkRange
+	var decoded wireAgentMessageChunkRange
+	if err := decodeWireObject(data, &decoded, "AgentMessageChunkRange",
+		"first_sequence", "last_sequence"); err != nil {
+		return err
+	}
+	*chunkRange = AgentMessageChunkRange(decoded)
+	return nil
+}
+
+// AgentMessageIndex says where each stored message of a session lives.
+//
+// The AgentMessageIndex Attribute holds one value, and a Step writes it only
+// when it adds or deletes a chunk. Messages from WindowFirstSequence on are in
+// the AgentMessages window, one instance per message, except an oversized
+// message, which is stored straight into a single-message chunk. Older
+// messages, from FirstSequence on, are in the AgentMessageChunks instances that
+// Chunks lists, in order and without gaps. A session without an index, a new
+// one or one that a dex-agents 0.1.0 Worker wrote, has every message in
+// AgentMessages from sequence 1.
+type AgentMessageIndex struct {
+	// Chunks lists every kept chunk in sequence order. The chunks before WindowFirstSequence
+	// cover FirstSequence up to it without gaps; a chunk from WindowFirstSequence on holds one
+	// oversized message.
+	Chunks []AgentMessageChunkRange `json:"chunks"`
+	// FirstSequence is the sequence of the oldest stored message: the first chunk's first
+	// message, or WindowFirstSequence when no chunk is kept. Retention in a core with compaction
+	// advances it when it deletes the oldest chunk.
+	FirstSequence int64 `json:"first_sequence"`
+	// WindowFirstSequence is the sequence of the first message in the window: every older
+	// message is in a chunk.
+	WindowFirstSequence int64 `json:"window_first_sequence"`
+}
+
+// MarshalJSON encodes the wire object, writing an empty Chunks as [].
+//
+// It returns an error only when a field cannot be encoded.
+func (index AgentMessageIndex) MarshalJSON() ([]byte, error) {
+	type wireAgentMessageIndex AgentMessageIndex
+	encoded := wireAgentMessageIndex(index)
+	encoded.Chunks = nonNilSlice(encoded.Chunks)
+	return json.Marshal(encoded)
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing required field or a wrong JSON type.
+func (index *AgentMessageIndex) UnmarshalJSON(data []byte) error {
+	type wireAgentMessageIndex AgentMessageIndex
+	var decoded wireAgentMessageIndex
+	if err := decodeWireObject(data, &decoded, "AgentMessageIndex",
+		"chunks", "first_sequence", "window_first_sequence"); err != nil {
+		return err
+	}
+	decoded.Chunks = nonNilSlice(decoded.Chunks)
+	*index = AgentMessageIndex(decoded)
+	return nil
+}
+
+// TurnReplySequence records where the replies of a turn start.
+//
+// The TurnReplySequence Attribute holds one value. The Step that starts a turn
+// writes it with the first sequence after the turn's user messages, so turn
+// events count the turn's replies without reading its older messages. A value
+// for another turn, as a dex-agents 0.1.0 Worker leaves it, does not apply.
+type TurnReplySequence struct {
+	// TurnID is "turn-<n>" of the turn.
+	TurnID string `json:"turn_id"`
+	// Sequence is the first sequence after the turn's user messages.
+	Sequence int64 `json:"sequence"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing required field or a wrong JSON type.
+func (replySequence *TurnReplySequence) UnmarshalJSON(data []byte) error {
+	type wireTurnReplySequence TurnReplySequence
+	var decoded wireTurnReplySequence
+	if err := decodeWireObject(data, &decoded, "TurnReplySequence", "turn_id", "sequence"); err != nil {
+		return err
+	}
+	*replySequence = TurnReplySequence(decoded)
 	return nil
 }
 
@@ -948,8 +1088,12 @@ type AgentMessagesPage struct {
 	// Messages are the page's messages in sequence order.
 	Messages []AgentMessage `json:"messages"`
 	// NextBeforeSequence is the BeforeSequence of the previous page, or nil when this page starts
-	// at the first message.
+	// at the oldest stored message.
 	NextBeforeSequence *int64 `json:"next_before_sequence"`
+	// DeletedBeforeSequence is the oldest stored message when retention deleted every earlier
+	// one, or nil when the session keeps every message from sequence 1. A page from a 0.1.0
+	// session reads as nil.
+	DeletedBeforeSequence *int64 `json:"deleted_before_sequence"`
 }
 
 // MarshalJSON encodes the wire object, writing an empty Messages as [].

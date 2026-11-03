@@ -22,7 +22,10 @@ import pytest
 from dex_agents import (
     DEFAULT_MAX_DURABLE_WAIT,
     MAX_SESSION_SETTINGS_BYTES,
+    MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
+    MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
     AgentSessionFlow,
+    AgentSessionOptions,
     BuiltInTool,
     ListAgentMessagesRequest,
     ToolCallStatus,
@@ -163,6 +166,12 @@ def test_limits_and_final_statuses_match_the_python_constants() -> None:
         "stepwise_default_max_model_calls_per_turn": DEFAULT_MAX_MODEL_CALLS_PER_TURN,
         "max_session_settings_bytes": MAX_SESSION_SETTINGS_BYTES,
         "session_settings_size_tolerance_bytes": SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+        "default_message_window_size": AgentSessionOptions().message_window_size,
+        "default_message_chunk_size": AgentSessionOptions().message_chunk_size,
+        "default_message_chunk_max_bytes": AgentSessionOptions().message_chunk_max_bytes,
+        "message_rollover_max_chunks_per_commit": MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
+        "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
+        "default_retained_message_limit": AgentSessionOptions().retained_message_limit,
     }
     assert names["final_tool_call_statuses"] == [
         str(status) for status in ToolCallStatus if status.is_final

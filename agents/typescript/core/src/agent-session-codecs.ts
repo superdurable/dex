@@ -15,6 +15,9 @@ import type {
   AgentInterruptResolution,
   AgentMessage,
   AgentMessageRole,
+  AgentMessageChunk,
+  AgentMessageChunkRange,
+  AgentMessageIndex,
   AgentMessagesPage,
   AgentPlan,
   AgentPlanTask,
@@ -50,6 +53,7 @@ import type {
   TurnControlKind,
   TurnControlRequest,
   SessionSettings,
+  TurnReplySequence,
   TurnSessionSettings,
   UpdateSessionSettingsRequest,
 } from "./agent-session-values.js";
@@ -648,6 +652,53 @@ export function decodeContextSummary(value: unknown): ContextSummary {
   };
 }
 
+export function encodeAgentMessageChunk(value: AgentMessageChunk): unknown {
+  return { messages: value.messages.map(encodeAgentMessage) };
+}
+
+export function decodeAgentMessageChunk(value: unknown): AgentMessageChunk {
+  const reader = new WireRecordReader(value, "AgentMessageChunk");
+  return { messages: reader.readArray("messages").map(decodeAgentMessage) };
+}
+
+export function encodeAgentMessageChunkRange(value: AgentMessageChunkRange): unknown {
+  return { first_sequence: value.firstSequence, last_sequence: value.lastSequence };
+}
+
+export function decodeAgentMessageChunkRange(value: unknown): AgentMessageChunkRange {
+  const reader = new WireRecordReader(value, "AgentMessageChunkRange");
+  return {
+    firstSequence: reader.readInteger("first_sequence"),
+    lastSequence: reader.readInteger("last_sequence"),
+  };
+}
+
+export function encodeAgentMessageIndex(value: AgentMessageIndex): unknown {
+  return {
+    chunks: value.chunks.map(encodeAgentMessageChunkRange),
+    first_sequence: value.firstSequence,
+    window_first_sequence: value.windowFirstSequence,
+  };
+}
+
+export function decodeAgentMessageIndex(value: unknown): AgentMessageIndex {
+  const reader = new WireRecordReader(value, "AgentMessageIndex");
+  return {
+    chunks: reader.readArray("chunks").map(decodeAgentMessageChunkRange),
+    firstSequence: reader.readInteger("first_sequence"),
+    windowFirstSequence: reader.readInteger("window_first_sequence"),
+  };
+}
+
+export function encodeTurnReplySequence(value: TurnReplySequence): unknown {
+  return { turn_id: value.turnId, sequence: value.sequence };
+}
+
+export function decodeTurnReplySequence(value: unknown): TurnReplySequence {
+  const reader = new WireRecordReader(value, "TurnReplySequence");
+  return { turnId: reader.readString("turn_id"), sequence: reader.readInteger("sequence") };
+}
+
 export function encodeCompactContextInput(value: CompactContextInput): unknown {
   return { through_sequence: value.throughSequence };
 }
@@ -715,6 +766,7 @@ export function encodeAgentMessagesPage(value: AgentMessagesPage): unknown {
   return {
     messages: value.messages.map(encodeAgentMessage),
     next_before_sequence: value.nextBeforeSequence,
+    deleted_before_sequence: value.deletedBeforeSequence ?? null,
   };
 }
 
@@ -723,6 +775,7 @@ export function decodeAgentMessagesPage(value: unknown): AgentMessagesPage {
   return {
     messages: reader.readArray("messages").map(decodeAgentMessage),
     nextBeforeSequence: reader.readNullableInteger("next_before_sequence"),
+    deletedBeforeSequence: reader.readNullableInteger("deleted_before_sequence"),
   };
 }
 
@@ -857,6 +910,21 @@ export const updateSessionSettingsRequestCodec = snakeCaseJsonCodec(
   "UpdateSessionSettingsRequest",
   encodeUpdateSessionSettingsRequest,
   decodeUpdateSessionSettingsRequest,
+);
+export const agentMessageChunkCodec = snakeCaseJsonCodec(
+  "AgentMessageChunk",
+  encodeAgentMessageChunk,
+  decodeAgentMessageChunk,
+);
+export const agentMessageIndexCodec = snakeCaseJsonCodec(
+  "AgentMessageIndex",
+  encodeAgentMessageIndex,
+  decodeAgentMessageIndex,
+);
+export const turnReplySequenceCodec = snakeCaseJsonCodec(
+  "TurnReplySequence",
+  encodeTurnReplySequence,
+  decodeTurnReplySequence,
 );
 export const contextSummaryCodec = snakeCaseJsonCodec(
   "ContextSummary",

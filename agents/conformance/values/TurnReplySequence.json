@@ -1,0 +1,13 @@
+{
+  "type": "TurnReplySequence",
+  "wire_kind": "json",
+  "description": "The TurnReplySequence Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "Turn 3's replies start after its two user messages, 10 and 11.",
+      "wire": "{\"sequence\":12,\"turn_id\":\"turn-3\"}",
+      "canonical": "{\"sequence\":12,\"turn_id\":\"turn-3\"}"
+    }
+  ]
+}

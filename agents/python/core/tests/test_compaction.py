@@ -25,11 +25,28 @@ import pytest_asyncio
 from dex import CodecRegistry
 
 from dex_agents import (
+    AGENT_MESSAGE_CHUNKS,
+    AGENT_MESSAGE_INDEX,
+    AGENT_MESSAGES,
+    AGENT_PLAN,
     AGENT_STATE,
+    AGENT_TRACE_CONTEXT,
+    AGENT_USAGE,
+    CONTEXT_SUMMARY,
+    DEFAULT_MESSAGE_CHUNK_SIZE,
+    DEFAULT_RETAINED_MESSAGE_LIMIT,
+    FRAMEWORK_RUN_STATE,
     OUTCOME_UNKNOWN_TOOL_RESULT,
+    PENDING_INTERRUPTS,
+    PENDING_PLAN_EXECUTION,
+    SESSION_SETTINGS,
+    TURN_CANCELLATION_REQUEST,
+    TURN_SESSION_SETTINGS,
     AgentEvent,
     AgentEventType,
     AgentMessage,
+    AgentMessageChunk,
+    AgentMessageIndex,
     AgentSessionClient,
     AgentSessionFlow,
     AgentSessionOptions,
@@ -40,6 +57,7 @@ from dex_agents import (
     ContextSummary,
     ContextSummaryRequest,
     MessageRole,
+    message_sequence_key,
 )
 from dex_agents.stepwise import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
@@ -71,6 +89,7 @@ from dex_agents.ui_stream import read_agent_event_stream_snapshot, stream_agent_
 from tests.compaction_agent import (
     FAIL_SUMMARY_FILE_NAME,
     INVOCATION_LOG_NAME,
+    RETAINED_MESSAGE_LIMIT_ENVIRONMENT_VARIABLE,
     STATE_DIR_ENVIRONMENT_VARIABLE,
     SUMMARY_GATE_NAME,
     SUMMARY_PAD_ENVIRONMENT_VARIABLE,
@@ -85,23 +104,18 @@ WORKER_MODULE = "tests.compaction_worker"
 # Each "pad" turn stores about 115 tokens, so the sixth model call crosses 85% of 600.
 PAD_TURN_COMMANDS = [f"pad 400 t{turn}" for turn in range(1, 7)]
 SUMMARIZED_THROUGH_SEQUENCE = 8
-GUARD_SESSION_TURNS = 300
-# The engine refuses a run budget below one maximum-sized value, so both shrink together.
-GUARD_SESSION_SERVER_CONFIG = (
-    "values:\n  maxValueBytes: 262144\nlimits:\n  maxFlowStateBytes: 1048576\n"
-)
-GUARD_SESSION_RUN_BUDGET_BYTES = 1024 * 1024
-# The engine checks the budget only on a command that grows active storage. A turn's start
-# frees its attempt's snapshot and lock rows, so it must store a question long enough to grow.
-GUARD_QUESTION_FILLER_LENGTH = 320
-# Measured 8,322 bytes per turn (126 turns), queued messages included; the band catches drift.
-GUARD_MIN_BYTES_PER_TURN = 7_500
-GUARD_MAX_BYTES_PER_TURN = 9_200
-# Measured about 4,083 bytes per turn with these questions.
-GUARD_MIN_STORED_BYTES_PER_TURN = 3_800
-GUARD_MAX_STORED_BYTES_PER_TURN = 4_400
+GUARD_SESSION_MILESTONES = [200, 400, 600, 800]
+GUARD_SESSION_SERVER_CONFIG = "values:\n  maxValueBytes: 1048576\n"
+GUARD_RETAINED_MESSAGE_LIMIT = 100
+# An 8,000-token window compacts at 6,800 tokens; a turn is about 175 tokens.
+GUARD_MAX_UNSUMMARIZED_MESSAGES = 80
+# The live Attributes besides the messages: mostly the summary, about 5 KB.
+LIVE_STATE_ALLOWANCE_BYTES = 16 * 1024
+# Measured about 2,885 bytes per turn in both cores, as the TypeScript guard checks.
+GUARD_MIN_STORED_BYTES_PER_TURN = 2_600
+GUARD_MAX_STORED_BYTES_PER_TURN = 3_200
 LONG_TESTS_ENVIRONMENT_VARIABLE = "DEX_AGENTS_LONG_TESTS"
-LONG_SESSION_TURNS = 2_000
+LONG_SESSION_MILESTONES = [500, 1000, 1500, 2000]
 # The engine refuses a run budget below one maximum-sized value, so both shrink together.
 LONG_SESSION_SERVER_CONFIG = (
     "values:\n  maxValueBytes: 1048576\nlimits:\n  maxFlowStateBytes: 16777216\n"
@@ -686,24 +700,93 @@ async def test_compaction_values_have_the_shared_wire_format() -> None:
 
 @dataclass
 class PaddedSession:
-    """What one storage session left behind: its last state, messages, and status."""
+    """What one storage session left behind, and its stored message bytes at each milestone."""
 
     snapshot: AgentSnapshot
     messages: list[AgentMessage]
+    message_index: AgentMessageIndex | None
     flow_status: str
     elapsed_seconds: float
+    stored_state: dict[int, StoredState]
+
+    @property
+    def completed_turns(self) -> int:
+        return 0 if self.snapshot.state is None else self.snapshot.state.turn_count
+
+
+# Every Attribute that holds a value at rest, besides the messages.
+SESSION_ATTRIBUTES = (
+    AGENT_STATE,
+    AGENT_MESSAGE_INDEX,
+    FRAMEWORK_RUN_STATE,
+    PENDING_INTERRUPTS,
+    AGENT_USAGE,
+    TURN_CANCELLATION_REQUEST,
+    AGENT_TRACE_CONTEXT,
+    AGENT_PLAN,
+    PENDING_PLAN_EXECUTION,
+    CONTEXT_SUMMARY,
+    SESSION_SETTINGS,
+    TURN_SESSION_SETTINGS,
+)
+
+
+@dataclass(frozen=True)
+class StoredState:
+    """The encoded bytes of the stored messages, and of every live Attribute value with them."""
+
+    message_bytes: int
+    live_state_bytes: int
+
+
+async def _read_stored_state(stack: AgentTestStack, session_id: str) -> StoredState:
+    """Sum the encoded size of every live value: Attributes, the window, and the chunks.
+
+    Tool call records are deleted when a turn ends, so an idle session has none.
+    """
+    client = stack.client
+    codecs = CodecRegistry()
+    attributes = await client.get_attributes(session_id, *SESSION_ATTRIBUTES)
+    attribute_bytes = 0
+    for attribute in SESSION_ATTRIBUTES:
+        value = attributes.get(attribute)
+        if value is not None:
+            attribute_bytes += len(str(codecs.resolve(attribute.value_type).encode(value).data))
+    state = attributes.get(AGENT_STATE)
+    index = attributes.get(AGENT_MESSAGE_INDEX)
+    assert state is not None and index is not None
+    chunk_reads = [
+        AGENT_MESSAGE_CHUNKS.instance(message_sequence_key(chunk.first_sequence))
+        for chunk in index.chunks
+    ]
+    window_reads = [
+        AGENT_MESSAGES.instance(message_sequence_key(sequence))
+        for sequence in range(index.window_first_sequence, state.next_message_sequence)
+    ]
+    message_bytes = 0
+    for reads, value_type in ((chunk_reads, AgentMessageChunk), (window_reads, AgentMessage)):
+        if not reads:
+            continue
+        stored = await client.get_attributes(session_id, *reads)
+        codec = codecs.resolve(value_type)
+        for read in reads:
+            message_value = stored.get(read)
+            assert message_value is not None
+            message_bytes += len(str(codec.encode(message_value).data))
+    return StoredState(message_bytes, message_bytes + attribute_bytes)
 
 
 async def _run_padded_session(
     tmp_path: Path,
-    turns: int,
+    milestones: list[int],
     server_config: str,
     timeout: timedelta,
-    question_filler_length: int = 80,
+    worker_env: dict[str, str] | None = None,
 ) -> PaddedSession:
-    """Queue ``turns`` turns of a question and a 600-character answer, then wait.
+    """Run turns of a 100-character question and a 600-character answer, in stages.
 
-    The default filler makes a 100-character question, as the deployment guide measures.
+    Each stage queues the turns up to its milestone and waits for them. Then the stored
+    message bytes are measured.
     """
     config_path = tmp_path / "server-zd.yaml"
     config_path.write_text(server_config)
@@ -720,6 +803,7 @@ async def _run_padded_session(
             WINDOW_TOKENS_ENVIRONMENT_VARIABLE: "8000",
             # A real summary of about 1,000 tokens, so superseded summaries count as they would.
             SUMMARY_PAD_ENVIRONMENT_VARIABLE: "4000",
+            **(worker_env or {}),
         },
         server_zd_config=config_path,
     ) as stack:
@@ -727,116 +811,148 @@ async def _run_padded_session(
         harness = CompactionHarness(stack, flow, stack.sessions(flow), state_dir)
         session_id = harness.new_session_id()
         started = time.monotonic()
-        filler = "q" * question_filler_length
+        filler = "q" * 80
         await harness.sessions.start_session(session_id, f"pad 600 turn-0001-{filler}")
-        for turn in range(2, turns + 1):
-            assert await harness.sessions.send_user_message(
-                session_id, f"pad 600 turn-{turn:04d}-{filler}"
-            )
+        queued_turns = 1
+        stored_state: dict[int, StoredState] = {}
+        flow_status = "running"
+        for milestone in milestones:
+            for turn in range(queued_turns + 1, milestone + 1):
+                assert await harness.sessions.send_user_message(
+                    session_id, f"pad 600 turn-{turn:04d}-{filler}"
+                )
+            queued_turns = milestone
 
-        async def read_end() -> str | None:
-            # AgentState is small; the snapshot RPC would load every message on each poll.
-            flow_status = (await stack.client.describe_flow(session_id)).status.value
-            if flow_status != "running":
+            async def read_end(turns: int = milestone) -> str | None:
+                # AgentState is small; the snapshot RPC would load every message on each poll.
+                flow_status = (await stack.client.describe_flow(session_id)).status.value
+                if flow_status != "running":
+                    return flow_status
+                state = (await stack.client.get_attributes(session_id, AGENT_STATE)).get(
+                    AGENT_STATE
+                )
+                if state is None or state.active_turn_id is not None or state.turn_count < turns:
+                    return None
                 return flow_status
-            state = (await stack.client.get_attributes(session_id, AGENT_STATE)).get(AGENT_STATE)
-            if state is None or state.active_turn_id is not None or state.turn_count < turns:
-                return None
-            return flow_status
 
-        flow_status = await wait_until(
-            f"{turns} finished turns or a closed session",
-            read_end,
-            timeout=timeout,
-            interval=timedelta(seconds=1),
-        )
+            flow_status = await wait_until(
+                f"{milestone} finished turns or a closed session",
+                read_end,
+                timeout=timeout,
+                interval=timedelta(seconds=1),
+            )
+            if flow_status != "running":
+                break
+            stored_state[milestone] = await _read_stored_state(stack, session_id)
         elapsed = time.monotonic() - started
+        index = (await stack.client.get_attributes(session_id, AGENT_MESSAGE_INDEX)).get(
+            AGENT_MESSAGE_INDEX
+        )
         return PaddedSession(
             snapshot=await harness.sessions.get_agent_snapshot(session_id),
             messages=await harness.all_messages(session_id),
+            message_index=index,
             flow_status=flow_status,
             elapsed_seconds=elapsed,
+            stored_state=stored_state,
         )
 
 
-async def test_the_run_budget_stops_a_compacting_session_where_measured(
+def _stored_bytes_per_message(messages: list[AgentMessage]) -> float:
+    codec = CodecRegistry().resolve(AgentMessage)
+    return sum(len(str(codec.encode(message).data)) for message in messages) / len(messages)
+
+
+async def test_retention_keeps_the_stored_messages_of_a_long_session_bounded(
     tmp_path: Path,
 ) -> None:
-    """Guards where the run budget stops a compacting session; its questions are longer."""
+    """Guards the deployment guide's bound: with retention, stored messages stop growing."""
     session = await _run_padded_session(
         tmp_path,
-        GUARD_SESSION_TURNS,
+        GUARD_SESSION_MILESTONES,
         GUARD_SESSION_SERVER_CONFIG,
         timedelta(minutes=5),
-        GUARD_QUESTION_FILLER_LENGTH,
+        {RETAINED_MESSAGE_LIMIT_ENVIRONMENT_VARIABLE: str(GUARD_RETAINED_MESSAGE_LIMIT)},
     )
 
-    completed_turns = sum(
-        1 for message in session.messages if message.role is MessageRole.ASSISTANT
-    )
-    budget_bytes_per_turn = GUARD_SESSION_RUN_BUDGET_BYTES / completed_turns
-    message_codec = CodecRegistry().resolve(AgentMessage)
-    stored_bytes_per_turn = (
-        sum(len(str(message_codec.encode(message).data)) for message in session.messages)
-        / completed_turns
-    )
+    bytes_per_message = _stored_bytes_per_message(session.messages)
+    index = session.message_index
+    summary = session.snapshot.context_summary
     print(
         "A7-5 guard:",
         json.dumps(
             {
-                "completed_turns": completed_turns,
-                "budget_bytes_per_turn": round(budget_bytes_per_turn),
-                "stored_bytes_per_turn": round(stored_bytes_per_turn),
-                "flow_status": session.flow_status,
+                "completed_turns": session.completed_turns,
+                "stored_message_bytes_by_turn": {
+                    turns: stored.message_bytes for turns, stored in session.stored_state.items()
+                },
+                "live_state_bytes_by_turn": {
+                    turns: stored.live_state_bytes for turns, stored in session.stored_state.items()
+                },
+                "stored_bytes_per_turn": round(2 * bytes_per_message),
+                "kept_messages": len(session.messages),
+                "first_kept_sequence": None if index is None else index.first_sequence,
                 "elapsed_seconds": round(session.elapsed_seconds, 1),
             }
         ),
     )
-    # The session stopped at the budget, before it ran every queued turn.
-    assert completed_turns < GUARD_SESSION_TURNS
-    assert session.snapshot.context_summary is not None
-    assert GUARD_MIN_BYTES_PER_TURN <= budget_bytes_per_turn <= GUARD_MAX_BYTES_PER_TURN
+    assert session.flow_status == "running"
+    assert session.completed_turns == GUARD_SESSION_MILESTONES[-1]
+    assert session.snapshot.state is not None and session.snapshot.state.last_turn_error is None
     assert (
-        GUARD_MIN_STORED_BYTES_PER_TURN <= stored_bytes_per_turn <= GUARD_MAX_STORED_BYTES_PER_TURN
+        GUARD_MIN_STORED_BYTES_PER_TURN <= 2 * bytes_per_message <= GUARD_MAX_STORED_BYTES_PER_TURN
     )
+    assert index is not None and summary is not None
+    assert index.first_sequence - 1 <= summary.last_sequence
+    assert [message.sequence for message in session.messages] == list(
+        range(index.first_sequence, 2 * GUARD_SESSION_MILESTONES[-1] + 1)
+    )
+    assert len(session.messages) >= GUARD_RETAINED_MESSAGE_LIMIT
+    _assert_bounded_state(session, GUARD_RETAINED_MESSAGE_LIMIT, bytes_per_message, 0)
 
 
 @pytest.mark.skipif(
     os.environ.get(LONG_TESTS_ENVIRONMENT_VARIABLE) != "1",
     reason=f"runs for minutes; set {LONG_TESTS_ENVIRONMENT_VARIABLE}=1, as the nightly job does",
 )
-async def test_a_2000_turn_session_with_compaction_reports_its_storage_against_the_run_budget(
+async def test_a_2000_turn_session_with_compaction_keeps_its_storage_bounded(
     tmp_path: Path,
 ) -> None:
     """Calibrates the deployment guide: 100-character questions and 600-character answers."""
     session = await _run_padded_session(
-        tmp_path, LONG_SESSION_TURNS, LONG_SESSION_SERVER_CONFIG, timedelta(minutes=25)
+        tmp_path,
+        LONG_SESSION_MILESTONES,
+        LONG_SESSION_SERVER_CONFIG,
+        timedelta(minutes=25),
     )
 
     # Every turn completed inside the 16 MiB run budget, so no Step crossed it.
     snapshot = session.snapshot
     assert session.flow_status == "running"
     assert snapshot.state is not None
-    assert snapshot.state.turn_count == LONG_SESSION_TURNS
+    assert snapshot.state.turn_count == LONG_SESSION_MILESTONES[-1]
     assert snapshot.state.last_turn_error is None
-    assert len(session.messages) == 2 * LONG_SESSION_TURNS
     summary = snapshot.context_summary
-    assert summary is not None
+    index = session.message_index
+    assert summary is not None and index is not None
     assert summary.generation >= 100
-    codecs = CodecRegistry()
-    message_codec = codecs.resolve(AgentMessage)
-    message_bytes = sum(
-        len(str(message_codec.encode(message).data)) for message in session.messages
-    )
-    summary_bytes = len(str(codecs.resolve(ContextSummary).encode(summary).data))
+    bytes_per_message = _stored_bytes_per_message(session.messages)
+    summary_bytes = len(str(CodecRegistry().resolve(ContextSummary).encode(summary).data))
     print(
         "A7-5 storage:",
         json.dumps(
             {
-                "turns": LONG_SESSION_TURNS,
+                "turns": LONG_SESSION_MILESTONES[-1],
                 "run_budget_bytes": LONG_SESSION_RUN_BUDGET_BYTES,
-                "stored_message_bytes": message_bytes,
-                "stored_message_bytes_per_turn": message_bytes // LONG_SESSION_TURNS,
+                "stored_message_bytes_by_turn": {
+                    turns: stored.message_bytes for turns, stored in session.stored_state.items()
+                },
+                "live_state_bytes_by_turn": {
+                    turns: stored.live_state_bytes for turns, stored in session.stored_state.items()
+                },
+                "stored_bytes_per_turn": round(2 * bytes_per_message),
+                "kept_messages": len(session.messages),
+                "first_kept_sequence": index.first_sequence,
                 "summary_generations": summary.generation,
                 "summary_bytes": summary_bytes,
                 "model_calls": snapshot.usage.model_calls,
@@ -844,4 +960,24 @@ async def test_a_2000_turn_session_with_compaction_reports_its_storage_against_t
             }
         ),
     )
-    assert message_bytes < LONG_SESSION_RUN_BUDGET_BYTES / 2
+    assert len(session.messages) >= DEFAULT_RETAINED_MESSAGE_LIMIT
+    _assert_bounded_state(session, DEFAULT_RETAINED_MESSAGE_LIMIT, bytes_per_message, 1)
+
+
+def _assert_bounded_state(
+    session: PaddedSession, limit: int, bytes_per_message: float, baseline_milestone: int
+) -> None:
+    """Assert the stored messages and the whole live state stop growing after retention starts."""
+    # Kept: the limit, a chunk retention could not delete yet, and the unsummarized messages.
+    message_bound = (
+        limit + DEFAULT_MESSAGE_CHUNK_SIZE + GUARD_MAX_UNSUMMARIZED_MESSAGES
+    ) * bytes_per_message
+    states = list(session.stored_state.values())
+    assert all(state.message_bytes <= message_bound for state in states), (states, message_bound)
+    assert all(
+        state.live_state_bytes <= message_bound + LIVE_STATE_ALLOWANCE_BYTES for state in states
+    ), states
+    # Later milestones hold no more than the baseline one plus a chunk and the allowance.
+    baseline = states[baseline_milestone].live_state_bytes
+    growth = DEFAULT_MESSAGE_CHUNK_SIZE * bytes_per_message + LIVE_STATE_ALLOWANCE_BYTES
+    assert all(state.live_state_bytes <= baseline + growth for state in states), states

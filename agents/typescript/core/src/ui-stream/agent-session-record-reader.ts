@@ -13,13 +13,21 @@ import { FlowNotFoundError, type AttributeRead, type Client } from "@superdurabl
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import { messageSequenceKey } from "../agent-session-persistence.js";
-import type { AgentMessage, AgentState, AgentToolCallRecord } from "../agent-session-values.js";
+import { findMessageChunkRange } from "../agent-session-transitions.js";
+import type {
+  AgentMessage,
+  AgentMessageChunk,
+  AgentMessageIndex,
+  AgentState,
+  AgentToolCallRecord,
+} from "../agent-session-values.js";
 import { parseTurnNumber } from "./agent-event-stream-positions.js";
 
 const committedRecordWaitMs = 3_000;
 const committedRecordPollIntervalMs = 25;
 const storedMessagePageSize = 50;
 const recentStoredMessageCount = 200;
+const maximumStoredMessageReadAttempts = 3;
 
 /** Reads committed session state for the UI streams; Attribute reads need no running Worker. */
 export class AgentSessionRecordReader {
@@ -153,7 +161,7 @@ export class AgentSessionRecordReader {
       return [];
     }
     const results: StoredToolResult[] = [];
-    for (const message of await this.readStoredMessages(startSequence, endSequence)) {
+    for (const message of (await this.readStoredMessages(startSequence, endSequence)).messages) {
       const toolOutput = message?.toolOutput ?? message?.text;
       if (message?.role === "tool" && message.toolCallId !== null && toolOutput != null) {
         results.push({ turnId: message.turnId, toolCallId: message.toolCallId, toolOutput });
@@ -171,9 +179,12 @@ export class AgentSessionRecordReader {
     const turnNumber = parseTurnNumber(turnId);
     const found: { toolCall?: AgentMessage; toolResult?: AgentMessage } = {};
     let endSequence = state?.nextMessageSequence ?? 1;
-    while (endSequence > 1) {
-      const startSequence = Math.max(1, endSequence - storedMessagePageSize);
-      const messages = await this.readStoredMessages(startSequence, endSequence);
+    let firstSequence = 1;
+    while (endSequence > firstSequence) {
+      const startSequence = Math.max(firstSequence, endSequence - storedMessagePageSize);
+      const page = await this.readStoredMessages(startSequence, endSequence);
+      const messages = page.messages;
+      firstSequence = page.firstSequence;
       let hasEarlierTurn = false;
       for (const message of messages) {
         if (message === undefined) {
@@ -199,20 +210,88 @@ export class AgentSessionRecordReader {
     return found;
   }
 
-  /** Reads stored messages with sequences in `[startSequence, endSequence)`, in sequence order. */
-  private async readStoredMessages(
-    startSequence: number,
-    endSequence: number,
-  ): Promise<readonly (AgentMessage | undefined)[]> {
-    const reads = [];
-    for (let sequence = startSequence; sequence < endSequence; sequence += 1) {
-      reads.push(this.flow.agentMessages.instance(messageSequenceKey(sequence)));
+  /**
+   * Reads stored messages with sequences in `[startSequence, endSequence)`, in sequence order, from the
+   * `AgentMessages` window and the `AgentMessageChunks` instances that `AgentMessageIndex` names. A message
+   * that retention deleted reads as `undefined`. A commit between the index read and the instance reads moves
+   * messages, so the read repeats with the new index.
+   * @returns The messages and the sequence of the oldest stored message.
+   * @throws Error when the index keeps changing for every attempt, or a stored message is missing.
+   */
+  private async readStoredMessages(startSequence: number, endSequence: number): Promise<StoredMessagePage> {
+    let [index] = await this.client.getAttributes(this.flowId, this.flow.agentMessageIndex);
+    for (let attempt = 1; ; attempt += 1) {
+      const firstSequence = index?.firstSequence ?? 1;
+      const chunkStarts = new Set<number>();
+      const windowSequences: number[] = [];
+      for (let sequence = Math.max(firstSequence, startSequence); sequence < endSequence; sequence += 1) {
+        const range = index === undefined ? undefined : findMessageChunkRange(index, sequence);
+        if (range === undefined) {
+          windowSequences.push(sequence);
+        } else {
+          chunkStarts.add(range.firstSequence);
+        }
+      }
+      const chunkReads = [...chunkStarts].map((chunkStart) =>
+        this.flow.agentMessageChunks.instance(messageSequenceKey(chunkStart)),
+      );
+      const windowReads = windowSequences.map((sequence) =>
+        this.flow.agentMessages.instance(messageSequenceKey(sequence)),
+      );
+      const values = (await this.client.getAttributes(
+        this.flowId,
+        ...([this.flow.agentMessageIndex, ...chunkReads, ...windowReads] as [
+          AttributeRead<unknown>,
+          ...AttributeRead<unknown>[],
+        ]),
+      )) as readonly unknown[];
+      const readIndex = values[0] as AgentMessageIndex | undefined;
+      // A rollover or retention between the two reads moved messages, so read again with the new index.
+      if (!isSameMessageLayout(index, readIndex)) {
+        if (attempt >= maximumStoredMessageReadAttempts) {
+          throw new Error(
+            `the stored messages of session ${this.flowId} moved during ${maximumStoredMessageReadAttempts} reads`,
+          );
+        }
+        index = readIndex;
+        continue;
+      }
+      const bySequence = new Map<number, AgentMessage>();
+      for (const value of values.slice(1, 1 + chunkReads.length)) {
+        for (const message of (value as AgentMessageChunk | undefined)?.messages ?? []) {
+          bySequence.set(message.sequence, message);
+        }
+      }
+      for (const [offset, value] of values.slice(1 + chunkReads.length).entries()) {
+        const sequence = windowSequences[offset];
+        if (sequence !== undefined && value !== undefined) {
+          bySequence.set(sequence, value as AgentMessage);
+        }
+      }
+      const messages: (AgentMessage | undefined)[] = [];
+      for (let sequence = startSequence; sequence < endSequence; sequence += 1) {
+        const message = bySequence.get(sequence);
+        if (message === undefined && sequence >= firstSequence) {
+          throw new Error(`session ${this.flowId} has no stored message ${sequence}`);
+        }
+        messages.push(message);
+      }
+      return { messages, firstSequence };
     }
-    return (await this.client.getAttributes(
-      this.flowId,
-      ...(reads as [AttributeRead<AgentMessage>, ...AttributeRead<AgentMessage>[]]),
-    )) as readonly (AgentMessage | undefined)[];
   }
+}
+
+interface StoredMessagePage {
+  readonly messages: readonly (AgentMessage | undefined)[];
+  readonly firstSequence: number;
+}
+
+function isSameMessageLayout(left: AgentMessageIndex | undefined, right: AgentMessageIndex | undefined): boolean {
+  return (
+    left?.firstSequence === right?.firstSequence &&
+    left?.windowFirstSequence === right?.windowFirstSequence &&
+    left?.chunks.length === right?.chunks.length
+  );
 }
 
 /** What the session holds about one tool call; see {@link AgentSessionRecordReader.readToolCallDetails}. */

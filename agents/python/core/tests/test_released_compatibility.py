@@ -14,16 +14,28 @@ import json
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from dex_agents import AgentEventType, InterruptKind
+from dex_agents import (
+    AGENT_MESSAGE_CHUNKS,
+    AGENT_MESSAGE_INDEX,
+    AGENT_MESSAGES,
+    AgentEventType,
+    AgentMessageIndex,
+    InterruptKind,
+    message_sequence_key,
+)
 from dex_agents.testing import wait_for_agent_snapshot
 from tests.conftest import ScriptedAgentHarness
 from tests.public_api_shape import describe_public_api
-from tests.scripted_agent import BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE
+from tests.scripted_agent import (
+    BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE,
+    MESSAGE_WINDOW_ENVIRONMENT_VARIABLE,
+)
 
 RELEASED_DEX_AGENTS = "dex-agents==0.1.0"
 PUBLIC_MODULES = ["dex_agents", "dex_agents.testing"]
@@ -188,6 +200,120 @@ async def test_a_turn_a_released_worker_began_ignores_an_earlier_turns_settings(
         "turn-2:{}",
         "turn-2:{}",
     ]
+
+
+async def test_a_session_the_released_worker_stored_moves_into_chunks_over_several_commits(
+    harness: ScriptedAgentHarness,
+    released_python: str,
+) -> None:
+    """The 0.1.0 layout, one AgentMessages instance per message, migrates four chunks a commit."""
+    released_worker = await harness.stack.start_worker(python_executable=released_python)
+    session_id = harness.new_session_id()
+    says = [f"say turn {turn}" for turn in range(1, 26)]
+    await harness.sessions.start_session(session_id, says[0])
+    for command in says[1:]:
+        assert await harness.sessions.send_user_message(session_id, command)
+    await harness.wait_for_turns(session_id, len(says))
+    # The released Worker starts this turn and stores its user message, sequence 51.
+    assert await harness.sessions.send_user_message(
+        session_id, 'call publish {"message": "upgrade"}'
+    )
+    interrupt = await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: next(iter(snapshot.pending_interrupts), None),
+        description="the approval raised by the released Worker",
+    )
+    released = await _read_message_layout(harness, session_id, 52)
+    assert released.index is None
+    assert released.window_sequences == list(range(1, 52))
+
+    released_worker.kill()
+    await harness.stack.start_worker({MESSAGE_WINDOW_ENVIRONMENT_VARIABLE: "3,2"})
+    # Before any write, this release reads the 0.1.0 layout as it is.
+    snapshot = await harness.sessions.get_agent_snapshot(session_id)
+    assert [message.sequence for message in snapshot.messages] == list(range(1, 52))
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    upgraded = await harness.wait_for_turns(session_id, 26)
+    assert upgraded.messages[-1].text == "publish: published upgrade"
+    assert harness.invocations.count("publish") == 1
+    assert upgraded.state is not None
+    next_sequence = upgraded.state.next_message_sequence
+
+    # The commit that finished the turn moved only four chunks of two; the rest stays in the window.
+    half_moved = await _read_message_layout(harness, session_id, next_sequence)
+    assert half_moved.index is not None
+    assert half_moved.index.window_first_sequence == 9
+    assert sorted(half_moved.chunks) == [1, 3, 5, 7]
+    assert half_moved.window_sequences == list(range(9, next_sequence))
+    publish_turn = [message for message in upgraded.messages if message.turn_id == "turn-26"]
+
+    # The next turns keep moving four chunks a commit, and the model input spans both layouts.
+    assert await harness.sessions.send_user_message(session_id, "recall")
+    recalled = await harness.wait_for_turns(session_id, 27)
+    assert recalled.messages[-1].text == "history: " + " | ".join(
+        [*says, 'call publish {"message": "upgrade"}']
+    )
+    turns = 27
+    while True:
+        assert recalled.state is not None
+        layout = await _read_message_layout(
+            harness, session_id, recalled.state.next_message_sequence
+        )
+        assert layout.index is not None
+        if recalled.state.next_message_sequence - layout.index.window_first_sequence <= 3:
+            break
+        assert turns < 34, "the migration did not finish"
+        turns += 1
+        assert await harness.sessions.send_user_message(session_id, f"say more {turns}")
+        recalled = await harness.wait_for_turns(session_id, turns)
+    index = layout.index
+    assert index.first_sequence == 1
+    assert [chunk.first_sequence for chunk in index.chunks] == sorted(layout.chunks)
+    assert layout.window_sequences == list(
+        range(index.window_first_sequence, recalled.state.next_message_sequence)
+    )
+    assert [message.sequence for message in recalled.messages] == list(
+        range(
+            max(1, recalled.state.next_message_sequence - 200), recalled.state.next_message_sequence
+        )
+    )
+    # The turn the released Worker started counts only what followed its user message.
+    completed = [
+        json.loads(event.payload)["message_count"]
+        for event in await harness.agent_events(session_id)
+        if event.type == AgentEventType.TURN_COMPLETED
+    ]
+    assert completed[25] == len(publish_turn) - 1
+    assert completed == [1] * 25 + [len(publish_turn) - 1] + [1] * (turns - 26)
+
+
+@dataclass(frozen=True)
+class MessageLayout:
+    index: AgentMessageIndex | None
+    window_sequences: list[int]
+    chunks: list[int]
+
+
+async def _read_message_layout(
+    harness: ScriptedAgentHarness, session_id: str, next_sequence: int
+) -> MessageLayout:
+    """Read which sequences have an AgentMessages instance and which start a chunk."""
+    sequences = range(1, next_sequence)
+    window_reads = [AGENT_MESSAGES.instance(message_sequence_key(n)) for n in sequences]
+    chunk_reads = [AGENT_MESSAGE_CHUNKS.instance(message_sequence_key(n)) for n in sequences]
+    values = await harness.stack.client.get_attributes(
+        session_id, AGENT_MESSAGE_INDEX, *window_reads, *chunk_reads
+    )
+    return MessageLayout(
+        index=values.get(AGENT_MESSAGE_INDEX),
+        window_sequences=[
+            n for n, read in zip(sequences, window_reads, strict=False) if values.get(read)
+        ],
+        chunks=[n for n, read in zip(sequences, chunk_reads, strict=False) if values.get(read)],
+    )
 
 
 def public_api_breaks(released: dict[str, Any], current: dict[str, Any]) -> list[str]:

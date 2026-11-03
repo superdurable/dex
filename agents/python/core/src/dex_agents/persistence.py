@@ -28,6 +28,8 @@ from dex_agents.values import (
     AgentInterrupt,
     AgentInterruptResolution,
     AgentMessage,
+    AgentMessageChunk,
+    AgentMessageIndex,
     AgentPlan,
     AgentState,
     AgentToolCall,
@@ -39,14 +41,31 @@ from dex_agents.values import (
     ToolCallCompleted,
     TurnCancellationRequest,
     TurnControlRequest,
+    TurnReplySequence,
     TurnSessionSettings,
 )
 
 #: Current session position. Unset until ``StartAgentSession`` commits.
 AGENT_STATE: Attribute[AgentState] = Attribute("AgentState", AgentState)
 
-#: Conversation messages keyed by ``message_sequence_key(sequence)``.
+#: The newest conversation messages, the window, keyed by ``message_sequence_key(sequence)``.
+#: ``AGENT_MESSAGE_INDEX`` says where the window starts; older messages are in chunks.
 AGENT_MESSAGES: AttributeMap[AgentMessage] = AttributeMap("AgentMessages", AgentMessage)
+
+#: Immutable archive chunks of older messages, keyed by ``message_sequence_key(first sequence)``.
+AGENT_MESSAGE_CHUNKS: AttributeMap[AgentMessageChunk] = AttributeMap(
+    "AgentMessageChunks", AgentMessageChunk
+)
+
+#: Where the stored messages are: the window start, the chunk size, and the oldest kept message.
+AGENT_MESSAGE_INDEX: Attribute[AgentMessageIndex] = Attribute(
+    "AgentMessageIndex", AgentMessageIndex
+)
+
+#: Where the latest turn's replies start; the Step that starts a turn writes it.
+TURN_REPLY_SEQUENCE: Attribute[TurnReplySequence] = Attribute(
+    "TurnReplySequence", TurnReplySequence
+)
 
 #: Opaque framework run state JSON text, set only while a turn is suspended.
 FRAMEWORK_RUN_STATE: Attribute[str] = Attribute("FrameworkRunState", str)
@@ -123,11 +142,31 @@ TURN_SESSION_SETTINGS: Attribute[TurnSessionSettings] = Attribute(
 #: Default ``AgentEvents`` Stream capacity: 10 MiB.
 DEFAULT_AGENT_EVENTS_CAPACITY_BYTES = 10 * 1024 * 1024
 
+#: Default ``AgentSessionOptions.message_window_size``.
+DEFAULT_MESSAGE_WINDOW_SIZE = 64
+
+#: Default ``AgentSessionOptions.message_chunk_size``.
+DEFAULT_MESSAGE_CHUNK_SIZE = 32
+
+#: Default ``AgentSessionOptions.retained_message_limit``.
+DEFAULT_RETAINED_MESSAGE_LIMIT = 1000
+
+#: Default ``AgentSessionOptions.message_chunk_max_bytes``: 1 MiB.
+DEFAULT_MESSAGE_CHUNK_MAX_BYTES = 1024 * 1024
+
+#: Most chunks one Step moves out of the message window, so one commit stays small.
+MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT = 4
+
+#: Most chunk bytes one Step moves out of the window, unless its first chunk alone is larger.
+MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT = 8 * 1024 * 1024
+
 
 def message_sequence_key(sequence: int) -> str:
-    """Return the ``AgentMessages`` map instance for a message sequence.
+    """Return the instance key of a message sequence.
 
-    Use it to read one stored message with ``AGENT_MESSAGES.instance(...)``.
+    A message in the window is the ``AGENT_MESSAGES`` instance with this key.
+    An archive chunk is the ``AGENT_MESSAGE_CHUNKS`` instance with the key of
+    its first sequence. ``AGENT_MESSAGE_INDEX`` says which holds a message.
 
     Args:
         sequence: Positive message sequence.

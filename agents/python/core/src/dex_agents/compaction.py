@@ -16,8 +16,8 @@ call. It moves to ``CompactContext``, which asks the runner to fold the earlier
 messages into a ``ContextSummary``, and then back to ``RunModel``. From then
 on, the runner receives only the messages after the summary, plus the summary.
 
-Compaction changes the model input, not the record: every message stays in
-``AgentMessages``, and ``list_agent_messages`` returns all of them.
+Compaction changes the model input. Summarized messages stay stored until
+retention deletes them; see ``AgentSessionOptions.retained_message_limit``.
 """
 
 from __future__ import annotations

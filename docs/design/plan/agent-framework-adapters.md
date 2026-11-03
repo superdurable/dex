@@ -356,13 +356,21 @@ Rules:
   including while its Execute has not committed. `AwaitUserMessage` is the
   only other writer of `PendingPlanExecution`, and with `RunModel` the only
   writer of `AgentPlan`.
-- Compaction changes the model input, not the record. A runner with the
+- Compaction changes the model input. A runner with the
   compaction capability receives in `AgentTurnContext.messages` only the
   messages after `ContextSummary.last_sequence`, and the summary in
-  `AgentTurnContext.context_summary`; every message stays in `AgentMessages`.
-  `RunModel` still loads the whole map: listing the instances in each
-  movement's load options would store about 22 bytes of run state per listed
-  message on every model call, which grows with the context window.
+  `AgentTurnContext.context_summary`. Summarized messages stay stored until
+  retention deletes their chunk (see Message storage below). Every movement
+  into `RunModel` and `ApplyTurnControl` lists in its load options only the
+  `AgentMessageChunks` instances after the summary, and `CompactContext` lists
+  the chunks it summarizes; each Step also loads the whole `AgentMessages`
+  window. `RunModel` compacts only when the cutoff
+  advances past the summary, and no message is appended between
+  `CompactContext` and `RunModel`, so the pair cannot loop. `RunModel` runs
+  only when every tool call record of the turn is final, so compaction never
+  runs while an approval, a question, a durable wait, or a tool task is
+  pending; a task's call and its result are stored like any other call's, and
+  no cut separates them.
 - Session settings change at turn boundaries only. `StartAgentSession`
   stores `AgentSessionStartInput.session_settings` in `SessionSettings`, and
   `update_session_settings` replaces it. The Step that starts a turn copies
@@ -374,14 +382,6 @@ Rules:
   check; the session's own checks accept `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES`
   (1,024) more, because the cores write some floats and U+2028/U+2029
   differently. Tool Steps do not receive the settings.
-  `CompactContext` lists the messages it summarizes, once per message over the
-  session's life. `RunModel` compacts only when the cutoff
-  advances past the summary, and no message is appended between
-  `CompactContext` and `RunModel`, so the pair cannot loop. `RunModel` runs
-  only when every tool call record of the turn is final, so compaction never
-  runs while an approval, a question, a durable wait, or a tool task is
-  pending; a task's call and its result are stored like any other call's, and
-  no cut separates them.
 - `RunModel` and `CompactContext` both route failures to `RecordTurnFailure`,
   whose input is therefore `CompactContextInput` or JSON `null`. The Python
   core declares `CompactContextInput | None` as the input of all three Steps,
@@ -505,12 +505,84 @@ The last line appears only in a `planning` turn, where a missing or `cleared`
 plan shows as `[Dex] There is no plan yet.`; outside a planning turn, such a
 plan shows nothing.
 
+### Message storage
+
+The conversation is a Sequentially Chunked AttributeMap with retention.
+
+- **Window.** The newest messages are `AgentMessages` instances, one per
+  message, so storing a message is one blind instance write and never
+  rewrites a larger value. Every Step that stores messages loads the whole
+  window: `StartAgentSession`, `AwaitUserMessage`, `RunModel`,
+  `ApplyTurnControl`, and `RecordTurnFailure`.
+- **Rollover.** When a Step leaves more than `message_window_size` messages in
+  the window, the same commit moves the oldest ones into `AgentMessageChunks`
+  instances keyed by their first sequence, deletes them from the window,
+  appends each chunk's range to `AgentMessageIndex.chunks`, and advances
+  `window_first_sequence`. A chunk closes at `message_chunk_size` messages or
+  before the next message would take its encoded size past
+  `message_chunk_max_bytes`. The size is the UTF-8 length of the core's own
+  JSON encoding: 15 bytes for `{"messages":[]}`, each message, and a comma
+  between messages. One commit
+  moves at most `MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT` (4) chunks and
+  `MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT` (8 MiB) unless its first chunk alone
+  is larger, so the window can stay above its size until later commits drain
+  it. Chunks are never rewritten.
+- **Oversized messages.** A message whose single-message chunk would exceed
+  `message_chunk_max_bytes` skips the window: the Step that stores it writes
+  it straight into its own chunk and adds that range to
+  `AgentMessageIndex.chunks`, where it sits among the window's sequences. The
+  first store thus writes the largest value the message ever needs. A message
+  too large for `values.maxValueBytes` fails that first commit, and the turn
+  fails, as a too-large value did in 0.1.0; no later rollover can fail on it.
+  Rollover steps over such chunks.
+- **Retention.** With compaction and a `retained_message_limit`, the Step that
+  stores messages and `CompactContext` delete the oldest chunk while its last
+  sequence is at or before `ContextSummary.last_sequence` and at least
+  `retained_message_limit` messages are stored after it, then advance
+  `first_sequence`. The newest `retained_message_limit` messages and every
+  message after the summary always stay.
+- **Reads.** A sequence in a chunk range is in that chunk; any other sequence
+  from `window_first_sequence` on is in `AgentMessages`. A reader checks that the chunk holds exactly its range.
+  `AgentMessagesPage.deleted_before_sequence` is `first_sequence` once
+  retention deleted the messages before it.
+- **Index writes.** `AgentMessageIndex` is written only when a Step writes or
+  deletes a chunk. A session without it stores every message in
+  `AgentMessages` from sequence 1. An append with no messages that starts no
+  turn writes nothing.
+- **Counts.** The Step that starts a turn writes `TurnReplySequence` with the
+  turn ID and the first sequence after its user messages. `turn_completed`,
+  `turn_steered`, and `turn_cancelled` count the turn's messages as
+  `next_message_sequence - sequence`, so no Step reads the turn's older
+  messages. When the value names another turn, such as one a 0.1.0 Worker
+  started, the count scans back from the newest message, and the next Step
+  that stores a message in that turn records its `TurnReplySequence` before
+  any rollover.
+- **0.1.0 sessions.** A session that dex-agents 0.1.0 stored has every message
+  in `AgentMessages` and no `AgentMessageIndex`, which readers treat as a
+  large window. The rollover of each Step that stores messages moves the
+  older messages into chunks, at most four chunks a commit. Readers handle
+  the half-moved session through the index.
+- **Upgrade rule.** Stop every 0.1.0 Worker of a Flow type before any 0.2.0
+  Worker starts. A 0.1.0 Worker on an upgraded session fails its turns,
+  because it cannot read the messages that moved into chunks.
+- **Warning.** A runner without the compaction capability on a session whose
+  `first_sequence` is past 1 gets a model input without the deleted messages
+  and no summary; the core logs a warning on each such model call.
+
+Options, named alike in every core: `message_window_size` (64),
+`message_chunk_size` (32), `message_chunk_max_bytes` (1 MiB, at most 8 MiB),
+and `retained_message_limit` (1,000; `None` keeps every message). The Go core
+has no compaction, so it has no retention.
+
 ### Persistence schema
 
 | Name | Kind | Value |
 | --- | --- | --- |
 | `AgentState` | Attribute | `AgentState` |
-| `AgentMessages` | AttributeMap, key = sequence as 12-digit zero-padded decimal | `AgentMessage` |
+| `AgentMessages` | AttributeMap, key = sequence as 12-digit zero-padded decimal | `AgentMessage`; the window only: sequences from `AgentMessageIndex.window_first_sequence` |
+| `AgentMessageChunks` | AttributeMap, key = the chunk's first sequence as 12-digit zero-padded decimal | `AgentMessageChunk`; immutable, its range listed in `AgentMessageIndex.chunks`, deleted whole by retention |
+| `AgentMessageIndex` | Attribute | `AgentMessageIndex`; unset until a Step first writes a chunk |
+| `TurnReplySequence` | Attribute | `TurnReplySequence`; the Step that starts a turn writes it |
 | `FrameworkRunState` | Attribute | string, opaque framework JSON; present only while a turn waits for tool calls |
 | `AgentToolCalls` | AttributeMap, key = tool call ID | `AgentToolCall`; deleted when the turn ends |
 | `PendingInterrupts` | Attribute | list of `AgentInterrupt` |
@@ -646,8 +718,16 @@ ContextSummary {
   created_at: str            # RFC 3339
 }
 CompactContextInput { through_sequence: int }
+AgentMessageChunk { messages: list of AgentMessage }   # consecutive messages
+AgentMessageChunkRange { first_sequence: int, last_sequence: int }
+AgentMessageIndex {
+  chunks: list of AgentMessageChunkRange  # every kept chunk, oldest first; archived ones consecutive, then single oversized messages
+  first_sequence: int                     # oldest stored message
+  window_first_sequence: int              # oldest message in AgentMessages
+}
+TurnReplySequence { turn_id: str, sequence: int }  # first sequence after the turn's user messages
 ListAgentMessagesRequest { before_sequence: int | null, limit: int }  # limit defaults to 50
-AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | null }
+AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | null, deleted_before_sequence: int | null }
 ```
 
 ### RPCs
@@ -662,8 +742,8 @@ AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | 
 | `update_session_settings` | `UpdateSessionSettingsRequest` | bool | Transactional, locks nothing; the last update to commit wins. False before `StartAgentSession` committed, or when the settings are null or missing, are not a JSON object, or exceed `MAX_SESSION_SETTINGS_BYTES` plus `SESSION_SETTINGS_SIZE_TOLERANCE_BYTES` (1,024). Otherwise sets `SessionSettings`, or deletes it for `{}`. Takes effect when the next turn starts; the active turn keeps `TurnSessionSettings` |
 | `resolve_interrupt` | `ResolveInterruptRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not pending or its deadline has passed; removes it and publishes the resolution in one commit, dropping `rejection_message` on approval. On a `question`, `approved=false` declines it and `approved=true` returns false |
 | `answer_question` | `AnswerQuestionRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not a pending `question`, is past its deadline, or the answer is blank or not one of `choices` while free text is not allowed; removes it and publishes `AgentInterruptResolution(approved=true, answer)` in one commit |
-| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages` and `AgentToolCalls`, and the `QueuedUserMessages` and `SteeredUserMessages` messages; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, the queued and steered messages with their IDs, the context summary, and `SessionSettings` |
-| `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first. `before_sequence` null starts after the newest message. Limit clamped to 1..200. `next_before_sequence` is the page's first sequence, or null when the page starts at 1 |
+| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages`, `AgentMessageChunks`, and `AgentToolCalls`, and the `QueuedUserMessages` and `SteeredUserMessages` messages; returns state, the last 200 stored messages, pending interrupts, the active turn's tool calls, usage, the queued message count, the plan, the queued and steered messages with their IDs, the context summary, and `SessionSettings` |
+| `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Loads `AgentMessages` and `AgentMessageChunks`. Oldest first. `before_sequence` null starts after the newest message. Limit clamped to 1..200. `next_before_sequence` is the page's first sequence, or null when the page starts at the oldest stored message, `AgentMessageIndex.first_sequence` (1 without an index) |
 
 TypeScript uses the same RPC names.
 
@@ -737,7 +817,7 @@ Parent design: C9 in [#1132](https://github.com/superdurable/dex/pull/1132).
 - Every span carries the Flow ID as `gen_ai.conversation.id`, `session.id`, and
   `dex.flow.id`, plus `dex.run.id`, `dex.step.type`, `dex.step.execution_id`,
   `dex.step.attempt`, and `dex.agent.turn.id`.
-- Content is by reference by default: `AgentMessages` keys and tool call IDs.
+- Content is by reference by default: message sequence keys and tool call IDs.
   Message content is opt-in.
 - The conventions version is pinned, with
   `open-telemetry/semantic-conventions-genai` at commit `dc3571562603552dc555c667dfa327a638d94ab2` (schema

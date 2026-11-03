@@ -70,6 +70,8 @@ import {
   AgentSessionTransitions,
   agentSessionStepTypes,
   finishTurnCancellationMovement,
+  messageRolloverMaxBytesPerCommit,
+  messageRolloverMaxChunksPerCommit,
   type AgentSessionConfig,
 } from "./agent-session-transitions.js";
 import type {
@@ -97,6 +99,15 @@ import {
 export const snapshotMessageLimit = 200;
 export const defaultMaxDurableWaitMs = 365 * 24 * 60 * 60 * 1_000;
 export const messagePageLimit = 200;
+/** Default {@link AgentSessionOptions.messageWindowSize}. */
+export const defaultMessageWindowSize = 64;
+/** Default {@link AgentSessionOptions.messageChunkSize}. */
+export const defaultMessageChunkSize = 32;
+/** Default {@link AgentSessionOptions.messageChunkMaxBytes}: 1 MiB. */
+export const defaultMessageChunkMaxBytes = 1_048_576;
+/** Default {@link AgentSessionOptions.retainedMessageLimit}. */
+export const defaultRetainedMessageLimit = 1_000;
+export { messageRolloverMaxBytesPerCommit, messageRolloverMaxChunksPerCommit };
 const toolEffects: readonly ToolEffect[] = [
   "read",
   "idempotent_write",
@@ -163,10 +174,39 @@ export interface AgentSessionOptions {
    * When to summarize earlier messages so the model input stays under the context window. Defaults to no
    * compaction. It needs a runner that implements {@link AgentFrameworkRunner.estimateInputTokens},
    * {@link AgentFrameworkRunner.selectCompactionCutoff}, and {@link AgentFrameworkRunner.summarizeContext}.
-   * Messages stay in `AgentMessages`; only the model input changes. Enable it only after every Worker of
-   * the Flow type runs a release with the `CompactContext` Step. See {@link CompactionPolicy}.
+   * The summarized messages stay stored until {@link retainedMessageLimit} deletes them. Enable it only after
+   * every Worker of the Flow type runs a release with the `CompactContext` Step. See {@link CompactionPolicy}.
    */
   readonly compaction?: CompactionPolicy;
+  /**
+   * Most messages the `AgentMessages` window holds. Defaults to 64. When an append takes the window past it,
+   * its oldest messages move into immutable `AgentMessageChunks` instances in the same commit, at most
+   * {@link messageRolloverMaxChunksPerCommit} chunks per commit. Every Step that stores messages loads the
+   * whole window, so it bounds that load. It must be at least {@link messageChunkSize}.
+   */
+  readonly messageWindowSize?: number;
+  /** Most messages one archive chunk holds. Defaults to 32. A change applies to the next chunk written. */
+  readonly messageChunkSize?: number;
+  /**
+   * Most bytes one archive chunk holds, measured on the JSON this core writes. Defaults to 1 MiB, between 1 and
+   * 8,388,608. A chunk closes at {@link messageChunkSize} messages or at this size, whichever comes first. A
+   * message whose chunk of one, the message plus 15 bytes, would pass it never enters the window: the Step that
+   * stores it writes it straight into its own chunk, so a message too large for the server's
+   * `values.maxValueBytes` fails that Step instead of a later rollover. Keep it well under that limit.
+   */
+  readonly messageChunkMaxBytes?: number;
+  /**
+   * Retention of summarized messages: the session deletes its oldest archive chunk once every message in it is
+   * at or before `ContextSummary.lastSequence` and at least this many stored messages come after the chunk.
+   * Defaults to 1,000. `null` keeps every message. It applies only with {@link compaction}, so Flow state stays
+   * bounded however long the session runs.
+   *
+   * The newest `retainedMessageLimit` messages and every message after the summary always stay. Deleted
+   * messages leave `list_agent_messages` and `get_agent_snapshot`, and each `list_agent_messages` page then
+   * carries `deletedBeforeSequence`. An application that keeps the full transcript copies new messages with
+   * `list_agent_messages` before more than `retainedMessageLimit` messages follow them.
+   */
+  readonly retainedMessageLimit?: number | null;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -195,6 +235,14 @@ export interface ResolvedAgentSessionOptions {
   readonly planModeEnabled?: boolean;
   /** The compaction policy with its defaults, or `undefined` when the session never compacts. */
   readonly compaction?: ResolvedCompactionPolicy;
+  /** Most messages the `AgentMessages` window holds. A Flow always sets it; optional for 0.1.0 code. */
+  readonly messageWindowSize?: number;
+  /** Most messages per archive chunk. A Flow always sets it; optional for 0.1.0 code. */
+  readonly messageChunkSize?: number;
+  /** Most bytes per archive chunk. A Flow always sets it; optional for 0.1.0 code. */
+  readonly messageChunkMaxBytes?: number;
+  /** The retention limit, or `null` to keep every message. A Flow always sets it; optional for 0.1.0 code. */
+  readonly retainedMessageLimit?: number | null;
 }
 
 /**
@@ -410,12 +458,12 @@ export interface AgentSessionFlow<
    * RPC `get_agent_snapshot`: returns the durable session view a UI renders.
    *
    * It reads committed state without locks, so it also serves a retained closed session. It loads the
-   * whole `AgentMessages` map.
+   * `AgentMessages` window and every retained `AgentMessageChunks` instance.
    *
    * @param context - RPC Context supplied by Dex.
    * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage, the queued
    * message count, the plan, the queued and steered messages with their Channel message IDs, and the context
-   * summary; summarized messages stay in `messages`. Before `StartAgentSession` commits, `state` is `null` and
+   * summary; summarized messages stay in `messages` until retention deletes them. Before `StartAgentSession` commits, `state` is `null` and
    * the lists are empty.
    */
   getAgentSnapshot(context: Context): RPCResult<AgentSnapshot>;
@@ -423,12 +471,13 @@ export interface AgentSessionFlow<
    * RPC `list_agent_messages`: returns one page of stored messages, oldest first.
    *
    * Start with `beforeSequence` `null` for the newest page, then pass each page's
-   * `nextBeforeSequence` to walk back. It also serves a retained closed session.
+   * `nextBeforeSequence` to walk back. It also serves a retained closed session. Messages that retention
+   * deleted are gone: the oldest page starts at the oldest stored message.
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - Exclusive upper sequence bound, or `null`, and a page size clamped to 1..200.
    * @returns Up to `limit` messages below `beforeSequence` in ascending order, and the bound of the
-   * next older page, or `null` when the page starts at the first message.
+   * next older page, or `null` when the page starts at the oldest stored message.
    */
   listAgentMessages(context: Context, input: ListAgentMessagesInput): RPCResult<AgentMessagesPage>;
 }
@@ -490,6 +539,10 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     maxDurableWaitMs: config.maxDurableWaitMs,
     planModeEnabled: config.planModeEnabled,
     ...(config.compaction === undefined ? {} : { compaction: config.compaction }),
+    messageWindowSize: config.messageWindowSize,
+    messageChunkSize: config.messageChunkSize,
+    messageChunkMaxBytes: config.messageChunkMaxBytes,
+    retainedMessageLimit: config.retainedMessageLimit,
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -498,6 +551,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly options = resolvedOptions;
     public readonly agentState = persistence.agentState;
     public readonly agentMessages = persistence.agentMessages;
+    public readonly agentMessageChunks = persistence.agentMessageChunks;
+    public readonly agentMessageIndex = persistence.agentMessageIndex;
     public readonly frameworkRunState = persistence.frameworkRunState;
     public readonly agentToolCalls = persistence.agentToolCalls;
     public readonly pendingInterrupts = persistence.pendingInterrupts;
@@ -517,6 +572,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly contextSummary = persistence.contextSummary;
     public readonly sessionSettings = persistence.sessionSettings;
     public readonly turnSessionSettings = persistence.turnSessionSettings;
+    /** The `TurnReplySequence` Attribute; see {@link AgentSessionPersistence.turnReplySequence}. */
+    public readonly turnReplySequence = persistence.turnReplySequence;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
@@ -557,6 +614,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
         attributes: [
           persistence.agentState,
           persistence.agentMessages,
+          persistence.agentMessageChunks,
+          persistence.agentMessageIndex,
           persistence.frameworkRunState,
           persistence.agentToolCalls,
           persistence.pendingInterrupts,
@@ -568,6 +627,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.contextSummary,
           persistence.sessionSettings,
           persistence.turnSessionSettings,
+          persistence.turnReplySequence,
         ],
         channels: [
           persistence.queuedUserMessages,
@@ -810,7 +870,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     @rpc<void, AgentSnapshot>({
       name: "get_agent_snapshot",
       outputCodec: agentSnapshotCodec,
-      loadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
+      loadAttributeMaps: [persistence.agentMessages, persistence.agentMessageChunks, persistence.agentToolCalls],
       loadChannels: [persistence.queuedUserMessages, persistence.steeredUserMessages],
     })
     public getAgentSnapshot(context: Context): RPCResult<AgentSnapshot> {
@@ -854,7 +914,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       name: "list_agent_messages",
       inputCodec: listAgentMessagesInputCodec,
       outputCodec: agentMessagesPageCodec,
-      loadAttributeMaps: [persistence.agentMessages],
+      loadAttributeMaps: [persistence.agentMessages, persistence.agentMessageChunks],
     })
     public listAgentMessages(
       context: Context,
@@ -862,18 +922,20 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     ): RPCResult<AgentMessagesPage> {
       const state = transitions.readOptionalAgentState(context);
       if (state === null) {
-        return { output: { messages: [], nextBeforeSequence: null } };
+        return { output: { messages: [], nextBeforeSequence: null, deletedBeforeSequence: null } };
       }
       const limit = Math.max(1, Math.min(input.limit, messagePageLimit));
+      const firstSequence = transitions.readFirstStoredSequence(context);
       let end = state.nextMessageSequence;
       if (input.beforeSequence !== null) {
-        end = Math.max(1, Math.min(input.beforeSequence, end));
+        end = Math.max(firstSequence, Math.min(input.beforeSequence, end));
       }
-      const start = Math.max(1, end - limit);
+      const start = Math.max(firstSequence, end - limit);
       return {
         output: {
           messages: transitions.readMessages(context, start, end),
-          nextBeforeSequence: start > 1 ? start : null,
+          nextBeforeSequence: start > firstSequence ? start : null,
+          deletedBeforeSequence: firstSequence > 1 ? firstSequence : null,
         },
       };
     }
@@ -945,6 +1007,27 @@ function resolveAgentSessionConfig(
       "compaction needs a runner that implements estimateInputTokens, selectCompactionCutoff, and summarizeContext",
     );
   }
+  const messageChunkSize = options.messageChunkSize ?? defaultMessageChunkSize;
+  if (!Number.isSafeInteger(messageChunkSize) || messageChunkSize <= 0) {
+    throw new RangeError("messageChunkSize must be positive");
+  }
+  const messageWindowSize = options.messageWindowSize ?? defaultMessageWindowSize;
+  if (!Number.isSafeInteger(messageWindowSize) || messageWindowSize < messageChunkSize) {
+    throw new RangeError("messageWindowSize must be at least messageChunkSize");
+  }
+  const messageChunkMaxBytes = options.messageChunkMaxBytes ?? defaultMessageChunkMaxBytes;
+  if (
+    !Number.isSafeInteger(messageChunkMaxBytes) ||
+    messageChunkMaxBytes < 1 ||
+    messageChunkMaxBytes > messageRolloverMaxBytesPerCommit
+  ) {
+    throw new RangeError(`messageChunkMaxBytes must be between 1 and ${messageRolloverMaxBytesPerCommit}`);
+  }
+  const retainedMessageLimit =
+    options.retainedMessageLimit === undefined ? defaultRetainedMessageLimit : options.retainedMessageLimit;
+  if (retainedMessageLimit !== null && (!Number.isSafeInteger(retainedMessageLimit) || retainedMessageLimit < 0)) {
+    throw new RangeError("retainedMessageLimit must not be negative");
+  }
   return {
     flowType,
     toolPolicies: Object.freeze(toolPolicies),
@@ -956,6 +1039,10 @@ function resolveAgentSessionConfig(
     maxDurableWaitMs,
     planModeEnabled,
     compaction,
+    messageWindowSize,
+    messageChunkSize,
+    messageChunkMaxBytes,
+    retainedMessageLimit,
   };
 }
 

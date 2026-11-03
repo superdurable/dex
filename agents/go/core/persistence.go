@@ -16,9 +16,13 @@ const AgentEventsStreamName = "AgentEvents"
 // DefaultAgentEventsCapacityBytes is the default AgentEvents Stream capacity: 10 MiB.
 const DefaultAgentEventsCapacityBytes int64 = 10 * 1024 * 1024
 
-// MessageSequenceKey returns the AgentMessages map instance for a message sequence.
+// MessageSequenceKey returns the AgentMessages or AgentMessageChunks map instance for a message sequence.
 //
-// Use it to read one stored message with dex.ReadAttributeMapInstance:
+// A message in the window is the AgentMessages instance of its own sequence.
+// An archived chunk is the AgentMessageChunks instance of its first message's
+// sequence; AgentMessageIndex says which messages are in the window. Prefer
+// AgentSessionClient.ListAgentMessages, which reads both. Use it to read one
+// message of the window with dex.ReadAttributeMapInstance:
 //
 //	key, err := dexagents.MessageSequenceKey(7)
 //	if err != nil {

@@ -1,0 +1,19 @@
+{
+  "type": "AgentMessageIndex",
+  "wire_kind": "json",
+  "description": "The AgentMessageIndex Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "Retention deleted the first chunk, a byte-capped chunk is shorter, and an oversized message 80 sits alone among the window's messages.",
+      "wire": "{\"chunks\":[{\"first_sequence\":33,\"last_sequence\":64},{\"first_sequence\":65,\"last_sequence\":71},{\"first_sequence\":72,\"last_sequence\":72},{\"first_sequence\":80,\"last_sequence\":80}],\"first_sequence\":33,\"window_first_sequence\":73}",
+      "canonical": "{\"chunks\":[{\"first_sequence\":33,\"last_sequence\":64},{\"first_sequence\":65,\"last_sequence\":71},{\"first_sequence\":72,\"last_sequence\":72},{\"first_sequence\":80,\"last_sequence\":80}],\"first_sequence\":33,\"window_first_sequence\":73}"
+    },
+    {
+      "name": "defaults",
+      "description": "Nothing archived yet.",
+      "wire": "{\"chunks\":[],\"first_sequence\":1,\"window_first_sequence\":1}",
+      "canonical": "{\"chunks\":[],\"first_sequence\":1,\"window_first_sequence\":1}"
+    }
+  ]
+}

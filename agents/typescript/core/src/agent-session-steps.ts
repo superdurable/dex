@@ -23,7 +23,6 @@ import {
   type Codec,
   type Condition,
   type Context,
-  type RetryPolicy,
   type Step,
   type StepDecision,
   type StepOptions,
@@ -61,10 +60,17 @@ import {
 import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
 import { agentSessionStartInputCodec, turnFailureRouteInputCodec } from "./agent-session-codecs.js";
 import {
+  messageStepOptions,
+  minuteMs,
+  type MessageChunkLoads,
+  modelCallStepOptions,
+  recoveryRetry,
+  syncDurability,
+} from "./agent-session-step-options.js";
+import {
   agentSessionStepTypes,
   allPendingMessages,
   cancelledToolCall,
-  countMessagesAfterUserMessages,
   isAbandonedToolTask,
   isCancellableByTurnControl,
   readRecoveryDetail,
@@ -105,20 +111,8 @@ import {
   type ToolCallCancellationReason,
 } from "./agent-session-values.js";
 
-const minuteMs = 60_000;
 /** Longest wait between two polls of a tool task, as in the Python core; a longer interval is shortened. */
 const maximumToolTaskPollIntervalSeconds = 86_400;
-// CompactContext makes one model call, so it shares RunModel's timeouts and retries.
-const modelCallStepOptions = {
-  executeMethodTimeoutMs: 15 * minuteMs,
-  heartbeatTimeoutMs: 2 * minuteMs,
-  executeRetry: { maximumAttempts: 3, totalDurationMs: 30 * minuteMs },
-  executeFailure: ExecuteFailure.proceedTo(new StepRef(agentSessionStepTypes.recordTurnFailure)),
-} as const satisfies StepOptions;
-// Recovery Steps must eventually run; cap their backoff so a returning Worker picks them up quickly.
-const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
-// An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
-const syncDurability = { waitForDurability: "sync", executeDurability: "sync" } as const;
 // An int64 Value, as the Python core's Step[int] encodes it.
 const expectedResultCountCodec: Codec<number> = {
   typeName: "ExpectedResultCount",
@@ -141,7 +135,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
   }
 
   public getStepOptions(): StepOptions {
-    return syncDurability;
+    return { ...syncDurability, executeLoadAttributeMaps: [this.transitions.persistence.agentMessages] };
   }
 
   public execute(context: Context, input: AgentSessionStartInput): StepDecision {
@@ -198,8 +192,10 @@ export class AwaitUserMessageStep implements Step<void> {
 
   public getStepOptions(): StepOptions {
     // The lock keeps a turn from starting while cancel_turn decides about the last one.
+    // Storing the turn's user messages may move the oldest window messages into a chunk.
     return {
       ...syncDurability,
+      executeLoadAttributeMaps: [this.transitions.persistence.agentMessages],
       executeLockAttributes: [this.transitions.persistence.turnCancellationRequest.lock()],
     };
   }
@@ -223,7 +219,7 @@ export class AwaitUserMessageStep implements Step<void> {
     const transitions = this.transitions;
     const persistence = transitions.persistence;
     if (context.channelResults(persistence.turnControlRequests).length > 0) {
-      return transitions.goToApplyTurnControl();
+      return transitions.goToApplyTurnControl(context);
     }
     const [message] = context.channelResults(persistence.queuedUserMessages);
     if (message !== undefined) {
@@ -290,12 +286,8 @@ export class RunModelStep implements Step<void> {
   }
 
   public getStepOptions(): StepOptions {
-    const persistence = this.transitions.persistence;
-    return {
-      ...syncDurability,
-      ...modelCallStepOptions,
-      executeLoadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
-    };
+    // Each movement into RunModel adds the archive chunks of the model input.
+    return messageStepOptions(this.transitions.persistence, this.getStepType(), staticMessageChunkLoads(this.transitions));
   }
 
   public async execute(context: AsyncContext): Promise<StepDecision> {
@@ -334,11 +326,8 @@ export class RunModelStep implements Step<void> {
           switch (outcome?.kind) {
             case "completed": {
               modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages));
-              // RunModel loads the whole map, so the count includes messages summarized away.
-              const storedTurnMessageCount = countMessagesAfterUserMessages(
-                transitions.readTurnMessages(context, state, turnId),
-                turnId,
-              );
+              // The index keeps where the turn's replies begin, so the count includes messages summarized away.
+              const storedTurnMessageCount = transitions.countStoredTurnReplies(context, state, turnId);
               return this.completeTurn(context, state, turnId, toolCalls, outcome, storedTurnMessageCount, events);
             }
             case "tool_calls_requested":
@@ -374,7 +363,7 @@ export class RunModelStep implements Step<void> {
       turnId,
       context.channelSize(transitions.persistence.steeredUserMessages),
     );
-    return transitions.goToApplyTurnControl();
+    return transitions.goToApplyTurnControl(context);
   }
 
   private completeTurn(
@@ -439,17 +428,15 @@ export class RunModelStep implements Step<void> {
     const persistence = this.transitions.persistence;
     // CompactContext commits once, so this commit is where the status becomes visible.
     this.transitions.writeAgentState(context, { ...state, status: "compacting_context" });
-    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
-    const messageLoads = [];
-    for (let sequence = firstSequence; sequence <= throughSequence; sequence += 1) {
-      messageLoads.push(persistence.agentMessages.load(messageSequenceKey(sequence)));
-    }
+    const firstSequence = this.transitions.readModelInputFirstSequence(context, previousSummary);
+    const chunkLoads = this.transitions.messageChunkLoads(context, firstSequence, throughSequence + 1);
     const input: CompactContextInput = { throughSequence };
     return goToMany(
       StepMovement.of(new StepRef(agentSessionStepTypes.compactContext), input, {
         ...syncDurability,
         ...modelCallStepOptions,
-        executeLoadAttributeMapInstances: messageLoads,
+        executeLoadAttributeMaps: [persistence.agentMessages],
+        ...(chunkLoads.instances.length === 0 ? {} : { executeLoadAttributeMapInstances: chunkLoads.instances }),
       }),
     );
   }
@@ -708,11 +695,17 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
         createdAt: new Date().toISOString(),
       };
       transitions.persistence.contextSummary.set(context, summary);
+      const index = transitions.readMessageIndex(context);
+      if (index !== null) {
+        const retainedIndex = transitions.applyMessageRetention(context, index, state.nextMessageSequence, summary);
+        if (retainedIndex !== index) {
+          transitions.persistence.agentMessageIndex.set(context, retainedIndex);
+        }
+      }
       transitions.recordUsage(context, result.usage, events);
       transitions.writeAgentState(context, { ...state, status: "running_model" });
       events.writeEvent("compaction_finished", { generation: summary.generation, through_sequence: throughSequence });
-      // RunModel loads the whole map: listing instances in each movement would cost run storage.
-      return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+      return transitions.goToRunModel(context, summary);
     } finally {
       events.close();
     }
@@ -727,7 +720,7 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
     events: StreamAgentEventWriter,
   ): Promise<ContextSummaryResult> {
     const transitions = this.transitions;
-    const firstSequence = previousSummary === null ? 1 : previousSummary.lastSequence + 1;
+    const firstSequence = transitions.readModelInputFirstSequence(context, previousSummary);
     const messages = transitions.readMessages(context, firstSequence, throughSequence + 1);
     const policy = transitions.config.compaction;
     return transitions.tracer.traceContextSummary(
@@ -1163,10 +1156,10 @@ export class ResumeTurnStep implements Step<number> {
       return goTo(new StepRef(agentSessionStepTypes.resumeTurn), unfinishedCount);
     }
     if (reason !== null) {
-      return transitions.goToApplyTurnControl();
+      return transitions.goToApplyTurnControl(context);
     }
     transitions.writeAgentState(context, { ...state, status: "running_model" });
-    return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
+    return transitions.goToRunModel(context);
   }
 
   /** Cancels the turn's pending interrupts and wakes each Step waiting for a person or a Timer. */
@@ -1225,13 +1218,11 @@ export class ApplyTurnControlStep implements Step<void> {
   }
 
   public getStepOptions(): StepOptions {
-    const persistence = this.transitions.persistence;
+    // Each movement into ApplyTurnControl adds the archive chunks of the model input.
     // The lock keeps a turn from starting while cancel_turn decides about the last one.
     return {
-      ...syncDurability,
-      executeRetry: recoveryRetry,
-      executeLoadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
-      executeLockAttributes: [persistence.turnCancellationRequest.lock()],
+      ...messageStepOptions(this.transitions.persistence, this.getStepType(), staticMessageChunkLoads(this.transitions)),
+      executeLockAttributes: [this.transitions.persistence.turnCancellationRequest.lock()],
     };
   }
 
@@ -1281,9 +1272,10 @@ export class RecordTurnFailureStep implements Step<CompactContextInput | undefin
     return {
       ...syncDurability,
       executeRetry: recoveryRetry,
+      // A failure route has only static options, so an incremental runner loads every retained chunk.
       executeLoadAttributeMaps: hasUnfinishedTurnMessages
-        ? [persistence.agentMessages, persistence.agentToolCalls]
-        : [persistence.agentToolCalls],
+        ? [persistence.agentToolCalls, persistence.agentMessages, persistence.agentMessageChunks]
+        : [persistence.agentToolCalls, persistence.agentMessages],
     };
   }
 
@@ -1349,6 +1341,14 @@ function recordFailedTurn(
   });
   transitions.writeEvents(context, turnId, (events) => events.writeEvent("turn_failed", { error: turnError }));
   return transitions.goToAwaitUserMessage();
+}
+
+/**
+ * Chunk loads of a Step's static options, used by a retry or by a movement an earlier version scheduled: none
+ * beyond the window with compaction, else every chunk.
+ */
+function staticMessageChunkLoads(transitions: AgentSessionTransitions): MessageChunkLoads {
+  return { isWholeMap: transitions.config.compaction === undefined, instances: [] };
 }
 
 /** The `AgentMessages` keys that appending these messages after the state's last one will use. */

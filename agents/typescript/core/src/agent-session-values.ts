@@ -816,8 +816,9 @@ export interface AnswerQuestionRequest {
  *
  * Only `CompactContext` writes it, in a session with {@link AgentSessionOptions.compaction}. Each new
  * summary folds in the previous one, so it always covers the messages from {@link firstSequence}
- * through {@link lastSequence}. The messages stay in `AgentMessages`: `list_agent_messages` and
- * `get_agent_snapshot` return them as before. Only the model input changes.
+ * through {@link lastSequence}. The summarized messages stay stored, and `list_agent_messages` and
+ * `get_agent_snapshot` return them, until retention deletes whole archive chunks of them; see
+ * `AgentSessionOptions.retainedMessageLimit`. Only the model input changes.
  *
  * @example
  * ```ts
@@ -839,6 +840,76 @@ export interface ContextSummary {
   readonly text: string;
   /** RFC 3339 time at which `CompactContext` wrote the summary. Wire field: `created_at`. */
   readonly createdAt: string;
+}
+
+/**
+ * One immutable archive chunk of the `AgentMessageChunks` AttributeMap.
+ *
+ * When the `AgentMessages` window grows past `AgentSessionOptions.messageWindowSize`, its oldest messages
+ * move into chunks of at most `messageChunkSize` messages and `messageChunkMaxBytes` bytes, each keyed by
+ * `messageSequenceKey` of its first sequence. A chunk is never rewritten. Retention deletes a whole chunk.
+ */
+export interface AgentMessageChunk {
+  /**
+   * The chunk's messages with consecutive sequences, oldest first: the range its
+   * {@link AgentMessageChunkRange} names. Wire field: `messages`.
+   */
+  readonly messages: readonly AgentMessage[];
+}
+
+/** The sequences one `AgentMessageChunks` instance holds, as {@link AgentMessageIndex.chunks} lists it. */
+export interface AgentMessageChunkRange {
+  /** Sequence of the chunk's first message; the instance key is `messageSequenceKey` of it. Wire field: `first_sequence`. */
+  readonly firstSequence: number;
+  /** Sequence of the chunk's last message. Wire field: `last_sequence`. */
+  readonly lastSequence: number;
+}
+
+/**
+ * Where a session's messages are stored, held in the `AgentMessageIndex` Attribute.
+ *
+ * Messages from {@link windowFirstSequence} on are in the `AgentMessages` window, one instance per message.
+ * Earlier ones, from {@link firstSequence}, are in the `AgentMessageChunks` instances that {@link chunks}
+ * lists. A chunk holds at most `messageChunkSize` messages and at most `messageChunkMaxBytes` bytes, except
+ * that a larger message gets a chunk of its own. A session that a 0.1.0 Worker wrote has no index: every
+ * message is in `AgentMessages` until the session's writes on this version move them, a few chunks per
+ * commit.
+ *
+ * @example
+ * ```ts
+ * const [index] = await client.getAttributes(sessionId, flow.agentMessageIndex);
+ * const oldestStored = index?.firstSequence ?? 1;
+ * const chunk = index?.chunks.find((range) => range.firstSequence <= 7 && 7 <= range.lastSequence);
+ * ```
+ */
+export interface AgentMessageIndex {
+  /**
+   * Every kept chunk, oldest first, without overlaps. The archived ones, before `windowFirstSequence`, are
+   * contiguous from `firstSequence`. A chunk at or after `windowFirstSequence` holds one message that was too
+   * large for the window, stored straight into its own chunk. Wire field: `chunks`.
+   */
+  readonly chunks: readonly AgentMessageChunkRange[];
+  /**
+   * Sequence of the oldest stored message: the first archived chunk's first sequence, or `windowFirstSequence`
+   * when no archived chunk is kept. Retention deleted every earlier message. Wire field: `first_sequence`.
+   */
+  readonly firstSequence: number;
+  /** Sequence of the first message in the `AgentMessages` window. Wire field: `window_first_sequence`. */
+  readonly windowFirstSequence: number;
+}
+
+/**
+ * Where the replies of a turn start: the value of the `TurnReplySequence` Attribute.
+ *
+ * The Step that starts a turn writes it, so the turn's `turn_completed`, `turn_steered`, and `turn_cancelled`
+ * events count the turn's messages after its user messages without reading them. A value for another turn,
+ * such as one a 0.1.0 Worker started, is ignored.
+ */
+export interface TurnReplySequence {
+  /** `"turn-<n>"` of the turn. Wire field: `turn_id`. */
+  readonly turnId: string;
+  /** First sequence after the user messages that started the turn. Wire field: `sequence`. */
+  readonly sequence: number;
 }
 
 /**
@@ -910,6 +981,12 @@ export interface AgentMessagesPage {
    * Wire field: `next_before_sequence`.
    */
   readonly nextBeforeSequence: number | null;
+  /**
+   * The oldest stored sequence when retention deleted every earlier message, or `null` when none was deleted.
+   * A page whose `nextBeforeSequence` is `null` reaches the start of the conversation only when this is
+   * `null` too. Absent in a page a 0.1.0 Worker returned. Wire field: `deleted_before_sequence`.
+   */
+  readonly deletedBeforeSequence?: number | null;
 }
 
 /**

@@ -1,6 +1,6 @@
 name: Agents Long Tests Nightly
 
-# The 2,000-turn compaction sessions run for minutes. Agents CI runs a 300-turn guard instead.
+# The 2,000-turn compaction sessions run for minutes. Agents CI runs an 800-turn guard instead.
 
 on:
   schedule:

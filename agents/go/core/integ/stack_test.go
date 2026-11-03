@@ -77,10 +77,22 @@ type agentTestStack struct {
 
 func newAgentTestStack(t *testing.T) *agentTestStack {
 	t.Helper()
+	return newAgentTestStackWithServerZDConfig(t, "")
+}
+
+// newAgentTestStackWithServerZDConfig starts the engine with a dex-server-zd YAML configuration,
+// or with the defaults when serverZDConfig is empty.
+func newAgentTestStackWithServerZDConfig(t *testing.T, serverZDConfig string) *agentTestStack {
+	t.Helper()
 	stateDir := t.TempDir()
 	stack := &agentTestStack{t: t, stateDir: stateDir, coordinationDir: filepath.Join(stateDir, "coordination")}
 	require.NoError(t, os.MkdirAll(stack.coordinationDir, 0o755))
-	engine, err := agentstest.NewPrivateDexEngine(filepath.Join(stateDir, "engine"))
+	configPath := ""
+	if serverZDConfig != "" {
+		configPath = filepath.Join(stateDir, "server-zd.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(serverZDConfig), 0o600))
+	}
+	engine, err := agentstest.NewPrivateDexEngineWithServerZDConfig(filepath.Join(stateDir, "engine"), configPath)
 	require.NoError(t, err)
 	stack.engine = engine
 	require.NoError(t, engine.Start(context.Background()))

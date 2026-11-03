@@ -222,9 +222,11 @@ type PrivateDexEngine struct {
 	stateDir string
 	dexcli   string
 	serverZD string
-	dexPort  int
-	webPort  int
-	process  *KillableProcess
+	// serverZDConfig is a dex-server-zd YAML file, or "" for the defaults.
+	serverZDConfig string
+	dexPort        int
+	webPort        int
+	process        *KillableProcess
 }
 
 // NewPrivateDexEngine describes an engine without starting it.
@@ -232,6 +234,15 @@ type PrivateDexEngine struct {
 // It returns an error when dexcli or dex-server-zd cannot be found, or no free
 // ports are available.
 func NewPrivateDexEngine(stateDir string) (*PrivateDexEngine, error) {
+	return NewPrivateDexEngineWithServerZDConfig(stateDir, "")
+}
+
+// NewPrivateDexEngineWithServerZDConfig describes an engine whose dex-server-zd reads a YAML
+// configuration file, such as one that lowers values.maxValueBytes, without starting it.
+//
+// An empty serverZDConfigPath uses the defaults, as NewPrivateDexEngine does. It returns an
+// error when dexcli or dex-server-zd cannot be found, or no free ports are available.
+func NewPrivateDexEngineWithServerZDConfig(stateDir string, serverZDConfigPath string) (*PrivateDexEngine, error) {
 	dexcli, err := ResolveDexcliPath()
 	if err != nil {
 		return nil, err
@@ -248,7 +259,8 @@ func NewPrivateDexEngine(stateDir string) (*PrivateDexEngine, error) {
 		return nil, err
 	}
 	return &PrivateDexEngine{
-		stateDir: stateDir, dexcli: dexcli, serverZD: serverZD, dexPort: ports[0], webPort: ports[1],
+		stateDir: stateDir, dexcli: dexcli, serverZD: serverZD, serverZDConfig: serverZDConfigPath,
+		dexPort: ports[0], webPort: ports[1],
 		process: NewKillableProcess("dexcli dev", filepath.Join(stateDir, "dexcli.log")),
 	}, nil
 }
@@ -265,7 +277,7 @@ func (engine *PrivateDexEngine) Dexcli() string {
 
 // Start runs dexcli dev and waits up to a minute for it to be ready.
 func (engine *PrivateDexEngine) Start(ctx context.Context) error {
-	return engine.process.Start(ctx, []string{
+	arguments := []string{
 		engine.dexcli, "dev",
 		"-engine", "zd",
 		"-zd-binary", engine.serverZD,
@@ -275,7 +287,11 @@ func (engine *PrivateDexEngine) Start(ctx context.Context) error {
 		"-dex-port", fmt.Sprint(engine.dexPort),
 		"-web-port", fmt.Sprint(engine.webPort),
 		"-open=false",
-	}, nil, EngineReadyLine, time.Minute)
+	}
+	if engine.serverZDConfig != "" {
+		arguments = append(arguments, "-zd-config", engine.serverZDConfig)
+	}
+	return engine.process.Start(ctx, arguments, nil, EngineReadyLine, time.Minute)
 }
 
 // Kill SIGKILLs the engine.
