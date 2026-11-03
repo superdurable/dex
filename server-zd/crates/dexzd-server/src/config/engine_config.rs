@@ -297,6 +297,10 @@ pub struct LimitsConfig {
     pub max_request_ids_per_run: u32,
     /// Defaults to 1000 UTF-8 bytes; maximum application-created Flow ID length.
     pub max_flow_id_bytes: u32,
+    /// Defaults to 16 MiB; largest total size of the result outputs that a child Flow delivers to
+    /// its parent. A Step completion whose output would exceed it fails without retry. Must be at
+    /// least 1. Each run records it at start.
+    pub max_child_flow_result_bytes: u64,
 }
 
 impl Default for LimitsConfig {
@@ -313,6 +317,7 @@ impl Default for LimitsConfig {
             max_in_flight_rpcs_per_node: 1_000,
             max_request_ids_per_run: 1_000,
             max_flow_id_bytes: 1_000,
+            max_child_flow_result_bytes: 16 * 1024 * 1024,
         }
     }
 }

@@ -102,6 +102,7 @@ impl ComponentConfigs {
         run_settings.request_dedup_capacity = config.limits.max_request_ids_per_run;
         run_settings.max_run_state_bytes = config.limits.max_flow_state_bytes;
         run_settings.max_active_step_executions = config.limits.max_concurrent_steps_per_flow;
+        run_settings.max_child_flow_result_bytes = config.limits.max_child_flow_result_bytes;
         let engine_node = EngineNodeConfig {
             node: NodeConfig {
                 node_id: config.cluster.node_id.clone(),
@@ -235,6 +236,7 @@ impl ComponentConfigs {
                 "limits.maxBlockingStateReads",
                 u64::from(config.limits.max_blocking_state_reads),
             )?,
+            child_run_settings: run_settings,
             ..EffectsConfig::default()
         };
         let matching = MatchingConfig {

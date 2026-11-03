@@ -32,8 +32,8 @@ use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId, ValueRefe
 use dexzd_protocol::dex::Value;
 use dexzd_protocol::dex::value::Kind;
 use dexzd_protocol::dexzd::v1::{
-    StoredValue, StoredValueId, StoredValueReference, ValueBirthRecord, ValueGarbageRecord,
-    ValueRecord, stored_value,
+    StoredStepCompletionOutput, StoredValue, StoredValueId, StoredValueReference, ValueBirthRecord,
+    ValueGarbageRecord, ValueRecord, stored_value,
 };
 use prost::Message;
 
@@ -51,6 +51,11 @@ pub(crate) enum ValueRejection {
     },
     /// The value is a reference that does not name a live value of this run.
     UnknownReference { reference: String },
+    /// The child Flow's result outputs would exceed the run's maximum child Flow result size.
+    ChildFlowResultTooLarge {
+        result_bytes: u64,
+        max_child_flow_result_bytes: u64,
+    },
 }
 
 impl ValueRejection {
@@ -65,6 +70,13 @@ impl ValueRejection {
             Self::UnknownReference { reference } => {
                 format!("value reference {reference:?} does not name a value of this run")
             }
+            Self::ChildFlowResultTooLarge {
+                result_bytes,
+                max_child_flow_result_bytes,
+            } => format!(
+                "child Flow result of {result_bytes} bytes exceeds the maximum of \
+                 {max_child_flow_result_bytes} bytes (limits.maxChildFlowResultBytes)"
+            ),
         }
     }
 }
@@ -379,6 +391,15 @@ pub(crate) fn stored_value_size(stored: &StoredValue) -> u64 {
         Some(stored_value::Kind::HardDeleteObject(object)) => object.size_bytes,
         None => 0,
     }
+}
+
+/// Returns the total size of a Flow's collected result outputs.
+pub(crate) fn flow_result_output_bytes(results: &[StoredStepCompletionOutput]) -> u64 {
+    results
+        .iter()
+        .filter_map(|output| output.completed_step_output.as_ref())
+        .map(stored_value_size)
+        .fold(0, u64::saturating_add)
 }
 
 /// Loads a wire reference; invalid, foreign, hard-delete, or collected references return `None`; state failures return errors.

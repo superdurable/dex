@@ -12,7 +12,7 @@
 
 use dexzd_protocol::dex::{CloseDecisionType, FlowErrorType, StepCompletionOutput, StepDecision};
 use dexzd_protocol::dexzd::v1::{
-    StepExecutionPhase, StepExecutionRecord, StoredStepCompletionOutput,
+    StepExecutionPhase, StepExecutionRecord, StoredStepCompletionOutput, StoredValue,
 };
 
 use prost::Message;
@@ -24,7 +24,10 @@ use crate::command_handlers::run_cursor::RunCursor;
 use crate::projections::history_event_links::{HistoryEventIndex, StepEventLink};
 use crate::state_access::FlowTransaction;
 use crate::steps::{InvocationEnd, NewStepExecution, create_step_execution, end_running_attempt};
-use crate::values::{ValueHolder, ValueRejection, release_stored_value, store_value};
+use crate::values::{
+    ValueHolder, ValueRejection, flow_result_output_bytes, release_stored_value, store_value,
+    stored_value_size,
+};
 
 /// Applies the decision of a finished Execute and completes the Step.
 ///
@@ -206,6 +209,9 @@ fn collect_output(
         Ok(stored) => stored,
         Err(rejection) => return Ok(Err(rejection)),
     };
+    if let Some(rejection) = child_flow_result_rejection(cursor, &stored) {
+        return Ok(Err(rejection));
+    }
     let close = cursor.record.close.get_or_insert_with(Default::default);
     close.results.push(StoredStepCompletionOutput {
         completed_step_type: output.completed_step_type.clone(),
@@ -213,6 +219,31 @@ fn collect_output(
         completed_step_output: Some(stored),
     });
     Ok(Ok(()))
+}
+
+/// Rejects an output that would make a child Flow's result exceed its maximum size.
+fn child_flow_result_rejection(cursor: &RunCursor, added: &StoredValue) -> Option<ValueRejection> {
+    let has_parent = cursor.record.parent.is_some() || !cursor.record.attached_parents.is_empty();
+    let max_child_flow_result_bytes = cursor
+        .record
+        .settings
+        .unwrap_or_default()
+        .max_child_flow_result_bytes;
+    if !has_parent || max_child_flow_result_bytes == 0 {
+        return None;
+    }
+    let collected = cursor
+        .record
+        .close
+        .as_ref()
+        .map_or(&[][..], |close| close.results.as_slice());
+    let result_bytes = flow_result_output_bytes(collected).saturating_add(stored_value_size(added));
+    (result_bytes > max_child_flow_result_bytes).then_some(
+        ValueRejection::ChildFlowResultTooLarge {
+            result_bytes,
+            max_child_flow_result_bytes,
+        },
+    )
 }
 
 /// Cancels every active Step of `global_step_types`, and of `sibling_step_types` under
