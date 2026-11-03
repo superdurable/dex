@@ -1,13 +1,13 @@
 # Dex - Durable Execution(D-EX) Engine
+[![Discord](https://img.shields.io/discord/1566530538473390162?logo=discord&label=Discord&color=5865F2)](https://discord.gg/V9cMHXts98)
 
-**Dex** provides a structural programming model as [durable primitives](https://docs.superdurable.io/primitives). 
+**Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/primitives). 
 
 You use Dex to write a Flow filled with native programming code: Steps, Attributes, RPCs, Conditions, Stream. Worker hosts the Flow code and pull tasks from Dex server.
 
 Client calls Server to start and interact with Flow runs. Dex Server dispatches Step and RPC tasks to your Workers.
 
 <img width="715" height="318" alt="dex-arch3" src="https://github.com/user-attachments/assets/57eb5344-8707-4fe1-9ed0-7896718a1a33" />
-
 
 
 ## Why Dex
@@ -94,9 +94,11 @@ cargo add dex-sdk
 
 ## 🎉Communityto connect with use and other users!💬
 
-* [Slack](https://dexai.pro)
 * [Discord](https://discord.gg/TetzsMpYb) 
-* WeChat Community: please add **prclqz**   (龙全正) or **MUJIzz** (Zane) first.
+* WeChat Community: please add **prclqz**   (龙全正) or **MUJIzz** (Zane) first
+<img width="300" height="300" alt="Dex WeChat Group" src="https://github.com/user-attachments/assets/3069ad7c-a905-4ab6-a174-2005ad8d45d5" />
+
+
 
 ## Repository layout
 
