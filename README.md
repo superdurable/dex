@@ -3,13 +3,9 @@
   <a href="https://discord.gg/V9cMHXts98"><img src="https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white" alt="Join the SuperDurable Discord" /></a>
 </p>
 
-# Dex - Durable Execution(D-EX) Engine
+# Durable Execution(D-EX). No Replay, Zero Dependencies.
 
-
-
-
-
-**Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/primitives). 
+**Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/primitives) as Durable Execution Engine.  
 
 You use Dex to write a Flow filled with native programming code: Steps, Attributes, RPCs, Conditions, Stream. Worker hosts the Flow code and pull tasks from Dex server.
 
