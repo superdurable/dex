@@ -233,7 +233,7 @@ html .anchor {
   color: #e3b341;
 }
 
-/* The spec collapses at 1120 px; the docs locale switch needs about 80 px more. */
+/* superdurable.io and connectors collapse at 1120 px; the docs locale switch needs about 80 px more. */
 @media (max-width: 1200px) {
   .sd-nav,
   .sd-header-actions {
