@@ -11,17 +11,69 @@ These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dis
 - **Server:** one server-zd node on a c7gd instance. RocksDB was on the local NVMe instance store, and the log went to S3 Standard in the same Region.
 - **Load host:** a separate c7g.8xlarge ran `dexbench` in the same Availability Zone. Its mean CPU stayed below 47% of the host at every point.
 - **Version:** the headline runs used server-zd `3784ba838`, which merged as `f2e9dd611` with the same server-zd tree. The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
-- **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. The table shows the median and the maximum of the three runs.
+- **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. A point with three runs shows the median of the three.
 
-| Scenario | c7gd.large (2 vCPU) | c7gd.4xlarge (16 vCPU) |
-| --- | --- | --- |
-| S2 SYNC Steps | **1,436 Steps/s** median, 1,440 max, at C=512; Step p50 361 ms | **10,765 Steps/s** median, 10,842 max, at C=8,192; Step p50 683 ms |
-| S3 ASYNC Steps | **1,538 Steps/s** median, 1,562 max, at C=32; Step p50 8.8 ms | **10,647 Steps/s** median, 10,655 max, at C=4,096; Step p50 284 ms |
-| S1 Flows started and completed | 889 Flows/s median, 892 max, at C=512 | 6,176 Flows/s median, 6,212 max, at C=12,288 |
-| S4 plain RPC, reads one 8-byte Attribute | 7,426 RPCs/s median, 7,544 max, at C=32; p50 4.4 ms | 49,327 RPCs/s median, 49,592 max, at C=128; p50 2.6 ms |
-| S4 Attribute-locking RPC, updates one 8-byte Attribute | 1,805 RPCs/s median, 1,834 max, at C=768 | 13,124 RPCs/s median, 13,180 max, at C=8,192 |
-| S5 direct read of ten 16 KiB Attributes, 160 KiB and two calls per read | 6,032 reads/s median, 6,332 max, at C=256 | 11,258 reads/s median, 11,259 max, at C=256 |
-| S6 Channel wake latency, p50 / p99 | 93 / 217 ms at C=64 | 84 / 181 ms at C=64 |
+Each table lists several concurrencies per scenario, so you can compare latency at different throughput levels. The peak row of a scenario has bold throughput. S2 and S3 show the latency of one Step. Points that have three final trials show the median. The others are single runs from the search rounds.
+
+### c7gd.large (2 vCPU)
+
+| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
+| --- | ---: | ---: | --- |
+| S2 SYNC Steps, latency per Step | 256 | 1,165 Steps/s | 186 / 329 / 538 |
+|  | 512 (peak) | **1,436 Steps/s** | 362 / 468 / 575 |
+|  | 768 | 1,268 Steps/s | 578 / 882 / 1,239 |
+|  | 1,024 | 1,283 Steps/s | 799 / 1,259 / 1,726 |
+| S3 ASYNC Steps, latency per Step | 32 (peak) | **1,538 Steps/s** | 8.8 / 22.5 / 35.6 |
+|  | 128 | 1,422 Steps/s | 84.4 / 138.9 / 207.2 |
+|  | 512 | 1,391 Steps/s | 388 / 588 / 762 |
+| S1 Flows started and completed | 256 | 804 Flows/s | 299 / 447 / 594 |
+|  | 512 (peak) | **889 Flows/s** | 603 / 733 / 873 |
+|  | 1,024 | 798 Flows/s | 1,307 / 1,865 / 2,139 |
+| S4 plain RPC, reads one 8-byte Attribute | 16 | 7,248 RPCs/s | 2.0 / 3.6 / 5.5 |
+|  | 32 (peak) | **7,426 RPCs/s** | 4.4 / 6.2 / 8.1 |
+|  | 128 | 6,615 RPCs/s | 20.8 / 24.7 / 34.8 |
+|  | 512 | 5,842 RPCs/s | 88.4 / 97.0 / 221.6 |
+| S4 Attribute-locking RPC, updates one 8-byte Attribute | 256 | 1,332 RPCs/s | 197 / 261 / 366 |
+|  | 384 | 1,514 RPCs/s | 267 / 324 / 417 |
+|  | 512 | 1,614 RPCs/s | 334 / 398 / 530 |
+|  | 768 (peak) | **1,805 RPCs/s** | 448 / 534 / 631 |
+|  | 1,024 | 1,365 RPCs/s | 786 / 854 / 908 |
+| S5 direct read of ten 16 KiB Attributes (160 KiB) | 256 (peak) | **6,032 reads/s** | 42.4 / 58.3 / 72.2 |
+|  | 512 | 5,359 reads/s | 89.3 / 135.2 / 240.9 |
+|  | 1,024 | 5,417 reads/s | 188 / 236 / 279 |
+| S6 Channel wake | 64 | — | 93.3 / 130.6 / 216.9 |
+
+### c7gd.4xlarge (16 vCPU)
+
+| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
+| --- | ---: | ---: | --- |
+| S2 SYNC Steps, latency per Step | 2,048 | 7,854 Steps/s | 235 / 304 / 397 |
+|  | 4,096 | 8,694 Steps/s | 418 / 542 / 694 |
+|  | 8,192 (peak) | **10.8k Steps/s** | 683 / 837 / 1,013 |
+|  | 12,288 | 10.8k Steps/s | 1,028 / 1,220 / 1,485 |
+|  | 16,384 | 9,790 Steps/s | 1,498 / 1,856 / 2,277 |
+| S3 ASYNC Steps, latency per Step | 256 | 10.2k Steps/s | 6.9 / 15.2 / 20.9 |
+|  | 1,024 | 9,360 Steps/s | 61.1 / 93.4 / 114.5 |
+|  | 4,096 (peak) | **10.6k Steps/s** | 280 / 339 / 380 |
+| S1 Flows started and completed | 3,072 | 4,853 Flows/s | 624 / 769 / 938 |
+|  | 6,144 | 5,276 Flows/s | 1,148 / 1,370 / 1,562 |
+|  | 12,288 (peak) | **6,176 Flows/s** | 1,970 / 2,294 / 2,580 |
+| S4 plain RPC, reads one 8-byte Attribute | 48 | 41.9k RPCs/s | 1.0 / 1.7 / 2.6 |
+|  | 128 (peak) | **49.3k RPCs/s** | 2.6 / 3.5 / 4.5 |
+|  | 256 | 44.6k RPCs/s | 5.8 / 7.5 / 9.3 |
+|  | 512 | 42.9k RPCs/s | 12.2 / 15.3 / 18.1 |
+|  | 2,048 | 40.9k RPCs/s | 53.4 / 57.6 / 61.3 |
+| S4 Attribute-locking RPC, updates one 8-byte Attribute | 1,024 | 8,263 RPCs/s | 121 / 156 / 245 |
+|  | 2,048 | 9,940 RPCs/s | 204 / 252 / 310 |
+|  | 4,096 | 12.2k RPCs/s | 336 / 396 / 444 |
+|  | 6,144 | 12.9k RPCs/s | 478 / 567 / 656 |
+|  | 8,192 (peak) | **13.1k RPCs/s** | 626 / 754 / 856 |
+| S5 direct read of ten 16 KiB Attributes (160 KiB) | 256 (peak) | **11.3k reads/s** | 21.4 / 36.6 / 53.2 |
+| S6 Channel wake | 64 | — | 83.8 / 124.6 / 180.8 |
+
+**Notes.**
+- **C** is the number of concurrent clients. S6 reports latency only, from a Channel publish to the waiting Step.
+- Load is closed-loop, so latency grows with C once the server is saturated. The lowest-C row of a scenario is the closest to an idle server. S1 and S2 were not measured at lower C than shown.
 
 C is the number of concurrent clients. Each concurrency was chosen by searching first; the per-instance `README.md` files list every point.
 
