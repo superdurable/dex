@@ -233,8 +233,8 @@ html .anchor {
   color: #e3b341;
 }
 
-/* The spec collapses at 1080 px; the docs locale switch needs about 80 px more. */
-@media (max-width: 1160px) {
+/* The spec collapses at 1120 px; the docs locale switch needs about 80 px more. */
+@media (max-width: 1200px) {
   .sd-nav,
   .sd-header-actions {
     display: none;
@@ -262,8 +262,9 @@ html .anchor {
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
+/* Matches the 2rem GitHub pill so the actions share one height. */
 .sd-button-small {
-  min-height: 2.25rem;
+  min-height: 2rem;
   padding: 0 0.9rem;
   font-size: 0.875rem;
 }
