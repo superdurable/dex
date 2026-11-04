@@ -19,11 +19,11 @@ Each table lists several concurrencies per scenario, so you can compare latency 
 
 | Scenario | C | Throughput | p50 / p90 / p99 (ms) |
 | --- | ---: | ---: | --- |
-| **S2 SYNC Steps** | 256 | 1,165 Steps/s | 186 / 329 / 538 |
+| **S2 SYNC Steps, latency per Step** | 256 | 1,165 Steps/s | 186 / 329 / 538 |
 |  | 512 (peak) | **1,436 Steps/s** | 362 / 468 / 575 |
 |  | 768 | 1,268 Steps/s | 578 / 882 / 1,239 |
 |  | 1,024 | 1,283 Steps/s | 799 / 1,259 / 1,726 |
-| **S3 ASYNC Steps** | 32 (peak) | **1,538 Steps/s** | 8.8 / 22.5 / 35.6 |
+| **S3 ASYNC Steps, latency per Step** | 32 (peak) | **1,538 Steps/s** | 8.8 / 22.5 / 35.6 |
 |  | 128 | 1,422 Steps/s | 84.4 / 138.9 / 207.2 |
 |  | 512 | 1,391 Steps/s | 388 / 588 / 762 |
 | **S1 Flows started and completed** | 256 | 804 Flows/s | 299 / 447 / 594 |
@@ -47,12 +47,12 @@ Each table lists several concurrencies per scenario, so you can compare latency 
 
 | Scenario | C | Throughput | p50 / p90 / p99 (ms) |
 | --- | ---: | ---: | --- |
-| **S2 SYNC Steps** | 2,048 | 7,854 Steps/s | 235 / 304 / 397 |
+| **S2 SYNC Steps, latency per Step** | 2,048 | 7,854 Steps/s | 235 / 304 / 397 |
 |  | 4,096 | 8,694 Steps/s | 418 / 542 / 694 |
 |  | 8,192 (peak) | **10.8k Steps/s** | 683 / 837 / 1,013 |
-|  | 12,288 | 10.8k Steps/s | Step 1,028 / 1,220 / 1,485 |
-|  | 16,384 | 9,790 Steps/s | Step 1,498 / 1,856 / 2,277 |
-| **S3 ASYNC Steps** | 256 | 10.2k Steps/s | 6.9 / 15.2 / 20.9 |
+|  | 12,288 | 10.8k Steps/s | 1,028 / 1,220 / 1,485 |
+|  | 16,384 | 9,790 Steps/s | 1,498 / 1,856 / 2,277 |
+| **S3 ASYNC Steps, latency per Step** | 256 | 10.2k Steps/s | 6.9 / 15.2 / 20.9 |
 |  | 1,024 | 9,360 Steps/s | 61.1 / 93.4 / 114.5 |
 |  | 4,096 (peak) | **10.6k Steps/s** | 280 / 339 / 380 |
 | **S1 Flows started and completed** | 3,072 | 4,853 Flows/s | 624 / 769 / 938 |
