@@ -34,7 +34,7 @@ Using our unique structural programming model:
 3. Eliminate the "Continue-As-New" restriction, completely
 4. No requires to rely on memory to cache workflow state as "sticky cache"
 5. Data native -- explicit data storage primitives as "data attributes" (Note: no execution runs without data)
-6. A large & growing [OSS library](https://github.com/superdurable/dex-connectors-library) to reuse, from prototype to production, as Step or Trigger.
+6. A large & growing [connector library](https://github.com/superdurable/dex-connectors-library) to integrate with internet products(Stripe,Gmail etc), from prototype to production, as Step or Trigger.
 7. Somehow visualizable (as long as code is written within certain format)
 
 Learn more [about Dex & SuperDurable](https://superdurable.io/about/).
@@ -100,10 +100,10 @@ npm install @superdurable/dex
 cargo add dex-sdk
 ```
 
-## 🎉Communityto connect with use and other users!💬
+## 🎉Community to connect with us and other users!💬
 
 * [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/V9cMHXts98)
-* **WeChat**: Scan to add add **prclqz** (龙全正) or **MUJIzz** (Zane) first:
+* **WeChat Group**: Scan to add add **prclqz** (龙全正) or **MUJIzz** (Zane) first:
 <img width="300" height="300" alt="Dex WeChat Group" src="https://github.com/user-attachments/assets/3069ad7c-a905-4ab6-a174-2005ad8d45d5" />
 
 
