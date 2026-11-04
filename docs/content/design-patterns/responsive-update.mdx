@@ -12,27 +12,7 @@ Choose the boundary deliberately:
 - [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match) returns the current matching Attribute value. Use a revision watermark when callers need to refresh after business state changes.
 - [Wait and Stream](/design-patterns/responsive-update/stream) long-polls for the next incremental update and resumes from its token. Use it for progress or a changing feed.
 
-The first two waits observe durable state. They are appropriate for a client-visible boundary, not a substitute for an application timeout or a final Flow result. Streams carry ordered incremental messages; clients keep the latest resume token and use it on the next read.
-
-## Choose the timeout boundary
-
-**RequestTimeout** is the SDK call's total budget. It covers every transparent transport reattachment. A positive value creates a local transport deadline for each attempt and returns a typed request-timeout error when the total budget expires. A later call for the same condition waits again from the current state.
-
-Leave **RequestTimeout** at 0 for an ordinary durable wait. The wait is then unlimited until it succeeds, the Flow closes, or the caller cancels it. At an HTTP or admission boundary, set the application's response budget explicitly.
-
-The server also caps one transport attempt. That cap is internal. The SDK reattaches with the same logical Request ID, so the cap does not reset **RequestTimeout**.
-
-Each waiting call holds one wait slot on the Flow while it waits. A result, request timeout, cancellation, or caller disconnect frees the slot. Abandoned callers therefore do not accumulate.
-
-Dex Server limits concurrent waits on one Flow. server-zd allows 1,000 by default, set by **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a resource-exhausted error. Keep the number of concurrent callers per Flow below it. See [server-zd limits](/production/server-zd-operations#limits).
-
-**InternalHandlerTimeout** is deprecated. Dex rejects a negative value and otherwise ignores it. Leave it unset.
-
-| Setting | Default | Behavior |
-| --- | --- | --- |
-| **RequestTimeout** | 0 | Total caller-visible SDK budget. Zero waits until success, Flow closure, or caller cancellation. |
-| Concurrent waits per Flow | 1,000 | Server limit **limits.maxLongPollWaitersPerFlow**. A wait beyond it fails with a resource-exhausted error. |
-| Transport attempt cap | Server-managed | Causes transparent reattachment only. It is not an application-facing timeout. |
+The first two waits observe durable state. They are not a substitute for an application timeout or a final Flow result. For timeouts and limits, see [Wait timeouts and limits](/primitives/client/advanced#wait-timeouts-and-limits).
 
 ## Related
 

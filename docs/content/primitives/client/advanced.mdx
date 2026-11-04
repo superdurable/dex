@@ -168,6 +168,16 @@ let revision = client.wait_for_attribute_match(
 
 Object, bytes, null, blob-backed, non-finite floating-point, cross-type, and invalid ordering comparisons are rejected. See [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match) for the complete revision pattern.
 
+## Wait timeouts and limits {#wait-timeouts-and-limits}
+
+These apply to **WaitForStepCompletion**, **WaitForAttributeMatch**, and Stream long-polls.
+
+- **RequestTimeout** is the total time the SDK call may take. Default 0 means wait until success, Flow closure, or caller cancellation. A positive value returns a typed request-timeout error when it expires. A later call waits again from the current state.
+- Each Flow allows 1,000 concurrent waits by default, set by **limits.maxLongPollWaitersPerFlow** in server-zd. A wait beyond the limit fails with a resource-exhausted error. See [server-zd limits](/production/server-zd-operations#limits).
+- A waiting call holds one slot until it returns, times out, is cancelled, or the caller disconnects.
+- The server caps each transport attempt. The SDK reattaches transparently with the same Request ID, and the cap does not reset **RequestTimeout**.
+- **InternalHandlerTimeout** is deprecated. Leave it unset.
+
 ## Describe a Flow
 
 **DescribeFlow** reads the current or latest run's IDs, Flow type, status, and start time. The Go SDK also returns the close time when available. It does not wait for the Flow to finish. Use it for a one-off status check after a read-only RPC returns a non-terminal business state. A missing ID or an ID that does not belong to a Flow returns a typed Flow-not-found error.
