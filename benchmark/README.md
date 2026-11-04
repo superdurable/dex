@@ -13,19 +13,19 @@ These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dis
 - **Version:** the headline runs used server-zd `3784ba838`, which merged as `f2e9dd611` with the same server-zd tree. The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
 - **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. A point with three runs shows the median of the three.
 
-Each table lists several concurrencies per scenario, so you can compare latency at different throughput levels. The peak row of a scenario has bold throughput. S2 and S3 show the latency of one Step, then the median latency of a whole ten-Step Flow. Points that have three final trials show the median. The others are single runs from the search rounds.
+Each table lists several concurrencies per scenario, so you can compare latency at different throughput levels. The peak row of a scenario has bold throughput. S2 and S3 show the latency of one Step. Points that have three final trials show the median. The others are single runs from the search rounds.
 
 ### c7gd.large (2 vCPU)
 
 | Scenario | C | Throughput | p50 / p90 / p99 (ms) |
 | --- | ---: | ---: | --- |
-| **S2 SYNC Steps** | 256 | 1,165 Steps/s | Step 186 / 329 / 538; Flow p50 2,047 |
-|  | 512 (peak) | **1,436 Steps/s** | Step 362 / 468 / 575; Flow p50 3,531 |
-|  | 768 | 1,268 Steps/s | Step 578 / 882 / 1,239; Flow p50 5,737 |
-|  | 1,024 | 1,283 Steps/s | Step 799 / 1,259 / 1,726; Flow p50 7,588 |
-| **S3 ASYNC Steps** | 32 (peak) | **1,538 Steps/s** | Step 8.8 / 22.5 / 35.6; Flow p50 209 |
-|  | 128 | 1,422 Steps/s | Step 84.4 / 138.9 / 207.2; Flow p50 863 |
-|  | 512 | 1,391 Steps/s | Step 388 / 588 / 762; Flow p50 3,501 |
+| **S2 SYNC Steps** | 256 | 1,165 Steps/s | 186 / 329 / 538 |
+|  | 512 (peak) | **1,436 Steps/s** | 362 / 468 / 575 |
+|  | 768 | 1,268 Steps/s | 578 / 882 / 1,239 |
+|  | 1,024 | 1,283 Steps/s | 799 / 1,259 / 1,726 |
+| **S3 ASYNC Steps** | 32 (peak) | **1,538 Steps/s** | 8.8 / 22.5 / 35.6 |
+|  | 128 | 1,422 Steps/s | 84.4 / 138.9 / 207.2 |
+|  | 512 | 1,391 Steps/s | 388 / 588 / 762 |
 | **S1 Flows started and completed** | 256 | 804 Flows/s | 299 / 447 / 594 |
 |  | 512 (peak) | **889 Flows/s** | 603 / 733 / 873 |
 |  | 1,024 | 798 Flows/s | 1,307 / 1,865 / 2,139 |
@@ -47,14 +47,14 @@ Each table lists several concurrencies per scenario, so you can compare latency 
 
 | Scenario | C | Throughput | p50 / p90 / p99 (ms) |
 | --- | ---: | ---: | --- |
-| **S2 SYNC Steps** | 2,048 | 7,854 Steps/s | Step 235 / 304 / 397; Flow p50 2,527 |
-|  | 4,096 | 8,694 Steps/s | Step 418 / 542 / 694; Flow p50 4,567 |
-|  | 8,192 (peak) | **10.8k Steps/s** | Step 683 / 837 / 1,013; Flow p50 7,299 |
-|  | 12,288 | 10.8k Steps/s | Step 1,028 / 1,220 / 1,485; Flow p50 11,022 |
-|  | 16,384 | 9,790 Steps/s | Step 1,498 / 1,856 / 2,277; Flow p50 15,697 |
-| **S3 ASYNC Steps** | 256 | 10.2k Steps/s | Step 6.9 / 15.2 / 20.9; Flow p50 249 |
-|  | 1,024 | 9,360 Steps/s | Step 61.1 / 93.4 / 114.5; Flow p50 1,091 |
-|  | 4,096 (peak) | **10.6k Steps/s** | Step 280 / 339 / 380; Flow p50 3,860 |
+| **S2 SYNC Steps** | 2,048 | 7,854 Steps/s | 235 / 304 / 397 |
+|  | 4,096 | 8,694 Steps/s | 418 / 542 / 694 |
+|  | 8,192 (peak) | **10.8k Steps/s** | 683 / 837 / 1,013 |
+|  | 12,288 | 10.8k Steps/s | Step 1,028 / 1,220 / 1,485 |
+|  | 16,384 | 9,790 Steps/s | Step 1,498 / 1,856 / 2,277 |
+| **S3 ASYNC Steps** | 256 | 10.2k Steps/s | 6.9 / 15.2 / 20.9 |
+|  | 1,024 | 9,360 Steps/s | 61.1 / 93.4 / 114.5 |
+|  | 4,096 (peak) | **10.6k Steps/s** | 280 / 339 / 380 |
 | **S1 Flows started and completed** | 3,072 | 4,853 Flows/s | 624 / 769 / 938 |
 |  | 6,144 | 5,276 Flows/s | 1,148 / 1,370 / 1,562 |
 |  | 12,288 (peak) | **6,176 Flows/s** | 1,970 / 2,294 / 2,580 |
