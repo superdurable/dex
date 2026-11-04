@@ -13,130 +13,66 @@ These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dis
 - **Version:** the headline runs used server-zd `3784ba838`, which merged as `f2e9dd611` with the same server-zd tree. The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
 - **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. A point with three runs shows the median of the three.
 
-Each table lists several concurrencies for one scenario, so you can compare latency at different throughput levels. Bold throughput marks the peak. S2 and S3 show the latency of one Step and, in the last column, of a whole ten-Step Flow. Points that have three final trials show the median. The others are single runs from the search rounds.
+Each table lists several concurrencies per scenario, so you can compare latency at different throughput levels. The peak row of a scenario has bold throughput. S2 and S3 show the latency of one Step, then the median latency of a whole ten-Step Flow. Points that have three final trials show the median. The others are single runs from the search rounds.
 
 ### c7gd.large (2 vCPU)
 
-**S2 SYNC Steps, latency per Step**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms | Flow p50 ms |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 256 | 1,165 | 185.8 | 328.7 | 538.5 | 2,047 |
-| 512 | **1,436** | 362.4 | 467.7 | 575.1 | 3,531 |
-| 768 | 1,268 | 578.0 | 881.8 | 1,238.9 | 5,737 |
-| 1,024 | 1,283 | 798.6 | 1,259.0 | 1,726.2 | 7,588 |
-
-**S3 ASYNC Steps, latency per Step**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms | Flow p50 ms |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 32 | **1,538** | 8.8 | 22.5 | 35.6 | 209 |
-| 128 | 1,422 | 84.4 | 138.9 | 207.2 | 863 |
-| 512 | 1,391 | 388.2 | 588.2 | 762.1 | 3,501 |
-
-**S1 Flows started and completed, latency per Flow**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 256 | 804 | 299.4 | 446.9 | 594.4 |
-| 512 | **889** | 602.8 | 733.1 | 872.9 |
-| 1,024 | 798 | 1,306.7 | 1,865.1 | 2,139.4 |
-
-**S4 plain RPC, reads one 8-byte Attribute**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 16 | 7,248 | 2.0 | 3.6 | 5.5 |
-| 32 | **7,426** | 4.4 | 6.2 | 8.1 |
-| 128 | 6,615 | 20.8 | 24.7 | 34.8 |
-| 512 | 5,842 | 88.4 | 97.0 | 221.6 |
-
-**S4 Attribute-locking RPC, updates one 8-byte Attribute**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 256 | 1,332 | 197.0 | 261.0 | 366.5 |
-| 384 | 1,514 | 266.6 | 323.8 | 417.2 |
-| 512 | 1,614 | 333.8 | 398.2 | 530.3 |
-| 768 | **1,805** | 448.5 | 534.3 | 631.2 |
-| 1,024 | 1,365 | 785.8 | 854.5 | 907.5 |
-
-**S5 direct read of ten 16 KiB Attributes, 160 KiB per read**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 256 | **6,032** | 42.4 | 58.3 | 72.2 |
-| 512 | 5,359 | 89.3 | 135.2 | 240.9 |
-| 1,024 | 5,417 | 188.5 | 235.5 | 278.6 |
-
-**S6 Channel wake, publish to Step start**
-
-| C | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: |
-| 64 | 93.3 | 130.6 | 216.9 |
+| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
+| --- | ---: | ---: | --- |
+| **S2 SYNC Steps** | 256 | 1,165 Steps/s | Step 186 / 329 / 538; Flow p50 2,047 |
+|  | 512 (peak) | **1,436 Steps/s** | Step 362 / 468 / 575; Flow p50 3,531 |
+|  | 768 | 1,268 Steps/s | Step 578 / 882 / 1,239; Flow p50 5,737 |
+|  | 1,024 | 1,283 Steps/s | Step 799 / 1,259 / 1,726; Flow p50 7,588 |
+| **S3 ASYNC Steps** | 32 (peak) | **1,538 Steps/s** | Step 8.8 / 22.5 / 35.6; Flow p50 209 |
+|  | 128 | 1,422 Steps/s | Step 84.4 / 138.9 / 207.2; Flow p50 863 |
+|  | 512 | 1,391 Steps/s | Step 388 / 588 / 762; Flow p50 3,501 |
+| **S1 Flows started and completed** | 256 | 804 Flows/s | 299 / 447 / 594 |
+|  | 512 (peak) | **889 Flows/s** | 603 / 733 / 873 |
+|  | 1,024 | 798 Flows/s | 1,307 / 1,865 / 2,139 |
+| **S4 plain RPC, reads one 8-byte Attribute** | 16 | 7,248 RPCs/s | 2.0 / 3.6 / 5.5 |
+|  | 32 (peak) | **7,426 RPCs/s** | 4.4 / 6.2 / 8.1 |
+|  | 128 | 6,615 RPCs/s | 20.8 / 24.7 / 34.8 |
+|  | 512 | 5,842 RPCs/s | 88.4 / 97.0 / 221.6 |
+| **S4 Attribute-locking RPC, updates one 8-byte Attribute** | 256 | 1,332 RPCs/s | 197 / 261 / 366 |
+|  | 384 | 1,514 RPCs/s | 267 / 324 / 417 |
+|  | 512 | 1,614 RPCs/s | 334 / 398 / 530 |
+|  | 768 (peak) | **1,805 RPCs/s** | 448 / 534 / 631 |
+|  | 1,024 | 1,365 RPCs/s | 786 / 854 / 908 |
+| **S5 direct read of ten 16 KiB Attributes (160 KiB)** | 256 (peak) | **6,032 reads/s** | 42.4 / 58.3 / 72.2 |
+|  | 512 | 5,359 reads/s | 89.3 / 135.2 / 240.9 |
+|  | 1,024 | 5,417 reads/s | 188 / 236 / 279 |
+| **S6 Channel wake** | 64 | — | 93.3 / 130.6 / 216.9 |
 
 ### c7gd.4xlarge (16 vCPU)
 
-**S2 SYNC Steps, latency per Step**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms | Flow p50 ms |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 2,048 | 7,854 | 235.4 | 304.4 | 396.6 | 2,527 |
-| 4,096 | 8,694 | 418.4 | 541.7 | 694.4 | 4,567 |
-| 8,192 | **10,765** | 683.2 | 836.9 | 1,012.8 | 7,299 |
-| 12,288 | 10,752 | 1,028.1 | 1,220.5 | 1,484.6 | 11,022 |
-| 16,384 | 9,790 | 1,498.5 | 1,856.1 | 2,277.3 | 15,697 |
-
-**S3 ASYNC Steps, latency per Step**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms | Flow p50 ms |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 256 | 10,210 | 6.9 | 15.2 | 20.9 | 249 |
-| 1,024 | 9,360 | 61.1 | 93.4 | 114.5 | 1,091 |
-| 4,096 | **10,647** | 279.8 | 339.2 | 379.8 | 3,860 |
-
-**S1 Flows started and completed, latency per Flow**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 3,072 | 4,853 | 623.7 | 768.6 | 937.7 |
-| 6,144 | 5,276 | 1,148.1 | 1,370.3 | 1,561.7 |
-| 12,288 | **6,176** | 1,970.0 | 2,293.9 | 2,580.3 |
-
-**S4 plain RPC, reads one 8-byte Attribute**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 48 | 41,901 | 1.0 | 1.7 | 2.6 |
-| 128 | **49,327** | 2.6 | 3.5 | 4.5 |
-| 256 | 44,560 | 5.8 | 7.5 | 9.3 |
-| 512 | 42,909 | 12.2 | 15.3 | 18.1 |
-| 2,048 | 40,932 | 53.4 | 57.6 | 61.3 |
-
-**S4 Attribute-locking RPC, updates one 8-byte Attribute**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 1,024 | 8,263 | 120.9 | 155.8 | 245.4 |
-| 2,048 | 9,940 | 203.6 | 252.2 | 310.5 |
-| 4,096 | 12,174 | 336.3 | 395.6 | 444.1 |
-| 6,144 | 12,854 | 477.7 | 567.3 | 656.4 |
-| 8,192 | **13,124** | 625.8 | 754.5 | 855.9 |
-
-**S5 direct read of ten 16 KiB Attributes, 160 KiB per read**
-
-| C | Throughput | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: | ---: |
-| 256 | **11,258** | 21.4 | 36.6 | 53.2 |
-
-**S6 Channel wake, publish to Step start**
-
-| C | p50 ms | p90 ms | p99 ms |
-| ---: | ---: | ---: | ---: |
-| 64 | 83.8 | 124.6 | 180.8 |
+| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
+| --- | ---: | ---: | --- |
+| **S2 SYNC Steps** | 2,048 | 7,854 Steps/s | Step 235 / 304 / 397; Flow p50 2,527 |
+|  | 4,096 | 8,694 Steps/s | Step 418 / 542 / 694; Flow p50 4,567 |
+|  | 8,192 (peak) | **10.8k Steps/s** | Step 683 / 837 / 1,013; Flow p50 7,299 |
+|  | 12,288 | 10.8k Steps/s | Step 1,028 / 1,220 / 1,485; Flow p50 11,022 |
+|  | 16,384 | 9,790 Steps/s | Step 1,498 / 1,856 / 2,277; Flow p50 15,697 |
+| **S3 ASYNC Steps** | 256 | 10.2k Steps/s | Step 6.9 / 15.2 / 20.9; Flow p50 249 |
+|  | 1,024 | 9,360 Steps/s | Step 61.1 / 93.4 / 114.5; Flow p50 1,091 |
+|  | 4,096 (peak) | **10.6k Steps/s** | Step 280 / 339 / 380; Flow p50 3,860 |
+| **S1 Flows started and completed** | 3,072 | 4,853 Flows/s | 624 / 769 / 938 |
+|  | 6,144 | 5,276 Flows/s | 1,148 / 1,370 / 1,562 |
+|  | 12,288 (peak) | **6,176 Flows/s** | 1,970 / 2,294 / 2,580 |
+| **S4 plain RPC, reads one 8-byte Attribute** | 48 | 41.9k RPCs/s | 1.0 / 1.7 / 2.6 |
+|  | 128 (peak) | **49.3k RPCs/s** | 2.6 / 3.5 / 4.5 |
+|  | 256 | 44.6k RPCs/s | 5.8 / 7.5 / 9.3 |
+|  | 512 | 42.9k RPCs/s | 12.2 / 15.3 / 18.1 |
+|  | 2,048 | 40.9k RPCs/s | 53.4 / 57.6 / 61.3 |
+| **S4 Attribute-locking RPC, updates one 8-byte Attribute** | 1,024 | 8,263 RPCs/s | 121 / 156 / 245 |
+|  | 2,048 | 9,940 RPCs/s | 204 / 252 / 310 |
+|  | 4,096 | 12.2k RPCs/s | 336 / 396 / 444 |
+|  | 6,144 | 12.9k RPCs/s | 478 / 567 / 656 |
+|  | 8,192 (peak) | **13.1k RPCs/s** | 626 / 754 / 856 |
+| **S5 direct read of ten 16 KiB Attributes (160 KiB)** | 256 (peak) | **11.3k reads/s** | 21.4 / 36.6 / 53.2 |
+| **S6 Channel wake** | 64 | — | 83.8 / 124.6 / 180.8 |
 
 **Notes.**
-- **C** is the number of concurrent clients. **Throughput** is in Steps/s for S2 and S3, Flows/s for S1, RPCs/s for S4, and reads/s for S5. S6 reports latency only.
+- **C** is the number of concurrent clients. S6 reports latency only, from a Channel publish to the waiting Step.
 - Load is closed-loop, so latency grows with C once the server is saturated. The lowest-C row of a scenario is the closest to an idle server. S1 and S2 were not measured at lower C than shown.
 
 C is the number of concurrent clients. Each concurrency was chosen by searching first; the per-instance `README.md` files list every point.
