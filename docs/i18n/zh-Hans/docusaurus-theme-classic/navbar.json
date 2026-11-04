@@ -34,5 +34,9 @@
   "item.label.Log in": {
     "message": "登录",
     "description": "Navbar item with label Log in"
+  },
+  "item.label.Sign up Cloud": {
+    "message": "注册 Cloud",
+    "description": "Navbar item with label Sign up Cloud"
   }
 }

@@ -110,6 +110,7 @@ const siteLinks = [
 const actionLinks = [
   ['GitHub', 'https://github.com/superdurable/dex'],
   ['Log in', 'https://dex.superdurable.io/login'],
+  ['Sign up Cloud', 'https://dex.superdurable.io/register'],
 ];
 const header = home.match(/<header class="[^"]*\bsd-header\b[\s\S]*?<\/header>/)?.[0] ?? '';
 assert.doesNotMatch(header, /target=|superdurable\.ai/);
@@ -128,12 +129,20 @@ assert.deepEqual(
   headerLinks(desktopActions.replace(/<details class="sd-locale">[\s\S]*?<\/details>/, '').replace(githubPillPattern, '')),
   actionLinks.filter(([label]) => label !== 'GitHub'),
 );
-assert.doesNotMatch(home, /dex\.superdurable\.io\/register|>Sign up<|Book a call/);
+assert.match(
+  desktopActions,
+  /<\/a><a class="sd-quiet-link" href="https:\/\/dex\.superdurable\.io\/login">Log in<\/a><a class="sd-button sd-button-primary sd-button-small" href="https:\/\/dex\.superdurable\.io\/register">Sign up Cloud<\/a><\/div>/,
+);
+assert.doesNotMatch(home, /Book a call/);
 const mobileMenu = header.match(/<details class="sd-mobile-menu">[\s\S]*?<\/details>/)?.[0] ?? '';
 assert.match(mobileMenu, /<summary>Menu<\/summary>/);
 assert.deepEqual(headerLinks(mobileMenu.replace(/<div class="sd-locale-row"[\s\S]*?<\/div>/, '')), [...siteLinks, ...actionLinks]);
 assert.match(mobileMenu, />About<\/a><div class="sd-locale-row" role="group" aria-label="Language">[\s\S]*?<\/div><a href="https:\/\/github\.com\/superdurable\/dex">GitHub</);
 assert.match(mobileMenu, /aria-current="page">Dex Docs</);
+assert.match(
+  mobileMenu,
+  /<a href="https:\/\/dex\.superdurable\.io\/login">Log in<\/a><a class="sd-button sd-button-primary" href="https:\/\/dex\.superdurable\.io\/register">Sign up Cloud<\/a><\/nav>/,
+);
 
 const footer = home.match(/<footer class="theme-layout-footer footer[\s\S]*?<\/footer>/)?.[0] ?? '';
 assert.match(footer, /company-footer-brand[\s\S]*?>Super Durable</);
@@ -171,7 +180,7 @@ for (const page of [home, zhHome, cron, zhCron]) {
 assert.match(zhHome, /English/);
 assert.match(zhHome, /简体中文/);
 assert.doesNotMatch(zhHome, /superdurable\.ai/);
-for (const label of ['Dex 文档', '博客', '关于', '登录', '菜单', '产品', '开发者', '公司', '快速开始', '引擎对比', '联系我们']) {
+for (const label of ['Dex 文档', '博客', '关于', '登录', '注册 Cloud', '菜单', '产品', '开发者', '公司', '快速开始', '引擎对比', '联系我们']) {
   assert.ok(zhHome.includes(label), `Missing Chinese shell label: ${label}`);
 }
 assert.match(zhHome, /href="\/zh-Hans\/quick-start\/"/);

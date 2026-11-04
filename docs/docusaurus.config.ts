@@ -27,6 +27,7 @@ const companyHeaderNavigation = {
     {type: 'localeDropdown', position: 'right'},
     {label: 'GitHub', href: 'https://github.com/superdurable/dex', position: 'right'},
     {label: 'Log in', href: 'https://dex.superdurable.io/login', position: 'right'},
+    {label: 'Sign up Cloud', href: 'https://dex.superdurable.io/register', position: 'right', className: 'sd-button sd-button-primary'},
   ],
   footer: [
     {
