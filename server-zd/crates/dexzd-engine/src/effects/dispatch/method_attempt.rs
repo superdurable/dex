@@ -18,19 +18,19 @@ use dexzd_apply::FlowStateReader;
 use dexzd_keyspace::row_keys::hard_delete_current_key;
 use dexzd_keyspace::{ColumnFamily, TenantId};
 use dexzd_protocol::dex::{
-    self, DispatchTaskErrorReason, PollWorkerTaskFrame, PullRouting, PullRoutingSource,
-    StepStreamWrite, Value, WorkerErrorResponse, invoke_execute_method_output,
-    invoke_wait_for_method_output, poll_worker_task_frame,
+    self, PollWorkerTaskFrame, PullRouting, PullRoutingSource, StepStreamWrite, Value,
 };
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, HardDeleteObjectRecord, StepAttemptFailedCommand, StepAttemptFailureKind,
     StepAttemptHeartbeatCommand, flow_command, step_attempt_heartbeat_command,
 };
 use dexzd_stream_store::WriteStreamInput;
-use dexzd_worker_dispatch::{DispatchEvent, DispatchOutcome};
+use dexzd_worker_dispatch::DispatchEvent;
 use tokio::time::{Instant, sleep_until};
 use tokio_util::sync::CancellationToken;
 
+use super::attempt_checkpoints::{CheckpointTracker, heartbeat_change, into_step_stream_write};
+use super::attempt_deadlines::{AttemptEnd, AttemptTimeouts, MethodDeadline, attempt_end};
 use crate::blocking_work::BlockingWorkFailure;
 use crate::effects::dispatch::MethodDispatchRequest;
 use crate::effects::dispatch::attempt_failure::AttemptFailure;
@@ -45,9 +45,6 @@ use crate::effects::state_reads::{RunLocation, decode_row};
 use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
 use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
-const DEFAULT_METHOD_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
-const DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(60);
-
 /// A method attempt task's inputs.
 pub(crate) struct MethodAttempt {
     pub(crate) context: Arc<EffectContext>,
@@ -61,13 +58,6 @@ pub(crate) struct MethodAttempt {
     pub(crate) retry_deadline_micros: i64,
     /// Canceled by `InvocationCanceled` or node shutdown.
     pub(crate) cancel: CancellationToken,
-}
-
-/// How the attempt's dispatch ended, before it becomes a command.
-enum AttemptEnd {
-    Result(Box<PollWorkerTaskFrame>, String),
-    Failure(AttemptFailure),
-    Canceled,
 }
 
 /// Outcome of preparing the Worker request.
@@ -740,212 +730,6 @@ impl MethodAttempt {
             command: Some(command),
             ..FlowCommand::default()
         }
-    }
-}
-
-/// The attempt's owner-memory timeouts.
-struct AttemptTimeouts {
-    method: MethodDeadline,
-    heartbeat_timeout: Duration,
-}
-
-impl AttemptTimeouts {
-    /// Returns the attempt's method timeout and heartbeat timeout, with the Go Server defaults.
-    fn new(state: &MethodAttemptState, method: MethodDeadline) -> Self {
-        let heartbeat_timeout_seconds = state
-            .step_execution
-            .options
-            .as_ref()
-            .map_or(0, |options| options.heartbeat_timeout_seconds);
-        let heartbeat_timeout =
-            positive_seconds(heartbeat_timeout_seconds).unwrap_or(DEFAULT_HEARTBEAT_TIMEOUT);
-        Self {
-            method,
-            heartbeat_timeout,
-        }
-    }
-
-    /// Returns the first expired deadline's failure, checked against the clock rather than the timers.
-    fn expired_failure(&self, heartbeat_deadline: Option<Instant>) -> Option<AttemptFailure> {
-        if self.method.has_expired()
-            && heartbeat_deadline.is_none_or(|deadline| self.method.expires_at <= deadline)
-        {
-            return Some(self.method.timeout_failure());
-        }
-        if heartbeat_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return Some(self.heartbeat_timeout_failure());
-        }
-        self.method
-            .has_expired()
-            .then(|| self.method.timeout_failure())
-    }
-
-    fn heartbeat_timeout_failure(&self) -> AttemptFailure {
-        AttemptFailure::server(
-            StepAttemptFailureKind::HeartbeatTimeout,
-            format!("no heartbeat within {}s", self.heartbeat_timeout.as_secs()),
-        )
-    }
-}
-
-/// The method timeout, started before the attempt's first state read.
-struct MethodDeadline {
-    method_timeout: Duration,
-    /// When the method timeout expires, counted from the attempt's start.
-    expires_at: Instant,
-    is_retry_deadline: bool,
-}
-
-impl MethodDeadline {
-    /// Starts the configured method timeout now, or the Go Server default when it is not positive.
-    fn start(method_timeout_seconds: i32, retry_deadline_micros: i64, now_micros: i64) -> Self {
-        let method_timeout =
-            positive_seconds(method_timeout_seconds).unwrap_or(DEFAULT_METHOD_TIMEOUT);
-        let retry_remaining_micros = retry_deadline_micros.saturating_sub(now_micros).max(0) as u64;
-        let retry_remaining = Duration::from_micros(retry_remaining_micros);
-        let is_retry_deadline = retry_remaining < method_timeout;
-        Self {
-            method_timeout,
-            expires_at: Instant::now() + method_timeout.min(retry_remaining),
-            is_retry_deadline,
-        }
-    }
-
-    /// Returns true once the method timeout has expired, even before its timer fires.
-    fn has_expired(&self) -> bool {
-        Instant::now() >= self.expires_at
-    }
-
-    fn timeout_failure(&self) -> AttemptFailure {
-        if self.is_retry_deadline {
-            let mut failure = AttemptFailure::server(
-                StepAttemptFailureKind::RetryDeadline,
-                "retry policy total duration expired",
-            );
-            failure.is_non_retryable = true;
-            return failure;
-        }
-        AttemptFailure::server(
-            StepAttemptFailureKind::MethodTimeout,
-            format!(
-                "method timeout of {}s expired",
-                self.method_timeout.as_secs()
-            ),
-        )
-    }
-}
-
-fn positive_seconds(seconds: i32) -> Option<Duration> {
-    u64::try_from(seconds)
-        .ok()
-        .filter(|seconds| *seconds > 0)
-        .map(Duration::from_secs)
-}
-
-/// Converts a dispatch outcome into the attempt's end.
-fn attempt_end(outcome: DispatchOutcome, deadline: &MethodDeadline) -> AttemptEnd {
-    match outcome {
-        DispatchOutcome::WorkerResult {
-            frame,
-            app_worker_id,
-        } => AttemptEnd::Result(Box::new(frame), app_worker_id),
-        DispatchOutcome::WorkerError {
-            frame,
-            app_worker_id,
-        } => {
-            let worker_error = match frame.output {
-                Some(poll_worker_task_frame::Output::WorkerError(error)) => error,
-                _ => WorkerErrorResponse {
-                    detail: "Worker returned an error frame without an error".to_owned(),
-                    ..WorkerErrorResponse::default()
-                },
-            };
-            AttemptEnd::Failure(AttemptFailure {
-                kind: StepAttemptFailureKind::WorkerError,
-                server_detail: String::new(),
-                worker_error: Some(worker_error),
-                is_non_retryable: false,
-                served_by_app_worker_id: app_worker_id,
-                omitted_value_slots: None,
-            })
-        }
-        DispatchOutcome::DispatchError { reason, detail } => {
-            let reason_name = DispatchTaskErrorReason::as_str_name(&reason);
-            AttemptEnd::Failure(AttemptFailure::server(
-                StepAttemptFailureKind::DispatchError,
-                format!("{reason_name}: {detail}"),
-            ))
-        }
-        DispatchOutcome::Cancelled => AttemptEnd::Canceled,
-        DispatchOutcome::ServerClosing => AttemptEnd::Failure(AttemptFailure::server(
-            StepAttemptFailureKind::DispatchError,
-            "matching server is closing",
-        )),
-        DispatchOutcome::DeadlineExceeded => AttemptEnd::Failure(deadline.timeout_failure()),
-    }
-}
-
-/// A checkpoint change carried by a Worker frame: `Some(value)` sets it, `None` clears it.
-type CheckpointChange = Option<Value>;
-
-/// Returns the checkpoint change of an explicit heartbeat; stream writes keep the checkpoint.
-fn heartbeat_change(frame: &PollWorkerTaskFrame) -> Option<CheckpointChange> {
-    match frame.output.as_ref()? {
-        poll_worker_task_frame::Output::WaitFor(output) => match output.output.as_ref()? {
-            invoke_wait_for_method_output::Output::Heartbeat(heartbeat) => {
-                Some(heartbeat.value.clone())
-            }
-            _ => None,
-        },
-        poll_worker_task_frame::Output::Execute(output) => match output.output.as_ref()? {
-            invoke_execute_method_output::Output::Heartbeat(heartbeat) => {
-                Some(heartbeat.value.clone())
-            }
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Returns the Step Stream write that a Worker frame carries.
-fn into_step_stream_write(frame: PollWorkerTaskFrame) -> Option<StepStreamWrite> {
-    match frame.output? {
-        poll_worker_task_frame::Output::WaitFor(output) => match output.output? {
-            invoke_wait_for_method_output::Output::StreamWrite(write) => Some(write),
-            _ => None,
-        },
-        poll_worker_task_frame::Output::Execute(output) => match output.output? {
-            invoke_execute_method_output::Output::StreamWrite(write) => Some(write),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Coalesces checkpoint changes within the batch window and proposes only real changes.
-struct CheckpointTracker {
-    last_proposed: CheckpointChange,
-    pending: Option<CheckpointChange>,
-    flush_at: Option<Instant>,
-}
-
-impl CheckpointTracker {
-    fn observe(&mut self, change: CheckpointChange, batch_window: Duration) {
-        if change == self.last_proposed {
-            self.pending = None;
-            self.flush_at = None;
-            return;
-        }
-        self.pending = Some(change);
-        self.flush_at
-            .get_or_insert_with(|| Instant::now() + batch_window);
-    }
-
-    fn take_pending(&mut self) -> Option<CheckpointChange> {
-        self.flush_at = None;
-        let change = self.pending.take()?;
-        self.last_proposed = change.clone();
-        Some(change)
     }
 }
 
