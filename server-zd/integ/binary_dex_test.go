@@ -49,6 +49,7 @@ func TestBinaryDexLauncher(t *testing.T) {
 	require.Equal(t, "dev", arguments[0])
 	require.Contains(t, arguments, "--data-dir")
 	require.Contains(t, arguments, "--listen")
+	require.Contains(t, arguments, "process-crash-safe")
 	configIndex := -1
 	for index, argument := range arguments {
 		if argument == "--config" {

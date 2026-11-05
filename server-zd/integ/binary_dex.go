@@ -65,7 +65,11 @@ func startBinaryDexService(t *testing.T, testConfig serverZDTestConfig) *integRu
 	configurationBytes, err := yaml.Marshal(configuration)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(configurationPath, configurationBytes, 0o600))
-	arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", address, "--config", configurationPath}
+	// Per-test servers skip fsync for speed; strict is the dev default.
+	arguments := []string{
+		"dev", "--data-dir", dataDirectory, "--listen", address,
+		"--durability", "process-crash-safe", "--config", configurationPath,
+	}
 	outputPath := filepath.Join(dataDirectory, "server.log")
 	outputFile, err := os.Create(outputPath)
 	require.NoError(t, err)
