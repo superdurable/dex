@@ -35,6 +35,7 @@ import {
   ValueMappingError,
   Wait,
   bytesCodec,
+  declareRPCMethod,
   gracefulComplete,
   int64Codec,
   jsonCodec,
@@ -1124,6 +1125,95 @@ async function compileStrongTypes(client: Client): Promise<void> {
 }
 
 void compileStrongTypes;
+
+class RPCMethodNameContractFlow implements Flow {
+  public getFlowType(): string {
+    return "RPCMethodNameContractFlow";
+  }
+
+  public getSteps() {
+    return StepList.empty();
+  }
+
+  public getOrderStatus(_context: Context): RPCResult<string> {
+    return { output: "ready" };
+  }
+
+  public updateOrderStatus(_context: Context, status: string): RPCResult<string> {
+    return { output: status };
+  }
+
+  public describeOptionalContext(_context?: Context): RPCResult<string> {
+    return { output: "optional" };
+  }
+
+  public describeUndefinedContext(_context: Context | undefined): RPCResult<string> {
+    return { output: "undefined" };
+  }
+
+  public describeObjectContext(_context: object): RPCResult<string> {
+    return { output: "object" };
+  }
+
+  public describeUnknownContext(_context: unknown): RPCResult<string> {
+    return { output: "unknown" };
+  }
+
+  public describeWithoutParameters(): RPCResult<string> {
+    return { output: "none" };
+  }
+
+  public describeStringInput(input: string): RPCResult<string> {
+    return { output: input };
+  }
+
+  public describeAsyncContext(_context: AsyncContext): RPCResult<string> {
+    return { output: "async" };
+  }
+
+  public handleTimeout(_context: Context): StepDecision {
+    return gracefulComplete();
+  }
+
+  protected getProtectedStatus(_context: Context): RPCResult<string> {
+    return { output: "protected" };
+  }
+
+  private getPrivateStatus(_context: Context): RPCResult<string> {
+    return { output: this.getProtectedStatus(_context).output };
+  }
+}
+
+function compileRPCMethodDeclarations(): void {
+  declareRPCMethod(RPCMethodNameContractFlow, "getOrderStatus", { outputCodec: stringCodec });
+  declareRPCMethod(RPCMethodNameContractFlow, "updateOrderStatus", {
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+  });
+  declareRPCMethod(RPCMethodNameContractFlow, "describeOptionalContext");
+  declareRPCMethod(RPCMethodNameContractFlow, "describeUndefinedContext");
+  declareRPCMethod(RPCMethodNameContractFlow, "describeObjectContext");
+  declareRPCMethod(RPCMethodNameContractFlow, "describeUnknownContext");
+
+  // @ts-expect-error protected methods cannot be RPC methods
+  declareRPCMethod(RPCMethodNameContractFlow, "getProtectedStatus");
+  // @ts-expect-error private methods cannot be RPC methods
+  declareRPCMethod(RPCMethodNameContractFlow, "getPrivateStatus");
+  // @ts-expect-error RPC methods take Context first
+  declareRPCMethod(RPCMethodNameContractFlow, "describeWithoutParameters");
+  // @ts-expect-error RPC methods take Context first
+  declareRPCMethod(RPCMethodNameContractFlow, "describeStringInput");
+  // @ts-expect-error RPC methods receive Context, not AsyncContext
+  declareRPCMethod(RPCMethodNameContractFlow, "describeAsyncContext");
+  // @ts-expect-error the Flow timeout handler is not an RPC method
+  declareRPCMethod(RPCMethodNameContractFlow, "handleTimeout");
+  // @ts-expect-error Flow lifecycle methods take no Context
+  declareRPCMethod(RPCMethodNameContractFlow, "getFlowType");
+  // @ts-expect-error missing methods are rejected
+  declareRPCMethod(RPCMethodNameContractFlow, "getMissingStatus");
+}
+
+void compileRPCMethodDeclarations;
 
 type IsExactType<Actual, Expected> =
   (<Probe>() => Probe extends Actual ? 1 : 2) extends (<Probe>() => Probe extends Expected ? 1 : 2)

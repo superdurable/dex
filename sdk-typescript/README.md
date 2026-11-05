@@ -35,6 +35,65 @@ An RPC can stage `channel.delete(context, messageId)`. Set the decorator option
 Attribute locks already select transactional execution; Channel deletion requires
 the explicit option.
 
+## Declaring RPC methods
+
+A Flow method becomes an RPC handler in one of two equivalent ways. Both store
+the same `RPCOptions`, and Registry construction validates them with the same
+checks and the same errors.
+
+The `@rpc` decorator is the default when your build transforms stage-3
+decorators, for example with `tsc`:
+
+```typescript
+class OrderStatusFlow implements Flow<string> {
+  // getFlowType, getSteps, and getPersistenceSchema omitted.
+
+  @rpc({ outputCodec: stringCodec })
+  getOrderStatus(context: Context): RPCResult<string> {
+    return { output: orderStatus.get(context) };
+  }
+}
+```
+
+Use `declareRPCMethod` when the runtime that loads the Flow module cannot
+transform decorators. Node.js type stripping is one such runtime: it rejects a
+decorator with `SyntaxError: Invalid or unexpected token`. Plain `node main.ts`
+strips types by default on Node.js 22.18 and later and on Node.js 24.
+`node --experimental-transform-types` also works on Node.js 22 and 24, but
+Node.js 26 removes that flag. Declare the method right after the class, at module
+top level, before constructing the Registry:
+
+```typescript
+class OrderStatusFlow implements Flow<string> {
+  // getFlowType, getSteps, and getPersistenceSchema omitted.
+
+  getOrderStatus(context: Context): RPCResult<string> {
+    return { output: orderStatus.get(context) };
+  }
+}
+
+declareRPCMethod(OrderStatusFlow, "getOrderStatus", { outputCodec: stringCodec });
+```
+
+- Pass the class and the method name as a string literal. The name must be a
+  public class method that takes `Context` first. An instance field, such as an
+  arrow function, is not on the prototype and is rejected with `TypeError`.
+- Declare a method through the class that defines it. A method declared on a
+  base class is an RPC of every subclass that inherits it, as `@rpc` on the base
+  method would be. Naming a subclass for a method it only inherits throws
+  `TypeError`, because the declaration would also change the base class and
+  every sibling. To give one subclass its own RPC, override the method there and
+  declare the override.
+- Declare methods before constructing the Registry. A declaration made after a
+  Registry is built has no effect on that Registry.
+- Each method is declared once. Declaring it again, or declaring a method that
+  already has `@rpc`, throws `TypeError`. One Flow may mix both forms on
+  different methods.
+- Client calls are unchanged: `client.invokeRPC(flow.getOrderStatus, flowId)`.
+
+The runnable [decorator-free RPC example](../examples/typescript/decorator-free-rpc)
+runs under `node --experimental-transform-types` with no build step.
+
 ## RPC state loading
 
 RPCs receive ordinary Attributes and all Channel size metadata by default.
