@@ -132,12 +132,20 @@ async fn sigterm_sends_the_task_of_a_sync_start_that_commits_during_the_drain() 
     // The hand-out reserved the stream; its start cannot commit while log writes are held.
     wait_for_queued_tasks(metrics_address, 0).await;
     active.send_sigterm(BUDGET).await;
+    // Admission is closed. The hand-out may register its attempt before or after this line.
     active
-        .wait_for_log_line(
-            "Step attempt drain started attempts_waited=1 outstanding_handouts=1",
-            BUDGET,
-        )
+        .wait_for_log_line("Step attempt drain started", BUDGET)
         .await;
+    let drain_started = active
+        .log()
+        .lines()
+        .find(|line| line.contains("Step attempt drain started"))
+        .expect("the drain logged its start")
+        .to_owned();
+    assert!(
+        drain_started.ends_with("outstanding_handouts=1"),
+        "{drain_started}"
+    );
     fixture.emulator.clear_fault_rules().await;
     let task = worker.next_execute().await;
     let request = execute_request(&task);
@@ -166,7 +174,7 @@ async fn sigterm_sends_the_task_of_a_sync_start_that_commits_during_the_drain() 
     let active_log = active.log();
     assert!(active_log.contains("outcome=completed"), "{active_log}");
     assert!(
-        active_log.contains("attempts_finished=1 attempts_running=0"),
+        active_log.contains("attempts_waited=1 attempts_finished=1 attempts_running=0"),
         "{active_log}"
     );
     let mut successor = fixture.spawn("replacement", None, false);
