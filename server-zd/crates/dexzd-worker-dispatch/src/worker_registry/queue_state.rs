@@ -13,13 +13,15 @@ use prometheus_client::metrics::gauge::Gauge;
 
 /// A dispatch waiting for an idle stream, with the streams it must not be offered.
 pub(super) struct QueueWaiter {
-    wakeup: Arc<Notify>,
+    pub(super) wakeup: Arc<Notify>,
+    /// Steps and RPCs differ in priority and in the streams they may use.
+    pub(super) kind: TaskKind,
     excluded_worker_ids: HashSet<String>,
     excluded_streams: HashMap<Uuid, Instant>,
 }
 
 impl QueueWaiter {
-    fn can_use(&self, worker: &WorkerStream, now: Instant) -> bool {
+    pub(super) fn can_use(&self, worker: &WorkerStream, now: Instant) -> bool {
         !self.excluded_worker_ids.contains(&worker.app_worker_id)
             && self
                 .excluded_streams
@@ -61,11 +63,11 @@ impl Drop for QueuedTaskMetric {
 }
 
 impl QueuePick {
-    pub(super) fn without_worker(has_streams: bool) -> Self {
+    pub(super) fn without_worker(has_streams: bool, next_backoff_end: Option<Instant>) -> Self {
         Self {
             worker: None,
-            assignment_frames: None,
             has_streams,
+            next_backoff_end,
         }
     }
 }
@@ -79,11 +81,7 @@ impl QueueLease {
         waiter_sequence: u64,
     ) -> Self {
         let key = (tenant_id, queue_name.to_owned());
-        let mut registry = dispatch
-            .inner
-            .registry
-            .lock()
-            .expect("matching registry lock poisoned");
+        let mut registry = dispatch.lock_registry();
         registry
             .queues
             .entry(key.clone())
@@ -101,26 +99,23 @@ impl QueueLease {
 
 impl Drop for QueueLease {
     fn drop(&mut self) {
-        let mut guard = self
-            .dispatch
-            .inner
-            .registry
-            .lock()
-            .expect("matching registry lock poisoned");
+        let mut guard = self.dispatch.lock_registry();
         let registry = &mut *guard;
         let queue = registry
             .queues
             .get_mut(&self.key)
             .expect("leased queue exists");
-        if self.is_waiting {
-            // A dispatch that ends after its wakeup hands that wakeup to another waiter.
-            let woken_for = queue.remove_waiter(self.waiter_sequence);
-            queue.pass_on_wakeup(woken_for, None, &registry.streams, Instant::now());
-        }
+        let woken_for = if self.is_waiting {
+            queue.remove_waiter(self.waiter_sequence)
+        } else {
+            None
+        };
         queue.users -= 1;
         if queue.users == 0 {
             registry.queues.remove(&self.key);
         }
+        // A dispatch that ends after its wakeup hands that wakeup to another waiter.
+        registry.pass_on_wakeup(woken_for, None, Instant::now());
     }
 }
 
@@ -128,9 +123,9 @@ impl QueueState {
     pub(super) fn new() -> Self {
         Self {
             stream_ids: HashSet::new(),
-            idle: VecDeque::new(),
+            idle: BTreeMap::new(),
             affinity: HashMap::new(),
-            affinity_order: VecDeque::new(),
+            affinity_order: std::collections::VecDeque::new(),
             waiters: BTreeMap::new(),
             woken_waiter_streams: HashMap::new(),
             users: 0,
@@ -141,14 +136,16 @@ impl QueueState {
     pub(super) fn start_waiting(
         &mut self,
         lease: &mut QueueLease,
-        excluded_worker_ids: &HashSet<String>,
+        kind: TaskKind,
+        excluded_worker_ids: HashSet<String>,
         excluded_streams: &HashMap<Uuid, Instant>,
     ) {
         self.waiters.insert(
             lease.waiter_sequence,
             QueueWaiter {
                 wakeup: lease.wakeup.clone(),
-                excluded_worker_ids: excluded_worker_ids.clone(),
+                kind,
+                excluded_worker_ids,
                 excluded_streams: excluded_streams.clone(),
             },
         );
@@ -165,40 +162,6 @@ impl QueueState {
             return None;
         }
         self.woken_waiter_streams.remove(&waiter_sequence)
-    }
-
-    /// Wakes the longest-waiting dispatch that may use the newly idle `worker`.
-    pub(super) fn wake_waiter_for(&mut self, worker: &WorkerStream, now: Instant) {
-        let Some(sequence) = self
-            .waiters
-            .iter()
-            .find(|(_, waiter)| waiter.can_use(worker, now))
-            .map(|(sequence, _)| *sequence)
-        else {
-            return;
-        };
-        let waiter = self.waiters.remove(&sequence).expect("found waiter exists");
-        self.woken_waiter_streams.insert(sequence, worker.id);
-        waiter.wakeup.notify_one();
-    }
-
-    /// Hands on the wakeup a dispatch consumed for the stream `woken_for`.
-    ///
-    /// Applies when that stream is still idle and was not `taken_stream`.
-    pub(super) fn pass_on_wakeup(
-        &mut self,
-        woken_for: Option<Uuid>,
-        taken_stream: Option<Uuid>,
-        streams: &HashMap<Uuid, Arc<WorkerStream>>,
-        now: Instant,
-    ) {
-        let Some(stream_id) =
-            woken_for.filter(|id| Some(*id) != taken_stream && self.idle.contains(id))
-        else {
-            return;
-        };
-        let worker = streams.get(&stream_id).expect("idle stream is registered");
-        self.wake_waiter_for(worker, now);
     }
 
     pub(super) fn wake_all_waiters(&mut self) {
@@ -324,8 +287,9 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queue: "Flow".to_owned(),
+            queues: vec!["Flow".to_owned()],
             app_worker_id: "worker".to_owned(),
+            slot: StreamSlot::Legacy,
             output,
             close,
             state: Mutex::new(WorkerState::default()),
@@ -337,10 +301,10 @@ mod tests {
                 .entry((7, "Flow".to_owned()))
                 .or_insert_with(QueueState::new);
             queue.stream_ids.insert(worker.id);
-            queue.idle.push_back(worker.id);
             queue.users += 1;
             registry.worker_counts.insert((7, "worker".to_owned()), 1);
             registry.streams.insert(worker.id, worker.clone());
+            registry.add_idle(&worker);
         }
         dispatch.disconnect(worker.id);
         let registry = dispatch.inner.registry.lock().expect("registry lock");
@@ -370,8 +334,9 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queue: "Flow".to_owned(),
+            queues: vec!["Flow".to_owned()],
             app_worker_id: app_worker_id.to_owned(),
+            slot: StreamSlot::Legacy,
             output,
             close,
             state: Mutex::new(WorkerState {
@@ -421,14 +386,25 @@ mod tests {
         dispatch
             .pick_worker(
                 lease,
-                flow_id,
-                "task",
+                &TaskSearch {
+                    task_type: &step_task_type(),
+                    flow_id,
+                },
                 false,
                 &excluded_worker_ids,
                 excluded_streams,
             )
             .worker
             .map(|worker| worker.app_worker_id.clone())
+    }
+
+    fn step_task_type() -> TaskTypeKey {
+        TaskTypeKey {
+            tenant_id: 7,
+            flow_type: "Flow".to_owned(),
+            kind: TaskKind::Step,
+            name: "WorkStep".to_owned(),
+        }
     }
 
     /// Returns whether `lease` holds a wakeup, consuming it.
@@ -587,8 +563,10 @@ mod tests {
         let mut sticky = QueueLease::acquire(&dispatch, 7, "Flow", 3);
         let picked = dispatch.pick_worker(
             &mut sticky,
-            "sticky",
-            "task",
+            &TaskSearch {
+                task_type: &step_task_type(),
+                flow_id: "sticky",
+            },
             true,
             &HashSet::new(),
             &HashMap::new(),

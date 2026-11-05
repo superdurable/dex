@@ -105,7 +105,7 @@ func doTestLockingWorkflow(
 				errResp := grpcServiceErrorResponse(t, rpcErr)
 				// zd-bug #1002: server-zd names the locked key in the lock-conflict detail.
 				expectedDetail := "RPC lock conflict: attribute key " + locking.TestSearchAttributeIntKey +
-					" is locked by a running Step"
+					" is locked by a Step"
 
 				assertions.Equal(expectedDetail, errResp.GetDetail())
 				assertions.Equal(

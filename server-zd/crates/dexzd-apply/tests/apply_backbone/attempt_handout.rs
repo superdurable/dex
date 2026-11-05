@@ -355,7 +355,7 @@ fn older_records_without_a_retry_clock_keep_the_first_attempt_deadline() {
         ..RetryPolicy::default()
     };
     // An older running attempt 1 counts from its first attempt and is not restamped.
-    let mut harness = start_execute_only(short.clone(), StepDurability::Sync);
+    let mut harness = start_execute_only(short, StepDurability::Sync);
     harness.start_with_task(StepMethod::Execute, 1, &TASK_A);
     harness.rewrite_invocation(|invocation| invocation.retry_started_at_micros = 0);
     harness.now_micros += 10 * SECOND;

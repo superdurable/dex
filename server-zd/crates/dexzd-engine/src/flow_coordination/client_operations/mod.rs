@@ -302,7 +302,7 @@ impl FlowCoordinatorRegistry {
                     &flow,
                     Some(run_id),
                     flow_command::Command::TimeTravel(TimeTravelCommand {
-                        should_restore_running_as_pending: false,
+                        should_restore_running_as_pending: true,
                         request: Some(request.clone()),
                     }),
                 ))

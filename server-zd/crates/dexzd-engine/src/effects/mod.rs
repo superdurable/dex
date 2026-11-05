@@ -45,10 +45,12 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 pub use dispatch::{
-    MethodDispatchRequest, MethodDispatchSession, MethodDispatchStartError, MethodDispatcher,
+    MethodDispatchSession, MethodDispatcher, MethodStreamRequest, MethodStreamReservation,
+    MethodTask, ReservedMethodStream,
 };
 pub use flow_effect_operations::{
-    FlowEffectOperationError, FlowEffectOperations, InvocationStartOutcome,
+    FlowEffectOperationError, FlowEffectOperations, InvocationLockCheck, InvocationStartOutcome,
+    StartCommit,
 };
 pub use hard_delete_objects::{
     HARD_DELETE_OBJECT_KEY_PREFIX, HardDeleteObjectOwner, HardDeleteObjects,
@@ -56,7 +58,7 @@ pub use hard_delete_objects::{
     encode_hard_delete_value, hard_delete_placeholder_value,
 };
 pub use method_request::MethodRequest;
-pub(crate) use method_request::resolve_method_durability;
+pub(crate) use method_request::pinned_durability;
 pub(crate) use state_reads::{
     RunLocation, decode_row, hex, read_run_record, read_step_execution, scan_all,
 };
@@ -66,7 +68,7 @@ use crate::blocking_work::BlockingWorkPlacement;
 use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
-use dispatch::{DispatchScheduler, InvocationStartResult};
+use dispatch::{DispatchScheduler, HandoutEnd, InterruptedAttempt};
 use method_request::MethodAttemptKey;
 use timer_service::TimerServices;
 
@@ -218,14 +220,23 @@ pub(crate) enum RouterMessage {
         partition: PartitionId,
         reply: oneshot::Sender<Result<usize, EffectError>>,
     },
-    InvocationStartFinished {
+    HandoutFinished {
         flow: FlowAddress,
         key: MethodAttemptKey,
-        result: InvocationStartResult,
+        end: HandoutEnd,
+    },
+    AttemptStarting {
+        task_id: Vec<u8>,
+        key: MethodAttemptKey,
+        cancel: CancellationToken,
     },
     AttemptFinished {
         task_id: Vec<u8>,
         key: MethodAttemptKey,
+    },
+    InterruptedAttempts {
+        flow: FlowAddress,
+        attempts: Vec<InterruptedAttempt>,
     },
     WorkFinished {
         flow: FlowAddress,
@@ -308,6 +319,38 @@ impl EffectContext {
         RetryBackoff {
             next: self.config.retry_initial_backoff,
             max: self.config.retry_max_backoff,
+        }
+    }
+
+    /// Proposes `command` and waits for its speculative reply, retrying while the runtime is
+    /// unavailable. Returns `None` when the node is stopping.
+    pub(crate) async fn propose_until_applied(
+        &self,
+        flow: &FlowAddress,
+        command: FlowCommand,
+        urgency: CommitUrgency,
+    ) -> Option<CommandReply> {
+        let mut backoff = self.retry_backoff();
+        loop {
+            let proposal =
+                self.flow_effect_operations
+                    .propose_speculative(flow, command.clone(), urgency);
+            // Biased for reproducible simulation; shutdown fires once.
+            let outcome = tokio::select! {
+                biased;
+                () = self.shutdown.cancelled() => return None,
+                outcome = proposal => outcome,
+            };
+            match outcome {
+                Ok(reply) => return Some(reply),
+                Err(FlowEffectOperationError::NodeStopping { .. }) => return None,
+                Err(error @ FlowEffectOperationError::Unavailable { .. }) => {
+                    tracing::debug!(%error, flow_id = %flow.flow_id, "retrying an effect proposal");
+                    if !backoff.wait(&self.shutdown).await {
+                        return None;
+                    }
+                }
+            }
         }
     }
 
@@ -570,11 +613,21 @@ impl EffectRouter {
                     }
                 });
             }
-            RouterMessage::InvocationStartFinished { flow, key, result } => {
-                self.dispatch.finish_start(flow, key, result);
+            RouterMessage::HandoutFinished { flow, key, end } => {
+                self.dispatch.finish_handout(flow, key, end);
+            }
+            RouterMessage::AttemptStarting {
+                task_id,
+                key,
+                cancel,
+            } => {
+                self.dispatch.register_attempt(task_id, key, cancel);
             }
             RouterMessage::AttemptFinished { task_id, key } => {
                 self.dispatch.finish_attempt(task_id, &key);
+            }
+            RouterMessage::InterruptedAttempts { flow, attempts } => {
+                self.dispatch.fail_interrupted_attempts(flow, attempts);
             }
             RouterMessage::WorkFinished { flow, work } => {
                 if self.tracked_work.remove(&work) == Some(true) {
@@ -599,25 +652,11 @@ impl EffectRouter {
                 attempt,
             } => {
                 let key = MethodAttemptKey::new(run_id, run_attempt, &invocation, attempt);
-                self.dispatch.start_pending_invocation(flow.clone(), key);
+                self.dispatch
+                    .start_pending_invocation(flow.clone(), key, scheduled_at);
             }
-            ApplyEffect::InvocationStarted {
-                run_id,
-                run_attempt,
-                invocation,
-                attempt,
-                task_id,
-                method_timeout_seconds,
-            } => {
-                let key = MethodAttemptKey::new(run_id, run_attempt, &invocation, attempt);
-                self.dispatch.run_started_attempt(
-                    flow.clone(),
-                    key,
-                    task_id,
-                    method_timeout_seconds,
-                    scheduled_at,
-                );
-            }
+            // The task that proposed the start sends the attempt; a start never dispatches.
+            ApplyEffect::InvocationStarted { .. } => {}
             ApplyEffect::InvocationCanceled { task_id, .. } => {
                 self.dispatch.cancel_attempt(&task_id);
             }

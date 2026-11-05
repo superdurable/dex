@@ -20,6 +20,8 @@ pub(super) struct AttemptFailure {
     pub(super) served_by_app_worker_id: String,
     /// Slots of the values a Worker reported LoadBlobs omitted; `None` for other failures.
     pub(super) omitted_value_slots: Option<Vec<RequestValueSlot>>,
+    /// Whether the Worker certainly never ran the handler, such as an unbuildable request.
+    pub(super) is_not_run: bool,
 }
 
 impl AttemptFailure {
@@ -31,6 +33,15 @@ impl AttemptFailure {
             is_non_retryable: false,
             served_by_app_worker_id: String::new(),
             omitted_value_slots: None,
+            is_not_run: false,
+        }
+    }
+
+    /// Returns a server failure of an attempt the Worker certainly never ran.
+    pub(super) fn not_run(kind: StepAttemptFailureKind, detail: impl Into<String>) -> Self {
+        Self {
+            is_not_run: true,
+            ..Self::server(kind, detail)
         }
     }
 

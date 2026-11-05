@@ -322,21 +322,30 @@ pub(crate) fn running_attempts(
     Ok(running)
 }
 
-/// Invariant 5: after a crash, the successor redispatches every attempt that is still running.
-pub(crate) fn check_running_attempts_redispatched(
+/// Invariant 5: after a crash, the successor never hands out again an attempt that was handed
+/// out before the crash; it fails the attempt instead, which ends its running phase (plan D68).
+pub(crate) fn check_interrupted_attempts_failed(
     process_label: &str,
     dispatched: &[AttemptIdentity],
-    running_at_recovery: &BTreeSet<AttemptIdentity>,
+    running_at_crash: &BTreeSet<AttemptIdentity>,
     running_now: &BTreeSet<AttemptIdentity>,
 ) -> Result<(), InvariantViolation> {
-    let dispatched: BTreeSet<&AttemptIdentity> = dispatched.iter().collect();
-    let forgotten = running_at_recovery
+    if let Some(attempt) = dispatched
         .iter()
-        .find(|attempt| !dispatched.contains(attempt) && running_now.contains(attempt));
-    match forgotten {
+        .find(|attempt| running_at_crash.contains(attempt))
+    {
+        return Err(InvariantViolation::new(
+            "interrupted-attempt-redispatched",
+            format!("{process_label} handed out interrupted attempt {attempt:?} again"),
+        ));
+    }
+    match running_at_crash
+        .iter()
+        .find(|attempt| running_now.contains(attempt))
+    {
         Some(attempt) => Err(InvariantViolation::new(
-            "running-attempt-not-redispatched",
-            format!("{process_label} never dispatched committed running attempt {attempt:?}"),
+            "interrupted-attempt-still-running",
+            format!("{process_label} never failed interrupted attempt {attempt:?}"),
         )),
         None => Ok(()),
     }

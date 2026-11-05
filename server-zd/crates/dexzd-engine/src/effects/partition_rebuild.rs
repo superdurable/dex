@@ -19,7 +19,8 @@ use dexzd_keyspace::{
 };
 use dexzd_protocol::dexzd::v1::{StepInvocationKey, StepInvocationPhase};
 
-use crate::effects::method_request::configured_method_timeout_seconds;
+use crate::effects::dispatch::InterruptedAttempt;
+use crate::effects::method_request::{MethodAttemptKey, pinned_durability};
 use crate::effects::state_reads::{
     RunLocation, parse_retention_index_key, parse_run_item_index_key, read_run_record,
     read_step_executions, scan_all,
@@ -45,12 +46,24 @@ pub(crate) async fn rebuild_partition(
         .await?;
     let reader = context.flow_effect_operations.committed_state_reader()?;
     let mut work: BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)> = BTreeMap::new();
-    rebuild_invocations(reader.as_ref(), partition, &mut work)?;
+    let mut interrupted: BTreeMap<RunLocation, (FlowAddress, Vec<InterruptedAttempt>)> =
+        BTreeMap::new();
+    rebuild_invocations(reader.as_ref(), partition, &mut work, &mut interrupted)?;
     rebuild_pending_close_checks(reader.as_ref(), partition, &mut work)?;
     rebuild_outbox_messages(reader.as_ref(), partition, &mut work)?;
     rebuild_hard_delete_deletions(reader.as_ref(), partition, &mut work)?;
     rebuild_run_purges(reader.as_ref(), partition, &mut work)?;
-    let effect_count: usize = work.values().map(|(_, effects)| effects.len()).sum();
+    let effect_count: usize = work
+        .values()
+        .map(|(_, effects)| effects.len())
+        .sum::<usize>()
+        + interrupted
+            .values()
+            .map(|(_, attempts)| attempts.len())
+            .sum::<usize>();
+    for (flow, attempts) in interrupted.into_values() {
+        context.report(RouterMessage::InterruptedAttempts { flow, attempts });
+    }
     for (flow, effects) in work.into_values() {
         context.report(RouterMessage::Effects {
             flow,
@@ -63,11 +76,13 @@ pub(crate) async fn rebuild_partition(
     Ok(effect_count)
 }
 
-/// Pending invocations start again; running attempts are redispatched with the same attempt.
+/// Pending invocations start again; running attempts were handed out before the restart, so
+/// they fail and consume a retry (plan D68).
 fn rebuild_invocations(
     reader: &dyn FlowStateReader,
     partition: PartitionId,
     work: &mut BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)>,
+    interrupted: &mut BTreeMap<RunLocation, (FlowAddress, Vec<InterruptedAttempt>)>,
 ) -> Result<(), EffectError> {
     let prefix = partition_index_prefix(partition, IndexKind::ActiveWork);
     for (key, _) in scan_all(reader, ColumnFamily::PartitionIndex, &prefix)? {
@@ -76,6 +91,7 @@ fn rebuild_invocations(
             continue;
         };
         let mut effects = Vec::new();
+        let mut running = Vec::new();
         for step_execution in read_step_executions(reader, run)? {
             let Some(invocation) = step_execution.invocation else {
                 continue;
@@ -92,18 +108,20 @@ fn rebuild_invocations(
                     attempt: invocation.attempt,
                 });
             } else if invocation.phase == StepInvocationPhase::Running as i32 {
-                effects.push(ApplyEffect::InvocationStarted {
-                    run_id: run.run_id,
-                    run_attempt,
-                    invocation: key,
-                    attempt: invocation.attempt,
-                    task_id: invocation.task_id,
-                    method_timeout_seconds: configured_method_timeout_seconds(
-                        step_execution.options.as_ref(),
-                        invocation.method,
-                    ),
+                running.push(InterruptedAttempt {
+                    key: MethodAttemptKey::new(run.run_id, run_attempt, &key, invocation.attempt),
+                    task_id: invocation.task_id.clone(),
+                    durability: pinned_durability(&invocation),
+                    pull_routing: invocation.pull_routing.clone(),
                 });
             }
+        }
+        if !running.is_empty() {
+            interrupted
+                .entry(run)
+                .or_insert_with(|| (flow.clone(), Vec::new()))
+                .1
+                .extend(running);
         }
         add_effects(work, run, flow, effects);
     }

@@ -6,8 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! One running method attempt: reads its snapshot, dispatches it, follows Worker frames and the
-//! owner-memory method and heartbeat timeouts, and proposes its result or failure.
+//! One started method attempt: reads its snapshot, builds its request, sends it on its reserved
+//! Worker slot, follows Worker frames and the owner-memory method and heartbeat timeouts, and
+//! proposes its result, failure, or return.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -22,47 +23,62 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, HardDeleteObjectRecord, StepAttemptFailedCommand, StepAttemptFailureKind,
-    StepAttemptHeartbeatCommand, flow_command, step_attempt_heartbeat_command,
+    StepAttemptHeartbeatCommand, StepAttemptReturnReason, StepAttemptReturnedCommand, flow_command,
+    step_attempt_heartbeat_command,
 };
 use dexzd_stream_store::WriteStreamInput;
-use dexzd_worker_dispatch::DispatchEvent;
+use dexzd_worker_dispatch::{StepTaskEvent, StepTaskSendFailure};
 use tokio::time::{Instant, sleep_until};
 use tokio_util::sync::CancellationToken;
 
 use super::attempt_checkpoints::{CheckpointTracker, heartbeat_change, into_step_stream_write};
-use super::attempt_deadlines::{AttemptEnd, AttemptTimeouts, MethodDeadline, attempt_end};
+use super::attempt_deadlines::{AttemptEnd, AttemptTimeouts, MethodDeadline, task_event_end};
 use crate::blocking_work::BlockingWorkFailure;
-use crate::effects::dispatch::MethodDispatchRequest;
 use crate::effects::dispatch::attempt_failure::AttemptFailure;
 use crate::effects::dispatch::worker_result::{WorkerResultCheck, check_worker_result};
+use crate::effects::dispatch::{MethodDispatchSession, MethodTask, ReservedMethodStream};
 use crate::effects::hard_delete_objects::{HardDeleteObjectOwner, HardDeleteUploads};
 use crate::effects::method_request::{
     MethodAttemptKey, MethodAttemptState, MethodRequest, RequestValueHydration,
     build_method_request, heartbeat_checkpoint_value, read_method_attempt_state,
-    resolve_method_durability,
 };
 use crate::effects::state_reads::{RunLocation, decode_row};
-use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
+use crate::effects::{EffectContext, EffectError, FlowEffectOperationError, StartCommit};
 use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
-/// A method attempt task's inputs.
+/// A started method attempt's inputs.
 pub(crate) struct MethodAttempt {
     pub(crate) context: Arc<EffectContext>,
     pub(crate) flow: FlowAddress,
     pub(crate) run: RunLocation,
     pub(crate) key: MethodAttemptKey,
+    /// Task ID recorded by the attempt's `StepAttemptStarted`; frames, fences, and results use it.
     pub(crate) task_id: Vec<u8>,
-    /// The method's configured timeout in seconds from the start effect; 0 means the default.
+    /// Durability pinned on the invocation; it decides commit urgencies and the commit wait.
+    pub(crate) durability: dex::StepDurability,
+    /// The method's configured timeout in seconds; 0 means the default.
     pub(crate) method_timeout_seconds: i32,
     pub(crate) scheduled_at: Option<std::time::Instant>,
     /// Canceled by `InvocationCanceled` or node shutdown.
     pub(crate) cancel: CancellationToken,
 }
 
+/// How a started attempt ended for the task that handed it out.
+pub(crate) enum StartedAttemptEnd {
+    /// The attempt ended, or this node can no longer act on it.
+    Ended,
+    /// The attempt is pending again with the same number; hand it out again.
+    Returned,
+}
+
 /// Outcome of preparing the Worker request.
 enum PreparedRequest {
-    Ready(Box<MethodRequest>),
-    Ended(AttemptEnd),
+    Ready(Box<MethodAttemptState>, Box<MethodRequest>),
+    Canceled,
+    /// The Worker never got the attempt, with the run's sticky Worker for the failure's routing.
+    NotRun(AttemptFailure, String),
+    /// The attempt no longer runs with this task ID.
+    Gone,
 }
 
 /// Outcome of work raced against the method deadline and cancellation.
@@ -73,14 +89,20 @@ enum BeforeDeadline<T> {
 }
 
 impl MethodAttempt {
-    /// Runs the attempt to its end. A server-side error fails the attempt so that it retries;
-    /// otherwise the invocation would stay running until a restart.
-    pub(crate) async fn run(self) {
-        let Err(error) = self.run_attempt().await else {
-            return;
+    /// Hands the started attempt to its reserved Worker slot and follows it to its end. A
+    /// server-side error fails the attempt so that it retries; otherwise the invocation would
+    /// stay running until a restart.
+    pub(crate) async fn run(
+        self,
+        stream: Box<dyn ReservedMethodStream>,
+        start_commit: StartCommit,
+    ) -> StartedAttemptEnd {
+        let error = match self.run_attempt(stream, start_commit).await {
+            Ok(end) => return end,
+            Err(error) => error,
         };
         if matches!(error, EffectError::Stopped) || self.cancel.is_cancelled() {
-            return;
+            return StartedAttemptEnd::Ended;
         }
         tracing::warn!(
             %error,
@@ -93,57 +115,158 @@ impl MethodAttempt {
             StepAttemptFailureKind::DispatchError,
             format!("server error: {error}"),
         );
-        self.propose_failure(failure, "", CommitUrgency::Prompt)
-            .await;
+        self.propose_failure(failure, "", self.urgency()).await;
+        StartedAttemptEnd::Ended
     }
 
-    async fn run_attempt(&self) -> Result<(), EffectError> {
-        // The owner-memory method timeout covers preparation, so slow state or object reads count.
-        let method_deadline = MethodDeadline::start(self.method_timeout_seconds);
-        let read = self.retry_transient(|| self.read_attempt_state());
-        let state = match self.before_method_deadline(&method_deadline, read).await {
-            BeforeDeadline::Canceled => return Ok(()),
-            BeforeDeadline::TimedOut => {
-                // Without state, the failure carries no sticky Worker and commits promptly.
-                self.propose_failure(method_deadline.timeout_failure(), "", CommitUrgency::Prompt)
-                    .await;
-                return Ok(());
-            }
-            BeforeDeadline::Done(state) => state?,
-        };
-        let Some(state) = state else {
-            tracing::debug!(run_id = %self.key.run_id, "method attempt is no longer running");
-            return Ok(());
-        };
-        let urgency = match resolve_method_durability(
-            &state.run_record,
-            &state.step_execution,
-            self.key.method,
-        ) {
+    /// Returns the task ID that fences every command this attempt proposes.
+    fn fence_task_id(&self) -> Vec<u8> {
+        fence_task_id(&self.task_id)
+    }
+
+    fn urgency(&self) -> CommitUrgency {
+        match self.durability {
             dex::StepDurability::Async => CommitUrgency::Batched,
             _ => CommitUrgency::Prompt,
+        }
+    }
+
+    fn is_sync(&self) -> bool {
+        self.durability != dex::StepDurability::Async
+    }
+
+    async fn run_attempt(
+        &self,
+        stream: Box<dyn ReservedMethodStream>,
+        start_commit: StartCommit,
+    ) -> Result<StartedAttemptEnd, EffectError> {
+        // Building the request after the start has its own budget of one method timeout.
+        let build_budget = MethodDeadline::start(self.method_timeout_seconds);
+        let urgency = self.urgency();
+        let prepared = if self.is_sync() {
+            // A SYNC attempt reaches its Worker only after its start commits (plan D51).
+            let (committed, prepared) =
+                tokio::join!(start_commit, self.prepare_request(&build_budget));
+            if let Err(error) = committed {
+                tracing::debug!(%error, run_id = %self.key.run_id, "the start did not commit; the frame stays unsent");
+                return Ok(StartedAttemptEnd::Ended);
+            }
+            prepared?
+        } else {
+            drop(start_commit);
+            self.prepare_request(&build_budget).await?
+        };
+        let (state, request) = match prepared {
+            PreparedRequest::Ready(state, request) => (state, request),
+            PreparedRequest::Gone | PreparedRequest::Canceled => {
+                return Ok(StartedAttemptEnd::Ended);
+            }
+            PreparedRequest::NotRun(failure, sticky_app_worker_id) => {
+                // The slot goes back before the failure, which may take a while to commit.
+                drop(stream);
+                self.propose_failure(failure, &sticky_app_worker_id, urgency)
+                    .await;
+                return Ok(StartedAttemptEnd::Ended);
+            }
+        };
+        // Cancellations ordered after the start reach the speculative state before the send.
+        if self.cancel.is_cancelled() || (self.is_sync() && !self.is_still_running().await?) {
+            return Ok(StartedAttemptEnd::Ended);
+        }
+        let method_deadline = MethodDeadline::start(self.method_timeout_seconds);
+        let wall_deadline =
+            unix_micros_to_system_time(self.context.clock.now_unix_micros().saturating_add(
+                i64::try_from(method_deadline.method_timeout().as_micros()).unwrap_or(i64::MAX),
+            ));
+        let task = MethodTask {
+            task_id: render_task_id(&self.task_id),
+            request: *request,
+            deadline: wall_deadline,
+            scheduled_at: self.scheduled_at,
+        };
+        let session = match stream.send_task(task) {
+            Ok(session) => session,
+            Err(StepTaskSendFailure::LeaseInvalid) => return Ok(StartedAttemptEnd::Ended),
+            Err(StepTaskSendFailure::NotDelivered) => {
+                return Ok(self
+                    .return_attempt(StepAttemptReturnReason::NotDelivered, urgency)
+                    .await);
+            }
         };
         let timeouts = AttemptTimeouts::new(&state, method_deadline);
-        let end = match self.prepare_request(&state, &timeouts).await? {
-            PreparedRequest::Ready(request) => {
-                self.dispatch_and_follow(&state, *request, &timeouts).await
-            }
-            PreparedRequest::Ended(end) => end,
-        };
+        let end = self.follow(&state, session, &timeouts).await;
         let sticky_app_worker_id = state.run_record.sticky_app_worker_id.clone();
         match end {
-            AttemptEnd::Canceled => Ok(()),
+            AttemptEnd::Canceled => Ok(StartedAttemptEnd::Ended),
+            AttemptEnd::Returned(reason) => Ok(self.return_attempt(reason, urgency).await),
             AttemptEnd::Failure(mut failure) => {
                 failure.omitted_value_slots =
                     state.omitted_value_slots(self.key.run_id, failure.worker_error.as_ref());
                 self.propose_failure(failure, &sticky_app_worker_id, urgency)
                     .await;
-                Ok(())
+                Ok(StartedAttemptEnd::Ended)
             }
             AttemptEnd::Result(frame, app_worker_id) => {
                 self.complete(&state, *frame, app_worker_id, &timeouts.method, urgency)
-                    .await
+                    .await?;
+                Ok(StartedAttemptEnd::Ended)
             }
+        }
+    }
+
+    /// Returns whether the attempt still runs with this task ID in the speculative state.
+    async fn is_still_running(&self) -> Result<bool, EffectError> {
+        let run = self.run;
+        let key = self.key.clone();
+        let task_id = self.task_id.clone();
+        let read = self.retry_transient(|| {
+            let key = key.clone();
+            let task_id = task_id.clone();
+            self.read_off_task(true, move |reader| {
+                Ok(read_method_attempt_state(
+                    reader,
+                    run,
+                    &key,
+                    &task_id,
+                    RequestValueHydration::References,
+                )?
+                .is_some())
+            })
+        });
+        read.await
+    }
+
+    /// Proposes that the Worker never ran the attempt.
+    ///
+    /// Returns `Returned` once the attempt is pending again in the speculative state, or
+    /// `Ended` when apply ignored the return or the node is stopping.
+    async fn return_attempt(
+        &self,
+        reason: StepAttemptReturnReason,
+        urgency: CommitUrgency,
+    ) -> StartedAttemptEnd {
+        tracing::debug!(
+            run_id = %self.key.run_id,
+            step_execution_id = %self.key.step_execution_id,
+            attempt = self.key.attempt,
+            ?reason,
+            "the Worker never ran the attempt; returning it"
+        );
+        let command = self.flow_command(flow_command::Command::StepAttemptReturned(
+            StepAttemptReturnedCommand {
+                invocation: Some(self.key.invocation()),
+                attempt: self.key.attempt,
+                expected_task_id: self.fence_task_id(),
+                reason: reason as i32,
+            },
+        ));
+        match self
+            .context
+            .propose_until_applied(&self.flow, command, urgency)
+            .await
+        {
+            Some(reply) if !reply.is_error() => StartedAttemptEnd::Returned,
+            _ => StartedAttemptEnd::Ended,
         }
     }
 
@@ -181,6 +304,7 @@ impl MethodAttempt {
         let key = self.key.clone();
         let task_id = self.task_id.clone();
         let is_hydrating = self.context.config.hydrate_before_dispatch;
+        let is_sync = self.is_sync();
         let flow_effect_operations = Arc::clone(&self.context.flow_effect_operations);
         let flow = self.flow.clone();
         self.read_off_task(true, move |reader| {
@@ -191,6 +315,15 @@ impl MethodAttempt {
                     &key,
                     &task_id,
                     RequestValueHydration::AllValues,
+                );
+            }
+            if is_sync {
+                return read_method_attempt_state(
+                    reader,
+                    run,
+                    &key,
+                    &task_id,
+                    RequestValueHydration::References,
                 );
             }
             // Opened after `reader`, so fewer of its values still look uncommitted.
@@ -243,48 +376,65 @@ impl MethodAttempt {
         }
     }
 
-    /// Reads the hard-delete values and builds the Worker request before the method deadline.
+    /// Reads the attempt's state and hard-delete values and builds the Worker request within
+    /// `budget`, retrying transient read failures.
     ///
     /// When inlined uncommitted values make the request too large, waits for their commit and
     /// sends references instead.
     ///
-    /// Returns the request, or the attempt's end when it was canceled, timed out, or is too large.
+    /// Returns the state and request, or why no Worker gets the attempt: it was canceled, it no
+    /// longer runs with this task ID, or the budget expired or the request is too large.
     async fn prepare_request(
         &self,
-        state: &MethodAttemptState,
-        timeouts: &AttemptTimeouts,
+        budget: &MethodDeadline,
     ) -> Result<PreparedRequest, EffectError> {
-        let read = self.retry_transient(|| self.read_hard_delete_values(state));
-        let hard_delete_values = match self.before_method_deadline(&timeouts.method, read).await {
-            BeforeDeadline::Canceled => return Ok(PreparedRequest::Ended(AttemptEnd::Canceled)),
+        let read = self.retry_transient(|| self.read_attempt_state());
+        let state = match self.before_method_deadline(budget, read).await {
+            BeforeDeadline::Canceled => return Ok(PreparedRequest::Canceled),
             BeforeDeadline::TimedOut => {
-                return Ok(PreparedRequest::Ended(AttemptEnd::Failure(
-                    timeouts.method.timeout_failure(),
-                )));
+                return Ok(PreparedRequest::NotRun(
+                    budget.build_timeout_failure(),
+                    String::new(),
+                ));
+            }
+            BeforeDeadline::Done(state) => state?,
+        };
+        let Some(state) = state else {
+            tracing::debug!(run_id = %self.key.run_id, "method attempt is no longer running");
+            return Ok(PreparedRequest::Gone);
+        };
+        let sticky_app_worker_id = state.run_record.sticky_app_worker_id.clone();
+        let read = self.retry_transient(|| self.read_hard_delete_values(&state));
+        let hard_delete_values = match self.before_method_deadline(budget, read).await {
+            BeforeDeadline::Canceled => return Ok(PreparedRequest::Canceled),
+            BeforeDeadline::TimedOut => {
+                return Ok(PreparedRequest::NotRun(
+                    budget.build_timeout_failure(),
+                    sticky_app_worker_id,
+                ));
             }
             BeforeDeadline::Done(values) => values?,
         };
-        let mut request = build_method_request(state, &hard_delete_values)?;
+        let mut request = build_method_request(&state, &hard_delete_values)?;
         if request.encoded_len() > self.context.config.max_worker_request_bytes
             && let Some(state_with_references) = state.with_value_references()
         {
             let commit = self.wait_for_proposed_commands();
-            match self.before_method_deadline(&timeouts.method, commit).await {
-                BeforeDeadline::Canceled => {
-                    return Ok(PreparedRequest::Ended(AttemptEnd::Canceled));
-                }
+            match self.before_method_deadline(budget, commit).await {
+                BeforeDeadline::Canceled => return Ok(PreparedRequest::Canceled),
                 BeforeDeadline::TimedOut => {
-                    return Ok(PreparedRequest::Ended(AttemptEnd::Failure(
-                        timeouts.method.timeout_failure(),
-                    )));
+                    return Ok(PreparedRequest::NotRun(
+                        budget.build_timeout_failure(),
+                        sticky_app_worker_id,
+                    ));
                 }
                 BeforeDeadline::Done(committed) => committed?,
             }
             request = build_method_request(&state_with_references, &hard_delete_values)?;
         }
         if request.encoded_len() > self.context.config.max_worker_request_bytes {
-            return Ok(PreparedRequest::Ended(AttemptEnd::Failure(
-                AttemptFailure::server(
+            return Ok(PreparedRequest::NotRun(
+                AttemptFailure::not_run(
                     StepAttemptFailureKind::RequestTooLarge,
                     format!(
                         "Worker request of {} bytes exceeds the {} byte message limit",
@@ -292,9 +442,10 @@ impl MethodAttempt {
                         self.context.config.max_worker_request_bytes
                     ),
                 ),
-            )));
+                sticky_app_worker_id,
+            ));
         }
-        Ok(PreparedRequest::Ready(Box::new(request)))
+        Ok(PreparedRequest::Ready(Box::new(state), Box::new(request)))
     }
 
     /// Waits until the Flow's proposed commands, including this attempt's value writes, commit.
@@ -385,63 +536,33 @@ impl MethodAttempt {
         }
     }
 
-    async fn dispatch_and_follow(
+    /// Follows the sent task's Worker frames, heartbeats, and timeouts to its end.
+    async fn follow(
         &self,
         state: &MethodAttemptState,
-        request: MethodRequest,
+        mut session: Box<dyn MethodDispatchSession>,
         timeouts: &AttemptTimeouts,
     ) -> AttemptEnd {
-        // Building the request takes time, and an expired attempt must not reach a Worker.
-        if timeouts.method.has_expired() {
-            return AttemptEnd::Failure(timeouts.method.timeout_failure());
-        }
         let method_deadline = timeouts.method.expires_at;
-        let started = Instant::now();
-        let remaining = method_deadline.saturating_duration_since(started);
-        let wall_deadline = unix_micros_to_system_time(
-            self.context
-                .clock
-                .now_unix_micros()
-                .saturating_add(i64::try_from(remaining.as_micros()).unwrap_or(i64::MAX)),
-        );
-        let sticky = &state.run_record.sticky_app_worker_id;
-        let dispatch_request = MethodDispatchRequest {
-            tenant_id: state.run_record.tenant_id,
-            flow_id: state.run_record.flow_id.clone(),
-            flow_type: state.run_record.flow_type.clone(),
-            sticky_app_worker_id: (!sticky.is_empty()).then(|| sticky.clone()),
-            request,
-            deadline: wall_deadline,
-        };
-        let dispatcher = &self.context.dispatcher;
-        let mut session = match dispatcher.dispatch_scheduled(dispatch_request, self.scheduled_at) {
-            Ok(session) => session,
-            Err(error) => {
-                return AttemptEnd::Failure(AttemptFailure::server(
-                    StepAttemptFailureKind::DispatchError,
-                    error.detail,
-                ));
-            }
-        };
-        // Like the Go Server, the heartbeat timeout runs only while a Worker holds the task.
-        let mut heartbeat_deadline = None;
+        // The heartbeat timeout starts when the Worker receives the task.
+        let mut heartbeat_deadline = Some(Instant::now() + timeouts.heartbeat_timeout);
         let mut checkpoints = CheckpointTracker {
             last_proposed: heartbeat_checkpoint_value(state),
             pending: None,
             flush_at: None,
         };
-        loop {
+        let end = loop {
             let flush_at = checkpoints.flush_at;
             tokio::select! {
                 biased;
                 () = sleep_until(method_deadline) => {
                     session.cancel();
-                    return AttemptEnd::Failure(timeouts.expired_failure(heartbeat_deadline)
+                    break AttemptEnd::Failure(timeouts.expired_failure(heartbeat_deadline)
                         .unwrap_or_else(|| timeouts.method.timeout_failure()));
                 }
                 () = sleep_until_optional(heartbeat_deadline) => {
                     session.cancel();
-                    return AttemptEnd::Failure(timeouts.expired_failure(heartbeat_deadline)
+                    break AttemptEnd::Failure(timeouts.expired_failure(heartbeat_deadline)
                         .unwrap_or_else(|| timeouts.heartbeat_timeout_failure()));
                 }
                 () = self.cancel.cancelled() => {
@@ -451,7 +572,7 @@ impl MethodAttempt {
                 () = sleep_until_optional(flush_at) => {
                     if let Some(failure) = timeouts.expired_failure(heartbeat_deadline) {
                         session.cancel();
-                        return AttemptEnd::Failure(failure);
+                        break AttemptEnd::Failure(failure);
                     }
                     if let Some(checkpoint) = checkpoints.take_pending() {
                         self.propose_heartbeat(checkpoint).await;
@@ -461,37 +582,33 @@ impl MethodAttempt {
                     // A timer fires up to a driver tick late; an event after its deadline loses.
                     if let Some(failure) = timeouts.expired_failure(heartbeat_deadline) {
                         session.cancel();
-                        return AttemptEnd::Failure(failure);
+                        break AttemptEnd::Failure(failure);
                     }
-                    match event {
-                        None => {
-                            return AttemptEnd::Failure(AttemptFailure::server(
-                                StepAttemptFailureKind::DispatchError,
-                                "dispatch ended without an outcome",
-                            ));
+                    let Some(event) = event else {
+                        break AttemptEnd::Failure(AttemptFailure::server(
+                            StepAttemptFailureKind::DispatchError,
+                            "dispatch ended without an outcome",
+                        ));
+                    };
+                    if let StepTaskEvent::Output(frame) = event {
+                        heartbeat_deadline = Some(Instant::now() + timeouts.heartbeat_timeout);
+                        if let Some(change) = heartbeat_change(&frame) {
+                            checkpoints.observe(change, self.context.config.heartbeat_batch_window);
+                        } else if let Some(write) = into_step_stream_write(frame) {
+                            self.write_step_stream(state, write).await;
                         }
-                        Some(DispatchEvent::Assigned { .. }) => {
-                            heartbeat_deadline = Some(Instant::now() + timeouts.heartbeat_timeout);
-                        }
-                        Some(DispatchEvent::Unassigned) => heartbeat_deadline = None,
-                        Some(DispatchEvent::Output(frame)) => {
-                            heartbeat_deadline = Some(Instant::now() + timeouts.heartbeat_timeout);
-                            if let Some(change) = heartbeat_change(&frame) {
-                                checkpoints.observe(change, self.context.config.heartbeat_batch_window);
-                            } else if let Some(write) = into_step_stream_write(frame) {
-                                self.write_step_stream(state, write).await;
-                            }
-                        }
-                        Some(DispatchEvent::Completed(outcome)) => {
-                            if let Some(checkpoint) = checkpoints.take_pending() {
-                                self.propose_heartbeat(checkpoint).await;
-                            }
-                            return attempt_end(outcome, &timeouts.method);
-                        }
+                        continue;
                     }
+                    break task_event_end(event, &timeouts.method)
+                        .expect("only output frames are non-final");
                 }
             }
+        };
+        // A checkpoint the Worker sent before the end reaches the next attempt (plan section 3.7).
+        if let Some(checkpoint) = checkpoints.take_pending() {
+            self.propose_heartbeat(checkpoint).await;
         }
+        end
     }
 
     async fn propose_heartbeat(&self, checkpoint: Option<Value>) {
@@ -504,7 +621,7 @@ impl MethodAttempt {
                 invocation: Some(self.key.invocation()),
                 attempt: self.key.attempt,
                 checkpoint: Some(checkpoint),
-                task_id: self.task_id.clone(),
+                task_id: self.fence_task_id(),
             },
         ));
         // A lost checkpoint only means the next attempt sees an older value.
@@ -581,6 +698,7 @@ impl MethodAttempt {
                     is_non_retryable,
                     served_by_app_worker_id: app_worker_id,
                     omitted_value_slots: None,
+                    is_not_run: false,
                 };
                 self.propose_failure(failure, &sticky_app_worker_id, urgency)
                     .await;
@@ -627,7 +745,7 @@ impl MethodAttempt {
                 app_worker_id.clone(),
                 uploads.references.clone(),
                 pull_routing(&sticky_app_worker_id, &app_worker_id),
-                self.task_id.clone(),
+                self.fence_task_id(),
             ),
         ));
         let reply = self
@@ -679,7 +797,8 @@ impl MethodAttempt {
                     sticky_app_worker_id,
                     &failure.served_by_app_worker_id,
                 )),
-                expected_task_id: self.task_id.clone(),
+                expected_task_id: self.fence_task_id(),
+                is_not_run: failure.is_not_run,
                 ..StepAttemptFailedCommand::default()
             },
         ));
@@ -757,6 +876,25 @@ pub(crate) fn pull_routing(
         served_by_app_worker_id: served_by_app_worker_id.to_owned(),
         source: source as i32,
     }
+}
+
+/// Returns `task_id` for a command's fence field.
+///
+/// Panics on an empty ID: apply would read it as an older log and skip the fence.
+pub(crate) fn fence_task_id(task_id: &[u8]) -> Vec<u8> {
+    assert!(
+        !task_id.is_empty(),
+        "every started attempt has the task ID that its StepAttemptStarted recorded"
+    );
+    task_id.to_vec()
+}
+
+/// Renders a task ID recorded by `StepAttemptStarted` as the Worker sees it.
+pub(crate) fn render_task_id(task_id: &[u8]) -> String {
+    uuid::Uuid::from_slice(task_id).map_or_else(
+        |_| task_id.iter().map(|byte| format!("{byte:02x}")).collect(),
+        |uuid| uuid.hyphenated().to_string(),
+    )
 }
 
 fn unix_micros_to_system_time(micros: i64) -> SystemTime {

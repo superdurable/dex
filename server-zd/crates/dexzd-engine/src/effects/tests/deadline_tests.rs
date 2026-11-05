@@ -244,7 +244,13 @@ fn assert_the_first_attempt_timed_out_before_dispatch(harness: &EffectHarness) {
     };
     assert_eq!(failure.attempt, 1);
     assert_eq!(failure.kind, StepAttemptFailureKind::MethodTimeout as i32);
-    assert_eq!(failure.server_detail, "method timeout of 30s expired");
+    assert_eq!(
+        failure.server_detail,
+        "method timeout of 30s expired while building the Worker request"
+    );
+    // The started attempt never reached its Worker (plan section 3.1, the build budget).
+    assert!(failure.is_not_run);
+    assert!(!failure.expected_task_id.is_empty());
     assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
     let published_effects = harness
         .flow_effect_operations

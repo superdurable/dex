@@ -309,7 +309,7 @@ fn step_failure_policies_keep_every_invariant() {
         "wait-for-proceed",
         "execute-recovery",
         "timeout-handler-recovery",
-        "retry-deadline",
+        "retry-total-duration-exhausted",
     ] {
         assert!(
             total
@@ -319,6 +319,11 @@ fn step_failure_policies_keep_every_invariant() {
             "the Step failure profile had no {outcome}: {total:#?}"
         );
     }
+    // The retry total duration never ends a running attempt (plan D74).
+    assert!(
+        !total.step_failure_recoveries.contains_key("retry-deadline"),
+        "the engine failed an attempt with RETRY_DEADLINE: {total:#?}"
+    );
 }
 
 #[test]
@@ -448,8 +453,11 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "Hang",
         "Slow",
         "RepeatResult",
-        "DisconnectBeforeOutput",
+        "DisconnectAfterHandOut",
         "DisconnectAfterOutput",
+        "Unsupported",
+        "LegacyNoCapacity",
+        "HalfCloseBeforeOutput",
         "NoWorker",
         "Hold",
         "HeartbeatWithValue",

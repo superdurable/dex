@@ -31,6 +31,9 @@ pub struct MatchingConfig {
     pub max_flow_types: usize,
     /// Default 256 bytes. Bounds each registered Flow type.
     pub max_flow_type_length: usize,
+    /// Default 10000. Bounds the (task type, app_worker_id) pairs remembered as unsupported;
+    /// the least recently recorded pair is evicted when full.
+    pub unsupported_type_cache_entries: usize,
 }
 
 impl Default for MatchingConfig {
@@ -45,6 +48,7 @@ impl Default for MatchingConfig {
             max_queue_length: 256,
             max_flow_types: 256,
             max_flow_type_length: 256,
+            unsupported_type_cache_entries: 10_000,
         }
     }
 }

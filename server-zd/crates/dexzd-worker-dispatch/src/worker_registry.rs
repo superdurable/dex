@@ -8,7 +8,7 @@
 
 //! In-memory, tenant-scoped pull Worker streams and task matching.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -34,16 +34,25 @@ use crate::MatchingConfig;
 mod dispatch_handle;
 mod dispatch_request;
 mod queue_state;
+mod step_reservation;
 mod task_frames;
+mod unsupported_types;
 mod worker_protocol;
+mod worker_streams;
 pub use dispatch_handle::DispatchHandle;
 pub use dispatch_request::{DispatchRequest, DispatchTaskPayload};
 use queue_state::{QueueWaiter, QueuedTaskMetric};
+pub use step_reservation::{
+    ReservedStepStream, StepStreamRequest, StepStreamReservation, StepTaskEvent, StepTaskHandle,
+    StepTaskSendFailure,
+};
 use task_frames::{
     build_task, disconnected_outcome, is_final, system_time_micros, validate_dispatch,
     validate_registration,
 };
+use unsupported_types::{TaskKind, TaskTypeKey, UnsupportedTypeCache};
 pub use worker_protocol::WorkerTaskService;
+use worker_streams::{StepBackoff, StreamSlot, TaskSendError};
 
 /// One ordered frame from the Worker, an assignment change, or the terminal dispatch outcome.
 #[derive(Debug)]
@@ -111,20 +120,24 @@ struct DispatchInner {
     shutdown: watch::Sender<bool>,
 }
 
-#[derive(Default)]
 struct Registry {
     is_closing: bool,
     streams: HashMap<Uuid, Arc<WorkerStream>>,
     worker_counts: HashMap<(u64, String), usize>,
     queues: HashMap<(u64, String), QueueState>,
     next_waiter_sequence: u64,
+    /// Idle streams and their position in every subscribed queue's idle order.
+    idle_positions: HashMap<Uuid, u64>,
+    next_idle_position: u64,
+    unsupported_types: UnsupportedTypeCache,
 }
 
 struct QueueState {
     stream_ids: HashSet<Uuid>,
-    idle: VecDeque<Uuid>,
+    /// Idle subscribed streams in the order they became idle.
+    idle: BTreeMap<u64, Uuid>,
     affinity: HashMap<String, (String, Instant)>,
-    affinity_order: VecDeque<(String, Instant)>,
+    affinity_order: std::collections::VecDeque<(String, Instant)>,
     // Each idle stream wakes one waiter; waking every waiter made dispatch cost grow with them.
     waiters: BTreeMap<u64, QueueWaiter>,
     // The stream each woken waiter must hand on if it does not take that stream.
@@ -143,8 +156,10 @@ struct QueueLease {
 struct WorkerStream {
     id: Uuid,
     tenant_id: u64,
-    queue: String,
+    /// Queues this stream serves: its registered queue, or its sticky queue and Flow types.
+    queues: Vec<String>,
     app_worker_id: String,
+    slot: StreamSlot,
     output: mpsc::UnboundedSender<Result<PollWorkerTaskResponse, Status>>,
     close: watch::Sender<bool>,
     state: Mutex<WorkerState>,
@@ -154,23 +169,37 @@ struct WorkerStream {
 struct WorkerState {
     is_busy: bool,
     is_closing: bool,
+    /// The Worker cleanly half-closed this reserved-slot stream; no task frame goes out.
+    is_send_stopped: bool,
     current: Option<Assignment>,
+    /// Steps skip a stream without reserved-slot dispatch that declined for capacity.
+    step_backoff: Option<StepBackoff>,
 }
 
 struct Assignment {
     task_id: String,
+    task_type: TaskTypeKey,
     frames: mpsc::Sender<AssignmentFrame>,
 }
 
 enum AssignmentFrame {
     Output(Box<PollWorkerTaskFrame>),
     Reject(PollWorkerTaskRejectReason),
+    /// The Worker cleanly half-closed the stream after every earlier frame.
+    HalfClosed,
 }
 
 struct QueuePick {
     worker: Option<Arc<WorkerStream>>,
-    assignment_frames: Option<mpsc::Receiver<AssignmentFrame>>,
     has_streams: bool,
+    /// When the earliest skipped stream's Step backoff ends.
+    next_backoff_end: Option<Instant>,
+}
+
+/// What a dispatch searches for: its task type and whether it is a Step.
+struct TaskSearch<'a> {
+    task_type: &'a TaskTypeKey,
+    flow_id: &'a str,
 }
 
 impl WorkerDispatch {
@@ -204,14 +233,29 @@ impl WorkerDispatch {
         );
         assert!(config.dispatch_wait > Duration::ZERO && config.sticky_wait > Duration::ZERO);
         assert!(config.affinity_duration > Duration::ZERO && config.ping_interval > Duration::ZERO);
+        assert!(config.unsupported_type_cache_entries > 0);
         let (shutdown, _) = watch::channel(false);
+        let unsupported_types = UnsupportedTypeCache::new(
+            config.unsupported_type_cache_entries,
+            metrics.matching_unsupported_type_entries.clone(),
+            metrics.matching_unsupported_type_evictions.clone(),
+        );
         Self {
             inner: Arc::new(DispatchInner {
                 metrics,
                 config,
                 clock,
                 lease_validity_deadline,
-                registry: Mutex::new(Registry::default()),
+                registry: Mutex::new(Registry {
+                    is_closing: false,
+                    streams: HashMap::new(),
+                    worker_counts: HashMap::new(),
+                    queues: HashMap::new(),
+                    next_waiter_sequence: 0,
+                    idle_positions: HashMap::new(),
+                    next_idle_position: 0,
+                    unsupported_types,
+                }),
                 shutdown,
             }),
         }
@@ -237,18 +281,7 @@ impl WorkerDispatch {
         scheduled_at: Option<Instant>,
     ) -> Result<DispatchHandle, Status> {
         validate_dispatch(&request, &self.inner.config, self.inner.clock.as_ref())?;
-        let mut registry = self
-            .inner
-            .registry
-            .lock()
-            .expect("matching registry lock poisoned");
-        if registry.is_closing {
-            return Err(Status::unavailable("matching server is closing"));
-        }
-        // One sequence per dispatch keeps its waiting order across the sticky and Flow type queues.
-        registry.next_waiter_sequence += 1;
-        let waiter_sequence = registry.next_waiter_sequence;
-        drop(registry);
+        let waiter_sequence = self.next_waiter_sequence()?;
         let (events_tx, events) = mpsc::channel(32);
         let (cancel, cancel_rx) = watch::channel(false);
         let dispatch = self.clone();
@@ -277,6 +310,18 @@ impl WorkerDispatch {
         })
     }
 
+    /// Returns a sequence that keeps one dispatch's waiting order across its queues.
+    ///
+    /// Returns UNAVAILABLE once matching is closing.
+    fn next_waiter_sequence(&self) -> Result<u64, Status> {
+        let mut registry = self.lock_registry();
+        if registry.is_closing {
+            return Err(Status::unavailable("matching server is closing"));
+        }
+        registry.next_waiter_sequence += 1;
+        Ok(registry.next_waiter_sequence)
+    }
+
     /// Returns whether a Task may go out now: true without a lease validity deadline.
     fn may_hand_out_tasks(&self) -> bool {
         self.inner
@@ -287,13 +332,16 @@ impl WorkerDispatch {
 
     /// Drains streams: idle Workers reconnect now; busy Workers reconnect after their task.
     pub fn shutdown(&self) {
-        let mut registry = self
-            .inner
-            .registry
-            .lock()
-            .expect("matching registry lock poisoned");
+        let mut registry = self.lock_registry();
         registry.is_closing = true;
         self.inner.shutdown.send_replace(true);
+    }
+
+    fn lock_registry(&self) -> std::sync::MutexGuard<'_, Registry> {
+        self.inner
+            .registry
+            .lock()
+            .expect("matching registry lock poisoned")
     }
 
     async fn run_dispatch(
@@ -314,33 +362,42 @@ impl WorkerDispatch {
             .unwrap_or(self.inner.config.dispatch_wait);
         let dispatch_end = Instant::now() + total_wait.min(deadline_wait);
         let sticky_wait = request.sticky_wait.unwrap_or(self.inner.config.sticky_wait);
+        let task_type = request.task_type();
         let sticky_queue = request
             .sticky_app_worker_id
             .as_ref()
-            .filter(|id| *id != &request.flow_type);
+            .filter(|id| *id != &request.flow_type)
+            .filter(|id| {
+                !self
+                    .lock_registry()
+                    .unsupported_types
+                    .contains(&task_type, id)
+            });
         let sticky_end = Instant::now() + sticky_wait.min(total_wait).min(deadline_wait);
-        let mut excluded_worker_ids = HashSet::new();
-        let mut unavailable = false;
-        let mut unknown = false;
-        let mut excluded_streams = HashMap::new();
-        let mut capacity_backoffs = HashMap::new();
+        let mut search = SearchState {
+            excluded_worker_ids: HashSet::new(),
+            excluded_streams: HashMap::new(),
+            capacity_backoffs: HashMap::new(),
+            unavailable: false,
+            unknown: false,
+        };
+        let task = TaskSearch {
+            task_type: &task_type,
+            flow_id: &request.flow_id,
+        };
         if let Some(queue) = sticky_queue
             && let Some(outcome) = self
                 .search_queue(
                     &request,
+                    &task,
                     queue,
                     &task_id,
                     waiter_sequence,
-                    sticky_end,
-                    dispatch_end,
+                    (sticky_end, dispatch_end),
                     true,
                     events,
                     &mut cancel,
-                    &mut excluded_worker_ids,
-                    &mut excluded_streams,
-                    &mut capacity_backoffs,
-                    &mut unavailable,
-                    &mut unknown,
+                    &mut search,
                     &mut scheduled_at,
                 )
                 .await
@@ -350,26 +407,24 @@ impl WorkerDispatch {
         if let Some(outcome) = self
             .search_queue(
                 &request,
+                &task,
                 &request.flow_type,
                 &task_id,
                 waiter_sequence,
-                dispatch_end,
-                dispatch_end,
+                (dispatch_end, dispatch_end),
                 false,
                 events,
                 &mut cancel,
-                &mut excluded_worker_ids,
-                &mut excluded_streams,
-                &mut capacity_backoffs,
-                &mut unavailable,
-                &mut unknown,
+                &mut search,
                 &mut scheduled_at,
             )
             .await
         {
             return outcome;
         }
-        let reason = if unknown && !unavailable {
+        let is_unsupported_everywhere = search.unknown
+            || self.has_only_unsupported_streams(request.tenant_id, &request.flow_type, &task_type);
+        let reason = if is_unsupported_everywhere && !search.unavailable {
             DispatchTaskErrorReason::UnknownName
         } else {
             DispatchTaskErrorReason::NoWorkerAvailable
@@ -391,19 +446,15 @@ impl WorkerDispatch {
     async fn search_queue(
         &self,
         request: &DispatchRequest,
+        task: &TaskSearch<'_>,
         queue_name: &str,
         task_id: &str,
         waiter_sequence: u64,
-        queue_end: Instant,
-        dispatch_end: Instant,
+        (queue_end, dispatch_end): (Instant, Instant),
         is_sticky: bool,
         events: &mpsc::Sender<DispatchEvent>,
         cancel: &mut watch::Receiver<bool>,
-        excluded_worker_ids: &mut HashSet<String>,
-        excluded_streams: &mut HashMap<Uuid, Instant>,
-        capacity_backoffs: &mut HashMap<Uuid, Duration>,
-        unavailable: &mut bool,
-        unknown: &mut bool,
+        search: &mut SearchState,
         scheduled_at: &mut Option<Instant>,
     ) -> Option<DispatchOutcome> {
         let mut queue_lease =
@@ -422,42 +473,33 @@ impl WorkerDispatch {
                 return Some(DispatchOutcome::Cancelled);
             }
             let now = Instant::now();
-            excluded_streams.retain(|_, until| *until > now);
+            search.excluded_streams.retain(|_, until| *until > now);
             let picked = self.pick_worker(
                 &mut queue_lease,
-                &request.flow_id,
-                task_id,
+                task,
                 is_sticky,
-                excluded_worker_ids,
-                excluded_streams,
+                &search.excluded_worker_ids,
+                &search.excluded_streams,
             );
-            if let (Some(worker), Some(mut frames)) = (picked.worker, picked.assignment_frames) {
-                let task = build_task(task_id, request);
-                if worker
-                    .output
-                    .send(Ok(PollWorkerTaskResponse {
-                        frame: Some(poll_worker_task_response::Frame::Task(task)),
-                    }))
-                    .is_err()
-                {
-                    self.disconnect(worker.id);
-                    *unavailable = true;
-                    if Instant::now() >= dispatch_end {
-                        return Some(disconnected_outcome("Worker stream disconnected"));
-                    }
-                    continue;
-                }
+            if let Some(worker) = picked.worker {
+                let task_frame = build_task(task_id, &request.payload, request.deadline);
+                let mut frames =
+                    match self.send_task_frame(&worker, task_id, task.task_type, task_frame) {
+                        Ok(frames) => frames,
+                        Err(TaskSendError::LeaseInvalid) => {
+                            self.make_idle(&worker);
+                            return Some(DispatchOutcome::ServerClosing);
+                        }
+                        Err(TaskSendError::NotDelivered) => {
+                            search.unavailable = true;
+                            if Instant::now() >= dispatch_end {
+                                return Some(disconnected_outcome("Worker stream disconnected"));
+                            }
+                            continue;
+                        }
+                    };
                 queued_task.set_waiting(false);
-                self.inner
-                    .metrics
-                    .worker_stream_events
-                    .record(WorkerStreamEvent::Delivered);
-                if let Some(when_scheduled) = scheduled_at.take() {
-                    self.inner
-                        .metrics
-                        .step_schedule_to_start_latency
-                        .observe(when_scheduled.elapsed().as_secs_f64());
-                }
+                self.record_delivery(scheduled_at.take());
                 let assigned = DispatchEvent::Assigned {
                     app_worker_id: worker.app_worker_id.clone(),
                 };
@@ -491,27 +533,32 @@ impl WorkerDispatch {
                     AttemptOutcome::Final(outcome) => return Some(*outcome),
                     AttemptOutcome::Capacity => {
                         queued_task.set_waiting(true);
-                        *unavailable = true;
-                        let backoff = capacity_backoffs
+                        search.unavailable = true;
+                        let backoff = search
+                            .capacity_backoffs
                             .entry(worker.id)
                             .and_modify(|duration| {
                                 *duration = (*duration * 2).min(Duration::from_secs(2));
                             })
                             .or_insert(Duration::from_millis(300));
-                        excluded_streams.insert(worker.id, Instant::now() + *backoff);
+                        search
+                            .excluded_streams
+                            .insert(worker.id, Instant::now() + *backoff);
                     }
                     AttemptOutcome::UnknownName => {
                         queued_task.set_waiting(true);
-                        *unknown = true;
-                        excluded_worker_ids.insert(worker.app_worker_id.clone());
+                        search.unknown = true;
+                        search
+                            .excluded_worker_ids
+                            .insert(worker.app_worker_id.clone());
                         if is_sticky {
                             return None;
                         }
                     }
                     AttemptOutcome::Disconnected => {
                         queued_task.set_waiting(true);
-                        *unavailable = true;
-                        excluded_streams.insert(worker.id, dispatch_end);
+                        search.unavailable = true;
+                        search.excluded_streams.insert(worker.id, dispatch_end);
                     }
                 }
                 continue;
@@ -519,9 +566,11 @@ impl WorkerDispatch {
             if is_sticky && !picked.has_streams {
                 return None;
             }
-            let next_backoff = excluded_streams
+            let next_backoff = search
+                .excluded_streams
                 .values()
                 .copied()
+                .chain(picked.next_backoff_end)
                 .min()
                 .unwrap_or(queue_end);
             let wake = tokio::time::Instant::from_std(next_backoff.min(queue_end));
@@ -602,7 +651,7 @@ impl WorkerDispatch {
                             _ => AttemptOutcome::Disconnected,
                         };
                     }
-                    None => {
+                    Some(AssignmentFrame::HalfClosed) | None => {
                         if !has_output && Instant::now() < dispatch_end {
                             return AttemptOutcome::Disconnected;
                         }
@@ -686,7 +735,7 @@ impl WorkerDispatch {
                 Ok(Some(AssignmentFrame::Output(frame))) if is_final(&frame) => return,
                 Ok(Some(AssignmentFrame::Reject(_))) => return,
                 Ok(Some(AssignmentFrame::Output(_))) => {}
-                Ok(None) | Err(_) => {
+                Ok(Some(AssignmentFrame::HalfClosed) | None) | Err(_) => {
                     self.disconnect(worker.id);
                     return;
                 }
@@ -694,20 +743,17 @@ impl WorkerDispatch {
         }
     }
 
+    /// Takes an idle stream of the lease's queue that may run `task`, preferring the Flow's
+    /// last Worker; otherwise registers the lease as a waiter.
     fn pick_worker(
         &self,
         lease: &mut QueueLease,
-        flow_id: &str,
-        task_id: &str,
+        task: &TaskSearch<'_>,
         is_sticky: bool,
         excluded_worker_ids: &HashSet<String>,
         excluded_streams: &HashMap<Uuid, Instant>,
     ) -> QueuePick {
-        let mut guard = self
-            .inner
-            .registry
-            .lock()
-            .expect("matching registry lock poisoned");
+        let mut guard = self.lock_registry();
         let registry = &mut *guard;
         let queue = registry
             .queues
@@ -720,97 +766,203 @@ impl WorkerDispatch {
         };
         let has_streams = !queue.stream_ids.is_empty();
         if registry.is_closing {
-            return QueuePick::without_worker(has_streams);
+            return QueuePick::without_worker(has_streams, None);
         }
         let now = Instant::now();
         let preferred = queue
             .affinity
-            .get(flow_id)
+            .get(task.flow_id)
             .filter(|(_, expiry)| *expiry > now)
             .map(|(worker_id, _)| worker_id.clone());
+        let is_step = task.task_type.kind == TaskKind::Step;
         let mut selected = None;
-        for (index, id) in queue.idle.iter().enumerate() {
+        let mut next_backoff_end: Option<Instant> = None;
+        for id in queue.idle.values() {
             let worker = registry.streams.get(id).expect("idle stream is registered");
             if excluded_worker_ids.contains(&worker.app_worker_id)
                 || excluded_streams.contains_key(id)
+                || (is_step && worker.slot == StreamSlot::ReservedRpcOnly)
+                || registry
+                    .unsupported_types
+                    .contains(task.task_type, &worker.app_worker_id)
             {
                 continue;
             }
+            if is_step && let Some(backoff_end) = worker.step_backoff_end(now) {
+                next_backoff_end =
+                    Some(next_backoff_end.map_or(backoff_end, |end| end.min(backoff_end)));
+                continue;
+            }
             if selected.is_none() || preferred.as_ref() == Some(&worker.app_worker_id) {
-                selected = Some((index, worker.clone()));
+                selected = Some(worker.clone());
             }
             if preferred.as_ref() == Some(&worker.app_worker_id) {
                 break;
             }
         }
-        let Some((index, worker)) = selected else {
-            queue.pass_on_wakeup(woken_for, None, &registry.streams, now);
+        let Some(worker) = selected else {
             if has_streams || !is_sticky {
+                let unsupported_worker_ids: Vec<String> = queue
+                    .stream_ids
+                    .iter()
+                    .filter_map(|id| registry.streams.get(id))
+                    .filter(|worker| {
+                        registry
+                            .unsupported_types
+                            .contains(task.task_type, &worker.app_worker_id)
+                    })
+                    .map(|worker| worker.app_worker_id.clone())
+                    .collect();
                 // Registering under the registry lock means no idle stream is missed before the wait.
-                queue.start_waiting(lease, excluded_worker_ids, excluded_streams);
+                queue.start_waiting(
+                    lease,
+                    task.task_type.kind,
+                    excluded_worker_ids
+                        .iter()
+                        .cloned()
+                        .chain(unsupported_worker_ids)
+                        .collect(),
+                    excluded_streams,
+                );
             }
-            return QueuePick::without_worker(has_streams);
+            registry.pass_on_wakeup(woken_for, None, now);
+            return QueuePick::without_worker(has_streams, next_backoff_end);
         };
-        queue
-            .idle
-            .remove(index)
-            .expect("selected idle stream exists");
-        // A dispatch woken for one stream that takes another must not strand the first.
-        queue.pass_on_wakeup(woken_for, Some(worker.id), &registry.streams, now);
-        let (sender, receiver) = mpsc::channel(32);
+        queue.remember(
+            task.flow_id,
+            &worker.app_worker_id,
+            self.inner.config.affinity_duration,
+        );
+        registry.take_idle(&worker);
         let mut state = worker.state.lock().expect("Worker state lock poisoned");
         assert!(
             !state.is_busy && !state.is_closing,
             "idle stream must be available"
         );
         state.is_busy = true;
-        state.current = Some(Assignment {
-            task_id: task_id.to_owned(),
-            frames: sender,
-        });
         drop(state);
-        queue.remember(
-            flow_id,
-            &worker.app_worker_id,
-            self.inner.config.affinity_duration,
-        );
+        // A dispatch woken for one stream that takes another must not strand the first.
+        registry.pass_on_wakeup(woken_for, Some(worker.id), now);
         QueuePick {
             worker: Some(worker),
-            assignment_frames: Some(receiver),
             has_streams,
+            next_backoff_end: None,
         }
     }
 
+    /// Sends `task_frame` on a stream this caller took, checking the node lease and the stream's
+    /// half-close under the stream's state lock, with no await in between.
+    ///
+    /// Returns the receiver of the Worker's frames for the task, [`TaskSendError::LeaseInvalid`]
+    /// when the node may not hand out tasks (the stream stays taken), or
+    /// [`TaskSendError::NotDelivered`] when the stream half-closed or is gone.
+    fn send_task_frame(
+        &self,
+        worker: &WorkerStream,
+        task_id: &str,
+        task_type: &TaskTypeKey,
+        task_frame: dexzd_protocol::dex::PollWorkerTask,
+    ) -> Result<mpsc::Receiver<AssignmentFrame>, TaskSendError> {
+        let mut state = worker.state.lock().expect("Worker state lock poisoned");
+        if state.is_send_stopped || state.is_closing {
+            return Err(TaskSendError::NotDelivered);
+        }
+        if !self.may_hand_out_tasks() {
+            return Err(TaskSendError::LeaseInvalid);
+        }
+        let (sender, receiver) = mpsc::channel(32);
+        state.current = Some(Assignment {
+            task_id: task_id.to_owned(),
+            task_type: task_type.clone(),
+            frames: sender,
+        });
+        let is_sent = worker
+            .output
+            .send(Ok(PollWorkerTaskResponse {
+                frame: Some(poll_worker_task_response::Frame::Task(task_frame)),
+            }))
+            .is_ok();
+        if !is_sent {
+            state.current = None;
+            drop(state);
+            self.disconnect(worker.id);
+            return Err(TaskSendError::NotDelivered);
+        }
+        Ok(receiver)
+    }
+
+    fn record_delivery(&self, scheduled_at: Option<Instant>) {
+        self.inner
+            .metrics
+            .worker_stream_events
+            .record(WorkerStreamEvent::Delivered);
+        if let Some(when_scheduled) = scheduled_at {
+            self.inner
+                .metrics
+                .step_schedule_to_start_latency
+                .observe(when_scheduled.elapsed().as_secs_f64());
+        }
+    }
+
+    /// Returns whether `queue_name` has streams and the unsupported type cache excludes every
+    /// one of them for `task_type`.
+    fn has_only_unsupported_streams(
+        &self,
+        tenant_id: u64,
+        queue_name: &str,
+        task_type: &TaskTypeKey,
+    ) -> bool {
+        let registry = self.lock_registry();
+        let Some(queue) = registry.queues.get(&(tenant_id, queue_name.to_owned())) else {
+            return false;
+        };
+        let mut workers = queue
+            .stream_ids
+            .iter()
+            .filter_map(|id| registry.streams.get(id))
+            .filter(|worker| {
+                task_type.kind == TaskKind::Rpc || worker.slot != StreamSlot::ReservedRpcOnly
+            })
+            .peekable();
+        workers.peek().is_some()
+            && workers.all(|worker| {
+                registry
+                    .unsupported_types
+                    .contains(task_type, &worker.app_worker_id)
+            })
+    }
+
+    /// Returns a stream that finished its task, or was taken without one, to its queues.
     fn make_idle(&self, worker: &WorkerStream) {
-        let mut registry = self
-            .inner
-            .registry
-            .lock()
-            .expect("matching registry lock poisoned");
+        let mut registry = self.lock_registry();
         if !registry.streams.contains_key(&worker.id) {
             return;
         }
         let mut state = worker.state.lock().expect("Worker state lock poisoned");
-        if state.is_closing {
+        if state.is_closing || state.is_send_stopped {
             return;
         }
         state.is_busy = false;
         state.current = None;
         drop(state);
-        let queue = registry
-            .queues
-            .get_mut(&(worker.tenant_id, worker.queue.clone()))
-            .expect("registered queue exists");
-        queue.idle.push_back(worker.id);
-        queue.wake_waiter_for(worker, Instant::now());
+        registry.add_idle(worker);
+        registry.wake_waiter_for(worker, Instant::now());
+    }
+
+    /// Wakes a Step waiter for an idle stream whose Step backoff just ended.
+    fn end_step_backoff(&self, stream_id: Uuid) {
+        let mut registry = self.lock_registry();
+        if !registry.idle_positions.contains_key(&stream_id) {
+            return;
+        }
+        let Some(worker) = registry.streams.get(&stream_id).cloned() else {
+            return;
+        };
+        registry.wake_waiter_for(&worker, Instant::now());
     }
 
     fn disconnect(&self, id: Uuid) {
-        let mut registry = self
-            .inner
-            .registry
-            .lock()
-            .expect("matching registry lock poisoned");
+        let mut registry = self.lock_registry();
         let Some(worker) = registry.streams.remove(&id) else {
             return;
         };
@@ -824,25 +976,137 @@ impl WorkerDispatch {
             *count -= 1;
             if *count == 0 {
                 registry.worker_counts.remove(&worker_key);
+                registry
+                    .unsupported_types
+                    .remove_worker(worker.tenant_id, &worker.app_worker_id);
             }
         }
-        let queue_key = (worker.tenant_id, worker.queue.clone());
-        if let Some(queue) = registry.queues.get_mut(&queue_key) {
-            queue.stream_ids.remove(&id);
-            queue.idle.retain(|stream_id| *stream_id != id);
-            queue.users -= 1;
-            if queue.stream_ids.is_empty() {
-                // Sticky searches end as soon as their queue has no streams.
-                queue.wake_all_waiters();
-            }
-            if queue.users == 0 {
-                registry.queues.remove(&queue_key);
+        registry.take_idle(&worker);
+        for queue_name in &worker.queues {
+            let queue_key = (worker.tenant_id, queue_name.clone());
+            if let Some(queue) = registry.queues.get_mut(&queue_key) {
+                queue.stream_ids.remove(&id);
+                queue.users -= 1;
+                if queue.stream_ids.is_empty() {
+                    // Sticky searches end as soon as their queue has no streams.
+                    queue.wake_all_waiters();
+                }
+                if queue.users == 0 {
+                    registry.queues.remove(&queue_key);
+                }
             }
         }
         let mut state = worker.state.lock().expect("Worker state lock poisoned");
         state.is_closing = true;
         state.current = None;
+        state.step_backoff = None;
         worker.close.send_replace(true);
+    }
+}
+
+/// One dispatch's exclusions and failure reasons across its sticky and fallback queues.
+struct SearchState {
+    excluded_worker_ids: HashSet<String>,
+    excluded_streams: HashMap<Uuid, Instant>,
+    capacity_backoffs: HashMap<Uuid, Duration>,
+    unavailable: bool,
+    unknown: bool,
+}
+
+impl Registry {
+    /// Adds `worker` to the idle order of every queue it serves.
+    fn add_idle(&mut self, worker: &WorkerStream) {
+        self.next_idle_position += 1;
+        let position = self.next_idle_position;
+        self.idle_positions.insert(worker.id, position);
+        for queue_name in &worker.queues {
+            if let Some(queue) = self.queues.get_mut(&(worker.tenant_id, queue_name.clone())) {
+                queue.idle.insert(position, worker.id);
+            }
+        }
+    }
+
+    /// Removes `worker` from the idle order of every queue it serves.
+    fn take_idle(&mut self, worker: &WorkerStream) {
+        let Some(position) = self.idle_positions.remove(&worker.id) else {
+            return;
+        };
+        for queue_name in &worker.queues {
+            if let Some(queue) = self.queues.get_mut(&(worker.tenant_id, queue_name.clone())) {
+                queue.idle.remove(&position);
+            }
+        }
+    }
+
+    /// Wakes the waiter that should take the newly idle `worker` among all queues it serves:
+    /// the longest-waiting RPC, else the longest-waiting Step (plan D56).
+    fn wake_waiter_for(&mut self, worker: &WorkerStream, now: Instant) {
+        let is_in_step_backoff = worker.step_backoff_end(now).is_some();
+        let mut step_choice: Option<(u64, String)> = None;
+        let mut rpc_choice: Option<(u64, String)> = None;
+        for queue_name in &worker.queues {
+            let Some(queue) = self.queues.get(&(worker.tenant_id, queue_name.clone())) else {
+                continue;
+            };
+            let mut has_queue_step_choice = false;
+            for (sequence, waiter) in &queue.waiters {
+                if !waiter.can_use(worker, now) {
+                    continue;
+                }
+                let is_step_allowed =
+                    !is_in_step_backoff && worker.slot != StreamSlot::ReservedRpcOnly;
+                let choice = match waiter.kind {
+                    TaskKind::Rpc => &mut rpc_choice,
+                    TaskKind::Step if !is_step_allowed || has_queue_step_choice => continue,
+                    TaskKind::Step => {
+                        has_queue_step_choice = true;
+                        &mut step_choice
+                    }
+                };
+                if choice.as_ref().is_none_or(|(chosen, _)| sequence < chosen) {
+                    *choice = Some((*sequence, queue_name.clone()));
+                }
+                // Waiters are in arrival order, so the queue's first eligible RPC is its oldest.
+                if waiter.kind == TaskKind::Rpc {
+                    break;
+                }
+            }
+        }
+        let Some((sequence, queue_name)) = rpc_choice.or(step_choice) else {
+            return;
+        };
+        let queue = self
+            .queues
+            .get_mut(&(worker.tenant_id, queue_name))
+            .expect("the chosen waiter's queue exists");
+        let waiter = queue
+            .waiters
+            .remove(&sequence)
+            .expect("the chosen waiter exists");
+        queue.woken_waiter_streams.insert(sequence, worker.id);
+        waiter.wakeup.notify_one();
+    }
+
+    /// Hands on the wakeup a dispatch consumed for the stream `woken_for`.
+    ///
+    /// Applies when that stream is still idle and was not `taken_stream`.
+    fn pass_on_wakeup(
+        &mut self,
+        woken_for: Option<Uuid>,
+        taken_stream: Option<Uuid>,
+        now: Instant,
+    ) {
+        let Some(stream_id) = woken_for
+            .filter(|id| Some(*id) != taken_stream && self.idle_positions.contains_key(id))
+        else {
+            return;
+        };
+        let worker = self
+            .streams
+            .get(&stream_id)
+            .expect("idle stream is registered")
+            .clone();
+        self.wake_waiter_for(&worker, now);
     }
 }
 
