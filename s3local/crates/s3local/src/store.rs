@@ -33,7 +33,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use ulid::Ulid;
 
-use crate::durable_directories::DurableDirectories;
+use crate::durable_directories::{DurableDirectories, flush_entries_up_to_filesystem_root};
 use crate::error::StoreError;
 use crate::key_codec::{encode_object_key, prefix_successor};
 use crate::record::{BucketRecord, VersionRecord};
@@ -211,10 +211,10 @@ impl Store {
         let data_directory = config.root_directory.join(DATA_DIRECTORY_NAME);
         let temporary_directory = config.root_directory.join(TEMPORARY_DIRECTORY_NAME);
         let is_durable = config.durability == Durability::Strict;
-        create_directory_durably(&config.root_directory, is_durable)?;
-        // An existing root may come from a process that crashed before flushing its entry.
+        fs::create_dir_all(&config.root_directory)?;
+        // Existing ancestors may come from a process that crashed before flushing their entries.
         if is_durable {
-            crate::data_file::sync_directory(&parent_directory(&config.root_directory))?;
+            flush_entries_up_to_filesystem_root(&config.root_directory)?;
         }
         let durable_directories = DurableDirectories::new(config.root_directory.clone());
         let metadata_path = config.root_directory.join(METADATA_FILE_NAME);

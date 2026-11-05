@@ -108,6 +108,30 @@ impl DurableDirectories {
     }
 }
 
+/// Flushes the entry of the existing `directory` and of each ancestor into its parent.
+///
+/// The walk follows the canonical path and stops with a warning at a parent it may not open.
+///
+/// Returns the number of parents flushed, or the first other I/O error.
+pub(crate) fn flush_entries_up_to_filesystem_root(directory: &Path) -> io::Result<usize> {
+    let mut current = fs::canonicalize(directory)?;
+    let mut flushed = 0;
+    while let Some(parent) = current.parent() {
+        match fs::File::open(parent) {
+            Ok(file) => file.sync_all()?,
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                // Such high-level directories are long-lived; refusing to start would make strict unusable.
+                tracing::warn!(directory = %parent.display(), %error, "cannot open a directory to flush its entries; its ancestors stay unflushed");
+                break;
+            }
+            Err(error) => return Err(error),
+        }
+        flushed += 1;
+        current = parent.to_path_buf();
+    }
+    Ok(flushed)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -115,7 +139,21 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::thread;
 
-    use super::DurableDirectories;
+    use super::{DurableDirectories, flush_entries_up_to_filesystem_root};
+
+    #[test]
+    fn every_ancestor_of_a_nested_directory_is_flushed() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("persist").join("new-dev").join("s3");
+        fs::create_dir_all(&nested).unwrap();
+        let above_root = flush_entries_up_to_filesystem_root(root.path()).unwrap();
+        assert!(above_root >= 1, "the temporary directory has a parent");
+        assert_eq!(
+            flush_entries_up_to_filesystem_root(&nested).unwrap(),
+            above_root + 3,
+            "s3, new-dev, persist, and every directory above them are flushed"
+        );
+    }
 
     #[test]
     fn an_existing_unconfirmed_directory_has_its_parent_flushed_once() {
