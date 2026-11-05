@@ -160,9 +160,17 @@ export function rpc(options: RPCOptions<any, any> = {}) {
  * Selects the public method names of a Flow type that can receive Context as their first argument.
  *
  * {@link declareRPCMethod} uses this type so its method name argument is checked at compile time.
- * A method qualifies when it takes at least one parameter and Context is assignable to its first
- * parameter, as `@rpc` requires. Private and protected methods are not included, so declare RPC
- * methods as public. The Flow timeout handler `handleTimeout` is excluded.
+ * A method qualifies when Context is assignable to its first parameter. `declareRPCMethod` also
+ * requires at least one parameter; this rule is stricter than `@rpc`, which accepts methods with
+ * no parameters. Private and protected methods are not included, so declare RPC methods as public.
+ * The Flow timeout handler `handleTimeout` is excluded.
+ *
+ * The type also accepts inherited method names. `declareRPCMethod` rejects them at runtime; declare
+ * an inherited method through the class that defines it.
+ *
+ * A call without these types, such as from JavaScript, is not checked at compile time. At runtime
+ * `declareRPCMethod` rejects `handleTimeout` but no other Flow interface method, such as
+ * `getFlowType`.
  * @typeParam FlowType - Flow instance type that declares the RPC method.
  */
 export type RPCMethodName<FlowType> = Exclude<
@@ -296,7 +304,7 @@ export function declareRPCMethod<FlowType extends object, Input = unknown, Outpu
   const method = prototypeRPCMethod(flowClass, methodName);
   if (rpcOptions.has(method)) {
     throw new TypeError(
-      `RPC method ${flowClass.name}.${methodName} is already declared by @rpc or declareRPCMethod`,
+      `${rpcMethodLabel(flowClass, methodName)} is already declared by @rpc or declareRPCMethod`,
     );
   }
   rpcOptions.set(method, immutableOptions);
@@ -347,10 +355,10 @@ function prototypeRPCMethod(flowClass: Function, methodName: string): Function {
     throw new TypeError("declareRPCMethod requires a Flow class");
   }
   if (methodName === "constructor") {
-    throw new TypeError(`Flow class ${flowClass.name} constructor cannot be an RPC method`);
+    throw new TypeError(`${flowClassLabel(flowClass)} constructor cannot be an RPC method`);
   }
   if (methodName === "handleTimeout") {
-    throw new TypeError(`Flow class ${flowClass.name} handleTimeout is the Flow timeout handler, not an RPC method`);
+    throw new TypeError(`${flowClassLabel(flowClass)} handleTimeout is the Flow timeout handler, not an RPC method`);
   }
   // Read descriptors instead of the property so an accessor is never invoked.
   const descriptor = Object.getOwnPropertyDescriptor(flowClass.prototype, methodName);
@@ -358,10 +366,10 @@ function prototypeRPCMethod(flowClass: Function, methodName: string): Function {
     throw inheritedOrMissingMethodError(flowClass, methodName);
   }
   if (!("value" in descriptor)) {
-    throw new TypeError(`Flow class ${flowClass.name} member ${methodName} is an accessor, not an RPC method`);
+    throw new TypeError(`${flowClassLabel(flowClass)} member ${methodName} is an accessor, not an RPC method`);
   }
   if (typeof descriptor.value !== "function") {
-    throw new TypeError(`Flow class ${flowClass.name} member ${methodName} is not a method`);
+    throw new TypeError(`${flowClassLabel(flowClass)} member ${methodName} is not a method`);
   }
   return descriptor.value as Function;
 }
@@ -370,17 +378,32 @@ function inheritedOrMissingMethodError(flowClass: Function, methodName: string):
   let prototype = Object.getPrototypeOf(flowClass.prototype) as object | null;
   while (prototype !== null && prototype !== Object.prototype) {
     if (Object.getOwnPropertyDescriptor(prototype, methodName) !== undefined) {
-      const definingClass = (Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as Function | undefined)
-        ?.name ?? "a base class";
+      const definingClassName =
+        (Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as Function | undefined)?.name || "";
+      const overrideHint = `override it in ${flowClass.name || "the subclass"} and declare the override`;
+      if (definingClassName === "") {
+        return new TypeError(
+          `${flowClassLabel(flowClass)} method ${methodName} is inherited from an anonymous base class; ${overrideHint}`,
+        );
+      }
       return new TypeError(
-        `Flow class ${flowClass.name} method ${methodName} is inherited from ${definingClass}; ` +
-          `declare it with declareRPCMethod(${definingClass}, "${methodName}") ` +
-          `or override it in ${flowClass.name} and declare the override`,
+        `${flowClassLabel(flowClass)} method ${methodName} is inherited from ${definingClassName}; ` +
+          `declare it with declareRPCMethod(${definingClassName}, "${methodName}") or ${overrideHint}`,
       );
     }
     prototype = Object.getPrototypeOf(prototype) as object | null;
   }
   return new TypeError(
-    `Flow class ${flowClass.name} has no method ${methodName}; declare RPC handlers as class methods, not instance fields`,
+    `${flowClassLabel(flowClass)} has no method ${methodName}; declare RPC handlers as class methods, not instance fields`,
   );
+}
+
+function flowClassLabel(flowClass: Function): string {
+  return flowClass.name ? `Flow class ${flowClass.name}` : "Anonymous Flow class";
+}
+
+function rpcMethodLabel(flowClass: Function, methodName: string): string {
+  return flowClass.name
+    ? `RPC method ${flowClass.name}.${methodName}`
+    : `RPC method ${methodName} of an anonymous Flow class`;
 }

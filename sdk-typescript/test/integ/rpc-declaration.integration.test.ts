@@ -182,6 +182,58 @@ test("declaring an inherited method through a subclass is rejected", () => {
   new Registry([new OverridingSubclassFlow(), new SiblingSubclassFlow(), new FirstSubclassFlow()]);
 });
 
+test("errors for anonymous mixin classes name no class", () => {
+  class AuditedBaseFlow implements Flow {
+    public getFlowType(): string {
+      return "AuditedBaseFlow";
+    }
+
+    public getSteps() {
+      return StepList.empty();
+    }
+  }
+  function withAuditStatus<Base extends new (...args: any[]) => object>(base: Base) {
+    return class extends base {
+      public getAuditStatus(_context: Context): RPCResult<string> {
+        return { output: "audited" };
+      }
+    };
+  }
+  const AnonymousAuditedFlow = withAuditStatus(AuditedBaseFlow);
+  class MixedAuditedFlow extends withAuditStatus(AuditedBaseFlow) {}
+  assert.equal(Object.getPrototypeOf(MixedAuditedFlow).name, "");
+
+  assert.throws(
+    () => declareRPCMethod(MixedAuditedFlow, "getAuditStatus"),
+    new TypeError(
+      "Flow class MixedAuditedFlow method getAuditStatus is inherited from an anonymous base class; " +
+        "override it in MixedAuditedFlow and declare the override",
+    ),
+  );
+  const untypedAnonymous = AnonymousAuditedFlow as unknown as Parameters<typeof declareRPCMethod>[0];
+  assert.throws(
+    () => declareRPCMethod(untypedAnonymous, "getMissingAuditStatus" as never),
+    new TypeError(
+      "Anonymous Flow class has no method getMissingAuditStatus; declare RPC handlers as class methods, not instance fields",
+    ),
+  );
+  assert.throws(
+    () => declareRPCMethod(untypedAnonymous, "getFlowType" as never),
+    new TypeError(
+      "Anonymous Flow class method getFlowType is inherited from AuditedBaseFlow; " +
+        'declare it with declareRPCMethod(AuditedBaseFlow, "getFlowType") ' +
+        "or override it in the subclass and declare the override",
+    ),
+  );
+  declareRPCMethod(AnonymousAuditedFlow, "getAuditStatus");
+  assert.throws(
+    () => declareRPCMethod(AnonymousAuditedFlow, "getAuditStatus"),
+    new TypeError(
+      "RPC method getAuditStatus of an anonymous Flow class is already declared by @rpc or declareRPCMethod",
+    ),
+  );
+});
+
 test("declaring the Flow timeout handler as an RPC is rejected", () => {
   class TimeoutHandlerFlow implements Flow {
     public getFlowType(): string {
