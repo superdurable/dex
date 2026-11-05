@@ -160,6 +160,25 @@ impl AttemptHandout {
                 .as_bytes()
                 .to_vec();
             let routing = pull_routing(&pending.sticky_app_worker_id, stream.app_worker_id());
+            // A claimed stream is partition-fenced; matching may have removed the partition since.
+            if let Some((claim_id, task)) = &claim
+                && !stream.may_hand_out_tasks()
+            {
+                drop(stream);
+                if !self
+                    .context
+                    .dispatcher
+                    .is_claim_tracked(task.partition, &task.queue, *claim_id)
+                {
+                    // Nothing started, so the row stays for the partition's next owner.
+                    return HandoutEnd::Released;
+                }
+                // Only the lease failed: hold the row and retry, as the Claim's first check does.
+                if !self.hold_for_retry(*claim_id, task, &mut backoff).await {
+                    return HandoutEnd::Released;
+                }
+                continue;
+            }
             let cancel = self.register_attempt(&task_id);
             let started = self.start(task_id.clone(), routing).await;
             let start_commit = match started {

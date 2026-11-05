@@ -352,7 +352,18 @@ impl MethodAttempt {
             .await
         {
             Some(reply) if !reply.is_error() => StartedAttemptEnd::Returned,
-            _ => StartedAttemptEnd::Ended,
+            reply => {
+                // A new owner fails the still-running attempt as interrupted (plan D68).
+                tracing::info!(
+                    run_id = %self.key.run_id,
+                    step_execution_id = %self.key.step_execution_id,
+                    attempt = self.key.attempt,
+                    ?reason,
+                    is_rejected = reply.is_some(),
+                    "the attempt's return did not apply"
+                );
+                StartedAttemptEnd::Ended
+            }
         }
     }
 

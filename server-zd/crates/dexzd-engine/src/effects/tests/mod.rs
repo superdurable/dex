@@ -1024,12 +1024,46 @@ pub(super) struct FakeDispatcher {
     pub(super) heads_matching: WorkerDispatch,
     /// Refs that periodic Heads scans restored, summed over scans.
     pub(super) restored_head_count: AtomicUsize,
-    /// Claims that matching no longer tracks, as after a partition removal.
-    pub(super) untracked_claim_ids: Mutex<BTreeSet<u64>>,
-    /// Removals of each partition, as matching counts them.
-    pub(super) partition_removals: Mutex<BTreeMap<PartitionId, u64>>,
+    /// Partition removals, shared with the slots so a slot can remove its partition.
+    pub(super) partition_removals: Arc<FakePartitionRemovals>,
     /// Ordinary-priority pending times reported behind priority-0 heads, in order.
     pub(super) ordinary_backlog: Mutex<Vec<Option<i64>>>,
+}
+
+/// Partition removals as matching counts them, and the Claims they ended.
+#[derive(Default)]
+pub(super) struct FakePartitionRemovals {
+    /// Removals of each partition.
+    removals: Mutex<BTreeMap<PartitionId, u64>>,
+    /// Claims that matching no longer tracks, as after a partition removal.
+    pub(super) untracked_claim_ids: Mutex<BTreeSet<u64>>,
+    /// When set, the next claimed slot asked for its Worker first removes its partition.
+    pub(super) should_remove_before_start: AtomicBool,
+}
+
+impl FakePartitionRemovals {
+    /// Removes `partition` as matching would, ending its tracked `claim_ids`.
+    fn remove(&self, partition: PartitionId, claim_ids: &[u64]) {
+        *self
+            .removals
+            .lock()
+            .expect("lock")
+            .entry(partition)
+            .or_default() += 1;
+        self.untracked_claim_ids
+            .lock()
+            .expect("lock")
+            .extend(claim_ids.iter().copied());
+    }
+
+    fn removals_of(&self, partition: PartitionId) -> u64 {
+        self.removals
+            .lock()
+            .expect("lock")
+            .get(&partition)
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 impl FakeDispatcher {
@@ -1055,8 +1089,7 @@ impl FakeDispatcher {
                 Arc::new(dexzd_clock::SystemWallClock),
             ),
             restored_head_count: AtomicUsize::new(0),
-            untracked_claim_ids: Mutex::new(BTreeSet::new()),
-            partition_removals: Mutex::new(BTreeMap::new()),
+            partition_removals: Arc::new(FakePartitionRemovals::default()),
             ordinary_backlog: Mutex::new(Vec::new()),
         }
     }
@@ -1081,6 +1114,8 @@ impl FakeDispatcher {
                 dispatches: Arc::clone(&self.dispatches),
                 dispatch_count: Arc::clone(&self.dispatch_count),
                 undelivered_sends: Arc::clone(&self.undelivered_sends),
+                claim_id: Some(claim_id),
+                partition_removals: Arc::clone(&self.partition_removals),
             }),
         };
         self.claims
@@ -1092,25 +1127,11 @@ impl FakeDispatcher {
 
     /// Removes `partition` as matching would, ending its tracked Claims.
     pub(super) fn remove_partition(&self, partition: PartitionId, claim_ids: &[u64]) {
-        *self
-            .partition_removals
-            .lock()
-            .expect("lock")
-            .entry(partition)
-            .or_default() += 1;
-        self.untracked_claim_ids
-            .lock()
-            .expect("lock")
-            .extend(claim_ids.iter().copied());
+        self.partition_removals.remove(partition, claim_ids);
     }
 
     fn removals_of(&self, partition: PartitionId) -> u64 {
-        self.partition_removals
-            .lock()
-            .expect("lock")
-            .get(&partition)
-            .copied()
-            .unwrap_or_default()
+        self.partition_removals.removals_of(partition)
     }
 
     /// Waits for the next dispatch.
@@ -1149,6 +1170,8 @@ impl MethodDispatcher for FakeDispatcher {
                 dispatches: Arc::clone(&self.dispatches),
                 dispatch_count: Arc::clone(&self.dispatch_count),
                 undelivered_sends: Arc::clone(&self.undelivered_sends),
+                claim_id: None,
+                partition_removals: Arc::clone(&self.partition_removals),
             }))
         })
     }
@@ -1204,6 +1227,7 @@ impl MethodDispatcher for FakeDispatcher {
         claim_id: u64,
     ) -> bool {
         !self
+            .partition_removals
             .untracked_claim_ids
             .lock()
             .expect("lock")
@@ -1240,10 +1264,23 @@ struct FakeSlot {
     dispatches: Arc<Mutex<mpsc::UnboundedSender<FakeDispatch>>>,
     dispatch_count: Arc<AtomicUsize>,
     undelivered_sends: Arc<AtomicUsize>,
+    /// The Claim that delivered this slot, if any.
+    claim_id: Option<u64>,
+    partition_removals: Arc<FakePartitionRemovals>,
 }
 
 impl ReservedMethodStream for FakeSlot {
     fn app_worker_id(&self) -> &str {
+        // The hand-out asks for the Worker after the Claim's checks and before its start.
+        if let Some(claim_id) = self.claim_id
+            && self
+                .partition_removals
+                .should_remove_before_start
+                .swap(false, Ordering::SeqCst)
+        {
+            self.partition_removals
+                .remove(self.request.partition, &[claim_id]);
+        }
         "worker-a"
     }
 

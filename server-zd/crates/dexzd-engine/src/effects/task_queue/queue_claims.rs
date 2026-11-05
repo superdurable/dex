@@ -169,9 +169,14 @@ impl ReservedMethodStream for PartitionFencedStream {
         self: Box<Self>,
         task: MethodTask,
     ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
-        // Like an expired lease: the partition's next owner serves the started attempt.
         if !self.is_partition_kept() {
-            return Err(StepTaskSendFailure::LeaseInvalid);
+            tracing::debug!(
+                partition = self.partition.0,
+                "matching removed the partition before the send; returning the started attempt"
+            );
+            // No frame went out, so returning spends no retry (plan D59); dropping self frees
+            // the slot.
+            return Err(StepTaskSendFailure::NotDelivered);
         }
         self.stream.send_task(task)
     }

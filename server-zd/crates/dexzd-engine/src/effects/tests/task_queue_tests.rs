@@ -23,13 +23,14 @@ use dexzd_protocol::dex::{
     StepDurability, StepOptions, StopFlowRequest, StopType,
 };
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, FlowStopCommand, StepAttemptFailureKind, StepInvocationPhase, StepMethod,
-    flow_command,
+    FlowCommand, FlowStopCommand, StepAttemptFailureKind, StepAttemptReturnReason,
+    StepInvocationPhase, StepMethod, flow_command,
 };
 use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 use prometheus_client::metrics::gauge::Gauge;
 
 use super::dispatch_tests::force_complete;
+use super::handout_tests::{returns, started_task_ids};
 use super::{
     EffectHarness, MemoryState, is_attempt_failed, is_timers_fired, settings, start_request,
 };
@@ -1012,6 +1013,7 @@ async fn an_untracked_claim_starts_nothing_and_gets_no_reply() {
     let (_, first, _) = queue_locked_and_unlocked_rows(&harness).await;
     harness
         .dispatcher
+        .partition_removals
         .untracked_claim_ids
         .lock()
         .expect("lock")
@@ -1226,7 +1228,45 @@ async fn a_claim_removed_while_its_check_reads_the_store_starts_nothing() {
     harness.shutdown().await;
 }
 
-/// A started Claim whose partition is removed before the send hands out nothing.
+/// A Claim whose partition is removed right before its start starts nothing and keeps its row.
+#[tokio::test(start_paused = true)]
+async fn a_claim_removed_right_before_its_start_starts_nothing() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let removals = Arc::clone(&harness.dispatcher.partition_removals);
+    removals
+        .should_remove_before_start
+        .store(true, Ordering::SeqCst);
+    harness.dispatcher.claim(1, task.clone());
+    harness.settle().await;
+    assert!(
+        !removals.should_remove_before_start.load(Ordering::SeqCst),
+        "the partition was removed during the hand-out"
+    );
+    assert_eq!(command_count(&harness, is_attempt_started), 0, "no start");
+    assert!(
+        claim_results(&harness).is_empty(),
+        "a removed Claim gets no reply"
+    );
+    assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
+    assert!(has_queue_row(&harness, &task), "the row stays queued");
+
+    // The released entry lets the partition's next Claim start the row.
+    harness.dispatcher.claim(2, task);
+    let runner = harness.dispatcher.next_dispatch().await;
+    assert_eq!(runner.context().attempt, 1);
+    assert_eq!(
+        claim_results(&harness)
+            .iter()
+            .map(|(claim_id, result, _)| (*claim_id, *result))
+            .collect::<Vec<_>>(),
+        vec![(2, ClaimResult::Started)]
+    );
+    harness.shutdown().await;
+}
+
+/// A started Claim whose partition is removed before the send hands out nothing and returns
+/// the attempt.
 #[tokio::test(start_paused = true)]
 async fn a_claim_removed_after_its_start_sends_no_task() {
     let harness = EffectHarness::new();
@@ -1251,7 +1291,86 @@ async fn a_claim_removed_after_its_start_sends_no_task() {
         0,
         "the removal fence holds through the start and the send"
     );
+    assert_fenced_send_returned(&harness, &task);
     harness.shutdown().await;
+}
+
+/// A started Claim fenced by a removal and re-add of its partition on the same node is
+/// returned, then handed out exactly once.
+#[tokio::test(start_paused = true)]
+async fn a_readded_partition_hands_out_a_fenced_started_claim_once() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let run_id = task.position.run_id;
+    *harness
+        .flow_effect_operations
+        .start_commit_delay
+        .lock()
+        .expect("lock") = Duration::from_secs(10);
+    harness.dispatcher.claim(1, task.clone());
+    harness.settle().await;
+    assert_eq!(command_count(&harness, is_attempt_started), 1);
+    harness.dispatcher.remove_partition(task.partition, &[]);
+    harness.rebuild_all_partitions().await;
+    harness.settle().await;
+    assert!(
+        failure_kinds(&harness).is_empty(),
+        "the rebuild leaves the attempt this node still hands out"
+    );
+
+    tokio::time::sleep(Duration::from_secs(11)).await;
+    harness.settle().await;
+    assert_fenced_send_returned(&harness, &task);
+    let refs = queued_refs(&harness);
+    assert_eq!(refs.len(), 2, "the returned attempt is queued again");
+    assert_eq!(refs[1], task, "it keeps its key");
+
+    harness.dispatcher.claim(2, refs[1].clone());
+    let runner = harness.dispatcher.next_dispatch().await;
+    assert_eq!(runner.context().attempt, 1, "no retry was spent");
+    runner.complete_execute(force_complete());
+    harness.settle().await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness.run_record("order-1", run_id).status,
+        FlowStatus::Completed as i32
+    );
+    assert_eq!(
+        harness.dispatcher.dispatch_count.load(Ordering::SeqCst),
+        1,
+        "handed out exactly once"
+    );
+    assert_eq!(command_count(&harness, is_attempt_started), 2);
+    assert!(failure_kinds(&harness).is_empty());
+    harness.shutdown().await;
+}
+
+/// Asserts that the fenced send returned the started attempt unchanged as not delivered.
+fn assert_fenced_send_returned(harness: &EffectHarness, task: &QueuedTaskRef) {
+    let returned = returns(harness);
+    assert_eq!(returned.len(), 1, "the started attempt is returned");
+    assert_eq!(
+        returned[0].reason,
+        StepAttemptReturnReason::NotDelivered as i32
+    );
+    assert_eq!(
+        returned[0].expected_task_id,
+        started_task_ids(harness)[0],
+        "the return is fenced by the start's task ID"
+    );
+    assert!(failure_kinds(harness).is_empty(), "no retry was spent");
+    let invocation = harness
+        .step_execution(
+            &task.flow_id,
+            task.position.run_id,
+            &task.position.step_execution_id,
+        )
+        .invocation
+        .expect("the Step has an invocation");
+    assert_eq!(invocation.attempt, returned[0].attempt);
+    assert_eq!(invocation.attempt, 1, "the same attempt is pending again");
+    assert_eq!(invocation.phase, StepInvocationPhase::Pending as i32);
 }
 
 fn is_attempt_started(command: &flow_command::Command) -> bool {

@@ -31,7 +31,7 @@ use crate::flow_coordination::CommitUrgency;
 /// How a Worker declines a task it never ran.
 type WorkerDecline = fn(&FakeDispatch);
 
-fn started_task_ids(harness: &EffectHarness) -> Vec<Vec<u8>> {
+pub(super) fn started_task_ids(harness: &EffectHarness) -> Vec<Vec<u8>> {
     harness
         .flow_effect_operations
         .commands_matching(|command| {
@@ -45,7 +45,7 @@ fn started_task_ids(harness: &EffectHarness) -> Vec<Vec<u8>> {
         .collect()
 }
 
-fn returns(harness: &EffectHarness) -> Vec<StepAttemptReturnedCommand> {
+pub(super) fn returns(harness: &EffectHarness) -> Vec<StepAttemptReturnedCommand> {
     harness
         .flow_effect_operations
         .commands_matching(|command| {

@@ -259,6 +259,10 @@ impl WorkerDispatch {
 
     /// Removes every ref, Claim in flight, and in-memory waiter of `partition`. Its sticky,
     /// sync, and RPC searches end as if matching were closing.
+    ///
+    /// Call it when this node gives up the partition; a successor, maybe this node, rebuilds it.
+    /// A frame sent during the removal is an ordinary hand-out: its result commits through the
+    /// owner, or the successor fails it as interrupted (plan D68).
     pub fn remove_partition(&self, partition: PartitionId) {
         let mut registry = self.lock_registry();
         *registry
