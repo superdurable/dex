@@ -146,7 +146,7 @@ export class Attribute<T> {
    *
    * Writes require a Dex Server with an enabled blob store and Server protocol version 3 or later.
    * Otherwise, the write fails. The Client checks the Server protocol version once before its first
-   * hard-delete write. The Worker checks it at startup and fails any handler result that writes a
+   * request of any method and requires version 4. The Worker checks it at startup and fails any handler result that writes a
    * hard-delete Attribute to an older Server. Step and RPC handlers receive the value inline. The SDK
    * never stores it in the local blob cache.
    *
@@ -361,7 +361,7 @@ export class AttributeMap<T> {
    *
    * Writes require a Dex Server with an enabled blob store and Server protocol version 3 or later.
    * Otherwise, the write fails. The Client checks the Server protocol version once before its first
-   * hard-delete write. The Worker checks it at startup and fails any handler result that writes a
+   * request of any method and requires version 4. The Worker checks it at startup and fails any handler result that writes a
    * hard-delete AttributeMap instance to an older Server. Step and RPC handlers receive instance
    * values inline. The SDK never stores them in the local blob cache.
    *

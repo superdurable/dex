@@ -353,7 +353,7 @@ test("Client sends current async bearer token on each unary call and none by def
     await client.searchFlows("", 1);
     await anonymousClient.searchFlows("", 1);
     assert.deepEqual(server.flowHeaders, ["Bearer first-token", "Bearer second-token", undefined]);
-    assert.equal(tokenCalls, 2);
+    assert.equal(tokenCalls, 3);
   } finally {
     await client.close();
     await anonymousClient.close();
@@ -457,7 +457,7 @@ test("pull stream credential failures back off without opening a stream", async 
   const previousConsoleError = console.error;
   const loggedFailures: unknown[][] = [];
   console.error = (...values: unknown[]) => { loggedFailures.push(values); };
-  const worker = new PullWorker(new Registry([]), {} as WorkerDispatcher, server.address, {}, {
+  const worker = new PullWorker(new Registry([]), {} as WorkerDispatcher, server.address, { maxConcurrentTasks: 1, reservedRpcTasks: 0 }, {
     token: () => { throw new Error("file unavailable"); },
   });
   try {
@@ -480,7 +480,7 @@ test("Worker startup deadline settles while its credential is pending", async ()
   const tokenPromise = new Promise<string>((resolve) => { provideToken = resolve; });
   const worker = new Worker(new Registry([]), {} as BlobCache, {
     serverAddress: server.address,
-    pull: {},
+    pull: { maxConcurrentTasks: 1, reservedRpcTasks: 0 },
     attributeIndexSyncTimeoutMs: 80,
     credential: { token: () => tokenPromise },
   });
@@ -540,13 +540,14 @@ test("Worker authenticates FlowService startup and pull streams after reconnect"
   let currentToken = "worker-token";
   const worker = new Worker(new Registry([]), {} as BlobCache, {
     serverAddress: server.address,
-    pull: {},
+    pull: { maxConcurrentTasks: 1, reservedRpcTasks: 0 },
     credential: { token: () => currentToken },
   });
   try {
     await worker.start();
     await until(() => server.taskStreams.length === 1);
-    assert.deepEqual(server.flowHeaders, ["Bearer worker-token", "Bearer worker-token"]);
+    assert.deepEqual(server.serverInfoHeaders, ["Bearer worker-token"]);
+    assert.deepEqual(server.flowHeaders, ["Bearer worker-token"]);
     assert.equal(server.taskHeaders[0], "Bearer worker-token");
     currentToken = "rotated-worker-token";
     server.taskStreams[0]!.write({ frame: { $case: "reconnect", value: { reason: "rotate" } } });
@@ -562,12 +563,13 @@ test("Worker sends no authorization metadata without a credential", async () => 
   const server = await startServer();
   const worker = new Worker(new Registry([]), {} as BlobCache, {
     serverAddress: server.address,
-    pull: {},
+    pull: { maxConcurrentTasks: 1, reservedRpcTasks: 0 },
   });
   try {
     await worker.start();
     await until(() => server.taskStreams.length === 1);
-    assert.deepEqual(server.flowHeaders, [undefined, undefined]);
+    assert.deepEqual(server.serverInfoHeaders, [undefined]);
+    assert.deepEqual(server.flowHeaders, [undefined]);
     assert.deepEqual(server.taskHeaders, [undefined]);
   } finally {
     await worker.close();
@@ -721,7 +723,7 @@ test("ApiKeyCredential discards a rejected Worker poll token and reconnects imme
   const worker = new Worker(new Registry([]), {} as BlobCache, {
     serverAddress: server.address,
     credential,
-    pull: { stopDrainTimeoutMs: 100 },
+    pull: { maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 100 },
   });
   try {
     await worker.start();
@@ -742,15 +744,12 @@ test("ApiKeyCredential backs off after a second Worker poll token rejection", as
   const credential = new ApiKeyCredential({ tokenUrl: endpoint.url, serverId: "dex-server", apiKey });
   const previousConsoleError = console.error;
   console.error = () => {};
-  const worker = new Worker(new Registry([]), {} as BlobCache, {
-    serverAddress: server.address,
-    credential,
-    pull: { stopDrainTimeoutMs: 100 },
-  });
+  const worker = new PullWorker(new Registry([]), {} as WorkerDispatcher, server.address,
+    { maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 100 }, credential);
   try {
-    await worker.start();
+    worker.start();
     await until(() => server.taskHeaders.length === 2);
-    const pullWorker = (worker as unknown as { pullWorker: { streams: Set<{ retryTimer?: ReturnType<typeof setTimeout> }> } }).pullWorker;
+    const pullWorker = worker as unknown as { streams: Set<{ retryTimer?: ReturnType<typeof setTimeout> }> };
     await until(() => [...pullWorker.streams].some((poll) => poll.retryTimer !== undefined));
     assert.deepEqual(server.taskHeaders, [`Bearer ${firstAccessToken}`, "Bearer rejected-token-b"]);
     assert.equal(endpoint.requests.length, 2);
@@ -815,6 +814,7 @@ async function startServer(options: {
 } = {}) {
   const grpcServer = new Server();
   const flowHeaders: (string | undefined)[] = [];
+  const serverInfoHeaders: (string | undefined)[] = [];
   const taskHeaders: (string | undefined)[] = [];
   const taskStreams: TaskStream[] = [];
   grpcServer.addService(FlowServiceService, {
@@ -828,8 +828,8 @@ async function startServer(options: {
       } else callback(null, { flowRuns: [], nextPageToken: "" });
     },
     getServerInfo(call, callback) {
-      flowHeaders.push(call.metadata.get("authorization")[0]?.toString());
-      callback(null, { serverVersion: "test", minimumSupportedProtocolVersion: 1, currentProtocolVersion: 1, serverEngine: 0 });
+      serverInfoHeaders.push(call.metadata.get("authorization")[0]?.toString());
+      callback(null, { serverVersion: "test", minimumSupportedProtocolVersion: 1, currentProtocolVersion: 4, serverEngine: 0 });
     },
     syncAttributeIndexes(call, callback) {
       flowHeaders.push(call.metadata.get("authorization")[0]?.toString());
@@ -841,7 +841,11 @@ async function startServer(options: {
       const authorization = call.metadata.get("authorization")[0]?.toString();
       taskHeaders.push(authorization);
       taskStreams.push(call);
-      call.on("data", () => {});
+      call.on("data", (request: PollWorkerTaskRequest) => {
+        if (request.frame?.$case === "register") call.write({ frame: { $case: "registered", value: {
+          supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0,
+        } } });
+      });
       call.on("end", () => call.end());
       call.on("error", () => {});
       if (options.rejectPoll?.(authorization)) {
@@ -858,6 +862,7 @@ async function startServer(options: {
   return {
     address: `127.0.0.1:${port}`,
     flowHeaders,
+    serverInfoHeaders,
     taskHeaders,
     taskStreams,
     close: () => new Promise<void>((resolve, reject) => {

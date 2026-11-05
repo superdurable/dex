@@ -8,8 +8,8 @@
 
 import type { ServerInfo } from "./gen/dex.js";
 
-export const minimumSupportedServerProtocolVersion: number = 1;
-export const maximumSupportedServerProtocolVersion: number = 3;
+export const minimumSupportedServerProtocolVersion: number = 4;
+export const maximumSupportedServerProtocolVersion: number = 4;
 
 export function negotiateServerProtocol(
   serverInfo: ServerInfo,
@@ -33,7 +33,7 @@ export function negotiateServerProtocol(
   }
   const negotiated = Math.min(serverCurrent, maximumSupportedServerProtocolVersion);
   if (negotiated < serverMinimum || negotiated < minimumSupportedServerProtocolVersion) {
-    throw compatibilityError(serverInfo, sdkVersion, "protocol intervals do not overlap");
+    throw compatibilityError(serverInfo, sdkVersion, "protocol intervals do not overlap; requires a server-zd release supporting protocol 4 or later");
   }
   return negotiated;
 }

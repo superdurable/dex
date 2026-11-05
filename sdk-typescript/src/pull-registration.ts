@@ -8,28 +8,28 @@
 
 import type { ServiceError } from "@grpc/grpc-js";
 
-/** Identifies a permanent rejection that leaves a pull queue without a registered stream. */
+/** Identifies a permanent rejection that leaves a required slot kind without a registered stream. */
 export class PullRegistrationError extends Error {
-  /** Queue rejected by the server: a Flow type or the app Worker ID. */
+  /** Rejected slot kind: STEP_AND_RPC or RPC_ONLY; retained field name for compatibility. */
   public readonly queue: string;
 
   /**
-   * Creates a queue-specific rejection preserving the original gRPC error as `cause`.
-   * @param queue - Rejected Flow type or app Worker ID queue.
+   * Creates a slot-kind rejection preserving the original gRPC error as `cause`.
+   * @param queue - Rejected slot kind: STEP_AND_RPC or RPC_ONLY.
    * @param cause - Permanent gRPC stream error, including its status code and details.
    */
   public constructor(queue: string, cause: ServiceError) {
-    super(`pull queue ${queue} rejected: ${cause.message}`, { cause });
+    super(`pull slot kind ${queue} rejected: ${cause.message}`, { cause });
     this.name = "PullRegistrationError";
     this.queue = queue;
   }
 }
 
-/** Independent snapshot of one pull queue; error objects must be treated as immutable. */
+/** Independent snapshot of one slot kind; error objects must be treated as immutable. */
 export interface PullQueueRegistrationState {
-  /** Flow type or app Worker ID queue name. */
+  /** Slot kind: STEP_AND_RPC or RPC_ONLY; retained field name for compatibility. */
   readonly queue: string;
-  /** Whether this queue currently has an acknowledged stream. */
+  /** Whether this slot kind currently has an acknowledged stream. */
   readonly hasRegisteredStream: boolean;
   /** Last permanent rejection, cleared by successful registration; absent when none remains. */
   readonly lastPermanentError: ServiceError | undefined;
@@ -37,9 +37,9 @@ export interface PullQueueRegistrationState {
 
 /** Independent readiness snapshot returned by Worker.pullRegistrationState. */
 export interface PullRegistrationState {
-  /** Latches after all queues register; false while a queue has a permanent error and no registered stream. */
+  /** Latches after a STEP_AND_RPC stream and, when reserved, an RPC_ONLY stream register; false on a permanent error without a registered stream of that kind. */
   readonly isReady: boolean;
-  /** Queue snapshots in registration order, including the process queue and every registered Flow type. */
+  /** Slot-kind snapshots in registration order: STEP_AND_RPC, then RPC_ONLY when configured. */
   readonly queues: readonly PullQueueRegistrationState[];
 }
 

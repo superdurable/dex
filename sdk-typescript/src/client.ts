@@ -118,7 +118,7 @@ import {
 } from "./persistence.js";
 import type { RPCInvokeOptions, RPCResult } from "./rpc.js";
 import { sdkVersion } from "./sdk-version.generated.js";
-import { negotiateServerProtocol, serverInfoRequestError } from "./server-protocol.js";
+import { negotiateServerProtocol } from "./server-protocol.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { voidCodec } from "./codec.js";
@@ -133,6 +133,9 @@ const defaultServerAddress = "localhost:8801";
  *
  * Methods perform asynchronous gRPC I/O. A Client owns its service connection but
  * not its Registry or BlobCache; call `close` during application shutdown.
+ * Before its first request, every method shares lazy Server protocol negotiation.
+ * This SDK requires protocol 4. Incompatibility errors are cached and returned on later calls.
+ * Transient negotiation failures are retried on the next call.
  *
  * @example
  * ```ts
@@ -180,7 +183,7 @@ export class Client {
    * @throws {@link FlowDefinitionError} when `flow` is not registered.
    * @throws {@link TypeError} when a hard-delete initial Attribute is not the definition registered with `flow`.
    * @throws {@link ValueMappingError} when a hard-delete initial value encodes to a number or Boolean.
-   * @throws {@link Error} when the Server cannot accept hard-delete writes because its protocol version is below 3.
+   * @throws {@link Error} when the Server is incompatible with required protocol version 4.
    */
   public async startFlow<StartInput>(
     flow: Flow<StartInput>,
@@ -238,7 +241,7 @@ export class Client {
       );
     }
     await this.requireHardDeleteAttributeWriteSupport(initialAttributeWrites);
-    return (await unary<StartFlowResponse>(
+    return (await this.unary<StartFlowResponse>(
       { operation: "startFlow", flowId, requirement: "none" },
       (callback) => this.service.startFlow(request, callback),
     ))
@@ -256,28 +259,31 @@ export class Client {
 
   private negotiateServerProtocol(): Promise<number> {
     if (this.negotiatedServerProtocolVersion === undefined) {
-      const negotiation = this.getServerInfo().then((serverInfo) =>
-        negotiateServerProtocol(serverInfo, sdkVersion),
+      const negotiation = this.getServerInfo().then(
+        (serverInfo) => negotiateServerProtocol(serverInfo, sdkVersion),
+        (failure: unknown) => {
+          this.negotiatedServerProtocolVersion = undefined;
+          throw failure;
+        },
       );
       this.negotiatedServerProtocolVersion = negotiation;
-      negotiation.catch(() => {
-        if (this.negotiatedServerProtocolVersion === negotiation) {
-          this.negotiatedServerProtocolVersion = undefined;
-        }
-      });
     }
     return this.negotiatedServerProtocolVersion;
   }
 
-  private async getServerInfo(): Promise<ServerInfo> {
-    try {
-      return await unary<ServerInfo>(
-        { operation: "getServerInfo", requirement: "none" },
-        (callback) => this.service.getServerInfo({}, callback),
-      );
-    } catch (failure) {
-      throw serverInfoRequestError(sdkVersion, failure);
-    }
+  private async unary<Response>(
+    target: Parameters<typeof unary>[0],
+    invoke: (callback: (error: ServiceError | null, response: Response) => void) => unknown,
+  ): Promise<Response> {
+    await this.negotiateServerProtocol();
+    return unary(target, invoke);
+  }
+
+  private getServerInfo(): Promise<ServerInfo> {
+    return unary<ServerInfo>(
+      { operation: "getServerInfo", requirement: "none" },
+      (callback) => this.service.getServerInfo({}, callback),
+    );
   }
 
   /**
@@ -517,7 +523,7 @@ export class Client {
         return physicalName(load.channelMap.name, load.instance);
       },
     );
-    const response = await unary<InvokeRPCResponse>(
+    const response = await this.unary<InvokeRPCResponse>(
       { operation: "invokeRPC", flowId, requirement: "active" },
       (callback) =>
       this.service.invokeRpc(
@@ -585,7 +591,7 @@ export class Client {
       throw new TypeError("Stream source is required");
     }
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "writeStream", flowId, requirement: "none" },
       (callback) => this.service.writeStream({
         flowId: requireName(flowId),
@@ -614,7 +620,7 @@ export class Client {
     timeoutMs?: number,
   ): Promise<StreamMessage<T>> {
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
-    const response = await unary<ReadStreamResponse>(
+    const response = await this.unary<ReadStreamResponse>(
       { operation: "readStream", flowId, requirement: "none" },
       (callback) => this.service.readStream({
         flowId: requireName(flowId),
@@ -659,7 +665,7 @@ export class Client {
       throw new RangeError("Stream page size must be a positive 32-bit integer");
     }
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
-    const response = await unary<ListStreamMessagesResponse>(
+    const response = await this.unary<ListStreamMessagesResponse>(
       { operation: "listStreamMessages", flowId, requirement: "none" },
       (callback) => this.service.listStreamMessages({
         flowId: requireName(flowId),
@@ -697,7 +703,7 @@ export class Client {
     flowId: string,
     timeoutMs?: number,
   ): Promise<FlowResult> {
-    const response = await unary<ProtoFlowResult>(
+    const response = await this.unary<ProtoFlowResult>(
       { operation: "waitForFlow", flowId, requirement: "existing" },
       (callback) =>
         this.service.waitForFlow(
@@ -724,7 +730,7 @@ export class Client {
    * @param options - Stop mode and optional recorded reason.
    */
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "stopFlow", flowId, requirement: "active" },
       (callback) =>
       this.service.stopFlow(
@@ -745,7 +751,7 @@ export class Client {
    * @returns Flow ID, run ID, type, status, and UTC start time.
    */
   public async describeFlow(flowId: string): Promise<FlowInfo> {
-    const response = await unary<GetFlowSummaryResponse>(
+    const response = await this.unary<GetFlowSummaryResponse>(
       { operation: "describeFlow", flowId, requirement: "existing" },
       (callback) => this.service.getFlowSummary({ flowId: requireName(flowId), runId: "" }, callback),
     );
@@ -895,7 +901,7 @@ export class Client {
     keys: readonly string[],
   ): Promise<Map<string, ProtoValue>> {
     const joinedKeys = keys.join(", ");
-    const response = await unary<GetAttributesResponse>(
+    const response = await this.unary<GetAttributesResponse>(
       {
         operation: "getAttributes",
         flowId,
@@ -959,7 +965,7 @@ export class Client {
     if (pageSize < 0) {
       throw new RangeError("search page size must not be negative");
     }
-    const response = await unary<SearchFlowsResponse>(
+    const response = await this.unary<SearchFlowsResponse>(
       { operation: "searchFlows", requirement: "none" },
       (callback) => this.service.searchFlows({
         query, pageSize, nextPageToken,
@@ -1001,7 +1007,7 @@ export class Client {
    * @returns The new server-assigned run ID; the Flow ID remains unchanged.
    */
   public async timeTravel(flowId: string, options: TimeTravelOptions): Promise<string> {
-    const response = await unary<ResetFlowResponse>(
+    const response = await this.unary<ResetFlowResponse>(
       { operation: "timeTravel", flowId, requirement: "existing" },
       (callback) =>
       this.service.resetFlow(
@@ -1034,7 +1040,7 @@ export class Client {
     stepExecutionId: StepExecutionId,
     timerId: TimerId,
   ): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "skipTimer", flowId, requirement: "active" },
       (callback) =>
       this.service.skipTimer(
@@ -1068,7 +1074,7 @@ export class Client {
     while (true) {
       const requestAttempt = requestBudget.nextAttempt("waitForStepCompletion", flowId);
       try {
-        await unary<WaitForStepCompletionResponse>(
+        await this.unary<WaitForStepCompletionResponse>(
           { operation: "waitForStepCompletion", flowId, requirement: "active" },
           (callback) => {
             const request = {
@@ -1203,7 +1209,7 @@ export class Client {
     while (true) {
       const requestAttempt = requestBudget.nextAttempt("waitForAttributeMatch", flowId);
       try {
-        const response = await unary<WaitForAttributeResponse>(
+        const response = await this.unary<WaitForAttributeResponse>(
           { operation: "waitForAttributeMatch", flowId, requirement: "active" },
           (callback) => {
             const request = {
@@ -1256,7 +1262,7 @@ export class Client {
    * @param config - New optional Flow configuration fields.
    */
   public async updateFlowConfig(flowId: string, config: FlowConfig): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "updateFlowConfig", flowId, requirement: "active" },
       (callback) =>
       this.service.updateFlowConfig(
@@ -1276,7 +1282,7 @@ export class Client {
    * @param flowId - Non-empty active Flow ID.
    */
   public async triggerContinueAsNew(flowId: string): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "triggerContinueAsNew", flowId, requirement: "active" },
       (callback) =>
         this.service.triggerContinueAsNew(

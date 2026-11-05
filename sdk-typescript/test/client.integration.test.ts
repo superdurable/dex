@@ -183,6 +183,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
   const hydratedOutput = protoJson({ accepted: true });
   const server = new Server();
   server.addService(FlowServiceService, {
+    getServerInfo(_call, callback) {
+      callback(null, { serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0 });
+    },
     searchFlows(call, callback) {
       requests.search = call.request as SearchFlowsRequest;
       callback(null, { flowRuns: [], nextPageToken: "" });
@@ -556,6 +559,9 @@ test("Client getAttributes sends one request, hydrates references, and validates
   };
   const server = new Server();
   server.addService(FlowServiceService, {
+    getServerInfo(_call, callback) {
+      callback(null, { serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0 });
+    },
     getAttributes(call, callback: sendUnaryData<GetAttributesResponse>) {
       const request = call.request as GetAttributesRequest;
       getAttributesRequests.push(request);

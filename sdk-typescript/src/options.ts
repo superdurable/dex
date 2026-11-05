@@ -498,39 +498,42 @@ export interface WorkerOptions {
  * ```
  */
 export interface PullWorkerOptions {
-  /** Stops and drains the Worker when a permanent rejection leaves a queue without registered streams. Defaults to false, retrying indefinitely. Worker.run rejects with PullRegistrationError after draining; Worker.start keeps its non-blocking startup behavior. */
+  /** Stops and drains the Worker when a permanent rejection leaves a slot kind without registered streams. Defaults to false, retrying indefinitely. Worker.run rejects with PullRegistrationError after draining; Worker.start waits for the first successful registration and the Server concurrency-limit check. */
   readonly stopOnPermanentStreamRejection?: boolean;
-  /** Maximum simultaneous handlers; zero or omission uses the logical CPU count. Negative values are invalid. */
+  /**
+   * Number of execution slots, each represented by one long-lived poll stream.
+   * Zero or omission uses the logical CPU count. Negative values are invalid.
+   * Worker.start fails if this exceeds the Server per-Worker limit, matching.maxConcurrentTasksCap.
+   */
   readonly maxConcurrentTasks?: number;
   /**
-   * Reserves capacity to protect synchronous RPC latency from long-running Steps.
-   * Unset reserves one slot when resolved capacity is at least two, otherwise zero.
-   * With the CPU-count default, Steps get one fewer slot than before. Set zero to opt out.
+   * Number of long-lived slots that accept only RPCs.
+   * Unset reserves one slot when maxConcurrentTasks resolves to at least two, otherwise zero.
+   * Set zero to let every slot accept Steps and RPCs. Steps are never declined for capacity.
    * With one slot and no explicit reserve, start warns once that RPCs may wait behind Steps.
-   * Flows must stay responsive because RPCs share Worker task capacity with Steps.
-   * WaitFor and Execute tasks, including local attempts, are declined
-   * when total busy handlers reach maxConcurrentTasks minus this reserve. RPCs can
-   * use the full task limit, including API-direct and transactional RPCs. Requires an integer at least zero and below the task
-   * limit after its CPU-count default is resolved; construction throws RangeError otherwise.
-   * Declines reassign without consuming an attempt. If all Workers remain at their
-   * Step limit through the dispatch wait, NO_WORKER_AVAILABLE consumes an attempt
-   * and follows the Step retry policy. Local attempts wait the local dispatch wait,
-   * then fall back according to their policy.
-   * Declines emit a node:util debuglog message under dex:pull with the Flow type.
-   * The pullReservedRpcDeclines counter increments; registration readiness is unaffected.
-   * A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
-   * The Worker does not open it while all task slots are busy.
+   * Requires an integer at least zero and less than maxConcurrentTasks; construction throws RangeError otherwise.
+   * RPCs can use shared slots and reserved slots. Reservation is capacity, not a latency guarantee.
    * @example
    * ```ts
    * const pull: PullWorkerOptions = { maxConcurrentTasks: 8, reservedRpcTasks: 2 };
    * ```
    */
   readonly reservedRpcTasks?: number;
-  /** Waiting streams on each queue; zero or omission uses one. A queue keeps one more after a recent reserve decline. Use at least two for heavy Step backlogs. Negative values are invalid. */
+  /**
+   * Legacy per-queue idle stream option; zero or omission formerly used one.
+   * Still accepts nonnegative integers; invalid values throw RangeError.
+   * @deprecated Has no effect. Each maxConcurrentTasks slot has one long-lived stream.
+   */
   readonly idleStreamsPerQueue?: number;
   /** Process-unique Worker ID; defaults to host identity plus eight random base32 characters. Use a new ID after every restart. Values contain 1-63 ASCII letters, digits, dots, underscores, or hyphens and cannot equal a registered Flow type. */
   readonly appWorkerID?: string;
-  /** Milliseconds allowed for graceful shutdown and busy Reconnect final-frame delivery; defaults to 30000. Requires a non-negative finite value. After shutdown expiry, Worker.close cancels active handlers and waits for them to return. */
+  /**
+   * Milliseconds allowed for graceful shutdown and busy Reconnect final-frame delivery; defaults to 30000.
+   * Requires a non-negative finite value; zero selects the default.
+   * On stop, idle streams half-close immediately; busy streams send final output before half-closing.
+   * Tasks arriving after stop begins are dropped. Streams keep reading until the Server ends them or this timeout expires.
+   * On expiry, running streams are reset and their handlers canceled; close waits for handlers to return.
+   */
   readonly stopDrainTimeoutMs?: number;
 }
 

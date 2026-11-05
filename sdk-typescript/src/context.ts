@@ -11,12 +11,39 @@ import type { Channel, ChannelMap, ChannelMessage } from "./wait.js";
 import type { Codec } from "./codec.js";
 import type { Stream } from "./stream.js";
 
+/**
+ * Reports the furthest progress across all attempts of one Step method call.
+ * Use recoveryError.attemptProgress to decide whether external effects may have happened.
+ * Unknown or omitted progress must be treated like NotCompleted.
+ * @example
+ * ```ts
+ * const progress = context.recoveryError?.attemptProgress ?? StepAttemptProgress.Unspecified;
+ * if (progress === StepAttemptProgress.NotStarted) {
+ *   // No attempt ran the handler.
+ * }
+ * ```
+ */
+export enum StepAttemptProgress {
+  /** Older Server did not report progress; treat this like NotCompleted. */
+  Unspecified = 0,
+  /** The handler did not run in any attempt of this Step method call. */
+  NotStarted = 1,
+  /** Some attempt may have run, but none completed; reconcile possible external effects before retrying them. */
+  NotCompleted = 2,
+}
+
 /** Describes the final failure that selected a recovery path. */
 export interface RecoveryErrorInfo {
   /** Failure message supplied by the Worker or backend. */
   readonly detail: string;
   /** Original Worker error type or backend failure type. */
   readonly errorType: string;
+  /**
+   * Furthest progress across this Step method call's attempts.
+   * SDK-provided contexts always include a value. Omitted values remain accepted for source compatibility.
+   * Treat Unspecified or an omitted value like NotCompleted. See StepAttemptProgress for a recovery example.
+   */
+  readonly attemptProgress?: StepAttemptProgress;
 }
 
 /**
@@ -36,14 +63,15 @@ export interface Context {
   readonly fromStepExecutionId: string;
   /** Final failure that selected this recovery path, or `undefined` when absent. */
   readonly recoveryError: RecoveryErrorInfo | undefined;
-  /** UTC timestamp of the first handler attempt. */
+  /** UTC timestamp when this Step method call was first handed to a Worker. */
   readonly firstAttemptAt: Date;
   /**
    * Absolute UTC deadline of the current Step method attempt, or `undefined` when absent.
    *
    * Available during `waitFor`, `execute`, and Flow timeout handlers. RPC handlers have no
-   * deadline. A shorter remaining RetryPolicy total duration limits this value. Each retry
-   * receives its own effective deadline. Dates have millisecond precision.
+   * deadline. The method timeout bounds this value. RetryPolicy total duration never ends a
+   * running attempt; it is checked after failure when deciding whether to retry.
+   * Each retry receives its own deadline. Dates have millisecond precision.
    *
    * @example
    * Compute the remaining attempt budget in milliseconds inside a handler:
