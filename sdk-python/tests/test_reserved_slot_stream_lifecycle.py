@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, patch
 import grpc
 import pytest
 
-from dex import PullWorkerOptions, Registry
+from dex import PullWorkerOptions, Registry, _pull_worker
 from dex._pull_worker import PullStream, PullWorkerRuntime
 from dex.dexpb import dex_pb2 as pb
 from test_pull_worker import (
@@ -195,17 +195,23 @@ async def _stop_racing_next_task_after_final_output_drops_it_and_half_closes() -
     stream = PullStream(
         runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
     )
-    stream.run_task = asyncio.create_task(_poll_until_closed(stream))
-    runtime._streams.add(stream)
-    await asyncio.wait_for(call.final_write_started.wait(), 2)
-    # The read loop takes the next task while the previous handler is still finishing.
-    await wait_until(call.frames.empty)
-    stopping = asyncio.create_task(runtime.stop())
-    await runtime._stopping.wait()
-    call.final_write_allowed.set()
-    await asyncio.wait_for(call.half_closed.wait(), 2)
-    call.release_eof()
-    await asyncio.wait_for(stopping, 2)
+    with patch.object(stream, "_start_task", wraps=stream._start_task) as start_task:
+        stream.run_task = asyncio.create_task(_poll_until_closed(stream))
+        runtime._streams.add(stream)
+        await asyncio.wait_for(call.final_write_started.wait(), 2)
+        # The next task waits for the previous handler, which is still writing.
+        await wait_until(
+            lambda: any(
+                invocation.args[0].task_id == "next"
+                for invocation in start_task.call_args_list
+            )
+        )
+        stopping = asyncio.create_task(runtime.stop())
+        await runtime._stopping.wait()
+        call.final_write_allowed.set()
+        await asyncio.wait_for(call.half_closed.wait(), 2)
+        call.release_eof()
+        await asyncio.wait_for(stopping, 2)
     assert dispatcher.task_count == 1
     assert [
         request.task_frame.task_id
@@ -478,35 +484,64 @@ async def _failed_final_output_write_resets_draining_stream() -> None:
     assert not call.is_half_closed
 
 
-def test_stop_deadline_flushes_final_output_already_in_flight() -> None:
-    asyncio.run(_stop_deadline_flushes_final_output_already_in_flight())
+@pytest.mark.parametrize("is_flushed_within_grace", [True, False])
+def test_stop_deadline_flushes_final_output_already_in_flight(
+    is_flushed_within_grace: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not is_flushed_within_grace:
+        monkeypatch.setattr(_pull_worker, "_FINAL_OUTPUT_FLUSH_GRACE_SECONDS", 0.3)
+    asyncio.run(
+        _stop_deadline_flushes_final_output_already_in_flight(is_flushed_within_grace)
+    )
 
 
-async def _stop_deadline_flushes_final_output_already_in_flight() -> None:
+async def _stop_deadline_flushes_final_output_already_in_flight(
+    is_flushed_within_grace: bool,
+) -> None:
     dispatcher = BlockingDispatcher()
     call = HeldFinalWriteCall([registered(), rpc_task("flushing")], None)
+    idle_call = DelayedEofCall([registered()])
     runtime = PullWorkerRuntime(
         Registry([]),
         dispatcher,
         PullWorkerOptions(
-            max_concurrent_tasks=1, stop_drain_timeout=timedelta(milliseconds=50)
+            max_concurrent_tasks=2,
+            reserved_rpc_tasks=0,
+            stop_drain_timeout=timedelta(milliseconds=50),
         ),
         "unused",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(
-        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
-    )
-    stream.run_task = asyncio.create_task(_poll_until_closed(stream))
-    runtime._streams.add(stream)
+    streams = [
+        PullStream(
+            runtime,
+            FakeStub(cast(FakeCall, stream_call)),
+            pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
+        )
+        for stream_call in (call, idle_call)
+    ]
+    for stream in streams:
+        stream.run_task = asyncio.create_task(_poll_until_closed(stream))
+        runtime._streams.add(stream)
     await dispatcher.started.wait()
+    await wait_until(lambda: bool(idle_call.requests))
     dispatcher.gate.set()
     await asyncio.wait_for(call.final_write_started.wait(), 2)
     stopping = asyncio.create_task(runtime.stop())
-    await asyncio.sleep(0.2)
+    await asyncio.sleep(0.15)
+    # The idle stream has no Server EOF, so the drain deadline resets it.
+    assert idle_call.is_closed
+    assert idle_call.operations.index("done_writing") < idle_call.operations.index(
+        "cancel"
+    )
     assert not call.is_closed
     assert not stopping.done()
+    if not is_flushed_within_grace:
+        await asyncio.wait_for(stopping, 2)
+        assert call.is_closed
+        assert "done_writing" not in call.operations
+        return
     call.final_write_allowed.set()
     await asyncio.wait_for(call.half_closed.wait(), 2)
     call.release_eof()

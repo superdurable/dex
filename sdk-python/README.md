@@ -159,7 +159,8 @@ to 30 seconds. On timeout, a busy stream is reset and its handler is canceled;
 stop waits for the handler to return. Synchronous handlers should check
 `Context.is_cancellation_requested()` during long operations. A busy stream
 whose final output is already being written at the deadline gets up to 5 more
-seconds to send it and half-close instead of being reset. Any stream still open
+seconds to send it and half-close instead of being reset, so `stop()` can
+return up to 5 seconds after the drain deadline. Any stream still open
 at the deadline is reset, even one that is half-closed and still waiting for
 server EOF, so stop always returns. Dex treats a task it sent in that window as
 an attempt that may have run.

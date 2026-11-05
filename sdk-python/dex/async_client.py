@@ -350,6 +350,7 @@ class AsyncClient:
             FlowNotActiveOrNotFoundError: If the Flow is missing or the selected path
                 cannot use its closed execution.
             DexServiceError: If the service call otherwise fails.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         registered_flow, rpc = self.registry._rpc_for_method(rpc_method)
         (
@@ -432,6 +433,7 @@ class AsyncClient:
             FlowDefinitionError: If the Stream is not registered.
             ValueMappingError: If the message cannot be encoded.
             DexServiceError: If FlowService cannot append the message.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         require_name(source)
         flow = self.registry._flow_for_stream(stream)
@@ -476,6 +478,7 @@ class AsyncClient:
             FlowDefinitionError: If the Stream is not registered.
             ValueMappingError: If the retained message cannot be decoded.
             DexServiceError: If FlowService cannot perform the read.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         flow = self.registry._flow_for_stream(stream)
         response = cast(
@@ -539,6 +542,7 @@ class AsyncClient:
             FlowDefinitionError: If the Stream is not registered.
             ValueMappingError: If a retained message cannot be decoded.
             DexServiceError: If FlowService cannot list the Stream.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         if page_size < 1:
             raise ValueError("Stream page size must be positive")
@@ -603,6 +607,7 @@ class AsyncClient:
             FlowNotFoundError: If ``flow_id`` does not exist.
             ValueMappingError: If Dex returns a malformed or incompatible hydrated value.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         response = await self._wait_for_flow_response(flow_id, timeout)
         hydrated = await self._hydrator.step_outputs(flow_id, list(response.results))
@@ -633,6 +638,7 @@ class AsyncClient:
         Raises:
             FlowNotActiveOrNotFoundError: If no active run exists.
             DexServiceError: If FlowService rejects or cannot perform the request.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         await self._call(
             self._service.StopFlow,
@@ -662,6 +668,7 @@ class AsyncClient:
         Raises:
             FlowNotFoundError: If ``flow_id`` does not exist.
             DexServiceError: If FlowService cannot return the summary.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         response = cast(
             pb.GetFlowSummaryResponse,
@@ -757,6 +764,7 @@ class AsyncClient:
                 unsupported object encoding, and a large value that LoadBlobs omits.
             DexServiceError: If FlowService or LoadBlobs otherwise fails. A LoadBlobs
                 failure for a missing Flow raises ``FlowNotFoundError``.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         plan = plan_attribute_reads(self.registry, self._values, flow_id, reads)
         try:
@@ -798,6 +806,7 @@ class AsyncClient:
             ValueError: If ``page_size`` is negative.
             ValueMappingError: If an indexed Attribute cannot be hydrated.
             DexServiceError: If FlowService cannot execute the query.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         if page_size < 0:
             raise ValueError("search page size must not be negative")
@@ -857,6 +866,7 @@ class AsyncClient:
             FlowNotFoundError: If ``flow_id`` does not exist.
             ValueError: If time travel selector fields are invalid.
             DexServiceError: If FlowService cannot create the new run.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request = pb.ResetFlowRequest(
             flow_id=require_name(flow_id),
@@ -909,6 +919,7 @@ class AsyncClient:
             FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             ValueError: If an identifier is invalid.
             DexServiceError: If FlowService cannot skip the Timer.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request = pb.SkipTimerRequest(
             flow_id=require_name(flow_id),
@@ -948,6 +959,7 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request_budget = _ClientRequestBudget(options.request_timeout)
         internal_handler_timeout_seconds = _duration_seconds32(
@@ -1021,6 +1033,7 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         ...
 
@@ -1055,6 +1068,7 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         ...
 
@@ -1087,6 +1101,7 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         instance, match, options = self._attribute_wait_arguments(
             attribute, args, kwargs
@@ -1173,6 +1188,7 @@ class AsyncClient:
             FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             ValueError: If a configuration value is invalid.
             DexServiceError: If FlowService cannot apply the update.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         await self._call(
             self._service.UpdateFlowConfig,
@@ -1196,6 +1212,7 @@ class AsyncClient:
         Raises:
             FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             DexServiceError: If FlowService cannot accept the request.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         await self._call(
             self._service.TriggerContinueAsNew,
@@ -1213,6 +1230,7 @@ class AsyncClient:
 
         Raises:
             DexServiceError: If the service is unhealthy or unreachable.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         from google.protobuf import empty_pb2
 

@@ -297,7 +297,8 @@ class Worker:
         half-closing. Tasks received after stop begins are dropped without running
         handlers. A timed-out busy stream is reset before cancellation, unless its
         final output is already being written. That stream gets up to 5 more
-        seconds to send the output and half-close.
+        seconds to send the output and half-close, so stop can return up to 5
+        seconds after the drain deadline.
         Half-closed streams keep reading server frames until EOF or the remaining drain
         deadline before the channel closes. When the deadline expires, every stream
         that is still open is reset, even one blocked on a send or without Server EOF,

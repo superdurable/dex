@@ -125,6 +125,7 @@ class PullWorkerRuntime:
         self._stopping: asyncio.Event | None = None
         self._stop_completed: asyncio.Event | None = None
         self._stop_drain_deadline: float | None = None
+        self._final_output_flush_deadline: float | None = None
         self._streams: set[PullStream] = set()
         self._busy_tasks = 0
         self._unsupported_logged = False
@@ -286,50 +287,68 @@ class PullWorkerRuntime:
             active = [
                 stream.handler_task for stream in self._streams if stream.handler_task
             ]
+            pending: set[asyncio.Task[None]] = set()
+            flushing_streams: list[PullStream] = []
             if active:
                 _, pending = await asyncio.wait(
                     active, timeout=self._remaining_stop_drain_time()
                 )
                 if pending:
-                    await self._flush_or_reset_pending_handlers(pending)
-                    await asyncio.gather(*pending, return_exceptions=True)
+                    flushing_streams = self._reset_streams_without_final_output(pending)
             stream_tasks = [stream.run_task for stream in tuple(self._streams)]
             if stream_tasks:
                 await asyncio.wait(
                     stream_tasks, timeout=self._remaining_stop_drain_time()
                 )
                 for stream in tuple(self._streams):
-                    if not stream.run_task.done():
+                    if not stream.run_task.done() and stream not in flushing_streams:
                         stream.close()
+                if flushing_streams:
+                    await asyncio.wait(
+                        [stream.run_task for stream in flushing_streams],
+                        timeout=self._remaining_final_output_flush_time(),
+                    )
+                    for stream in flushing_streams:
+                        if not stream.run_task.done():
+                            stream.close()
+                            stream.cancel_handler()
                 await asyncio.gather(*stream_tasks, return_exceptions=True)
+            await asyncio.gather(*pending, return_exceptions=True)
         finally:
             self._stop_completed.set()
 
-    async def _flush_or_reset_pending_handlers(
+    def _reset_streams_without_final_output(
         self, pending: set[asyncio.Task[None]]
-    ) -> None:
-        # A reset would lose a final output in flight and rerun the task.
-        flushing: list[asyncio.Task[None]] = []
+    ) -> list[PullStream]:
+        """Reset streams whose handlers missed the drain deadline.
+
+        Returns:
+            Streams whose final output is already queued or sent. They are not
+            reset; each gets the final output flush grace to half-close.
+        """
+        flushing_streams: list[PullStream] = []
         for stream in tuple(self._streams):
             if stream.handler_task not in pending:
                 continue
             if stream.has_final_output_in_flight:
-                flushing.append(stream.handler_task)
+                flushing_streams.append(stream)
             else:
                 stream.close()
                 stream.cancel_handler()
-        if not flushing:
-            return
-        self._stop_drain_deadline = (
-            asyncio.get_running_loop().time() + _FINAL_OUTPUT_FLUSH_GRACE_SECONDS
+        if flushing_streams:
+            self._final_output_flush_deadline = (
+                asyncio.get_running_loop().time() + _FINAL_OUTPUT_FLUSH_GRACE_SECONDS
+            )
+            for stream in flushing_streams:
+                stream.is_flushing_final_output = True
+        return flushing_streams
+
+    def _remaining_final_output_flush_time(self) -> float:
+        if self._final_output_flush_deadline is None:
+            raise RuntimeError("pull Worker final output flush has not started")
+        return max(
+            0, self._final_output_flush_deadline - asyncio.get_running_loop().time()
         )
-        _, unflushed = await asyncio.wait(
-            flushing, timeout=self._remaining_stop_drain_time()
-        )
-        for stream in tuple(self._streams):
-            if stream.handler_task in unflushed:
-                stream.close()
-                stream.cancel_handler()
 
     def _remaining_stop_drain_time(self) -> float:
         if self._stop_drain_deadline is None:
@@ -370,6 +389,7 @@ class PullStream:
         self.is_draining = False
         self._retirement_requested = asyncio.Event()
         self.is_half_closing = False
+        self.is_flushing_final_output = False
         self._active = threading.Event()
         self._call: Any = None
         self._send_lock = asyncio.Lock()
@@ -595,7 +615,11 @@ class PullStream:
         stop_wait: asyncio.Task[bool] | None = None
         try:
             while True:
-                deadline = self.runtime._stop_drain_deadline or reconnect_deadline
+                deadline = (
+                    self.runtime._final_output_flush_deadline
+                    if self.is_flushing_final_output
+                    else self.runtime._stop_drain_deadline
+                ) or reconnect_deadline
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     _LOGGER.warning("Worker task stream did not close after draining")
@@ -611,8 +635,8 @@ class PullStream:
                     waiting, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
                 )
                 if not completed:
-                    # Stop may extend its deadline while a final output flushes.
-                    continue
+                    _LOGGER.warning("Worker task stream did not close after draining")
+                    return
                 if stop_wait in completed:
                     await stop_wait
                     stop_wait = None
