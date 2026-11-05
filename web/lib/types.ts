@@ -128,6 +128,10 @@ export interface ActiveStepExecution {
   stepExecutionLocals: KeyValue[];
   timers: Record<string, unknown>[];
   lastFailureInfo?: Record<string, unknown>;
+  /** The current WaitFor invocation. Absent while Execute runs or on older Servers. */
+  waitForInvocation?: Record<string, unknown>;
+  /** The current Execute invocation. Absent while WaitFor runs or on older Servers. */
+  executeInvocation?: Record<string, unknown>;
 }
 
 export interface FlowState {

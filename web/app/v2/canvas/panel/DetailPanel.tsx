@@ -14,6 +14,7 @@ import {
 } from '@/app/flows/details/StepMethodSections'
 import { storedValueJSONReplacer } from '@/lib/blobs'
 import { PullRouting } from '@/app/flows/details/PullRouting'
+import { StepMethodInvocation } from '@/app/flows/details/StepMethodInvocation'
 import type { ActiveStepExecution, FlowHistoryEvent } from '@/lib/types'
 import {
   DEF_HEIGHT_DEFAULT,
@@ -499,6 +500,10 @@ export function DetailPanel({
         {activeStep && (isPullFlow || activeStep.waitForPullRouting || activeStep.executePullRouting) && <div className="semantic-event">
           <PullRouting value={activeStep.waitForPullRouting} label="WaitFor routing" />
           <PullRouting value={activeStep.executePullRouting} label="Execute routing" />
+        </div>}
+        {activeStep && (activeStep.waitForInvocation || activeStep.executeInvocation) && <div className="semantic-event">
+          <StepMethodInvocation value={activeStep.waitForInvocation} label="WaitFor invocation" />
+          <StepMethodInvocation value={activeStep.executeInvocation} label="Execute invocation" />
         </div>}
         <section
           className="ppan-def"

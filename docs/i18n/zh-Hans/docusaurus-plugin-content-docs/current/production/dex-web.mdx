@@ -167,6 +167,16 @@ Flow 详情显示 **Worker target**，其值为 **Pull**。它还显示以 Flow 
 
 没有 Worker 接收的 Step 会在队列中等待，不会失败。没有可用 Worker、未知 RPC 名称耗尽分发等待时间这类分发失败，现在只适用于 RPC。Worker 断开连接仍会让已交出的 attempt 失败。旧的 Step 失败记录可能显示 **Unknown Step type: dispatch timed out**。RPC 历史记录显示已记录调用的处理应用 Worker ID。缺少路由元数据的旧运行显示 **—**。
 
+活跃 Step 显示当前的 **WaitFor invocation** 和 **Execute invocation**。**Phase** 是 **Pending**、**Running** 或 **Backoff**。**Attempt** 是正在等待或运行的 attempt。在 **Backoff** 期间，它是下一次 attempt。待处理的 attempt 显示 **Pending reason** 和 **Pending since**，以及已经等待的时长。原因是以下之一：
+
+- **Waiting for locks**：另一个 Step 或事务性 RPC 持有它的某个锁，或者更早的 Step 正在等待其中一个锁。
+- **Waiting for a Worker**：还没有该 Flow 类型的 Worker 接收这个 attempt。
+- **Waiting for a Worker that supports this Step type**：该 Flow 类型的 Worker 已经连接，但都不支持这个 Step 类型。该 Step 会一直排队，直到支持它的 Worker 连接、Flow 超时或 Flow 被停止。
+
+运行中的 attempt 显示 **Attempt started**。退避中的 attempt 显示 **Backoff ends**。旧版 Server 不报告 invocation，因此 Dex Web 不显示它们。
+
+Step 历史记录显示 **Scheduled**，即最后一次 attempt 开始待处理的时间。从 **Scheduled** 到 **Started** 的时间就是等待锁和 Worker 的时间。
+
 ## 搜索与 Summary
 
 Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、index type、应用 value type 和 description。Analyzer 会把每个值与 Go 定义和 SDK 计算出的有效 index 配置比较。

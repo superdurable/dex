@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { StructuredValue } from '@/app/components/StructuredValue';
+import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowOverview } from './FlowOverview';
 
@@ -133,6 +134,47 @@ describe('live Flow state failures', () => {
     expect(markup).toContain('<details class="active-step-card" open="">');
     expect(markup).toContain('Collapse all');
     expect(markup).toContain('<details class="failure-stack" open="">');
+  });
+
+  it('shows why a queued Execute attempt waits', () => {
+    const summary: FlowSummary = {
+      flowId: 'flow-1',
+      runId: 'run-1',
+      firstRunId: 'run-1',
+      requestId: 'request-1',
+      flowType: 'PaymentFlow',
+      flowStatus: 'Running',
+      flowStatusCode: 1,
+      startTime: '2026-08-10T00:00:00Z',
+      closeTime: null,
+    };
+    const state: FlowState = {
+      flowConfig: {},
+      attributes: [],
+      activeStepExecutions: [{
+        stepExecutionId: 'ChargeCard-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'ChargeCard',
+        phase: 'Active',
+        stepExecutionLocals: [],
+        timers: [],
+        executeInvocation: { phase: 1, pendingReason: 2, attempt: 1, pendingSinceTime: '2026-08-10T00:00:01Z' },
+      }],
+      queuedSteps: [],
+      pendingChannelMessages: {},
+      completedSteps: [],
+    };
+
+    const markup = renderToStaticMarkup(
+      <PreferencesProvider>
+        <FlowOverview summary={summary} events={[]} state={state} selectedEvent={null} />
+      </PreferencesProvider>,
+    );
+
+    expect(markup).toContain('Execute invocation');
+    expect(markup).toContain('Waiting for a Worker that supports this Step type');
+    expect(markup).toContain('Pending since');
+    expect(markup).not.toContain('WaitFor invocation');
   });
 
   it('expands Attributes while keeping AttributeMap instance values collapsed', () => {

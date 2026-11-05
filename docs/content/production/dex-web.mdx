@@ -181,6 +181,16 @@ Active Steps and Step history show routing for **WaitFor** and **Execute**. **Se
 
 A Step that no Worker takes waits in the queue instead of failing. A dispatch failure for no available Worker, or for an unknown RPC name that exhausted the dispatch wait, applies to RPCs only. A Worker disconnect still fails a handed-out attempt. Older Step failure records may show **Unknown Step type: dispatch timed out**. RPC history shows the serving app Worker ID for recorded invocations. Older runs without routing metadata show **—**.
 
+Active Steps show the current **WaitFor invocation** and **Execute invocation**. **Phase** is **Pending**, **Running**, or **Backoff**. **Attempt** is the attempt that waits or runs. During **Backoff**, it is the next attempt. A pending attempt shows its **Pending reason** and **Pending since**, with how long it has waited. The reason is one of these:
+
+- **Waiting for locks**: another Step or a transactional RPC holds one of its locks, or an earlier Step waits for one.
+- **Waiting for a Worker**: no Worker of the Flow type has taken the attempt yet.
+- **Waiting for a Worker that supports this Step type**: Workers of the Flow type are connected, but none of them supports the Step type. The Step stays queued until such a Worker connects, the Flow times out, or the Flow is stopped.
+
+A running attempt shows **Attempt started**. A backoff shows **Backoff ends**. Older Servers do not report invocations, so Dex Web hides them.
+
+Step history shows **Scheduled**, the time the final attempt became pending. The time from **Scheduled** to **Started** is the wait for locks and a Worker.
+
 ## Search and Summary
 
 An indexed Attribute declaration binds the Dex Attribute key, physical search index key, index type, application value type, and description. The analyzer compares every value with the Go definition and the SDK's effective index configuration.

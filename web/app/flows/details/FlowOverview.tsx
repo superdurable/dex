@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
+import { StepMethodInvocation } from './StepMethodInvocation';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
 import type { StateWriteKind } from './StateWriteDialog';
@@ -156,6 +157,8 @@ export function FlowOverview({
                     <div className="active-step-content">
                       <code>{step.stepExecutionId}</code>
                       <span>From {step.fromStepExecutionId || '—'}</span>
+                      <StepMethodInvocation value={step.waitForInvocation} label="WaitFor invocation" />
+                      <StepMethodInvocation value={step.executeInvocation} label="Execute invocation" />
                       {flowRoutingData(state, events).workerTarget.isPullMode === true && <>
                         <PullRouting value={step.waitForPullRouting} label="WaitFor routing" />
                         <PullRouting value={step.executePullRouting} label="Execute routing" />
