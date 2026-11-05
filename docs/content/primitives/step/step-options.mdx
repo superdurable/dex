@@ -96,7 +96,7 @@ Dex pins the durability when a method call becomes pending. Changing **step_dura
 
 **SYNC** is the default. Dex resolves durability in this order: a method override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
 
-Durability changes only when Dex Server persists a result. Retry policy, method timeout, and heartbeat settings apply to every attempt in both modes. The default method attempt timeout is two hours, and the default heartbeat timeout is one minute.
+Durability changes when Dex Server persists an attempt start and a result. With **SYNC**, the start is durable before the task goes to the Worker. With **ASYNC**, the task goes out first and the start is persisted after. Retry policy, method timeout, and heartbeat settings apply to every attempt in both modes. The default method attempt timeout is two hours, and the default heartbeat timeout is one minute.
 
 The method timeout and the heartbeat timeout start when Dex sends the task to the Worker. Waiting for locks or for a Worker does not count. The deadline in the task is the send time plus the method timeout.
 

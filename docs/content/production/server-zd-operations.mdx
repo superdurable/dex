@@ -361,7 +361,10 @@ The duration affects takeover time after a crash. A graceful shutdown releases
 the lease, so the replacement starts at once. After a crash, a SIGKILL, or the
 loss of a Kubernetes node, the replacement waits until the old lease expires,
 plus 1 second. That wait is at most **lease.duration** plus 1 second. Recovery
-starts after it.
+starts after it. Recovery fails each attempt that a Worker had received with
+NOT_COMPLETED, and the attempt consumes a retry. The exception is an ASYNC
+attempt whose start was not yet durable when the node crashed. It runs again
+with the same attempt number and consumes no retry.
 
 The duration only partly affects object storage outages:
 
@@ -1127,17 +1130,22 @@ Worker declined the Step type), **legacy_no_capacity** (an older SDK Worker
 declined for capacity), and **not_delivered** (the task never reached the
 Worker). **legacy_no_capacity** should drop to zero once every SDK is
 upgraded. **error** of **dexzd_worker_stream_protocol_errors_total** is one
-of **no_capacity_on_reserved_slot** and **half_close_after_output**. With
+of **no_capacity_on_reserved_slot**, **half_close_after_output**, and
+**reject_after_output**. With
 **no_capacity_on_reserved_slot**, a reserved-slot Worker declined a task for
 capacity. The attempt fails as not run, and the stream ends. With
 **half_close_after_output**, a Worker closed its stream after output but before
-the final result. The attempt fails with NOT_COMPLETED.
+the final result. The attempt fails with NOT_COMPLETED. With
+**reject_after_output**, a Worker declined a task after it had already sent
+output for it. The attempt fails as possibly run, with NOT_COMPLETED. The
+server ends that stream with INVALID_ARGUMENT, so it gets no further task.
 **dexzd_matching_unsupported_type_evictions_total** is a counter. A steady rise
 means you should raise **matching.unsupportedTypeCacheEntries**.
 
 Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each stream close and, with
-**event="delivered"**, each task frame sent after a start. A returned attempt
+**event="delivered"**, each task frame sent after a start. This includes RPC task frames, not only
+Step task frames. A returned attempt
 that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
 
 ~~~text

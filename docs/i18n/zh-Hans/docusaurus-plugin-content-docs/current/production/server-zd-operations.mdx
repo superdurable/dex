@@ -303,7 +303,9 @@ Kubernetes 随后按退避策略重启容器。
 
 时长影响崩溃后的接管时间。优雅关闭会释放 lease，替代进程可以立即启动。崩溃、SIGKILL
 或 Kubernetes 节点丢失之后，替代进程要等旧 lease 过期，再多等 1 秒。这段等待最多是
-**lease.duration** 加 1 秒，之后才开始恢复。
+**lease.duration** 加 1 秒，之后才开始恢复。恢复时，已经交给 Worker 的 attempt 以 NOT_COMPLETED
+失败，并消耗一次 retry。例外是节点崩溃时开始记录尚未持久化的 ASYNC attempt：
+它以同一个 attempt 编号再次运行，不消耗 retry。
 
 时长对对象存储故障只有部分影响：
 
@@ -942,16 +944,20 @@ store 或恢复快照时为 **restored**，例如 standby 的 store 缺失或过
 attempt，取值为 **unsupported**（Worker 拒绝了该 Step type）、**legacy_no_capacity**（较旧
 SDK 的 Worker 因容量不足而拒绝）和 **not_delivered**（任务从未到达 Worker）。所有 SDK 都升级
 之后，**legacy_no_capacity** 应降为零。**dexzd_worker_stream_protocol_errors_total** 的
-**error** 取值为 **no_capacity_on_reserved_slot** 和 **half_close_after_output**。出现
+**error** 取值为 **no_capacity_on_reserved_slot**、**half_close_after_output** 和
+**reject_after_output**。出现
 **no_capacity_on_reserved_slot** 表示使用 reserved-slot 的 Worker 因容量不足拒绝了任务，这个
 attempt 按未运行处理而失败，并且 stream 结束。出现 **half_close_after_output** 表示 Worker
-在发出输出之后、发送最终结果之前关闭了 stream，这个 attempt 以 NOT_COMPLETED 失败。
+在发出输出之后、发送最终结果之前关闭了 stream，这个 attempt 以 NOT_COMPLETED 失败。出现
+**reject_after_output** 表示 Worker 在已经为某个任务发出输出之后又拒绝了它。这个 attempt
+按可能已运行处理，以 NOT_COMPLETED 失败，server 以 INVALID_ARGUMENT 结束该 stream，因此
+它不会再收到任务。
 **dexzd_matching_unsupported_type_evictions_total** 是 counter，持续上升说明应该调大
 **matching.unsupportedTypeCacheEntries**。
 
 Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
 **dexzd_worker_stream_events_total** 统计每次 stream 关闭，并且在 **event="delivered"** 时统计
-每个在开始记录之后发出的任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
+每个在开始记录之后发出的任务帧，包括 RPC 任务帧，而不只是 Step 任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
 等待时间计入 **flow_read** 延迟。
 
 ~~~text
