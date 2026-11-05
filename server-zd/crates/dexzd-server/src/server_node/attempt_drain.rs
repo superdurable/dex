@@ -81,6 +81,15 @@ pub(super) async fn drain_attempts(
         tracing::warn!(%error, "interrupting remaining Step attempts failed");
     }
     let snapshot = *progress.borrow();
+    if !snapshot.has_started {
+        // The router never reported progress, so the attempt counts are unknown.
+        tracing::info!(
+            outcome = %outcome.as_str(),
+            timeout_milliseconds = config.attempt_drain_timeout.as_millis(),
+            "Step attempt drain ended before the effect router acknowledged it"
+        );
+        return;
+    }
     tracing::info!(
         attempts_waited = snapshot.attempts_waited,
         attempts_finished = snapshot.attempts_finished,

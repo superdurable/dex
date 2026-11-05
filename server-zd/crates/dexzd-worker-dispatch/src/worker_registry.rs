@@ -856,9 +856,9 @@ impl WorkerDispatch {
         }
     }
 
-    /// Sends `task_frame` on a stream this caller took, checking the node lease, the stream's
-    /// half-close, and stream shutdown under the stream's state lock, with no await in between.
-    /// An attempt drain does not withhold the frame.
+    /// Sends `task_frame` on a stream this caller took, checking the node lease and the stream's
+    /// half-close under the stream's state lock, with no await in between. It also refuses once
+    /// matching began ending streams; an attempt drain does not withhold the frame.
     ///
     /// Returns the receiver of the Worker's frames for the task, [`TaskSendError::LeaseInvalid`]
     /// when the node may not hand out tasks (the stream stays taken), or
@@ -871,8 +871,10 @@ impl WorkerDispatch {
         task_type: &TaskTypeKey,
         task_frame: dexzd_protocol::dex::PollWorkerTask,
     ) -> Result<mpsc::Receiver<AssignmentFrame>, TaskSendError> {
+        // Read before the state lock: stream readers hold this watch while taking that lock.
+        let is_stream_shutdown = *self.inner.stream_shutdown.borrow();
         let mut state = worker.state.lock().expect("Worker state lock poisoned");
-        if state.is_send_stopped || state.is_closing || *self.inner.stream_shutdown.borrow() {
+        if state.is_send_stopped || state.is_closing || is_stream_shutdown {
             return Err(TaskSendError::NotDelivered);
         }
         if !self.may_hand_out_tasks() {

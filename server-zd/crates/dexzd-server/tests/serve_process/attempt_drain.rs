@@ -43,6 +43,8 @@ const FIRST_STEP: &str = "RunningStep";
 const NEXT_STEP: &str = "NextStep";
 const RECOVERY_STEP: &str = "RecoverStep";
 const BUDGET: Duration = Duration::from_secs(45);
+/// The longest s3mock delay; clearing the fault rules releases a held write earlier.
+const HELD_WRITE_MILLISECONDS: u64 = 600_000;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sigterm_drains_ten_second_sync_attempt_without_retry() {
@@ -112,20 +114,23 @@ async fn drain_keeps_worker_stream_open_until_the_result_commits() {
     fixture.emulator.shutdown().await;
 }
 
-/// Holds a SYNC start's commit until after SIGTERM: the frame still goes out on the same attempt.
+/// Holds a SYNC start's commit until drain admission closed: the frame still goes out.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sigterm_sends_the_task_of_a_sync_start_that_commits_during_the_drain() {
     let fixture = DrainFixture::start().await;
-    let mut active = fixture.spawn("active", None, false);
+    let metrics_address = free_loopback_address();
+    let mut active = fixture.spawn_with_metrics("active", metrics_address);
     let channel = active.wait_until_serving().await;
     start_flow(channel.clone(), StepDurability::Sync).await;
+    // With no Worker, the hand-out waits in the matching queue.
+    wait_for_queued_tasks(metrics_address, 1).await;
     fixture
         .emulator
-        .set_fault_rules(&delayed_log_writes(3000))
+        .set_fault_rules(&delayed_log_writes(HELD_WRITE_MILLISECONDS))
         .await;
     let mut worker = DrainWorker::start(channel).await;
-    // The hand-out reserves the new stream and proposes the start, whose log write waits 3 s.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The hand-out reserved the stream; its start cannot commit while log writes are held.
+    wait_for_queued_tasks(metrics_address, 0).await;
     active.send_sigterm(BUDGET).await;
     active
         .wait_for_log_line(
@@ -133,6 +138,7 @@ async fn sigterm_sends_the_task_of_a_sync_start_that_commits_during_the_drain() 
             BUDGET,
         )
         .await;
+    fixture.emulator.clear_fault_rules().await;
     let task = worker.next_execute().await;
     let request = execute_request(&task);
     assert_eq!(request.step_type, FIRST_STEP);
@@ -163,7 +169,6 @@ async fn sigterm_sends_the_task_of_a_sync_start_that_commits_during_the_drain() 
         active_log.contains("attempts_finished=1 attempts_running=0"),
         "{active_log}"
     );
-    fixture.emulator.clear_fault_rules().await;
     let mut successor = fixture.spawn("replacement", None, false);
     let successor_channel = successor.wait_until_serving().await;
     assert_completed(successor_channel.clone()).await;
@@ -532,6 +537,21 @@ impl DrainFixture {
         )
     }
 
+    fn spawn_with_metrics(&self, name: &str, metrics_address: SocketAddr) -> ServeProcess {
+        let address = free_loopback_address();
+        let config = self.write_config(name, None, false, address);
+        let mut configuration = std::fs::read_to_string(&config)
+            .expect("the drain test fixture is valid and its operations succeed");
+        configuration.push_str(&format!("metrics:\n  listen: '{metrics_address}'\n"));
+        std::fs::write(&config, configuration)
+            .expect("the drain test fixture is valid and its operations succeed");
+        ServeProcess::spawn(
+            &config,
+            address,
+            self.directory.path().join(format!("{name}.log")),
+        )
+    }
+
     fn write_config(
         &self,
         name: &str,
@@ -867,6 +887,24 @@ fn direct_channel(address: std::net::SocketAddr) -> Channel {
     Channel::from_shared(format!("http://{address}"))
         .expect("the drain test fixture is valid and its operations succeed")
         .connect_lazy()
+}
+
+/// Waits until the matching queue gauge reports `expected` waiting tasks.
+async fn wait_for_queued_tasks(metrics_address: SocketAddr, expected: u64) {
+    let sample = format!("dexzd_matching_queued_tasks {expected}");
+    tokio::time::timeout(BUDGET, async {
+        let mut polls = tokio::time::interval(Duration::from_millis(20));
+        loop {
+            polls.tick().await;
+            if let Ok(body) = crate::metrics::try_scrape(metrics_address, "/metrics").await
+                && body.lines().any(|line| line.trim_end() == sample)
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the queue gauge never reported {expected}"));
 }
 
 /// Returns s3mock fault rules that delay every log batch write by `milliseconds`.
