@@ -186,6 +186,14 @@ pub(super) struct RecordedCommand {
     pub(super) reply: CommandReply,
 }
 
+/// Proposals applied speculatively behind a held attempt start.
+struct HeldCommits {
+    /// The committed state from before the held start.
+    committed: MemoryState,
+    /// Effects to publish as committed on release, in apply order.
+    effects: Vec<(FlowAddress, Vec<ApplyEffect>)>,
+}
+
 /// Fake Flow runtime: stamps, applies with the real apply, and publishes committed effects.
 pub(super) struct InMemoryFlowEffectOperations {
     pub(super) state: Arc<Mutex<MemoryState>>,
@@ -221,6 +229,11 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) proposal_delay: Mutex<Duration>,
     /// Delays the commit of each attempt start after its speculative apply.
     pub(super) start_commit_delay: Mutex<Duration>,
+    /// Holds the next attempt start, and every later proposal, uncommitted until released.
+    pub(super) should_hold_next_start: AtomicBool,
+    held_commits: Mutex<Option<HeldCommits>>,
+    /// Turns true when held commits are released.
+    held_commits_released: tokio::sync::watch::Sender<bool>,
     /// Starts that find their locks taken although the pre-check passed, as when a
     /// transactional RPC takes them in between.
     pub(super) starts_finding_busy_locks: AtomicUsize,
@@ -289,8 +302,49 @@ impl InMemoryFlowEffectOperations {
                 .expect("lock")
                 .extend(effects.iter().cloned());
         }
-        self.sink.handle(flow, &effects, true);
+        let is_held = match self.held_commits.lock().expect("lock").as_mut() {
+            Some(held) => {
+                held.effects.push((flow.clone(), effects.clone()));
+                true
+            }
+            None => false,
+        };
+        self.sink.handle(flow, &effects, !is_held);
         Ok(reply)
+    }
+
+    /// Returns the committed state, which leaves out held proposals.
+    pub(super) fn committed_snapshot(&self) -> MemoryState {
+        match self.held_commits.lock().expect("lock").as_ref() {
+            Some(held) => held.committed.clone(),
+            None => self.snapshot(),
+        }
+    }
+
+    /// Commits the held start and every proposal behind it, and publishes their effects.
+    pub(super) fn release_held_commits(&self) {
+        let held = self
+            .held_commits
+            .lock()
+            .expect("lock")
+            .take()
+            .expect("a start is held");
+        for (flow, effects) in &held.effects {
+            self.sink.handle(flow, effects, true);
+        }
+        self.held_commits_released.send_replace(true);
+    }
+
+    /// Waits until no proposal is held.
+    async fn wait_for_held_commits(&self) {
+        let mut released = self.held_commits_released.subscribe();
+        if self.held_commits.lock().expect("lock").is_none() {
+            return;
+        }
+        // The sender lives as long as this runtime.
+        if released.wait_for(|is_released| *is_released).await.is_err() {
+            tracing::debug!("the test runtime dropped");
+        }
     }
 
     pub(super) fn add_override(&self, handler: CommandOverride) {
@@ -328,7 +382,9 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             if !delay.is_zero() {
                 tokio::time::sleep(delay).await;
             }
-            self.commit(flow, command, urgency)
+            let reply = self.commit(flow, command, urgency)?;
+            self.wait_for_held_commits().await;
+            Ok(reply)
         })
     }
 
@@ -345,8 +401,11 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
         &'a self,
         _flow: &'a FlowAddress,
     ) -> BoxFuture<'a, Result<(), FlowEffectOperationError>> {
-        // Proposals commit before they return.
-        Box::pin(async { Ok(()) })
+        // Proposals commit before they return, unless a start is held.
+        Box::pin(async move {
+            self.wait_for_held_commits().await;
+            Ok(())
+        })
     }
 
     fn wait_for_transactional_rpcs<'a>(
@@ -424,6 +483,15 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             } else {
                 CommitUrgency::Prompt
             };
+            let is_held = self.should_hold_next_start.swap(false, Ordering::SeqCst);
+            if is_held {
+                self.held_commits_released.send_replace(false);
+                *self.held_commits.lock().expect("lock") = Some(HeldCommits {
+                    committed: self.snapshot(),
+                    effects: Vec::new(),
+                });
+            }
+            let mut released = self.held_commits_released.subscribe();
             let reply = self.commit(flow, command, urgency)?;
             if is_error_reply(&reply) {
                 return Ok(InvocationStartOutcome::Stale);
@@ -436,6 +504,9 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             }
             let commit_delay = *self.start_commit_delay.lock().expect("lock");
             Ok(InvocationStartOutcome::Started(Box::pin(async move {
+                if is_held && released.wait_for(|is_released| *is_released).await.is_err() {
+                    tracing::debug!("the test runtime dropped");
+                }
                 tokio::time::sleep(commit_delay).await;
                 Ok(())
             })))
@@ -490,8 +561,13 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
                 detail: "injected state reader outage".to_owned(),
             });
         }
+        let state = if should_include_speculative {
+            self.snapshot()
+        } else {
+            self.committed_snapshot()
+        };
         Ok(Box::new(GatedStateReader {
-            state: self.snapshot(),
+            state,
             read: StateReadInProgress::begin(&self.state_read_gate),
         }))
     }
@@ -512,7 +588,7 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             });
         }
         Ok(Box::new(CountingStateReader {
-            state: self.snapshot(),
+            state: self.committed_snapshot(),
             queue_seeks: Arc::clone(&self.committed_queue_seeks),
             committed_read_gate: Arc::clone(&self.committed_read_gate),
             row_count_gate: Arc::clone(&self.row_count_gate),
@@ -1350,6 +1426,9 @@ impl EffectHarness {
             published_effects: Mutex::new(Vec::new()),
             busy_lock_keys: Mutex::new(BTreeSet::new()),
             start_commit_delay: Mutex::new(Duration::ZERO),
+            should_hold_next_start: AtomicBool::new(false),
+            held_commits: Mutex::new(None),
+            held_commits_released: tokio::sync::watch::Sender::new(false),
             starts_finding_busy_locks: AtomicUsize::new(0),
             unavailable_proposals: AtomicUsize::new(0),
             is_flow_state_unreadable: AtomicBool::new(false),

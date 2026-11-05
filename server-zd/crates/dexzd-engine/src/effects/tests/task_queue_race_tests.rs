@@ -12,19 +12,26 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
-use dexzd_keyspace::{PartitionId, RunId, TenantId};
+use dexzd_keyspace::dispatch_queue_keys::{
+    DispatchQueueEntry, DispatchQueueName, dispatch_queue_key,
+};
+use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, TenantId};
 use dexzd_protocol::dex::{
     FlowStatus, PollWorkerTaskRejectReason, StartFlowRequest, StepDurability, StepOptions,
     StopFlowRequest, StopType, WorkerTarget,
 };
-use dexzd_protocol::dexzd::v1::{FlowCommand, FlowStartCommand, FlowStopCommand, flow_command};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, FlowStartCommand, FlowStopCommand, StepInvocationPhase, flow_command,
+};
 use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 
 use super::dispatch_tests::force_complete;
-use super::{EffectHarness, is_attempt_failed, is_error_reply, settings, start_request};
+use super::{
+    EffectHarness, MemoryState, is_attempt_failed, is_error_reply, settings, start_request,
+};
 use crate::effects::dispatch::{EntryHolder, HandoutEnd};
 use crate::effects::method_request::MethodAttemptKey;
+use crate::effects::state_reads::read_step_execution;
 use crate::effects::{EffectsConfig, RouterMessage};
 use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
@@ -329,11 +336,6 @@ async fn an_async_attempt_declined_before_its_start_commits_requeues_and_runs_on
         .dispatcher
         .refuse_dispatch
         .store(true, Ordering::SeqCst);
-    *harness
-        .flow_effect_operations
-        .start_commit_delay
-        .lock()
-        .expect("lock") = Duration::from_secs(1);
     let run_id = harness.start_flow(
         execute_request("order-1", StepDurability::Async),
         settings(),
@@ -342,16 +344,94 @@ async fn an_async_attempt_declined_before_its_start_commits_requeues_and_runs_on
     let refs = queued_refs(&harness);
     assert_eq!(refs.len(), 1);
     let first_ref = refs[0].clone();
+    let queued_commands = || {
+        harness
+            .flow_effect_operations
+            .commands_matching(|command| {
+                matches!(command, flow_command::Command::StepAttemptQueued(_))
+            })
+            .len()
+    };
+    assert_eq!(queued_commands(), 1);
 
+    let operations = &harness.flow_effect_operations;
+    operations
+        .should_hold_next_start
+        .store(true, Ordering::SeqCst);
     harness.dispatcher.claim(1, first_ref.clone());
     let declined = harness.dispatcher.next_dispatch().await;
+    harness.settle().await;
+    assert_eq!(claim_results(&harness)[0].1, ClaimResult::Started);
+    let row_key = dispatch_queue_row_key(&first_ref);
+    assert!(
+        operations
+            .committed_snapshot()
+            .rows
+            .contains_key(&(ColumnFamily::PartitionIndex, row_key.clone())),
+        "the held start leaves the committed row"
+    );
+    assert!(
+        !operations
+            .snapshot()
+            .rows
+            .contains_key(&(ColumnFamily::PartitionIndex, row_key.clone())),
+        "the speculative start deleted the row"
+    );
+    let invocation_phase = |state: &MemoryState| {
+        read_step_execution(
+            state,
+            harness.run_location("order-1", run_id),
+            &first_ref.position.step_execution_id,
+        )
+        .expect("state reads succeed")
+        .and_then(|step| step.invocation)
+        .expect("the invocation exists")
+        .phase
+    };
+    assert_eq!(
+        invocation_phase(&operations.snapshot()),
+        StepInvocationPhase::Running as i32
+    );
+    assert_eq!(
+        invocation_phase(&operations.committed_snapshot()),
+        StepInvocationPhase::Pending as i32
+    );
+
     declined.reject(PollWorkerTaskRejectReason::UnknownStep, true);
     harness.settle().await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(
+        queued_refs(&harness).len(),
+        1,
+        "the requeue waits for its row to commit behind the held start"
+    );
+    operations.release_held_commits();
     harness.settle().await;
     let refs = queued_refs(&harness);
     assert_eq!(refs.len(), 2, "the declined attempt is queued again");
     assert_eq!(refs[1], first_ref, "it keeps its key");
+    // A return writes no row; the requeue puts the start's deleted key back.
+    let requeued: Vec<i64> = operations
+        .commands_matching(|command| matches!(command, flow_command::Command::StepAttemptQueued(_)))
+        .into_iter()
+        .filter_map(|recorded| match recorded.command.command {
+            Some(flow_command::Command::StepAttemptQueued(queued)) => {
+                Some(queued.pending_since_micros)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        requeued,
+        vec![first_ref.position.pending_since_micros; 2],
+        "one requeue, at the same key"
+    );
+    assert!(
+        operations
+            .committed_snapshot()
+            .rows
+            .contains_key(&(ColumnFamily::PartitionIndex, row_key)),
+        "the returned attempt's row is committed again"
+    );
 
     harness.dispatcher.claim(2, refs[1].clone());
     let runner = harness.dispatcher.next_dispatch().await;
@@ -379,6 +459,14 @@ async fn an_async_attempt_declined_before_its_start_commits_requeues_and_runs_on
     );
     assert_eq!(failure_count(&harness), 0);
     harness.shutdown().await;
+}
+
+fn dispatch_queue_row_key(task: &QueuedTaskRef) -> Vec<u8> {
+    dispatch_queue_key(&DispatchQueueEntry {
+        partition: task.partition,
+        queue: task.queue.clone(),
+        position: task.position.clone(),
+    })
 }
 
 const TENANTS: [TenantId; 2] = [TenantId(0), TenantId(7)];
