@@ -47,7 +47,8 @@ const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_millis(500);
 const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// Log lines of a recovery, which name the store it served and how much log it replayed.
 const RECOVERING_MARKER: &str = "engine node recovering";
-const ATTEMPT_DRAIN_ENDED_MARKER: &str = "Step attempt drain ended";
+/// The drain end the effect router acknowledged; an unacknowledged drain logs no counts.
+const ATTEMPT_DRAIN_ENDED_MARKER: &str = "Step attempt drain ended attempts_waited=";
 const HOT_STANDBY_STORE_MARKER: &str = "serving from the hot standby's local store";
 const REPLAY_MARKER: &str = "replayed the log stream";
 const REPLAYED_BATCHES_FIELD: &str = "batches=";
@@ -398,6 +399,7 @@ impl NodeGroup {
         entry.process_count += 1;
         entry.may_exit = false;
         entry.standby_writes_baseline = None;
+        entry.exited_process_log = None;
         self.router.note_process_start(slot);
         let process = self.fleet.spawn(
             &entry.config_path,
@@ -475,7 +477,7 @@ impl NodeGroup {
             None => entry
                 .exited_process_log
                 .clone()
-                .unwrap_or_else(|| panic!("slot {} has no process log", entry.name)),
+                .unwrap_or_else(|| panic!("slot {}'s last process left no log", entry.name)),
         };
         let since_wall_time = SystemTime::now() - since.elapsed();
         let (ended_wall_time, line) = log
