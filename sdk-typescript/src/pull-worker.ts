@@ -14,7 +14,6 @@ import { Duplex } from "node:stream";
 
 import { BinaryReader, WireType } from "@bufbuild/protobuf/wire";
 import {
-  credentials,
   makeGenericClientConstructor,
   status,
   type ClientDuplexStream,
@@ -22,6 +21,7 @@ import {
 } from "@grpc/grpc-js";
 
 import { ApiKeyCredential, credentialInterceptors, type Credential } from "./credential.js";
+import type { FlowServiceChannel } from "./flow-service-tls.js";
 import { registeredFlow, type RegisteredFlow, type Registry } from "./flow.js";
 import {
   InvokeExecuteMethodOutput,
@@ -122,7 +122,7 @@ export class PullWorker {
   public constructor(
     registry: Registry,
     private readonly dispatcher: WorkerDispatcher,
-    serverAddress: string,
+    channel: FlowServiceChannel,
     private readonly options: PullWorkerOptions,
     credential?: Credential,
     private readonly onPermanentRejection: () => void = () => {},
@@ -151,7 +151,7 @@ export class PullWorker {
       throw new TypeError(`appWorkerID conflicts with Flow type ${this.appWorkerID}`);
     }
     this.registration = new PullRegistration(this.reservedRpcTasks > 0 ? ["STEP_AND_RPC", "RPC_ONLY"] : ["STEP_AND_RPC"]);
-    this.client = createWorkerTaskClient(serverAddress, credential);
+    this.client = createWorkerTaskClient(channel, credential);
     this.hasRefreshableCredential = credential instanceof ApiKeyCredential;
   }
 
@@ -864,8 +864,9 @@ function generateAppWorkerID(): string {
   return `${sanitized}-${suffix}`;
 }
 
-function createWorkerTaskClient(serverAddress: string, credential: Credential | undefined): InstanceType<typeof WorkerTaskServiceClient> {
-  return new ResettableWorkerTaskServiceClient(serverAddress, credentials.createInsecure(), {
+function createWorkerTaskClient(channel: FlowServiceChannel, credential: Credential | undefined): InstanceType<typeof WorkerTaskServiceClient> {
+  return new ResettableWorkerTaskServiceClient(channel.target, channel.channelCredentials, {
+    ...channel.channelOptions,
     interceptors: credentialInterceptors(credential),
     "grpc.max_receive_message_length": MAX_TASK_FRAME_BYTES,
   });

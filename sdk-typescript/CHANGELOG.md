@@ -4,6 +4,11 @@
 
 ### Added and fixed
 
+- Add `ClientOptions.flowServiceTls` and `WorkerOptions.flowServiceTls` with the
+  `FlowServiceTlsOptions` type. Setting it connects to Dex over TLS with the
+  Node.js default trust store, optional `additionalRootCAsPem`, an optional
+  `serverName` override, and ALPN h2. Bearer credentials are sent on the TLS
+  connection. Omitting it keeps plaintext gRPC unchanged.
 - Add `declareRPCMethod(FlowClass, "methodName", options)`, a decorator-free way
   to declare a Flow method as an RPC handler, and the `RPCMethodName` type for
   its method name argument. Use it when the runtime cannot transform

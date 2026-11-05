@@ -15,6 +15,7 @@ import test from "node:test";
 import { gzipSync } from "node:zlib";
 
 import { InvokeWorkerRPCRequest, InvokeWorkerRPCResponse, PollWorkerTaskResponse } from "../src/gen/dex.js";
+import { createFlowServiceChannel } from "../src/flow-service-tls.js";
 import { Registry } from "../src/index.js";
 import { PullWorker } from "../src/pull-worker.js";
 import type { WorkerDispatcher } from "../src/worker-dispatcher.js";
@@ -259,7 +260,7 @@ async function startWireHarness(responseEncoding?: "gzip") {
   const address = `127.0.0.1:${(proxy.address() as net.AddressInfo).port}`;
   return {
     worker(handler: GatedHandler, stopDrainTimeoutMs: number): PullWorker {
-      const worker = new PullWorker(new Registry([]), handler as unknown as WorkerDispatcher, address, {
+      const worker = new PullWorker(new Registry([]), handler as unknown as WorkerDispatcher, createFlowServiceChannel(address, undefined), {
         maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs,
       });
       Reflect.set(worker, "registeredFlows", new Map([["TestFlow", { steps: [], rpcs: [{ name: "getWorker" }] }]]));

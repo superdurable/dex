@@ -6,11 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { credentials, Metadata, status, type ServiceError } from "@grpc/grpc-js";
+import { Metadata, status, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import { AttributeMatch } from "./attribute-match.js";
 import { credentialInterceptors } from "./credential.js";
+import { createFlowServiceChannel } from "./flow-service-tls.js";
 import {
   isHardDeleteOnNullDefinition,
   requireHardDeleteAttributeWriteSupport,
@@ -155,20 +156,22 @@ export class Client {
   private serverInfoRequest: Promise<ServerInfo> | undefined;
 
   /**
-   * Constructs a Client and lazy plaintext gRPC connection.
+   * Constructs a Client and lazy gRPC connection, plaintext unless `options.flowServiceTls` is set.
    * @param registry - Flow definitions used for validation and routing.
    * @param blobCache - Open cache used to hydrate large response values.
-   * @param options - Service address and optional bearer credential.
+   * @param options - Service address, optional bearer credential, and optional TLS settings.
+   * @throws {TypeError} When `flowServiceTls` is set and the address or TLS settings are invalid.
    */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: ClientOptions = {},
   ) {
+    const channel = createFlowServiceChannel(options.serverAddress ?? defaultServerAddress, options.flowServiceTls);
     this.service = new FlowServiceClient(
-      options.serverAddress ?? defaultServerAddress,
-      credentials.createInsecure(),
-      { interceptors: credentialInterceptors(options.credential) },
+      channel.target,
+      channel.channelCredentials,
+      { ...channel.channelOptions, interceptors: credentialInterceptors(options.credential) },
     );
     this.hydrator = new ValueHydrator(this.service, blobCache);
   }
