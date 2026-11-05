@@ -14,26 +14,23 @@ mod queue_heads;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use dexzd_apply::dispatch_queue_entry;
+use dexzd_apply::{BoundedRowSeek, dispatch_queue_entry};
 use dexzd_keyspace::dispatch_queue_keys::{
-    DispatchQueueEntry, DispatchQueueName, DispatchQueuePosition, decode_dispatch_queue_key,
-    dispatch_queue_key, dispatch_queue_prefix,
+    DEFAULT_DISPATCH_PRIORITY, DispatchQueueEntry, DispatchQueueName, DispatchQueuePosition,
+    decode_dispatch_queue_key, dispatch_queue_key, dispatch_queue_prefix,
 };
 use dexzd_keyspace::row_keys::prefix_range;
-use dexzd_keyspace::{ColumnFamily, PartitionId};
+use dexzd_keyspace::{ColumnFamily, FlowHash, PartitionId, RunId};
 use dexzd_protocol::dexzd::v1::{DispatchQueueRecord, StepInvocationKey, StepInvocationPhase};
 use dexzd_worker_dispatch::{ClaimReply, ClaimResult, QueuedTaskRef};
 
 use crate::effects::method_request::MethodAttemptKey;
 use crate::effects::state_reads::{RunLocation, decode_row, read_run_record, read_step_execution};
-use crate::effects::{EffectContext, EffectError};
+use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
 use crate::flow_coordination::FlowAddress;
 
 pub(crate) use queue_claims::run_claim_pump;
-pub(crate) use queue_heads::{rebuild_heads, run_heads_resync};
-
-/// Rows read per page while seeking past rows that holders send back.
-const SEEK_PAGE_ROWS: usize = 64;
+pub(crate) use queue_heads::{count_partition_rows, rebuild_heads, run_heads_resync};
 
 /// What periodic Heads resume from and the row counts; rebuild recreates it.
 #[derive(Default)]
@@ -43,9 +40,25 @@ pub(crate) struct TaskQueueMemory {
     /// First live row the last scan saw, per (partition, queue).
     scanned_heads: BTreeMap<(PartitionId, DispatchQueueName), DispatchQueuePosition>,
     /// DispatchQueue rows per owned partition.
-    entry_counts: BTreeMap<PartitionId, i64>,
+    entry_counts: BTreeMap<PartitionId, PartitionRowCount>,
+    /// Counted rows of every owned partition.
+    total_entries: i64,
     /// Partitions this node rebuilt and serves.
     owned_partitions: BTreeSet<PartitionId>,
+}
+
+/// A committed command's log batch as (incarnation, seq), the order of one node's batches.
+pub(crate) type QueueChangePosition = (u32, u64);
+
+/// DispatchQueue rows of one partition: a snapshot count plus the committed changes after it.
+#[derive(Default)]
+struct PartitionRowCount {
+    /// Counted rows, or `None` while a count runs.
+    rows: Option<i64>,
+    /// Applied batch of the counted snapshot; changes up to it are already counted.
+    watermark: Option<QueueChangePosition>,
+    /// Changes committed while the count runs.
+    early_changes: Vec<(Option<QueueChangePosition>, i64)>,
 }
 
 impl TaskQueueMemory {
@@ -61,12 +74,67 @@ impl TaskQueueMemory {
         }
     }
 
-    /// Adds `delta` rows to the partition's count.
+    /// Adds a committed change of `delta` rows in the batch at `position`.
     ///
     /// Returns the count of every owned partition.
-    pub(crate) fn add_entries(&mut self, partition: PartitionId, delta: i64) -> i64 {
-        *self.entry_counts.entry(partition).or_default() += delta;
-        self.entry_counts.values().sum()
+    pub(crate) fn add_entries(
+        &mut self,
+        partition: PartitionId,
+        position: Option<QueueChangePosition>,
+        delta: i64,
+    ) -> i64 {
+        let count = self.entry_counts.entry(partition).or_default();
+        match count.rows.as_mut() {
+            None => count.early_changes.push((position, delta)),
+            Some(rows) if is_after(position, count.watermark) => {
+                *rows += delta;
+                self.total_entries += delta;
+            }
+            Some(_) => {}
+        }
+        self.total_entries
+    }
+
+    /// Forgets the partition's count; changes wait for [`Self::finish_row_count`].
+    ///
+    /// Returns the count of every owned partition.
+    pub(crate) fn begin_row_count(&mut self, partition: PartitionId) -> i64 {
+        let count = self.entry_counts.entry(partition).or_default();
+        self.total_entries -= count.rows.take().unwrap_or(0);
+        count.watermark = None;
+        count.early_changes.clear();
+        self.total_entries
+    }
+
+    /// Sets the partition's count from a snapshot applied up to `watermark`, then adds the
+    /// changes committed after it.
+    ///
+    /// Returns the count of every owned partition.
+    pub(crate) fn finish_row_count(
+        &mut self,
+        partition: PartitionId,
+        snapshot_rows: i64,
+        watermark: Option<QueueChangePosition>,
+    ) -> i64 {
+        let count = self.entry_counts.entry(partition).or_default();
+        let later: i64 = count
+            .early_changes
+            .drain(..)
+            .filter(|(position, _)| is_after(*position, watermark))
+            .map(|(_, delta)| delta)
+            .sum();
+        let previous = count.rows.replace(snapshot_rows + later).unwrap_or(0);
+        count.watermark = watermark;
+        self.total_entries += snapshot_rows + later - previous;
+        self.total_entries
+    }
+}
+
+/// Returns whether a change at `position` is missing from a snapshot applied up to `watermark`.
+fn is_after(position: Option<QueueChangePosition>, watermark: Option<QueueChangePosition>) -> bool {
+    match (position, watermark) {
+        (Some(position), Some(watermark)) => position > watermark,
+        _ => true,
     }
 }
 
@@ -194,28 +262,77 @@ pub(crate) fn next_queue_ref(
     }
     let (_, end) = prefix_range(&dispatch_queue_prefix(partition, queue));
     loop {
-        let rows = reader.scan(ColumnFamily::PartitionIndex, &start, &end, SEEK_PAGE_ROWS)?;
-        for (key, value) in &rows {
-            let Some(task) = decode_queue_row(reader.as_ref(), key, value)? else {
-                continue;
-            };
-            if context.attempt_entries().is_held(&ref_attempt_key(&task)) {
-                continue;
-            }
-            if should_check_pending && !is_ref_pending(context, &task)? {
-                continue;
-            }
-            return Ok(Some(task));
-        }
-        let Some((last_key, _)) = rows.last() else {
-            return Ok(None);
+        let (key, value) = match reader.seek_first_bounded(
+            ColumnFamily::PartitionIndex,
+            &start,
+            &end,
+            context.config.heads_max_skipped_deletions,
+        )? {
+            BoundedRowSeek::Found(row) => row,
+            BoundedRowSeek::Exhausted => return Ok(None),
+            BoundedRowSeek::Incomplete => return Err(too_many_deleted_entries()),
         };
-        if rows.len() < SEEK_PAGE_ROWS {
-            return Ok(None);
-        }
-        start.clone_from(last_key);
+        start.clone_from(&key);
         start.push(0);
+        let Some(task) = decode_queue_row(reader.as_ref(), &key, &value)? else {
+            continue;
+        };
+        if context.attempt_entries().is_held(&ref_attempt_key(&task)) {
+            continue;
+        }
+        if should_check_pending && !is_ref_pending(context, &task)? {
+            continue;
+        }
+        return Ok(Some(task));
     }
+}
+
+/// Seeks the pending time of the queue's first ordinary-priority row, held or not.
+///
+/// Returns `None` when the queue has none.
+pub(crate) fn first_ordinary_pending_since(
+    reader: &dyn dexzd_apply::FlowStateReader,
+    max_skipped_deletions: u64,
+    partition: PartitionId,
+    queue: &DispatchQueueName,
+) -> Result<Option<i64>, EffectError> {
+    let start = dispatch_queue_key(&DispatchQueueEntry {
+        partition,
+        queue: queue.clone(),
+        position: DispatchQueuePosition {
+            priority: DEFAULT_DISPATCH_PRIORITY,
+            pending_since_micros: i64::MIN,
+            flow_hash: FlowHash(0),
+            run_id: RunId([0; 16]),
+            method: 0,
+            attempt: 0,
+            step_execution_id: String::new(),
+        },
+    });
+    let (_, end) = prefix_range(&dispatch_queue_prefix(partition, queue));
+    let key = match reader.seek_first_bounded(
+        ColumnFamily::PartitionIndex,
+        &start,
+        &end,
+        max_skipped_deletions,
+    )? {
+        BoundedRowSeek::Found((key, _)) => key,
+        BoundedRowSeek::Exhausted => return Ok(None),
+        BoundedRowSeek::Incomplete => return Err(too_many_deleted_entries()),
+    };
+    let entry = decode_dispatch_queue_key(&key).ok_or_else(|| EffectError::CorruptState {
+        table: "DispatchQueue",
+        key: crate::effects::hex(&key),
+        detail: "malformed key".to_owned(),
+    })?;
+    Ok(Some(entry.position.pending_since_micros))
+}
+
+/// Returns the retryable error of a seek that skipped too many deleted entries.
+fn too_many_deleted_entries() -> EffectError {
+    EffectError::FlowEffectOperations(FlowEffectOperationError::Unavailable {
+        detail: "a DispatchQueue seek skipped too many deleted entries".to_owned(),
+    })
 }
 
 /// Answers a Claim with the queue's next ref, or owes it when the seek fails.
@@ -240,12 +357,49 @@ pub(crate) fn reply_to_claim(
             None
         }
     };
+    let is_next_priority_zero = next
+        .as_ref()
+        .is_some_and(|next| next.position.priority < DEFAULT_DISPATCH_PRIORITY);
     context.dispatcher.reply_to_claim(
         task.partition,
         &task.queue,
         claim_id,
         ClaimReply { result, next },
     );
+    if is_next_priority_zero {
+        report_ordinary_backlog(context, task.partition, &task.queue);
+    }
+}
+
+/// Reports the queue's first ordinary-priority pending time behind its priority-0 ref.
+pub(crate) fn report_ordinary_backlog(
+    context: &EffectContext,
+    partition: PartitionId,
+    queue: &DispatchQueueName,
+) {
+    let pending_since = context
+        .flow_effect_operations
+        .committed_state_reader()
+        .map_err(EffectError::from)
+        .and_then(|reader| {
+            first_ordinary_pending_since(
+                reader.as_ref(),
+                context.config.heads_max_skipped_deletions,
+                partition,
+                queue,
+            )
+        });
+    match pending_since {
+        Ok(pending_since) => {
+            context
+                .dispatcher
+                .report_ordinary_backlog(partition, queue, pending_since);
+        }
+        // Only the oldest-age gauge waits for the next reply or scan.
+        Err(error) => {
+            tracing::debug!(%error, partition = partition.0, "ordinary backlog age unread")
+        }
+    }
 }
 
 /// Sends the first pending, unheld row at or after `task`, retrying failed reads.
@@ -283,6 +437,7 @@ pub(crate) fn owe_next_ref(context: &Arc<EffectContext>, task: QueuedTaskRef) {
 pub(crate) fn note_queue_change(
     context: &EffectContext,
     partition: PartitionId,
+    position: Option<QueueChangePosition>,
     written_keys: &[Vec<u8>],
     removed_count: u32,
 ) {
@@ -293,7 +448,11 @@ pub(crate) fn note_queue_change(
         }
     }
     let written_count = i64::try_from(written_keys.len()).unwrap_or(i64::MAX);
-    let total = memory.add_entries(partition, written_count - i64::from(removed_count));
+    let total = memory.add_entries(
+        partition,
+        position,
+        written_count - i64::from(removed_count),
+    );
     drop(memory);
     context.metrics.step_task_queue_entries.set(total);
 }

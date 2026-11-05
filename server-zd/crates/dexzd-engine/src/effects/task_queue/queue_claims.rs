@@ -45,6 +45,14 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
         task,
         stream,
     } = claim;
+    if !context
+        .dispatcher
+        .is_claim_tracked(task.partition, &task.queue, claim_id)
+    {
+        // Matching removed the partition; its next owner serves the row.
+        drop(stream);
+        return;
+    }
     // Without a valid lease the node hands out nothing; it holds the row and retries.
     let check = if stream.may_hand_out_tasks() {
         is_ref_pending(&context, &task).map_err(|error| error.to_string())

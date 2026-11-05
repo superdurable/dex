@@ -8,12 +8,14 @@
 
 //! Durable task queue tests: Claim replies, retry clocks of queued attempts, and closing owners.
 
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
 use dexzd_keyspace::dispatch_queue_keys::{DispatchQueueEntry, dispatch_queue_key};
-use dexzd_keyspace::{ColumnFamily, RunId};
+use dexzd_keyspace::{ColumnFamily, PartitionId, RunId};
 use dexzd_protocol::dex::{
     FlowStatus, FlowTimeoutPolicy, PollWorkerTaskRejectReason, RetryPolicy, StartFlowRequest,
     StepDurability, StepOptions, StopFlowRequest, StopType,
@@ -28,6 +30,7 @@ use super::dispatch_tests::force_complete;
 use super::{EffectHarness, is_attempt_failed, is_timers_fired, settings, start_request};
 use crate::effects::dispatch::{AttemptEntries, ClaimHolder, HandoutProgress};
 use crate::effects::method_request::MethodAttemptKey;
+use crate::effects::task_queue::TaskQueueMemory;
 use crate::effects::{EffectsConfig, MethodRequest};
 use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 
@@ -849,5 +852,156 @@ async fn a_flow_timeout_handler_queues_ahead_of_the_waiting_step() {
         "the handler sorts ahead (plan D16): {handler:?}"
     );
     assert!(failure_kinds(&harness).is_empty());
+    harness.shutdown().await;
+}
+
+/// A held row whose committed read fails retries after a backoff and stops at shutdown.
+#[tokio::test(start_paused = true)]
+async fn a_failing_committed_read_backs_off_and_the_holder_stops_at_shutdown() {
+    let harness = EffectHarness::new();
+    let (_, first, second) = queue_locked_and_unlocked_rows(&harness).await;
+    harness
+        .flow_effect_operations
+        .unavailable_proposals
+        .store(1, Ordering::SeqCst);
+    harness.dispatcher.claim(1, first);
+    harness.settle().await;
+    assert_eq!(
+        claim_results(&harness),
+        vec![(1, ClaimResult::RetryLater, Some(second))]
+    );
+    harness
+        .flow_effect_operations
+        .committed_reader_failures
+        .store(usize::MAX, Ordering::SeqCst);
+    let reads_before = harness
+        .flow_effect_operations
+        .committed_reads
+        .load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    harness.settle().await;
+    let reads = harness
+        .flow_effect_operations
+        .committed_reads
+        .load(Ordering::SeqCst)
+        - reads_before;
+    assert!(reads >= 1, "the holder retried the committed read");
+    assert!(
+        reads <= 10,
+        "{reads} committed reads in 10 s: retries back off"
+    );
+    assert_eq!(
+        queued_refs(&harness).len(),
+        2,
+        "an unreadable row is not sent"
+    );
+    tokio::time::timeout(Duration::from_secs(60), harness.shutdown())
+        .await
+        .expect("the holder stops at shutdown");
+}
+
+/// TB18: rebuild Heads seeks once per partition and once per nonempty queue, not per row.
+#[tokio::test(start_paused = true)]
+async fn rebuild_heads_seek_once_per_queue_however_long_the_backlog() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    for index in 0..48 {
+        start_execute_flow(&harness, &format!("order-{index}"), StepOptions::default());
+    }
+    harness.settle().await;
+    let refs = queued_refs(&harness);
+    assert_eq!(refs.len(), 48, "every attempt is queued");
+    let nonempty_queues: BTreeSet<_> = refs
+        .iter()
+        .map(|task| (task.partition, task.queue.clone()))
+        .collect();
+    let seeks = Arc::clone(&harness.flow_effect_operations.committed_queue_seeks);
+    seeks.store(0, Ordering::SeqCst);
+    harness
+        .dispatcher
+        .rebuilt_heads
+        .lock()
+        .expect("lock")
+        .clear();
+
+    harness.rebuild_all_partitions().await;
+    let heads = harness
+        .dispatcher
+        .rebuilt_heads
+        .lock()
+        .expect("lock")
+        .clone();
+    assert_eq!(
+        heads.len(),
+        nonempty_queues.len(),
+        "one head per nonempty queue"
+    );
+    assert_eq!(
+        seeks.load(Ordering::SeqCst),
+        16 + nonempty_queues.len(),
+        "one seek per partition plus one per nonempty queue"
+    );
+    assert_eq!(
+        command_count(&harness, is_attempt_queued),
+        48,
+        "rebuild proposes no StepAttemptQueued"
+    );
+    harness.shutdown().await;
+}
+
+/// The entries gauge counts every committed change once across a rebuild's snapshot.
+#[test]
+fn the_row_count_counts_each_change_once_across_a_snapshot() {
+    let mut memory = TaskQueueMemory::default();
+    let partition = PartitionId(3);
+    // Applied before the count began, so the snapshot holds it.
+    memory.add_entries(partition, Some((1, 5)), 1);
+    assert_eq!(memory.begin_row_count(partition), 0);
+    // Batch 6 is in the snapshot taken at batch 7; batch 8 is not.
+    memory.add_entries(partition, Some((1, 6)), 1);
+    memory.add_entries(partition, Some((1, 8)), -1);
+    assert_eq!(memory.finish_row_count(partition, 10, Some((1, 7))), 9);
+    assert_eq!(
+        memory.add_entries(partition, Some((1, 7)), 1),
+        9,
+        "a late change the snapshot holds counts once"
+    );
+    assert_eq!(
+        memory.add_entries(partition, Some((2, 1)), 2),
+        11,
+        "a later incarnation's batch counts"
+    );
+    memory.add_entries(PartitionId(4), Some((2, 2)), 5);
+    assert_eq!(memory.finish_row_count(PartitionId(4), 0, Some((2, 1))), 16);
+    memory.begin_row_count(partition);
+    assert_eq!(
+        memory.finish_row_count(partition, 4, Some((2, 3))),
+        9,
+        "a recount replaces the partition's share"
+    );
+}
+
+/// A Claim that matching stopped tracking, as after a partition removal, starts nothing.
+#[tokio::test(start_paused = true)]
+async fn an_untracked_claim_starts_nothing_and_gets_no_reply() {
+    let harness = EffectHarness::new();
+    let (_, first, _) = queue_locked_and_unlocked_rows(&harness).await;
+    harness
+        .dispatcher
+        .untracked_claim_ids
+        .lock()
+        .expect("lock")
+        .insert(1);
+    harness.dispatcher.claim(1, first);
+    harness.settle().await;
+    assert!(
+        claim_results(&harness).is_empty(),
+        "no reply to an untracked Claim"
+    );
+    assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
     harness.shutdown().await;
 }

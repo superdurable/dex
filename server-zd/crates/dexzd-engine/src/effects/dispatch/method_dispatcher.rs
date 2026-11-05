@@ -142,6 +142,22 @@ pub trait MethodDispatcher: Send + Sync + 'static {
         reply: ClaimReply,
     );
 
+    /// Returns whether matching still waits for the reply to this Claim.
+    fn is_claim_tracked(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        claim_id: u64,
+    ) -> bool;
+
+    /// Reports the pending time of the first ordinary-priority row behind a priority-0 head.
+    fn report_ordinary_backlog(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        pending_since_micros: Option<i64>,
+    );
+
     /// Returns whether every connected Worker of the Flow type declined the Step type.
     fn is_waiting_for_supporting_worker(
         &self,
@@ -220,6 +236,24 @@ impl MethodDispatcher for WorkerDispatch {
         reply: ClaimReply,
     ) {
         WorkerDispatch::reply_to_claim(self, partition, queue, claim_id, reply);
+    }
+
+    fn is_claim_tracked(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        claim_id: u64,
+    ) -> bool {
+        WorkerDispatch::is_claim_tracked(self, partition, queue, claim_id)
+    }
+
+    fn report_ordinary_backlog(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        pending_since_micros: Option<i64>,
+    ) {
+        WorkerDispatch::report_ordinary_backlog(self, partition, queue, pending_since_micros);
     }
 
     fn is_waiting_for_supporting_worker(

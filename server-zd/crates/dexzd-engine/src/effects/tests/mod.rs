@@ -206,6 +206,10 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) state_read_gate: Arc<StateReadGate>,
     /// Counts `committed_state_reader` calls.
     pub(super) committed_reads: AtomicUsize,
+    /// Fails the next `committed_state_reader` calls as unavailable; other reads succeed.
+    pub(super) committed_reader_failures: AtomicUsize,
+    /// Counts committed DispatchQueue seeks and pages other than row-count pages.
+    pub(super) committed_queue_seeks: Arc<AtomicUsize>,
     /// Counts `flow_state_reader` calls that leave out speculative state.
     pub(super) committed_flow_reads: AtomicUsize,
     /// Delays each `propose_committed`, like a group commit window plus an object store write.
@@ -491,7 +495,21 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
         &self,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
         self.committed_reads.fetch_add(1, Ordering::SeqCst);
-        Ok(Box::new(self.snapshot()))
+        if self
+            .committed_reader_failures
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok()
+        {
+            return Err(FlowEffectOperationError::Unavailable {
+                detail: "injected committed reader outage".to_owned(),
+            });
+        }
+        Ok(Box::new(CountingStateReader {
+            state: self.snapshot(),
+            queue_seeks: Arc::clone(&self.committed_queue_seeks),
+        }))
     }
 }
 
@@ -634,6 +652,60 @@ impl FlowStateReader for GatedStateReader {
     ) -> Result<Vec<StateRow>, StateReadError> {
         self.read.0.hold_while_closed();
         self.state.scan(column_family, start, end, limit)
+    }
+}
+
+/// Page size of the entries gauge's row count, which reads every row by design.
+const ROW_COUNT_PAGE_ROWS: usize = 1024;
+
+/// Counts DispatchQueue seeks and pages, except the row count's full pages.
+struct CountingStateReader {
+    state: MemoryState,
+    queue_seeks: Arc<AtomicUsize>,
+}
+
+impl CountingStateReader {
+    fn count_queue_seek(&self, column_family: ColumnFamily, start: &[u8]) {
+        if column_family == ColumnFamily::PartitionIndex
+            && start.get(2) == Some(&(dexzd_keyspace::IndexKind::DispatchQueue as u8))
+        {
+            self.queue_seeks.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+impl FlowStateReader for CountingStateReader {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        self.state.get(column_family, key)
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        if limit < ROW_COUNT_PAGE_ROWS {
+            self.count_queue_seek(column_family, start);
+        }
+        self.state.scan(column_family, start, end, limit)
+    }
+
+    fn seek_first_bounded(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        max_skipped_deletions: u64,
+    ) -> Result<dexzd_apply::BoundedRowSeek, StateReadError> {
+        self.count_queue_seek(column_family, start);
+        self.state
+            .seek_first_bounded(column_family, start, end, max_skipped_deletions)
     }
 }
 
@@ -856,6 +928,10 @@ pub(super) struct FakeDispatcher {
     pub(super) heads_matching: WorkerDispatch,
     /// Refs that periodic Heads scans restored, summed over scans.
     pub(super) restored_head_count: AtomicUsize,
+    /// Claims that matching no longer tracks, as after a partition removal.
+    pub(super) untracked_claim_ids: Mutex<BTreeSet<u64>>,
+    /// Ordinary-priority pending times reported behind priority-0 heads, in order.
+    pub(super) ordinary_backlog: Mutex<Vec<Option<i64>>>,
 }
 
 impl FakeDispatcher {
@@ -881,6 +957,8 @@ impl FakeDispatcher {
                 Arc::new(dexzd_clock::SystemWallClock),
             ),
             restored_head_count: AtomicUsize::new(0),
+            untracked_claim_ids: Mutex::new(BTreeSet::new()),
+            ordinary_backlog: Mutex::new(Vec::new()),
         }
     }
 
@@ -985,6 +1063,31 @@ impl MethodDispatcher for FakeDispatcher {
             .lock()
             .expect("lock")
             .push((claim_id, reply));
+    }
+
+    fn is_claim_tracked(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        claim_id: u64,
+    ) -> bool {
+        !self
+            .untracked_claim_ids
+            .lock()
+            .expect("lock")
+            .contains(&claim_id)
+    }
+
+    fn report_ordinary_backlog(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        pending_since_micros: Option<i64>,
+    ) {
+        self.ordinary_backlog
+            .lock()
+            .expect("lock")
+            .push(pending_since_micros);
     }
 
     fn is_waiting_for_supporting_worker(
@@ -1191,6 +1294,8 @@ impl EffectHarness {
             is_flow_state_unreadable_after_start: AtomicBool::new(false),
             state_read_gate: Arc::new(StateReadGate::new()),
             committed_reads: AtomicUsize::new(0),
+            committed_reader_failures: AtomicUsize::new(0),
+            committed_queue_seeks: Arc::new(AtomicUsize::new(0)),
             committed_flow_reads: AtomicUsize::new(0),
             proposal_delay: Mutex::new(Duration::ZERO),
             overrides: Mutex::new(Vec::new()),

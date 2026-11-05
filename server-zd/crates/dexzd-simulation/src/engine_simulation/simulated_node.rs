@@ -540,6 +540,8 @@ fn effects_config(settings: RunSettings) -> EffectsConfig {
         retry_max_backoff: Duration::from_secs(5),
         child_run_settings: settings,
         blocking_work: BlockingWorkPlacement::CallingTaskForTest,
+        // Periodic Heads would restore a lost ref and hide a stranded-task bug.
+        heads_resync_interval: Duration::ZERO,
         ..EffectsConfig::default()
     }
 }

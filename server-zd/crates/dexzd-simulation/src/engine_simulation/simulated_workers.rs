@@ -825,6 +825,23 @@ impl MethodDispatcher for NodeWorkerPort {
             .report_scanned_heads(token, Vec::new())
     }
 
+    fn is_claim_tracked(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        _claim_id: u64,
+    ) -> bool {
+        true
+    }
+
+    fn report_ordinary_backlog(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        _pending_since_micros: Option<i64>,
+    ) {
+    }
+
     fn next_claim(&self) -> BoxFuture<'_, Option<MethodClaim>> {
         Box::pin(async move {
             loop {

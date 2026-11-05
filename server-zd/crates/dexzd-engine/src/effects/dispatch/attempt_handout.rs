@@ -239,7 +239,7 @@ impl AttemptHandout {
         }
         // The speculative view counts an uncommitted start as a deletion (plan section 3.2).
         match self.is_in_dispatch_queue(pending, true) {
-            Ok(true) => return self.send_queued_row(pending).await,
+            Ok(true) => return self.send_queued_row(pending, backoff).await,
             Ok(false) => {}
             Err(error) => {
                 self.log_wait(&error);
@@ -302,13 +302,17 @@ impl AttemptHandout {
     }
 
     /// Sends the ref of a row already queued, once the row is committed.
-    async fn send_queued_row(&self, pending: &PendingAttempt) -> Reservation {
+    async fn send_queued_row(
+        &self,
+        pending: &PendingAttempt,
+        backoff: &mut RetryBackoff,
+    ) -> Reservation {
         match self.is_in_dispatch_queue(pending, false) {
             Ok(true) => return self.send_queued(pending),
             Ok(false) => {}
             Err(error) => {
                 self.log_wait(&error);
-                return Reservation::Again;
+                return self.wait_again(backoff).await;
             }
         }
         match self
@@ -323,7 +327,7 @@ impl AttemptHandout {
             }
             Err(error) => {
                 self.log_wait(&EffectError::FlowEffectOperations(error));
-                Reservation::Again
+                self.wait_again(backoff).await
             }
         }
     }

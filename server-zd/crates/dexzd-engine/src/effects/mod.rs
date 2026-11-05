@@ -36,11 +36,14 @@ use dexzd_apply::{ApplyEffect, StateReadError};
 use dexzd_clock::WallClock;
 use dexzd_keyspace::{PartitionHasher, PartitionId, RunId};
 use dexzd_object_store::ObjectStoreError;
-use dexzd_protocol::dexzd::v1::{CommandReply, FlowCommand, PendingHardDeleteUpload, RunSettings};
+use dexzd_protocol::dexzd::v1::{
+    CommandReply, FlowCommand, LogPosition, PendingHardDeleteUpload, RunSettings,
+};
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::StorageError;
 use dexzd_stream_store::StreamStore;
 use futures::future::BoxFuture;
+use task_queue::QueueChangePosition;
 use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -225,6 +228,8 @@ pub(crate) enum RouterMessage {
         effects: Vec<ApplyEffect>,
         is_committed: bool,
         scheduled_at: Option<std::time::Instant>,
+        /// The committed command's log batch, when known.
+        position: Option<QueueChangePosition>,
     },
     RebuildPartition {
         partition: PartitionId,
@@ -506,6 +511,28 @@ impl FlowCoordinationEffectSink for EffectRunner {
             effects: effects.to_vec(),
             is_committed,
             scheduled_at: is_committed.then(std::time::Instant::now),
+            position: None,
+        };
+        if self.router.send(message).is_err() {
+            tracing::debug!("effect runner stopped; effects are rebuilt after restart");
+        }
+    }
+
+    fn handle_committed(
+        &self,
+        flow: &FlowAddress,
+        effects: &[ApplyEffect],
+        position: &LogPosition,
+    ) {
+        if effects.is_empty() {
+            return;
+        }
+        let message = RouterMessage::Effects {
+            flow: flow.clone(),
+            effects: effects.to_vec(),
+            is_committed: true,
+            scheduled_at: Some(std::time::Instant::now()),
+            position: Some((position.incarnation, position.seq)),
         };
         if self.router.send(message).is_err() {
             tracing::debug!("effect runner stopped; effects are rebuilt after restart");
@@ -631,9 +658,10 @@ impl EffectRouter {
                 effects,
                 is_committed,
                 scheduled_at,
+                position,
             } => {
                 for effect in effects {
-                    self.route_effect(&flow, effect, is_committed, scheduled_at);
+                    self.route_effect(&flow, effect, is_committed, scheduled_at, position);
                 }
             }
             RouterMessage::RebuildPartition { partition, reply } => {
@@ -681,6 +709,7 @@ impl EffectRouter {
         effect: ApplyEffect,
         is_committed: bool,
         scheduled_at: Option<std::time::Instant>,
+        position: Option<QueueChangePosition>,
     ) {
         match effect {
             ApplyEffect::InvocationPending {
@@ -711,6 +740,7 @@ impl EffectRouter {
                 task_queue::note_queue_change(
                     &self.context,
                     partition,
+                    position,
                     &written_keys,
                     removed_count,
                 );

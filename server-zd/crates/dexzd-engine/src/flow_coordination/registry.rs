@@ -370,10 +370,11 @@ impl FlowCoordinatorRegistry {
                 ));
                 return;
             }
-            self.inner
-                .dependencies
-                .effects
-                .handle(&flow, &outcome.effects, true);
+            self.inner.dependencies.effects.handle_committed(
+                &flow,
+                &outcome.effects,
+                &committed.committed.position,
+            );
         }
         for effect in &outcome.effects {
             if let ApplyEffect::WakeWaiters { change, .. } = effect {

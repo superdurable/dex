@@ -73,8 +73,11 @@ pub(crate) async fn rebuild_partition(
             effects,
             is_committed: true,
             scheduled_at: None,
+            position: None,
         });
     }
+    // Counting reads every queue row, so it runs after the rebuilt work is submitted.
+    crate::effects::task_queue::count_partition_rows(context, partition)?;
     tracing::debug!(%partition, effect_count, "rebuilt partition effects");
     Ok(effect_count)
 }

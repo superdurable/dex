@@ -15,7 +15,7 @@ use dexzd_protocol::dex::{
     AttributeWrite, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, PullRouting, Value,
     WorkerErrorResponse,
 };
-use dexzd_protocol::dexzd::v1::HardDeleteObjectReference;
+use dexzd_protocol::dexzd::v1::{HardDeleteObjectReference, LogPosition};
 use futures::future::BoxFuture;
 use tokio::time::Instant;
 
@@ -28,6 +28,18 @@ pub trait FlowCoordinationEffectSink: Send + Sync + 'static {
     ///
     /// Must not block: the runtime calls it while it serializes the Flow.
     fn handle(&self, flow: &FlowAddress, effects: &[ApplyEffect], is_committed: bool);
+
+    /// Handles the committed effects of a command applied in the log batch at `position`.
+    ///
+    /// Must not block, like [`Self::handle`].
+    fn handle_committed(
+        &self,
+        flow: &FlowAddress,
+        effects: &[ApplyEffect],
+        _position: &LogPosition,
+    ) {
+        self.handle(flow, effects, true);
+    }
 }
 
 /// One RPC call to a Worker.

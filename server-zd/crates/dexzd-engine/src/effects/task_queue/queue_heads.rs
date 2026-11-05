@@ -15,20 +15,27 @@ use std::time::Duration;
 
 use dexzd_apply::BoundedRowSeek;
 use dexzd_keyspace::dispatch_queue_keys::{
-    DispatchQueueEntry, DispatchQueueName, DispatchQueuePosition, decode_dispatch_queue_key,
-    dispatch_queue_key, dispatch_queue_partition_prefix, dispatch_queue_prefix,
+    DEFAULT_DISPATCH_PRIORITY, DispatchQueueEntry, DispatchQueueName, DispatchQueuePosition,
+    decode_dispatch_queue_key, dispatch_queue_key, dispatch_queue_partition_prefix,
+    dispatch_queue_prefix,
 };
 use dexzd_keyspace::row_keys::prefix_range;
-use dexzd_keyspace::{ColumnFamily, PartitionId};
-use dexzd_worker_dispatch::{QueuedTaskRef, ScannedQueueHead};
+use dexzd_keyspace::{ColumnFamily, PartitionId, partition_meta_key};
+use dexzd_protocol::dexzd::v1::PartitionMeta;
+use dexzd_worker_dispatch::ScannedQueueHead;
 
-use super::{SEEK_PAGE_ROWS, decode_queue_row, is_ref_pending, ref_attempt_key};
+use super::{decode_queue_row, first_ordinary_pending_since, is_ref_pending, ref_attempt_key};
+use crate::effects::state_reads::decode_row;
 use crate::effects::{EffectContext, EffectError};
 
 /// How often the task queue gauges that matching owns are refreshed.
 const GAUGE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Reports the queue heads of a rebuilt partition to matching and counts its rows.
+/// Rows read per page while counting a partition's queue rows.
+const COUNT_PAGE_ROWS: usize = 1024;
+
+/// Reports a rebuilt partition's queue heads to matching with a bounded skip scan (plan
+/// section 3.2).
 ///
 /// Returns the number of heads, or the read's error.
 pub(crate) fn rebuild_heads(
@@ -38,9 +45,9 @@ pub(crate) fn rebuild_heads(
     let reader = context.flow_effect_operations.committed_state_reader()?;
     let (mut cursor, end) = prefix_range(&dispatch_queue_partition_prefix(partition));
     let mut heads = Vec::new();
+    let mut ordinary_backlog = Vec::new();
     let mut scanned_heads = BTreeMap::new();
-    let mut row_count = 0_i64;
-    while let Some((first_key, _)) = reader
+    while let Some((first_key, first_value)) = reader
         .scan(ColumnFamily::PartitionIndex, &cursor, &end, 1)?
         .into_iter()
         .next()
@@ -51,46 +58,44 @@ pub(crate) fn rebuild_heads(
                 key: crate::effects::hex(&first_key),
                 detail: "malformed key".to_owned(),
             })?;
-        let (queue_start, queue_end) =
-            prefix_range(&dispatch_queue_prefix(partition, &entry.queue));
-        let mut page_start = queue_start;
-        let mut head: Option<QueuedTaskRef> = None;
-        loop {
-            let rows = reader.scan(
-                ColumnFamily::PartitionIndex,
-                &page_start,
-                &queue_end,
-                SEEK_PAGE_ROWS,
-            )?;
-            for (key, value) in &rows {
-                row_count += 1;
-                if head.is_some() {
-                    continue;
-                }
-                let Some(task) = decode_queue_row(reader.as_ref(), key, value)? else {
-                    continue;
-                };
+        let (_, queue_end) = prefix_range(&dispatch_queue_prefix(partition, &entry.queue));
+        let mut row = Some((first_key, first_value));
+        while let Some((key, value)) = row.take() {
+            if let Some(task) = decode_queue_row(reader.as_ref(), &key, &value)? {
                 scanned_heads
                     .entry(entry.queue.clone())
                     .or_insert_with(|| task.position.clone());
                 if !context.attempt_entries().is_held(&ref_attempt_key(&task)) {
-                    head = Some(task);
+                    if task.position.priority < DEFAULT_DISPATCH_PRIORITY {
+                        let pending_since = first_ordinary_pending_since(
+                            reader.as_ref(),
+                            u64::MAX,
+                            partition,
+                            &task.queue,
+                        )?;
+                        ordinary_backlog.push((task.queue.clone(), pending_since));
+                    }
+                    heads.push(task);
+                    break;
                 }
             }
-            match rows.last() {
-                Some((last_key, _)) if rows.len() == SEEK_PAGE_ROWS => {
-                    page_start.clone_from(last_key);
-                    page_start.push(0);
-                }
-                _ => break,
-            }
+            let mut next = key;
+            next.push(0);
+            row = reader
+                .scan(ColumnFamily::PartitionIndex, &next, &queue_end, 1)?
+                .into_iter()
+                .next();
         }
-        heads.extend(head);
         cursor = queue_end;
     }
     let head_count = heads.len();
     // Heads only lower refs, so a Queued that arrived first is never lost.
     context.dispatcher.report_rebuilt_heads(heads);
+    for (queue, pending_since) in ordinary_backlog {
+        context
+            .dispatcher
+            .report_ordinary_backlog(partition, &queue, pending_since);
+    }
     let mut memory = context.task_queue_memory();
     let stale: Vec<_> = memory
         .scanned_heads
@@ -104,12 +109,48 @@ pub(crate) fn rebuild_heads(
     for (queue, position) in scanned_heads {
         memory.scanned_heads.insert((partition, queue), position);
     }
-    memory.entry_counts.insert(partition, row_count);
     memory.owned_partitions.insert(partition);
-    let total = memory.entry_counts.values().sum();
-    drop(memory);
-    context.metrics.step_task_queue_entries.set(total);
     Ok(head_count)
+}
+
+/// Counts a rebuilt partition's queue rows, fenced to the snapshot's applied batch so each
+/// commit counts once.
+///
+/// Returns the read's error.
+pub(crate) fn count_partition_rows(
+    context: &EffectContext,
+    partition: PartitionId,
+) -> Result<(), EffectError> {
+    // Begins before the snapshot opens, so every later change is either in it or after it.
+    let total = context.task_queue_memory().begin_row_count(partition);
+    context.metrics.step_task_queue_entries.set(total);
+    let reader = context.flow_effect_operations.committed_state_reader()?;
+    let watermark = reader
+        .get(ColumnFamily::PartitionMeta, &partition_meta_key(partition))?
+        .map(|bytes| {
+            decode_row::<PartitionMeta>("PartitionMeta", &partition_meta_key(partition), &bytes)
+        })
+        .transpose()?
+        .and_then(|meta| meta.applied)
+        .map(|applied| (applied.incarnation, applied.seq));
+    let (mut cursor, end) = prefix_range(&dispatch_queue_partition_prefix(partition));
+    let mut row_count = 0_i64;
+    loop {
+        let rows = reader.scan(ColumnFamily::PartitionIndex, &cursor, &end, COUNT_PAGE_ROWS)?;
+        row_count += i64::try_from(rows.len()).expect("a page holds few rows");
+        match rows.last() {
+            Some((last_key, _)) if rows.len() == COUNT_PAGE_ROWS => {
+                cursor.clone_from(last_key);
+                cursor.push(0);
+            }
+            _ => break,
+        }
+    }
+    let total = context
+        .task_queue_memory()
+        .finish_row_count(partition, row_count, watermark);
+    context.metrics.step_task_queue_entries.set(total);
+    Ok(())
 }
 
 /// Runs periodic Heads one partition at a time and refreshes the queue gauges.
@@ -205,6 +246,7 @@ fn scan_partition(context: &EffectContext, partition: PartitionId) {
             .cloned(),
     );
     let mut results = Vec::new();
+    let mut ordinary_backlog = Vec::new();
     for queue in queues {
         let from = [scanned.get(&queue), written.get(&queue)]
             .into_iter()
@@ -214,6 +256,13 @@ fn scan_partition(context: &EffectContext, partition: PartitionId) {
             .expect("a scanned queue was remembered or written");
         match scan_queue(context, partition, &queue, &from) {
             Ok(Some((result, first_live))) => {
+                if let Some(head) = result
+                    .head
+                    .as_ref()
+                    .filter(|head| head.position.priority < DEFAULT_DISPATCH_PRIORITY)
+                {
+                    ordinary_backlog.push(head.queue.clone());
+                }
                 let mut memory = context.task_queue_memory();
                 let slot = (partition, queue);
                 match first_live {
@@ -240,11 +289,12 @@ fn scan_partition(context: &EffectContext, partition: PartitionId) {
         }
     }
     context.dispatcher.report_scanned_heads(token, results);
+    for queue in ordinary_backlog {
+        super::report_ordinary_backlog(context, partition, &queue);
+    }
 }
 
 /// Seeks one queue from `from`, skipping rows a holder sends back and rows no longer pending.
-///
-/// Seeks one queue from `from`, skipping held and no longer pending rows.
 fn scan_queue(
     context: &EffectContext,
     partition: PartitionId,
