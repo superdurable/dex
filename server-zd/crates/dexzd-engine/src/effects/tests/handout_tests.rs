@@ -327,6 +327,14 @@ async fn a_lock_taken_after_the_pre_check_returns_the_slot_and_the_step_runs_lat
         "only one start applied"
     );
     assert!(failures(&harness).is_empty());
+    // The search after the lock wait gets its own dispatch wait.
+    let reservations = harness
+        .dispatcher
+        .reservations
+        .lock()
+        .expect("lock")
+        .clone();
+    assert!(reservations[1].search_started_at > reservations[0].search_started_at);
     dispatch.complete_wait_for(InvokeWaitForMethodResponse::default());
     harness.shutdown().await;
 }
