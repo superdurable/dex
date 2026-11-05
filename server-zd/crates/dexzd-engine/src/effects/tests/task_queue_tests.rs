@@ -14,8 +14,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
-use dexzd_keyspace::dispatch_queue_keys::{DispatchQueueEntry, dispatch_queue_key};
-use dexzd_keyspace::{ColumnFamily, PartitionId, RunId};
+use dexzd_keyspace::dispatch_queue_keys::{
+    DispatchQueueEntry, DispatchQueueName, DispatchQueuePosition, dispatch_queue_key,
+};
+use dexzd_keyspace::{ColumnFamily, FlowHash, PartitionId, RunId, TenantId};
 use dexzd_protocol::dex::{
     FlowStatus, FlowTimeoutPolicy, PollWorkerTaskRejectReason, RetryPolicy, StartFlowRequest,
     StepDurability, StepOptions, StopFlowRequest, StopType,
@@ -27,10 +29,12 @@ use dexzd_protocol::dexzd::v1::{
 use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 
 use super::dispatch_tests::force_complete;
-use super::{EffectHarness, is_attempt_failed, is_timers_fired, settings, start_request};
+use super::{
+    EffectHarness, MemoryState, is_attempt_failed, is_timers_fired, settings, start_request,
+};
 use crate::effects::dispatch::{AttemptEntries, ClaimHolder, HandoutProgress};
 use crate::effects::method_request::MethodAttemptKey;
-use crate::effects::task_queue::TaskQueueMemory;
+use crate::effects::task_queue::{TaskQueueMemory, first_ordinary_pending_since};
 use crate::effects::{EffectsConfig, MethodRequest};
 use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 
@@ -1004,4 +1008,50 @@ async fn an_untracked_claim_starts_nothing_and_gets_no_reply() {
     );
     assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
     harness.shutdown().await;
+}
+
+fn queue_entry(priority: u8, pending_since_micros: i64, step_type: &str) -> DispatchQueueEntry {
+    DispatchQueueEntry {
+        partition: PartitionId(2),
+        queue: DispatchQueueName {
+            tenant_id: TenantId(7),
+            flow_type: "OrderFlow".to_owned(),
+            step_type: step_type.to_owned(),
+        },
+        position: DispatchQueuePosition {
+            priority,
+            pending_since_micros,
+            flow_hash: FlowHash(9),
+            run_id: RunId([3; 16]),
+            method: 2,
+            attempt: 1,
+            step_execution_id: format!("{step_type}-{pending_since_micros}"),
+        },
+    }
+}
+
+/// The ordinary backlog's age comes from the first priority-1 row, not the priority-0 head.
+#[test]
+fn the_ordinary_pending_time_skips_priority_zero_rows_and_other_queues() {
+    let mut state = MemoryState::default();
+    for entry in [
+        queue_entry(0, 50, "ChargeStep"),
+        queue_entry(1, -20, "ChargeStep"),
+        queue_entry(1, 30, "ChargeStep"),
+        queue_entry(1, -90, "RefundStep"),
+        queue_entry(0, 10, "ShipStep"),
+    ] {
+        state.rows.insert(
+            (ColumnFamily::PartitionIndex, dispatch_queue_key(&entry)),
+            Vec::new(),
+        );
+    }
+    let ordinary = |step_type: &str| {
+        let entry = queue_entry(1, 0, step_type);
+        first_ordinary_pending_since(&state, u64::MAX, entry.partition, &entry.queue)
+            .expect("the read succeeds")
+    };
+    assert_eq!(ordinary("ChargeStep"), Some(-20));
+    assert_eq!(ordinary("ShipStep"), None, "only priority-0 rows");
+    assert_eq!(ordinary("RefundStep"), Some(-90));
 }
