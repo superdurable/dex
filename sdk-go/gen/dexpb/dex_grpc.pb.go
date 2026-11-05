@@ -1326,11 +1326,14 @@ const (
 //
 // Hosted by Dex server; pull Workers open streams for at most one task at a time.
 type WorkerTaskServiceClient interface {
-	// Exchanges registration, task, result, and control frames for a queue or reserved execution slot.
+	// Exchanges registration, task, result, and control frames for a queue
+	// or a reserved execution slot.
 	// To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
-	// and keeps reading until Dex ends the stream. It drops tasks arriving after that decision.
-	// On clean half-close, Dex treats a sent task without output as not delivered
-	// and dispatches it again with the same attempt number.
+	// and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+	// and sends no frame at all for a dropped task: no rejection and no output.
+	// On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+	// as not delivered and dispatches it again with the same attempt number.
+	// A half-close of any other stream is still a disconnect.
 	// A Worker must send a started task's final output before half-closing its stream.
 	// A transport error or reset instead means the Worker may have run the task.
 	PollWorkerTask(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[PollWorkerTaskRequest, PollWorkerTaskResponse], error)
@@ -1363,11 +1366,14 @@ type WorkerTaskService_PollWorkerTaskClient = grpc.BidiStreamingClient[PollWorke
 //
 // Hosted by Dex server; pull Workers open streams for at most one task at a time.
 type WorkerTaskServiceServer interface {
-	// Exchanges registration, task, result, and control frames for a queue or reserved execution slot.
+	// Exchanges registration, task, result, and control frames for a queue
+	// or a reserved execution slot.
 	// To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
-	// and keeps reading until Dex ends the stream. It drops tasks arriving after that decision.
-	// On clean half-close, Dex treats a sent task without output as not delivered
-	// and dispatches it again with the same attempt number.
+	// and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+	// and sends no frame at all for a dropped task: no rejection and no output.
+	// On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+	// as not delivered and dispatches it again with the same attempt number.
+	// A half-close of any other stream is still a disconnect.
 	// A Worker must send a started task's final output before half-closing its stream.
 	// A transport error or reset instead means the Worker may have run the task.
 	PollWorkerTask(grpc.BidiStreamingServer[PollWorkerTaskRequest, PollWorkerTaskResponse]) error

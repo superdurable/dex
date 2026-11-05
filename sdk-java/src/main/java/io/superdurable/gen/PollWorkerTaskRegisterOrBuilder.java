@@ -15,6 +15,7 @@ public interface PollWorkerTaskRegisterOrBuilder extends
    * Names this stream's queue: app_worker_id or one declared flow_type.
    * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
    * sticky queue (app_worker_id) and every Flow type in flow_types.
+   * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>string queue = 1;</code>
@@ -26,6 +27,7 @@ public interface PollWorkerTaskRegisterOrBuilder extends
    * Names this stream's queue: app_worker_id or one declared flow_type.
    * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
    * sticky queue (app_worker_id) and every Flow type in flow_types.
+   * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>string queue = 1;</code>
@@ -138,9 +140,12 @@ public interface PollWorkerTaskRegisterOrBuilder extends
   /**
    * <pre>
    * When true, this stream is one reserved Worker execution slot, ready whenever idle.
-   * The Worker executes every received task and never rejects for capacity.
-   * Dex treats NO_CAPACITY on this stream as a protocol error.
-   * When false, the Worker keeps the per-queue behavior.
+   * The Worker never rejects a task for capacity.
+   * It rejects only unknown Step types or RPC names.
+   * While stopping, it drops task frames without sending any frame for them.
+   * See the PollWorkerTask rpc.
+   * When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+   * Requires Server protocol version 4 or later.
    * </pre>
    *
    * <code>bool supports_reserved_slot_dispatch = 6;</code>
@@ -151,6 +156,10 @@ public interface PollWorkerTaskRegisterOrBuilder extends
   /**
    * <pre>
    * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * Applies only to reserved-slot streams.
+   * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+   * and slot_kind is not UNSPECIFIED.
+   * Requires Server protocol version 4 or later.
    * </pre>
    *
    * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
@@ -160,6 +169,10 @@ public interface PollWorkerTaskRegisterOrBuilder extends
   /**
    * <pre>
    * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * Applies only to reserved-slot streams.
+   * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+   * and slot_kind is not UNSPECIFIED.
+   * Requires Server protocol version 4 or later.
    * </pre>
    *
    * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>

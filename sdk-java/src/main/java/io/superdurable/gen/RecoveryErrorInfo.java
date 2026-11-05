@@ -155,6 +155,7 @@ private static final long serialVersionUID = 0L;
    * <pre>
    * Furthest progress across all attempts of this Step method call.
    * Use in recovery to decide whether side effects may have happened.
+   * Requires Server protocol version 4 or later.
    * </pre>
    *
    * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
@@ -167,6 +168,7 @@ private static final long serialVersionUID = 0L;
    * <pre>
    * Furthest progress across all attempts of this Step method call.
    * Use in recovery to decide whether side effects may have happened.
+   * Requires Server protocol version 4 or later.
    * </pre>
    *
    * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
@@ -714,6 +716,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Furthest progress across all attempts of this Step method call.
      * Use in recovery to decide whether side effects may have happened.
+     * Requires Server protocol version 4 or later.
      * </pre>
      *
      * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
@@ -726,6 +729,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Furthest progress across all attempts of this Step method call.
      * Use in recovery to decide whether side effects may have happened.
+     * Requires Server protocol version 4 or later.
      * </pre>
      *
      * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
@@ -742,6 +746,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Furthest progress across all attempts of this Step method call.
      * Use in recovery to decide whether side effects may have happened.
+     * Requires Server protocol version 4 or later.
      * </pre>
      *
      * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
@@ -756,6 +761,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Furthest progress across all attempts of this Step method call.
      * Use in recovery to decide whether side effects may have happened.
+     * Requires Server protocol version 4 or later.
      * </pre>
      *
      * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
@@ -774,6 +780,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Furthest progress across all attempts of this Step method call.
      * Use in recovery to decide whether side effects may have happened.
+     * Requires Server protocol version 4 or later.
      * </pre>
      *
      * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>

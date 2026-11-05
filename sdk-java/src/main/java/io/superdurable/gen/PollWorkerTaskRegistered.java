@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Confirms that Dex accepted the queue registration.
+ * Confirms that Dex accepted the queue or reserved-slot registration.
  * </pre>
  *
  * Protobuf type {@code dex.PollWorkerTaskRegistered}
@@ -57,6 +57,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+   * Reserved-slot streams may always reject unknown names.
    * </pre>
    *
    * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -72,7 +73,9 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+   * It counts all of them, including RPC_ONLY slots.
    * Zero means the Server does not report a limit.
+   * Reported by Server protocol version 4 or later.
    * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
    * </pre>
    *
@@ -259,7 +262,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Confirms that Dex accepted the queue registration.
+   * Confirms that Dex accepted the queue or reserved-slot registration.
    * </pre>
    *
    * Protobuf type {@code dex.PollWorkerTaskRegistered}
@@ -413,6 +416,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+     * Reserved-slot streams may always reject unknown names.
      * </pre>
      *
      * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -425,6 +429,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+     * Reserved-slot streams may always reject unknown names.
      * </pre>
      *
      * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -441,6 +446,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+     * Reserved-slot streams may always reject unknown names.
      * </pre>
      *
      * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -457,7 +463,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+     * It counts all of them, including RPC_ONLY slots.
      * Zero means the Server does not report a limit.
+     * Reported by Server protocol version 4 or later.
      * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
      * </pre>
      *
@@ -471,7 +479,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+     * It counts all of them, including RPC_ONLY slots.
      * Zero means the Server does not report a limit.
+     * Reported by Server protocol version 4 or later.
      * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
      * </pre>
      *
@@ -489,7 +499,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+     * It counts all of them, including RPC_ONLY slots.
      * Zero means the Server does not report a limit.
+     * Reported by Server protocol version 4 or later.
      * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
      * </pre>
      *

@@ -105,7 +105,10 @@ export class InvocationContext implements AsyncContext {
     this.flowStartedAt = secondsDate(metadata.flowStartedTimestamp);
     this.stepExecutionId = metadata.stepExecutionId;
     this.fromStepExecutionId = metadata.fromStepExecutionId;
-    this.recoveryError = metadata.recoveryError;
+    this.recoveryError =
+      metadata.recoveryError === undefined
+        ? undefined
+        : { detail: metadata.recoveryError.detail, errorType: metadata.recoveryError.errorType };
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;
     this.deadline = method === "rpc" ? undefined : deadline;

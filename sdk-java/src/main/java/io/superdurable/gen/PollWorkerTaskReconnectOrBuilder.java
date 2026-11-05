@@ -12,7 +12,7 @@ public interface PollWorkerTaskReconnectOrBuilder extends
 
   /**
    * <pre>
-   * Explains why Dex needs a new queue stream.
+   * Explains why Dex needs a new queue or reserved-slot stream.
    * </pre>
    *
    * <code>string reason = 1;</code>
@@ -21,7 +21,7 @@ public interface PollWorkerTaskReconnectOrBuilder extends
   java.lang.String getReason();
   /**
    * <pre>
-   * Explains why Dex needs a new queue stream.
+   * Explains why Dex needs a new queue or reserved-slot stream.
    * </pre>
    *
    * <code>string reason = 1;</code>

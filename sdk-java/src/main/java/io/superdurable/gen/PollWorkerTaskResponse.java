@@ -103,7 +103,7 @@ private static final long serialVersionUID = 0L;
   public static final int REGISTERED_FIELD_NUMBER = 1;
   /**
    * <pre>
-   * Confirms that Dex accepted this stream's queue registration.
+   * Confirms that Dex accepted this stream's queue or reserved-slot registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -115,7 +115,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Confirms that Dex accepted this stream's queue registration.
+   * Confirms that Dex accepted this stream's queue or reserved-slot registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -130,7 +130,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Confirms that Dex accepted this stream's queue registration.
+   * Confirms that Dex accepted this stream's queue or reserved-slot registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -799,7 +799,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.PollWorkerTaskRegistered, io.superdurable.gen.PollWorkerTaskRegistered.Builder, io.superdurable.gen.PollWorkerTaskRegisteredOrBuilder> registeredBuilder_;
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -811,7 +811,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -833,7 +833,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -853,7 +853,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -871,7 +871,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -898,7 +898,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -921,7 +921,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -931,7 +931,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -949,7 +949,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Confirms that Dex accepted this stream's queue registration.
+     * Confirms that Dex accepted this stream's queue or reserved-slot registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
