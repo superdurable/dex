@@ -70,6 +70,8 @@ binary="$repo_root/benchmark/bin/dexbench"
 server_binary="$repo_root/server-zd/target/release/dex-server-zd"
 address="127.0.0.1:${DEXBENCH_SEARCH_PORT:-18815}"
 cat > "$output_directory/zd-config.yaml" <<YAML
+dev:
+  durabilityMode: processCrashSafe
 cluster:
   partitionCount: ${DEXBENCH_PARTITIONS:-1024}
 metrics:
@@ -103,7 +105,7 @@ if [[ "$backend" != builtin ]]; then
 fi
 if [[ "$attributes" != 10 ]]; then arguments+=(--projection-only); fi
 "$server_binary" --version > "$output_directory/server-version.txt"
-"$server_binary" dev --data-dir "$run_directory/data" --listen "$address" --config "$output_directory/zd-config.yaml" --durability process-crash-safe > "$output_directory/server.log" 2>&1 &
+"$server_binary" dev --data-dir "$run_directory/data" --listen "$address" --config "$output_directory/zd-config.yaml" > "$output_directory/server.log" 2>&1 &
 server_pid=$!
 "$binary" wait-ready --address "$address" --pid "$server_pid" --timeout 5m
 "$binary" search --address "$address" --backend "$backend" --runs "$runs" --attributes "$attributes" --samples "${DEXBENCH_SEARCH_SAMPLES:-100}" --warmup 10 --concurrency "${DEXBENCH_SEARCH_CONCURRENCY:-128}" --git-commit "$(git -C "$repo_root" rev-parse HEAD)" --out "$output_directory/search.json" ${arguments[@]+"${arguments[@]}"} "$@" 2>&1 | tee "$output_directory/client.txt"

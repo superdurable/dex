@@ -177,7 +177,7 @@ jobs:
           }
           trap cleanup EXIT
           docker run -d --name dex-zd-smoke-dev -p 8801:8801 \
-            dex-server-zd:smoke dev --data-dir /tmp/zd --listen 0.0.0.0:8801 >/dev/null
+            dex-server-zd:smoke dev --data-dir /tmp/zd --listen 0.0.0.0:8801 --durability process-crash-safe >/dev/null
           serving=false
           deadline=$((SECONDS + 120))
           while (( SECONDS < deadline )); do

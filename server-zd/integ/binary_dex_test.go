@@ -49,7 +49,6 @@ func TestBinaryDexLauncher(t *testing.T) {
 	require.Equal(t, "dev", arguments[0])
 	require.Contains(t, arguments, "--data-dir")
 	require.Contains(t, arguments, "--listen")
-	require.Contains(t, arguments, "process-crash-safe")
 	configIndex := -1
 	for index, argument := range arguments {
 		if argument == "--config" {
@@ -60,6 +59,7 @@ func TestBinaryDexLauncher(t *testing.T) {
 	configurationBytes, err := os.ReadFile(arguments[configIndex+1])
 	require.NoError(t, err)
 	require.Contains(t, string(configurationBytes), "maxWaitSeconds: 7")
+	require.Contains(t, string(configurationBytes), "durabilityMode: processCrashSafe")
 	require.Contains(t, string(configurationBytes), "grpcMaxMessageBytes: 8192")
 }
 
@@ -207,7 +207,7 @@ func TestBinaryDexLauncherDisablesStreamsByDefault(t *testing.T) {
 	require.Equal(t, "--config", arguments[len(arguments)-2])
 	configurationBytes, err := os.ReadFile(arguments[len(arguments)-1])
 	require.NoError(t, err)
-	require.Equal(t, "streamStore:\n    backend: disabled\n", string(configurationBytes))
+	require.Equal(t, "dev:\n    durabilityMode: processCrashSafe\nstreamStore:\n    backend: disabled\n", string(configurationBytes))
 }
 
 func runFakeBinaryDex() int {

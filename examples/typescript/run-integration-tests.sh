@@ -98,7 +98,9 @@ fi
 docker compose -p "$compose_project" \
   -f "$entity_store_dir/docker-compose.yml" up --detach --wait
 entity_store_started=true
-dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -durability process-crash-safe)
+# A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
+printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
+dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -zd-config "$test_dir/zd-overrides.yaml")
 dev_args+=(-attribute-store-config "$entity_store_dir/attribute-store.yaml")
 
 "$binary_dir/dexcli" dev \

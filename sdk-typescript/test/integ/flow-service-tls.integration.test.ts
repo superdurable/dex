@@ -135,7 +135,6 @@ class ServerZdProcess {
     const port = await availablePort();
     const child = spawn(binary, [
       "dev", "--data-dir", join(directory, "zd"), "--listen", `127.0.0.1:${port}`, "--config", configFile,
-      "--durability", "process-crash-safe",
     ], { stdio: ["ignore", "pipe", "pipe"] });
     const server = new ServerZdProcess(child, port);
     try {
@@ -347,7 +346,11 @@ before(async () => {
   const tokenHashFile = join(directory, "token-hashes.yaml");
   writeFileSync(tokenHashFile, `tokens:\n  - sha256: ${createHash("sha256").update(token).digest("hex")}\n`);
   const configFile = join(directory, "server-zd.yaml");
-  writeFileSync(configFile, `auth:\n  authenticators:\n    - kind: staticTokens\n      file: ${JSON.stringify(tokenHashFile)}\n`);
+  writeFileSync(
+    configFile,
+    `auth:\n  authenticators:\n    - kind: staticTokens\n      file: ${JSON.stringify(tokenHashFile)}\n` +
+      "dev:\n  durabilityMode: processCrashSafe\n",
+  );
   const certificates = createTestCertificates(directory, "primary");
   const blobCache = openBlobCache({ directory: join(directory, "cache"), maxBytes: 64 * 1_024 * 1_024 });
   fixtureCleanups.push(() => blobCache.close());
