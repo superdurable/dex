@@ -23,6 +23,7 @@ use crate::checksum::{ChecksumAlgorithm, ChecksumHasher, ObjectChecksum, decode_
 use crate::error::StoreError;
 use crate::record::VersionRecord;
 
+// This persisted format signature retains the old name so existing data files remain readable.
 const FOOTER_MAGIC: &[u8; 8] = b"S3MOCK01";
 const FORMAT_VERSION: u16 = 1;
 const FOOTER_TRAILER_LEN: u64 = 4 + 2 + 8;
