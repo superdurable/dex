@@ -43,7 +43,7 @@ use crate::flow_coordination::speculative_overlay::{
 use crate::flow_coordination::{
     CommitTicket, CommitUrgency, CommittedFlowCommand, FlowAddress, FlowCommandCommitter,
     FlowCoordinationConfig, FlowCoordinationEffectSink, FlowCoordinationError,
-    HardDeleteValueReader, HardDeleteValueUploader, RpcWorkerInvoker, grpc_code,
+    HardDeleteValueReader, HardDeleteValueUploader, RpcWorkerInvoker, StepQueueStatus, grpc_code,
 };
 use crate::long_poll::WaiterRegistry;
 
@@ -59,6 +59,8 @@ pub struct FlowCoordinatorDependencies {
     pub effects: Arc<dyn FlowCoordinationEffectSink>,
     /// Calls RPC handlers on Workers.
     pub rpc_invoker: Arc<dyn RpcWorkerInvoker>,
+    /// Tells whether a queued Step waits for a Worker that supports its Step type.
+    pub step_queue_status: Arc<dyn StepQueueStatus>,
     /// Reads hard-delete Attribute values.
     pub hard_delete_reader: Arc<dyn HardDeleteValueReader>,
     /// Uploads hard-delete Attribute values before their commands are proposed.

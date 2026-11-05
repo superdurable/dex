@@ -74,16 +74,6 @@ impl PullWorkerRpcInvoker {
 }
 
 impl RpcWorkerInvoker for PullWorkerRpcInvoker {
-    fn is_waiting_for_supporting_worker(
-        &self,
-        tenant_id: u64,
-        flow_type: &str,
-        step_type: &str,
-    ) -> bool {
-        self.dispatch
-            .is_waiting_for_supporting_worker(tenant_id, flow_type, step_type)
-    }
-
     fn invoke_worker_rpc(
         &self,
         invocation: WorkerRpcInvocation,

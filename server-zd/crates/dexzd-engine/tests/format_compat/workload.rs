@@ -1916,7 +1916,7 @@ mod load_blobs_purge_tests {
         FlowCoordinationEffectSink, FlowCoordinationHardDeleteUploads, FlowCoordinatorDependencies,
         FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError,
         HardDeleteUploadOutcome, HardDeleteValueReader, HardDeleteValueUploader, RpcInvokeError,
-        RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult,
+        RpcWorkerInvoker, StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
     };
     use dexzd_keyspace::{ValueId, ValueReference, flow_directory_key, run_table_prefix};
     use dexzd_protocol::dex::{IdReusePolicy, LoadBlobRequestEntry, LoadBlobsRequest, value};
@@ -1932,6 +1932,17 @@ mod load_blobs_purge_tests {
 
     impl FlowCoordinationEffectSink for UnusedFlowCoordinationPorts {
         fn handle(&self, _flow: &FlowAddress, _effects: &[ApplyEffect], _is_committed: bool) {}
+    }
+
+    impl StepQueueStatus for UnusedFlowCoordinationPorts {
+        fn is_waiting_for_supporting_worker(
+            &self,
+            _tenant_id: u64,
+            _flow_type: &str,
+            _step_type: &str,
+        ) -> bool {
+            false
+        }
     }
 
     impl RpcWorkerInvoker for UnusedFlowCoordinationPorts {
@@ -1999,6 +2010,7 @@ mod load_blobs_purge_tests {
                 applier: Arc::new(DeterministicCommandApplier),
                 effects: ports.clone(),
                 rpc_invoker: ports.clone(),
+                step_queue_status: ports.clone(),
                 hard_delete_reader: ports.clone(),
                 hard_delete_uploader: ports,
                 id_source: ids.clone(),

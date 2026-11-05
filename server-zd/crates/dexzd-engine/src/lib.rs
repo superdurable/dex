@@ -56,8 +56,8 @@ pub use flow_coordination::{
     FlowCoordinationEffectSink, FlowCoordinationError, FlowCoordinatorDependencies,
     FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
     HardDeleteValueReader, HardDeleteValueUploader, PendingInvocation, ProposalResult,
-    RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult, default_run_settings,
-    grpc_code,
+    RpcInvokeError, RpcWorkerInvoker, StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
+    default_run_settings, grpc_code,
 };
 #[cfg(feature = "test-util")]
 pub use hot_standby::HotStandbyProbeForTest;

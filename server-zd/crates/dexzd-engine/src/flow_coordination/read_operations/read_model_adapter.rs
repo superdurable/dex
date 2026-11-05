@@ -22,7 +22,7 @@ use dexzd_protocol::dexzd::v1::StepExecutionRecord;
 use crate::flow_coordination::read_operations::state_rows::{
     decode_row, hydrate_value_reference, read_run,
 };
-use crate::flow_coordination::{FlowAddress, FlowCoordinationError, RpcWorkerInvoker};
+use crate::flow_coordination::{FlowAddress, FlowCoordinationError, StepQueueStatus};
 
 /// Returns the Flow state projected by apply's read model, with value references replaced by
 /// their values when `is_hydrating`. `is_rpc_lock_held` reports the live locks of admitted
@@ -36,7 +36,7 @@ pub(crate) fn read_flow_state(
     flow: &FlowAddress,
     request: &GetFlowStateRequest,
     is_hydrating: bool,
-    workers: &dyn RpcWorkerInvoker,
+    step_queues: &dyn StepQueueStatus,
     is_rpc_lock_held: &dyn Fn(RunId, &str) -> bool,
 ) -> Result<GetFlowStateResponse, FlowCoordinationError> {
     let run = read_run(state, context, flow, &request.run_id)?;
@@ -60,7 +60,7 @@ pub(crate) fn read_flow_state(
                 .any(|lock_key| is_rpc_lock_held(run.run_id, lock_key))
             {
                 invocation.pending_reason = StepMethodPendingReason::WaitingForLocks as i32;
-            } else if workers.is_waiting_for_supporting_worker(
+            } else if step_queues.is_waiting_for_supporting_worker(
                 flow.tenant_id.0,
                 &run.record.flow_type,
                 &step.step_type,

@@ -520,6 +520,7 @@ impl ServerNode {
                     applier: applier.clone(),
                     effects: Arc::new(effect_runner.clone()),
                     rpc_invoker: Arc::new(PullWorkerRpcInvoker::new(dispatch.clone())),
+                    step_queue_status: Arc::new(dispatch.clone()),
                     hard_delete_reader: Arc::new(hard_delete_objects.clone()),
                     hard_delete_uploader: Arc::new(hard_delete_objects),
                     id_source: services.id_source,

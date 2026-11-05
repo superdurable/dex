@@ -270,7 +270,7 @@ impl FlowCoordinatorRegistry {
             &flow,
             &request,
             self.inner.config.hydrate_value_references,
-            self.inner.dependencies.rpc_invoker.as_ref(),
+            self.inner.dependencies.step_queue_status.as_ref(),
             &is_rpc_lock_held,
         )
     }

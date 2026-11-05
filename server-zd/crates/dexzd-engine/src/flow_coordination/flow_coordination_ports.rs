@@ -113,18 +113,18 @@ pub trait RpcWorkerInvoker: Send + Sync + 'static {
         &self,
         invocation: WorkerRpcInvocation,
     ) -> BoxFuture<'_, Result<WorkerRpcResult, RpcInvokeError>>;
+}
 
+/// Answers what Worker matching knows about queued Steps. Worker matching implements it.
+pub trait StepQueueStatus: Send + Sync + 'static {
     /// Returns whether Workers of the Flow type are connected but every one of them declined
-    /// the Step type, so a queued attempt of it waits for a Worker that supports it. Ports
-    /// without matching know of no decline.
+    /// the Step type, so a queued attempt of it waits for a Worker that supports it.
     fn is_waiting_for_supporting_worker(
         &self,
-        _tenant_id: u64,
-        _flow_type: &str,
-        _step_type: &str,
-    ) -> bool {
-        false
-    }
+        tenant_id: u64,
+        flow_type: &str,
+        step_type: &str,
+    ) -> bool;
 }
 
 /// Error from reading a hard-delete Attribute object.

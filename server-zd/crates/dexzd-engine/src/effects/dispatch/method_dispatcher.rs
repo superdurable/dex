@@ -170,6 +170,17 @@ pub trait MethodDispatcher: Send + Sync + 'static {
     fn refresh_task_queue_gauges(&self);
 }
 
+impl crate::flow_coordination::StepQueueStatus for WorkerDispatch {
+    fn is_waiting_for_supporting_worker(
+        &self,
+        tenant_id: u64,
+        flow_type: &str,
+        step_type: &str,
+    ) -> bool {
+        WorkerDispatch::is_waiting_for_supporting_worker(self, tenant_id, flow_type, step_type)
+    }
+}
+
 impl MethodDispatcher for WorkerDispatch {
     fn reserve_stream(
         &self,

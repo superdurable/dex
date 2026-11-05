@@ -18,7 +18,7 @@ use std::time::Duration;
 use dexzd_engine::{
     MethodClaim, MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
     MethodStreamReservation, MethodTask, ReservedMethodStream, RpcInvokeError, RpcWorkerInvoker,
-    WorkerRpcInvocation, WorkerRpcResult,
+    StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
 };
 use dexzd_keyspace::PartitionId;
 use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
@@ -903,6 +903,17 @@ impl ReservedMethodStream for SimulatedSlot {
         task: MethodTask,
     ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
         self.workers.start_dispatch(&self.process_label, &task)
+    }
+}
+
+impl StepQueueStatus for NodeWorkerPort {
+    fn is_waiting_for_supporting_worker(
+        &self,
+        _tenant_id: u64,
+        _flow_type: &str,
+        _step_type: &str,
+    ) -> bool {
+        false
     }
 }
 

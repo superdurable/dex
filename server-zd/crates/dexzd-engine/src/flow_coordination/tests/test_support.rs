@@ -33,7 +33,7 @@ use crate::flow_coordination::{
     FlowCoordinationEffectSink, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
     HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome, HardDeleteUploads,
     HardDeleteValueReader, HardDeleteValueUploader, ReplayMismatch, RpcInvokeError,
-    RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult,
+    RpcWorkerInvoker, StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
 };
 
 type Rows = BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>;
@@ -250,6 +250,17 @@ pub(crate) struct FakeRpcInvoker {
     pub(crate) should_panic: std::sync::atomic::AtomicBool,
 }
 
+impl StepQueueStatus for FakeRpcInvoker {
+    fn is_waiting_for_supporting_worker(
+        &self,
+        _tenant_id: u64,
+        _flow_type: &str,
+        _step_type: &str,
+    ) -> bool {
+        false
+    }
+}
+
 impl RpcWorkerInvoker for FakeRpcInvoker {
     fn invoke_worker_rpc(
         &self,
@@ -418,6 +429,7 @@ impl FlowCoordinationHarness {
                 applier: applier.clone(),
                 effects: effects.clone(),
                 rpc_invoker: rpc_invoker.clone(),
+                step_queue_status: rpc_invoker.clone(),
                 hard_delete_reader: hard_delete_reader.clone(),
                 hard_delete_uploader: hard_delete_uploader.clone(),
                 id_source: Arc::new(SystemEngineIdSource),
