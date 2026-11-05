@@ -32,8 +32,8 @@ type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" |
  * shutdown, then call `close`. Concurrent handlers must synchronize shared state.
  * `close` stops new tasks, half-closes idle streams, and lets busy handlers send final output before half-closing.
  * It drains for `stopDrainTimeoutMs`, then resets running streams, cancels handlers, and
- * waits for them to return. Half-closed streams wait for server EOF until the
- * remaining drain deadline. A handler that ignores cancellation can delay shutdown.
+ * waits for them to return. Half-closed streams wait for server EOF.
+ * A handler that ignores cancellation can delay shutdown.
  *
  * @example
  * ```ts
@@ -203,7 +203,7 @@ export class Worker {
    * Tasks arriving after stop begins are dropped without running a handler, including after half-close.
    * Streams keep reading until the Server ends them. After the drain timeout, running streams are reset,
    * handlers are canceled, and close waits for handlers to return.
-   * Half-closed pull streams wait for server EOF until the remaining drain deadline.
+   * Half-closed pull streams keep reading until server EOF.
    * Calls before `start` and repeated calls after shutdown are safe.
    */
   public async close(): Promise<void> {

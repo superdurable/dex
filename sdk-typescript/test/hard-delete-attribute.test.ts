@@ -324,7 +324,8 @@ test("Client caches protocol 3 rejection for every request method", async () => 
     for (const request of [() => client.stopFlow("old-server"),
       () => client.startFlow(flow, "old-server", "input"), () => client.searchFlows("FlowType = 'Test'", 10)]) {
       await assert.rejects(request(), (failure: unknown) => {
-        assert.match(String(failure), /Server version "test" protocol \[1,3\].*requires a server-zd release supporting protocol 4/);
+        assert.match(String(failure), /requires a Dex Server with protocol version 4 or later \(server-zd newer than v0.1.16\)/);
+        assert.match(String(failure), /The Server reports protocol versions 1-3 \(server version test\)/);
         if (incompatibility === undefined) incompatibility = failure;
         else assert.equal(failure, incompatibility);
         return true;

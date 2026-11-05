@@ -795,6 +795,37 @@ test("TA25 stop finishes busy output before half-close, half-closes idle, and dr
   } finally { release(); await worker.close(); await closing; await harness.close(); }
 });
 
+test("TA25 an idle half-closed stream keeps reading beyond the handler drain timeout until Server EOF", async () => {
+  const harness = await startHarness(false);
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), {
+    maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 10,
+  });
+  let stream: CapturedStream | undefined;
+  let closing: Promise<void> | undefined;
+  try {
+    worker.start();
+    stream = await harness.nextStream();
+    stream.call.write(registered(true));
+    await worker.waitStarted();
+    const stopStartedAt = Date.now();
+    let hasClosed = false;
+    closing = worker.close().then(() => { hasClosed = true; });
+    await stream.ended;
+    await until(() => Date.now() >= stopStartedAt + 30);
+    assert.equal(stream.call.cancelled, false);
+    assert.equal(hasClosed, false);
+    stream.call.write(rpcTask("after-drain-deadline"));
+    stream.call.end();
+    await closing;
+    assert.equal(harness.invocationCount, 0);
+  } finally {
+    stream?.call.end();
+    await worker.close();
+    await closing;
+    await harness.close();
+  }
+});
+
 interface CapturedStream {
   readonly call: TaskStream;
   readonly frames: PollWorkerTaskRequest[];

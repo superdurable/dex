@@ -835,8 +835,9 @@ invalid or disjoint intervals, and RPC failures stop startup before polling.
 The Client constructor stays lazy and performs no I/O. Every Client method
 negotiates before its first request. Concurrent calls share negotiation and cache
 the result, including incompatibility errors. Transient negotiation failures are
-retried on the next call. Diagnostics include the Server version and the required
-server-zd release supporting protocol 4.
+retried on the next call. This SDK requires a Dex Server with protocol version 4
+or later (server-zd newer than v0.1.16). Diagnostics include the reported Server
+protocol interval and version. Upgrade the Server before upgrading the SDK.
 
 The build generates the diagnostic SDK version from `package.json`, so the
 runtime value follows the version stamped by the release workflow. The artifact

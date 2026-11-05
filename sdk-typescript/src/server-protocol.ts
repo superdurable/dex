@@ -33,7 +33,7 @@ export function negotiateServerProtocol(
   }
   const negotiated = Math.min(serverCurrent, maximumSupportedServerProtocolVersion);
   if (negotiated < serverMinimum || negotiated < minimumSupportedServerProtocolVersion) {
-    throw compatibilityError(serverInfo, sdkVersion, "protocol intervals do not overlap; requires a server-zd release supporting protocol 4 or later");
+    throw compatibilityError(serverInfo, sdkVersion, "protocol intervals do not overlap");
   }
   return negotiated;
 }
@@ -52,8 +52,9 @@ function compatibilityError(serverInfo: ServerInfo, sdkVersion: string, reason: 
   return new Error(
     `TypeScript SDK version "${sdkVersion}" protocol `
       + `[${minimumSupportedServerProtocolVersion},${maximumSupportedServerProtocolVersion}] `
-      + `is incompatible with Server version "${serverInfo.serverVersion || "unknown"}" `
-      + `protocol [${serverInfo.minimumSupportedProtocolVersion},`
-      + `${serverInfo.currentProtocolVersion}]: ${reason}`,
+      + `is incompatible: ${reason}. `
+      + "This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). "
+      + `The Server reports protocol versions ${serverInfo.minimumSupportedProtocolVersion}-${serverInfo.currentProtocolVersion} `
+      + `(server version ${serverInfo.serverVersion || "unknown"}). Upgrade the Server before upgrading the SDK.`,
   );
 }

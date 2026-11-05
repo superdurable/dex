@@ -531,7 +531,7 @@ export interface PullWorkerOptions {
    * Milliseconds allowed for graceful shutdown and busy Reconnect final-frame delivery; defaults to 30000.
    * Requires a non-negative finite value; zero selects the default.
    * On stop, idle streams half-close immediately; busy streams send final output before half-closing.
-   * Tasks arriving after stop begins are dropped. Streams keep reading until the Server ends them or this timeout expires.
+   * Tasks arriving after stop begins are dropped. Half-closed streams keep reading until the Server ends them.
    * On expiry, running streams are reset and their handlers canceled; close waits for handlers to return.
    */
   readonly stopDrainTimeoutMs?: number;

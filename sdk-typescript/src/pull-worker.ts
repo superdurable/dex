@@ -150,7 +150,10 @@ export class PullWorker {
     }
     for (const poll of this.streams) {
       poll.isDraining = true;
-      if (poll.isHalfClosed) this.armHalfCloseTimer(poll, stopDeadlineMs);
+      if (poll.halfCloseTimer !== undefined) {
+        clearTimeout(poll.halfCloseTimer);
+        poll.halfCloseTimer = undefined;
+      }
       if (poll.retryTimer !== undefined) {
         clearTimeout(poll.retryTimer);
         poll.retryTimer = undefined;
@@ -498,7 +501,7 @@ export class PullWorker {
     poll.isHalfClosed = true;
     poll.halfClosePromise = new Promise((resolve) => { poll.resolveHalfClose = resolve; });
     const stream = poll.stream;
-    this.armHalfCloseTimer(poll, this.stopDeadlineMs ?? Date.now() + this.stopDrainTimeoutMs);
+    if (!this.isStopping) this.armHalfCloseTimer(poll, Date.now() + this.stopDrainTimeoutMs);
     stream.end();
   }
 
