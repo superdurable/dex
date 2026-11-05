@@ -205,10 +205,15 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) state_read_gate: Arc<StateReadGate>,
     /// Counts `committed_state_reader` calls.
     pub(super) committed_reads: AtomicUsize,
+    /// Counts `flow_state_reader` calls that leave out speculative state.
+    pub(super) committed_flow_reads: AtomicUsize,
     /// Delays each `propose_committed`, like a group commit window plus an object store write.
     pub(super) proposal_delay: Mutex<Duration>,
     /// Delays the commit of each attempt start after its speculative apply.
     pub(super) start_commit_delay: Mutex<Duration>,
+    /// Starts that find their locks taken although the pre-check passed, as when a
+    /// transactional RPC takes them in between.
+    pub(super) starts_finding_busy_locks: AtomicUsize,
     overrides: Mutex<Vec<CommandOverride>>,
     /// Transactional RPCs a test holds in flight; pending close checks wait for zero.
     pub(super) transactional_rpcs: tokio::sync::watch::Sender<u32>,
@@ -373,6 +378,15 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             if record.phase != StepInvocationPhase::Pending as i32 || record.attempt != attempt {
                 return Ok(InvocationStartOutcome::Stale);
             }
+            if self
+                .starts_finding_busy_locks
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok()
+            {
+                return Ok(InvocationStartOutcome::LocksBusy);
+            }
             let busy = self.busy_lock_keys.lock().expect("lock");
             if record.lock_keys.iter().any(|key| busy.contains(key)) {
                 return Ok(InvocationStartOutcome::LocksBusy);
@@ -449,8 +463,11 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
     fn flow_state_reader(
         &self,
         _flow: &FlowAddress,
-        _should_include_speculative: bool,
+        should_include_speculative: bool,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
+        if !should_include_speculative {
+            self.committed_flow_reads.fetch_add(1, Ordering::SeqCst);
+        }
         if self.is_flow_state_unreadable.load(Ordering::SeqCst)
             || self
                 .flow_state_reader_failures
@@ -1166,12 +1183,14 @@ impl EffectHarness {
             published_effects: Mutex::new(Vec::new()),
             busy_lock_keys: Mutex::new(BTreeSet::new()),
             start_commit_delay: Mutex::new(Duration::ZERO),
+            starts_finding_busy_locks: AtomicUsize::new(0),
             unavailable_proposals: AtomicUsize::new(0),
             is_flow_state_unreadable: AtomicBool::new(false),
             flow_state_reader_failures: Arc::new(AtomicUsize::new(0)),
             is_flow_state_unreadable_after_start: AtomicBool::new(false),
             state_read_gate: Arc::new(StateReadGate::new()),
             committed_reads: AtomicUsize::new(0),
+            committed_flow_reads: AtomicUsize::new(0),
             proposal_delay: Mutex::new(Duration::ZERO),
             overrides: Mutex::new(Vec::new()),
             transactional_rpcs: tokio::sync::watch::Sender::new(0),

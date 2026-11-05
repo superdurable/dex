@@ -14,13 +14,15 @@ use prometheus_client::metrics::gauge::Gauge;
 /// A dispatch waiting for an idle stream, with the streams it must not be offered.
 pub(super) struct QueueWaiter {
     pub(super) wakeup: Arc<Notify>,
-    /// Steps and RPCs differ in priority and in the streams they may use.
-    pub(super) kind: TaskKind,
+    /// The waiter's task type; the unsupported type cache is consulted at wake time.
+    pub(super) task_type: TaskTypeKey,
+    /// Workers and streams that declined or failed this dispatch.
     excluded_worker_ids: HashSet<String>,
     excluded_streams: HashMap<Uuid, Instant>,
 }
 
 impl QueueWaiter {
+    /// Returns whether this dispatch's own exclusions allow `worker` at `now`.
     pub(super) fn can_use(&self, worker: &WorkerStream, now: Instant) -> bool {
         !self.excluded_worker_ids.contains(&worker.app_worker_id)
             && self
@@ -110,15 +112,15 @@ impl Drop for QueueLease {
     fn drop(&mut self) {
         let mut guard = self.dispatch.lock_registry();
         let registry = &mut *guard;
+        let woken_for = if self.is_waiting {
+            registry.end_wait(&self.key, self.waiter_sequence)
+        } else {
+            None
+        };
         let queue = registry
             .queues
             .get_mut(&self.key)
             .expect("leased queue exists");
-        let woken_for = if self.is_waiting {
-            queue.remove_waiter(self.waiter_sequence)
-        } else {
-            None
-        };
         queue.users -= 1;
         if queue.users == 0 {
             registry.queues.remove(&self.key);
@@ -135,7 +137,8 @@ impl QueueState {
             idle: BTreeMap::new(),
             affinity: HashMap::new(),
             affinity_order: std::collections::VecDeque::new(),
-            waiters: BTreeMap::new(),
+            rpc_waiters: BTreeMap::new(),
+            step_waiters: BTreeMap::new(),
             woken_waiter_streams: HashMap::new(),
             users: 0,
         }
@@ -145,15 +148,19 @@ impl QueueState {
     pub(super) fn start_waiting(
         &mut self,
         lease: &mut QueueLease,
-        kind: TaskKind,
+        task_type: TaskTypeKey,
         excluded_worker_ids: HashSet<String>,
         excluded_streams: &HashMap<Uuid, Instant>,
     ) {
-        self.waiters.insert(
+        let waiters = match task_type.kind {
+            TaskKind::Rpc => &mut self.rpc_waiters,
+            TaskKind::Step => &mut self.step_waiters,
+        };
+        waiters.insert(
             lease.waiter_sequence,
             QueueWaiter {
                 wakeup: lease.wakeup.clone(),
-                kind,
+                task_type,
                 excluded_worker_ids,
                 excluded_streams: excluded_streams.clone(),
             },
@@ -167,14 +174,18 @@ impl QueueState {
     /// waiter was still registered or every waiter was woken. The caller owes that stream's
     /// wakeup to another waiter unless it takes that stream; see `pass_on_wakeup`.
     pub(super) fn remove_waiter(&mut self, waiter_sequence: u64) -> Option<Uuid> {
-        if self.waiters.remove(&waiter_sequence).is_some() {
+        if self.rpc_waiters.remove(&waiter_sequence).is_some()
+            || self.step_waiters.remove(&waiter_sequence).is_some()
+        {
             return None;
         }
         self.woken_waiter_streams.remove(&waiter_sequence)
     }
 
     pub(super) fn wake_all_waiters(&mut self) {
-        for waiter in std::mem::take(&mut self.waiters).into_values() {
+        let rpc_waiters = std::mem::take(&mut self.rpc_waiters);
+        let step_waiters = std::mem::take(&mut self.step_waiters);
+        for waiter in rpc_waiters.into_values().chain(step_waiters.into_values()) {
             waiter.wakeup.notify_one();
         }
     }

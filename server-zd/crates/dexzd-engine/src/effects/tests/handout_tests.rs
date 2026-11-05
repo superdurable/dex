@@ -10,19 +10,22 @@
 //! after a hand-out, and progress (plan sections 3.1 and 3.9).
 
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
-use dexzd_keyspace::RunId;
+use dexzd_keyspace::{RunId, VALUE_REFERENCE_PREFIX};
 use dexzd_protocol::dex::{
     InvokeWaitForMethodResponse, PollWorkerTaskRejectReason, StepAttemptProgress, StepDurability,
-    StepOptions,
+    StepOptions, StopFlowRequest, StopType, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    StepAttemptFailedCommand, StepAttemptReturnReason, StepAttemptReturnedCommand,
-    StepInvocationPhase, StepInvocationRecord, flow_command,
+    FlowCommand, FlowStopCommand, StepAttemptFailedCommand, StepAttemptReturnReason,
+    StepAttemptReturnedCommand, StepInvocationPhase, StepInvocationRecord, flow_command,
 };
 
 use super::{EffectHarness, FakeDispatch, is_attempt_failed, settings, start_request};
+use crate::effects::MethodRequest;
 use crate::effects::dispatch::render_task_id;
+use crate::flow_coordination::CommitUrgency;
 
 /// How a Worker declines a task it never ran.
 type WorkerDecline = fn(&FakeDispatch);
@@ -248,4 +251,129 @@ async fn a_start_at_the_speculation_limit_releases_its_worker_slot_and_retries()
         StepInvocationPhase::Running as i32
     );
     harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_while_the_start_commits_sends_no_task_frame() {
+    let harness = EffectHarness::new();
+    *harness
+        .flow_effect_operations
+        .start_commit_delay
+        .lock()
+        .expect("lock") = Duration::from_secs(5);
+    harness.rebuild_all_partitions().await;
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    assert_eq!(started_task_ids(&harness).len(), 1, "the start is proposed");
+    // The Flow stops after the start applied but before it committed (TA16).
+    let stop = FlowCommand {
+        flow_id: "order-1".to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                flow_id: "order-1".to_owned(),
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            }),
+        })),
+        ..FlowCommand::default()
+    };
+    harness
+        .flow_effect_operations
+        .commit(&EffectHarness::flow("order-1"), stop, CommitUrgency::Prompt)
+        .expect("stop commits");
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness.dispatcher.dispatch_count.load(Ordering::SeqCst),
+        0,
+        "no task frame goes out"
+    );
+    assert_eq!(
+        harness.dispatcher.reservation_count.load(Ordering::SeqCst),
+        1
+    );
+    assert!(failures(&harness).is_empty());
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_lock_taken_after_the_pre_check_returns_the_slot_and_the_step_runs_later() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    // A transactional RPC takes the lock between the pre-check and the start (TA18).
+    harness
+        .flow_effect_operations
+        .starts_finding_busy_locks
+        .store(1, Ordering::SeqCst);
+    let mut request = start_request("order-1");
+    request.step_options = Some(StepOptions {
+        wait_for_lock_attribute_keys: vec!["balance".to_owned()],
+        ..StepOptions::default()
+    });
+    harness.start_flow(request, settings());
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    assert_eq!(dispatch.context().attempt, 1, "the lock wait used no retry");
+    assert_eq!(
+        harness.dispatcher.reservation_count.load(Ordering::SeqCst),
+        2,
+        "the first slot went back when the start found the lock busy"
+    );
+    assert_eq!(
+        started_task_ids(&harness).len(),
+        1,
+        "only one start applied"
+    );
+    assert!(failures(&harness).is_empty());
+    // The search after the lock wait reserves again, with fresh waits.
+    assert_eq!(
+        harness.dispatcher.reservations.lock().expect("lock").len(),
+        2
+    );
+    dispatch.complete_wait_for(InvokeWaitForMethodResponse::default());
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_sync_request_carries_references_and_an_async_one_checks_for_uncommitted_values() {
+    for durability in [StepDurability::Sync, StepDurability::Async] {
+        let harness = EffectHarness::new();
+        harness.rebuild_all_partitions().await;
+        let mut request = start_request("order-1");
+        request.step_input = Some(super::string_value(&"large input ".repeat(20)));
+        request.step_options = Some(StepOptions {
+            wait_for_durability_override: durability as i32,
+            ..StepOptions::default()
+        });
+        let committed_reads_before = harness
+            .flow_effect_operations
+            .committed_flow_reads
+            .load(Ordering::SeqCst);
+        harness.start_flow(request, settings());
+        let dispatch = harness.dispatcher.next_dispatch().await;
+        let committed_reads = harness
+            .flow_effect_operations
+            .committed_flow_reads
+            .load(Ordering::SeqCst)
+            - committed_reads_before;
+        let MethodRequest::WaitFor(wait_for) = dispatch.method_request().clone() else {
+            panic!("expected a WaitFor request");
+        };
+        // A SYNC start commits with every earlier write, so references always load (TA21).
+        if durability == StepDurability::Sync {
+            assert_eq!(committed_reads, 0, "SYNC never asks which values committed");
+            assert!(matches!(
+                wait_for.step_input.and_then(|input| input.kind),
+                Some(value::Kind::InternalBlobIdForStringValue(reference))
+                    if reference.starts_with(VALUE_REFERENCE_PREFIX)
+            ));
+        } else {
+            assert!(
+                committed_reads > 0,
+                "ASYNC inlines values that are not committed"
+            );
+        }
+        dispatch.complete_wait_for(InvokeWaitForMethodResponse::default());
+        harness.shutdown().await;
+    }
 }

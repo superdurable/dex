@@ -402,11 +402,10 @@ impl Registry {
         {
             return false;
         }
-        let unsupported_types = &self.unsupported_types;
         let earliest = self.queue_matching.backlog.earliest_claimable(
             worker.tenant_id,
             worker.backlog_flow_types.iter(),
-            |name| !unsupported_types.contains(&step_type_key(name), &worker.app_worker_id),
+            |name| !self.is_unsupported_on(&step_type_key(name), worker),
         );
         let Some((name, partition)) = earliest else {
             return false;
@@ -434,23 +433,22 @@ impl Registry {
             && worker.backlog_flow_types.contains(&name.flow_type)
             && !self.is_promised_to_waiter(worker)
             && worker.step_backoff_end(Instant::now()).is_none()
-            && !self
-                .unsupported_types
-                .contains(&step_type_key(name), &worker.app_worker_id)
+            && !self.is_unsupported_on(&step_type_key(name), worker)
     }
 
     /// Returns whether a woken waiter may still take `worker`.
     fn is_promised_to_waiter(&self, worker: &WorkerStream) -> bool {
-        worker.queues.iter().any(|queue_name| {
-            self.queues
-                .get(&(worker.tenant_id, queue_name.clone()))
-                .is_some_and(|queue| {
-                    queue
-                        .woken_waiter_streams
-                        .values()
-                        .any(|id| *id == worker.id)
-                })
-        })
+        self.promised_streams.contains_key(&worker.id)
+            || worker.queues.iter().any(|queue_name| {
+                self.queues
+                    .get(&(worker.tenant_id, queue_name.clone()))
+                    .is_some_and(|queue| {
+                        queue
+                            .woken_waiter_streams
+                            .values()
+                            .any(|id| *id == worker.id)
+                    })
+            })
     }
 
     /// Returns whether any connected Step stream may serve `name`, in time proportional to

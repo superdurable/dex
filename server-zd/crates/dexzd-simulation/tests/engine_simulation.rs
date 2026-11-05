@@ -521,6 +521,7 @@ fn assert_covered(total: &EngineSimulationSummary) {
             "attempts compared after the quiet crash",
             total.attempts_compared_after_quiet_crash,
         ),
+        ("SYNC task frames checked", total.sync_task_frames_checked),
         ("runs in the final state", total.final_runs as u64),
         ("old-epoch overlaps", total.old_epoch_overlaps),
         ("crashes during start", total.crashes_during_start),

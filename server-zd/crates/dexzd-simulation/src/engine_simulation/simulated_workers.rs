@@ -75,6 +75,15 @@ impl AttemptIdentity {
     }
 }
 
+/// One task frame a Worker received.
+#[derive(Debug, Clone)]
+pub(crate) struct TaskFrameRecord {
+    pub(crate) task_id: String,
+    pub(crate) is_sync: bool,
+    /// False when the Worker declined or half-closed before running the task.
+    pub(crate) has_possibly_run: bool,
+}
+
 /// How a Worker handles one dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum WorkerBehavior {
@@ -122,6 +131,8 @@ struct WorkerPoolState {
     is_calm: bool,
     is_holding: bool,
     dispatch_history: BTreeMap<String, Vec<AttemptIdentity>>,
+    /// Every task frame of every process, by attempt.
+    task_frames: BTreeMap<AttemptIdentity, Vec<TaskFrameRecord>>,
     returned_results: BTreeMap<AttemptIdentity, PollWorkerTaskFrame>,
     steps_left: BTreeMap<(String, String), u32>,
     /// WaitFor results that wait for a child Flow, as (Flow ID, run ID, Step execution ID).
@@ -154,6 +165,7 @@ impl SimulatedWorkers {
                 is_calm: false,
                 is_holding: false,
                 dispatch_history: BTreeMap::new(),
+                task_frames: BTreeMap::new(),
                 returned_results: BTreeMap::new(),
                 steps_left: BTreeMap::new(),
                 child_waits: BTreeSet::new(),
@@ -183,6 +195,11 @@ impl SimulatedWorkers {
             .get(process_label)
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Returns every task frame a Worker received, by attempt, across all processes.
+    pub(crate) fn task_frames(&self) -> BTreeMap<AttemptIdentity, Vec<TaskFrameRecord>> {
+        self.lock().task_frames.clone()
     }
 
     pub(crate) fn behavior_counts(&self) -> BTreeMap<WorkerBehavior, u64> {
@@ -230,8 +247,9 @@ impl SimulatedWorkers {
     fn start_dispatch(
         self: &Arc<Self>,
         process_label: &str,
-        request: &MethodRequest,
+        task: &MethodTask,
     ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
+        let request = &task.request;
         let identity = AttemptIdentity::of(request);
         let mut state = self.lock();
         let behavior = state.draw_behavior(&identity);
@@ -253,6 +271,21 @@ impl SimulatedWorkers {
             .entry(process_label.to_owned())
             .or_default()
             .push(identity.clone());
+        let has_possibly_run = !matches!(
+            behavior,
+            WorkerBehavior::Unsupported
+                | WorkerBehavior::LegacyNoCapacity
+                | WorkerBehavior::HalfCloseBeforeOutput
+        );
+        state
+            .task_frames
+            .entry(identity.clone())
+            .or_default()
+            .push(TaskFrameRecord {
+                task_id: task.task_id.clone(),
+                is_sync: task.is_sync,
+                has_possibly_run,
+            });
         // An Execute dispatch means the WaitFor condition, such as a child result, was met.
         if identity.is_execute
             && state.child_waits.remove(&(
@@ -865,8 +898,7 @@ impl ReservedMethodStream for SimulatedSlot {
         self: Box<Self>,
         task: MethodTask,
     ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
-        self.workers
-            .start_dispatch(&self.process_label, &task.request)
+        self.workers.start_dispatch(&self.process_label, &task)
     }
 }
 

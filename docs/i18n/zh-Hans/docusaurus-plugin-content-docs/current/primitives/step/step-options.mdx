@@ -96,7 +96,7 @@ Dex 在 method 调用变为 pending 时固定它的 durability。修改 Flow con
 
 **SYNC** 是默认值。Dex 按这个顺序确定 durability：**StepOptions** 中的 method override、Flow 的 **FlowConfig**，最后是 **SYNC**。
 
-Durability 只改变 Dex Server 持久化结果的时机。两种模式下，retry policy、method timeout 和 heartbeat 设置都作用于每一次 attempt。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
+Durability 改变 Dex Server 持久化 attempt 开始记录和结果的时机。**SYNC** 在任务发给 Worker 之前先持久化开始记录；**ASYNC** 先发任务，之后再持久化开始记录。两种模式下，retry policy、method timeout 和 heartbeat 设置都作用于每一次 attempt。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
 
 Method timeout 和 heartbeat timeout 从 Dex 把任务发送给 Worker 时开始计时。等待 lock 或等待 Worker 的时间不计入，包括在任务队列中的时间。任务中的 deadline 是发送时间加上 method timeout。
 

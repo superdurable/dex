@@ -217,6 +217,19 @@ fn failure_guards_match_the_phase_and_task_of_the_attempt() {
             .is_empty(),
         "a started attempt ignores a failure from before its start"
     );
+    let both_guards = StepAttemptFailedCommand {
+        attempt: 1,
+        is_before_start: true,
+        expected_task_id: TASK_A.to_vec(),
+        ..StepAttemptFailedCommand::default()
+    };
+    assert!(
+        harness
+            .fail_attempt(StepMethod::Execute, both_guards)
+            .writes
+            .is_empty(),
+        "a failure is never both before the start and fenced on it"
+    );
     let other_task = StepAttemptFailedCommand {
         attempt: 1,
         expected_task_id: TASK_B.to_vec(),
@@ -247,6 +260,16 @@ fn a_returned_attempt_is_pending_again_with_its_snapshot_lock_and_attempt_number
     let running = harness.invocation();
     assert!(running.retry_started_at_micros > 0);
     let history_before = harness.run_record().next_run_seq;
+    let without_reason = harness.return_attempt(
+        StepMethod::Execute,
+        1,
+        &TASK_A,
+        StepAttemptReturnReason::Unspecified,
+    );
+    assert!(
+        without_reason.writes.is_empty(),
+        "a return names its reason"
+    );
     let returned = harness.return_attempt(
         StepMethod::Execute,
         1,
@@ -530,4 +553,68 @@ fn time_travel_restores_a_running_attempt_as_pending_when_the_command_asks() {
         StepAttemptReturnReason::Unsupported,
     );
     assert_eq!(harness.invocation().retry_started_at_micros, restarted_at);
+}
+
+#[test]
+fn a_failure_that_replaces_a_rejected_result_is_fenced_on_its_task() {
+    let mut harness = start_execute_only(attempts(1), StepDurability::Sync);
+    harness.start_with_task(StepMethod::Execute, 1, &TASK_A);
+    let unknown_reference = Value {
+        kind: Some(value::Kind::InternalBlobIdForStringValue(
+            "zd1|not-a-reference".to_owned(),
+        )),
+    };
+    harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+        attempt: 1,
+        task_id: TASK_A.to_vec(),
+        response: Some(step_method_completed_command::Response::Execute(
+            InvokeExecuteMethodResponse {
+                upsert_attributes: vec![AttributeWrite {
+                    key: "report".to_owned(),
+                    value: Some(unknown_reference),
+                    ..AttributeWrite::default()
+                }],
+                ..InvokeExecuteMethodResponse::default()
+            },
+        )),
+        app_worker_id: "worker-a".to_owned(),
+        ..StepMethodCompletedCommand::default()
+    }));
+    let history_prefix = run_table_prefix(
+        harness.context.flow_hash,
+        harness.harness_run_id(),
+        RunTable::HistoryRecord,
+    );
+    let recorded_failures: Vec<_> = harness
+        .state
+        .rows
+        .iter()
+        .filter(|((column_family, key), _)| {
+            *column_family == ColumnFamily::History && key.starts_with(&history_prefix)
+        })
+        .filter_map(|(_, value)| {
+            match HistoryRecord::decode(value.as_slice())
+                .expect("history decodes")
+                .command?
+                .command?
+            {
+                Command::StepAttemptFailed(failed) => Some(failed),
+                _ => None,
+            }
+        })
+        .collect();
+    assert_eq!(recorded_failures.len(), 1);
+    assert_eq!(
+        recorded_failures[0].kind,
+        StepAttemptFailureKind::InvalidResponse as i32
+    );
+    assert_eq!(recorded_failures[0].expected_task_id, TASK_A.to_vec());
+    assert!(
+        harness
+            .step_execution("RecoverStep-1")
+            .recovery_error
+            .is_some(),
+        "the fenced failure applied and started the recovery Step"
+    );
 }

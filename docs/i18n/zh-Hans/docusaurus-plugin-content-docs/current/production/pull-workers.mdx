@@ -473,8 +473,11 @@ Server，Worker 与之前一样返回未注册错误。
 
 Dex 把 Step attempt 交给 Worker 之后，就不会再把同一个 attempt 编号交给另一个 Worker。
 Worker 断开或崩溃时，这个 attempt 会失败，然后 retry policy 运行。不论有没有输出，SYNC 和
-ASYNC Step 都是如此。少数情况下 attempt 会回到 pending 且不消耗 retry，见
-[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。外部副作用应具备幂等性，
+ASYNC Step 都是如此。只有一个例外：Dex Server 节点在 ASYNC attempt 的开始记录写入
+object storage 之前崩溃时，Dex 会回滚这个开始记录，并再次运行同一个 attempt 编号，
+可能运行在另一个 Worker 上。这次重跑不消耗 retry，两次运行可能重叠。这个例外以及
+attempt 回到 pending 且不消耗 retry 的情况，见
+[失败与重新投递](/primitives/step/basic#same-attempt-redelivery)。外部副作用应具备幂等性，
 例如使用 Flow ID 和 Step execution ID 作为幂等键。
 
 新 SDK 需要新 server。在较旧的 server 上，新 SDK 的 Worker 无法启动，新 SDK 的 Client 第一次

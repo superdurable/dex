@@ -568,6 +568,17 @@ pub(crate) async fn fail_interrupted_attempt(
     run_id: RunId,
     attempt: InterruptedAttempt,
 ) {
+    if attempt.task_id.is_empty() {
+        // Every binary records a task ID on its starts, so this record is corrupt.
+        tracing::error!(
+            run_id = %run_id,
+            step_execution_id = %attempt.key.step_execution_id,
+            method = ?attempt.key.method,
+            attempt = attempt.key.attempt,
+            "a running attempt has no task ID, so it is not failed as interrupted"
+        );
+        return;
+    }
     let urgency = match attempt.durability {
         dex::StepDurability::Async => CommitUrgency::Batched,
         _ => CommitUrgency::Prompt,

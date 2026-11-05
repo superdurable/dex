@@ -11,25 +11,32 @@
 //! older-log path: the replay must reach the older binary's state, except for the attempt
 //! fields that only the new binary writes.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dexzd_apply::FlowStateReader;
 use dexzd_engine::SystemEngineIdSource;
 use dexzd_keyspace::{ColumnFamily, RunTable, parse_run_key};
-use dexzd_protocol::dexzd::v1::{StepExecutionRecord, StepInvocationPhase};
+use dexzd_protocol::dex::FlowStatus;
+use dexzd_protocol::dexzd::v1::{
+    CheckpointRecord, RunRecord, StepExecutionRecord, StepInvocationPhase,
+};
 use prost::Message;
 
 use crate::compat_node::{engine_node_config, start_engine_node};
 use crate::format_decoding::decode_objects;
 use crate::golden_replay::{RESTART_DELAY_MICROS, SnapshotUse, forget_snapshots};
 use crate::scripted_clock::ScriptedClock;
-use crate::state_dump::{StateDump, dump_committed_state, parse_state_dump};
+use crate::state_dump::{StateDump, dump_committed_state, dumped_value, parse_state_dump};
 use crate::testdata_tree::{
     OBJECTS_DIRECTORY, STATE_DUMP_FILE, load_objects, read_files, testdata_root,
 };
 
-/// The `testdata/v1` that the last binary before attempt hand-out recorded.
+/// The format-compat log that the last binary before attempt hand-out recorded.
 const OLDER_LOG_DIRECTORY: &str = "pre-attempt-handout-log";
+
+/// Committed rows by column family name and key, as stored.
+type StoredRows = BTreeMap<(String, Vec<u8>), Vec<u8>>;
 
 #[tokio::test]
 async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
@@ -38,7 +45,7 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
         let recorded_text = std::fs::read_to_string(directory.join(STATE_DUMP_FILE))
             .expect("read the older state dump");
         let recorded = parse_state_dump(&recorded_text);
-        let (replayed, step_executions) = replay(&directory, snapshot_use).await;
+        let (replayed, stored) = replay(&directory, snapshot_use).await;
         assert_eq!(
             recorded.keys().collect::<Vec<_>>(),
             replayed.keys().collect::<Vec<_>>(),
@@ -47,13 +54,17 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
         let changed_rows: Vec<_> = recorded
             .iter()
             .filter(|(key, value)| replayed.get(*key) != Some(*value))
+            .filter(|((column_family, key), value)| {
+                !matches_without_new_fields(column_family, key, value, &stored)
+            })
             .map(|(key, _)| key)
-            .filter(|(column_family, key)| !is_new_attempt_field_row(column_family, key))
             .collect();
         assert!(
             changed_rows.is_empty(),
-            "{snapshot_use:?}: only Step, run, and checkpoint rows gain new fields: {changed_rows:?}"
+            "{snapshot_use:?}: only the new attempt fields and their byte counts differ: \
+             {changed_rows:?}"
         );
+        let step_executions = decoded_rows::<StepExecutionRecord>(&stored, RunTable::StepExecution);
         assert!(!step_executions.is_empty());
         for step in &step_executions {
             assert!(
@@ -64,34 +75,92 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
                 step.step_execution_id
             );
         }
+        // An older time travel restored a running attempt as Running; its result without a
+        // task ID then completed the Flow.
+        let travel_runs: Vec<_> = decoded_rows::<RunRecord>(&stored, RunTable::RunRecord)
+            .into_iter()
+            .filter(|run| run.flow_type == "TravelRunningFlow")
+            .collect();
+        assert_eq!(travel_runs.len(), 1, "{snapshot_use:?}: one travel run");
+        assert_eq!(travel_runs[0].current_attempt, 2);
+        assert_eq!(travel_runs[0].status, FlowStatus::Completed as i32);
     }
 }
 
-/// Step execution rows carry the attempt progress, run records count it in their storage,
-/// attempt checkpoints copy both, and history row metadata records the checkpoint sizes.
-fn is_new_attempt_field_row(column_family: &str, hex_key: &str) -> bool {
-    let key = (0..hex_key.len())
-        .step_by(2)
-        .map(|index| u8::from_str_radix(&hex_key[index..index + 2], 16).expect("hex key"))
-        .collect::<Vec<_>>();
+/// Returns whether the replayed row equals the recorded one after clearing the fields that only
+/// the new binary writes: the attempt progress on Step executions and in attempt checkpoints.
+///
+/// Run records and history row metadata are never compared byte for byte: they count the
+/// bytes of the rows above, which grow by those fields.
+fn matches_without_new_fields(
+    column_family: &str,
+    hex_key: &str,
+    recorded_value: &str,
+    stored: &StoredRows,
+) -> bool {
+    let key = decode_hex(hex_key);
     let Ok(parsed) = parse_run_key(&key) else {
         return false;
     };
-    if column_family == ColumnFamily::History.name() {
-        return parsed.table == RunTable::Checkpoint;
-    }
-    column_family == ColumnFamily::Flow.name()
-        && matches!(
-            parsed.table,
-            RunTable::StepExecution | RunTable::RunRecord | RunTable::HistoryRowMetadata
-        )
+    let Some(value) = stored.get(&(column_family.to_owned(), key.clone())) else {
+        return false;
+    };
+    let cleared = match (column_family, parsed.table) {
+        (name, RunTable::StepExecution) if name == ColumnFamily::Flow.name() => {
+            step_execution_without_progress(value)
+        }
+        (name, RunTable::Checkpoint) if name == ColumnFamily::History.name() => {
+            let mut checkpoint =
+                CheckpointRecord::decode(value.as_slice()).expect("checkpoint rows decode");
+            for row in &mut checkpoint.rows {
+                if row.table == RunTable::StepExecution as u32 {
+                    row.value = step_execution_without_progress(&row.value);
+                }
+            }
+            checkpoint.encode_to_vec()
+        }
+        (name, RunTable::RunRecord | RunTable::HistoryRowMetadata)
+            if name == ColumnFamily::Flow.name() =>
+        {
+            return true;
+        }
+        _ => return false,
+    };
+    dumped_value(&cleared) == recorded_value
 }
 
-/// Starts a node on the older objects and returns its committed state and Step executions.
-async fn replay(
-    directory: &std::path::Path,
-    snapshot_use: SnapshotUse,
-) -> (StateDump, Vec<StepExecutionRecord>) {
+fn step_execution_without_progress(value: &[u8]) -> Vec<u8> {
+    let mut step = StepExecutionRecord::decode(value).expect("Step execution rows decode");
+    if let Some(invocation) = step.invocation.as_mut() {
+        invocation.furthest_attempt_progress = 0;
+        invocation.pending_since_micros = 0;
+    }
+    if let Some(recovery_error) = step.recovery_error.as_mut() {
+        recovery_error.attempt_progress = 0;
+    }
+    step.encode_to_vec()
+}
+
+fn decoded_rows<T: Message + Default>(stored: &StoredRows, table: RunTable) -> Vec<T> {
+    stored
+        .iter()
+        .filter(|((column_family, key), _)| {
+            *column_family == table.column_family().name()
+                && parse_run_key(key).is_ok_and(|parsed| parsed.table == table)
+        })
+        .map(|(_, value)| T::decode(value.as_slice()).expect("rows decode"))
+        .collect()
+}
+
+fn decode_hex(hex_key: &str) -> Vec<u8> {
+    (0..hex_key.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex_key[index..index + 2], 16).expect("hex key"))
+        .collect()
+}
+
+/// Starts a node on the older objects and returns its committed state dump and stored rows.
+async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (StateDump, StoredRows) {
     let decoded = decode_objects(&read_files(&directory.join(OBJECTS_DIRECTORY)));
     let object_store = Arc::new(load_objects(directory).await);
     if snapshot_use == SnapshotUse::Ignore {
@@ -123,23 +192,22 @@ async fn replay(
         .committer()
         .committed_view()
         .expect("open a committed view");
-    let step_view = engine
+    let row_view = engine
         .committer()
         .committed_view()
         .expect("open a committed view");
     let state = dump_committed_state(view).await;
-    let step_executions = tokio::task::spawn_blocking(move || {
-        step_view
-            .scan(ColumnFamily::Flow, &[], &[0xff; 64], usize::MAX)
-            .expect("scan committed rows")
-            .into_iter()
-            .filter(|(key, _)| {
-                parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::StepExecution)
-            })
-            .map(|(_, value)| {
-                StepExecutionRecord::decode(value.as_slice()).expect("Step rows decode")
-            })
-            .collect::<Vec<_>>()
+    let stored = tokio::task::spawn_blocking(move || {
+        let mut stored = StoredRows::new();
+        for column_family in [ColumnFamily::Flow, ColumnFamily::History] {
+            let rows = row_view
+                .scan(column_family, &[], &[0xff; 64], usize::MAX)
+                .expect("scan committed rows");
+            for (key, value) in rows {
+                stored.insert((column_family.name().to_owned(), key), value);
+            }
+        }
+        stored
     })
     .await
     .expect("the scan task completes");
@@ -147,5 +215,5 @@ async fn replay(
         .shutdown()
         .await
         .expect("the node releases its lease");
-    (state, step_executions)
+    (state, stored)
 }

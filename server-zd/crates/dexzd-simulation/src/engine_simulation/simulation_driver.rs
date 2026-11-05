@@ -25,7 +25,8 @@ use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::engine_invariants::{
     TwinComparison, check_acknowledged_writes, check_acknowledged_writes_and_caught_up,
     check_drained, check_interrupted_attempts_failed, check_recovered_flows,
-    check_store_matches_log, outstanding_work, running_attempts,
+    check_store_matches_log, check_sync_attempts_ran_at_most_once, outstanding_work,
+    running_attempts,
 };
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::seed_summary::{final_state, finish_summary};
@@ -442,6 +443,8 @@ impl Simulation {
         tokio::time::sleep(tail).await;
         self.wait_until_drained().await?;
         self.check_interrupted_work_finished().await?;
+        self.summary.sync_task_frames_checked +=
+            check_sync_attempts_ran_at_most_once(&self.environment.workers.task_frames())?;
         let records = self
             .client_records
             .lock()

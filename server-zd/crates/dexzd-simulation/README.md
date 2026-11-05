@@ -156,7 +156,10 @@ directory invariants hold on the committed history. The engine simulation adds t
    runs from the node's applied position when the call began to the one when it returned. A
    value that a later applied write overwrote fails, as does an uncommitted one.
 3. **One result per attempt.** The shadow rejects a second applied result (S2). Any frame
-   applied again after recovery must reproduce its first outcome exactly.
+   applied again after recovery must reproduce its first outcome exactly. A ledger of every
+   task frame that any process sent allows at most one frame per SYNC attempt that its Worker
+   may have run; frames the Worker declined or half-closed before running are exempt. The
+   summary field `sync_task_frames_checked` counts the SYNC frames it covered.
 4. **Locks.** The shadow checks L1 to L4 after every command, and the recovered store passes
    `check_flow` again, including right after a takeover while the old-epoch process still runs.
    A successor replays every batch below its EpochStart before it serves, so its store never

@@ -75,6 +75,9 @@ pub struct MethodTask {
     pub deadline: SystemTime,
     /// When the attempt became pending, for the schedule-to-start latency.
     pub scheduled_at: Option<Instant>,
+    /// Whether the invocation's pinned durability is SYNC: the task goes out only after its
+    /// start committed, so no other frame of the attempt may run.
+    pub is_sync: bool,
 }
 
 /// One reserved Worker slot. Dropping it without sending returns the slot.

@@ -153,17 +153,24 @@ pub enum WorkerStreamProtocolError {
     NoCapacityOnReservedSlot,
     /// A reserved-slot stream half-closed after task output but before its final output.
     HalfCloseAfterOutput,
+    /// A Worker declined a task after it had sent output for it.
+    RejectAfterOutput,
 }
 
-label_value!(WorkerStreamProtocolError { NoCapacityOnReservedSlot => "no_capacity_on_reserved_slot", HalfCloseAfterOutput => "half_close_after_output" });
+label_value!(WorkerStreamProtocolError { NoCapacityOnReservedSlot => "no_capacity_on_reserved_slot", HalfCloseAfterOutput => "half_close_after_output", RejectAfterOutput => "reject_after_output" });
 
 impl WorkerStreamProtocolError {
-    const ALL: [Self; 2] = [Self::NoCapacityOnReservedSlot, Self::HalfCloseAfterOutput];
+    const ALL: [Self; 3] = [
+        Self::NoCapacityOnReservedSlot,
+        Self::HalfCloseAfterOutput,
+        Self::RejectAfterOutput,
+    ];
 
     const fn index(self) -> usize {
         match self {
             Self::NoCapacityOnReservedSlot => 0,
             Self::HalfCloseAfterOutput => 1,
+            Self::RejectAfterOutput => 2,
         }
     }
 }
@@ -176,7 +183,7 @@ struct WorkerStreamProtocolErrorLabel {
 /// Worker stream protocol errors by kind.
 #[derive(Clone, Debug)]
 pub struct WorkerStreamProtocolErrors {
-    counts: Arc<[Counter; 2]>,
+    counts: Arc<[Counter; 3]>,
 }
 
 impl Default for WorkerStreamProtocolErrors {
