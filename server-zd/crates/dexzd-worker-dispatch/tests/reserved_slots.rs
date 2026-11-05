@@ -128,6 +128,11 @@ impl Slot {
         self.sender = None;
     }
 
+    /// Drops the response side, so the client resets the HTTP/2 stream with RST_STREAM.
+    fn cancel(&mut self) {
+        self.stream = None;
+    }
+
     /// Breaks the connection as a crashed Worker would; the server never sees a half-close.
     fn reset(&mut self) {
         self.connection
@@ -610,6 +615,27 @@ async fn a_clean_half_close_tells_whether_the_worker_could_have_run_the_task() {
     let (_, mut handle) = hand_out(&dispatch, "Flow", "Charge", "task-4").await;
     slot.task().await;
     slot.half_close();
+    assert!(matches!(
+        final_event(&mut handle).await,
+        StepTaskEvent::Disconnected { .. }
+    ));
+}
+
+#[tokio::test]
+async fn a_reset_right_after_a_half_close_fails_the_task_as_a_disconnect() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut handle) = hand_out(&dispatch, "Flow", "Charge", "task-1").await;
+    slot.task().await;
+    // Some clients cancel a call with END_STREAM and then RST_STREAM.
+    slot.half_close();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    slot.cancel();
     assert!(matches!(
         final_event(&mut handle).await,
         StepTaskEvent::Disconnected { .. }

@@ -15,6 +15,8 @@ use dexzd_protocol::dex::{PollWorkerSlotKind, PollWorkerTaskRegister};
 
 const FIRST_STEP_BACKOFF: Duration = Duration::from_millis(300);
 const LONGEST_STEP_BACKOFF: Duration = Duration::from_secs(2);
+/// How long a clean half-close with a task outstanding waits for a reset of the same stream.
+const HALF_CLOSE_RESET_GRACE: Duration = Duration::from_millis(200);
 
 /// How a stream takes tasks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +96,10 @@ impl WorkerStream {
 
 /// Stops sending on a reserved-slot stream the Worker cleanly half-closed, then tells its
 /// assignment, after every earlier frame, so it can tell whether the task had output.
+///
+/// Some clients cancel a call with END_STREAM followed by RST_STREAM. A reset within
+/// [`HALF_CLOSE_RESET_GRACE`] drops the response side, so the assignment ends as a
+/// disconnect instead of a half-close.
 pub(super) async fn half_close(dispatch: &WorkerDispatch, worker: &WorkerStream) {
     let frames = {
         let mut registry = dispatch.lock_registry();
@@ -105,9 +111,17 @@ pub(super) async fn half_close(dispatch: &WorkerDispatch, worker: &WorkerStream)
             .as_ref()
             .map(|assignment| assignment.frames.clone())
     };
-    if let Some(frames) = frames
-        && frames.send(AssignmentFrame::HalfClosed).await.is_err()
+    let Some(frames) = frames else {
+        return;
+    };
+    if tokio::time::timeout(HALF_CLOSE_RESET_GRACE, worker.output.closed())
+        .await
+        .is_ok()
     {
+        tracing::debug!("Worker reset its stream right after half-closing it");
+        return;
+    }
+    if frames.send(AssignmentFrame::HalfClosed).await.is_err() {
         tracing::debug!("half-close reached an abandoned assignment");
     }
 }
