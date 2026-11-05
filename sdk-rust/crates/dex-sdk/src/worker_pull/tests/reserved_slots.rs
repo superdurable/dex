@@ -733,6 +733,125 @@ async fn next_task_right_after_final_output_runs_unless_stop_wins() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn next_task_waits_for_held_cleanup_of_the_previous_task() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
+    let started = Arc::clone(&flow.step.started);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new().max_concurrent_tasks(1),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut slot = harness.connection().await;
+    slot.registered(0).await;
+    let cleanup = crate::worker_pull::task_cleanup_barrier::hold("held-cleanup");
+    slot.assign_step("held-cleanup").await;
+    slot.final_frame("held-cleanup").await;
+    timeout(Duration::from_secs(5), started.notified())
+        .await
+        .unwrap();
+    // Dex reuses the slot while the previous task's local cleanup is still held open.
+    slot.assign_step("after-held-cleanup").await;
+    assert!(
+        timeout(Duration::from_millis(200), started.notified())
+            .await
+            .is_err(),
+        "the next task waits for the previous task's cleanup"
+    );
+    cleanup.notify_one();
+    slot.final_frame("after-held-cleanup").await;
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    harness.stop();
+    slot.half_closed().await;
+    drop(slot);
+    harness.finish().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_during_held_cleanup_drops_the_pending_next_task() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
+    let started = Arc::clone(&flow.step.started);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new().max_concurrent_tasks(1),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut slot = harness.connection().await;
+    slot.registered(0).await;
+    let cleanup = crate::worker_pull::task_cleanup_barrier::hold("held-before-stop");
+    slot.assign_step("held-before-stop").await;
+    slot.final_frame("held-before-stop").await;
+    timeout(Duration::from_secs(5), started.notified())
+        .await
+        .unwrap();
+    slot.assign_step("pending-at-stop").await;
+    assert!(
+        timeout(Duration::from_millis(200), started.notified())
+            .await
+            .is_err(),
+        "the pending task waits for the previous task's cleanup"
+    );
+    harness.stop();
+    cleanup.notify_one();
+    // The pending task is dropped without output or rejection, then the slot half-closes.
+    slot.half_closed().await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    drop(slot);
+    harness.finish().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn malformed_task_deadline_resets_the_stream_without_running_the_handler() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(1)
+            .stop_drain_timeout(Duration::from_millis(200)),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut malformed = harness.connection().await;
+    malformed.registered(0).await;
+    malformed
+        .responses
+        .send(Ok(PollWorkerTaskResponse {
+            frame: Some(ResponseFrame::Task(PollWorkerTask {
+                task_id: "malformed-deadline".to_string(),
+                deadline: Some(prost_types::Timestamp {
+                    seconds: i64::MAX,
+                    nanos: -1,
+                }),
+                request: Some(TaskRequest::Execute(InvokeExecuteMethodRequest {
+                    flow_type: "SlotFlow".to_string(),
+                    step_type: "SlotStep".to_string(),
+                    context: Some(ProtoContext {
+                        flow_id: uuid::Uuid::new_v4().to_string(),
+                        ..Default::default()
+                    }),
+                    step_input: Some(crate::value_mapper::encode(&()).expect("Step input")),
+                    ..Default::default()
+                })),
+            })),
+        }))
+        .await
+        .unwrap();
+    malformed.reset().await;
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    // The slot's capacity returns on a replacement connection.
+    let mut replacement = harness.connection().await;
+    replacement.registered(0).await;
+    replacement.assign_step("after-malformed").await;
+    replacement.final_frame("after-malformed").await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    harness.stop();
+    replacement.half_closed().await;
+    drop((malformed, replacement));
+    harness.finish().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn idle_slot_drops_task_after_stop_begins_and_before_half_close() {
     let flow = slot_flow(true, false);
     let calls = Arc::clone(&flow.step.calls);

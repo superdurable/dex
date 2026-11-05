@@ -561,8 +561,8 @@ impl PullStream {
                                             return (was_registered, false, Err(Status::internal("Server assigned a second task to a busy reserved slot")));
                                         }
                                         // Dex may reuse the slot as soon as it receives the final output; finish local cleanup first.
-                                        if let Some(previous) = active.take() && let Err(error) = previous.handler.await {
-                                            tracing::error!(%error, "pull Worker handler failed");
+                                        if let Some(previous) = active.take() {
+                                            finish_handler_after_final_output(previous.handler).await;
                                         }
                                         self.shared.release(self.stream_id);
                                         keepalive_interval = None;
@@ -570,6 +570,14 @@ impl PullStream {
                                             continue;
                                         }
                                     }
+                                    // Validate untrusted metadata before admission; a malformed task never reaches a handler.
+                                    let assigned_deadline = match task.deadline.as_ref().map(task_deadline).transpose() {
+                                        Ok(assigned_deadline) => assigned_deadline,
+                                        Err(error) => {
+                                            reset_guard.reset();
+                                            return (was_registered, false, Err(Status::internal(format!("Server sent a malformed task: {error}"))));
+                                        }
+                                    };
                                     if let Some(reason) = self.dispatcher.unknown_task_reason(&task) {
                                         let reject = PollWorkerTaskReject { task_id: task.task_id, reason: reason as i32 };
                                         let sent = tokio::select! {
@@ -590,14 +598,13 @@ impl PullStream {
                                         let progress_cancellation = InvocationCancellation::new();
                                         let cancel_code = Arc::new(AtomicI32::new(0));
                                         let task_id = task.task_id.clone();
-                                        let deadline = task.deadline.as_ref().map(task_deadline);
                                         final_frame_sent = Arc::new(Mutex::new(false));
                                         let mut interval = interval_at(Instant::now() + BUSY_PULL_STREAM_KEEPALIVE_INTERVAL, BUSY_PULL_STREAM_KEEPALIVE_INTERVAL);
                                         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
                                         keepalive_interval = Some(interval);
                                         let frame_sender = TaskFrameSender::new(task_id.clone(), sender.as_ref().expect("open Worker stream").clone(), transport_cancellation.clone(), progress_cancellation.clone(), Arc::clone(&cancel_code), Arc::clone(&final_frame_sent));
                                         let handler = tokio::spawn(execute_task(self.dispatcher.clone(), task, cancellation.clone(), Arc::clone(&cancel_code), frame_sender));
-                                        active = Some(ActiveTask { task_id, cancellation, transport_cancellation, progress_cancellation, cancel_code, handler, final_frame_sent: Arc::clone(&final_frame_sent), deadline });
+                                        active = Some(ActiveTask { task_id, cancellation, transport_cancellation, progress_cancellation, cancel_code, handler, final_frame_sent: Arc::clone(&final_frame_sent), deadline: assigned_deadline });
                                         self.shared.notify.notify_one();
                                     }
                                 }
@@ -838,6 +845,8 @@ async fn execute_task(
     cancel_code: Arc<AtomicI32>,
     frame_sender: TaskFrameSender,
 ) {
+    #[cfg(test)]
+    let held_task_id = task.task_id.clone();
     match task.request {
         Some(TaskRequest::WaitFor(request)) => {
             let mut output = dispatcher
@@ -897,6 +906,40 @@ async fn execute_task(
             if let Err(error) = frame_sender.send(Output::WorkerError(error)).await {
                 tracing::warn!(%error, "send Worker task error");
             }
+        }
+    }
+    #[cfg(test)]
+    task_cleanup_barrier::wait(&held_task_id).await;
+}
+
+/// Lets tests hold a task's local cleanup open after its final output.
+#[cfg(test)]
+mod task_cleanup_barrier {
+    use std::collections::HashMap;
+    use std::sync::{Arc, LazyLock, Mutex};
+
+    use tokio::sync::Notify;
+
+    static BARRIERS: LazyLock<Mutex<HashMap<String, Arc<Notify>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    /// Returns the barrier that releases `task_id`'s cleanup when notified.
+    pub(super) fn hold(task_id: &str) -> Arc<Notify> {
+        let barrier = Arc::new(Notify::new());
+        BARRIERS
+            .lock()
+            .expect("task cleanup barrier lock")
+            .insert(task_id.to_string(), Arc::clone(&barrier));
+        barrier
+    }
+
+    pub(super) async fn wait(task_id: &str) {
+        let barrier = BARRIERS
+            .lock()
+            .expect("task cleanup barrier lock")
+            .remove(task_id);
+        if let Some(barrier) = barrier {
+            barrier.notified().await;
         }
     }
 }
@@ -1666,16 +1709,25 @@ mod tests {
 
     #[test]
     fn expired_task_deadline_is_immediate() {
-        let deadline = task_deadline(&prost_types::Timestamp {
-            seconds: 0,
-            nanos: 0,
-        });
-        assert!(deadline <= Instant::now());
-        let malformed = task_deadline(&prost_types::Timestamp {
-            seconds: i64::MAX,
-            nanos: -1,
-        });
-        assert!(malformed <= Instant::now());
+        for seconds in [0, -1, -62_135_596_800] {
+            let deadline = task_deadline(&prost_types::Timestamp { seconds, nanos: 0 })
+                .expect("valid expired deadline");
+            assert!(deadline <= Instant::now());
+        }
+    }
+
+    #[test]
+    fn malformed_task_deadline_is_an_error() {
+        for (seconds, nanos) in [
+            (i64::MAX, -1),
+            (0, -1),
+            (0, 1_000_000_000),
+            (i64::MAX, 0),
+            (i64::MIN, 0),
+            (253_402_300_800, 0),
+        ] {
+            assert!(task_deadline(&prost_types::Timestamp { seconds, nanos }).is_err());
+        }
     }
 
     #[tokio::test]
