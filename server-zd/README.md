@@ -763,7 +763,7 @@ flag overrides it with the same modes, spelled `strict`, `process-crash-safe`, a
 | `relaxed` | Only a graceful stop. | Writes stay in memory until `dev` stops gracefully. |
 
 Use the default for a `dev` node that keeps data you need. Short-lived test servers can pass
-`--durability process-crash-safe` to run faster.
+`--durability process-crash-safe`, or set `dev.durabilityMode: processCrashSafe`, to run faster.
 
 After a process kill in the default or `processCrashSafe` mode, the next `dev` start on the same data
 directory recovers every acknowledged Flow. A relaxed object store rolls back after an abrupt exit,
@@ -773,12 +773,13 @@ empty.
 
 Upgrading a data directory from an earlier release follows these rules:
 
-- A directory that an earlier release stopped gracefully keeps working in every mode.
-- A directory that an earlier release left after an abrupt exit is refused in every mode, because
-  those releases defaulted to `relaxed` and may have rolled back. Delete the whole data directory to
-  start empty.
+- A directory from v0.1.4 or later carries a stamp and keeps working in every mode.
+- A directory that a release before v0.1.4 stopped gracefully keeps working in every mode.
+- A directory that a release before v0.1.4 left after an abrupt exit is refused in every mode,
+  because those releases defaulted to `relaxed` and may have rolled back. Delete the whole data
+  directory to start empty.
 
-After the first start of a release with this rule, the directory is stamped, and any mode works.
+After the first start of v0.1.4 or later, the directory is stamped, and any mode works.
 
 `dev` defaults `lease.duration` to 30 seconds, unless the `--config` file sets it; `serve` defaults
 it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
