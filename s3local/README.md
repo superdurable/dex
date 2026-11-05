@@ -387,6 +387,11 @@ The release workflow publishes the section for the released version.
   to `s3local-data`. Pass the existing data directory explicitly to keep using it unchanged.
 - Release tags now use `s3local/vX` instead of `s3mock/vX`; assets use
   `s3local_vX_<os>_<arch>.tar.gz`. Existing data directories retain the same on-disk format.
+- The container image is now `superdurable/s3local`, and its data volume is
+  `/var/lib/s3local` instead of `/var/lib/s3mock`. Mount an existing volume at the new path.
+  The image sets `S3LOCAL_LISTEN_ADDRESS` and `S3LOCAL_DATA_DIRECTORY`, so the old
+  `S3MOCK_LISTEN_ADDRESS` and `S3MOCK_DATA_DIRECTORY` have no effect in the container.
+- The owner ID in bucket and object listings is now `s3local` instead of `s3mock`.
 
 ### 0.1.1
 
