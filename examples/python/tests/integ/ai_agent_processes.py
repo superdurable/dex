@@ -134,6 +134,8 @@ class PrivateDexEngine:
                 "-web-port",
                 str(self.web_port),
                 "-open=false",
+                "-durability",
+                "process-crash-safe",
             ],
             ENGINE_READY_LINE,
         )

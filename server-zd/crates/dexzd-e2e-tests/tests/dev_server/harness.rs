@@ -65,6 +65,8 @@ impl DevServer {
             log_dir: None,
             config,
             attribute_store_config: None,
+            // Per-test servers skip fsync for speed; strict is the dev default.
+            durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
         })
         .await
         .expect("the dev server starts");

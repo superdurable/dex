@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +30,11 @@ const (
 	defaultWebPort          = 8802
 	defaultZDStartupTimeout = 60 * time.Second
 	zdBinaryName            = "dex-server-zd"
+	defaultDurability       = "strict"
 )
+
+// zdDurabilities lists the --durability values that dex-server-zd dev accepts.
+var zdDurabilities = []string{"strict", "process-crash-safe", "relaxed"}
 
 var flagOrder = []string{
 	"attribute-store-config",
@@ -37,6 +42,7 @@ var flagOrder = []string{
 	"connector-config-dir",
 	"connector-release-override",
 	"dex-port",
+	"durability",
 	"engine",
 	"flow-rendering-dir",
 	"open",
@@ -57,6 +63,8 @@ type Config struct {
 	ZDDataDirectory string
 	// ZDConfigPath defaults empty; when set, dexcli passes it to dex-server-zd dev as --config overrides.
 	ZDConfigPath string
+	// Durability defaults to strict; dexcli passes it to dex-server-zd dev as --durability only when set.
+	Durability string
 	// BindAddress defaults to 127.0.0.1 for all owned listeners.
 	BindAddress string
 	// DexPort defaults to 8801 for the Dex gRPC server.
@@ -108,6 +116,13 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	flags.StringVar(&cfg.ZDBinary, "zd-binary", cfg.ZDBinary, "dex-server-zd executable (default DEX_SERVER_ZD_BINARY, then next to dexcli, then PATH)")
 	flags.StringVar(&cfg.ZDDataDirectory, "zd-data-dir", "", "zd state directory (default $HOME/.dex/zd/<dex-port>)")
 	flags.StringVar(&cfg.ZDConfigPath, "zd-config", "", "dex-server-zd YAML file with configuration overrides")
+	flags.StringVar(
+		&cfg.Durability,
+		"durability",
+		cfg.Durability,
+		"embedded object store durability: strict fsyncs before acknowledging, process-crash-safe survives "+
+			"only a process kill, relaxed can lose writes on any crash; overrides dev.durabilityMode in the zd config file",
+	)
 	flags.IntVar(&cfg.DexPort, "dex-port", cfg.DexPort, "Dex gRPC port")
 	flags.StringVar(
 		&cfg.FlowRenderingDirectory,
@@ -149,7 +164,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
-		case "dex-port", "web-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config":
+		case "dex-port", "web-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config", "durability":
 			cfg.explicitLocalFlags[item.Name] = true
 		}
 	})
@@ -166,6 +181,7 @@ func defaultConfig() (*Config, error) {
 	}
 	return &Config{
 		Engine:                    "zd",
+		Durability:                defaultDurability,
 		ZDBinary:                  os.Getenv("DEX_SERVER_ZD_BINARY"),
 		BindAddress:               defaultBindAddress,
 		DexPort:                   defaultDexPort,
@@ -227,6 +243,12 @@ func (c *Config) validate() error {
 			return err
 		}
 		c.ZDConfigPath = configPath
+	}
+	if c.isExplicit("durability") {
+		c.Durability = strings.TrimSpace(c.Durability)
+		if !slices.Contains(zdDurabilities, c.Durability) {
+			return fmt.Errorf("durability must be one of %s: %q", strings.Join(zdDurabilities, ", "), c.Durability)
+		}
 	}
 	if c.isExplicit("attribute-store-config") {
 		configPath, err := resolveRegularFilePath(c.AttributeStoreConfigPath, "Attribute Store config file")

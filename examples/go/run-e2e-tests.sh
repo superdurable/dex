@@ -128,8 +128,8 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
 
-default_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/default-zd")
-deal_dsl_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/deal-dsl-zd")
+default_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/default-zd" -durability process-crash-safe)
+deal_dsl_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/deal-dsl-zd" -durability process-crash-safe)
 default_dev_args+=(-attribute-store-config "$entity_store_config")
 deal_dsl_dev_args+=(-attribute-store-config "$entity_store_config")
 

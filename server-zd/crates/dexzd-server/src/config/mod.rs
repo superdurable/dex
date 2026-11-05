@@ -90,7 +90,7 @@ pub struct Config {
     pub limits: LimitsConfig,
     /// PostgreSQL Attribute synchronization with the Go Dex Server's keys. Defaults to no stores.
     pub attribute_store: AttributeStoreConfig,
-    /// Local development paths and embedded S3 durability. Defaults to unset paths and process-crash-safe durability.
+    /// Local development paths and embedded S3 durability. Defaults to unset paths and strict durability.
     pub dev: DevConfig,
 }
 

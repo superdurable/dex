@@ -88,7 +88,7 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
 export DEX_SERVER_ZD_BINARY
-dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
+dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -durability process-crash-safe)
 
 "$binary_dir/dexcli" dev "${dev_args[@]}" >>"$log_file" 2>&1 &
 dexcli_pid=$!

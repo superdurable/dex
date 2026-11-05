@@ -153,14 +153,14 @@ fn store_open_failure_detail(error: StoreError, data_directory: &Path) -> String
         StoreError::UncleanRelaxedSession { .. } => format!(
             "the previous dev run in relaxed durability mode did not stop cleanly, so the embedded \
              object store lost recent writes; delete the whole data directory {} to start empty, \
-             and use the default processCrashSafe durability mode to survive abrupt exits",
+             and use the default strict or the processCrashSafe durability mode to survive \
+             abrupt exits",
             data_directory.display()
         ),
         StoreError::UncleanSessionWithoutRelaxedSessionMarkers { .. } => format!(
             "the previous dev run, from a dex-server-zd release that defaulted to relaxed \
              durability, did not stop cleanly, so the embedded object store may have lost recent \
-             writes; delete the whole data directory {} to start empty, or set \
-             dev.durabilityMode: strict if every earlier run used strict durability",
+             writes; delete the whole data directory {} to start empty",
             data_directory.display()
         ),
         StoreError::UnsupportedStoreFormatVersion {

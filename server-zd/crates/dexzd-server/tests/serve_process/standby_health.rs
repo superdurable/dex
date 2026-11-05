@@ -154,6 +154,7 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
         log_dir: None,
         config: Some(config_path),
         attribute_store_config: None,
+        durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
     };
     let waiting_address = waiting_options.listen;
     let waiting = tokio::spawn(async move { start_dev_server(&waiting_options).await });

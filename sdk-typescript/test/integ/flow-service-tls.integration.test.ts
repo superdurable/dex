@@ -135,6 +135,7 @@ class ServerZdProcess {
     const port = await availablePort();
     const child = spawn(binary, [
       "dev", "--data-dir", join(directory, "zd"), "--listen", `127.0.0.1:${port}`, "--config", configFile,
+      "--durability", "process-crash-safe",
     ], { stdio: ["ignore", "pipe", "pipe"] });
     const server = new ServerZdProcess(child, port);
     try {

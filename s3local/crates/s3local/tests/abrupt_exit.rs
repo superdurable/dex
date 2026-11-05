@@ -345,9 +345,9 @@ fn a_guarded_open_checks_a_store_from_a_release_without_markers() {
     assert_eq!(read(&reopened, "object").unwrap(), b"body");
 }
 
-/// A strict configuration is trusted for an unmarked store that was not closed cleanly.
+/// Every mode refuses an unmarked unclean store, because strict sessions leave no record of themselves.
 #[test]
-fn a_strict_guarded_open_accepts_an_unmarked_strict_store_copied_while_open() {
+fn a_guarded_open_refuses_an_unmarked_strict_store_copied_while_open_in_every_mode() {
     let directory = tempfile::tempdir().unwrap();
     let root_directory = directory.path().join("store");
     let crashed_directory = directory.path().join("crashed");
@@ -357,7 +357,11 @@ fn a_strict_guarded_open_accepts_an_unmarked_strict_store_copied_while_open() {
         put(&store, "object", b"body");
         copy_open_store(&root_directory, &crashed_directory);
     }
-    for durability in [Durability::ProcessCrashSafe, Durability::Relaxed] {
+    for durability in [
+        Durability::Strict,
+        Durability::ProcessCrashSafe,
+        Durability::Relaxed,
+    ] {
         let refused =
             Store::open_refusing_unclean_relaxed_session(&config(&crashed_directory, durability));
         assert!(
@@ -368,20 +372,9 @@ fn a_strict_guarded_open_accepts_an_unmarked_strict_store_copied_while_open() {
             "a {durability:?} guarded open must refuse the unmarked store"
         );
     }
-    {
-        let reopened = Store::open_refusing_unclean_relaxed_session(&config(
-            &crashed_directory,
-            Durability::Strict,
-        ))
-        .expect("a strict guarded open trusts the configuration");
-        assert_eq!(read(&reopened, "object").unwrap(), b"body");
-    }
-    let stamped = Store::open_refusing_unclean_relaxed_session(&config(
-        &crashed_directory,
-        Durability::ProcessCrashSafe,
-    ))
-    .expect("the strict open stamped the store");
-    assert_eq!(read(&stamped, "object").unwrap(), b"body");
+    let reopened = Store::open(&config(&crashed_directory, Durability::Strict))
+        .expect("the unguarded open repairs the store");
+    assert_eq!(read(&reopened, "object").unwrap(), b"body");
 }
 
 /// Uploads one part and returns its ETag.

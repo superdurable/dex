@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! `dex-server-zd dev` after SIGKILL: the default and strict modes recover, and relaxed refuses to start.
+//! `dex-server-zd dev` after SIGKILL: the default strict and processCrashSafe modes recover, and relaxed refuses to start.
 
 use std::collections::HashSet;
 use std::fs;
@@ -28,6 +28,8 @@ use super::{FLOW_TYPE, run_greeting_flow, start_greeting_worker, string_value};
 /// A SIGKILL leaves the lease held, so a short lease keeps the restart quick.
 const DEFAULT_MODE_OVERRIDES: &str = "lease:\n  duration: 5s\n";
 const STRICT_MODE_OVERRIDES: &str = "lease:\n  duration: 5s\ndev:\n  durabilityMode: strict\n";
+const PROCESS_CRASH_SAFE_MODE_OVERRIDES: &str =
+    "lease:\n  duration: 5s\ndev:\n  durabilityMode: processCrashSafe\n";
 const RELAXED_MODE_OVERRIDES: &str = "lease:\n  duration: 5s\ndev:\n  durabilityMode: relaxed\n";
 /// Longer than two renewals of a 5-second lease.
 const OBJECT_WRITE_BUDGET: Duration = Duration::from_secs(15);
@@ -43,23 +45,27 @@ const UNCLEAN_SESSION_WITHOUT_MARKERS_TEXT: &str =
 /// Files that releases before relaxed session markers never wrote.
 const RELAXED_SESSION_FILES: [&str; 2] = ["relaxed-session-open", "relaxed-session-markers"];
 
-/// In the default mode, a SIGKILL loses nothing: the restart serves the earlier Flow.
+/// In the default strict mode, a SIGKILL loses nothing: the restart serves the earlier Flow.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn default_dev_restarts_after_sigkill_with_the_earlier_flow() {
     restarts_after_sigkill_with_the_earlier_flow(DEFAULT_MODE_OVERRIDES).await;
 }
 
-/// Strict mode also recovers after a SIGKILL.
+/// The processCrashSafe mode also recovers after a SIGKILL.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn strict_dev_restarts_after_sigkill_with_the_earlier_flow() {
-    restarts_after_sigkill_with_the_earlier_flow(STRICT_MODE_OVERRIDES).await;
+async fn process_crash_safe_dev_restarts_after_sigkill_with_the_earlier_flow() {
+    restarts_after_sigkill_with_the_earlier_flow(PROCESS_CRASH_SAFE_MODE_OVERRIDES).await;
 }
 
-/// A SIGKILL during heavy writes keeps every acknowledged StartFlow and completion.
+/// Without fsync, a SIGKILL during heavy writes keeps every acknowledged StartFlow and completion.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn default_dev_keeps_every_acknowledged_write_after_sigkill_during_heavy_writes() {
+async fn process_crash_safe_dev_keeps_every_acknowledged_write_after_sigkill_during_heavy_writes() {
     let directory = TempDir::new().expect("a temporary test directory can be created");
-    let config_path = write_overrides(directory.path(), "default", DEFAULT_MODE_OVERRIDES);
+    let config_path = write_overrides(
+        directory.path(),
+        "process-crash-safe",
+        PROCESS_CRASH_SAFE_MODE_OVERRIDES,
+    );
     let data_directory = directory.path().join("data");
     let mut first = spawn_dev(directory.path(), &data_directory, &config_path, "first");
     let channel = first.wait_until_serving().await;
@@ -228,12 +234,11 @@ async fn default_dev_checks_a_relaxed_directory_from_a_release_without_markers()
     }
 }
 
-/// A strict directory from a release without markers serves after a kill when strict is configured.
+/// A killed strict directory from a release without markers is refused, since no record shows it was strict.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn strict_dev_accepts_a_killed_strict_directory_from_a_release_without_markers() {
+async fn dev_refuses_a_killed_strict_directory_from_a_release_without_markers() {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let strict_config_path = write_overrides(directory.path(), "strict", STRICT_MODE_OVERRIDES);
-    let default_config_path = write_overrides(directory.path(), "default", DEFAULT_MODE_OVERRIDES);
     let data_directory = directory.path().join("data");
     let mut first = spawn_dev(
         directory.path(),
@@ -249,25 +254,17 @@ async fn strict_dev_accepts_a_killed_strict_directory_from_a_release_without_mar
     let mut refused = spawn_dev(
         directory.path(),
         &data_directory,
-        &default_config_path,
-        "default",
+        &strict_config_path,
+        "strict-upgraded",
     );
     let status = refused.wait_for_exit(EXIT_BUDGET).await;
     let log = refused.log();
     assert!(
-        !status.success() && log.contains(UNCLEAN_SESSION_WITHOUT_MARKERS_TEXT),
-        "the default mode cannot tell that the unmarked directory was strict:\n{log}"
+        !status.success()
+            && log.contains(UNCLEAN_SESSION_WITHOUT_MARKERS_TEXT)
+            && log.contains("delete the whole data directory"),
+        "the configured mode cannot tell that the unmarked directory was strict:\n{log}"
     );
-    for (incarnation, config_path) in [
-        ("strict-upgraded", &strict_config_path),
-        ("default-after-stamp", &default_config_path),
-    ] {
-        let mut upgraded = spawn_dev(directory.path(), &data_directory, config_path, incarnation);
-        let channel = upgraded.wait_until_serving().await;
-        assert_flow_completed(&mut FlowServiceClient::new(channel), "dev-strict-upgrade").await;
-        let status = upgraded.terminate(STOP_BUDGET).await;
-        assert_eq!(status.code(), Some(0), "{}", upgraded.log());
-    }
 }
 
 async fn restarts_after_sigkill_with_the_earlier_flow(overrides: &str) {

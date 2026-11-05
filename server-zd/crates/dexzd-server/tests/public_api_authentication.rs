@@ -181,6 +181,7 @@ impl AuthenticatedDevServer {
             log_dir: None,
             config: Some(config),
             attribute_store_config: None,
+            durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
         })
         .await
         .expect("the dev server starts");

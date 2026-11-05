@@ -98,7 +98,7 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
-dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
+dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -durability process-crash-safe)
 dev_args+=(-attribute-store-config "$entity_store_dir/attribute-store.yaml")
 
 "$binary_dir/dexcli" dev \
