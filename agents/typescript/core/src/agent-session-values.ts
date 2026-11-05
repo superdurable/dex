@@ -229,8 +229,9 @@ export type ToolEffect = "read" | "idempotent_write" | "non_idempotent_write" | 
  * `awaiting_approval` and `approved` are open. The other statuses are final: the session
  * never runs a call whose record is final, and the runner reports the result to the model.
  * `failed` means the tool threw {@link ToolExecutionError}, a `read` call ended without a result after
- * its attempts ran out, or the tool did not run (its error starts with {@link toolCallNotRunErrorPrefix}). `outcome_unknown` means a write's tool Step ended without a result, through a
- * Worker crash, a timeout, or another error after its attempts ran out.
+ * its attempts ran out, or the tool did not run (its error starts with {@link toolCallNotRunErrorPrefix}).
+ * `outcome_unknown` means a write's tool Step ended without a result, through a Worker crash, a timeout,
+ * or another error after its attempts ran out.
  *
  * The set of final statuses never grows, so an exhaustive mapping of final statuses stays complete.
  * A stored record can also hold an {@link AgentToolCallWaitingStatus}; runners never see one.

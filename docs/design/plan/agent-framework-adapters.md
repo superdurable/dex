@@ -138,10 +138,10 @@ both after M2.
 - **A single-attempt call runs twice only in narrow cases.** Dex starts an attempt when it
   hands the attempt to a Worker. A Worker that dies, or loses its stream,
   after it received the tool Step fails the attempt, and the call records
-  `outcome_unknown`. Dex hands the same attempt number out again only when the
-  Worker certainly never ran it, such as a stream that half-closed before any
-  output. The tool Step heartbeats before it calls the tool, so a started
-  tool is never returned that way. Two narrow
+  `outcome_unknown`. For a SYNC Step, Dex hands the same attempt number out
+  again only when it treats the attempt as never run, such as a stream that
+  half-closed before any output. The tool Step heartbeats before it calls the
+  tool, so a started tool is never returned that way. Two narrow
   cases remain. An ASYNC Step can run again at the same attempt number when a
   Dex Server node crashes before the attempt start is durable; the tool Steps
   use SYNC durability, so this case does not apply to them. Cancellation is

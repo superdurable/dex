@@ -1905,8 +1905,8 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   ran: the attempt returns to pending with the same attempt number, uses no
   retry, and is handed out again. After output, a half-close is a disconnect
   that fails the attempt with `NOT_COMPLETED`. The heartbeat therefore keeps a
-  started tool from being handed out again and later reported as
-  `NOT_STARTED`.
+  started tool from being returned as not run at the same attempt number and
+  later reported as `NOT_STARTED`.
 - **Background heartbeats.** `RunModel` and the tool Steps heartbeat every 20
   seconds while the runner works, so a silent model or tool call stays within
   the heartbeat timeout. Method timeouts still bound hung calls.

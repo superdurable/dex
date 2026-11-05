@@ -778,8 +778,9 @@ attempt, and the call records `outcome_unknown`. The heartbeat matters because
 Dex treats a stream that half-closes before any output as one whose task never
 ran: the attempt returns to pending with the same attempt number, uses no
 retry, and is handed out again. After output, a half-close is a disconnect
-that fails the attempt with `NOT_COMPLETED`. So a tool that started is never handed out again,
-and never reported later as `NOT_STARTED`.
+that fails the attempt with `NOT_COMPLETED`. So a tool that started is never
+returned as not run at the same attempt number, and never reported later as
+`NOT_STARTED`.
 
 ### Tool tasks
 
