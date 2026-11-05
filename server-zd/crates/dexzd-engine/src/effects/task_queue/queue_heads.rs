@@ -25,8 +25,8 @@ use dexzd_protocol::dexzd::v1::PartitionMeta;
 use dexzd_worker_dispatch::{QueuedTaskRef, ScannedQueueHead};
 
 use super::{
-    QueueChangePosition, QueueReadView, decode_queue_row, first_ordinary_pending_since,
-    is_ref_pending, read_off_task, ref_attempt_key,
+    QueueChangePosition, QueueReadView, acquire_read_slot, decode_queue_row,
+    first_ordinary_pending_since, is_ref_pending, read_off_task, read_with_slot, ref_attempt_key,
 };
 use crate::effects::state_reads::decode_row;
 use crate::effects::{EffectContext, EffectError};
@@ -141,17 +141,24 @@ fn discover_heads(
 /// partition until then.
 pub(crate) fn spawn_row_count(context: &Arc<EffectContext>, partition: PartitionId) {
     // Begins before the snapshot opens, so every later change is either in it or after it.
-    let (_, count_generation) = context.task_queue_memory().begin_row_count(partition);
+    context.task_queue_memory().forget_row_count(partition);
     let context = Arc::clone(context);
     let tracker = context.tracker.clone();
     tracker.spawn(async move {
         let mut backoff = context.retry_backoff();
         loop {
-            let counted = read_off_task(
+            let Some(read_slot) = acquire_read_slot(&context, &context.row_count_slot).await else {
+                return;
+            };
+            // Begins before the snapshot opens, so every later change is either in it or after it.
+            let (_, count_generation) = context.task_queue_memory().begin_row_count(partition);
+            let counted = read_with_slot(
                 &context,
-                &context.row_count_slot,
+                read_slot,
                 QueueReadView::Committed,
-                move |_, reader| count_partition_rows(reader, partition),
+                move |context, reader| {
+                    count_partition_rows(context, reader, partition, count_generation)
+                },
             )
             .await;
             match counted {
@@ -183,8 +190,10 @@ pub(crate) fn spawn_row_count(context: &Arc<EffectContext>, partition: Partition
 ///
 /// Returns the count and the snapshot's applied batch, or the read's error.
 fn count_partition_rows(
+    context: &EffectContext,
     reader: &dyn FlowStateReader,
     partition: PartitionId,
+    count_generation: u64,
 ) -> Result<(i64, Option<QueueChangePosition>), EffectError> {
     let watermark = reader
         .get(ColumnFamily::PartitionMeta, &partition_meta_key(partition))?
@@ -194,6 +203,10 @@ fn count_partition_rows(
         .transpose()?
         .and_then(|meta| meta.applied)
         .map(|applied| (applied.incarnation, applied.seq));
+    // Later changes fold into one sum from here, so the buffer stays small.
+    context
+        .task_queue_memory()
+        .note_row_count_watermark(partition, count_generation, watermark);
     let (mut cursor, end) = prefix_range(&dispatch_queue_partition_prefix(partition));
     let mut row_count = 0_i64;
     loop {

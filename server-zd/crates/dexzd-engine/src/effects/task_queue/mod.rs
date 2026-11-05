@@ -33,7 +33,7 @@ use crate::flow_coordination::FlowAddress;
 
 pub(crate) use queue_claims::run_claim_pump;
 pub(crate) use queue_heads::{rebuild_heads, run_heads_resync, spawn_row_count};
-use queue_reads::{QueueReadView, read_off_task};
+use queue_reads::{QueueReadView, acquire_read_slot, read_off_task, read_with_slot};
 
 /// What periodic Heads resume from and the row counts; rebuild recreates it.
 #[derive(Default)]
@@ -62,10 +62,29 @@ struct PartitionRowCount {
     rows: Option<i64>,
     /// Applied batch of the counted snapshot; changes up to it are already counted.
     watermark: Option<QueueChangePosition>,
-    /// Changes committed while the count runs.
+    /// Changes committed after the count began and before its snapshot's batch is known.
     early_changes: Vec<(Option<QueueChangePosition>, i64)>,
     /// Identifies the latest count, so an older count that finishes late changes nothing.
     count_generation: u64,
+    /// Whether a count began; before that, its future snapshot holds every change.
+    is_counting: bool,
+    /// The running count snapshot's applied batch, once read.
+    snapshot_watermark: Option<Option<QueueChangePosition>>,
+    /// Changes committed after the running count's snapshot.
+    later_delta: i64,
+}
+
+impl PartitionRowCount {
+    /// Forgets the count and any running one; returns the rows it held.
+    fn reset(&mut self) -> i64 {
+        self.watermark = None;
+        self.early_changes.clear();
+        self.count_generation += 1;
+        self.is_counting = false;
+        self.snapshot_watermark = None;
+        self.later_delta = 0;
+        self.rows.take().unwrap_or(0)
+    }
 }
 
 impl TaskQueueMemory {
@@ -99,16 +118,59 @@ impl TaskQueueMemory {
         delta: i64,
     ) -> i64 {
         let count = self.entry_counts.entry(partition).or_default();
-        match count.rows.as_mut() {
-            None => count.early_changes.push((position, delta)),
-            Some(rows) if is_after(position, count.watermark) => {
-                *rows += delta;
-                self.total_entries += delta;
+        match (count.rows.as_mut(), count.snapshot_watermark) {
+            (Some(rows), _) => {
+                if is_after(position, count.watermark) {
+                    *rows += delta;
+                    self.total_entries += delta;
+                }
             }
-            Some(_) => {}
+            (None, Some(watermark)) => {
+                if is_after(position, watermark) {
+                    count.later_delta += delta;
+                }
+            }
+            (None, None) if count.is_counting => count.early_changes.push((position, delta)),
+            // The count that begins later reads a snapshot that holds this change.
+            (None, None) => {}
         }
         self.entries_gauge.set(self.total_entries);
         self.total_entries
+    }
+
+    /// Leaves the partition out of the total until a later count finishes.
+    pub(crate) fn forget_row_count(&mut self, partition: PartitionId) {
+        let count = self.entry_counts.entry(partition).or_default();
+        self.total_entries -= count.reset();
+        self.entries_gauge.set(self.total_entries);
+    }
+
+    /// Records the running count's snapshot batch and folds the buffered changes after it.
+    pub(crate) fn note_row_count_watermark(
+        &mut self,
+        partition: PartitionId,
+        count_generation: u64,
+        watermark: Option<QueueChangePosition>,
+    ) {
+        let count = self.entry_counts.entry(partition).or_default();
+        if count.count_generation != count_generation || !count.is_counting {
+            return;
+        }
+        count.later_delta = count
+            .early_changes
+            .drain(..)
+            .filter(|(position, _)| is_after(*position, watermark))
+            .map(|(_, delta)| delta)
+            .sum();
+        count.snapshot_watermark = Some(watermark);
+    }
+
+    /// Returns how many changes wait for the running count's snapshot batch.
+    #[cfg(test)]
+    pub(crate) fn buffered_row_changes(&self, partition: PartitionId) -> usize {
+        self.entry_counts
+            .get(&partition)
+            .map_or(0, |count| count.early_changes.len())
     }
 
     /// Forgets the partition's count; changes wait for [`Self::finish_row_count`].
@@ -116,10 +178,8 @@ impl TaskQueueMemory {
     /// Returns the count of every counted partition, and the new count's generation.
     pub(crate) fn begin_row_count(&mut self, partition: PartitionId) -> (i64, u64) {
         let count = self.entry_counts.entry(partition).or_default();
-        self.total_entries -= count.rows.take().unwrap_or(0);
-        count.watermark = None;
-        count.early_changes.clear();
-        count.count_generation += 1;
+        self.total_entries -= count.reset();
+        count.is_counting = true;
         self.entries_gauge.set(self.total_entries);
         (self.total_entries, count.count_generation)
     }
@@ -139,12 +199,19 @@ impl TaskQueueMemory {
         if count.count_generation != count_generation {
             return None;
         }
-        let later: i64 = count
-            .early_changes
-            .drain(..)
-            .filter(|(position, _)| is_after(*position, watermark))
-            .map(|(_, delta)| delta)
-            .sum();
+        let later: i64 = match count.snapshot_watermark {
+            Some(_) => count.later_delta,
+            None => count
+                .early_changes
+                .drain(..)
+                .filter(|(position, _)| is_after(*position, watermark))
+                .map(|(_, delta)| delta)
+                .sum(),
+        };
+        count.is_counting = false;
+        count.snapshot_watermark = None;
+        count.later_delta = 0;
+        count.early_changes.clear();
         let previous = count.rows.replace(snapshot_rows + later).unwrap_or(0);
         count.watermark = watermark;
         self.total_entries += snapshot_rows + later - previous;

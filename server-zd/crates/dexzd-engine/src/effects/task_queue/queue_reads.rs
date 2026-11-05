@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use dexzd_apply::FlowStateReader;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::blocking_work::BlockingWorkFailure;
 use crate::effects::{EffectContext, EffectError};
@@ -36,14 +36,38 @@ pub(crate) async fn read_off_task<T: Send + 'static>(
     view: QueueReadView,
     read: impl FnOnce(&EffectContext, &dyn FlowStateReader) -> Result<T, EffectError> + Send + 'static,
 ) -> Result<T, EffectError> {
-    // Biased for reproducible simulation; shutdown fires once.
-    let read_slot = tokio::select! {
-        biased;
-        () = context.shutdown.cancelled() => return Err(EffectError::Stopped),
-        permit = Arc::clone(slots).acquire_owned() => {
-            permit.expect("the task queue read slots are never closed")
-        }
+    let Some(read_slot) = acquire_read_slot(context, slots).await else {
+        return Err(EffectError::Stopped);
     };
+    read_with_slot(context, read_slot, view, read).await
+}
+
+/// Waits for one permit of `slots`.
+///
+/// Returns the permit, or `None` when the node stopped first.
+pub(crate) async fn acquire_read_slot(
+    context: &EffectContext,
+    slots: &Arc<Semaphore>,
+) -> Option<OwnedSemaphorePermit> {
+    // Biased for reproducible simulation; shutdown fires once.
+    tokio::select! {
+        biased;
+        () = context.shutdown.cancelled() => None,
+        permit = Arc::clone(slots).acquire_owned() => {
+            Some(permit.expect("the task queue read slots are never closed"))
+        }
+    }
+}
+
+/// Runs reads like [`read_off_task`] with a permit the caller already holds.
+///
+/// Returns the read's result, or [`EffectError::Stopped`] when the node stopped first.
+pub(crate) async fn read_with_slot<T: Send + 'static>(
+    context: &Arc<EffectContext>,
+    read_slot: OwnedSemaphorePermit,
+    view: QueueReadView,
+    read: impl FnOnce(&EffectContext, &dyn FlowStateReader) -> Result<T, EffectError> + Send + 'static,
+) -> Result<T, EffectError> {
     let reader = match &view {
         QueueReadView::Committed => context.flow_effect_operations.committed_state_reader()?,
         QueueReadView::Speculative(flow) => context

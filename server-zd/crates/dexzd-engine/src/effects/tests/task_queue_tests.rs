@@ -1257,3 +1257,35 @@ async fn a_claim_removed_after_its_start_sends_no_task() {
 fn is_attempt_started(command: &flow_command::Command) -> bool {
     matches!(command, flow_command::Command::StepAttemptStarted(_))
 }
+
+/// Queued counts buffer nothing, and a running count folds changes once its snapshot is read.
+#[test]
+fn row_count_changes_stay_bounded_while_counts_wait() {
+    let gauge = Gauge::default();
+    let mut memory = TaskQueueMemory::new(gauge.clone());
+    let partition = PartitionId(5);
+    memory.forget_row_count(partition);
+    for seq in 1..=1000 {
+        memory.add_entries(partition, Some((1, seq)), 1);
+    }
+    assert_eq!(
+        memory.buffered_row_changes(partition),
+        0,
+        "the later snapshot holds them"
+    );
+    let (_, count) = memory.begin_row_count(partition);
+    memory.add_entries(partition, Some((1, 1001)), 1);
+    memory.add_entries(partition, Some((1, 1002)), 1);
+    memory.note_row_count_watermark(partition, count, Some((1, 1001)));
+    for seq in 1003..=2000 {
+        memory.add_entries(partition, Some((1, seq)), 1);
+    }
+    assert_eq!(
+        memory.buffered_row_changes(partition),
+        0,
+        "folded into one sum"
+    );
+    assert_eq!(gauge.get(), 0, "an uncounted partition is left out");
+    memory.finish_row_count(partition, count, 1001, Some((1, 1001)));
+    assert_eq!(gauge.get(), 2000, "the snapshot plus every later change");
+}
