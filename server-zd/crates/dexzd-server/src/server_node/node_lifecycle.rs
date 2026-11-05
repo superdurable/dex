@@ -216,12 +216,12 @@ impl NodeLifecycle {
                 PeriodEnd::StepDown(request) => request,
                 PeriodEnd::Shutdown => {
                     tracing::info!("dex-server-zd shutting down");
-                    let stopped = node.stop(&mut grpc, PeriodStopKind::Shutdown).await;
+                    let stopped = node.stop(&mut grpc, PeriodStopKind::Shutdown, true).await;
                     break (Ok(()), stopped.teardown);
                 }
                 PeriodEnd::Failed(error) => {
                     tracing::error!(%error, "dex-server-zd stopping after a failure");
-                    let stopped = node.stop(&mut grpc, PeriodStopKind::Shutdown).await;
+                    let stopped = node.stop(&mut grpc, PeriodStopKind::Shutdown, false).await;
                     break (Err(error), stopped.teardown);
                 }
             };
@@ -230,7 +230,7 @@ impl NodeLifecycle {
                 node_epoch = released.node_epoch,
                 "stepping down: stopping serving and releasing the node lease"
             );
-            let stopped = node.stop(&mut grpc, PeriodStopKind::StepDown).await;
+            let stopped = node.stop(&mut grpc, PeriodStopKind::StepDown, true).await;
             // The old instance keeps the step down call's connection until the answer goes out.
             let (answered, answer_sent) = oneshot::channel();
             // New connections reach the standby instance; this one sends no GOAWAY before the answer.

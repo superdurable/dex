@@ -458,10 +458,17 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   `search.outboxPollInterval` (default 100 ms) is the idle poll; new commits wake the consumer.
 - One ParadeDB schema belongs to one Dex cluster.
 
-On SIGTERM or SIGINT the node stops within 14.5 seconds. Health reports NOT_SERVING, Workers are
-told to reconnect, long polls and waiting ReadStream calls close, and in-flight RPCs get 4 seconds
-to finish. Then effects and the engine stop, and the node releases its lease. Other open calls
-finish within the same 4 seconds, and the lease gate refuses their answers. The process exits 0,
+On SIGTERM or SIGINT, health reports NOT_SERVING and the node stops handing out new Step tasks.
+It keeps renewing its lease and keeps pull Worker streams open until running Step attempts finish
+and their results commit, up to `lifecycle.attemptDrainTimeout` (default 30s; 0s disables the wait).
+Heartbeats and Step method timeouts still apply during the drain. A step-down uses the same drain;
+a hot standby can take over only after the active releases its lease.
+
+The following teardown takes up to about 15 seconds. Workers reconnect, long polls and waiting
+ReadStream calls close, and in-flight RPCs get 4 seconds to finish. Then effects and the engine
+stop, and the node releases its lease. Other open calls finish within the same 4 seconds, and
+the lease gate refuses their answers. Set Kubernetes `terminationGracePeriodSeconds` longer than
+the drain timeout, with at least 15 extra seconds for teardown: 45 seconds with the default drain. The process exits 0,
 and a replacement process with the same `cluster.nodeId` acquires the lease at once. When object
 storage rejects the release, or the release does not finish within 2 seconds, the process exits 1
 and the lease stays held until it expires.
@@ -472,7 +479,7 @@ the outcome of the node's lease write is still unknown, that write is not releas
 replacement may wait for it to expire. If the node already holds its lease, a signal stops startup
 at once and releases the lease. The process then exits 0, or exits 1 when the release fails. If
 startup finishes before it observes the signal, the node runs graceful shutdown, with the same
-14.5-second total and exit status as a signal received while serving. A failed startup releases its
+attempt drain, teardown budget, and exit status as a signal received while serving. A failed startup releases its
 lease and exits 1.
 
 The node serves only within its local lease validity. The deadline is `lease.duration` after the

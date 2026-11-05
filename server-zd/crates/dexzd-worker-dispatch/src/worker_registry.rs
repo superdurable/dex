@@ -120,6 +120,7 @@ struct DispatchInner {
     lease_validity_deadline: Option<LeaseValidityDeadline>,
     registry: Mutex<Registry>,
     shutdown: watch::Sender<bool>,
+    stream_shutdown: watch::Sender<bool>,
 }
 
 struct QueueState {
@@ -225,6 +226,7 @@ impl WorkerDispatch {
         assert!(config.affinity_duration > Duration::ZERO && config.ping_interval > Duration::ZERO);
         assert!(config.unsupported_type_cache_entries > 0);
         let (shutdown, _) = watch::channel(false);
+        let (stream_shutdown, _) = watch::channel(false);
         let unsupported_types = UnsupportedTypeCache::new(
             config.unsupported_type_cache_entries,
             metrics.matching_unsupported_type_entries.clone(),
@@ -247,6 +249,7 @@ impl WorkerDispatch {
                     unsupported_types,
                 }),
                 shutdown,
+                stream_shutdown,
             }),
         }
     }
@@ -327,11 +330,17 @@ impl WorkerDispatch {
             .is_none_or(|deadline| deadline.is_valid_at(tokio::time::Instant::now().into_std()))
     }
 
-    /// Drains streams: idle Workers reconnect now; busy Workers reconnect after their task.
-    pub fn shutdown(&self) {
+    /// Stops new reservations and handouts while keeping existing Worker streams open for results.
+    pub fn begin_attempt_drain(&self) {
         let mut registry = self.lock_registry();
         registry.is_closing = true;
         self.inner.shutdown.send_replace(true);
+    }
+
+    /// Drains streams: idle Workers reconnect now; busy Workers reconnect after their task.
+    pub fn shutdown(&self) {
+        self.begin_attempt_drain();
+        self.inner.stream_shutdown.send_replace(true);
     }
 
     fn lock_registry(&self) -> std::sync::MutexGuard<'_, Registry> {
@@ -860,6 +869,10 @@ impl WorkerDispatch {
         task_type: &TaskTypeKey,
         task_frame: dexzd_protocol::dex::PollWorkerTask,
     ) -> Result<mpsc::Receiver<AssignmentFrame>, TaskSendError> {
+        let registry = self.lock_registry();
+        if registry.is_closing {
+            return Err(TaskSendError::NotDelivered);
+        }
         let mut state = worker.state.lock().expect("Worker state lock poisoned");
         if state.is_send_stopped || state.is_closing {
             return Err(TaskSendError::NotDelivered);
@@ -882,6 +895,7 @@ impl WorkerDispatch {
         if !is_sent {
             state.current = None;
             drop(state);
+            drop(registry);
             self.disconnect(worker.id);
             return Err(TaskSendError::NotDelivered);
         }

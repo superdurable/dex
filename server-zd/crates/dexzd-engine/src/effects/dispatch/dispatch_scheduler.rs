@@ -15,13 +15,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use dexzd_keyspace::RunId;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::effects::dispatch::attempt_handout::{
     AttemptHandout, HandoutEnd, HandoutProgress, InterruptedAttempt, fail_interrupted_attempt,
 };
 use crate::effects::method_request::MethodAttemptKey;
-use crate::effects::{EffectContext, RouterMessage};
+use crate::effects::{AttemptDrainProgress, EffectContext, RouterMessage};
 use crate::flow_coordination::FlowAddress;
 
 struct RunningAttempt {
@@ -42,6 +43,7 @@ struct ParkedInvocation {
 /// Dispatch state owned by the effect router task.
 pub(crate) struct DispatchScheduler {
     context: Arc<EffectContext>,
+    drain: Option<watch::Sender<AttemptDrainProgress>>,
     /// At most one hand-out task per attempt; duplicate pending effects find it here.
     in_flight: BTreeMap<MethodAttemptKey, InFlightEntry>,
     parked: BTreeMap<RunId, BTreeMap<MethodAttemptKey, ParkedInvocation>>,
@@ -54,6 +56,7 @@ impl DispatchScheduler {
     pub(crate) fn new(context: Arc<EffectContext>) -> Self {
         Self {
             context,
+            drain: None,
             in_flight: BTreeMap::new(),
             parked: BTreeMap::new(),
             lock_release_counts: BTreeMap::new(),
@@ -88,6 +91,9 @@ impl DispatchScheduler {
         key: MethodAttemptKey,
         progress: HandoutProgress,
     ) {
+        if self.drain.is_some() {
+            return;
+        }
         let lock_release_count = self.lock_release_count(key.run_id);
         self.in_flight
             .insert(key.clone(), InFlightEntry { lock_release_count });
@@ -114,6 +120,7 @@ impl DispatchScheduler {
         let Some(entry) = self.in_flight.remove(&key) else {
             return;
         };
+        self.publish_attempt_drain();
         let HandoutEnd::LocksBusy(progress) = end else {
             return;
         };
@@ -151,10 +158,14 @@ impl DispatchScheduler {
         key: MethodAttemptKey,
         cancel: CancellationToken,
     ) {
+        if let Some(drain) = &self.drain {
+            drain.send_modify(|progress| progress.attempts_waited += 1);
+        }
         self.running
             .entry(task_id)
             .or_default()
             .insert(key, RunningAttempt { cancel });
+        self.publish_attempt_drain();
     }
 
     /// Stops the attempts started as `task_id`; their Workers receive a cancel request.
@@ -169,13 +180,24 @@ impl DispatchScheduler {
         }
     }
 
+    pub(crate) fn interrupt_attempts(&self) {
+        for attempt in self.running.values().flat_map(BTreeMap::values) {
+            attempt.cancel.cancel();
+        }
+    }
+
     pub(crate) fn finish_attempt(&mut self, task_id: Vec<u8>, key: &MethodAttemptKey) {
         if let Some(attempts) = self.running.get_mut(&task_id) {
-            attempts.remove(key);
+            if attempts.remove(key).is_some()
+                && let Some(drain) = &self.drain
+            {
+                drain.send_modify(|progress| progress.attempts_finished += 1);
+            }
             if attempts.is_empty() {
                 self.running.remove(&task_id);
             }
         }
+        self.publish_attempt_drain();
     }
 
     /// Fails started attempts that a partition rebuild found running, except those this node
@@ -194,6 +216,27 @@ impl DispatchScheduler {
             self.context.tracker.spawn(async move {
                 let run_id = attempt.key.run_id;
                 fail_interrupted_attempt(&context, &flow, run_id, attempt).await;
+            });
+        }
+    }
+
+    pub(crate) fn begin_attempt_drain(&mut self, progress: watch::Sender<AttemptDrainProgress>) {
+        let attempts_waited = self.running.values().map(BTreeMap::len).sum();
+        progress.send_replace(AttemptDrainProgress {
+            attempts_waited,
+            attempts_running: attempts_waited,
+            outstanding_handouts: self.in_flight.len(),
+            has_started: true,
+            ..AttemptDrainProgress::default()
+        });
+        self.drain = Some(progress);
+    }
+
+    fn publish_attempt_drain(&self) {
+        if let Some(drain) = &self.drain {
+            drain.send_modify(|progress| {
+                progress.attempts_running = self.running.values().map(BTreeMap::len).sum();
+                progress.outstanding_handouts = self.in_flight.len();
             });
         }
     }

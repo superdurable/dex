@@ -117,7 +117,7 @@ spec:
         app: dex-server-zd
     spec:
       serviceAccountName: dex-server-zd
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 45
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
@@ -168,25 +168,34 @@ spec:
 
 ### 优雅关闭 {#graceful-shutdown}
 
-把 **terminationGracePeriodSeconds** 设为至少 30 秒。收到 SIGTERM 后，节点在大约 14 秒内
-按以下顺序停止：
+收到 SIGTERM 后，节点停止派发新的 Step 任务，并报告 **NOT_SERVING**。它继续持有
+lease，并保持 pull Worker stream 打开，等待运行中的 attempt 完成。Heartbeat、完成结果
+和失败结果仍然会提交。所有运行中的 attempt 结束且结果提交后，或
+**lifecycle.attemptDrainTimeout** 到期后，节点才释放 lease。热 standby 在此期间跟随提交，
+在 lease 释放后接管。
 
-1. gRPC health 报告 **NOT_SERVING**。
-2. 通知 Worker 重新连接，关闭 long poll 和 Stream Store。
-3. 在途的 RPC 最多有 4 秒完成。
-4. 后台工作和引擎停止。
-5. 停止续约 lease，并用条件写释放 lease。
-6. 其他未结束的调用在同样的 4 秒内结束。它们返回 **UNAVAILABLE**，客户端会在新的 active
-   进程上重试。
-7. 关闭 metrics 监听器。
-8. 进程退出。
+**lifecycle.attemptDrainTimeout** 默认为 **30s**，设为 **0s** 可禁用 attempt drain。
+Step 方法和 heartbeat 的超时在 drain 期间仍然生效，drain 不会延长它们。选择 drain 超时
+时，要为希望完成的 Step 方法留出足够的剩余执行时间。
+
+Kubernetes 的 **terminationGracePeriodSeconds** 必须长于 drain 超时，并至少额外留出
+15 秒用于关闭组件。默认 drain 为 **30s**，因此至少应设为 **45** 秒。否则 Kubernetes
+可能在结果提交和 lease 释放之前杀死进程。
+
+Attempt drain 结束后，Worker 重新连接，long poll 和 Stream Store 关闭。在途 RPC 最多
+有 4 秒完成。后台工作停止，然后引擎释放 lease。其他未结束的调用返回 **UNAVAILABLE**，
+客户端会在新的 active 进程上重试。最后关闭 metrics 监听器。这些关闭步骤另有约 15 秒预算。
+
+**Step attempt drain ended** 日志记录 **attempts_waited**、**attempts_finished** 和
+**attempts_running**，包括仍在等待最终提交的 attempt。**has_timed_out** 表示 drain
+是否到期。
 
 每一步都完成时，进程以 0 退出，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。
 如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
 最多要等 **lease.duration** 再加约 1 秒。
 
 Dex 还没有交给 Worker 的 attempt 不会失败，由后继进程负责 dispatch。进程交出 lease 时仍在
-运行的 attempt，会被新的 active 进程以 NOT_COMPLETED 判为失败，并各消耗一次 retry。
+运行的 attempt，会被新的 active 进程以 **NOT_COMPLETED** 判为失败，并各消耗一次 retry。
 
 启动期间收到 SIGTERM 会中断 lease 获取或恢复。如果节点已经持有 lease，它会在关闭预算内
 停止启动并释放 lease。释放失败时进程以 1 退出，下次启动可能要等待旧 lease 过期。如果
@@ -441,12 +450,16 @@ dexzd_hot_standby_lag_seconds > 5
 ## 让 active 进程让位 {#step-down}
 
 **dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
-服务，并短暂等待在途的提交完成，然后释放 lease，并继续作为 standby 运行。在释放之前完成的
-调用保留原来的结果。释放时仍未结束的调用立即返回 **UNAVAILABLE**，客户端会在新的 active
-进程上重试。正在执行任务的 pull Worker 在任务结束后重新连接。释放之后才到达的结果不会被
-记录，新的 active 进程会以 NOT_COMPLETED 让这个 attempt 失败，并消耗一次 retry。Dex 还没有
-交给 Worker 的 attempt 不会失败，新的 active 进程会 dispatch 它们。同一个 node ID
-的另一个进程随即可以拿到 lease，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
+派发新的 Step 任务，按照[优雅关闭](#graceful-shutdown)的方式 drain 运行中的 attempt，
+使用相同的 **lifecycle.attemptDrainTimeout**。Drain 期间继续续约 lease，并接收 Worker
+heartbeat 和最终输出。忙碌的 Worker stream 会保持打开，直到结果提交或超时到期。
+
+随后进程释放 lease，并继续作为 standby 运行。在释放之前完成的调用保留原来的结果。
+释放时仍未结束的调用返回 **UNAVAILABLE**，客户端会在新的 active 进程上重试。
+Drain 到期时仍在运行的 attempt 会被中断，新的 active 进程以 **NOT_COMPLETED** 将其
+判为失败，并按 retry policy 消耗一次 retry。尚未交给 Worker 的 attempt 不会失败，
+新的 active 进程会派发它们。同一个 node ID 的其他进程，包括热 standby，只有在 active
+释放 lease 后才能接管，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
 **standby.stepDownHoldOff**，才会再次竞争 lease。如果这段时间内没有其他进程接管，它会把
 lease 拿回来。**standby.mode** 为 **hot** 时，它在等待期间作为[热 standby](#hot-standby)
 跟随日志。
