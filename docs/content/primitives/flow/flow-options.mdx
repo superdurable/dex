@@ -150,7 +150,7 @@ With a **Timeout** of 0, the Flow has no timeout. A Step that no Worker takes th
 
 **TimeoutHandlerOptions** is valid only with a positive **Timeout** and a final **HANDLER** policy. It uses Execute semantics: a method timeout limits each attempt, **Retry** can run multiple attempts, **HeartbeatTimeout** detects stalled attempts, and **Failure** can route exhausted retries to a registered no-input Step. The recovery Step receives null or unit input and reads the final error from the handler **Context**.
 
-A **HANDLER** timeout does not end queueing. The timeout handler Step also waits in the queue when no Worker takes it, and it goes ahead of other queued Steps. The handler's attempt and retry clocks begin when the soft Flow timeout fires. They may extend past the original Flow deadline. If no failure target is configured, an exhausted handler fails the Flow.
+A **HANDLER** timeout does not end queueing. The timeout handler Step also waits in the queue when no Worker takes it. Dex tries to dispatch it before other queued Steps, but it does not guarantee that order. Like any Step, the handler's method timeout starts when Dex sends an attempt to a Worker. Its **TotalDuration** starts when Dex first hands attempt 1 to a Worker. Its attempts may run past the original Flow deadline. If no failure target is configured, an exhausted handler fails the Flow.
 
 Ordinary Attributes and all Channel size metadata load automatically. AttributeMap values and pending Channel messages require explicit selections in **TimeoutHandlerOptions**. The handler may stage Attribute writes, Channel deletions, and Channel publications before returning its decision. Flow-level retry does not exist, so the timeout handler runs once per Flow run.
 
