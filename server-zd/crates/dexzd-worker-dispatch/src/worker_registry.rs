@@ -916,11 +916,19 @@ impl WorkerDispatch {
             return;
         }
         let mut state = worker.state.lock().expect("Worker state lock poisoned");
-        if state.is_closing || state.is_send_stopped {
+        if state.is_send_stopped {
             return;
         }
         state.is_busy = false;
         state.current = None;
+        if state.is_closing {
+            // Matching shuts down; a slot freed without a task would otherwise stay open.
+            drop(state);
+            drop(registry);
+            worker_streams::send_reconnect(worker, "matching server is closing");
+            self.disconnect(worker.id);
+            return;
+        }
         drop(state);
         registry.add_idle(worker);
         registry.wake_waiter_for(worker, Instant::now());

@@ -677,6 +677,34 @@ async fn a_search_past_its_dispatch_wait_still_tries_the_idle_slots() {
     ));
 }
 
+/// A slot reserved when matching starts shutting down reconnects once it is released.
+#[tokio::test]
+async fn a_slot_released_during_shutdown_reconnects() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let StepStreamReservation::Reserved(stream) =
+        reserve(&dispatch, step_request("Flow", "Charge", None)).await
+    else {
+        panic!("a slot is idle");
+    };
+    dispatch.shutdown();
+    // The stream sees the shutdown while its slot is still reserved.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    drop(stream);
+    loop {
+        match slot.next().await.expect("the stream continues").frame {
+            Some(poll_worker_task_response::Frame::Reconnect(_)) => break,
+            Some(poll_worker_task_response::Frame::Ping(_)) => {}
+            other => panic!("expected a reconnect, got {other:?}"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_slot_that_half_closed_while_reserved_receives_no_task() {
     let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
