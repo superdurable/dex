@@ -16,10 +16,10 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
-    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord,
-    StepInvocationKey, StepInvocationRecord, StepMethod, StepMethodCompletedCommand, TimerId,
-    TimersFiredCommand, flow_command::Command, step_attempt_heartbeat_command,
-    step_method_completed_command,
+    StepAttemptQueuedCommand, StepAttemptReturnedCommand, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationRecord, StepMethod,
+    StepMethodCompletedCommand, TimerId, TimersFiredCommand, flow_command::Command,
+    step_attempt_heartbeat_command, step_method_completed_command,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
@@ -92,6 +92,20 @@ impl Call<'_> {
             .filter_map(|stored| wire_value(self.run_id, stored))
             .collect()
     }
+}
+
+/// No Worker took the pending attempt at once, so it waits in the DispatchQueue index; now and
+/// then with a stale pending time that apply must ignore.
+pub(crate) fn queue_attempt(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
+    let mut pending_since_micros = dexzd_apply::effective_pending_since_micros(call.invocation);
+    if rng.random_bool(0.05) {
+        pending_since_micros += 1;
+    }
+    Command::StepAttemptQueued(StepAttemptQueuedCommand {
+        invocation: Some(call.key()),
+        attempt: call.invocation.attempt,
+        pending_since_micros,
+    })
 }
 
 pub(crate) fn start_attempt(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {

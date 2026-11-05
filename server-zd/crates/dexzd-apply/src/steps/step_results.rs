@@ -387,6 +387,7 @@ pub(crate) fn apply_attempt_failed(
                     StepMethod::Execute,
                     1,
                     scope.now_micros,
+                    scope.now_micros,
                 )?;
                 cursor.rows.put_step_execution(transaction, &step);
             } else if method == StepMethod::Execute
@@ -797,11 +798,13 @@ pub(crate) fn disarm_timer(
     Ok(record)
 }
 
-/// A retry backoff timer fired: the next attempt becomes pending and queues for its locks.
+/// A retry backoff timer fired: the next attempt becomes pending at `now_micros`, behind the
+/// backlog of its queue (plan D69), and queues for its locks.
 pub(crate) fn apply_retry_backoff_fired(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     timer: &RetryBackoffTimerId,
+    now_micros: i64,
 ) -> Result<(), ApplyError> {
     let Some(key) = &timer.invocation else {
         return Ok(());
@@ -832,6 +835,7 @@ pub(crate) fn apply_retry_backoff_fired(
         method,
         timer.next_attempt,
         first_attempt_at,
+        now_micros,
     )?;
     cursor.rows.put_step_execution(transaction, &step);
     Ok(())

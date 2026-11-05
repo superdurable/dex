@@ -54,6 +54,10 @@ impl<'a> StagedStateReader<'a> {
                     self.staged.insert((*column_family, key.clone()), None);
                     self.batch.delete(*column_family, key.clone());
                 }
+                StateWrite::SingleDelete { column_family, key } => {
+                    self.staged.insert((*column_family, key.clone()), None);
+                    self.batch.single_delete(*column_family, key.clone());
+                }
                 StateWrite::DeleteRange {
                     column_family,
                     start,

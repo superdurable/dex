@@ -100,7 +100,15 @@ pub(crate) fn create_step_execution(
         } else {
             StepMethod::WaitFor
         };
-        make_invocation_pending(transaction, cursor, &mut step, method, 1, now_micros)?;
+        make_invocation_pending(
+            transaction,
+            cursor,
+            &mut step,
+            method,
+            1,
+            now_micros,
+            now_micros,
+        )?;
     }
     cursor.rows.put_step_execution(transaction, &step);
     Ok(Ok(step_execution_id))

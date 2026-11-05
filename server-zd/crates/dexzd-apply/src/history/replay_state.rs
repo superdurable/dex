@@ -118,7 +118,8 @@ impl<'base> ReplayState<'base> {
                 } => {
                     self.overlay.insert((column_family, key), Some(value));
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.overlay.insert((column_family, key), None);
                 }
                 StateWrite::DeleteRange { .. } => {
@@ -274,7 +275,12 @@ fn nested_read_error(column_family: ColumnFamily, error: &ApplyError) -> StateRe
 }
 
 /// Buffers the writes of a committed nested transaction in its parent.
-pub(crate) fn absorb_writes(transaction: &mut FlowTransaction<'_>, writes: Vec<StateWrite>) {
+///
+/// Returns the parent reader's error when a SingleDelete cannot check its row.
+pub(crate) fn absorb_writes(
+    transaction: &mut FlowTransaction<'_>,
+    writes: Vec<StateWrite>,
+) -> Result<(), ApplyError> {
     for write in writes {
         match write {
             StateWrite::Put {
@@ -283,6 +289,9 @@ pub(crate) fn absorb_writes(transaction: &mut FlowTransaction<'_>, writes: Vec<S
                 value,
             } => transaction.put(column_family, key, value),
             StateWrite::Delete { column_family, key } => transaction.delete(column_family, key),
+            StateWrite::SingleDelete { column_family, key } => {
+                transaction.single_delete(column_family, key)?;
+            }
             StateWrite::DeleteRange {
                 column_family,
                 start,
@@ -290,4 +299,5 @@ pub(crate) fn absorb_writes(transaction: &mut FlowTransaction<'_>, writes: Vec<S
             } => transaction.delete_range(column_family, start, end),
         }
     }
+    Ok(())
 }

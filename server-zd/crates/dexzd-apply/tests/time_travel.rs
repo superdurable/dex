@@ -97,7 +97,8 @@ impl MemoryState {
                     self.rows
                         .insert((*column_family, key.clone()), value.clone());
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.rows.remove(&(*column_family, key.clone()));
                 }
                 StateWrite::DeleteRange {
@@ -370,6 +371,8 @@ impl Harness {
                     if let Some(invocation) = step.invocation.as_mut() {
                         invocation.task_id.clear();
                         invocation.retry_started_at_micros = 0;
+                        // Time travel makes restored attempts pending at its own time.
+                        invocation.pending_since_micros = 0;
                     }
                     (parsed.suffix.to_vec(), step.encode_to_vec())
                 }

@@ -57,6 +57,7 @@ message FlowCommand {
     StepAttemptFailedCommand step_attempt_failed = 32;
     StepMethodCompletedCommand step_method_completed = 33;
     StepAttemptReturnedCommand step_attempt_returned = 34;
+    StepAttemptQueuedCommand step_attempt_queued = 35;
     RpcCommittedCommand rpc_committed = 40;
     TimersFiredCommand timers_fired = 50;
     TimerSkipCommand timer_skip = 51;
@@ -256,6 +257,15 @@ message StepAttemptReturnedCommand {
   // Task ID of the started attempt; apply ignores the command unless it still runs with it.
   bytes expected_task_id = 3;
   StepAttemptReturnReason reason = 4;
+}
+
+// No Worker took the pending attempt at once; it waits in the DispatchQueue index. Apply
+// writes only the index row: no history, run seq, or Flow row changes.
+message StepAttemptQueuedCommand {
+  StepInvocationKey invocation = 1;
+  uint32 attempt = 2;
+  // The attempt's pending_since_micros; apply ignores the command when it differs.
+  int64 pending_since_micros = 3;
 }
 
 // A Worker result for attempt `attempt`. Values are complete or references to values of this

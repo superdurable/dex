@@ -79,7 +79,8 @@ pub(crate) fn apply_writes_to(rows: &mut Rows, writes: &[StateWrite]) {
             } => {
                 rows.insert((*column_family, key.clone()), value.clone());
             }
-            StateWrite::Delete { column_family, key } => {
+            StateWrite::Delete { column_family, key }
+            | StateWrite::SingleDelete { column_family, key } => {
                 rows.remove(&(*column_family, key.clone()));
             }
             StateWrite::DeleteRange {

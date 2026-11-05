@@ -43,6 +43,7 @@ use crate::projections::attribute_sync::{
 };
 use crate::projections::history_event_links::PendingHistoryEvents;
 use crate::state_access::{FlowTransaction, read_flow_directory};
+use crate::steps::dispatch_queue::remove_dispatch_queue_row;
 use crate::steps::{
     arm_timer, configured_method_timeout_seconds, disarm_timer, merge_furthest_attempt_progress,
 };
@@ -308,6 +309,10 @@ fn replace_attempt_rows(
             hard_delete_keys.insert(row.key_suffix.clone());
             continue;
         }
+        if row.table == RunTable::StepExecution {
+            // Restored invocations dispatch anew; none of them is in the DispatchQueue.
+            remove_dispatch_queue_row(transaction, cursor, &decode_step_execution(row)?)?;
+        }
         if row.table == RunTable::Timer {
             let timer = decode_timer_record(row)?;
             transaction.delete(
@@ -351,6 +356,9 @@ fn replace_attempt_rows(
                         invocation.task_id =
                             restored_task_id(&scope.command.command_id, restored_running_count);
                         restored_running_count += 1;
+                    }
+                    if invocation.phase == StepInvocationPhase::Pending as i32 {
+                        invocation.pending_since_micros = scope.now_micros;
                     }
                     restart_retry_total_duration(invocation, scope.now_micros);
                 }
@@ -679,7 +687,7 @@ fn reapply_external_inputs(
                 }
             }
         };
-        absorb_writes(transaction, writes);
+        absorb_writes(transaction, writes)?;
         let Some(replayed) = output.replayed else {
             return Err(ApplyError::InvariantViolation {
                 detail: "a reapplied input recorded its own history".to_owned(),

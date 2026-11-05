@@ -150,7 +150,7 @@ impl LocalStore for InMemoryLocalStore {
                         .expect("column family exists")
                         .insert(key.clone(), value.clone());
                 }
-                WriteOperation::Delete { cf, key } => {
+                WriteOperation::Delete { cf, key } | WriteOperation::SingleDelete { cf, key } => {
                     maps.get_mut(cf).expect("column family exists").remove(key);
                 }
                 WriteOperation::DeleteRange { cf, start, end } => {

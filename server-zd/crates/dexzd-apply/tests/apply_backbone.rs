@@ -49,6 +49,8 @@ use prost::Message;
 
 #[path = "apply_backbone/attempt_handout.rs"]
 mod attempt_handout;
+#[path = "apply_backbone/dispatch_queue.rs"]
+mod dispatch_queue;
 #[path = "apply_backbone/retry_snapshots.rs"]
 mod retry_snapshots;
 #[path = "apply_backbone/run_state_limit.rs"]
@@ -134,7 +136,8 @@ impl MemoryState {
                     self.rows
                         .insert((*column_family, key.clone()), value.clone());
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.rows.remove(&(*column_family, key.clone()));
                 }
                 StateWrite::DeleteRange {
@@ -213,6 +216,7 @@ impl Harness {
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         assert_eq!(outcome.writes, again.writes, "apply must be deterministic");
         self.state.commit(&outcome);
+        self.assert_dispatch_queue_invariant();
         if !self.run_id.is_empty() && !outcome.writes.is_empty() {
             if self.is_storage_recount_checked {
                 assert_eq!(

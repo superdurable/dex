@@ -163,6 +163,15 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
         | Command::PendingCloseCheck(_)
         | Command::HardDeleteObjectsDeleted(_)
         | Command::RunPurge(_) => return Ok(None),
+        // A queued attempt never records history.
+        Command::StepAttemptQueued(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a StepAttemptQueued command",
+                    history_record.seq
+                ),
+            });
+        }
         // Attempts start at a checkpoint after these, and only the latest run travels.
         Command::FlowStart(_) | Command::TimeTravel(_) => {
             return Err(ApplyError::InvariantViolation {

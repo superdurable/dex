@@ -19,6 +19,7 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::FlowTransaction;
+use crate::steps::dispatch_queue::remove_dispatch_queue_row;
 use crate::values::{ValueHolder, hold_stored_value, release_stored_value};
 use crate::{ApplyEffect, ApplyError};
 
@@ -53,7 +54,8 @@ fn method_lock_keys(step: &StepExecutionRecord, method: StepMethod) -> Vec<Strin
     keys
 }
 
-/// Makes `attempt` of the method pending and queues it on its lock keys.
+/// Makes `attempt` of the method pending at `pending_since_micros`, the command's time, and
+/// queues it on its lock keys.
 pub(crate) fn make_invocation_pending(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -61,6 +63,7 @@ pub(crate) fn make_invocation_pending(
     method: StepMethod,
     attempt: u32,
     first_attempt_at_micros: i64,
+    pending_since_micros: i64,
 ) -> Result<(), ApplyError> {
     let lock_keys = method_lock_keys(step, method);
     let key = invocation_key(step, method);
@@ -109,6 +112,7 @@ pub(crate) fn make_invocation_pending(
         attempt,
         first_attempt_at_micros,
         pending_since_seq: cursor.seq,
+        pending_since_micros,
         lock_keys,
         effective_durability,
         retry_started_at_micros,
@@ -249,6 +253,7 @@ pub(crate) fn start_attempt(
     task_id: &[u8],
     now_micros: i64,
 ) -> Result<(), ApplyError> {
+    remove_dispatch_queue_row(transaction, cursor, step)?;
     let Some(invocation) = step.invocation.as_mut() else {
         return Err(ApplyError::InvariantViolation {
             detail: "start without an invocation".to_owned(),
@@ -312,6 +317,7 @@ pub(crate) fn end_running_attempt(
     step: &mut StepExecutionRecord,
     end: InvocationEnd,
 ) -> Result<(), ApplyError> {
+    remove_dispatch_queue_row(transaction, cursor, step)?;
     let Some(invocation) = step.invocation.as_mut() else {
         return Ok(());
     };

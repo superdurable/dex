@@ -30,6 +30,15 @@ pub enum StateWrite {
         /// The key.
         key: Vec<u8>,
     },
+    /// Deletes `key`, which was put exactly once since it was last deleted, so the tombstone
+    /// and the put drop out together in compaction (RocksDB SingleDelete). Only DispatchQueue
+    /// index rows use it, and Delete and DeleteRange never touch those keys.
+    SingleDelete {
+        /// Column family of the key.
+        column_family: ColumnFamily,
+        /// The key.
+        key: Vec<u8>,
+    },
     /// Deletes every key in `[start, end)`.
     DeleteRange {
         /// Column family of the keys.
@@ -158,6 +167,14 @@ pub enum ApplyEffect {
     RunPurgeRequested {
         /// Run to purge.
         run_id: RunId,
+    },
+    /// The command wrote or removed DispatchQueue rows. Only the committed copy counts, since
+    /// a speculative one may roll back.
+    DispatchQueueChanged {
+        /// Keys of the rows written, in key order.
+        written_keys: Vec<Vec<u8>>,
+        /// Number of rows removed.
+        removed_count: u32,
     },
     /// Wake long-poll waiters of the run.
     WakeWaiters {

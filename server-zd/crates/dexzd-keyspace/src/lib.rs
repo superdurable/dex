@@ -11,6 +11,7 @@
 //! Everything in this crate is a permanent format. Byte values of enums and the layout of keys
 //! never change; new variants and key kinds are only appended.
 
+pub mod dispatch_queue_keys;
 mod identifiers;
 mod key_layout;
 mod node_identifier;

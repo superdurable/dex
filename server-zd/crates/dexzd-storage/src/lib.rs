@@ -19,7 +19,7 @@ pub use directory_lock::{
     DirectoryLockHolder, is_directory_open_in_this_process, probe_directory_lock,
 };
 pub use local_store::{
-    LocalReadView, LocalStore, ScanDirection, StorageError, StorageResult, WriteBatch,
+    BoundedSeek, LocalReadView, LocalStore, ScanDirection, StorageError, StorageResult, WriteBatch,
     WriteOperation,
 };
 pub use memory_store::InMemoryLocalStore;

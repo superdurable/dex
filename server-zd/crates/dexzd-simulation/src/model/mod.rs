@@ -524,7 +524,12 @@ impl CommandGenerator {
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
             Proposal::StartAttempt(call) => {
-                let body = worker_model::start_attempt(rng, &call);
+                // Only the Step failure stream queues, so main-stream trajectories stay pinned.
+                let body = if is_step_failure_stream && rng.random_bool(0.3) {
+                    worker_model::queue_attempt(rng, &call)
+                } else {
+                    worker_model::start_attempt(rng, &call)
+                };
                 self.invocation_envelope(flow_id, &call, body)
             }
             Proposal::WorkerOutcome(call) => {

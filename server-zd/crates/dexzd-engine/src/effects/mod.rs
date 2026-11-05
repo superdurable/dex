@@ -662,6 +662,8 @@ impl EffectRouter {
             }
             ApplyEffect::LocksReleased { run_id, .. } => self.dispatch.release_locks(run_id),
             ApplyEffect::WakeWaiters { .. } => {}
+            // Wired into the task queue together with matching.
+            ApplyEffect::DispatchQueueChanged { .. } => {}
             effect if !is_committed => {
                 tracing::debug!(?effect, "ignoring a speculative external effect");
             }

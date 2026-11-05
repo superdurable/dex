@@ -102,6 +102,11 @@ pub enum WriteOperation {
         cf: ColumnFamily,
         key: Vec<u8>,
     },
+    /// Deletes a key put once since its last deletion; see RocksDB SingleDelete.
+    SingleDelete {
+        cf: ColumnFamily,
+        key: Vec<u8>,
+    },
     DeleteRange {
         cf: ColumnFamily,
         start: Vec<u8>,
@@ -129,6 +134,15 @@ impl WriteBatch {
 
     pub fn delete(&mut self, cf: ColumnFamily, key: impl Into<Vec<u8>>) {
         self.operations.push(WriteOperation::Delete {
+            cf,
+            key: key.into(),
+        });
+    }
+
+    /// Deletes `key`, which was put exactly once since its last deletion and is never deleted
+    /// with [`Self::delete`] or [`Self::delete_range`].
+    pub fn single_delete(&mut self, cf: ColumnFamily, key: impl Into<Vec<u8>>) {
+        self.operations.push(WriteOperation::SingleDelete {
             cf,
             key: key.into(),
         });
@@ -171,8 +185,45 @@ impl WriteBatch {
     }
 }
 
+/// The first row of a bounded seek.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoundedSeek {
+    /// The first row in the range.
+    Found {
+        /// Its key.
+        key: Vec<u8>,
+        /// Its value.
+        value: Vec<u8>,
+    },
+    /// The range has no row.
+    Exhausted,
+    /// The seek skipped more deleted entries than allowed before finding a row.
+    Incomplete,
+}
+
 pub trait LocalReadView: Send + Sync {
     fn get(&self, cf: ColumnFamily, key: &[u8]) -> StorageResult<Option<Vec<u8>>>;
+
+    /// Returns the first row in `[start, end)`, giving up after skipping more than
+    /// `max_skippable_entries` deleted entries. Stores without tombstones never give up.
+    fn seek_first_bounded(
+        &self,
+        cf: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        _max_skippable_entries: u64,
+    ) -> StorageResult<BoundedSeek> {
+        let row = self
+            .scan(cf, Some(start), Some(end), ScanDirection::Forward, 1)?
+            .into_iter()
+            .next();
+        Ok(
+            row.map_or(BoundedSeek::Exhausted, |(key, value)| BoundedSeek::Found {
+                key,
+                value,
+            }),
+        )
+    }
 
     fn multi_get(&self, cf: ColumnFamily, keys: &[&[u8]]) -> StorageResult<Vec<Option<Vec<u8>>>> {
         keys.iter().map(|key| self.get(cf, key)).collect()
