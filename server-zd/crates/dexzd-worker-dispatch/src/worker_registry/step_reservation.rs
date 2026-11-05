@@ -29,8 +29,8 @@ pub struct StepStreamRequest {
     pub step_type: String,
     /// Worker process ID preferred while the sticky wait lasts.
     pub sticky_app_worker_id: Option<String>,
-    /// When the attempt first searched for a Worker; the sticky and dispatch waits count from
-    /// it, also across returns of the same attempt.
+    /// When this search for a Worker started; the sticky and dispatch waits count from it.
+    /// A search whose waits already ended still tries the idle slots once.
     pub search_started_at: Instant,
 }
 
@@ -244,7 +244,7 @@ async fn reserve_in_queue(
     let mut shutdown = dispatch.inner.shutdown.subscribe();
     let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
     tokio::pin!(search_timer);
-    while Instant::now() < queue_end {
+    loop {
         if *shutdown.borrow() || !dispatch.may_hand_out_tasks() {
             return QueueReservation::ServerClosing;
         }
@@ -258,7 +258,7 @@ async fn reserve_in_queue(
         if let Some(worker) = picked.worker {
             return QueueReservation::Reserved(worker);
         }
-        if is_sticky && !picked.has_streams {
+        if (is_sticky && !picked.has_streams) || Instant::now() >= queue_end {
             return QueueReservation::Ended;
         }
         let wake = picked.next_backoff_end.unwrap_or(queue_end).min(queue_end);
@@ -276,7 +276,6 @@ async fn reserve_in_queue(
             },
         }
     }
-    QueueReservation::Ended
 }
 
 enum QueueReservation {

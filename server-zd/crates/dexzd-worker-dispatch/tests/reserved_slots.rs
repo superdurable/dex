@@ -656,6 +656,27 @@ async fn a_reset_right_after_a_half_close_fails_the_task_as_a_disconnect() {
     ));
 }
 
+/// A search whose waits ended before it began, such as after a long lock wait, still tries
+/// the idle slots once.
+#[tokio::test]
+async fn a_search_past_its_dispatch_wait_still_tries_the_idle_slots() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let _slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let mut request = step_request("Flow", "Charge", None);
+    request.search_started_at = Instant::now()
+        .checked_sub(config().dispatch_wait * 2)
+        .expect("the monotonic clock runs longer than two dispatch waits");
+    assert!(matches!(
+        reserve(&dispatch, request).await,
+        StepStreamReservation::Reserved(_)
+    ));
+}
+
 #[tokio::test]
 async fn a_slot_that_half_closed_while_reserved_receives_no_task() {
     let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));

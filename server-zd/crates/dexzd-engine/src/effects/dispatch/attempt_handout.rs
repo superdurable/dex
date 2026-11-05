@@ -37,8 +37,6 @@ use crate::flow_coordination::{CommitUrgency, FlowAddress};
 /// Hand-out state that survives returns and lock waits of one attempt.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct HandoutProgress {
-    /// When the attempt first searched for a Worker; the dispatch wait counts from it.
-    pub(crate) search_started_at: Option<Instant>,
     /// When the attempt's pending effect committed, for the schedule-to-start latency.
     pub(crate) scheduled_at: Option<Instant>,
 }
@@ -111,10 +109,9 @@ impl AttemptHandout {
                     continue;
                 }
             }
-            let search_started_at = *self
-                .progress
-                .search_started_at
-                .get_or_insert_with(Instant::now);
+            // Each search gets a full dispatch wait: lock waits, backoffs, and returns are not
+            // searches.
+            let search_started_at = Instant::now();
             let request = MethodStreamRequest {
                 tenant_id: pending.tenant_id,
                 flow_id: self.flow.flow_id.clone(),

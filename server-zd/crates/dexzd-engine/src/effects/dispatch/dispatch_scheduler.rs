@@ -75,10 +75,7 @@ impl DispatchScheduler {
         if self.in_flight.contains_key(&key) || is_parked {
             return;
         }
-        let progress = HandoutProgress {
-            search_started_at: None,
-            scheduled_at,
-        };
+        let progress = HandoutProgress { scheduled_at };
         self.spawn_handout(flow, key, progress);
     }
 

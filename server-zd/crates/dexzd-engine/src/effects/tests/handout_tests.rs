@@ -129,6 +129,7 @@ async fn attempts_the_worker_never_ran_return_with_the_same_attempt_number() {
     for (declines, reason) in cases {
         for durability in [StepDurability::Sync, StepDurability::Async] {
             let (harness, run_id, first) = start(durability).await;
+            let declined_at = std::time::Instant::now();
             declines(&first);
             let second = harness.dispatcher.next_dispatch().await;
             assert_eq!(second.context().attempt, 1, "{reason:?} uses no retry");
@@ -140,7 +141,7 @@ async fn attempts_the_worker_never_ran_return_with_the_same_attempt_number() {
             assert_eq!(returned[0].expected_task_id, started[0]);
             assert_ne!(started[0], started[1], "each start gets its own task ID");
             assert!(failures(&harness).is_empty());
-            // The dispatch wait keeps counting from the first search.
+            // The search after a return gets its own dispatch wait.
             let reservations = harness
                 .dispatcher
                 .reservations
@@ -148,10 +149,7 @@ async fn attempts_the_worker_never_ran_return_with_the_same_attempt_number() {
                 .expect("lock")
                 .clone();
             assert_eq!(reservations.len(), 2);
-            assert_eq!(
-                reservations[0].search_started_at,
-                reservations[1].search_started_at
-            );
+            assert!(reservations[1].search_started_at >= declined_at);
             assert_eq!(
                 invocation(&harness, run_id).furthest_attempt_progress,
                 StepAttemptProgress::NotStarted as i32
