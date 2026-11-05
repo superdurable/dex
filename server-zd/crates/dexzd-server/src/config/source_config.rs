@@ -19,6 +19,8 @@ use crate::DevCommandOptions;
 const EMBEDDED_S3_ENDPOINT_PENDING: &str = "http://127.0.0.1:0";
 /// Dev has no standby, so a longer lease rides out host stalls; only crash restarts wait longer.
 const DEV_LEASE_DURATION: Duration = Duration::from_secs(30);
+/// Keeps the drain and teardown inside the 10-second stop budget of dexcli dev.
+const DEV_ATTEMPT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Reports a YAML, filesystem, environment, or field validation failure.
 #[derive(Debug, thiserror::Error)]
@@ -130,6 +132,10 @@ impl Config {
             has_yaml_key(override_document.as_ref(), &["attributeStore"]);
         let has_lease_duration_override =
             has_yaml_key(override_document.as_ref(), &["lease", "duration"]);
+        let has_attempt_drain_timeout_override = has_yaml_key(
+            override_document.as_ref(),
+            &["lifecycle", "attemptDrainTimeout"],
+        );
         if let Some(path) = &options.attribute_store_config {
             if has_attribute_store_override {
                 return Err(ConfigError::Invalid {
@@ -167,6 +173,9 @@ impl Config {
         }
         if !has_lease_duration_override {
             configuration.lease.duration = DEV_LEASE_DURATION;
+        }
+        if !has_attempt_drain_timeout_override {
+            configuration.lifecycle.attempt_drain_timeout = DEV_ATTEMPT_DRAIN_TIMEOUT;
         }
         if configuration.object_store.bucket.is_empty() {
             configuration.object_store.bucket = "dex-dev".to_owned();

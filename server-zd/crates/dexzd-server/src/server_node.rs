@@ -50,7 +50,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ServerError;
 use crate::component_configs::ComponentConfigs;
-use crate::config::{Config, SearchBackend as SearchBackendKind};
+use crate::config::{Config, LifecycleConfig, SearchBackend as SearchBackendKind};
 use crate::embedded_s3::EmbeddedS3;
 use crate::metrics_server::MetricsServer;
 use crate::registry_committed_command_sink::RegistryCommittedCommandSink;
@@ -379,7 +379,7 @@ struct PeriodStop {
 /// Every component of one serving period, in start order.
 struct ServerNode {
     metrics: Arc<NodeMetrics>,
-    lifecycle_config: crate::config::LifecycleConfig,
+    lifecycle_config: LifecycleConfig,
     engine: EngineNode,
     registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,

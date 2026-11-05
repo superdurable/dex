@@ -328,7 +328,7 @@ impl ReservedStepStream {
             Ok(frames) => frames,
             Err(TaskSendError::LeaseInvalid) => return Err(StepTaskSendFailure::LeaseInvalid),
             Err(TaskSendError::NotDelivered) => {
-                // The stream half-closed or broke; it never becomes idle again.
+                // The stream half-closed, broke, or is shutting down; it never becomes idle again.
                 self.worker = None;
                 self.dispatch.disconnect(worker.id);
                 return Err(StepTaskSendFailure::NotDelivered);

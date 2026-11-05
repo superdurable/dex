@@ -438,7 +438,9 @@ pub struct EffectTasksHandle {
 pub struct AttemptDrainProgress {
     /// Attempts running at the drain boundary, including starts already in flight that register afterward.
     pub attempts_waited: usize,
-    /// Those attempts whose owner tasks ended after committing their results, failures, or cancellation.
+    /// Waited attempts whose hand-out task stopped tracking them during the drain: after their
+    /// result or failure committed, after they were canceled, when their start was not proposed,
+    /// or when their return was applied. A hand-out stays outstanding until its returns commit.
     pub attempts_finished: usize,
     /// Attempts still running or committing their final output.
     pub attempts_running: usize,
@@ -577,17 +579,17 @@ impl EffectTasks {
 }
 
 impl EffectTasksHandle {
-    /// Stops new handouts after matching closes; returns progress through final commits, or Stopped when the router ended.
-    pub async fn begin_attempt_drain(
+    /// Asks the router to stop new handouts after matching closes, without waiting for it.
+    ///
+    /// Returns the drain progress, which sets `has_started` once the router stopped new handouts
+    /// and then follows the remaining ones through their final commits, or Stopped when the
+    /// router ended.
+    pub fn begin_attempt_drain(
         &self,
     ) -> Result<watch::Receiver<AttemptDrainProgress>, EffectError> {
-        let (progress, mut receiver) = watch::channel(AttemptDrainProgress::default());
+        let (progress, receiver) = watch::channel(AttemptDrainProgress::default());
         self.router
             .send(RouterMessage::DrainAttempts { progress })
-            .map_err(|_| EffectError::Stopped)?;
-        receiver
-            .wait_for(|progress| progress.has_started)
-            .await
             .map_err(|_| EffectError::Stopped)?;
         Ok(receiver)
     }

@@ -17,12 +17,13 @@ use dexzd_protocol::dex::{
     AttributeWrite, CloseDecision, CloseDecisionType, DescribeActiveNodeRequest,
     ExecuteMethodFailurePolicy, FlowConfig, FlowStartOptions, FlowStatus, GetFlowStateRequest,
     GetHistoryEventsRequest, InvokeExecuteMethodOutput, InvokeExecuteMethodRequest,
-    InvokeExecuteMethodResponse, PollWorkerTask, PollWorkerTaskFrame, PollWorkerTaskRegister,
-    PollWorkerTaskRequest, PollWorkerTaskResponse, RetryPolicy, SetAttributesRequest,
-    StartFlowRequest, StepAttemptProgress, StepDecision, StepDownActiveNodeRequest, StepDurability,
-    StepMethodHeartbeat, StepMovement, StepOptions, WaitForFlowRequest, WorkerErrorResponse,
-    WorkerTarget, flow_history_event, invoke_execute_method_output, poll_worker_task,
-    poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
+    InvokeExecuteMethodResponse, PollWorkerSlotKind, PollWorkerTask, PollWorkerTaskFrame,
+    PollWorkerTaskRegister, PollWorkerTaskRequest, PollWorkerTaskResponse, RetryPolicy,
+    SetAttributesRequest, StartFlowRequest, StepAttemptProgress, StepDecision,
+    StepDownActiveNodeRequest, StepDurability, StepMethodHeartbeat, StepMovement, StepOptions,
+    WaitForFlowRequest, WorkerErrorResponse, WorkerTarget, flow_history_event,
+    invoke_execute_method_output, poll_worker_task, poll_worker_task_frame,
+    poll_worker_task_request, poll_worker_task_response,
     step_down_active_node_response::LeaseHolderAfterStepDown,
 };
 use s3mock_server::SignatureVerification;
@@ -91,10 +92,10 @@ async fn drain_keeps_worker_stream_open_until_the_result_commits() {
     let mut worker = DrainWorker::start(channel.clone()).await;
     start_flow(channel, StepDurability::Async).await;
     let task = worker.next_execute().await;
-    fixture.emulator.set_fault_rules(&format!(
-        r#"[{{"operation":"PutObject","key_prefix":"{}/log/","action":{{"type":"delay","milliseconds":2000}}}}]"#,
-        crate::PRIMARY_PREFIX,
-    )).await;
+    fixture
+        .emulator
+        .set_fault_rules(&delayed_log_writes(2000))
+        .await;
     let (status, ()) = tokio::join!(
         active.terminate(BUDGET),
         worker.complete_with_delayed_commit(&task)
@@ -108,6 +109,142 @@ async fn drain_keeps_worker_stream_open_until_the_result_commits() {
         active.log()
     );
     fixture.emulator.clear_fault_rules().await;
+    fixture.emulator.shutdown().await;
+}
+
+/// Holds a SYNC start's commit until after SIGTERM: the frame still goes out on the same attempt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sigterm_sends_the_task_of_a_sync_start_that_commits_during_the_drain() {
+    let fixture = DrainFixture::start().await;
+    let mut active = fixture.spawn("active", None, false);
+    let channel = active.wait_until_serving().await;
+    start_flow(channel.clone(), StepDurability::Sync).await;
+    fixture
+        .emulator
+        .set_fault_rules(&delayed_log_writes(3000))
+        .await;
+    let mut worker = DrainWorker::start(channel).await;
+    // The hand-out reserves the new stream and proposes the start, whose log write waits 3 s.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    active.send_sigterm(BUDGET).await;
+    active
+        .wait_for_log_line(
+            "Step attempt drain started attempts_waited=1 outstanding_handouts=1",
+            BUDGET,
+        )
+        .await;
+    let task = worker.next_execute().await;
+    let request = execute_request(&task);
+    assert_eq!(request.step_type, FIRST_STEP);
+    let step_execution_id = request
+        .context
+        .as_ref()
+        .expect("Execute carries context")
+        .step_execution_id
+        .clone();
+    assert_eq!(
+        request
+            .context
+            .as_ref()
+            .expect("Execute carries context")
+            .attempt,
+        1
+    );
+    worker.complete(&task, close_flow());
+    assert_eq!(
+        active.wait_for_exit(BUDGET).await.code(),
+        Some(0),
+        "{}",
+        active.log()
+    );
+    let active_log = active.log();
+    assert!(active_log.contains("outcome=completed"), "{active_log}");
+    assert!(
+        active_log.contains("attempts_finished=1 attempts_running=0"),
+        "{active_log}"
+    );
+    fixture.emulator.clear_fault_rules().await;
+    let mut successor = fixture.spawn("replacement", None, false);
+    let successor_channel = successor.wait_until_serving().await;
+    assert_completed(successor_channel.clone()).await;
+    assert_first_step_completed_on_first_attempt(successor_channel, &step_execution_id).await;
+    assert_eq!(
+        successor.terminate(BUDGET).await.code(),
+        Some(0),
+        "{}",
+        successor.log()
+    );
+    fixture.emulator.shutdown().await;
+}
+
+/// Holds the return's commit after a clean half-close in the drain: the attempt is not consumed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn half_close_during_the_drain_returns_the_attempt_before_the_lease_release() {
+    let fixture = DrainFixture::start().await;
+    let mut active = fixture.spawn("active", None, false);
+    let channel = active.wait_until_serving().await;
+    let mut worker = DrainWorker::start_reserved_slot(channel.clone()).await;
+    start_flow(channel, StepDurability::Sync).await;
+    let task = worker.next_execute().await;
+    let request = execute_request(&task);
+    let step_execution_id = request
+        .context
+        .as_ref()
+        .expect("Execute carries context")
+        .step_execution_id
+        .clone();
+    assert_eq!(
+        request
+            .context
+            .as_ref()
+            .expect("Execute carries context")
+            .attempt,
+        1
+    );
+    // Longer than the teardown, so a return that the drain did not wait for is lost.
+    fixture
+        .emulator
+        .set_fault_rules(&delayed_log_writes(8000))
+        .await;
+    active.send_sigterm(BUDGET).await;
+    active
+        .wait_for_log_line(
+            "Step attempt drain started attempts_waited=1 outstanding_handouts=1",
+            BUDGET,
+        )
+        .await;
+    worker.half_close().await;
+    assert_eq!(
+        active.wait_for_exit(BUDGET).await.code(),
+        Some(0),
+        "{}",
+        active.log()
+    );
+    let active_log = active.log();
+    assert!(active_log.contains("outcome=completed"), "{active_log}");
+    fixture.emulator.clear_fault_rules().await;
+    let mut successor = fixture.spawn("replacement", None, false);
+    let successor_channel = successor.wait_until_serving().await;
+    let mut successor_worker = DrainWorker::start(successor_channel.clone()).await;
+    let redispatched = successor_worker.next_execute().await;
+    let context = execute_request(&redispatched)
+        .context
+        .as_ref()
+        .expect("Execute carries context");
+    assert_eq!(context.step_execution_id, step_execution_id);
+    assert_eq!(
+        context.attempt, 1,
+        "a task without output when its stream half-closed was never run"
+    );
+    successor_worker.complete(&redispatched, close_flow());
+    assert_completed(successor_channel.clone()).await;
+    assert_first_step_completed_on_first_attempt(successor_channel, &step_execution_id).await;
+    assert_eq!(
+        successor.terminate(BUDGET).await.code(),
+        Some(0),
+        "{}",
+        successor.log()
+    );
     fixture.emulator.shutdown().await;
 }
 
@@ -165,7 +302,7 @@ async fn survives_planned_stop(durability: StepDurability, is_step_down: bool) {
         active_log.contains("attempts_finished=1 attempts_running=0"),
         "{active_log}"
     );
-    assert!(active_log.contains("has_timed_out=false"), "{active_log}");
+    assert!(active_log.contains("outcome=completed"), "{active_log}");
     let mut successor = match standby {
         Some(successor) => successor,
         None => fixture.spawn("replacement", None, false),
@@ -279,15 +416,24 @@ async fn interrupted_after_timeout(durability: StepDurability, timeout: &str) {
         "{}",
         active.log()
     );
+    let active_log = active.log();
     if timeout == "2s" {
         assert!(started.elapsed() >= Duration::from_secs(2));
+        assert!(active_log.contains("outcome=timed_out"), "{active_log}");
+        assert!(
+            active_log.contains("attempts_finished=0 attempts_running=1"),
+            "{active_log}"
+        );
+    } else {
+        assert!(
+            active_log.contains("Step attempt drain disabled"),
+            "{active_log}"
+        );
+        assert!(
+            !active_log.contains("Step attempt drain ended"),
+            "{active_log}"
+        );
     }
-    let active_log = active.log();
-    assert!(active_log.contains("has_timed_out=true"), "{active_log}");
-    assert!(
-        active_log.contains("attempts_finished=0 attempts_running=1"),
-        "{active_log}"
-    );
     let mut replacement = fixture.spawn("replacement", None, false);
     let channel = replacement.wait_until_serving().await;
     let mut replacement_worker = DrainWorker::start(channel.clone()).await;
@@ -425,19 +571,28 @@ struct DrainWorker {
 
 impl DrainWorker {
     async fn start(channel: Channel) -> Self {
+        Self::register(channel, worker_registration()).await
+    }
+
+    /// Registers one reserved Step-and-RPC slot, whose clean half-close returns unrun tasks.
+    async fn start_reserved_slot(channel: Channel) -> Self {
+        Self::register(
+            channel,
+            PollWorkerTaskRegister {
+                queue: String::new(),
+                supports_reserved_slot_dispatch: true,
+                slot_kind: PollWorkerSlotKind::StepAndRpc.into(),
+                ..worker_registration()
+            },
+        )
+        .await
+    }
+
+    async fn register(channel: Channel, registration: PollWorkerTaskRegister) -> Self {
         let (frames, receiver) = mpsc::unbounded_channel();
         frames
             .send(PollWorkerTaskRequest {
-                frame: Some(poll_worker_task_request::Frame::Register(
-                    PollWorkerTaskRegister {
-                        queue: FLOW_TYPE.to_owned(),
-                        app_worker_id: "drain-worker".to_owned(),
-                        flow_types: vec![FLOW_TYPE.to_owned()],
-                        sdk_name: "dexzd-server-tests".to_owned(),
-                        sdk_version: "0".to_owned(),
-                        ..Default::default()
-                    },
-                )),
+                frame: Some(poll_worker_task_request::Frame::Register(registration)),
             })
             .expect("the drain test fixture is valid and its operations succeed");
         let mut incoming = WorkerTaskServiceClient::new(channel)
@@ -475,6 +630,28 @@ impl DrainWorker {
         })
         .await
         .expect("a Step reaches the Worker")
+    }
+
+    /// Half-closes the stream cleanly and waits until the server ends it.
+    async fn half_close(self) {
+        let Self {
+            frames,
+            mut incoming,
+        } = self;
+        drop(frames);
+        tokio::time::timeout(BUDGET, async {
+            while let Ok(Some(response)) = incoming.message().await {
+                assert!(
+                    matches!(
+                        response.frame,
+                        Some(poll_worker_task_response::Frame::Ping(_))
+                    ),
+                    "a half-closed stream gets no new task: {response:?}"
+                );
+            }
+        })
+        .await
+        .expect("the server ends a half-closed stream");
     }
 
     async fn complete_after(
@@ -580,6 +757,17 @@ impl DrainWorker {
     }
 }
 
+fn worker_registration() -> PollWorkerTaskRegister {
+    PollWorkerTaskRegister {
+        queue: FLOW_TYPE.to_owned(),
+        app_worker_id: "drain-worker".to_owned(),
+        flow_types: vec![FLOW_TYPE.to_owned()],
+        sdk_name: "dexzd-server-tests".to_owned(),
+        sdk_version: "0".to_owned(),
+        ..Default::default()
+    }
+}
+
 async fn start_flow(channel: Channel, durability: StepDurability) {
     FlowServiceClient::new(channel)
         .start_flow(StartFlowRequest {
@@ -679,4 +867,39 @@ fn direct_channel(address: std::net::SocketAddr) -> Channel {
     Channel::from_shared(format!("http://{address}"))
         .expect("the drain test fixture is valid and its operations succeed")
         .connect_lazy()
+}
+
+/// Returns s3mock fault rules that delay every log batch write by `milliseconds`.
+fn delayed_log_writes(milliseconds: u64) -> String {
+    format!(
+        r#"[{{"operation":"PutObject","key_prefix":"{}/log/","action":{{"type":"delay","milliseconds":{milliseconds}}}}}]"#,
+        crate::PRIMARY_PREFIX,
+    )
+}
+
+/// Asserts that the first Step completed on attempt 1 without a recorded failure.
+async fn assert_first_step_completed_on_first_attempt(channel: Channel, step_execution_id: &str) {
+    let history = FlowServiceClient::new(channel)
+        .get_history_events(GetHistoryEventsRequest {
+            flow_id: FLOW_ID.to_owned(),
+            estimate_page_size: 100,
+            ..Default::default()
+        })
+        .await
+        .expect("history reads committed results")
+        .into_inner();
+    let context = history
+        .events
+        .iter()
+        .find_map(|event| match &event.payload {
+            Some(flow_history_event::Payload::StepExecuteCompleted(completed)) => {
+                completed.context.as_ref()
+            }
+            _ => None,
+        })
+        .expect("the first Step completed in history");
+    assert_eq!(context.step_type, FIRST_STEP);
+    assert_eq!(context.step_execution_id, step_execution_id);
+    assert_eq!(context.final_attempt, 1);
+    assert!(context.last_failure_info.is_none(), "{context:?}");
 }

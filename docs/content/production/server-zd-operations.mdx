@@ -188,10 +188,17 @@ lease only after those attempts finish and their results commit, or after
 **lifecycle.attemptDrainTimeout** expires. A hot standby follows the commits and
 takes over after the release.
 
+During the drain, new Flow RPCs answer **UNAVAILABLE**, and the SDKs retry them.
+Steps that are not yet handed to a Worker wait. The successor dispatches them
+after it takes the lease. A Step whose start was already being written when the
+drain began still goes to its Worker and is drained like a running attempt.
+
 **lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
 attempt draining. Step method and heartbeat timeouts still apply during the
 drain; the drain does not extend them. Choose a drain timeout long enough for
 the remaining execution time of the Step methods you want to finish.
+**dexcli dev** uses a **2s** drain unless its configuration sets this field,
+because it stops the server after 10 seconds.
 
 Set Kubernetes **terminationGracePeriodSeconds** longer than the drain timeout,
 with at least 15 extra seconds for teardown. For the default **30s** drain,
@@ -206,7 +213,10 @@ This teardown has a separate budget of about 15 seconds.
 
 The **Step attempt drain ended** log records **attempts_waited**,
 **attempts_finished**, and **attempts_running**, including attempts still waiting
-for their final commit. **has_timed_out** reports whether the drain expired.
+for their final commit. Its **outcome** field is **completed** when every attempt
+finished, **timed_out** when the drain timeout expired, or **node_stopped** when
+the node stopped for another reason first. With a **0s** timeout, the node logs
+**Step attempt drain disabled** instead.
 
 The process exits 0 when every step completes. A replacement process with the
 same **cluster.nodeId** then acquires the lease at once. The process exits 1
@@ -595,8 +605,9 @@ switchover you wanted has not happened.
 
 After the release, the step down call watches the lease. It returns as soon as
 another process takes over. Otherwise it returns after the hold-off and one
-attempt to take the lease back. The call therefore lasts at most the commit
-drain bound, the release, the hold-off, and one lease acquisition attempt.
+attempt to take the lease back. The call therefore lasts at most the attempt
+drain timeout, the commit drain bound, the release, the hold-off, and one lease
+acquisition attempt.
 
 There is one exception. The process competes for the lease again only after the
 local store of its stopped serving period has closed. If a stuck task keeps that
@@ -606,6 +617,9 @@ the process then exits 1 without taking the lease. The restart releases the
 store. Meanwhile another process of the same node ID can take over.
 
 **dexcli admin step-down** waits up to 2 minutes unless you set **--timeout**.
+This covers the default **30s** attempt drain. If you raise
+**lifecycle.attemptDrainTimeout**, raise **--timeout** by at least the same
+amount. Otherwise the command may stop waiting before the step down finishes.
 Its output has these fields:
 
 - **expectedNodeId** and **expectedNodeEpoch** give the precondition that the

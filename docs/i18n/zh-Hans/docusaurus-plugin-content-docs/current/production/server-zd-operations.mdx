@@ -174,9 +174,14 @@ lease，并保持 pull Worker stream 打开，等待运行中的 attempt 完成�
 **lifecycle.attemptDrainTimeout** 到期后，节点才释放 lease。热 standby 在此期间跟随提交，
 在 lease 释放后接管。
 
+Drain 期间，新的 Flow RPC 返回 **UNAVAILABLE**，SDK 会重试它们。还没有交给 Worker 的
+Step 会等待，由后继进程拿到 lease 后再 dispatch。drain 开始时 start 已经在写入的 Step
+仍会发给它的 Worker，并像运行中的 attempt 一样被 drain。
+
 **lifecycle.attemptDrainTimeout** 默认为 **30s**，设为 **0s** 可禁用 attempt drain。
 Step 方法和 heartbeat 的超时在 drain 期间仍然生效，drain 不会延长它们。选择 drain 超时
-时，要为希望完成的 Step 方法留出足够的剩余执行时间。
+时，要为希望完成的 Step 方法留出足够的剩余执行时间。**dexcli dev** 在 10 秒后停止
+server，所以除非它的配置设置了这个字段，它使用 **2s** 的 drain。
 
 Kubernetes 的 **terminationGracePeriodSeconds** 必须长于 drain 超时，并至少额外留出
 15 秒用于关闭组件。默认 drain 为 **30s**，因此至少应设为 **45** 秒。否则 Kubernetes
@@ -187,8 +192,10 @@ Attempt drain 结束后，Worker 重新连接，long poll 和 Stream Store 关�
 客户端会在新的 active 进程上重试。最后关闭 metrics 监听器。这些关闭步骤另有约 15 秒预算。
 
 **Step attempt drain ended** 日志记录 **attempts_waited**、**attempts_finished** 和
-**attempts_running**，包括仍在等待最终提交的 attempt。**has_timed_out** 表示 drain
-是否到期。
+**attempts_running**，包括仍在等待最终提交的 attempt。它的 **outcome** 字段在所有
+attempt 都完成时为 **completed**，在 drain 超时到期时为 **timed_out**，在节点先因其他
+原因停止时为 **node_stopped**。超时为 **0s** 时，节点改为记录
+**Step attempt drain disabled**。
 
 每一步都完成时，进程以 0 退出，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。
 如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
@@ -494,8 +501,8 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 让位。
 
 释放 lease 之后，让位调用会观察 lease。一旦有其他进程接管，调用立即返回。否则，它在
-hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长持续：提交排空的上限、释放
-lease、hold-off，再加一次获取 lease 的尝试。
+hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长持续：attempt drain 超时、
+提交排空的上限、释放 lease、hold-off，再加一次获取 lease 的尝试。
 
 有一个例外。进程要等已停止的服务阶段的本地 store 关闭之后，才会再次竞争 lease。如果某个
 卡住的任务一直让这个 store 保持打开，进程在释放 lease 之后最多等待约 64 秒。如果到那时还
@@ -503,7 +510,9 @@ lease、hold-off，再加一次获取 lease 的尝试。
 会释放这个 store。在此期间，同一个 node ID 的另一个进程可以接管。
 
 除非设置了 **--timeout**，
-**dexcli admin step-down** 最多等待 2 分钟。输出包含这些字段：
+**dexcli admin step-down** 最多等待 2 分钟。这足以覆盖默认 **30s** 的 attempt drain。
+如果调大 **lifecycle.attemptDrainTimeout**，**--timeout** 至少要调大同样的时长，否则
+command 可能在让位完成之前就停止等待。输出包含这些字段：
 
 - **expectedNodeId** 和 **expectedNodeEpoch** 给出 command 发送的前置条件。
 - **nodeId**、**releasedNodeEpoch** 和 **leaseReacquisitionHoldOff** 给出 node ID、

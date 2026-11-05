@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize, Serializer};
 pub struct LifecycleConfig {
     /// Defaults to 30 s; keeps the lease and Worker streams open until running Step results commit.
     /// Zero disables attempt draining. Step method and heartbeat timeouts still apply during the drain.
+    /// `dex-server-zd dev` defaults to 2 s unless its configuration sets this field.
     #[serde(with = "humantime_serde")]
     pub attempt_drain_timeout: Duration,
 }

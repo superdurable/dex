@@ -462,16 +462,18 @@ On SIGTERM or SIGINT, health reports NOT_SERVING and the node stops handing out 
 It keeps renewing its lease and keeps pull Worker streams open until running Step attempts finish
 and their results commit, up to `lifecycle.attemptDrainTimeout` (default 30s; 0s disables the wait).
 Heartbeats and Step method timeouts still apply during the drain. A step-down uses the same drain;
-a hot standby can take over only after the active releases its lease.
+a hot standby can take over only after the active releases its lease. During the drain, new Flow
+RPCs answer UNAVAILABLE and new Steps wait for the successor. `dex-server-zd dev` defaults to a
+2s drain so that it stops within the 10-second budget of `dexcli dev`.
 
 The following teardown takes up to about 15 seconds. Workers reconnect, long polls and waiting
 ReadStream calls close, and in-flight RPCs get 4 seconds to finish. Then effects and the engine
 stop, and the node releases its lease. Other open calls finish within the same 4 seconds, and
 the lease gate refuses their answers. Set Kubernetes `terminationGracePeriodSeconds` longer than
-the drain timeout, with at least 15 extra seconds for teardown: 45 seconds with the default drain. The process exits 0,
-and a replacement process with the same `cluster.nodeId` acquires the lease at once. When object
-storage rejects the release, or the release does not finish within 2 seconds, the process exits 1
-and the lease stays held until it expires.
+the drain timeout, with at least 15 extra seconds for teardown: 45 seconds with the default
+drain. The process exits 0, and a replacement process with the same `cluster.nodeId` acquires
+the lease at once. When object storage rejects the release, or the release does not finish
+within 2 seconds, the process exits 1 and the lease stays held until it expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow coordinator stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
