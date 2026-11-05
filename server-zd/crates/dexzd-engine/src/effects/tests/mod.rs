@@ -205,6 +205,10 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) is_flow_state_unreadable_after_start: AtomicBool,
     /// Holds `flow_state_reader` calls from blocking threads while closed.
     pub(super) state_read_gate: Arc<StateReadGate>,
+    /// Holds committed reads from blocking threads while closed.
+    pub(super) committed_read_gate: Arc<StateReadGate>,
+    /// Holds the entries gauge's row-count pages from blocking threads while closed.
+    pub(super) row_count_gate: Arc<StateReadGate>,
     /// Counts `committed_state_reader` calls.
     pub(super) committed_reads: AtomicUsize,
     /// Fails the next `committed_state_reader` calls as unavailable; other reads succeed.
@@ -510,6 +514,9 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
         Ok(Box::new(CountingStateReader {
             state: self.snapshot(),
             queue_seeks: Arc::clone(&self.committed_queue_seeks),
+            committed_read_gate: Arc::clone(&self.committed_read_gate),
+            row_count_gate: Arc::clone(&self.row_count_gate),
+            _open_read: StateReadInProgress::begin(&self.state_read_gate),
         }))
     }
 }
@@ -663,6 +670,10 @@ const ROW_COUNT_PAGE_ROWS: usize = 1024;
 struct CountingStateReader {
     state: MemoryState,
     queue_seeks: Arc<AtomicUsize>,
+    committed_read_gate: Arc<StateReadGate>,
+    row_count_gate: Arc<StateReadGate>,
+    /// Counts the reader as open, so `settle` waits for its blocking read.
+    _open_read: StateReadInProgress,
 }
 
 impl CountingStateReader {
@@ -681,6 +692,7 @@ impl FlowStateReader for CountingStateReader {
         column_family: ColumnFamily,
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, StateReadError> {
+        self.committed_read_gate.hold_while_closed();
         self.state.get(column_family, key)
     }
 
@@ -691,8 +703,11 @@ impl FlowStateReader for CountingStateReader {
         end: &[u8],
         limit: usize,
     ) -> Result<Vec<StateRow>, StateReadError> {
+        self.committed_read_gate.hold_while_closed();
         if limit < ROW_COUNT_PAGE_ROWS {
             self.count_queue_seek(column_family, start);
+        } else {
+            self.row_count_gate.hold_while_closed();
         }
         self.state.scan(column_family, start, end, limit)
     }
@@ -704,6 +719,7 @@ impl FlowStateReader for CountingStateReader {
         end: &[u8],
         max_skipped_deletions: u64,
     ) -> Result<dexzd_apply::BoundedRowSeek, StateReadError> {
+        self.committed_read_gate.hold_while_closed();
         self.count_queue_seek(column_family, start);
         self.state
             .seek_first_bounded(column_family, start, end, max_skipped_deletions)
@@ -1301,6 +1317,8 @@ impl EffectHarness {
             flow_state_reader_failures: Arc::new(AtomicUsize::new(0)),
             is_flow_state_unreadable_after_start: AtomicBool::new(false),
             state_read_gate: Arc::new(StateReadGate::new()),
+            committed_read_gate: Arc::new(StateReadGate::new()),
+            row_count_gate: Arc::new(StateReadGate::new()),
             committed_reads: AtomicUsize::new(0),
             committed_reader_failures: AtomicUsize::new(0),
             committed_queue_seeks: Arc::new(AtomicUsize::new(0)),
@@ -1419,7 +1437,7 @@ impl EffectHarness {
     /// Lets every runnable task proceed without moving time forward much.
     pub(super) async fn settle(&self) {
         self.yield_to_tasks().await;
-        if self
+        while self
             .flow_effect_operations
             .state_read_gate
             .may_have_unconsumed_reads()

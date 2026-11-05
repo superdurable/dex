@@ -10,6 +10,7 @@
 
 mod queue_claims;
 mod queue_heads;
+mod queue_reads;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -23,6 +24,7 @@ use dexzd_keyspace::row_keys::prefix_range;
 use dexzd_keyspace::{ColumnFamily, FlowHash, PartitionId, RunId};
 use dexzd_protocol::dexzd::v1::{DispatchQueueRecord, StepInvocationKey, StepInvocationPhase};
 use dexzd_worker_dispatch::{ClaimReply, ClaimResult, QueuedTaskRef};
+use prometheus_client::metrics::gauge::Gauge;
 
 use crate::effects::method_request::MethodAttemptKey;
 use crate::effects::state_reads::{RunLocation, decode_row, read_run_record, read_step_execution};
@@ -30,7 +32,8 @@ use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
 use crate::flow_coordination::FlowAddress;
 
 pub(crate) use queue_claims::run_claim_pump;
-pub(crate) use queue_heads::{count_partition_rows, rebuild_heads, run_heads_resync};
+pub(crate) use queue_heads::{rebuild_heads, run_heads_resync, spawn_row_count};
+use queue_reads::{QueueReadView, read_off_task};
 
 /// What periodic Heads resume from and the row counts; rebuild recreates it.
 #[derive(Default)]
@@ -45,6 +48,8 @@ pub(crate) struct TaskQueueMemory {
     total_entries: i64,
     /// Partitions this node rebuilt and serves.
     owned_partitions: BTreeSet<PartitionId>,
+    /// Publishes `total_entries`; set under the memory lock, so a stale total never wins.
+    entries_gauge: Gauge,
 }
 
 /// A committed command's log batch as (incarnation, seq), the order of one node's batches.
@@ -59,9 +64,19 @@ struct PartitionRowCount {
     watermark: Option<QueueChangePosition>,
     /// Changes committed while the count runs.
     early_changes: Vec<(Option<QueueChangePosition>, i64)>,
+    /// Identifies the latest count, so an older count that finishes late changes nothing.
+    count_generation: u64,
 }
 
 impl TaskQueueMemory {
+    /// Creates empty memory that publishes the entries total to `entries_gauge`.
+    pub(crate) fn new(entries_gauge: Gauge) -> Self {
+        Self {
+            entries_gauge,
+            ..Self::default()
+        }
+    }
+
     /// Lowers the queue's smallest written key, so the next scan starts at or before it.
     pub(crate) fn note_written(&mut self, entry: &DispatchQueueEntry) {
         let slot = (entry.partition, entry.queue.clone());
@@ -92,31 +107,38 @@ impl TaskQueueMemory {
             }
             Some(_) => {}
         }
+        self.entries_gauge.set(self.total_entries);
         self.total_entries
     }
 
     /// Forgets the partition's count; changes wait for [`Self::finish_row_count`].
     ///
-    /// Returns the count of every owned partition.
-    pub(crate) fn begin_row_count(&mut self, partition: PartitionId) -> i64 {
+    /// Returns the count of every counted partition, and the new count's generation.
+    pub(crate) fn begin_row_count(&mut self, partition: PartitionId) -> (i64, u64) {
         let count = self.entry_counts.entry(partition).or_default();
         self.total_entries -= count.rows.take().unwrap_or(0);
         count.watermark = None;
         count.early_changes.clear();
-        self.total_entries
+        count.count_generation += 1;
+        self.entries_gauge.set(self.total_entries);
+        (self.total_entries, count.count_generation)
     }
 
     /// Sets the partition's count from a snapshot applied up to `watermark`, then adds the
     /// changes committed after it.
     ///
-    /// Returns the count of every owned partition.
+    /// Returns the count of every counted partition, or `None` when a later count began.
     pub(crate) fn finish_row_count(
         &mut self,
         partition: PartitionId,
+        count_generation: u64,
         snapshot_rows: i64,
         watermark: Option<QueueChangePosition>,
-    ) -> i64 {
+    ) -> Option<i64> {
         let count = self.entry_counts.entry(partition).or_default();
+        if count.count_generation != count_generation {
+            return None;
+        }
         let later: i64 = count
             .early_changes
             .drain(..)
@@ -126,7 +148,8 @@ impl TaskQueueMemory {
         let previous = count.rows.replace(snapshot_rows + later).unwrap_or(0);
         count.watermark = watermark;
         self.total_entries += snapshot_rows + later - previous;
-        self.total_entries
+        self.entries_gauge.set(self.total_entries);
+        Some(self.total_entries)
     }
 }
 
@@ -175,7 +198,7 @@ pub(crate) fn ref_flow(task: &QueuedTaskRef) -> FlowAddress {
 }
 
 /// Returns whether the speculative state still has the ref's attempt pending with the ref's
-/// run attempt, position, and queue.
+/// run attempt, position, and queue. Reads synchronously; call it on the blocking pool.
 pub(crate) fn is_ref_pending(
     context: &EffectContext,
     task: &QueuedTaskRef,
@@ -183,18 +206,25 @@ pub(crate) fn is_ref_pending(
     let reader = context
         .flow_effect_operations
         .flow_state_reader(&ref_flow(task), true)?;
+    is_ref_pending_in(reader.as_ref(), task)
+}
+
+/// Returns whether `reader` has the ref's attempt pending, as [`is_ref_pending`] does.
+pub(crate) fn is_ref_pending_in(
+    reader: &dyn dexzd_apply::FlowStateReader,
+    task: &QueuedTaskRef,
+) -> Result<bool, EffectError> {
     let run = RunLocation {
         flow_hash: task.position.flow_hash,
         run_id: task.position.run_id,
     };
-    let Some(record) = read_run_record(reader.as_ref(), run)? else {
+    let Some(record) = read_run_record(reader, run)? else {
         return Ok(false);
     };
     if record.current_attempt != task.run_attempt {
         return Ok(false);
     }
-    let Some(step) = read_step_execution(reader.as_ref(), run, &task.position.step_execution_id)?
-    else {
+    let Some(step) = read_step_execution(reader, run, &task.position.step_execution_id)? else {
         return Ok(false);
     };
     let is_pending = step
@@ -240,18 +270,18 @@ fn decode_queue_row(
     )))
 }
 
-/// Seeks the queue's first row after `from` that no holder sends back.
+/// Seeks the queue's first row after `from` that no holder sends back, in committed `reader`.
 ///
 /// Returns the row's ref, `None` when there is none, or the read's error.
 pub(crate) fn next_queue_ref(
     context: &EffectContext,
+    reader: &dyn dexzd_apply::FlowStateReader,
     partition: PartitionId,
     queue: &DispatchQueueName,
     from: &DispatchQueuePosition,
     is_inclusive: bool,
     should_check_pending: bool,
 ) -> Result<Option<QueuedTaskRef>, EffectError> {
-    let reader = context.flow_effect_operations.committed_state_reader()?;
     let mut start = dispatch_queue_key(&DispatchQueueEntry {
         partition,
         queue: queue.clone(),
@@ -274,7 +304,7 @@ pub(crate) fn next_queue_ref(
         };
         start.clone_from(&key);
         start.push(0);
-        let Some(task) = decode_queue_row(reader.as_ref(), &key, &value)? else {
+        let Some(task) = decode_queue_row(reader, &key, &value)? else {
             continue;
         };
         if context.attempt_entries().is_held(&ref_attempt_key(&task)) {
@@ -335,69 +365,81 @@ fn too_many_deleted_entries() -> EffectError {
     })
 }
 
-/// Answers a Claim with the queue's next ref, or owes it when the seek fails.
+/// Answers a Claim with the queue's next ref, or owes it when the seek fails. The seek runs
+/// in a tracked task on the blocking pool.
 pub(crate) fn reply_to_claim(
     context: &Arc<EffectContext>,
     task: &QueuedTaskRef,
     claim_id: u64,
     result: ClaimResult,
 ) {
-    let next = match next_queue_ref(
-        context,
-        task.partition,
-        &task.queue,
-        &task.position,
-        false,
-        false,
-    ) {
-        Ok(next) => next,
-        Err(error) => {
-            tracing::warn!(%error, partition = task.partition.0, "a Claim reply has no next ref; sending it later");
-            owe_next_ref(context, task.clone());
-            None
-        }
-    };
-    let is_next_priority_zero = next
-        .as_ref()
-        .is_some_and(|next| next.position.priority < DEFAULT_DISPATCH_PRIORITY);
-    context.dispatcher.reply_to_claim(
-        task.partition,
-        &task.queue,
-        claim_id,
-        ClaimReply { result, next },
-    );
-    if is_next_priority_zero {
-        report_ordinary_backlog(context, task.partition, &task.queue);
-    }
-}
-
-/// Reports the queue's first ordinary-priority pending time behind its priority-0 ref.
-pub(crate) fn report_ordinary_backlog(
-    context: &EffectContext,
-    partition: PartitionId,
-    queue: &DispatchQueueName,
-) {
-    let pending_since = context
-        .flow_effect_operations
-        .committed_state_reader()
-        .map_err(EffectError::from)
-        .and_then(|reader| {
-            first_ordinary_pending_since(
-                reader.as_ref(),
-                context.config.heads_max_skipped_deletions,
-                partition,
-                queue,
-            )
-        });
-    match pending_since {
-        Ok(pending_since) => {
+    let context = Arc::clone(context);
+    let task = task.clone();
+    let tracker = context.tracker.clone();
+    tracker.spawn(async move {
+        let seek = task.clone();
+        let read = read_off_task(
+            &context,
+            &context.blocking_read_slots,
+            QueueReadView::Committed,
+            move |context, reader| {
+                let next = next_queue_ref(
+                    context,
+                    reader,
+                    seek.partition,
+                    &seek.queue,
+                    &seek.position,
+                    false,
+                    false,
+                )?;
+                let ordinary = ordinary_backlog_behind(context, reader, next.as_ref());
+                Ok((next, ordinary))
+            },
+        )
+        .await;
+        let (next, ordinary) = match read {
+            Ok(found) => found,
+            Err(EffectError::Stopped) => return,
+            Err(error) => {
+                tracing::warn!(%error, partition = task.partition.0, "a Claim reply has no next ref; sending it later");
+                owe_next_ref(&context, task.clone());
+                (None, None)
+            }
+        };
+        context.dispatcher.reply_to_claim(
+            task.partition,
+            &task.queue,
+            claim_id,
+            ClaimReply { result, next },
+        );
+        if let Some(pending_since) = ordinary {
             context
                 .dispatcher
-                .report_ordinary_backlog(partition, queue, pending_since);
+                .report_ordinary_backlog(task.partition, &task.queue, pending_since);
         }
+    });
+}
+
+/// Reads the ordinary backlog's pending time behind `head` when `head` is priority 0.
+///
+/// Returns `None` when there is nothing to report, including after a failed read.
+pub(crate) fn ordinary_backlog_behind(
+    context: &EffectContext,
+    reader: &dyn dexzd_apply::FlowStateReader,
+    head: Option<&QueuedTaskRef>,
+) -> Option<Option<i64>> {
+    let head = head.filter(|head| head.position.priority < DEFAULT_DISPATCH_PRIORITY)?;
+    match first_ordinary_pending_since(
+        reader,
+        context.config.heads_max_skipped_deletions,
+        head.partition,
+        &head.queue,
+    ) {
+        Ok(pending_since) => Some(pending_since),
         // Only the oldest-age gauge waits for the next reply or scan.
         Err(error) => {
-            tracing::debug!(%error, partition = partition.0, "ordinary backlog age unread")
+            tracing::debug!(%error, partition = head.partition.0, "ordinary backlog age unread");
+            None
         }
     }
 }
@@ -412,19 +454,30 @@ pub(crate) fn owe_next_ref(context: &Arc<EffectContext>, task: QueuedTaskRef) {
             if !backoff.wait(&context.shutdown).await {
                 return;
             }
-            match next_queue_ref(
+            let seek = task.clone();
+            let read = read_off_task(
                 &context,
-                task.partition,
-                &task.queue,
-                &task.position,
-                true,
-                true,
-            ) {
+                &context.blocking_read_slots,
+                QueueReadView::Committed,
+                move |context, reader| {
+                    next_queue_ref(
+                        context,
+                        reader,
+                        seek.partition,
+                        &seek.queue,
+                        &seek.position,
+                        true,
+                        true,
+                    )
+                },
+            )
+            .await;
+            match read {
                 Ok(Some(next)) => {
                     context.dispatcher.queued(next);
                     return;
                 }
-                Ok(None) => return,
+                Ok(None) | Err(EffectError::Stopped) => return,
                 Err(error) => {
                     tracing::warn!(%error, partition = task.partition.0, "retrying an owed next ref");
                 }
@@ -448,13 +501,11 @@ pub(crate) fn note_queue_change(
         }
     }
     let written_count = i64::try_from(written_keys.len()).unwrap_or(i64::MAX);
-    let total = memory.add_entries(
+    memory.add_entries(
         partition,
         position,
         written_count - i64::from(removed_count),
     );
-    drop(memory);
-    context.metrics.step_task_queue_entries.set(total);
 }
 
 /// A lock-guarded [`TaskQueueMemory`].

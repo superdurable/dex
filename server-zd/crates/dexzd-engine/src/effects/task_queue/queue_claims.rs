@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 
 use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 
-use super::{is_ref_pending, ref_attempt_key, ref_flow, reply_to_claim};
+use super::{
+    QueueReadView, is_ref_pending_in, read_off_task, ref_attempt_key, ref_flow, reply_to_claim,
+};
 use crate::effects::dispatch::{
     AttemptHandout, ClaimHolder, ClaimedRow, HandoutProgress, MethodClaim,
 };
@@ -55,7 +57,15 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
     }
     // Without a valid lease the node hands out nothing; it holds the row and retries.
     let check = if stream.may_hand_out_tasks() {
-        is_ref_pending(&context, &task).map_err(|error| error.to_string())
+        let pending_task = task.clone();
+        read_off_task(
+            &context,
+            &context.blocking_read_slots,
+            QueueReadView::Speculative(ref_flow(&task)),
+            move |_, reader| is_ref_pending_in(reader, &pending_task),
+        )
+        .await
+        .map_err(|error| error.to_string())
     } else {
         Err("the node lease is not valid".to_owned())
     };

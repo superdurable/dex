@@ -1212,6 +1212,7 @@ dependencies = [
  "dexzd-stream-store",
  "dexzd-worker-dispatch",
  "futures",
+ "prometheus-client",
  "prost",
  "prost-types",
  "self_cell",

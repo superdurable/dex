@@ -10,6 +10,7 @@
 //! restarted owner behaves like one that never stopped.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use dexzd_apply::{ApplyEffect, FlowStateReader, dispatch_queue_entry};
 use dexzd_keyspace::dispatch_queue_keys::dispatch_queue_key;
@@ -31,7 +32,7 @@ use crate::flow_coordination::FlowAddress;
 
 /// Rebuilds the partition's work and submits it to the router as committed effects.
 pub(crate) async fn rebuild_partition(
-    context: &EffectContext,
+    context: &Arc<EffectContext>,
     partition: PartitionId,
 ) -> Result<usize, EffectError> {
     let startup_uploads = context
@@ -46,7 +47,9 @@ pub(crate) async fn rebuild_partition(
         .recover_pending_uploads(partition, startup_uploads, reader)
         .await?;
     // Heads go to matching before any Dispatch of the rebuilt work (plan section 3.6).
-    crate::effects::task_queue::rebuild_heads(context, partition)?;
+    crate::effects::task_queue::rebuild_heads(context, partition).await?;
+    // The count runs in the background and never delays this or another rebuild.
+    crate::effects::task_queue::spawn_row_count(context, partition);
     let reader = context.flow_effect_operations.committed_state_reader()?;
     let mut work: BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)> = BTreeMap::new();
     let mut interrupted: BTreeMap<RunLocation, (FlowAddress, Vec<InterruptedAttempt>)> =
@@ -76,8 +79,6 @@ pub(crate) async fn rebuild_partition(
             position: None,
         });
     }
-    // Counting reads every queue row, so it runs after the rebuilt work is submitted.
-    crate::effects::task_queue::count_partition_rows(context, partition)?;
     tracing::debug!(%partition, effect_count, "rebuilt partition effects");
     Ok(effect_count)
 }

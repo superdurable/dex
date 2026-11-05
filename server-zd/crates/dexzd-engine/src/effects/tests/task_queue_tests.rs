@@ -27,6 +27,7 @@ use dexzd_protocol::dexzd::v1::{
     flow_command,
 };
 use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
+use prometheus_client::metrics::gauge::Gauge;
 
 use super::dispatch_tests::force_complete;
 use super::{
@@ -964,11 +965,15 @@ fn the_row_count_counts_each_change_once_across_a_snapshot() {
     let partition = PartitionId(3);
     // Applied before the count began, so the snapshot holds it.
     memory.add_entries(partition, Some((1, 5)), 1);
-    assert_eq!(memory.begin_row_count(partition), 0);
+    let (total, first_count) = memory.begin_row_count(partition);
+    assert_eq!(total, 0);
     // Batch 6 is in the snapshot taken at batch 7; batch 8 is not.
     memory.add_entries(partition, Some((1, 6)), 1);
     memory.add_entries(partition, Some((1, 8)), -1);
-    assert_eq!(memory.finish_row_count(partition, 10, Some((1, 7))), 9);
+    assert_eq!(
+        memory.finish_row_count(partition, first_count, 10, Some((1, 7))),
+        Some(9)
+    );
     assert_eq!(
         memory.add_entries(partition, Some((1, 7)), 1),
         9,
@@ -979,12 +984,23 @@ fn the_row_count_counts_each_change_once_across_a_snapshot() {
         11,
         "a later incarnation's batch counts"
     );
+    let (_, other_count) = memory.begin_row_count(PartitionId(4));
     memory.add_entries(PartitionId(4), Some((2, 2)), 5);
-    assert_eq!(memory.finish_row_count(PartitionId(4), 0, Some((2, 1))), 16);
-    memory.begin_row_count(partition);
     assert_eq!(
-        memory.finish_row_count(partition, 4, Some((2, 3))),
-        9,
+        memory.finish_row_count(PartitionId(4), other_count, 0, Some((2, 1))),
+        Some(16)
+    );
+    let (total, stale_count) = memory.begin_row_count(partition);
+    assert_eq!(total, 5, "an uncounted partition is left out");
+    let (_, current_count) = memory.begin_row_count(partition);
+    assert_eq!(
+        memory.finish_row_count(partition, stale_count, 7, Some((2, 3))),
+        None,
+        "an older count that finishes late changes nothing"
+    );
+    assert_eq!(
+        memory.finish_row_count(partition, current_count, 4, Some((2, 3))),
+        Some(9),
         "a recount replaces the partition's share"
     );
 }
@@ -1054,4 +1070,83 @@ fn the_ordinary_pending_time_skips_priority_zero_rows_and_other_queues() {
     assert_eq!(ordinary("ChargeStep"), Some(-20));
     assert_eq!(ordinary("ShipStep"), None, "only priority-0 rows");
     assert_eq!(ordinary("RefundStep"), Some(-90));
+}
+
+/// The entries gauge is set with each count update, so a stale total never overwrites a newer one.
+#[test]
+fn the_entries_gauge_publishes_every_total_with_its_count_update() {
+    let partition = PartitionId(3);
+    for is_start_before_count in [false, true] {
+        let gauge = Gauge::default();
+        let mut memory = TaskQueueMemory::new(gauge.clone());
+        let (_, count) = memory.begin_row_count(partition);
+        // The snapshot at batch 10 holds one row; its start commits at batch 11.
+        if is_start_before_count {
+            memory.add_entries(partition, Some((1, 11)), -1);
+            assert_eq!(gauge.get(), 0, "an uncounted partition is left out");
+        }
+        memory.finish_row_count(partition, count, 1, Some((1, 10)));
+        if !is_start_before_count {
+            assert_eq!(gauge.get(), 1);
+            memory.add_entries(partition, Some((1, 11)), -1);
+        }
+        assert_eq!(gauge.get(), 0, "start first: {is_start_before_count}");
+    }
+}
+
+/// D78: a row count that cannot finish delays no rebuild, Heads, or hand-out.
+#[tokio::test(start_paused = true)]
+async fn a_blocked_row_count_delays_no_other_partitions_heads() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    harness.settle().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    for index in 0..48 {
+        start_execute_flow(&harness, &format!("order-{index}"), StepOptions::default());
+    }
+    harness.settle().await;
+    let entries = &harness.effect_context().metrics.step_task_queue_entries;
+    assert_eq!(entries.get(), 48);
+    let nonempty: BTreeSet<_> = queued_refs(&harness)
+        .iter()
+        .map(|task| task.partition)
+        .collect();
+    harness
+        .dispatcher
+        .rebuilt_heads
+        .lock()
+        .expect("lock")
+        .clear();
+
+    let row_counts = harness.flow_effect_operations.row_count_gate.close();
+    harness.rebuild_all_partitions().await;
+    harness
+        .flow_effect_operations
+        .row_count_gate
+        .wait_for_held_reads(1);
+    let rebuilt: BTreeSet<_> = harness
+        .dispatcher
+        .rebuilt_heads
+        .lock()
+        .expect("lock")
+        .iter()
+        .map(|task| task.partition)
+        .collect();
+    assert_eq!(
+        rebuilt, nonempty,
+        "every partition's Heads arrived while a count is held"
+    );
+    assert_eq!(
+        entries.get(),
+        0,
+        "uncounted partitions are left out of the gauge"
+    );
+
+    row_counts.open_and_wait_for_reads();
+    harness.settle().await;
+    assert_eq!(entries.get(), 48, "every count finished after the release");
+    harness.shutdown().await;
 }

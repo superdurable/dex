@@ -310,9 +310,11 @@ pub(crate) struct EffectContext {
     pub(crate) startup_pending_uploads: Result<Vec<PendingHardDeleteUpload>, String>,
     pub(crate) shutdown: CancellationToken,
     pub(crate) tracker: TaskTracker,
-    /// Permits for method attempt store reads on blocking threads; see
+    /// Permits for method attempt and task queue store reads on blocking threads; see
     /// [`EffectsConfig::max_blocking_state_reads`].
     pub(crate) blocking_read_slots: Arc<Semaphore>,
+    /// One permit: initial task queue row counts run one at a time, outside the read slots.
+    pub(crate) row_count_slot: Arc<Semaphore>,
     /// The entry of every attempt a task holds; never held across an await.
     attempt_entries: std::sync::Mutex<AttemptEntries>,
     /// What periodic Heads resume from, and the queue row counts.
@@ -577,6 +579,9 @@ impl EffectTasks {
                 .max_blocking_state_reads
                 .clamp(1, Semaphore::MAX_PERMITS),
         ));
+        let task_queue_memory = task_queue::TaskQueueMemory::new(
+            self.dependencies.metrics.step_task_queue_entries.clone(),
+        );
         let context = Arc::new(EffectContext {
             metrics: self.dependencies.metrics,
             config: self.config,
@@ -597,8 +602,9 @@ impl EffectTasks {
             shutdown: shutdown.clone(),
             tracker: tracker.clone(),
             blocking_read_slots,
+            row_count_slot: Arc::new(Semaphore::new(1)),
             attempt_entries: std::sync::Mutex::new(AttemptEntries::default()),
-            task_queue_memory: task_queue::SharedTaskQueueMemory::default(),
+            task_queue_memory: std::sync::Mutex::new(task_queue_memory),
             router: self.router_sender,
         });
         tracker.spawn(task_queue::run_claim_pump(Arc::clone(&context)));
