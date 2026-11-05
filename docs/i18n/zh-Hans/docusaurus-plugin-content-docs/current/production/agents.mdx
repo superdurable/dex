@@ -122,10 +122,9 @@ server-zd 默认为每个 app Worker ID 允许 256 个 stream
 （**matching.maxConcurrentTasksCap**）。一个 Worker 的 task slot 和空闲 stream 都要落在
 这个范围内。需要更多时，运行更多 Worker 进程。
 
-留出余量。在 10 秒的分发等待内没有 Worker 有空闲 slot 时，Step 会消耗一次 attempt。
-**RunModel** 用完 3 次 attempt 后，这一轮失败。单次尝试的 tool 如果没能及时拿到 Worker，
-会记录 **outcome_unknown**，即使它根本没有运行。见
-[Tool call 的限制](#never-run-outcome-unknown)。
+留出余量。没有 Worker 有空闲 slot 时，Step 会在队列中等待。等待不消耗 attempt，
+也不计入 method timeout 和 heartbeat timeout。等待 slot 的一轮或一次 tool call 会花更长时间。
+见 [Tool call 的限制](#never-run-outcome-unknown)。
 
 ### 长时间模型调用和超时 {#timeouts}
 
@@ -318,17 +317,15 @@ session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **se
 
 ### 从未运行的调用也可能记录 outcome_unknown {#never-run-outcome-unknown}
 
-如果在 10 秒的分发等待内没有 Worker 接收 tool Step，这次 attempt 会在没有运行的情况下失败。
-当这个 Flow 类型的每个 Worker 都达到 task 上限，或者一个 Worker 都没有运行时，就会这样。
-单次尝试的 tool 随后记录 **outcome_unknown**。最后一次 attempt 以这种方式失败的幂等写入也一样。
-这次调用从未运行，但模型会被告知结果未知，session 也不会重试它。在 Flow 的 history 中，失败的
-attempt 会显示没有 Worker 接收它。
+如果没有 Worker 接收 tool Step，这次调用会在队列中等待。当这个 Flow 类型的每个 Worker 都达到
+task 上限，或者一个 Worker 都没有运行时，就会这样。调用不会失败，也不消耗 attempt，有 Worker
+接收后才运行。如果 Flow 先超时或被停止，这次调用就不会运行。
 
-让 tool Step 始终能被分发：
+让 tool Step 始终能被分发，避免调用长时间等待：
 
 - 按[规划 Worker 容量](#size-workers)规划每个 Worker 池，并为最大的一批 tool call 留出余量。
-- 每个 agent Flow 类型至少保持一个 Worker 在运行。Worker 池缩容到零时，在 Worker 启动期间到达的
-  tool call 可能遇到这种情况。
+- 每个 agent Flow 类型至少保持一个 Worker 在运行。Worker 池缩容到零时，tool call 会在队列中等待，
+  直到有 Worker 启动。
 - 部署时，先启动新 Worker，等它们[注册](/production/pull-workers#readiness)完成，再停止旧
   Worker。
 

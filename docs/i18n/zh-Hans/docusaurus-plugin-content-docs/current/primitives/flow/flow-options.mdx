@@ -146,9 +146,11 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 提供正数 **Timeout** 时，Dex SDK 默认使用 **FAIL**。Flow 有 timeout handler 时，则使用 **HANDLER**。没有 handler 时使用 **HANDLER** 无效。
 
+**Timeout** 为 0 时，Flow 没有 timeout，没有 Worker 接收的 Step 会一直等待；没有 timeout 的 SubFlow 同样如此。**Timeout** 为正数时，timeout 触发后 **FAIL** 和 **CANCEL** 会结束等待。
+
 只有 **Timeout** 为正数且最终 policy 为 **HANDLER** 时，才能设置 **TimeoutHandlerOptions**。它采用 Execute 语义：method timeout 限制单次 attempt，**Retry** 可以运行多次 attempt，**HeartbeatTimeout** 检测停滞的 attempt，**Failure** 可以在 retry 耗尽后进入已注册的无输入 Step。Recovery Step 会收到 null 或 unit input，并从 handler **Context** 读取最终 error。
 
-Handler 的 attempt 与 retry 计时从 soft Flow timeout 触发时开始，因此可以超过原始 Flow deadline。未配置 failure target 时，handler retry 耗尽会使 Flow 失败。
+**HANDLER** timeout 不会结束排队。没有 Worker 接收时，timeout handler Step 也会在队列中等待，并排在其他排队 Step 之前。Handler 的 attempt 与 retry 计时从 soft Flow timeout 触发时开始，因此可以超过原始 Flow deadline。未配置 failure target 时，handler retry 耗尽会使 Flow 失败。
 
 普通 Attribute 和所有 Channel size metadata 会自动加载。AttributeMap value 与 pending Channel message 必须通过 **TimeoutHandlerOptions** 显式选择。Handler 可以先暂存 Attribute write、Channel deletion 与 Channel publication，再返回 decision。Dex 没有 Flow 级别的 retry，因此每个 Flow run 只执行一次 timeout handler。
 

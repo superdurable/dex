@@ -98,9 +98,9 @@ Dex 在 method 调用变为 pending 时固定它的 durability。修改 Flow con
 
 Durability 只改变 Dex Server 持久化结果的时机。两种模式下，retry policy、method timeout 和 heartbeat 设置都作用于每一次 attempt。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
 
-Method timeout 和 heartbeat timeout 从 Dex 把任务发送给 Worker 时开始计时。等待 lock 或等待 Worker 的时间不计入。任务中的 deadline 是发送时间加上 method timeout。
+Method timeout 和 heartbeat timeout 从 Dex 把任务发送给 Worker 时开始计时。等待 lock 或等待 Worker 的时间不计入，包括在任务队列中的时间。任务中的 deadline 是发送时间加上 method timeout。
 
-两种 durability mode 的默认 retry total duration（**TotalDuration**）都是四小时。显式设置的 retry duration 可以更短或更长。**TotalDuration** 从 Dex 首次把 attempt 1 交给 Worker 时开始计时；如果 attempt 1 在没有运行的情况下被退回，计时会重置。Dex 只在 attempt 失败之后用 **TotalDuration** 判断是否 retry。它不会中断正在运行的 attempt，所以最后一次 attempt 可能在 **TotalDuration** 之后开始或结束。只有 method timeout 限制单次 attempt。要限制一次很长的 attempt，请设置 **ExecuteMethodTimeout** 或 **WaitForMethodTimeout**，而不是 **TotalDuration**。Server 不再产生 RETRY_DEADLINE 失败类型。SDK 的 **IsRetryTotalDurationExceeded** helper 及其他 SDK 中的同类 helper，只可能对升级之前的记录返回 true。
+两种 durability mode 的默认 retry total duration（**TotalDuration**）都是四小时。显式设置的 retry duration 可以更短或更长。**TotalDuration** 从 Dex 首次把 attempt 1 交给 Worker 时开始计时；如果 attempt 1 在没有运行的情况下被退回，计时会重置。Step 在任务队列中等待时，Dex 不检查 **TotalDuration**，所以等待超过它的 retry 仍会运行。retry 在队列末尾等待，这段等待计入 **TotalDuration**。积压很长之后，失败的 retry 可能没有剩余时间。Dex 只在 attempt 失败之后用 **TotalDuration** 判断是否 retry。它不会中断正在运行的 attempt，所以最后一次 attempt 可能在 **TotalDuration** 之后开始或结束。只有 method timeout 限制单次 attempt。要限制一次很长的 attempt，请设置 **ExecuteMethodTimeout** 或 **WaitForMethodTimeout**，而不是 **TotalDuration**。Server 不再产生 RETRY_DEADLINE 失败类型。SDK 的 **IsRetryTotalDurationExceeded** helper 及其他 SDK 中的同类 helper，只可能对升级之前的记录返回 true。
 
 <SdkTabs
   examples={{
@@ -415,7 +415,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 **WaitFor** 与 **Execute** 有独立的 lock set。通过返回 **StepOptions** 设置它们。
 
-attempt 被退回之后等待再次运行时，例如 Worker 拒绝了它的 Step type，它会继续持有 lock。这期间针对这些 key 的 transactional RPC 会得到 lock conflict。
+还没有被交出过的首次 attempt 不持有 lock，但之后需要同一把 lock 的 Step 会排在它后面等待。被退回的 attempt（例如 Worker 拒绝了它的 Step type）和 retry attempt 在队列中等待时继续持有 lock。没有 Worker 能运行它们时，它们会一直持有 lock，直到 Flow 超时或被停止。这期间针对这些 key 的 transactional RPC 会得到 lock conflict。
 
 更多细节见 [Attribute locking](/primitives/attribute#locking)。
 

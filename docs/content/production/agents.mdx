@@ -146,11 +146,10 @@ server-zd allows 256 streams for each app Worker ID by default
 (**matching.maxConcurrentTasksCap**). A Worker's task slots and idle streams
 must fit within it. To grow past it, run more Worker processes.
 
-Keep headroom. When no Worker has a free slot within the 10-second dispatch
-wait, a Step consumes an attempt. **RunModel** fails the turn once its 3
-attempts are used. A single-attempt tool that cannot get a Worker in time
-records **outcome_unknown**, even though it never ran. See
-[Tool call limits](#never-run-outcome-unknown).
+Keep headroom. When no Worker has a free slot, a Step waits in the queue. The
+wait uses no attempt and counts toward neither the method timeout nor the
+heartbeat timeout. A turn or tool call that waits for a slot takes longer.
+See [Tool call limits](#never-run-outcome-unknown).
 
 ### Long model calls and timeouts {#timeouts}
 
@@ -397,20 +396,17 @@ the turn ID, and the tool call ID, joined by slashes, such as
 
 ### A call that never ran can record outcome_unknown {#never-run-outcome-unknown}
 
-When no Worker accepts a tool Step within the 10-second dispatch wait, the
-attempt fails without running. This happens when every Worker of the Flow type
-is at its task limit, or when none is running. A single-attempt tool then
-records **outcome_unknown**. So does an idempotent write whose last attempt
-fails this way. The call never ran, but the model is told that its outcome is
-unknown, and the session does not retry it. In the Flow's history, the failed
-attempt shows that no Worker accepted it.
+When no Worker accepts a tool Step, the call waits in the queue. This happens
+when every Worker of the Flow type is at its task limit, or when none is
+running. The call does not fail and does not use an attempt. It runs when a
+Worker takes it. If the Flow times out or stops first, the call never runs.
 
-Keep tool Steps dispatchable:
+Keep tool Steps dispatchable, so calls do not wait long:
 
 - Size each Worker pool as in [Size Workers](#size-workers), with headroom for
   the largest batch of tool calls.
 - Keep at least one Worker of every agent Flow type running. When a pool scales
-  to zero, a tool call that arrives while Workers start can hit this case.
+  to zero, a tool call waits in the queue until a Worker starts.
 - During a deploy, start the new Workers and wait for them to
   [register](/production/pull-workers#readiness) before you stop the old ones.
 

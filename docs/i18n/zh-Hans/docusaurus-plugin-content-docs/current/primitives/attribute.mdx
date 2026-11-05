@@ -777,7 +777,7 @@ let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
 
 Concurrent Step 和 RPC invocation 可以读取和写入同一个 Attribute。这会导致 race condition。为避免这种情况，请使用 Attribute lock。Dex Server 确保同一时间只有一个 Step execution 或 RPC handling 可以获取 lock。
 
-无法获取 lock 的 RPC 会失败，错误信息为 "RPC lock conflict: attribute key &lt;key&gt; is locked by a Step"。Step attempt 在 Dex 把它交给 Worker 时获取 lock。如果它回到 pending，例如 Worker 拒绝了它的 Step type，它会继续持有 lock，并等待另一个 Worker。在这个 attempt 运行并结束之前，针对这些 key 的 transactional RPC 都会得到 lock conflict。
+无法获取 lock 的 RPC 会失败，错误信息为 "RPC lock conflict: attribute key &lt;key&gt; is locked by a Step"。Step attempt 在 Dex 把它交给 Worker 时获取 lock。还没有被交出过的首次 attempt 不持有 lock，但之后需要同一把 lock 的 Step 会排在它后面等待。被退回的 attempt（例如 Worker 拒绝了它的 Step type）和 retry attempt 在队列中等待时继续持有 lock。没有 Worker 能运行它们时，它们会一直持有 lock，直到 Flow 超时或被停止。在这个 attempt 运行并结束之前，针对这些 key 的 transactional RPC 都会得到 lock conflict。
 
 ### 协调整张 AttributeMap 的写操作 {#whole-map-coordination}
 
