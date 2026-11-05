@@ -21,7 +21,7 @@ latest state 时，使用此 pattern。不要通过 SQL projection 做 Flow deci
 
 ## Projection 如何工作
 
-将 entity ID 用作 Flow ID。标记每个需要投影的 Attribute，并在启动 Flow 时选择 Attribute Store。配置见 [Attribute Sync](/primitives/attribute#attribute-store-projection)。
+将 entity ID 用作 Flow ID。标记每个需要投影的 Attribute，并在启动 Flow 时选择 Attribute Store。通过 Flow 更新或删除 Attribute，Dex 会把结果值投影到 SQL。配置见 [Attribute Sync](/primitives/attribute#attribute-store-projection)。
 
 示例投影 text、boolean、integer、double、datetime 和 JSON values。删除 Attribute 会保留 SQL row，并将该 column 投影为 **NULL**。
 

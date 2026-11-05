@@ -22,7 +22,7 @@ SQL projection to make Flow decisions: Dex state remains authoritative.
 
 ## How it works
 
-Use the entity ID as the Flow ID. Mark each projected Attribute and select the Attribute Store when you start the Flow. See [Attribute Sync](/primitives/attribute#attribute-store-projection) for the setup.
+Use the entity ID as the Flow ID. Mark each projected Attribute and select the Attribute Store when you start the Flow. Update or delete Attributes through the Flow, and Dex projects the resulting values to SQL. See [Attribute Sync](/primitives/attribute#attribute-store-projection) for the setup.
 
 The example projects text, boolean, integer, double, datetime, and JSON values. Deleting an Attribute keeps the SQL row and projects **NULL** to its column.
 

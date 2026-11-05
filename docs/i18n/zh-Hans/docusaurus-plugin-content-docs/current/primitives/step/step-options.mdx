@@ -344,7 +344,7 @@ method timeout 默认是两小时，server 没有硬性上限。**TotalDuration*
 
 要限制一次长时间等待，把 method timeout 和 **TotalDuration** 设为同一个最长时间。Dex 会强制执行两者，所以 Step 不需要自己的截止时间。retry policy 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。
 
-timeout 到期时，Dex 以 timeout 错误让该 attempt 失败。retry 结束后，由 failure policy 决定下一步。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。要长时间等待外部系统，见 [Polling](/design-patterns/polling)。
+timeout 到期时，Dex 以 timeout 错误让该 attempt 失败。retry 结束后，由 failure policy 决定下一步。如果没有配置 failure route，Flow 会失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。要长时间等待外部系统，见 [Polling](/design-patterns/polling)。
 
 ## 选择性加载状态 {#selective-state-loading}
 
