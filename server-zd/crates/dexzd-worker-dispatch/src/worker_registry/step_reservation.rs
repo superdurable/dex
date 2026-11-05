@@ -125,152 +125,158 @@ impl Drop for StepTaskHandle {
     }
 }
 
-impl WorkerDispatch {
-    /// Reserves an idle Worker slot that may run `request`'s Step type: the sticky Worker
-    /// first while the sticky wait lasts, then any Worker of the Flow type until the dispatch
-    /// wait ends. Workers in the unsupported type cache are skipped.
-    pub async fn reserve_step_stream(&self, request: StepStreamRequest) -> StepStreamReservation {
-        if let Err(status) = validate_step_request(&request, &self.inner.config) {
-            return StepStreamReservation::Invalid {
-                detail: status.message().to_owned(),
-            };
-        }
-        let Ok(waiter_sequence) = self.next_waiter_sequence() else {
-            return StepStreamReservation::ServerClosing;
+/// Reserves an idle Worker slot for `request`; see [`WorkerDispatch::reserve_step_stream`].
+pub(super) async fn reserve_step_stream(
+    dispatch: &WorkerDispatch,
+    request: StepStreamRequest,
+) -> StepStreamReservation {
+    if let Err(status) = validate_step_request(&request, &dispatch.inner.config) {
+        return StepStreamReservation::Invalid {
+            detail: status.message().to_owned(),
         };
-        let task_type = TaskTypeKey {
-            tenant_id: request.tenant_id,
-            flow_type: request.flow_type.clone(),
-            kind: TaskKind::Step,
-            name: request.step_type.clone(),
-        };
-        let task = TaskSearch {
-            task_type: &task_type,
-            flow_id: &request.flow_id,
-        };
-        let config = &self.inner.config;
-        let dispatch_end = request.search_started_at + config.dispatch_wait;
-        let sticky_end = request.search_started_at + config.sticky_wait.min(config.dispatch_wait);
-        let sticky_queue = request
-            .sticky_app_worker_id
-            .as_ref()
-            .filter(|id| *id != &request.flow_type)
-            .filter(|id| {
-                !self
-                    .lock_registry()
-                    .unsupported_types
-                    .contains(&task_type, id)
-            });
-        if let Some(queue) = sticky_queue
-            && Instant::now() < sticky_end
+    }
+    let Ok(waiter_sequence) = dispatch.next_waiter_sequence() else {
+        return StepStreamReservation::ServerClosing;
+    };
+    let task_type = TaskTypeKey {
+        tenant_id: request.tenant_id,
+        flow_type: request.flow_type.clone(),
+        kind: TaskKind::Step,
+        name: request.step_type.clone(),
+    };
+    let task = TaskSearch {
+        task_type: &task_type,
+        flow_id: &request.flow_id,
+    };
+    let config = &dispatch.inner.config;
+    let dispatch_end = request.search_started_at + config.dispatch_wait;
+    let sticky_end = request.search_started_at + config.sticky_wait.min(config.dispatch_wait);
+    let sticky_queue = request
+        .sticky_app_worker_id
+        .as_ref()
+        .filter(|id| *id != &request.flow_type)
+        .filter(|id| {
+            !dispatch
+                .lock_registry()
+                .unsupported_types
+                .contains(&task_type, id)
+        });
+    if let Some(queue) = sticky_queue
+        && Instant::now() < sticky_end
+    {
+        match reserve_in_queue(
+            dispatch,
+            &request,
+            &task,
+            queue,
+            waiter_sequence,
+            sticky_end,
+            true,
+        )
+        .await
         {
-            match self
-                .reserve_in_queue(&request, &task, queue, waiter_sequence, sticky_end, true)
-                .await
-            {
-                QueueReservation::Reserved(worker) => {
-                    return self.reserved(worker);
-                }
-                QueueReservation::ServerClosing => return StepStreamReservation::ServerClosing,
-                QueueReservation::Ended => {}
+            QueueReservation::Reserved(worker) => {
+                return reserved(dispatch, worker);
             }
+            QueueReservation::ServerClosing => return StepStreamReservation::ServerClosing,
+            QueueReservation::Ended => {}
         }
-        match self
-            .reserve_in_queue(
-                &request,
-                &task,
+    }
+    match reserve_in_queue(
+        dispatch,
+        &request,
+        &task,
+        &request.flow_type,
+        waiter_sequence,
+        dispatch_end,
+        false,
+    )
+    .await
+    {
+        QueueReservation::Reserved(worker) => reserved(dispatch, worker),
+        QueueReservation::ServerClosing => StepStreamReservation::ServerClosing,
+        QueueReservation::Ended => {
+            if dispatch.has_only_unsupported_streams(
+                request.tenant_id,
                 &request.flow_type,
-                waiter_sequence,
-                dispatch_end,
-                false,
-            )
-            .await
-        {
-            QueueReservation::Reserved(worker) => self.reserved(worker),
-            QueueReservation::ServerClosing => StepStreamReservation::ServerClosing,
-            QueueReservation::Ended => {
-                if self.has_only_unsupported_streams(
-                    request.tenant_id,
-                    &request.flow_type,
-                    &task_type,
-                ) {
-                    StepStreamReservation::NoWorker {
-                        reason: DispatchTaskErrorReason::UnknownName,
-                        detail: format!(
-                            "no pull Worker registered Step {} for Flow type {}",
-                            quote_go_string(&request.step_type),
-                            quote_go_string(&request.flow_type)
-                        ),
-                    }
-                } else {
-                    StepStreamReservation::NoWorker {
-                        reason: DispatchTaskErrorReason::NoWorkerAvailable,
-                        detail: "no Worker accepted the task".to_owned(),
-                    }
+                &task_type,
+            ) {
+                StepStreamReservation::NoWorker {
+                    reason: DispatchTaskErrorReason::UnknownName,
+                    detail: format!(
+                        "no pull Worker registered Step {} for Flow type {}",
+                        quote_go_string(&request.step_type),
+                        quote_go_string(&request.flow_type)
+                    ),
+                }
+            } else {
+                StepStreamReservation::NoWorker {
+                    reason: DispatchTaskErrorReason::NoWorkerAvailable,
+                    detail: "no Worker accepted the task".to_owned(),
                 }
             }
         }
     }
+}
 
-    fn reserved(&self, worker: Arc<WorkerStream>) -> StepStreamReservation {
-        StepStreamReservation::Reserved(ReservedStepStream {
-            dispatch: self.clone(),
-            worker: Some(worker),
-        })
-    }
+fn reserved(dispatch: &WorkerDispatch, worker: Arc<WorkerStream>) -> StepStreamReservation {
+    StepStreamReservation::Reserved(ReservedStepStream {
+        dispatch: dispatch.clone(),
+        worker: Some(worker),
+    })
+}
 
-    /// Waits in one queue until it reserves a stream, `queue_end`, or matching closes. A
-    /// sticky search also ends once its queue has no streams.
-    async fn reserve_in_queue(
-        &self,
-        request: &StepStreamRequest,
-        task: &TaskSearch<'_>,
-        queue_name: &str,
-        waiter_sequence: u64,
-        queue_end: Instant,
-        is_sticky: bool,
-    ) -> QueueReservation {
-        let mut queue_lease =
-            QueueLease::acquire(self, request.tenant_id, queue_name, waiter_sequence);
-        let wakeup = queue_lease.wakeup.clone();
-        let _queued_task = QueuedTaskMetric::new(self.inner.metrics.matching_queued_tasks.clone());
-        let mut shutdown = self.inner.shutdown.subscribe();
-        let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
-        tokio::pin!(search_timer);
-        while Instant::now() < queue_end {
-            if *shutdown.borrow() || !self.may_hand_out_tasks() {
-                return QueueReservation::ServerClosing;
-            }
-            let picked = self.pick_worker(
-                &mut queue_lease,
-                task,
-                is_sticky,
-                &HashSet::new(),
-                &HashMap::new(),
-            );
-            if let Some(worker) = picked.worker {
-                return QueueReservation::Reserved(worker);
-            }
-            if is_sticky && !picked.has_streams {
-                return QueueReservation::Ended;
-            }
-            let wake = picked.next_backoff_end.unwrap_or(queue_end).min(queue_end);
-            let wake = tokio::time::Instant::from_std(wake);
-            if search_timer.deadline() != wake {
-                search_timer.as_mut().reset(wake);
-            }
-            tokio::select! {
-                () = &mut search_timer => {},
-                () = wakeup.notified() => {},
-                changed = shutdown.changed() => {
-                    if changed.is_err() || *shutdown.borrow() {
-                        return QueueReservation::ServerClosing;
-                    }
-                },
-            }
+/// Waits in one queue until it reserves a stream, `queue_end`, or matching closes. A
+/// sticky search also ends once its queue has no streams.
+async fn reserve_in_queue(
+    dispatch: &WorkerDispatch,
+    request: &StepStreamRequest,
+    task: &TaskSearch<'_>,
+    queue_name: &str,
+    waiter_sequence: u64,
+    queue_end: Instant,
+    is_sticky: bool,
+) -> QueueReservation {
+    let mut queue_lease =
+        QueueLease::acquire(dispatch, request.tenant_id, queue_name, waiter_sequence);
+    let wakeup = queue_lease.wakeup.clone();
+    let _queued_task = QueuedTaskMetric::new(dispatch.inner.metrics.matching_queued_tasks.clone());
+    let mut shutdown = dispatch.inner.shutdown.subscribe();
+    let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
+    tokio::pin!(search_timer);
+    while Instant::now() < queue_end {
+        if *shutdown.borrow() || !dispatch.may_hand_out_tasks() {
+            return QueueReservation::ServerClosing;
         }
-        QueueReservation::Ended
+        let picked = dispatch.pick_worker(
+            &mut queue_lease,
+            task,
+            is_sticky,
+            &HashSet::new(),
+            &HashMap::new(),
+        );
+        if let Some(worker) = picked.worker {
+            return QueueReservation::Reserved(worker);
+        }
+        if is_sticky && !picked.has_streams {
+            return QueueReservation::Ended;
+        }
+        let wake = picked.next_backoff_end.unwrap_or(queue_end).min(queue_end);
+        let wake = tokio::time::Instant::from_std(wake);
+        if search_timer.deadline() != wake {
+            search_timer.as_mut().reset(wake);
+        }
+        tokio::select! {
+            () = &mut search_timer => {},
+            () = wakeup.notified() => {},
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return QueueReservation::ServerClosing;
+                }
+            },
+        }
     }
+    QueueReservation::Ended
 }
 
 enum QueueReservation {

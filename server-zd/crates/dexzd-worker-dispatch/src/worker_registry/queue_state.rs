@@ -30,6 +30,15 @@ impl QueueWaiter {
     }
 }
 
+/// One dispatch's exclusions and failure reasons across its sticky and fallback queues.
+pub(super) struct SearchState {
+    pub(super) excluded_worker_ids: HashSet<String>,
+    pub(super) excluded_streams: HashMap<Uuid, Instant>,
+    pub(super) capacity_backoffs: HashMap<Uuid, Duration>,
+    pub(super) unavailable: bool,
+    pub(super) unknown: bool,
+}
+
 pub(super) struct QueuedTaskMetric {
     gauge: Gauge,
     is_waiting: bool,

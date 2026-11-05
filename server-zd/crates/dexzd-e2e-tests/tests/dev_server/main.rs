@@ -15,6 +15,7 @@ mod failure_policies;
 mod flow_controls;
 mod hard_delete_closed;
 mod harness;
+mod reserved_slots;
 mod rpc_closed_run;
 mod rpc_request_dedup;
 mod streams;

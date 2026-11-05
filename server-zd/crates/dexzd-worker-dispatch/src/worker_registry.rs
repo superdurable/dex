@@ -35,17 +35,19 @@ mod dispatch_handle;
 mod dispatch_request;
 mod queue_state;
 mod step_reservation;
+mod stream_registry;
 mod task_frames;
 mod unsupported_types;
 mod worker_protocol;
 mod worker_streams;
 pub use dispatch_handle::DispatchHandle;
 pub use dispatch_request::{DispatchRequest, DispatchTaskPayload};
-use queue_state::{QueueWaiter, QueuedTaskMetric};
+use queue_state::{QueueWaiter, QueuedTaskMetric, SearchState};
 pub use step_reservation::{
     ReservedStepStream, StepStreamRequest, StepStreamReservation, StepTaskEvent, StepTaskHandle,
     StepTaskSendFailure,
 };
+use stream_registry::Registry;
 use task_frames::{
     build_task, disconnected_outcome, is_final, system_time_micros, validate_dispatch,
     validate_registration,
@@ -118,18 +120,6 @@ struct DispatchInner {
     lease_validity_deadline: Option<LeaseValidityDeadline>,
     registry: Mutex<Registry>,
     shutdown: watch::Sender<bool>,
-}
-
-struct Registry {
-    is_closing: bool,
-    streams: HashMap<Uuid, Arc<WorkerStream>>,
-    worker_counts: HashMap<(u64, String), usize>,
-    queues: HashMap<(u64, String), QueueState>,
-    next_waiter_sequence: u64,
-    /// Idle streams and their position in every subscribed queue's idle order.
-    idle_positions: HashMap<Uuid, u64>,
-    next_idle_position: u64,
-    unsupported_types: UnsupportedTypeCache,
 }
 
 struct QueueState {
@@ -320,6 +310,13 @@ impl WorkerDispatch {
         }
         registry.next_waiter_sequence += 1;
         Ok(registry.next_waiter_sequence)
+    }
+
+    /// Reserves an idle Worker slot that may run `request`'s Step type: the sticky Worker
+    /// first while the sticky wait lasts, then any Worker of the Flow type until the dispatch
+    /// wait ends. Workers in the unsupported type cache are skipped.
+    pub async fn reserve_step_stream(&self, request: StepStreamRequest) -> StepStreamReservation {
+        step_reservation::reserve_step_stream(self, request).await
     }
 
     /// Returns whether a Task may go out now: true without a lease validity deadline.
@@ -912,24 +909,8 @@ impl WorkerDispatch {
         queue_name: &str,
         task_type: &TaskTypeKey,
     ) -> bool {
-        let registry = self.lock_registry();
-        let Some(queue) = registry.queues.get(&(tenant_id, queue_name.to_owned())) else {
-            return false;
-        };
-        let mut workers = queue
-            .stream_ids
-            .iter()
-            .filter_map(|id| registry.streams.get(id))
-            .filter(|worker| {
-                task_type.kind == TaskKind::Rpc || worker.slot != StreamSlot::ReservedRpcOnly
-            })
-            .peekable();
-        workers.peek().is_some()
-            && workers.all(|worker| {
-                registry
-                    .unsupported_types
-                    .contains(task_type, &worker.app_worker_id)
-            })
+        self.lock_registry()
+            .has_only_unsupported_streams(tenant_id, queue_name, task_type)
     }
 
     /// Returns a stream that finished its task, or was taken without one, to its queues.
@@ -1001,112 +982,6 @@ impl WorkerDispatch {
         state.current = None;
         state.step_backoff = None;
         worker.close.send_replace(true);
-    }
-}
-
-/// One dispatch's exclusions and failure reasons across its sticky and fallback queues.
-struct SearchState {
-    excluded_worker_ids: HashSet<String>,
-    excluded_streams: HashMap<Uuid, Instant>,
-    capacity_backoffs: HashMap<Uuid, Duration>,
-    unavailable: bool,
-    unknown: bool,
-}
-
-impl Registry {
-    /// Adds `worker` to the idle order of every queue it serves.
-    fn add_idle(&mut self, worker: &WorkerStream) {
-        self.next_idle_position += 1;
-        let position = self.next_idle_position;
-        self.idle_positions.insert(worker.id, position);
-        for queue_name in &worker.queues {
-            if let Some(queue) = self.queues.get_mut(&(worker.tenant_id, queue_name.clone())) {
-                queue.idle.insert(position, worker.id);
-            }
-        }
-    }
-
-    /// Removes `worker` from the idle order of every queue it serves.
-    fn take_idle(&mut self, worker: &WorkerStream) {
-        let Some(position) = self.idle_positions.remove(&worker.id) else {
-            return;
-        };
-        for queue_name in &worker.queues {
-            if let Some(queue) = self.queues.get_mut(&(worker.tenant_id, queue_name.clone())) {
-                queue.idle.remove(&position);
-            }
-        }
-    }
-
-    /// Wakes the waiter that should take the newly idle `worker` among all queues it serves:
-    /// the longest-waiting RPC, else the longest-waiting Step (plan D56).
-    fn wake_waiter_for(&mut self, worker: &WorkerStream, now: Instant) {
-        let is_in_step_backoff = worker.step_backoff_end(now).is_some();
-        let mut step_choice: Option<(u64, String)> = None;
-        let mut rpc_choice: Option<(u64, String)> = None;
-        for queue_name in &worker.queues {
-            let Some(queue) = self.queues.get(&(worker.tenant_id, queue_name.clone())) else {
-                continue;
-            };
-            let mut has_queue_step_choice = false;
-            for (sequence, waiter) in &queue.waiters {
-                if !waiter.can_use(worker, now) {
-                    continue;
-                }
-                let is_step_allowed =
-                    !is_in_step_backoff && worker.slot != StreamSlot::ReservedRpcOnly;
-                let choice = match waiter.kind {
-                    TaskKind::Rpc => &mut rpc_choice,
-                    TaskKind::Step if !is_step_allowed || has_queue_step_choice => continue,
-                    TaskKind::Step => {
-                        has_queue_step_choice = true;
-                        &mut step_choice
-                    }
-                };
-                if choice.as_ref().is_none_or(|(chosen, _)| sequence < chosen) {
-                    *choice = Some((*sequence, queue_name.clone()));
-                }
-                // Waiters are in arrival order, so the queue's first eligible RPC is its oldest.
-                if waiter.kind == TaskKind::Rpc {
-                    break;
-                }
-            }
-        }
-        let Some((sequence, queue_name)) = rpc_choice.or(step_choice) else {
-            return;
-        };
-        let queue = self
-            .queues
-            .get_mut(&(worker.tenant_id, queue_name))
-            .expect("the chosen waiter's queue exists");
-        let waiter = queue
-            .waiters
-            .remove(&sequence)
-            .expect("the chosen waiter exists");
-        queue.woken_waiter_streams.insert(sequence, worker.id);
-        waiter.wakeup.notify_one();
-    }
-
-    /// Hands on the wakeup a dispatch consumed for the stream `woken_for`.
-    ///
-    /// Applies when that stream is still idle and was not `taken_stream`.
-    fn pass_on_wakeup(
-        &mut self,
-        woken_for: Option<Uuid>,
-        taken_stream: Option<Uuid>,
-        now: Instant,
-    ) {
-        let Some(stream_id) = woken_for
-            .filter(|id| Some(*id) != taken_stream && self.idle_positions.contains_key(id))
-        else {
-            return;
-        };
-        let worker = self
-            .streams
-            .get(&stream_id)
-            .expect("idle stream is registered")
-            .clone();
-        self.wake_waiter_for(&worker, now);
     }
 }
 

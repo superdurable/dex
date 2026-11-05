@@ -1891,11 +1891,12 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 - **`deferral_order`.** `AgentToolCall` carries a zero-based `deferral_order`,
   as in the Python core; records and the snapshot list calls in the order the
   model made them.
-- **Output before a single-attempt tool runs.** Dex re-delivers an attempt,
-  with the same attempt number, when its Worker disconnects before sending any
-  output within the dispatch wait. A tool Step therefore writes
-  `tool_call_started` and awaits a heartbeat before calling the runner, so a
-  crash during the tool fails the attempt instead of re-running the tool.
+- **Output before a single-attempt tool runs.** A tool Step writes
+  `tool_call_started` and awaits a heartbeat before calling the runner. Dex
+  hands each attempt number to one Worker only, so a crash during the tool
+  fails the attempt instead of re-running the tool. Earlier Dex Servers
+  re-delivered an attempt whose Worker disconnected before sending any output
+  within the dispatch wait, and the heartbeat narrowed that window.
 - **Background heartbeats.** `RunModel` and the tool Steps heartbeat every 20
   seconds while the runner works, so a silent model or tool call stays within
   the heartbeat timeout. Method timeouts still bound hung calls.
@@ -1926,17 +1927,12 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   and so does `RunModel` without compaction. Retention bounds that load only
   with compaction.
 - Each model call and each tool call adds a Step round trip.
-- A crash in `RunModel` reruns that model call. When the crashed attempt sent
-  no output, Dex re-delivers it with the same `attempt`, so `attempt` does not
-  reliably count reruns.
-- The single-attempt guarantee depends on the tool Step's output frame reaching
-  Dex before the tool runs. The Step awaits a heartbeat first, but that Promise
-  resolves when grpc-js takes the frame locally: it does not prove that the
-  frame left the Worker, let alone that Dex received it. If the Worker dies
-  before Dex receives the frame, whether the frame was still in the Worker's
-  buffers or on the network, and within the 10 second dispatch wait, Dex can
-  re-deliver the attempt and the tool can run a second time. The window is
-  normally well under a second.
+- A crash in `RunModel` reruns that model call as its next attempt.
+- The tool Steps use SYNC durability, and Dex never hands one attempt number to
+  a second Worker, so a Worker crash during a single-attempt tool records
+  `outcome_unknown` instead of running the tool again. Cancellation is
+  cooperative, though: a cancelled run may keep running while the failure
+  route starts.
 - Tools a framework cannot defer run inside `RunModel` and repeat with it; each
   adapter documents them as at-least-once.
 - Queued user messages are consumed one per turn, and a queued message does

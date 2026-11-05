@@ -804,7 +804,7 @@ func testPullWorkerDisconnect(t *testing.T) {
 	flowID := "pull-disconnect-" + uuid.NewString()
 	require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
 		&dexpb.WorkerTarget{IsPullMode: true},
-		&dexpb.StepOptions{WaitForRetryPolicy: &dexpb.RetryPolicy{MaximumAttempts: 1}},
+		&dexpb.StepOptions{WaitForRetryPolicy: &dexpb.RetryPolicy{InitialIntervalSeconds: 1, MaximumAttempts: 2}},
 	))
 	firstTask := waitForPullTask(t, firstWorker, flowID)
 	require.Equal(t, "wait_for", firstTask.method)
@@ -812,7 +812,8 @@ func testPullWorkerDisconnect(t *testing.T) {
 	secondWorker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-replacement-"+uuid.NewString(), nil)
 	secondTask := waitForPullTask(t, secondWorker, flowID)
 	require.Equal(t, "wait_for", secondTask.method)
-	require.Equal(t, int32(1), secondTask.attempt)
+	// A disconnect after hand-out fails the attempt; a retry never reuses its number.
+	require.Equal(t, int32(2), secondTask.attempt)
 	_, err := runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}},
 	})
