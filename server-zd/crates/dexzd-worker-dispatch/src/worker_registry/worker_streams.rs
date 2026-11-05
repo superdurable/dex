@@ -276,8 +276,10 @@ mod tests {
     /// would remove it, and its eviction would wait forever for a Step the Worker never runs.
     #[test]
     fn a_decline_after_the_final_disconnect_records_nothing() {
-        let mut config = MatchingConfig::default();
-        config.unsupported_type_cache_entries = 1;
+        let config = MatchingConfig {
+            unsupported_type_cache_entries: 1,
+            ..MatchingConfig::default()
+        };
         let dispatch = WorkerDispatch::new(config, Arc::new(SystemWallClock));
         let task_type = TaskTypeKey {
             tenant_id: 7,
