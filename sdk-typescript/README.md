@@ -739,18 +739,22 @@ try {
 }
 ```
 
-- `additionalRootCAsPem` adds PEM root CAs, as a string or bytes, to the Node.js
-  default trust store. Omit it when a public CA signs the server certificate.
-  The default store is the bundled Mozilla roots plus `NODE_EXTRA_CA_CERTS`; it
-  includes the operating system store only when Node.js runs with
-  `--use-system-ca`. A nonempty bundle must contain at least one parsable
-  certificate.
+- `additionalRootCAsPem` adds PEM root CAs, as a string or bytes, to the trust
+  store that Node.js currently uses by default. Every default root stays
+  trusted. Omit it when a public CA signs the server certificate. Without
+  command-line flags, the default store is the bundled Mozilla roots plus
+  `NODE_EXTRA_CA_CERTS`; flags such as `--use-system-ca` and `--use-openssl-ca`
+  change it, and the SDK keeps their roots. A nonempty bundle must contain at
+  least one parsable certificate.
 - `serverName` overrides the address host for certificate verification, SNI,
   and HTTP/2 `:authority`. Set it only when the certificate name differs from
   the address host. It must be a DNS name or IP address without a port.
 - With TLS, `serverAddress` must be `host:port`, `dns:///host:port`, or
   `dns://authority/host:port`. Other resolver schemes, such as `unix:`, work
   only with plaintext.
+- A server that selects only http/1.1 through ALPN is rejected. Unlike the Go
+  SDK, a server that negotiates no ALPN protocol is accepted; its certificate
+  identity is still verified.
 - An invalid address or TLS option makes the constructor throw `TypeError`.
   Connections open on demand, so certificate and handshake failures appear as
   `UNAVAILABLE` on the first Client call or as a `Worker.start` rejection.

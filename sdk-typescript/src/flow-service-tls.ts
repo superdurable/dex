@@ -46,10 +46,7 @@ export function createFlowServiceChannel(
   if (serverName !== "" && !isValidFlowServiceTlsName(serverName)) {
     throw new TypeError(`dex: flowServiceTls.serverName must be a DNS name or IP address, got ${JSON.stringify(serverName)}`);
   }
-  const secureContext = tls.createSecureContext({
-    minVersion: "TLSv1.2",
-    ...additionalRootCertificateAuthorities(tlsOptions.additionalRootCAsPem),
-  });
+  const secureContext = createFlowServiceSecureContext(tlsOptions.additionalRootCAsPem);
   // ssl_target_name_override covers SNI and verification; default_authority sets :authority.
   const channelOptions: ChannelOptions = serverName === ""
     ? {}
@@ -79,10 +76,13 @@ function flowServiceTlsTarget(serverAddress: string): string {
     }
   }
   const hostPort = splitHostPort(endpoint);
-  if (hostPort === undefined || !isValidFlowServiceTlsName(hostPort.host)) {
+  // grpc-js cannot dial a bracketed DNS name, which Go's SplitHostPort accepts.
+  if (hostPort === undefined || !isValidFlowServiceTlsName(hostPort.host)
+    || (hostPort.isBracketed && !isIPv6(hostPort.host))) {
     throw unsupportedFlowServiceTlsAddress(serverAddress);
   }
-  const port = /^[+-]?[0-9]+$/.test(hostPort.port) ? Number(hostPort.port) : Number.NaN;
+  // Unlike Go's Atoi, a signed port is rejected because grpc-js cannot dial it.
+  const port = /^[0-9]+$/.test(hostPort.port) ? Number(hostPort.port) : Number.NaN;
   if (!(port >= 1 && port <= 65_535)) {
     throw new TypeError(`dex: flowServiceTls requires serverAddress port 1-65535, got ${JSON.stringify(serverAddress)}`);
   }
@@ -97,7 +97,7 @@ function unsupportedFlowServiceTlsAddress(serverAddress: string): TypeError {
 }
 
 // Ports Go's net.SplitHostPort, including its bracket rules.
-function splitHostPort(hostPort: string): { host: string; port: string } | undefined {
+function splitHostPort(hostPort: string): { host: string; port: string; isBracketed: boolean } | undefined {
   const portSeparator = hostPort.lastIndexOf(":");
   if (portSeparator < 0) return undefined;
   let host: string;
@@ -116,7 +116,7 @@ function splitHostPort(hostPort: string): { host: string; port: string } | undef
   if (hostPort.indexOf("[", openBracketSearchStart) >= 0 || hostPort.indexOf("]", closeBracketSearchStart) >= 0) {
     return undefined;
   }
-  return { host, port: hostPort.slice(portSeparator + 1) };
+  return { host, port: hostPort.slice(portSeparator + 1), isBracketed: openBracketSearchStart === 1 };
 }
 
 function isValidFlowServiceTlsName(name: string): boolean {
@@ -124,10 +124,22 @@ function isValidFlowServiceTlsName(name: string): boolean {
     && (!name.includes(":") || (isIPv6(name) && !name.includes("%")));
 }
 
-function additionalRootCertificateAuthorities(
-  additionalRootCAsPem: string | Uint8Array | undefined,
-): { ca?: string[] } {
-  if (additionalRootCAsPem === undefined || additionalRootCAsPem.length === 0) return {};
+/**
+ * Creates the TLS context for FlowService connections.
+ * @param additionalRootCAsPem - PEM root CAs added to the active Node.js default trust store.
+ * @returns A TLS 1.2+ context trusting every active default root plus each parsable added certificate.
+ * @throws {TypeError} When a nonempty bundle contains no parsable certificate.
+ */
+export function createFlowServiceSecureContext(additionalRootCAsPem: string | Uint8Array | undefined): tls.SecureContext {
+  const certificates = parseAdditionalRootCertificates(additionalRootCAsPem);
+  const secureContext = tls.createSecureContext({ minVersion: "TLSv1.2" });
+  // The ca option replaces active defaults, such as --use-openssl-ca roots; addCACert appends.
+  for (const certificate of certificates) secureContext.context.addCACert(certificate);
+  return secureContext;
+}
+
+function parseAdditionalRootCertificates(additionalRootCAsPem: string | Uint8Array | undefined): string[] {
+  if (additionalRootCAsPem === undefined || additionalRootCAsPem.length === 0) return [];
   const bundle = typeof additionalRootCAsPem === "string"
     ? additionalRootCAsPem
     : Buffer.from(additionalRootCAsPem).toString("utf8");
@@ -137,8 +149,7 @@ function additionalRootCertificateAuthorities(
   if (certificates.length === 0) {
     throw new TypeError("dex: flowServiceTls.additionalRootCAsPem contains no PEM certificate");
   }
-  // A ca list replaces Node's default roots, so keep them first.
-  return { ca: [...defaultRootCertificates(), ...certificates] };
+  return certificates;
 }
 
 function isParsableCertificate(pem: string): boolean {
@@ -148,9 +159,4 @@ function isParsableCertificate(pem: string): boolean {
   } catch {
     return false;
   }
-}
-
-function defaultRootCertificates(): readonly string[] {
-  // Node.js before 22.15 lacks getCACertificates; rootCertificates omits NODE_EXTRA_CA_CERTS.
-  return typeof tls.getCACertificates === "function" ? tls.getCACertificates("default") : tls.rootCertificates;
 }

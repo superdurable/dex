@@ -9,13 +9,20 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import assert from "node:assert/strict";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import { createServer as createHttpServer, type IncomingHttpHeaders, type Server as HttpServer } from "node:http";
+import {
+  createSecureServer as createSecureHttp2Server,
+  type Http2SecureServer,
+  type ServerHttp2Session,
+  type ServerHttp2Stream,
+} from "node:http2";
 import { connect, createServer as createTcpServer, type AddressInfo, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import test, { after, before } from "node:test";
 import * as tls from "node:tls";
 
@@ -83,6 +90,7 @@ interface TlsFixture {
   readonly directory: string;
   readonly token: string;
   readonly tokenFile: string;
+  readonly certificates: TestCertificates;
   readonly caPem: string;
   readonly server: ServerZdProcess;
   readonly proxy: TlsTerminatingProxy;
@@ -99,14 +107,15 @@ function causeChain(failure: unknown): string {
 }
 
 interface TestCertificates {
+  readonly caFile: string;
   readonly caPem: string;
   readonly certificatePem: string;
   readonly privateKeyPem: string;
 }
 
 // Node.js cannot issue X.509 certificates, so the test uses the openssl CLI.
-function createTestCertificates(directory: string): TestCertificates {
-  const file = (name: string) => join(directory, name);
+function createTestCertificates(directory: string, name: string): TestCertificates {
+  const file = (suffix: string) => join(directory, `${name}-${suffix}`);
   writeFileSync(file("extensions.cnf"), [
     "[dex_test_ca]",
     "basicConstraints = critical, CA:TRUE",
@@ -120,7 +129,8 @@ function createTestCertificates(directory: string): TestCertificates {
   ].join("\n"));
   const openssl = (...arguments_: string[]) => execFileSync("openssl", arguments_, { stdio: "pipe" });
   openssl("ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", file("ca.key"));
-  openssl("req", "-new", "-key", file("ca.key"), "-subj", "/CN=Dex test CA", "-out", file("ca.csr"));
+  // Distinct CA names keep verification from matching the wrong issuer.
+  openssl("req", "-new", "-key", file("ca.key"), "-subj", `/CN=Dex test CA ${name}`, "-out", file("ca.csr"));
   openssl("x509", "-req", "-in", file("ca.csr"), "-signkey", file("ca.key"), "-days", "1",
     "-extfile", file("extensions.cnf"), "-extensions", "dex_test_ca", "-out", file("ca.pem"));
   openssl("ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", file("server.key"));
@@ -129,6 +139,7 @@ function createTestCertificates(directory: string): TestCertificates {
     "-set_serial", "2", "-days", "1", "-extfile", file("extensions.cnf"), "-extensions", "dex_test_server",
     "-out", file("server.pem"));
   return {
+    caFile: file("ca.pem"),
     caPem: readFileSync(file("ca.pem"), "utf8"),
     certificatePem: readFileSync(file("server.pem"), "utf8"),
     privateKeyPem: readFileSync(file("server.key"), "utf8"),
@@ -136,11 +147,25 @@ function createTestCertificates(directory: string): TestCertificates {
 }
 
 class ServerZdProcess {
-  private constructor(
-    private readonly child: ChildProcess,
-    private readonly exited: Promise<void>,
-    public readonly port: number,
-  ) {}
+  private output = "";
+  private readonly exited: Promise<void>;
+  private readonly ready: Promise<void>;
+  private readonly readinessTimer: ReturnType<typeof setTimeout>;
+  private resolveReady!: () => void;
+  private rejectReady!: (failure: Error) => void;
+
+  private constructor(private readonly child: ChildProcess, public readonly port: number) {
+    this.exited = new Promise((resolve) => child.once("exit", () => resolve()));
+    this.ready = new Promise((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
+    this.readinessTimer = setTimeout(() => this.rejectReady(
+      new Error(`dex-server-zd did not become ready:\n${this.output}`)), 60_000);
+    child.stdout?.on("data", (chunk: Buffer) => this.observeOutput(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => this.observeOutput(chunk));
+    void this.exited.then(() => this.rejectBeforeReadiness());
+  }
 
   public static async start(directory: string, configFile: string): Promise<ServerZdProcess> {
     const binary = process.env.DEX_SERVER_ZD_BINARY;
@@ -151,27 +176,9 @@ class ServerZdProcess {
     const child = spawn(binary, [
       "dev", "--data-dir", join(directory, "zd"), "--listen", `127.0.0.1:${port}`, "--config", configFile,
     ], { stdio: ["ignore", "pipe", "pipe"] });
-    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-    let output = "";
-    const ready = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`dex-server-zd did not become ready:\n${output}`)), 60_000);
-      const observe = (chunk: Buffer) => {
-        output += chunk.toString("utf8");
-        if (output.includes("dex-server-zd serving")) {
-          clearTimeout(timer);
-          resolve();
-        }
-      };
-      child.stdout?.on("data", observe);
-      child.stderr?.on("data", observe);
-      void exited.then(() => {
-        clearTimeout(timer);
-        reject(new Error(`dex-server-zd exited before readiness:\n${output}`));
-      });
-    });
-    const server = new ServerZdProcess(child, exited, port);
+    const server = new ServerZdProcess(child, port);
     try {
-      await ready;
+      await server.ready;
     } catch (failure) {
       await server.stop();
       throw failure;
@@ -185,6 +192,19 @@ class ServerZdProcess {
     await this.exited;
     clearTimeout(killTimer);
   }
+
+  private observeOutput(chunk: Buffer): void {
+    this.output += chunk.toString("utf8");
+    if (this.output.includes("dex-server-zd serving")) {
+      clearTimeout(this.readinessTimer);
+      this.resolveReady();
+    }
+  }
+
+  private rejectBeforeReadiness(): void {
+    clearTimeout(this.readinessTimer);
+    this.rejectReady(new Error(`dex-server-zd exited before readiness:\n${this.output}`));
+  }
 }
 
 class TlsTerminatingProxy {
@@ -192,17 +212,25 @@ class TlsTerminatingProxy {
   private readonly handshakes: { serverName: string | false | null; alpnProtocol: string | false | null }[] = [];
   private readonly server: tls.Server;
 
-  private constructor(certificates: TestCertificates, private readonly upstreamPort: number) {
+  private constructor(
+    certificates: TestCertificates,
+    private readonly upstreamPort: number,
+    alpnProtocols: readonly string[],
+  ) {
     this.server = tls.createServer({
       cert: certificates.certificatePem,
       key: certificates.privateKeyPem,
-      ALPNProtocols: ["h2"],
       minVersion: "TLSv1.2",
+      ...(alpnProtocols.length === 0 ? {} : { ALPNProtocols: [...alpnProtocols] }),
     }, (downstream) => this.forward(downstream));
   }
 
-  public static async start(certificates: TestCertificates, upstreamPort: number): Promise<TlsTerminatingProxy> {
-    const proxy = new TlsTerminatingProxy(certificates, upstreamPort);
+  public static async start(
+    certificates: TestCertificates,
+    upstreamPort: number,
+    alpnProtocols: readonly string[] = ["h2"],
+  ): Promise<TlsTerminatingProxy> {
+    const proxy = new TlsTerminatingProxy(certificates, upstreamPort, alpnProtocols);
     await new Promise<void>((resolve) => proxy.server.listen(0, "127.0.0.1", resolve));
     return proxy;
   }
@@ -211,7 +239,7 @@ class TlsTerminatingProxy {
     return (this.server.address() as AddressInfo).port;
   }
 
-  public hasObservedHandshake(serverName: string, alpnProtocol: string): boolean {
+  public hasObservedHandshake(serverName: string, alpnProtocol: string | false): boolean {
     return this.handshakes.some((handshake) =>
       handshake.serverName === serverName && handshake.alpnProtocol === alpnProtocol);
   }
@@ -236,6 +264,76 @@ class TlsTerminatingProxy {
     }
     downstream.pipe(upstream);
     upstream.pipe(downstream);
+  }
+}
+
+interface RecordedRequest {
+  readonly authority: string | undefined;
+  readonly serverName: string | false | null | undefined;
+}
+
+class Http2AuthorityRecorder {
+  public readonly requests: RecordedRequest[] = [];
+  private readonly sessions = new Set<ServerHttp2Session>();
+  private readonly server: Http2SecureServer;
+
+  private constructor(certificates: TestCertificates) {
+    this.server = createSecureHttp2Server({ cert: certificates.certificatePem, key: certificates.privateKeyPem });
+    this.server.on("session", (session: ServerHttp2Session) => this.trackSession(session));
+    this.server.on("stream", (stream: ServerHttp2Stream, headers: IncomingHttpHeaders) => this.record(stream, headers));
+  }
+
+  public static async start(certificates: TestCertificates): Promise<Http2AuthorityRecorder> {
+    const recorder = new Http2AuthorityRecorder(certificates);
+    await new Promise<void>((resolve) => recorder.server.listen(0, "127.0.0.1", resolve));
+    return recorder;
+  }
+
+  public get port(): number {
+    return (this.server.address() as AddressInfo).port;
+  }
+
+  public async close(): Promise<void> {
+    const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
+    for (const session of this.sessions) session.destroy();
+    await closed;
+  }
+
+  private trackSession(session: ServerHttp2Session): void {
+    this.sessions.add(session);
+    session.once("close", () => this.sessions.delete(session));
+  }
+
+  private record(stream: ServerHttp2Stream, headers: IncomingHttpHeaders): void {
+    const socket = stream.session?.socket as tls.TLSSocket | undefined;
+    const authority = headers[":authority"];
+    this.requests.push({ authority: typeof authority === "string" ? authority : undefined, serverName: socket?.servername });
+    stream.respond({
+      ":status": 200, "content-type": "application/grpc", "grpc-status": String(status.UNIMPLEMENTED),
+    }, { endStream: true });
+  }
+}
+
+class PlainTlsEndpoint {
+  private readonly server: tls.Server;
+
+  private constructor(certificates: TestCertificates) {
+    this.server = tls.createServer({ cert: certificates.certificatePem, key: certificates.privateKeyPem },
+      (socket) => socket.end());
+  }
+
+  public static async start(certificates: TestCertificates): Promise<PlainTlsEndpoint> {
+    const endpoint = new PlainTlsEndpoint(certificates);
+    await new Promise<void>((resolve) => endpoint.server.listen(0, "127.0.0.1", resolve));
+    return endpoint;
+  }
+
+  public get port(): number {
+    return (this.server.address() as AddressInfo).port;
+  }
+
+  public async close(): Promise<void> {
+    await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 }
 
@@ -289,6 +387,47 @@ async function waitForAuthenticatedServer(blobCache: BlobCache, port: number, to
   }
 }
 
+const verificationScript = `
+import { readFileSync } from "node:fs";
+import { connect } from "node:tls";
+const { createFlowServiceSecureContext } = await import(process.env.DEX_TLS_MODULE_URL);
+const secureContext = createFlowServiceSecureContext(readFileSync(process.env.DEX_TLS_ADDITIONAL_CA_FILE));
+const socket = connect({ host: "127.0.0.1", port: Number(process.env.DEX_TLS_PORT), servername: "localhost",
+  secureContext, rejectUnauthorized: false }, () => {
+  process.stdout.write(JSON.stringify({ authorized: socket.authorized, error: String(socket.authorizationError ?? "") }));
+  socket.end();
+});
+`;
+
+// Default roots come from process flags and environment, so each case needs a fresh Node.js process.
+async function verifyInChildProcess(
+  nodeFlags: readonly string[],
+  environment: Readonly<Record<string, string>>,
+  port: number,
+  additionalCaFile: string,
+): Promise<{ authorized: boolean; error: string }> {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [...nodeFlags, "--input-type=module", "-e", verificationScript],
+    {
+      env: {
+        ...withoutTrustEnvironment(process.env),
+        ...environment,
+        DEX_TLS_MODULE_URL: new URL("../../src/flow-service-tls.js", import.meta.url).href,
+        DEX_TLS_ADDITIONAL_CA_FILE: additionalCaFile,
+        DEX_TLS_PORT: String(port),
+      },
+    },
+  );
+  return JSON.parse(stdout) as { authorized: boolean; error: string };
+}
+
+function withoutTrustEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const trusted = { ...environment };
+  for (const name of ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR"]) delete trusted[name];
+  return trusted;
+}
+
 async function availablePort(): Promise<number> {
   const server = createTcpServer();
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -312,7 +451,7 @@ before(async () => {
   writeFileSync(tokenHashFile, `tokens:\n  - sha256: ${createHash("sha256").update(token).digest("hex")}\n`);
   const configFile = join(directory, "server-zd.yaml");
   writeFileSync(configFile, `auth:\n  authenticators:\n    - kind: staticTokens\n      file: ${JSON.stringify(tokenHashFile)}\n`);
-  const certificates = createTestCertificates(directory);
+  const certificates = createTestCertificates(directory, "primary");
   const blobCache = openBlobCache({ directory: join(directory, "cache"), maxBytes: 64 * 1_024 * 1_024 });
   fixtureCleanups.push(() => blobCache.close());
   const server = await ServerZdProcess.start(directory, configFile);
@@ -322,7 +461,9 @@ before(async () => {
   fixtureCleanups.push(() => proxy.close());
   const tokenEndpoint = await TokenEndpoint.start(token);
   fixtureCleanups.push(() => tokenEndpoint.close());
-  fixture = { directory, token, tokenFile, caPem: certificates.caPem, server, proxy, tokenEndpoint, blobCache };
+  fixture = {
+    directory, token, tokenFile, certificates, caPem: certificates.caPem, server, proxy, tokenEndpoint, blobCache,
+  };
 });
 
 after(async () => {
@@ -330,7 +471,7 @@ after(async () => {
 });
 
 test("Client and pull Worker use bearer credentials over TLS", async () => {
-  const flowServiceTls: FlowServiceTlsOptions = { additionalRootCAsPem: readFileSync(join(fixture.directory, "ca.pem")) };
+  const flowServiceTls: FlowServiceTlsOptions = { additionalRootCAsPem: readFileSync(fixture.certificates.caFile) };
   const serverAddress = `localhost:${fixture.proxy.port}`;
   const worker = new Worker(registry, fixture.blobCache, {
     serverAddress,
@@ -411,5 +552,85 @@ test("TLS without the test CA, and plaintext to a TLS endpoint, both fail", asyn
     } finally {
       await client.close();
     }
+  }
+});
+
+test("a server without ALPN is accepted and an http/1.1-only server is rejected", async () => {
+  const flowServiceTls = { additionalRootCAsPem: fixture.caPem };
+  const credential = new FileCredential(fixture.tokenFile);
+  const withoutAlpn = await TlsTerminatingProxy.start(fixture.certificates, fixture.server.port, []);
+  const httpOneOnly = await TlsTerminatingProxy.start(fixture.certificates, fixture.server.port, ["http/1.1"]);
+  try {
+    // This pins a documented difference from Go, which rejects servers without ALPN.
+    const accepted = new Client(registry, fixture.blobCache, {
+      serverAddress: `localhost:${withoutAlpn.port}`, flowServiceTls, credential,
+    });
+    try {
+      await accepted.searchFlows("", 1);
+    } finally {
+      await accepted.close();
+    }
+    assert.ok(withoutAlpn.hasObservedHandshake("localhost", false), "the proxy negotiated no ALPN protocol");
+    const rejected = new Client(registry, fixture.blobCache, {
+      serverAddress: `localhost:${httpOneOnly.port}`, flowServiceTls, credential,
+    });
+    try {
+      await assert.rejects(rejected.searchFlows("", 1), (failure: unknown) =>
+        failure instanceof DexServiceError && failure.code === status.UNAVAILABLE
+        && /no application protocol/i.test(failure.detail));
+    } finally {
+      await rejected.close();
+    }
+  } finally {
+    await withoutAlpn.close();
+    await httpOneOnly.close();
+  }
+});
+
+test("serverName sets SNI and :authority for an IP address target", async () => {
+  const recorder = await Http2AuthorityRecorder.start(fixture.certificates);
+  try {
+    for (const [serverAddress, serverName, expectedAuthority] of [
+      [`127.0.0.1:${recorder.port}`, "localhost", "localhost"],
+      [`localhost:${recorder.port}`, undefined, `localhost:${recorder.port}`],
+    ] as const) {
+      const client = new Client(registry, fixture.blobCache, {
+        serverAddress,
+        flowServiceTls: { additionalRootCAsPem: fixture.caPem, ...(serverName === undefined ? {} : { serverName }) },
+      });
+      try {
+        await assert.rejects(client.searchFlows("", 1), (failure: unknown) =>
+          failure instanceof DexServiceError && failure.code === status.UNIMPLEMENTED);
+      } finally {
+        await client.close();
+      }
+      assert.deepEqual(recorder.requests.pop(), { authority: expectedAuthority, serverName: "localhost" }, serverAddress);
+    }
+  } finally {
+    await recorder.close();
+  }
+});
+
+test("additionalRootCAsPem keeps every active default root", async () => {
+  const defaultStore = createTestCertificates(fixture.directory, "default-store");
+  const unrelated = createTestCertificates(fixture.directory, "unrelated");
+  const added = createTestCertificates(fixture.directory, "added");
+  const defaultTrustedEndpoint = await PlainTlsEndpoint.start(defaultStore);
+  const addedTrustedEndpoint = await PlainTlsEndpoint.start(added);
+  try {
+    for (const [name, nodeFlags, environment] of [
+      ["NODE_EXTRA_CA_CERTS", [], { NODE_EXTRA_CA_CERTS: defaultStore.caFile }],
+      ["--use-openssl-ca", ["--use-openssl-ca"], { SSL_CERT_FILE: defaultStore.caFile }],
+    ] as const) {
+      assert.deepEqual(await verifyInChildProcess(nodeFlags, environment, defaultTrustedEndpoint.port, unrelated.caFile),
+        { authorized: true, error: "" }, `${name}: a default root stays trusted after adding an unrelated CA`);
+      assert.deepEqual(await verifyInChildProcess(nodeFlags, environment, addedTrustedEndpoint.port, added.caFile),
+        { authorized: true, error: "" }, `${name}: the added CA is trusted`);
+    }
+    const withoutDefaultRoot = await verifyInChildProcess([], {}, defaultTrustedEndpoint.port, unrelated.caFile);
+    assert.equal(withoutDefaultRoot.authorized, false, "the endpoint is untrusted without the default-store CA");
+  } finally {
+    await defaultTrustedEndpoint.close();
+    await addedTrustedEndpoint.close();
   }
 });

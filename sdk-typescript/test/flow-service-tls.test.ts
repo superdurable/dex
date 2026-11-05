@@ -46,14 +46,17 @@ test("flowServiceTls rejects resolver schemes, paths, and malformed addresses", 
     "unix:8443", "Unix:8443", "passthrough:443", "Passthrough:443", "dns:443", "unix:///tmp/dex.sock",
     "UNIX:///tmp/dex.sock", "unix:/tmp/dex.sock", "dns:///localhost/path:443", "https://localhost:443",
     "ipv4:127.0.0.1:443", "localhost", "::1:443", "[::1]", "local host:443", "dns:/localhost:443",
-    "dns://bad authority/localhost:443", "user@localhost:443",
+    "dns://bad authority/localhost:443", "user@localhost:443", "[localhost]:443", "[127.0.0.1]:443",
+    "dns:///[localhost]:443",
   ]) {
     assert.throws(() => createFlowServiceChannel(serverAddress, {}), (failure: unknown) =>
       failure instanceof TypeError
       && failure.message === `dex: flowServiceTls requires ${unsupportedAddress}, got ${JSON.stringify(serverAddress)}`,
     serverAddress);
   }
-  for (const serverAddress of ["localhost:0", "localhost:65536", "localhost:https", "localhost:"]) {
+  for (const serverAddress of [
+    "localhost:0", "localhost:65536", "localhost:https", "localhost:", "localhost:+443", "localhost:-1", "[::1]:+443",
+  ]) {
     assert.throws(() => createFlowServiceChannel(serverAddress, {}),
       new TypeError(`dex: flowServiceTls requires serverAddress port 1-65535, got ${JSON.stringify(serverAddress)}`));
   }

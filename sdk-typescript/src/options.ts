@@ -29,11 +29,14 @@ export interface ClientOptions {
  * Omitting the option keeps plaintext gRPC, exactly as before.
  * Setting it, even to `{}`, uses TLS 1.2 or newer and verifies the server certificate.
  * The connection offers HTTP/2 through ALPN h2.
- * The endpoint or gateway must accept ALPN h2 and forward gRPC over HTTP/2.
+ * The endpoint or gateway must forward gRPC over HTTP/2.
+ * A server that selects only http/1.1 through ALPN is rejected.
+ * A server that negotiates no ALPN protocol is accepted, unlike the Go SDK.
+ * Its certificate identity is still verified.
  *
- * Certificates are verified against the Node.js default trust store.
- * That store is the bundled Mozilla roots plus `NODE_EXTRA_CA_CERTS`.
- * It includes the operating system store only when Node.js runs with `--use-system-ca`.
+ * Certificates are verified against the trust store that Node.js currently uses by default.
+ * Without command-line flags, it is the bundled Mozilla roots plus `NODE_EXTRA_CA_CERTS`.
+ * Flags such as `--use-system-ca` and `--use-openssl-ca` change those roots, and the SDK keeps them.
  * Use `additionalRootCAsPem` for a private CA.
  *
  * The `serverAddress` host is the default certificate name and SNI.
@@ -80,7 +83,8 @@ export interface ClientOptions {
  */
 export interface FlowServiceTlsOptions {
   /**
-   * Adds PEM-encoded root CAs to the Node.js default trust store.
+   * Adds PEM-encoded root CAs to the active Node.js default trust store.
+   * Every root that the default trust store already trusts stays trusted.
    * Omitted or empty uses the default trust store alone.
    * The value is read when the Client or Worker is constructed; later file changes are not watched.
    * At least one certificate must parse from a nonempty bundle, or the constructor throws `TypeError`.
