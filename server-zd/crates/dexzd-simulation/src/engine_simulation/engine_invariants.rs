@@ -376,6 +376,15 @@ pub(crate) fn check_drained(
     }
     for flow_id in &all_flow_ids(shadow) {
         let view = shadow.view(flow_id, RunSelection::All)?;
+        if let Some((entry, _)) = view.dispatch_queue_index.first() {
+            return Err(InvariantViolation::new(
+                "queued-task-stranded",
+                format!(
+                    "Flow {flow_id} still queues {} attempt {} after the calm tail",
+                    entry.position.step_execution_id, entry.position.attempt
+                ),
+            ));
+        }
         if let Some(overdue) = view
             .timer_index
             .iter()

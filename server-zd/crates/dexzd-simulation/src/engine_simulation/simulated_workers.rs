@@ -11,7 +11,7 @@
 //! A reservation stands for an idle reserved Worker slot; the drawn behavior plays once the task
 //! frame is sent.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -690,19 +690,65 @@ impl Drop for SimulatedDispatchSession {
     }
 }
 
-/// The durable task queue refs one node process holds: a simplified matching that claims every
-/// ref after a short delay, as if a Worker came online. A process restart loses it, like matching.
+/// The durable task queue refs one node process holds, with matching's ref rules: one ref per
+/// (partition, queue) keeping the smaller, a claimed ref leaves, and only a Claim reply's next
+/// ref comes back. A lost ref therefore strands its row. A process restart loses every ref.
 #[derive(Default)]
 pub(crate) struct SimulatedTaskQueue {
-    refs: Mutex<VecDeque<QueuedTaskRef>>,
+    refs: Mutex<SimulatedRefs>,
     has_refs: tokio::sync::Notify,
     next_claim_id: Mutex<u64>,
 }
 
+#[derive(Default)]
+struct SimulatedRefs {
+    heads: BTreeMap<(PartitionId, DispatchQueueName), QueuedTaskRef>,
+    claims: BTreeMap<(PartitionId, DispatchQueueName), u64>,
+}
+
 impl SimulatedTaskQueue {
     fn push(&self, task: QueuedTaskRef) {
-        self.refs.lock().expect("queue lock").push_back(task);
+        let mut refs = self.refs.lock().expect("queue lock");
+        let slot = (task.partition, task.queue.clone());
+        let is_smaller = refs
+            .heads
+            .get(&slot)
+            .is_none_or(|head| task.position < head.position);
+        if is_smaller {
+            refs.heads.insert(slot, task);
+        }
+        drop(refs);
         self.has_refs.notify_one();
+    }
+
+    /// Takes the first head without a Claim in flight.
+    fn take_claimable(&self, claim_id: u64) -> Option<QueuedTaskRef> {
+        let mut refs = self.refs.lock().expect("queue lock");
+        let slot = refs
+            .heads
+            .keys()
+            .find(|slot| !refs.claims.contains_key(*slot))
+            .cloned()?;
+        let task = refs.heads.remove(&slot)?;
+        refs.claims.insert(slot, claim_id);
+        Some(task)
+    }
+
+    fn finish_claim(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        next: Option<QueuedTaskRef>,
+    ) {
+        self.refs
+            .lock()
+            .expect("queue lock")
+            .claims
+            .remove(&(partition, queue.clone()));
+        match next {
+            Some(next) => self.push(next),
+            None => self.has_refs.notify_one(),
+        }
     }
 }
 
@@ -752,8 +798,12 @@ impl MethodDispatcher for NodeWorkerPort {
         Box::pin(async move {
             loop {
                 let notified = self.queue.has_refs.notified();
-                let task = self.queue.refs.lock().expect("queue lock").pop_front();
-                let Some(task) = task else {
+                let claim_id = {
+                    let mut next = self.queue.next_claim_id.lock().expect("claim id lock");
+                    *next += 1;
+                    *next
+                };
+                let Some(task) = self.queue.take_claimable(claim_id) else {
                     notified.await;
                     continue;
                 };
@@ -762,11 +812,6 @@ impl MethodDispatcher for NodeWorkerPort {
                     Duration::from_millis(state.rng.random_range(10..500))
                 };
                 tokio::time::sleep(delay).await;
-                let claim_id = {
-                    let mut next = self.queue.next_claim_id.lock().expect("claim id lock");
-                    *next += 1;
-                    *next
-                };
                 return Some(MethodClaim {
                     claim_id,
                     task,
@@ -781,14 +826,12 @@ impl MethodDispatcher for NodeWorkerPort {
 
     fn reply_to_claim(
         &self,
-        _partition: PartitionId,
-        _queue: &DispatchQueueName,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
         _claim_id: u64,
         reply: ClaimReply,
     ) {
-        if let Some(next) = reply.next {
-            self.queue.push(next);
-        }
+        self.queue.finish_claim(partition, queue, reply.next);
     }
 
     fn is_waiting_for_supporting_worker(
