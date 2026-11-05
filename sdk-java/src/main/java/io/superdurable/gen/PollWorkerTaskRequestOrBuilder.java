@@ -12,7 +12,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
 
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -21,7 +21,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   boolean hasRegister();
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -30,7 +30,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   io.superdurable.gen.PollWorkerTaskRegister getRegister();
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -67,8 +67,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
-   * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
-   * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -78,8 +77,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
-   * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
-   * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -89,8 +87,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
-   * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
-   * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>

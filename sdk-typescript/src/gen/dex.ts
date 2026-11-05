@@ -61,12 +61,12 @@ export enum PollWorkerSlotKind {
 
 /**
  * Explains why a Worker declined a task.
- * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC before the handler ran.
+ * See PollWorkerTaskReject for the reasons a reserved-slot stream may send.
  */
 export enum PollWorkerTaskRejectReason {
   /** POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED - No rejection reason was supplied. */
   POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED = 0,
-  /** POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY - All Worker execution slots are occupied; only valid without supports_reserved_slot_dispatch. */
+  /** POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY - All Worker execution slots are occupied; not allowed on reserved-slot streams. */
   POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY = 1,
   /** POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP - The Flow has no registration for the requested Step type. */
   POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP = 2,
@@ -305,11 +305,18 @@ export enum InternalTimerStatus {
 
 /** Reports the furthest progress across attempts of a Step method call. */
 export enum StepAttemptProgress {
-  /** STEP_ATTEMPT_PROGRESS_UNSPECIFIED - Older Servers did not report progress; treat this like NOT_COMPLETED. */
+  /**
+   * STEP_ATTEMPT_PROGRESS_UNSPECIFIED - Older Servers, or failures recorded before the Server upgrade.
+   * Treat it like NOT_COMPLETED.
+   */
   STEP_ATTEMPT_PROGRESS_UNSPECIFIED = 0,
-  /** STEP_ATTEMPT_PROGRESS_NOT_STARTED - No attempt was handed to a Worker that may have executed it; the handler did not run. */
+  /** STEP_ATTEMPT_PROGRESS_NOT_STARTED - No attempt ran the handler. */
   STEP_ATTEMPT_PROGRESS_NOT_STARTED = 1,
-  /** STEP_ATTEMPT_PROGRESS_NOT_COMPLETED - At least one attempt was handed to a Worker and may have run, but none completed. */
+  /**
+   * STEP_ATTEMPT_PROGRESS_NOT_COMPLETED - Some attempt may have run the handler, and none succeeded.
+   * Dex also reports this value when it cannot prove that no attempt ran
+   * (for example every ASYNC failure).
+   */
   STEP_ATTEMPT_PROGRESS_NOT_COMPLETED = 2,
   UNRECOGNIZED = -1,
 }
@@ -330,7 +337,7 @@ export interface ServerInfo {
 export interface PollWorkerTaskRequest {
   frame:
     | //
-    /** Starts this queue stream; no other frame may precede registration. */
+    /** Starts this queue or reserved-slot stream; no other frame may precede registration. */
     { $case: "register"; value: PollWorkerTaskRegister }
     | //
     /** Reports task progress or its final result. */
@@ -338,8 +345,7 @@ export interface PollWorkerTaskRequest {
     | //
     /**
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
-     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
-     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      */
     { $case: "reject"; value: PollWorkerTaskReject }
     | //
@@ -354,6 +360,7 @@ export interface PollWorkerTaskRegister {
    * Names this stream's queue: app_worker_id or one declared flow_type.
    * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
    * sticky queue (app_worker_id) and every Flow type in flow_types.
+   * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
    */
   queue: string;
   /** Identifies this Worker process across reconnects; a restart uses a new ID. */
@@ -366,12 +373,21 @@ export interface PollWorkerTaskRegister {
   sdkVersion: string;
   /**
    * When true, this stream is one reserved Worker execution slot, ready whenever idle.
-   * The Worker executes every received task and never rejects for capacity.
-   * Dex treats NO_CAPACITY on this stream as a protocol error.
-   * When false, the Worker keeps the per-queue behavior.
+   * The Worker never rejects a task for capacity.
+   * It rejects only unknown Step types or RPC names.
+   * While stopping, it drops task frames without sending any frame for them.
+   * See the PollWorkerTask rpc.
+   * When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+   * Requires Server protocol version 4 or later.
    */
   supportsReservedSlotDispatch: boolean;
-  /** Selects which tasks this slot accepts; unspecified means STEP_AND_RPC. */
+  /**
+   * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * Applies only to reserved-slot streams.
+   * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+   * and slot_kind is not UNSPECIFIED.
+   * Requires Server protocol version 4 or later.
+   */
   slotKind: PollWorkerSlotKind;
 }
 
@@ -397,8 +413,10 @@ export interface PollWorkerTaskFrame {
 
 /**
  * Declines a task so Dex can assign it to another available Worker stream.
- * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
- * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
+ * Reserved-slot streams may send only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+ * NO_CAPACITY on a reserved-slot stream is a protocol error.
+ * Dex then fails that attempt as not run, which consumes an attempt,
+ * and ends the stream with INVALID_ARGUMENT.
  */
 export interface PollWorkerTaskReject {
   /** Matches the declined task on this stream. */
@@ -415,7 +433,7 @@ export interface PollWorkerTaskPong {
 export interface PollWorkerTaskResponse {
   frame:
     | //
-    /** Confirms that Dex accepted this stream's queue registration. */
+    /** Confirms that Dex accepted this stream's queue or reserved-slot registration. */
     { $case: "registered"; value: PollWorkerTaskRegistered }
     | //
     /** Assigns work to the registered Worker. */
@@ -432,13 +450,18 @@ export interface PollWorkerTaskResponse {
     | undefined;
 }
 
-/** Confirms that Dex accepted the queue registration. */
+/** Confirms that Dex accepted the queue or reserved-slot registration. */
 export interface PollWorkerTaskRegistered {
-  /** Allows this queue-owner stream to reject an assigned unknown Step type or RPC name. */
+  /**
+   * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+   * Reserved-slot streams may always reject unknown names.
+   */
   supportsUnknownNameRejection: boolean;
   /**
    * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+   * It counts all of them, including RPC_ONLY slots.
    * Zero means the Server does not report a limit.
+   * Reported by Server protocol version 4 or later.
    * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
    */
   maxConcurrentTasksPerAppWorker: number;
@@ -469,9 +492,9 @@ export interface PollWorkerTaskCancelTask {
   taskId: string;
 }
 
-/** Asks the Worker to finish its task and reconnect for queue ownership changes or shutdown. */
+/** Asks the Worker to finish its task and reconnect for queue or slot ownership changes or shutdown. */
 export interface PollWorkerTaskReconnect {
-  /** Explains why Dex needs a new queue stream. */
+  /** Explains why Dex needs a new queue or reserved-slot stream. */
   reason: string;
 }
 
@@ -1728,6 +1751,7 @@ export interface RecoveryErrorInfo {
   /**
    * Furthest progress across all attempts of this Step method call.
    * Use in recovery to decide whether side effects may have happened.
+   * Requires Server protocol version 4 or later.
    */
   attemptProgress: StepAttemptProgress;
 }
@@ -16710,11 +16734,14 @@ export const WorkerServiceClient = makeGenericClientConstructor(
 export type WorkerTaskServiceService = typeof WorkerTaskServiceService;
 export const WorkerTaskServiceService = {
   /**
-   * Exchanges registration, task, result, and control frames for a queue or reserved execution slot.
+   * Exchanges registration, task, result, and control frames for a queue
+   * or a reserved execution slot.
    * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
-   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision.
-   * On clean half-close, Dex treats a sent task without output as not delivered
-   * and dispatches it again with the same attempt number.
+   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+   * and sends no frame at all for a dropped task: no rejection and no output.
+   * On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+   * as not delivered and dispatches it again with the same attempt number.
+   * A half-close of any other stream is still a disconnect.
    * A Worker must send a started task's final output before half-closing its stream.
    * A transport error or reset instead means the Worker may have run the task.
    */
@@ -16733,11 +16760,14 @@ export const WorkerTaskServiceService = {
 
 export interface WorkerTaskServiceServer extends UntypedServiceImplementation {
   /**
-   * Exchanges registration, task, result, and control frames for a queue or reserved execution slot.
+   * Exchanges registration, task, result, and control frames for a queue
+   * or a reserved execution slot.
    * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
-   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision.
-   * On clean half-close, Dex treats a sent task without output as not delivered
-   * and dispatches it again with the same attempt number.
+   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+   * and sends no frame at all for a dropped task: no rejection and no output.
+   * On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+   * as not delivered and dispatches it again with the same attempt number.
+   * A half-close of any other stream is still a disconnect.
    * A Worker must send a started task's final output before half-closing its stream.
    * A transport error or reset instead means the Worker may have run the task.
    */
@@ -16746,11 +16776,14 @@ export interface WorkerTaskServiceServer extends UntypedServiceImplementation {
 
 export interface WorkerTaskServiceClient extends Client {
   /**
-   * Exchanges registration, task, result, and control frames for a queue or reserved execution slot.
+   * Exchanges registration, task, result, and control frames for a queue
+   * or a reserved execution slot.
    * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
-   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision.
-   * On clean half-close, Dex treats a sent task without output as not delivered
-   * and dispatches it again with the same attempt number.
+   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+   * and sends no frame at all for a dropped task: no rejection and no output.
+   * On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+   * as not delivered and dispatches it again with the same attempt number.
+   * A half-close of any other stream is still a disconnect.
    * A Worker must send a started task's final output before half-closing its stream.
    * A transport error or reset instead means the Worker may have run the task.
    */
