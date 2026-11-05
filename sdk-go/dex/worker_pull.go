@@ -21,12 +21,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/experimental"
 	"google.golang.org/grpc/status"
 )
 
@@ -86,8 +86,11 @@ type pullStream struct {
 	keepaliveDone      chan struct{}
 	isFinalFrameSent   bool
 	hasSentFinalOutput bool
-	// hasQueuedFinalOutput is read without sendMu, so an expired drain never waits behind a blocked Send.
-	hasQueuedFinalOutput atomic.Bool
+	// finalOutputMu is never held while waiting for sendMu, so an expired drain never waits behind a blocked Send.
+	finalOutputMu sync.Mutex
+	// hasQueuedFinalOutput is set before the final output waits for sendMu.
+	hasQueuedFinalOutput bool
+	isDrainExpired       bool
 	// Registration state is guarded by worker.mu, independently of stream.mu and sendMu.
 	isRegistered bool
 	taskID       string
@@ -281,11 +284,9 @@ func (worker *pullWorker) expireDrain() {
 	defer worker.mu.Unlock()
 	hasFlushingStream := false
 	for stream := range worker.streams {
-		if stream.hasQueuedFinalOutput.Load() {
+		if stream.expireForDrain() {
 			hasFlushingStream = true
-			continue
 		}
-		stream.cancel()
 	}
 	if !hasFlushingStream {
 		worker.cancel()
@@ -549,7 +550,8 @@ func isPermanentPullStreamError(err error) bool {
 
 func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	pollCtx, cancel := context.WithCancel(stream.ctx)
-	clientStream, err := stream.worker.client.PollWorkerTask(withRejectedTokenObserver(pollCtx, observer))
+	// Identity-only responses avoid a library decompression failure path on task streams.
+	clientStream, err := stream.worker.client.PollWorkerTask(withRejectedTokenObserver(pollCtx, observer), experimental.AcceptCompressors())
 	if err != nil {
 		cancel()
 		return false, err
@@ -560,7 +562,7 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	stream.isSendClosed = false
 	stream.isFinalFrameSent = false
 	stream.hasSentFinalOutput = false
-	stream.hasQueuedFinalOutput.Store(false)
+	stream.resetFinalOutputAdmission()
 	stream.sendMu.Unlock()
 	responses := make(chan *dexpb.PollWorkerTaskResponse, 1)
 	receiveErrors := make(chan error, 1)
@@ -613,7 +615,10 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 			switch frame := response.Frame.(type) {
 			case *dexpb.PollWorkerTaskResponse_Task:
 				stream.waitForTaskFinished()
-				stream.startTask(frame.Task)
+				if err := stream.startTask(frame.Task); err != nil {
+					// The deferred poll cancellation resets the stream, so the Server cannot read this as not delivered.
+					return wasRegistered, err
+				}
 			case *dexpb.PollWorkerTaskResponse_CancelTask:
 				stream.mu.Lock()
 				if stream.taskID == frame.CancelTask.TaskId && stream.taskCancel != nil {
@@ -684,20 +689,26 @@ func receivePullFrames(ctx context.Context, stream dexpb.WorkerTaskService_PollW
 	}
 }
 
-func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
+// startTask returns an error only for a malformed task, which the caller must answer with a stream reset.
+func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) error {
 	stream.worker.mu.Lock()
 	stream.mu.Lock()
 	if stream.isDraining || stream.worker.isStopping {
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()
-		return
+		return nil
+	}
+	if err := validatePullTask(task); err != nil {
+		stream.mu.Unlock()
+		stream.worker.mu.Unlock()
+		return err
 	}
 	reason := stream.worker.unknownTaskReason(task)
 	if reason != dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED {
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()
 		stream.rejectTask(task.GetTaskId(), reason)
-		return
+		return nil
 	}
 	taskCtx := stream.ctx
 	var cancel context.CancelFunc
@@ -716,6 +727,34 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
 	stream.worker.signal()
 	stream.startKeepalive()
 	go stream.executeTask(taskCtx, task)
+	return nil
+}
+
+// validatePullTask checks untrusted task metadata before admission; payloads are decoded later and fail as Worker errors.
+func validatePullTask(task *dexpb.PollWorkerTask) error {
+	if task.GetTaskId() == "" {
+		return fmt.Errorf("dex: Worker task has no task ID")
+	}
+	if task.GetDeadline() != nil {
+		if err := task.GetDeadline().CheckValid(); err != nil {
+			return fmt.Errorf("dex: Worker task %q has an invalid deadline: %w", task.GetTaskId(), err)
+		}
+	}
+	switch request := task.Request.(type) {
+	case *dexpb.PollWorkerTask_WaitFor:
+		if request.WaitFor != nil {
+			return nil
+		}
+	case *dexpb.PollWorkerTask_Execute:
+		if request.Execute != nil {
+			return nil
+		}
+	case *dexpb.PollWorkerTask_Rpc:
+		if request.Rpc != nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("dex: Worker task %q has no supported request", task.GetTaskId())
 }
 
 func (worker *pullWorker) unknownTaskReason(task *dexpb.PollWorkerTask) dexpb.PollWorkerTaskRejectReason {
@@ -925,7 +964,7 @@ func (stream *pullStream) startKeepalive() {
 	stream.sendMu.Lock()
 	stream.isFinalFrameSent = false
 	stream.hasSentFinalOutput = false
-	stream.hasQueuedFinalOutput.Store(false)
+	stream.resetFinalOutputAdmission()
 	done := make(chan struct{})
 	stream.keepaliveDone = done
 	stream.sendMu.Unlock()
@@ -996,7 +1035,47 @@ func (stream *pullStream) closeSend() {
 	}
 }
 
+// admitFinalOutput decides, against expireForDrain, whether a final output may still be sent on this stream.
+func (stream *pullStream) admitFinalOutput(frame *dexpb.PollWorkerTaskFrame) error {
+	if !isFinalTaskFrame(frame) {
+		return nil
+	}
+	stream.finalOutputMu.Lock()
+	defer stream.finalOutputMu.Unlock()
+	if stream.isDrainExpired {
+		return context.Canceled
+	}
+	stream.hasQueuedFinalOutput = true
+	return nil
+}
+
+// expireForDrain resets the stream unless a final output was admitted first, and reports whether it was admitted.
+func (stream *pullStream) expireForDrain() bool {
+	stream.finalOutputMu.Lock()
+	if stream.hasQueuedFinalOutput {
+		stream.finalOutputMu.Unlock()
+		return true
+	}
+	stream.isDrainExpired = true
+	stream.finalOutputMu.Unlock()
+	stream.cancel()
+	return false
+}
+
+func (stream *pullStream) resetFinalOutputAdmission() {
+	stream.finalOutputMu.Lock()
+	defer stream.finalOutputMu.Unlock()
+	stream.hasQueuedFinalOutput = false
+}
+
+func isFinalTaskFrame(frame *dexpb.PollWorkerTaskFrame) bool {
+	return frame.GetRpc() != nil || frame.GetWorkerError() != nil || frame.GetWaitFor().GetResult() != nil || frame.GetExecute().GetResult() != nil
+}
+
 func (stream *pullStream) sendStepFrame(ctx context.Context, frame *dexpb.PollWorkerTaskFrame) error {
+	if err := stream.admitFinalOutput(frame); err != nil {
+		return err
+	}
 	stream.sendMu.Lock()
 	defer stream.sendMu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -1009,6 +1088,9 @@ func (stream *pullStream) sendStepFrame(ctx context.Context, frame *dexpb.PollWo
 }
 
 func (stream *pullStream) sendTaskFrame(frame *dexpb.PollWorkerTaskFrame) error {
+	if err := stream.admitFinalOutput(frame); err != nil {
+		return err
+	}
 	stream.sendMu.Lock()
 	defer stream.sendMu.Unlock()
 	return stream.sendTaskFrameLocked(frame)
@@ -1018,11 +1100,10 @@ func (stream *pullStream) sendTaskFrameLocked(frame *dexpb.PollWorkerTaskFrame) 
 	if stream.isSendClosed {
 		return io.ErrClosedPipe
 	}
-	isFinalFrame := frame.GetRpc() != nil || frame.GetWorkerError() != nil || frame.GetWaitFor().GetResult() != nil || frame.GetExecute().GetResult() != nil
+	isFinalFrame := isFinalTaskFrame(frame)
 	if isFinalFrame {
 		stream.stopKeepaliveLocked()
 		stream.isFinalFrameSent = true
-		stream.hasQueuedFinalOutput.Store(true)
 	}
 	err := stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: frame}})
 	if isFinalFrame && err == nil {

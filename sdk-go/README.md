@@ -152,8 +152,9 @@ The Go SDK requires a Dex Server with protocol version 4 or later
 (server-zd newer than v0.1.16). Upgrade the Server before upgrading the SDK. Worker startup
 fails immediately against older Servers. Client construction stays lazy and performs
 no network I/O. Every Client method negotiates before its first request, and
-concurrent first calls share one `GetServerInfo` request. Each call's context
-bounds both its wait for negotiation and its own request. Successful negotiation
+concurrent first calls share one `GetServerInfo` request. Each call's context,
+and the `RequestTimeout` of a durable wait, bounds both its wait for negotiation
+and its own request. Successful negotiation
 and a definitive protocol mismatch are cached. A failed `GetServerInfo` request
 returns a `*ServiceError` with `Op` `GetServerInfo`, like other request failures,
 and the next call retries. A Server whose minimum protocol is newer than the SDK
@@ -735,11 +736,12 @@ Streams keep reading until the Server ends them. After `StopDrainTimeout`
 handlers instead of half-closing a running task. The deadline also resets
 half-closed streams that the Server has not ended, such as after a network
 partition, and streams whose sends are blocked. The Server counts a task it sent
-to such a stream as possibly run. A stream whose handler already queued its final
-output is not reset at the deadline: it half-closes, and Stop waits up to five
+to such a stream as possibly run. A stream whose handler already produced its final
+output, even one still waiting behind another frame, is not reset at the deadline: it half-closes, and Stop waits up to five
 more seconds for the Server to end it. Stop waits for handlers to return,
 so handlers must honor cancellation. Local stream failures, such as an oversized
-or undecodable frame, always reset the stream and never half-close it. Stop is idempotent. A broken connection
+or undecodable frame, or a task with no task ID, an invalid deadline, or no
+request, always reset the stream and never half-close it; the handler does not run. Stop is idempotent. A broken connection
 cancels its tasks, and their output is never sent on a later connection.
 The SDK does not install signal handlers; the [Order example](examples/order/main.go)
 shows signal-driven shutdown.

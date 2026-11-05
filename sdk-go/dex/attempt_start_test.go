@@ -12,6 +12,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +28,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestWorkerPullRegistrationConcurrencyLimit(t *testing.T) {
@@ -612,7 +615,7 @@ func TestWorkerStopDeadlineFlushesQueuedFinalOutput(t *testing.T) {
 func TestWorkerStopDeadlineBoundsQueuedFinalOutputFlush(t *testing.T) {
 	pull := newDrainTestPullWorker(10 * time.Millisecond)
 	flushing := pull.addDrainTestStream(nil, true)
-	flushing.hasQueuedFinalOutput.Store(true)
+	require.NoError(t, flushing.admitFinalOutput(&dexpb.PollWorkerTaskFrame{Output: &dexpb.PollWorkerTaskFrame_Rpc{Rpc: &dexpb.InvokeWorkerRPCResponse{}}}))
 	pull.expireDrain()
 	require.NoError(t, flushing.ctx.Err())
 	select {
@@ -721,6 +724,335 @@ func TestClientNegotiationErrorKinds(t *testing.T) {
 			} else {
 				require.Equal(t, int32(2), service.negotiations.Load())
 			}
+		})
+	}
+}
+
+// orderedPollTestStream blocks its first Send until released and records frames and the half-close in order.
+type orderedPollTestStream struct {
+	rejectTaskClientStream
+	mu          sync.Mutex
+	events      []string
+	sendCount   int
+	sendEntered chan struct{}
+	releaseSend chan struct{}
+}
+
+func (stream *orderedPollTestStream) Send(request *dexpb.PollWorkerTaskRequest) error {
+	stream.mu.Lock()
+	stream.sendCount++
+	isFirstSend := stream.sendCount == 1
+	stream.mu.Unlock()
+	if isFirstSend {
+		close(stream.sendEntered)
+		select {
+		case <-stream.releaseSend:
+		case <-stream.ctx.Done():
+			return stream.ctx.Err()
+		}
+	}
+	event := "pong"
+	if request.GetTaskFrame() != nil {
+		event = "final:" + request.GetTaskFrame().GetTaskId()
+	}
+	stream.record(event)
+	return nil
+}
+
+func (stream *orderedPollTestStream) CloseSend() error {
+	stream.record("half-close")
+	return nil
+}
+
+func (stream *orderedPollTestStream) record(event string) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.events = append(stream.events, event)
+}
+
+func (stream *orderedPollTestStream) recordedEvents() []string {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	return append([]string(nil), stream.events...)
+}
+
+func TestWorkerStopDeadlineFlushesFinalOutputQueuedBehindBlockedPong(t *testing.T) {
+	pull := newDrainTestPullWorker(time.Hour)
+	defer pull.cancel()
+	transport := &orderedPollTestStream{rejectTaskClientStream: rejectTaskClientStream{ctx: pull.ctx}, sendEntered: make(chan struct{}), releaseSend: make(chan struct{})}
+	stream := pull.addDrainTestStream(transport, true)
+	transport.ctx = stream.ctx
+	stream.isDraining = true
+	stream.taskFinished = make(chan struct{}, 1)
+	pongFinished := make(chan error, 1)
+	go func() { pongFinished <- stream.sendPong() }()
+	<-transport.sendEntered
+	finalFinished := make(chan error, 1)
+	go func() {
+		finalFinished <- stream.sendTaskFrame(&dexpb.PollWorkerTaskFrame{TaskId: "behind-pong", Output: &dexpb.PollWorkerTaskFrame_Rpc{Rpc: &dexpb.InvokeWorkerRPCResponse{}}})
+	}()
+	require.Eventually(t, func() bool {
+		stream.finalOutputMu.Lock()
+		defer stream.finalOutputMu.Unlock()
+		return stream.hasQueuedFinalOutput
+	}, 5*time.Second, time.Millisecond)
+	pull.expireDrain()
+	require.NoError(t, stream.ctx.Err(), "the deadline reset a stream whose final output waited behind a Pong")
+	close(transport.releaseSend)
+	require.NoError(t, <-pongFinished)
+	require.NoError(t, <-finalFinished)
+	stream.completeTask()
+	require.NoError(t, stream.ctx.Err())
+	require.Equal(t, []string{"pong", "final:behind-pong", "half-close"}, transport.recordedEvents())
+	// The output stays unconfirmed after the handler finished and the stream half-closed.
+	pull.expireDrain()
+	require.NoError(t, stream.ctx.Err())
+}
+
+func TestWorkerStopDeadlineRejectsFinalOutputAfterReset(t *testing.T) {
+	pull := newDrainTestPullWorker(time.Hour)
+	defer pull.cancel()
+	transport := &orderedPollTestStream{rejectTaskClientStream: rejectTaskClientStream{ctx: pull.ctx}, sendEntered: make(chan struct{}), releaseSend: make(chan struct{})}
+	stream := pull.addDrainTestStream(transport, true)
+	pull.expireDrain()
+	require.ErrorIs(t, stream.ctx.Err(), context.Canceled)
+	err := stream.sendTaskFrame(&dexpb.PollWorkerTaskFrame{TaskId: "too-late", Output: &dexpb.PollWorkerTaskFrame_Rpc{Rpc: &dexpb.InvokeWorkerRPCResponse{}}})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, transport.recordedEvents())
+}
+
+// scriptedPollClient hands each PollWorkerTask call a scriptedPollStream controlled by the test.
+type scriptedPollClient struct {
+	streams chan *scriptedPollStream
+}
+
+func (client *scriptedPollClient) PollWorkerTask(ctx context.Context, _ ...grpc.CallOption) (dexpb.WorkerTaskService_PollWorkerTaskClient, error) {
+	stream := &scriptedPollStream{
+		ctx: ctx, responses: make(chan *dexpb.PollWorkerTaskResponse), sent: make(chan *dexpb.PollWorkerTaskRequest, 16),
+		finalSendEntered: make(chan string, 4), releaseFinalSend: make(chan struct{}), halfClosed: make(chan struct{}),
+	}
+	select {
+	case client.streams <- stream:
+		return stream, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+type scriptedPollStream struct {
+	grpc.ClientStream
+	ctx              context.Context
+	responses        chan *dexpb.PollWorkerTaskResponse
+	sent             chan *dexpb.PollWorkerTaskRequest
+	finalSendEntered chan string
+	releaseFinalSend chan struct{}
+	halfCloseOnce    sync.Once
+	halfClosed       chan struct{}
+}
+
+func (stream *scriptedPollStream) Context() context.Context { return stream.ctx }
+
+func (stream *scriptedPollStream) Send(request *dexpb.PollWorkerTaskRequest) error {
+	if frame := request.GetTaskFrame(); frame != nil && isFinalTaskFrame(frame) {
+		stream.finalSendEntered <- frame.GetTaskId()
+		select {
+		case <-stream.releaseFinalSend:
+		case <-stream.ctx.Done():
+			return stream.ctx.Err()
+		}
+	}
+	stream.sent <- request
+	return nil
+}
+
+func (stream *scriptedPollStream) Recv() (*dexpb.PollWorkerTaskResponse, error) {
+	select {
+	case response, isOpen := <-stream.responses:
+		if !isOpen {
+			return nil, io.EOF
+		}
+		return response, nil
+	case <-stream.ctx.Done():
+		return nil, status.FromContextError(stream.ctx.Err()).Err()
+	}
+}
+
+func (stream *scriptedPollStream) CloseSend() error {
+	stream.halfCloseOnce.Do(func() { close(stream.halfClosed) })
+	return nil
+}
+
+func (stream *scriptedPollStream) deliver(t *testing.T, response *dexpb.PollWorkerTaskResponse) {
+	t.Helper()
+	select {
+	case stream.responses <- response:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Worker did not receive the frame")
+	}
+}
+
+func TestWorkerPullReusesSlotForTaskArrivingBeforeLocalCleanup(t *testing.T) {
+	for _, isStopping := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stopping=%v", isStopping), func(t *testing.T) {
+			flow := &reservedRPCFlow{entered: make(chan string, 4), release: make(chan struct{})}
+			close(flow.release)
+			worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{Pull: &PullWorkerOptions{MaxConcurrentTasks: 1}})
+			require.NoError(t, err)
+			pollClient := &scriptedPollClient{streams: make(chan *scriptedPollStream, 4)}
+			worker.pull.client = pollClient
+			started := make(chan error, 1)
+			go func() { started <- worker.Start() }()
+			stream := <-pollClient.streams
+			require.NotNil(t, (<-stream.sent).GetRegister())
+			stream.deliver(t, &dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{}}})
+			stream.deliver(t, reservedRPCTestTask("rpc", "task-a"))
+			require.Equal(t, "rpc", awaitReservedRPCEntry(t, flow))
+			// Task A's final Send is held, so its local cleanup cannot finish before task B arrives.
+			require.Equal(t, "task-a", <-stream.finalSendEntered)
+			stream.deliver(t, reservedRPCTestTask("rpc", "task-b"))
+			stopped := make(chan error, 1)
+			if isStopping {
+				go func() { stopped <- worker.Stop(context.Background()) }()
+				require.Eventually(t, func() bool {
+					worker.pull.mu.Lock()
+					defer worker.pull.mu.Unlock()
+					return worker.pull.isStopping
+				}, 5*time.Second, time.Millisecond)
+			}
+			close(stream.releaseFinalSend)
+			require.Equal(t, "task-a", (<-stream.sent).GetTaskFrame().GetTaskId())
+			if !isStopping {
+				require.Equal(t, "rpc", awaitReservedRPCEntry(t, flow))
+				require.Equal(t, "task-b", <-stream.finalSendEntered)
+				require.Equal(t, "task-b", (<-stream.sent).GetTaskFrame().GetTaskId())
+				require.NoError(t, stream.ctx.Err())
+				go func() { stopped <- worker.Stop(context.Background()) }()
+				<-stream.halfClosed
+				close(stream.responses)
+				require.NoError(t, <-stopped)
+				require.NoError(t, <-started)
+				return
+			}
+			select {
+			case <-stream.halfClosed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("stopping Worker did not half-close after task A's final output")
+			}
+			require.NoError(t, stream.ctx.Err(), "stopping Worker reset the stream instead of dropping task B")
+			requireNoHandlerCall(t, flow)
+			select {
+			case frame := <-stream.sent:
+				t.Fatalf("stopping Worker sent a frame for task B: %v", frame)
+			default:
+			}
+			close(stream.responses)
+			require.NoError(t, <-stopped)
+			require.NoError(t, <-started)
+			select {
+			case frame := <-stream.sent:
+				t.Fatalf("stopping Worker sent a frame for task B: %v", frame)
+			default:
+			}
+		})
+	}
+}
+
+func TestClientRequestTimeoutBoundsProtocolNegotiation(t *testing.T) {
+	waitCalls := map[string]func(*Client) error{
+		"WaitForStepCompletion": func(client *Client) error {
+			return client.WaitForStepCompletion(context.Background(), "flow", StepExecutionID{StepType: "clientTestStep"}, WaitForStepCompletionOptions{RequestTimeout: time.Second})
+		},
+		"WaitForAttributeMatch": func(client *Client) error {
+			var matched string
+			return client.WaitForAttributeMatch(context.Background(), "flow", clientTestStatus, AttributeMatchEqual("ready"), &matched, WaitForAttributeOptions{RequestTimeout: time.Second})
+		},
+		"WaitForAttributeMapInstanceMatch": func(client *Client) error {
+			var matched int
+			return client.WaitForAttributeMapInstanceMatch(context.Background(), "flow", clientTestItems, "tenant-a", AttributeMatchEqual(1), &matched, WaitForAttributeOptions{RequestTimeout: time.Second})
+		},
+	}
+	for name, waitCall := range waitCalls {
+		t.Run(name, func(t *testing.T) {
+			client, _ := newClientIntegration(t)
+			service := &blockingProtocolFlowServiceClient{entered: make(chan struct{}, 8), release: make(chan struct{})}
+			client.service = service
+			defer close(service.release)
+			requireRequestTimeout := func(err error) {
+				t.Helper()
+				var requestTimeout *RequestTimeoutError
+				require.ErrorAs(t, err, &requestTimeout)
+			}
+
+			firstStarted := time.Now()
+			requireRequestTimeout(waitCall(client))
+			require.Less(t, time.Since(firstStarted), 4*time.Second)
+			<-service.entered
+
+			leaderFinished := make(chan error, 1)
+			go func() { _, err := client.HealthCheck(context.Background()); leaderFinished <- err }()
+			<-service.entered
+			waiterFinished := make(chan error, 1)
+			waiterStarted := time.Now()
+			go func() { waiterFinished <- waitCall(client) }()
+			select {
+			case err := <-waiterFinished:
+				requireRequestTimeout(err)
+				require.Less(t, time.Since(waiterStarted), 4*time.Second)
+			case <-time.After(5 * time.Second):
+				t.Fatal("RequestTimeout did not bound the wait for another call's negotiation")
+			}
+			require.Equal(t, int32(2), service.negotiations.Load())
+			select {
+			case err := <-leaderFinished:
+				t.Fatalf("negotiation without a deadline ended early: %v", err)
+			default:
+			}
+		})
+	}
+}
+
+func TestWorkerPullMalformedTaskResetsStreamWithoutRunningHandler(t *testing.T) {
+	for name, task := range map[string]*dexpb.PollWorkerTask{
+		"overflowing deadline":   {TaskId: "bad-deadline", Deadline: &timestamppb.Timestamp{Seconds: math.MaxInt64}, Request: reservedRPCTestTask("rpc", "unused").GetTask().GetRequest()},
+		"invalid deadline nanos": {TaskId: "bad-nanos", Deadline: &timestamppb.Timestamp{Seconds: 1, Nanos: -1}, Request: reservedRPCTestTask("rpc", "unused").GetTask().GetRequest()},
+		"missing task ID":        {Request: reservedRPCTestTask("rpc", "unused").GetTask().GetRequest()},
+		"missing request":        {TaskId: "no-request"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			address, server := startPullTestServer(t)
+			server.holdAfterEOFQueue = "*"
+			flow := &reservedRPCFlow{entered: make(chan string, 4), release: make(chan struct{})}
+			close(flow.release)
+			worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1}})
+			require.NoError(t, err)
+			started := make(chan error, 1)
+			go func() { started <- worker.Start() }()
+			stream := awaitPullRegistration(t, server)
+			require.NoError(t, stream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: task}}))
+			select {
+			case <-stream.stream.Context().Done():
+			case <-time.After(5 * time.Second):
+				t.Fatal("malformed task did not reset the stream")
+			}
+			select {
+			case <-stream.eofReceived:
+				t.Fatal("malformed task half-closed the stream")
+			default:
+			}
+			replacement := awaitPullRegistration(t, server)
+			requireNoHandlerCall(t, flow)
+			requireNoPullFrame(t, stream)
+			worker.pull.mu.Lock()
+			require.Zero(t, worker.pull.busyTasks)
+			worker.pull.mu.Unlock()
+			require.NoError(t, replacement.send(reservedRPCTestTask("rpc", "after-malformed")))
+			require.Equal(t, "rpc", awaitReservedRPCEntry(t, flow))
+			require.NotNil(t, awaitFinalPullTaskFrame(t, replacement).GetRpc())
+			close(replacement.allowReturn)
+			stopCtx, cancelStop := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelStop()
+			require.NoError(t, worker.Stop(stopCtx))
+			require.NoError(t, <-started)
 		})
 	}
 }

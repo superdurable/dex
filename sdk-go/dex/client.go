@@ -272,10 +272,43 @@ func (client *Client) validateFlowCall(ctx context.Context, flowID string) error
 	if err := client.validateCall(ctx); err != nil {
 		return err
 	}
+	return validateFlowID(flowID)
+}
+
+func validateFlowID(flowID string) error {
 	if strings.TrimSpace(flowID) == "" {
 		return fmt.Errorf("dex: flow ID must not be empty")
 	}
 	return nil
+}
+
+// negotiateProtocolWithinRequestBudget makes RequestTimeout cover protocol negotiation, as part of the complete call.
+func (client *Client) negotiateProtocolWithinRequestBudget(
+	ctx context.Context,
+	requestBudget *clientRequestBudget,
+	op string,
+	flowID string,
+) error {
+	negotiationCtx, cancelNegotiation, err := requestBudget.context(ctx)
+	if err != nil {
+		return newRequestTimeoutError(op, flowID)
+	}
+	defer cancelNegotiation()
+	err = client.negotiateProtocol(negotiationCtx)
+	if err == nil || !requestBudget.hasDeadline() {
+		return err
+	}
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && status.Code(err) != codes.DeadlineExceeded {
+		return err
+	}
+	contextDeadline, hasContextDeadline := ctx.Deadline()
+	if hasContextDeadline && !contextDeadline.After(requestBudget.deadline) {
+		return context.DeadlineExceeded
+	}
+	return newRequestTimeoutError(op, flowID)
 }
 
 func (client *Client) hydrateValues(
@@ -1002,7 +1035,8 @@ func (client *Client) UpdateFlowConfig(
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
 // When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
-// RequestTimeout bounds the complete call across transparent transport reattachments. A positive
+// RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
+// across transparent transport reattachments. A positive
 // value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
 // callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
 // to a new generation, which adds another Update to history.
@@ -1013,7 +1047,10 @@ func (client *Client) WaitForStepCompletion(
 	stepExecution StepExecutionID,
 	options WaitForStepCompletionOptions,
 ) error {
-	if err := client.validateFlowCall(ctx, flowID); err != nil {
+	if err := client.validateCallContext(ctx); err != nil {
+		return err
+	}
+	if err := validateFlowID(flowID); err != nil {
 		return err
 	}
 	executionNumber, err := effectiveExecutionNumber(stepExecution)
@@ -1026,6 +1063,9 @@ func (client *Client) WaitForStepCompletion(
 	}
 	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
 	if err != nil {
+		return err
+	}
+	if err := client.negotiateProtocolWithinRequestBudget(ctx, requestBudget, "WaitForStepCompletion", flowID); err != nil {
 		return err
 	}
 	for {
@@ -1303,7 +1343,8 @@ func streamMessagesPageTarget(
 // matched current value is decoded into valuePtr before this method returns.
 // valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
 // server derives one from the Attribute condition.
-// RequestTimeout bounds the complete call across transparent transport reattachments. A positive
+// RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
+// across transparent transport reattachments. A positive
 // value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
 // callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
 // to a new generation, which adds another Update to history.
@@ -1365,7 +1406,10 @@ func (client *Client) waitForAttributeMatch(
 	valuePtr any,
 	options WaitForAttributeOptions,
 ) error {
-	if err := client.validateFlowCall(ctx, flowID); err != nil {
+	if err := client.validateCallContext(ctx); err != nil {
+		return err
+	}
+	if err := validateFlowID(flowID); err != nil {
 		return err
 	}
 	if match == nil {
@@ -1398,6 +1442,9 @@ func (client *Client) waitForAttributeMatch(
 	}
 	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
 	if err != nil {
+		return err
+	}
+	if err := client.negotiateProtocolWithinRequestBudget(ctx, requestBudget, "WaitForAttribute", flowID); err != nil {
 		return err
 	}
 	for {

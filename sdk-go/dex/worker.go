@@ -467,8 +467,8 @@ func (worker *Worker) PullRegistrationState() PullRegistrationState {
 // after a network partition, and streams whose sends are blocked by transport backpressure.
 // The Server treats a task it sent to such a reset stream as possibly run, so that Step attempt
 // counts even though this Worker dropped the task without running it.
-// A stream whose handler already queued its final output is not reset at the deadline, because a
-// reset could discard that output. It half-closes, and Stop waits up to five more seconds for the
+// A stream whose handler already produced its final output, even one still waiting behind another
+// frame, is not reset at the deadline, because a reset could discard that output. It half-closes, and Stop waits up to five more seconds for the
 // Server to end it before resetting it.
 //
 // Stop accepts calls before Start and repeated calls after shutdown. A nil context is
