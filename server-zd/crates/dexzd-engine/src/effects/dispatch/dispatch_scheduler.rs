@@ -36,6 +36,8 @@ pub(crate) struct DispatchScheduler {
     drain: Option<watch::Sender<AttemptDrainProgress>>,
     /// Hand-out tasks this router spawned, by attempt and entry generation, until they end.
     in_flight: BTreeSet<(MethodAttemptKey, u64)>,
+    /// Claim tasks this router spawned until they end.
+    claim_tasks: usize,
     /// Started attempts by task ID, then by attempt key.
     running: BTreeMap<Vec<u8>, BTreeMap<MethodAttemptKey, RunningAttempt>>,
 }
@@ -46,6 +48,7 @@ impl DispatchScheduler {
             context,
             drain: None,
             in_flight: BTreeSet::new(),
+            claim_tasks: 0,
             running: BTreeMap::new(),
         }
     }
@@ -104,6 +107,27 @@ impl DispatchScheduler {
         if let HandoutRestart::Again(flow, progress, generation) = restart {
             self.start_handout(flow, key, generation, progress);
         }
+        self.publish_attempt_drain();
+    }
+
+    /// Counts the task of a delivered Claim before the router spawns it.
+    ///
+    /// Returns false while attempts drain: like a new hand-out, the Claim does not run, and its
+    /// row stays queued for the successor.
+    pub(crate) fn admit_claim(&mut self) -> bool {
+        if self.drain.is_some() {
+            return false;
+        }
+        self.claim_tasks += 1;
+        true
+    }
+
+    /// Records the end of a Claim's task.
+    pub(crate) fn finish_claim(&mut self) {
+        self.claim_tasks = self
+            .claim_tasks
+            .checked_sub(1)
+            .expect("each admitted Claim's task reports its end once");
         self.publish_attempt_drain();
     }
 
@@ -197,7 +221,7 @@ impl DispatchScheduler {
         progress.send_replace(AttemptDrainProgress {
             attempts_waited,
             attempts_running: attempts_waited,
-            outstanding_handouts: self.in_flight.len(),
+            outstanding_handouts: self.outstanding_handouts(),
             has_started: true,
             ..AttemptDrainProgress::default()
         });
@@ -208,9 +232,13 @@ impl DispatchScheduler {
         if let Some(drain) = &self.drain {
             drain.send_modify(|progress| {
                 progress.attempts_running = self.running.values().map(BTreeMap::len).sum();
-                progress.outstanding_handouts = self.in_flight.len();
+                progress.outstanding_handouts = self.outstanding_handouts();
             });
         }
+    }
+
+    fn outstanding_handouts(&self) -> usize {
+        self.in_flight.len() + self.claim_tasks
     }
 
     pub(crate) fn has_parked_invocations(&self) -> bool {

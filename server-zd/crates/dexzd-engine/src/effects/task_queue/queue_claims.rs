@@ -23,7 +23,7 @@ use crate::effects::dispatch::{
 };
 use crate::effects::{EffectContext, RouterMessage};
 
-/// Takes matching's Claims until the node stops and handles each in its own task.
+/// Takes matching's Claims until the node stops and hands each to the router.
 pub(crate) async fn run_claim_pump(context: Arc<EffectContext>) {
     loop {
         // Biased for reproducible simulation; shutdown fires once.
@@ -35,11 +35,17 @@ pub(crate) async fn run_claim_pump(context: Arc<EffectContext>) {
         let Some(claim) = claim else {
             return;
         };
-        let task_context = Arc::clone(&context);
-        context
-            .tracker
-            .spawn(async move { handle_claim(task_context, claim).await });
+        context.report(RouterMessage::ClaimDelivered { claim });
     }
+}
+
+/// Handles an admitted Claim in its own task, which reports its end to the router.
+pub(crate) fn spawn_claim(context: &Arc<EffectContext>, claim: MethodClaim) {
+    let task_context = Arc::clone(context);
+    context.tracker.spawn(async move {
+        handle_claim(Arc::clone(&task_context), claim).await;
+        task_context.report(RouterMessage::ClaimFinished);
+    });
 }
 
 /// Checks a claimed row and either starts it on the claimed stream or answers why not.

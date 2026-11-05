@@ -191,7 +191,10 @@ takes over after the release.
 During the drain, new Flow RPCs answer **UNAVAILABLE**, and the SDKs retry them.
 Steps that are not yet handed to a Worker wait. The successor dispatches them
 after it takes the lease. A Step whose start was already being written when the
-drain began still goes to its Worker and is drained like a running attempt.
+drain began still goes to its Worker and is drained like a running attempt. So
+does a Step that a Worker took from the
+[Step task queue](#step-task-queue) before the drain began. Steps still in the
+task queue stay there for the successor.
 
 **lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
 attempt draining. Step method and heartbeat timeouts still apply during the

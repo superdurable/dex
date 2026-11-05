@@ -1346,6 +1346,101 @@ async fn a_readded_partition_hands_out_a_fenced_started_claim_once() {
     harness.shutdown().await;
 }
 
+/// A Claim delivered before an attempt drain runs like a hand-out in flight: it starts during
+/// the drain, and the drain waits for its result to commit.
+#[tokio::test(start_paused = true)]
+async fn a_claim_delivered_before_an_attempt_drain_starts_and_holds_the_drain() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let run_id = task.position.run_id;
+    let reads = harness.flow_effect_operations.state_read_gate.close();
+    harness.dispatcher.claim(1, task);
+    harness.yield_to_tasks().await;
+    harness
+        .flow_effect_operations
+        .state_read_gate
+        .wait_for_held_reads(1);
+    let progress = harness.begin_attempt_drain();
+    harness.yield_to_tasks().await;
+    let started = *progress.borrow();
+    assert!(started.has_started);
+    assert_eq!(started.outstanding_handouts, 1, "the Claim is in flight");
+    assert_eq!(started.attempts_waited, 0, "nothing started yet");
+
+    reads.open_and_wait_for_reads();
+    let runner = harness.dispatcher.next_dispatch().await;
+    harness.settle().await;
+    let running = *progress.borrow();
+    assert_eq!(
+        running.attempts_waited, 1,
+        "the start during the drain is waited for"
+    );
+    assert_eq!(running.outstanding_handouts, 1);
+    runner.complete_execute(force_complete());
+    harness.settle().await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    harness.settle().await;
+    let finished = *progress.borrow();
+    assert_eq!(finished.attempts_finished, 1);
+    assert_eq!(finished.attempts_running, 0);
+    assert_eq!(finished.outstanding_handouts, 0, "the drain may end");
+    assert_eq!(
+        harness.run_record("order-1", run_id).status,
+        FlowStatus::Completed as i32
+    );
+    harness.shutdown().await;
+}
+
+/// A Claim delivered after an attempt drain began does not run; its row stays queued.
+#[tokio::test(start_paused = true)]
+async fn a_claim_delivered_after_an_attempt_drain_began_does_not_run() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let progress = harness.begin_attempt_drain();
+    harness.settle().await;
+    harness.dispatcher.claim(1, task.clone());
+    harness.settle().await;
+    assert_eq!(command_count(&harness, is_attempt_started), 0, "no start");
+    assert!(
+        claim_results(&harness).is_empty(),
+        "matching is closing, so no reply"
+    );
+    assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
+    assert!(
+        has_queue_row(&harness, &task),
+        "the successor serves the row"
+    );
+    assert_eq!(progress.borrow().outstanding_handouts, 0);
+    harness.shutdown().await;
+}
+
+/// A Claim in flight at an attempt drain that ends without a hand-out lets the drain end.
+#[tokio::test(start_paused = true)]
+async fn a_claim_that_ends_without_a_hand_out_during_an_attempt_drain_lets_it_end() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let reads = harness.flow_effect_operations.state_read_gate.close();
+    harness.dispatcher.claim(1, task.clone());
+    harness.yield_to_tasks().await;
+    harness
+        .flow_effect_operations
+        .state_read_gate
+        .wait_for_held_reads(1);
+    let progress = harness.begin_attempt_drain();
+    harness.yield_to_tasks().await;
+    assert_eq!(progress.borrow().outstanding_handouts, 1);
+    harness.dispatcher.remove_partition(task.partition, &[1]);
+    reads.open_and_wait_for_reads();
+    harness.settle().await;
+    assert_eq!(command_count(&harness, is_attempt_started), 0);
+    assert_eq!(
+        progress.borrow().outstanding_handouts,
+        0,
+        "the drain may end"
+    );
+    harness.shutdown().await;
+}
+
 /// Asserts that the fenced send returned the started attempt unchanged as not delivered.
 fn assert_fenced_send_returned(harness: &EffectHarness, task: &QueuedTaskRef) {
     let returned = returns(harness);

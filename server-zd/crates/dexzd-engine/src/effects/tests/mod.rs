@@ -58,7 +58,7 @@ use dexzd_worker_dispatch::{
 };
 use futures::future::BoxFuture;
 use prost::Message;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::SystemEngineIdSource;
 use crate::attribute_sync::AttributeSyncWaker;
@@ -67,8 +67,8 @@ use crate::effects::flow_effect_operations::{
 };
 use crate::effects::state_reads::{RunLocation, read_step_execution};
 use crate::effects::{
-    EffectDependencies, EffectError, EffectRunner, EffectTasksHandle, EffectsConfig,
-    HardDeleteObjects, HardDeleteUploadLedger, MethodClaim, MethodDispatchSession,
+    AttemptDrainProgress, EffectDependencies, EffectError, EffectRunner, EffectTasksHandle,
+    EffectsConfig, HardDeleteObjects, HardDeleteUploadLedger, MethodClaim, MethodDispatchSession,
     MethodDispatcher, MethodRequest, MethodStreamRequest, MethodStreamReservation, MethodTask,
     NodeMetaUploadLedger, ReservedMethodStream,
 };
@@ -1608,6 +1608,13 @@ impl EffectHarness {
         for _ in 0..50 {
             tokio::task::yield_now().await;
         }
+    }
+
+    /// Begins a Step attempt drain, as a planned stop does after matching closes.
+    pub(super) fn begin_attempt_drain(&self) -> watch::Receiver<AttemptDrainProgress> {
+        self.tasks
+            .begin_attempt_drain()
+            .expect("the effect router runs")
     }
 
     pub(super) async fn shutdown(self) {

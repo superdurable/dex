@@ -239,6 +239,12 @@ pub(crate) enum RouterMessage {
     DrainAttempts {
         progress: watch::Sender<AttemptDrainProgress>,
     },
+    /// A Claim matching delivered; the router runs it, so an attempt drain counts it.
+    ClaimDelivered {
+        claim: MethodClaim,
+    },
+    /// A Claim's task ended, after the end of its hand-out if it ran one.
+    ClaimFinished,
     HandoutFinished {
         flow: FlowAddress,
         key: MethodAttemptKey,
@@ -484,6 +490,7 @@ pub struct AttemptDrainProgress {
     /// Attempts still running or committing their final output.
     pub attempts_running: usize,
     /// Handout tasks still active, including reservations being released without starting an attempt.
+    /// Claims delivered before the drain count as hand-out tasks.
     pub outstanding_handouts: usize,
     /// Whether the router has stopped admitting new handout tasks and published its first snapshot.
     pub has_started: bool,
@@ -746,6 +753,12 @@ impl EffectRouter {
             RouterMessage::DrainAttempts { progress } => {
                 self.dispatch.begin_attempt_drain(progress)
             }
+            RouterMessage::ClaimDelivered { claim } => {
+                if self.dispatch.admit_claim() {
+                    task_queue::spawn_claim(&self.context, claim);
+                }
+            }
+            RouterMessage::ClaimFinished => self.dispatch.finish_claim(),
             RouterMessage::HandoutFinished {
                 flow,
                 key,

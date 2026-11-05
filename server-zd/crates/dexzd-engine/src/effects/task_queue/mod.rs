@@ -31,7 +31,7 @@ use crate::effects::state_reads::{RunLocation, decode_row, read_run_record, read
 use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
 use crate::flow_coordination::FlowAddress;
 
-pub(crate) use queue_claims::run_claim_pump;
+pub(crate) use queue_claims::{run_claim_pump, spawn_claim};
 pub(crate) use queue_heads::{rebuild_heads, run_heads_resync, spawn_row_count};
 use queue_reads::{QueueReadView, acquire_read_slot, read_off_task, read_with_slot};
 
