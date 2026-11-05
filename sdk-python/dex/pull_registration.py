@@ -66,11 +66,13 @@ class PullRegistrationState:
     Obtain snapshots with ``worker.pull_registration_state()``. After every required slot kind
     has registered once, transient failures, reconnects, and stop keep readiness.
     A permanent error with no registered stream makes ``is_ready`` false until
-    re-registration.
+    re-registration. When the first registration reports a Server per-Worker
+    limit below ``max_concurrent_tasks``, ``is_ready`` stays false permanently.
 
     Attributes:
         is_ready: Whether STEP_AND_RPC and, when reserved, RPC_ONLY registered
-            once and no required slot kind is permanently
+            once, the first registration passed the Server per-Worker limit
+            check, and no required slot kind is permanently
             rejected without a registered stream.
         queues: Immutable snapshots ordered STEP_AND_RPC then RPC_ONLY when reserved.
 
@@ -91,6 +93,7 @@ class _PullRegistration:
         self._registered: set[str] = set()
         self._errors: dict[str, BaseException] = {}
         self._initial_error: PullRegistrationError | None = None
+        self._fatal_error_message: str | None = None
         self._has_registered_all = False
         self._is_stopping = False
         self._has_start_returned = False
@@ -121,6 +124,11 @@ class _PullRegistration:
             self._notify()
             return rejection
 
+    def record_fatal_error(self, error: BaseException) -> None:
+        with self._lock:
+            self._fatal_error_message = str(error)
+            self._notify()
+
     def record_stopping(self) -> None:
         with self._lock:
             self._is_stopping = True
@@ -141,7 +149,8 @@ class _PullRegistration:
                 for queue in self._queues
             )
             return PullRegistrationState(
-                self._has_registered_all
+                self._fatal_error_message is None
+                and self._has_registered_all
                 and not any(
                     not queue.has_registered_stream
                     and queue.last_permanent_error is not None
@@ -167,6 +176,8 @@ class _PullRegistration:
 
     def _next_change(self) -> Future[None] | None:
         with self._lock:
+            if self._fatal_error_message is not None:
+                raise RuntimeError(self._fatal_error_message)
             if self._has_registered_all:
                 return None
             if self._initial_error is not None:

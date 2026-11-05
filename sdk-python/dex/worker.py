@@ -182,6 +182,9 @@ class Worker:
         pull_registration_state for subsequent readiness probes. A permanent
         rejection before readiness raises PullRegistrationError only when no
         other stream is registered for that slot kind. Startup failures wake waiters.
+        When the first registration reports a Server per-Worker limit below
+        ``max_concurrent_tasks``, every waiter raises that limit error and the
+        Worker never becomes ready.
         Multiple callers may wait independently, including before start.
 
         Args:
@@ -190,7 +193,9 @@ class Worker:
         Raises:
             PullRegistrationError: A slot kind is permanently rejected before readiness.
             TimeoutError: The timeout expires.
-            RuntimeError: The Worker stops before readiness.
+            RuntimeError: The Worker stops before readiness, or
+                ``max_concurrent_tasks`` exceeds the Server's
+                ``matching.maxConcurrentTasksCap``.
             BaseException: The original startup failure, if start fails.
 
         Examples:
@@ -290,9 +295,14 @@ class Worker:
         than the pull Worker's ``start`` thread.
         Idle streams half-close immediately. Busy streams send final output before
         half-closing. Tasks received after stop begins are dropped without running
-        handlers. A timed-out busy stream is reset before cancellation.
+        handlers. A timed-out busy stream is reset before cancellation, unless its
+        final output is already being written. That stream gets up to 5 more
+        seconds to send the output and half-close.
         Half-closed streams keep reading server frames until EOF or the remaining drain
-        deadline before the channel closes.
+        deadline before the channel closes. When the deadline expires, every stream
+        that is still open is reset, even one blocked on a send or without Server EOF,
+        so stop always returns. The Server may count a task it sent in that
+        window as an attempt that may have run.
 
         Raises:
             RuntimeError: If called on the pull Worker's ``start`` thread.
@@ -323,7 +333,8 @@ class Worker:
         Uses the same shutdown contract as stop: idle streams half-close, busy
         streams send final output before half-closing, and later tasks are dropped.
         A handler exceeding the drain timeout has its stream reset.
-        Pull streams finish their bounded EOF wait before the channel closes.
+        Pull streams finish their bounded EOF wait before the channel closes; a
+        stream still open at the deadline is reset.
         ``close`` is idempotent; a closed Worker cannot be started again.
         """
         try:

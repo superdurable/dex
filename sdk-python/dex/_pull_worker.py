@@ -38,6 +38,8 @@ from dex.worker_options import PullWorkerOptions
 _LOGGER = logging.getLogger(__name__)
 _GRPC_AIO_EOF = getattr(grpc.aio, "EOF")
 _BUSY_PULL_STREAM_KEEPALIVE_SECONDS = 20
+# Extra stop time to flush a final output already being written at the deadline.
+_FINAL_OUTPUT_FLUSH_GRACE_SECONDS = 5
 _PERMANENT_CODES = {
     grpc.StatusCode.UNAUTHENTICATED,
     grpc.StatusCode.PERMISSION_DENIED,
@@ -210,19 +212,40 @@ class PullWorkerRuntime:
                 stream.run_task = asyncio.create_task(stream.run())
                 stream.run_task.add_done_callback(stream.on_done)
 
-    def check_registration_limit(self, registered: pb.PollWorkerTaskRegistered) -> None:
-        if self._has_checked_registration_limit:
-            return
-        self._has_checked_registration_limit = True
+    def accept_registration(self, registered: pb.PollWorkerTaskRegistered) -> bool:
+        """Check one Registered acknowledgement before its stream counts as ready.
+
+        Returns:
+            True when the stream may be recorded as registered and run tasks.
+            False after a permanent Worker error, including a failed first
+            registration limit check; the caller must drain the stream.
+        """
+        if self._permanent_error is not None:
+            return False
         server_limit = registered.max_concurrent_tasks_per_app_worker
-        if server_limit and server_limit < self.max_concurrent_tasks:
-            self._permanent_error = RuntimeError(
-                f"max_concurrent_tasks={self.max_concurrent_tasks} exceeds Server "
-                f"matching.maxConcurrentTasksCap={server_limit} "
-                "(max_concurrent_tasks_per_app_worker)"
-            )
-            self._rejection_stop_task = asyncio.create_task(self.stop())
-            raise self._permanent_error
+        is_limit_exceeded = 0 < server_limit < self.max_concurrent_tasks
+        if self._has_checked_registration_limit:
+            if is_limit_exceeded:
+                _LOGGER.warning(
+                    "Server lowered matching.maxConcurrentTasksCap below "
+                    "max_concurrent_tasks after start; extra streams may be rejected",
+                    extra={
+                        "max_concurrent_tasks": self.max_concurrent_tasks,
+                        "max_concurrent_tasks_per_app_worker": server_limit,
+                    },
+                )
+            return True
+        self._has_checked_registration_limit = True
+        if not is_limit_exceeded:
+            return True
+        self._permanent_error = RuntimeError(
+            f"max_concurrent_tasks={self.max_concurrent_tasks} exceeds Server "
+            f"matching.maxConcurrentTasksCap={server_limit} "
+            "(max_concurrent_tasks_per_app_worker)"
+        )
+        self.registration.record_fatal_error(self._permanent_error)
+        self._rejection_stop_task = asyncio.create_task(self.stop())
+        return False
 
     def _stream_done(self, stream: PullStream, completed: asyncio.Task[None]) -> None:
         self._streams.discard(stream)
@@ -268,10 +291,7 @@ class PullWorkerRuntime:
                     active, timeout=self._remaining_stop_drain_time()
                 )
                 if pending:
-                    for stream in tuple(self._streams):
-                        if stream.handler_task in pending:
-                            stream.close()
-                            stream.cancel_handler()
+                    await self._flush_or_reset_pending_handlers(pending)
                     await asyncio.gather(*pending, return_exceptions=True)
             stream_tasks = [stream.run_task for stream in tuple(self._streams)]
             if stream_tasks:
@@ -279,11 +299,37 @@ class PullWorkerRuntime:
                     stream_tasks, timeout=self._remaining_stop_drain_time()
                 )
                 for stream in tuple(self._streams):
-                    if not stream.run_task.done() and not stream.is_half_closing:
+                    if not stream.run_task.done():
                         stream.close()
                 await asyncio.gather(*stream_tasks, return_exceptions=True)
         finally:
             self._stop_completed.set()
+
+    async def _flush_or_reset_pending_handlers(
+        self, pending: set[asyncio.Task[None]]
+    ) -> None:
+        # A reset would lose a final output in flight and rerun the task.
+        flushing: list[asyncio.Task[None]] = []
+        for stream in tuple(self._streams):
+            if stream.handler_task not in pending:
+                continue
+            if stream.has_final_output_in_flight:
+                flushing.append(stream.handler_task)
+            else:
+                stream.close()
+                stream.cancel_handler()
+        if not flushing:
+            return
+        self._stop_drain_deadline = (
+            asyncio.get_running_loop().time() + _FINAL_OUTPUT_FLUSH_GRACE_SECONDS
+        )
+        _, unflushed = await asyncio.wait(
+            flushing, timeout=self._remaining_stop_drain_time()
+        )
+        for stream in tuple(self._streams):
+            if stream.handler_task in unflushed:
+                stream.close()
+                stream.cancel_handler()
 
     def _remaining_stop_drain_time(self) -> float:
         if self._stop_drain_deadline is None:
@@ -329,6 +375,8 @@ class PullStream:
         self._send_lock = asyncio.Lock()
         self._keepalive_task: asyncio.Task[None] | None = None
         self._is_final_frame_sent = False
+        self._is_final_output_queued = False
+        self._has_send_failure = False
         self._is_reconnecting = False
         self._stream_metadata: Any = None
         self._deadline_handle: asyncio.TimerHandle | None = None
@@ -434,6 +482,8 @@ class PullStream:
         self._is_connection_closed = False
         self._retirement_requested.clear()
         self._is_final_frame_sent = False
+        self._is_final_output_queued = False
+        self._has_send_failure = False
         self._stream_metadata = None
         if self.runtime._credential_runner is None:
             self._call = self.stub.PollWorkerTask()
@@ -472,7 +522,7 @@ class PullStream:
                     waiting, return_when=asyncio.FIRST_COMPLETED
                 )
                 if self.handler_task in completed:
-                    await self._finish_handler()
+                    await self._finish_handler_or_fail_stream()
                 if self.is_draining and not self.is_busy:
                     if self._is_connection_closed:
                         return was_registered
@@ -498,8 +548,11 @@ class PullStream:
                         return False
                     if kind != "registered":
                         raise RuntimeError("Worker task stream did not register")
-                    self.runtime.check_registration_limit(frame.registered)
                     was_registered = True
+                    if not self.runtime.accept_registration(frame.registered):
+                        # Half-close, not reset, so an already sent task returns unused.
+                        self.drain()
+                        continue
                     self._is_registered = True
                     self.runtime.registration.record_registered_stream(self.queue)
                     self.runtime.signal()
@@ -558,8 +611,8 @@ class PullStream:
                     waiting, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
                 )
                 if not completed:
-                    _LOGGER.warning("Worker task stream did not close after draining")
-                    return
+                    # Stop may extend its deadline while a final output flushes.
+                    continue
                 if stop_wait in completed:
                     await stop_wait
                     stop_wait = None
@@ -586,9 +639,14 @@ class PullStream:
         if self.runtime.is_stopping or self.is_draining:
             return
         if self.is_busy:
-            raise RuntimeError(
-                "Server assigned more than one task to a reserved execution slot"
-            )
+            if not self._is_final_frame_sent:
+                raise RuntimeError(
+                    "Server assigned more than one task to a reserved execution slot"
+                )
+            # The final output frees the slot on the Server before local cleanup ends.
+            await self._finish_handler_or_fail_stream()
+            if self.runtime.is_stopping or self.is_draining:
+                return
         unknown_reason = self.runtime.unknown_task_reason(task)
         if unknown_reason is not None:
             await self._reject_task(task, unknown_reason)
@@ -755,6 +813,7 @@ class PullStream:
         except asyncio.CancelledError:
             return
         except Exception:
+            self._has_send_failure = True
             _LOGGER.exception("send Worker keepalive Pong failed")
 
     def _stop_keepalive(self) -> None:
@@ -763,6 +822,12 @@ class PullStream:
             self._keepalive_task = None
 
     async def _send(self, request: pb.PollWorkerTaskRequest) -> None:
+        if (
+            request.HasField("task_frame")
+            and request.task_frame.task_id == self.task_id
+            and _is_final_task_frame(request.task_frame)
+        ):
+            self._is_final_output_queued = True
         async with self._send_lock:
             if self._is_connection_closed:
                 return
@@ -783,29 +848,48 @@ class PullStream:
                     and is_progress_frame
                 ):
                     return
-                if (
-                    frame.HasField("rpc")
-                    or frame.HasField("worker_error")
-                    or frame.HasField("wait_for")
-                    and frame.wait_for.WhichOneof("output") == "result"
-                    or frame.HasField("execute")
-                    and frame.execute.WhichOneof("output") == "result"
-                ):
+                if _is_final_task_frame(frame):
                     self._stop_keepalive()
                     self._is_final_frame_sent = True
             if request.HasField("pong") and (
                 self._is_final_frame_sent or self.is_half_closing
             ):
                 return
-            await self._call.write(request)
+            try:
+                await self._call.write(request)
+            except BaseException:
+                self._has_send_failure = True
+                raise
 
-    async def _finish_handler(self) -> None:
+    @property
+    def has_final_output_in_flight(self) -> bool:
+        return (
+            self._is_final_output_queued or self._is_final_frame_sent
+        ) and not self._has_send_failure
+
+    async def _finish_handler_or_fail_stream(self) -> None:
+        if not await self._finish_handler() and not self._is_connection_closed:
+            # A clean half-close would tell the Server the task never ran.
+            raise RuntimeError("Worker task ended without sending its final output")
+
+    async def _finish_handler(self) -> bool:
+        """Reap the finished handler and release this slot.
+
+        Returns:
+            True when the handler's final output was written to this connection.
+            False when no handler ran, or the final output was never written or
+            its write failed; the stream must then be reset, not half-closed.
+        """
         if self.handler_task is None:
-            return
+            return False
         await asyncio.gather(self.handler_task, return_exceptions=True)
         async with self._send_lock:
             self._stop_keepalive()
+            is_final_output_sent = (
+                self._is_final_frame_sent and not self._has_send_failure
+            )
             self._is_final_frame_sent = False
+            self._is_final_output_queued = False
         if self._deadline_handle is not None:
             self._deadline_handle.cancel()
             self._deadline_handle = None
@@ -813,7 +897,10 @@ class PullStream:
         self.task_id = ""
         self.is_busy = False
         self._active.clear()
+        if self.is_draining:
+            self._retirement_requested.set()
         self.runtime.finish_task()
+        return is_final_output_sent
 
     def cancel_handler(self) -> None:
         self._active.clear()
@@ -831,3 +918,14 @@ class PullStream:
         self._is_connection_closed = True
         if self._call is not None:
             self._call.cancel()
+
+
+def _is_final_task_frame(frame: pb.PollWorkerTaskFrame) -> bool:
+    return (
+        frame.HasField("rpc")
+        or frame.HasField("worker_error")
+        or frame.HasField("wait_for")
+        and frame.wait_for.WhichOneof("output") == "result"
+        or frame.HasField("execute")
+        and frame.execute.WhichOneof("output") == "result"
+    )

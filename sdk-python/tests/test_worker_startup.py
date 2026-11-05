@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Iterator
+from typing import Iterator, cast
 
 import grpc
 import pytest
@@ -23,6 +23,7 @@ from dex.blob_cache import BlobCacheConfig
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Flow, PersistenceSchema, Registry
+from dex.pull_registration import PullRegistrationError
 from dex.worker import Worker
 from dex.worker_options import PullWorkerOptions, WorkerOptions
 
@@ -78,8 +79,10 @@ class SyncService(
         failure: bool = False,
         server_info: pb.ServerInfo | None = None,
         server_info_failure: grpc.StatusCode | None = None,
+        poll_rejection: grpc.StatusCode | None = None,
     ) -> None:
         self.failure = failure
+        self.poll_rejection = poll_rejection
         self.server_info = (
             server_info
             if server_info is not None
@@ -126,6 +129,8 @@ class SyncService(
     ) -> Iterator[pb.PollWorkerTaskResponse]:
         self.poll_calls.append("PollWorkerTask")
         next(request_iterator)
+        if self.poll_rejection is not None:
+            context.abort(self.poll_rejection, "poll stream rejected")
         yield pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered())
         for request in request_iterator:
             pass
@@ -200,7 +205,8 @@ def test_worker_sync_failure_prevents_polling() -> None:
                 current_protocol_version=5,
             ),
             None,
-            "do not overlap",
+            r"supports Dex Server protocol versions 4-4.*"
+            r"protocol versions 5-5.*Upgrade the SDK",
         ),
         (pb.ServerInfo(server_version="invalid"), None, "interval is invalid"),
         (
@@ -310,6 +316,59 @@ async def _test_async_worker_synchronizes_indexes_before_polling() -> None:
     finally:
         await worker.stop()
         await asyncio.wait_for(worker_task, timeout=5)
+        flow_server.stop(grace=None).wait(timeout=5)
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+@pytest.mark.parametrize(
+    "code", [grpc.StatusCode.PERMISSION_DENIED, grpc.StatusCode.INVALID_ARGUMENT]
+)
+def test_registration_waiter_settles_when_every_stream_is_rejected(
+    is_async: bool, code: grpc.StatusCode
+) -> None:
+    asyncio.run(
+        _registration_waiter_settles_when_every_stream_is_rejected(is_async, code)
+    )
+
+
+async def _registration_waiter_settles_when_every_stream_is_rejected(
+    is_async: bool, code: grpc.StatusCode
+) -> None:
+    service = SyncService(poll_rejection=code)
+    flow_server, flow_port = _start_flow_server(service)
+    options = WorkerOptions(
+        pull=PullWorkerOptions(max_concurrent_tasks=2),
+        server_address=f"127.0.0.1:{flow_port}",
+    )
+    try:
+        if is_async:
+            async_worker = AsyncWorker(
+                Registry((IndexedFlow(),), allow_async_handlers=True),
+                MemoryBlobCache(),
+                options,
+            )
+            worker_task = asyncio.create_task(async_worker.start())
+            try:
+                with pytest.raises(PullRegistrationError) as rejected:
+                    await async_worker.wait_pull_registered(timeout=5)
+                assert not async_worker.pull_registration_state().is_ready
+            finally:
+                await async_worker.stop()
+                await asyncio.wait_for(worker_task, timeout=5)
+        else:
+            worker = Worker(Registry((IndexedFlow(),)), MemoryBlobCache(), options)
+            thread = threading.Thread(target=worker.start)
+            thread.start()
+            try:
+                with pytest.raises(PullRegistrationError) as rejected:
+                    await asyncio.to_thread(worker.wait_pull_registered, 5)
+                assert not worker.pull_registration_state().is_ready
+            finally:
+                await asyncio.to_thread(worker.stop)
+                thread.join(timeout=5)
+            assert not thread.is_alive()
+        assert cast(grpc.RpcError, rejected.value.error).code() == code
+    finally:
         flow_server.stop(grace=None).wait(timeout=5)
 
 

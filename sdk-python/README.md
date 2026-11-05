@@ -124,6 +124,10 @@ is one execution slot serving the sticky queue and every registered Flow type.
 Flow type names must be unique within a Dex server. Concurrency defaults to the
 CPU count. Start fails if the configured concurrency exceeds the Server's
 reported `matching.maxConcurrentTasksCap`; zero means no limit was reported.
+The Worker checks the limit on its first registration only. It then half-closes
+its streams, drops any task they receive, and never reports readiness;
+registration waiters raise the limit error. A lower limit reported on a later
+reconnect is logged as a warning, and the Worker keeps running.
 `idle_streams_per_queue` is deprecated, remains accepted, and has no effect.
 Each slot executes every task it receives and never rejects a task for capacity.
 Step heartbeats and stream writes use the same stream. Busy streams send a Pong
@@ -153,7 +157,21 @@ arriving after stop begins are dropped without calling a handler. Streams keep
 reading until server EOF or the remaining `stop_drain_timeout`, which defaults
 to 30 seconds. On timeout, a busy stream is reset and its handler is canceled;
 stop waits for the handler to return. Synchronous handlers should check
-`Context.is_cancellation_requested()` during long operations.
+`Context.is_cancellation_requested()` during long operations. A busy stream
+whose final output is already being written at the deadline gets up to 5 more
+seconds to send it and half-close instead of being reset. Any stream still open
+at the deadline is reset, even one that is half-closed and still waiting for
+server EOF, so stop always returns. Dex treats a task it sent in that window as
+an attempt that may have run.
+
+A stream that fails locally, such as a read error, an undecodable or oversized
+frame, a failed final output write, or an unexpected server EOF, is always
+reset. It never half-closes cleanly, because a clean half-close tells Dex the
+assigned task did not run.
+
+After a slot sends a task's final output, Dex may assign its next task
+immediately. The slot finishes local cleanup for the previous task first, then
+starts the next one, unless stop has begun.
 
 Call `worker.wait_pull_registered(timeout=30)` after starting a synchronous
 Worker on another thread. For AsyncWorker, start it in another task and use
@@ -960,13 +978,17 @@ range and Server version actually reported:
 This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). The Server reports protocol versions <min>-<current> (server version <server_version>). Upgrade the Server before upgrading the SDK.
 ```
 
-Missing information, invalid or disjoint intervals, and RPC failures stop startup
-before polling.
+A Server whose minimum protocol is newer than 4 fails with an error that asks
+you to upgrade the SDK. Missing information, invalid intervals, and RPC
+failures stop startup before polling.
 
 Clients perform no network I/O during construction. Before the first request of
 any method, they negotiate protocol 4. Success and incompatibility are cached;
-later requests against an incompatible Server return the same clear error.
-Transient negotiation failures are retried on the next call.
+later requests against an incompatible Server raise the same clear
+`RuntimeError`. If `GetServerInfo` itself fails, for example because the Server
+is unreachable, the request raises the usual `DexServiceError`, and the next
+call negotiates again. Negotiation counts against a request's timeout, including
+the `request_timeout` of durable waits.
 
 `RetryPolicy.total_duration` counts from the first hand-out to a Worker. After
 an attempt fails, Dex checks it to decide whether to retry. It does not end a

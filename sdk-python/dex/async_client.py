@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta, timezone
+from time import monotonic
 from types import TracebackType
 from typing import Any, Callable, TypeVar, cast, overload
 from uuid import uuid4
@@ -25,9 +26,10 @@ from dex._async_value_hydrator import AsyncValueHydrator
 from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
 from dex._server_protocol import (
     NegotiatedServerProtocol,
+    ServerProtocolNegotiationTimeoutError,
     negotiate_server_protocol,
+    remaining_negotiation_seconds,
     sdk_version,
-    server_info_request_error,
 )
 from dex._utils import require_name
 from dex._value_mapper import ValueMapper
@@ -64,7 +66,12 @@ from dex.flow_options import (
     _resolve_flow_timeout_policy,
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
-from dex.runtime_errors import DexServiceError, FlowErrorType, LongPollTimeoutError
+from dex.runtime_errors import (
+    DexServiceError,
+    ErrorSubStatus,
+    FlowErrorType,
+    LongPollTimeoutError,
+)
 from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
@@ -89,10 +96,14 @@ class AsyncClient:
     use ``async with`` or await ``close`` during application shutdown.
 
     Construction performs no network I/O. The first service request negotiates
-    Server protocol 4. Service methods raise RuntimeError on incompatibility,
-    naming the Server version and requiring server-zd newer than v0.1.16 with protocol 4.
-    Compatibility results are cached; transient negotiation failures are retried
-    by the next service call.
+    Server protocol 4 with GetServerInfo. Service methods raise RuntimeError
+    only when the Server reports a protocol range this SDK cannot use. The
+    message names the Server version and says whether to upgrade the Server
+    (server-zd newer than v0.1.16) or the SDK. That result is cached, and every
+    later call raises it again. When GetServerInfo itself fails, for example
+    because the Server is unreachable, the call raises the same DexServiceError
+    as any other transport failure. Such failures are not cached, so the next
+    call negotiates again. Negotiation counts against a call's request timeout.
 
     Attributes:
         registry: Flow definitions used to validate typed calls.
@@ -143,7 +154,7 @@ class AsyncClient:
             self._server_protocol,
         )
         self._server_protocol_lock = asyncio.Lock()
-        self._server_protocol_error: RuntimeError | None = None
+        self._server_protocol_error_message: str | None = None
         self._closed = False
 
     async def __aenter__(self) -> AsyncClient:
@@ -202,8 +213,7 @@ class AsyncClient:
                 including a numeric or Boolean value for a hard-delete Attribute.
             ValueError: If an initial Attribute uses a different ``hard_delete_on_null``
                 setting than the Flow's registered definition of that name.
-            RuntimeError: If Server protocol 4 is unavailable, incompatible, or
-                cannot be requested.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
             DexServiceError: If FlowService rejects or cannot perform the request.
         """
         registered = self.registry._flow_for_instance(flow)
@@ -247,7 +257,9 @@ class AsyncClient:
             )
         start_attributes = request.flow_start_options.attributes
         if any(write.is_hard_delete_on_null for write in start_attributes):
-            await self._negotiate_server_protocol()
+            await self._negotiate_server_protocol_for_operation(
+                "start_flow", flow_id, "none"
+            )
             self._server_protocol.require_hard_delete_attribute_support(
                 start_attributes
             )
@@ -942,6 +954,9 @@ class AsyncClient:
             options.internal_handler_timeout
         )
         while True:
+            await self._negotiate_within_request_budget(
+                request_budget, "wait_for_step_completion", flow_id
+            )
             request_attempt = request_budget.next_attempt(
                 "wait_for_step_completion", flow_id
             )
@@ -1100,6 +1115,9 @@ class AsyncClient:
             options.internal_handler_timeout
         )
         while True:
+            await self._negotiate_within_request_budget(
+                request_budget, "wait_for_attribute_match", flow_id
+            )
             request_attempt = request_budget.next_attempt(
                 "wait_for_attribute_match", flow_id
             )
@@ -1222,25 +1240,84 @@ class AsyncClient:
             if self._credential_runner is not None:
                 self._credential_runner.close()
 
-    async def _negotiate_server_protocol(self) -> None:
-        async with self._server_protocol_lock:
-            if self._server_protocol_error is not None:
-                raise self._server_protocol_error
-            if self._server_protocol.version == 0:
-                artifact_version = sdk_version()
-                try:
-                    server_info = await self._service.GetServerInfo(empty_pb2.Empty())
-                except grpc.RpcError as failure:
-                    raise server_info_request_error(
-                        artifact_version, failure
-                    ) from failure
-                try:
-                    self._server_protocol.record_version(
-                        negotiate_server_protocol(server_info, artifact_version)
-                    )
-                except RuntimeError as failure:
-                    self._server_protocol_error = failure
-                    raise
+    async def _negotiate_server_protocol(self, deadline: float | None = None) -> None:
+        if self._server_protocol.version != 0:
+            return
+        self._raise_cached_server_protocol_error()
+        remaining = remaining_negotiation_seconds(deadline)
+        if remaining is not None and remaining <= 0:
+            raise ServerProtocolNegotiationTimeoutError()
+        negotiation_timeout = asyncio.timeout(remaining)
+        try:
+            async with negotiation_timeout:
+                async with self._server_protocol_lock:
+                    if self._server_protocol.version != 0:
+                        return
+                    self._raise_cached_server_protocol_error()
+                    remaining = remaining_negotiation_seconds(deadline)
+                    if remaining is None:
+                        server_info = await self._service.GetServerInfo(
+                            empty_pb2.Empty()
+                        )
+                    else:
+                        server_info = await self._service.GetServerInfo(
+                            empty_pb2.Empty(), timeout=max(0.0, remaining)
+                        )
+                    try:
+                        negotiated_version = negotiate_server_protocol(
+                            server_info, sdk_version()
+                        )
+                    except RuntimeError as failure:
+                        self._server_protocol_error_message = str(failure)
+                        raise
+                    self._server_protocol.record_version(negotiated_version)
+        except TimeoutError as error:
+            if not negotiation_timeout.expired():
+                raise
+            raise ServerProtocolNegotiationTimeoutError() from error
+
+    def _raise_cached_server_protocol_error(self) -> None:
+        # A fresh exception per call keeps tracebacks from accumulating.
+        if self._server_protocol_error_message is not None:
+            raise RuntimeError(self._server_protocol_error_message)
+
+    async def _negotiate_server_protocol_for_operation(
+        self,
+        operation: str,
+        flow_id: str | None,
+        requirement: FlowTargetRequirement,
+        deadline: float | None = None,
+    ) -> None:
+        try:
+            await self._negotiate_server_protocol(deadline)
+        except grpc.RpcError as error:
+            raise translate_rpc_error(error, operation, flow_id, requirement) from error
+        except ServerProtocolNegotiationTimeoutError as error:
+            raise DexServiceError(
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+                ErrorSubStatus.UNCATEGORIZED,
+                "Server protocol negotiation did not finish before the request timeout",
+                operation,
+                flow_id,
+            ) from error
+
+    async def _negotiate_within_request_budget(
+        self,
+        request_budget: _ClientRequestBudget,
+        operation: str,
+        flow_id: str,
+    ) -> None:
+        try:
+            await self._negotiate_server_protocol_for_operation(
+                operation, flow_id, "active", request_budget.deadline
+            )
+        except DexServiceError as error:
+            # Negotiation shares this budget, so its deadline is the budget deadline.
+            if error.code is grpc.StatusCode.DEADLINE_EXCEEDED or (
+                request_budget.is_timeout(error.code)
+            ):
+                raise request_budget.timeout_error(operation, flow_id) from error
+            raise
 
     async def _wait_for_flow_response(
         self,
@@ -1489,7 +1566,12 @@ class AsyncClient:
         requirement: FlowTargetRequirement,
         timeout: float | None = None,
     ) -> Any:
-        await self._negotiate_server_protocol()
+        deadline = None if timeout is None else monotonic() + timeout
+        await self._negotiate_server_protocol_for_operation(
+            operation, flow_id, requirement, deadline
+        )
+        if deadline is not None:
+            timeout = max(0.0, deadline - monotonic())
         try:
             if timeout is None:
                 return await method(request)

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
+from time import monotonic
 from typing import Iterable
 
 import grpc
@@ -18,6 +19,7 @@ from dex.dexpb import dex_pb2 as pb
 MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
 MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
 HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION = 3
+LAST_SERVER_ZD_RELEASE_WITHOUT_MINIMUM_PROTOCOL = "v0.1.16"
 
 
 def sdk_version() -> str:
@@ -100,12 +102,23 @@ def server_info_request_error(
     artifact_version: str, failure: grpc.RpcError
 ) -> RuntimeError:
     return RuntimeError(
-        f'Python SDK version "{artifact_version}" protocol '
-        f"[{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},"
-        f"{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] is incompatible "
-        'with Server version "unknown" protocol [unknown,unknown]: '
-        f"GetServerInfo failed: {failure}"
+        f'Python SDK version "{artifact_version}" cannot request Dex Server '
+        f"information: GetServerInfo failed: {failure}"
     )
+
+
+class ServerProtocolNegotiationTimeoutError(Exception):
+    """Raised when a caller's deadline expires while waiting for negotiation."""
+
+
+def remaining_negotiation_seconds(deadline: float | None) -> float | None:
+    """Return seconds left before a ``time.monotonic`` deadline.
+
+    Returns:
+        None when ``deadline`` is None, meaning no limit. Otherwise the seconds
+        left, which are zero or negative once the deadline has passed.
+    """
+    return None if deadline is None else deadline - monotonic()
 
 
 def _compatibility_error(
@@ -116,17 +129,29 @@ def _compatibility_error(
     reason: str,
 ) -> RuntimeError:
     displayed_server_version = server_version or "unknown"
+    reported_range = (
+        f"The Server reports protocol versions {server_minimum}-{server_current} "
+        f"(server version {displayed_server_version})."
+    )
     if 0 < server_minimum <= server_current < MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION:
         return RuntimeError(
-            "This SDK requires a Dex Server with protocol version 4 or later "
-            "(server-zd newer than v0.1.16). The Server reports protocol versions "
-            f"{server_minimum}-{server_current} (server version {displayed_server_version}). "
-            "Upgrade the Server before upgrading the SDK."
+            "This SDK requires a Dex Server with protocol version "
+            f"{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION} or later "
+            "(server-zd newer than "
+            f"{LAST_SERVER_ZD_RELEASE_WITHOUT_MINIMUM_PROTOCOL}). "
+            f"{reported_range} Upgrade the Server before upgrading the SDK."
+        )
+    if MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION < server_minimum <= server_current:
+        return RuntimeError(
+            f'Python SDK version "{artifact_version}" supports Dex Server protocol '
+            f"versions {MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}-"
+            f"{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}, but the Server requires "
+            f"a newer protocol. {reported_range} Upgrade the SDK."
         )
     return RuntimeError(
         f'Python SDK version "{artifact_version}" protocol '
         f"[{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},"
-        f"{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] is incompatible with "
+        f"{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] cannot use "
         f'Server version "{displayed_server_version}" protocol '
         f"[{server_minimum},{server_current}]: {reason}"
     )

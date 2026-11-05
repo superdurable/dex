@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import Any, Callable, cast
+from typing import Any, AsyncIterator, Callable, cast
 from unittest.mock import AsyncMock, patch
 
 import grpc
@@ -23,6 +23,7 @@ from dex import (
     BlobCache,
     Client,
     ClientOptions,
+    DexServiceError,
     Flow,
     PullWorkerOptions,
     RecoveryErrorInfo,
@@ -118,7 +119,7 @@ def test_registration_limit_allows_sufficient_or_unreported_limit(
     runtime = PullWorkerRuntime(
         Registry([]), None, PullWorkerOptions(max_concurrent_tasks=2), "unused", None
     )
-    runtime.check_registration_limit(
+    assert runtime.accept_registration(
         pb.PollWorkerTaskRegistered(max_concurrent_tasks_per_app_worker=reported_limit)
     )
     assert runtime._permanent_error is None
@@ -199,27 +200,56 @@ async def _slot_executes_assigned_step_without_capacity_rejection(
     assert runtime.reserved_rpc_declines == 0
 
 
-@pytest.mark.parametrize("has_busy_task", [False, True])
+class StepBlockingDispatcher(BlockingDispatcher):
+    async def invoke_execute(
+        self,
+        request: pb.InvokeExecuteMethodRequest,
+        is_active: object,
+        deadline: object,
+    ) -> AsyncIterator[pb.InvokeExecuteMethodOutput]:
+        await self.invoke_rpc(pb.InvokeWorkerRPCRequest(), is_active)
+        yield pb.InvokeExecuteMethodOutput(result=pb.InvokeExecuteMethodResponse())
+
+    async def invoke_wait_for(
+        self,
+        request: pb.InvokeWaitForMethodRequest,
+        is_active: object,
+        deadline: object,
+    ) -> AsyncIterator[pb.InvokeWaitForMethodOutput]:
+        await self.invoke_rpc(pb.InvokeWorkerRPCRequest(), is_active)
+        yield pb.InvokeWaitForMethodOutput(result=pb.InvokeWaitForMethodResponse())
+
+
+def busy_task(task_kind: str, task_id: str) -> pb.PollWorkerTask:
+    if task_kind == "execute":
+        return pb.PollWorkerTask(
+            task_id=task_id, execute=pb.InvokeExecuteMethodRequest()
+        )
+    if task_kind == "wait_for":
+        return pb.PollWorkerTask(
+            task_id=task_id, wait_for=pb.InvokeWaitForMethodRequest()
+        )
+    return pb.PollWorkerTask(task_id=task_id, rpc=pb.InvokeWorkerRPCRequest())
+
+
+@pytest.mark.parametrize("busy_task_kind", [None, "rpc", "execute", "wait_for"])
 def test_ta25_shutdown_drops_frames_and_half_closes_after_final_output(
-    has_busy_task: bool,
+    busy_task_kind: str | None,
 ) -> None:
     asyncio.run(
-        _ta25_shutdown_drops_frames_and_half_closes_after_final_output(has_busy_task)
+        _ta25_shutdown_drops_frames_and_half_closes_after_final_output(busy_task_kind)
     )
 
 
 async def _ta25_shutdown_drops_frames_and_half_closes_after_final_output(
-    has_busy_task: bool,
+    busy_task_kind: str | None,
 ) -> None:
-    dispatcher = BlockingDispatcher()
+    has_busy_task = busy_task_kind is not None
+    dispatcher = StepBlockingDispatcher()
     frames = [pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered())]
-    if has_busy_task:
+    if busy_task_kind is not None:
         frames.append(
-            pb.PollWorkerTaskResponse(
-                task=pb.PollWorkerTask(
-                    task_id="before-stop", rpc=pb.InvokeWorkerRPCRequest()
-                )
-            )
+            pb.PollWorkerTaskResponse(task=busy_task(busy_task_kind, "before-stop"))
         )
     call = DelayedEofCall(frames)
     runtime = PullWorkerRuntime(
@@ -271,6 +301,10 @@ async def _ta25_shutdown_drops_frames_and_half_closes_after_final_output(
         )
     outputs = [request for request in call.requests if request.HasField("task_frame")]
     assert len(outputs) == int(has_busy_task)
+    if busy_task_kind is not None:
+        final_frame = outputs[0].task_frame
+        assert final_frame.WhichOneof("output") == busy_task_kind
+        assert final_frame.task_id == "before-stop"
     assert not any(request.HasField("reject") for request in call.requests)
     if has_busy_task:
         assert call.operations.index("write:task_frame") < call.operations.index(
@@ -468,7 +502,7 @@ async def _every_client_request_negotiates_lazily_and_caches_only_definitive_res
     )
     assert service.calls == []
     try:
-        first_error: RuntimeError | None = None
+        first_error: Exception | None = None
         for attempt_number in range(2):
             if should_fail_transiently and attempt_number:
                 service.server_info_failure = None
@@ -476,20 +510,23 @@ async def _every_client_request_negotiates_lazily_and_caches_only_definitive_res
                 with pytest.raises(Exception) as method_error:
                     await request_client_probe(client, operation)
                 assert "protocol" not in str(method_error.value)
+            elif should_fail_transiently:
+                with pytest.raises(DexServiceError) as transient_failure:
+                    await request_client_probe(client, operation)
+                assert transient_failure.value.code is grpc.StatusCode.UNAVAILABLE
+                assert "incompatible" not in str(transient_failure.value)
             else:
                 with pytest.raises(RuntimeError) as failure:
                     await request_client_probe(client, operation)
-                if should_fail_transiently:
-                    assert "GetServerInfo failed" in str(failure.value)
-                else:
-                    assert str(failure.value) == (
-                        "This SDK requires a Dex Server with protocol version 4 or later "
-                        "(server-zd newer than v0.1.16). The Server reports protocol versions "
-                        "1-3 (server version test). Upgrade the Server before upgrading the SDK."
-                    )
-                    if first_error is not None:
-                        assert failure.value is first_error
-                    first_error = failure.value
+                assert not isinstance(failure.value, DexServiceError)
+                assert str(failure.value) == (
+                    "This SDK requires a Dex Server with protocol version 4 or later "
+                    "(server-zd newer than v0.1.16). The Server reports protocol versions "
+                    "1-3 (server version test). Upgrade the Server before upgrading the SDK."
+                )
+                # Each call raises a fresh instance so tracebacks do not accumulate.
+                assert failure.value is not first_error
+                first_error = failure.value
         assert service.calls.count("GetServerInfo") == (
             2 if should_fail_transiently else 1
         )

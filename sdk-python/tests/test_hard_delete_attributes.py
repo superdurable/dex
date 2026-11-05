@@ -31,6 +31,7 @@ from dex import (
     ClientOptions,
     CodecRegistry,
     Context,
+    DexServiceError,
     Flow,
     FlowDefinitionError,
     IndexType,
@@ -625,8 +626,10 @@ def test_client_does_not_cache_failed_server_info_request() -> None:
     client = Client(Registry((flow,)), cast(BlobCache, object()), _options(port))
     options = StartFlowOptions().with_attribute(flow.api_key, "sk-1")
     try:
-        with pytest.raises(RuntimeError, match="GetServerInfo failed"):
+        with pytest.raises(DexServiceError, match="server info failed") as failure:
             client.start_flow(flow, "secret-1", None, options)
+        assert failure.value.code is grpc.StatusCode.UNAVAILABLE
+        assert "incompatible" not in str(failure.value)
         service.server_info_failure = None
         assert client.start_flow(flow, "secret-1", None, options) == "run-secret-1"
     finally:
