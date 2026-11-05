@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 use dexzd_keyspace::ColumnFamily;
 
 use crate::rocksdb_store::INFO_LOG_FILES_KEPT;
-use crate::{LocalReadView, LocalStore, RocksDbLocalStore, RocksDbStoreOptions, WriteBatch};
+use crate::{
+    BoundedSeek, LocalReadView, LocalStore, RocksDbLocalStore, RocksDbStoreOptions, WriteBatch,
+};
 
 const FLOWS: u64 = 2_000;
 
@@ -227,5 +229,58 @@ fn restarts_keep_a_bounded_number_of_old_info_logs() {
     assert!(
         old_info_logs.len() <= INFO_LOG_FILES_KEPT,
         "{old_info_logs:?}"
+    );
+}
+
+#[test]
+fn single_deletes_hide_rows_and_bounded_seeks_give_up_on_tombstone_runs() {
+    let directory = tempfile::tempdir().expect("temporary directory exists");
+    let store =
+        RocksDbLocalStore::open(directory.path().join("db"), RocksDbStoreOptions::default())
+            .expect("opens");
+    let key = |index: u32| {
+        let mut key = b"queue/".to_vec();
+        key.extend_from_slice(&index.to_be_bytes());
+        key
+    };
+    let mut puts = WriteBatch::new();
+    for index in 0..1_000 {
+        puts.put(ColumnFamily::PartitionIndex, key(index), b"row".to_vec());
+    }
+    store.write(puts).expect("puts commit");
+    let mut deletes = WriteBatch::new();
+    for index in 0..1_000 {
+        deletes.single_delete(ColumnFamily::PartitionIndex, key(index));
+    }
+    store.write(deletes).expect("single deletes commit");
+    let (start, end) = (b"queue/".to_vec(), b"queue0".to_vec());
+    let view = store.consistent_view().expect("view opens");
+    assert_eq!(
+        view.get(ColumnFamily::PartitionIndex, &key(3))
+            .expect("reads"),
+        None
+    );
+    assert_eq!(
+        view.seek_first_bounded(ColumnFamily::PartitionIndex, &start, &end, 10)
+            .expect("seeks"),
+        BoundedSeek::Incomplete
+    );
+    assert_eq!(
+        view.seek_first_bounded(ColumnFamily::PartitionIndex, &start, &end, 1_000_000)
+            .expect("seeks"),
+        BoundedSeek::Exhausted
+    );
+    drop(view);
+    let mut live = WriteBatch::new();
+    live.put(ColumnFamily::PartitionIndex, key(5_000), b"live".to_vec());
+    store.write(live).expect("put commits");
+    let view = store.consistent_view().expect("view opens");
+    assert_eq!(
+        view.seek_first_bounded(ColumnFamily::PartitionIndex, &start, &end, 1_000_000)
+            .expect("seeks"),
+        BoundedSeek::Found {
+            key: key(5_000),
+            value: b"live".to_vec()
+        }
     );
 }

@@ -1097,7 +1097,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
 | Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
 | Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** (in-memory waiters only) |
-| Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs**; **dexzd_matching_heads_incomplete_scans** |
+| Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total** |
 | Commit latency | **dexzd_commit_latency_seconds** |
 | Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
 | Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
@@ -1242,10 +1242,10 @@ of queues with backlog that no connected Worker can serve. **reason** is
 **no_worker** or **no_supporting_worker**.
 
 **matching.headsResyncInterval** sets a periodic background check. It only
-catches server bugs that lose queued tasks. **dexzd_matching_heads_restored_refs**
+catches server bugs that lose queued tasks. **dexzd_matching_heads_restored_refs_total**
 is a counter that should stay 0. If it is ever nonzero, look for the WARN log
 line "periodic Heads restored a queued task that matching had lost" and report
-it as a bug. **dexzd_matching_heads_incomplete_scans** counts checks that did
+it as a bug. **dexzd_matching_heads_incomplete_scans_total** counts checks that did
 not finish.
 
 Current SDKs send upstream **Pong** frames every 20 seconds while a task runs.

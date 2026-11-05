@@ -11,8 +11,9 @@
 //! stale, busy, lock busy, or retry later, always with the queue's next ref.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use dexzd_worker_dispatch::ClaimResult;
+use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 
 use super::{is_ref_pending, ref_attempt_key, ref_flow, reply_to_claim};
 use crate::effects::dispatch::{
@@ -78,7 +79,9 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
         flow: flow.clone(),
         key: key.clone(),
         generation,
-        progress: HandoutProgress::default(),
+        progress: HandoutProgress {
+            scheduled_at: pending_instant(&context, &task),
+        },
     };
     let end = match check {
         Ok(_) => {
@@ -102,4 +105,15 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
         generation,
         end,
     });
+}
+
+/// Returns when the row became pending on this process's monotonic clock, so the
+/// schedule-to-start latency includes its time in the queue (plan section 3.10).
+fn pending_instant(context: &EffectContext, task: &QueuedTaskRef) -> Option<Instant> {
+    let waited_micros = context
+        .clock
+        .now_unix_micros()
+        .saturating_sub(task.position.pending_since_micros);
+    let waited = Duration::from_micros(u64::try_from(waited_micros).unwrap_or(0));
+    Instant::now().checked_sub(waited)
 }

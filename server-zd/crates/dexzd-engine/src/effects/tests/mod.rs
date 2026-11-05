@@ -836,6 +836,8 @@ pub(super) struct FakeDispatcher {
     claim_receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<MethodClaim>>,
     /// Issues periodic Heads tokens and merges scans like production matching.
     pub(super) heads_matching: WorkerDispatch,
+    /// Refs that periodic Heads scans restored, summed over scans.
+    pub(super) restored_head_count: AtomicUsize,
 }
 
 impl FakeDispatcher {
@@ -860,6 +862,7 @@ impl FakeDispatcher {
                 dexzd_worker_dispatch::MatchingConfig::default(),
                 Arc::new(dexzd_clock::SystemWallClock),
             ),
+            restored_head_count: AtomicUsize::new(0),
         }
     }
 
@@ -943,7 +946,10 @@ impl MethodDispatcher for FakeDispatcher {
     }
 
     fn report_scanned_heads(&self, token: HeadsScanToken, results: Vec<ScannedQueueHead>) -> usize {
-        self.heads_matching.report_scanned_heads(token, results)
+        let restored = self.heads_matching.report_scanned_heads(token, results);
+        self.restored_head_count
+            .fetch_add(restored, Ordering::SeqCst);
+        restored
     }
 
     fn next_claim(&self) -> BoxFuture<'_, Option<MethodClaim>> {

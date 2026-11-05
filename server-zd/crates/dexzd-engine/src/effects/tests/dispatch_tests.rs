@@ -1047,3 +1047,89 @@ async fn an_unreadable_attempt_state_times_out_the_method_and_retains_its_locks_
     );
     harness.shutdown().await;
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_rebuild_reports_a_queued_row_as_a_head_and_does_not_queue_it_again() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    let queued_command_count = || {
+        harness
+            .flow_effect_operations
+            .commands_matching(|command| {
+                matches!(command, flow_command::Command::StepAttemptQueued(_))
+            })
+            .len()
+    };
+    assert_eq!(queued_command_count(), 1);
+    let task = harness.dispatcher.queued_refs.lock().expect("lock")[0].clone();
+    let reservations_before = harness.dispatcher.reservations.lock().expect("lock").len();
+    // A restart rebuilds matching's refs from the index alone (plan section 3.6).
+    harness.rebuild_all_partitions().await;
+    harness.settle().await;
+    let heads = harness
+        .dispatcher
+        .rebuilt_heads
+        .lock()
+        .expect("lock")
+        .clone();
+    assert_eq!(heads, vec![task.clone()]);
+    assert_eq!(
+        queued_command_count(),
+        1,
+        "the rebuild queues nothing again"
+    );
+    assert_eq!(
+        harness.dispatcher.reservations.lock().expect("lock").len(),
+        reservations_before,
+        "a queued attempt reaches matching through Heads only"
+    );
+    harness.dispatcher.claim(1, task);
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    assert_eq!(dispatch.request.step_type, "ChargeStep");
+    harness.settle().await;
+    let invocation = harness
+        .step_execution("order-1", run_id, "ChargeStep-1")
+        .invocation
+        .expect("invocation");
+    assert_eq!(invocation.phase, StepInvocationPhase::Running as i32);
+    assert_eq!(invocation.attempt, 1);
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn periodic_heads_restore_a_ref_matching_lost_once() {
+    let config = EffectsConfig {
+        heads_resync_interval: Duration::from_secs(1),
+        ..EffectsConfig::default()
+    };
+    let harness = EffectHarness::with_config(super::DurableState::new(), config);
+    harness.rebuild_all_partitions().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    // The fake never hands its Queued to the matching that merges scans: a lost ref.
+    assert_eq!(
+        harness.dispatcher.queued_refs.lock().expect("lock").len(),
+        1
+    );
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness
+            .dispatcher
+            .restored_head_count
+            .load(Ordering::SeqCst),
+        1,
+        "the first round restores the lost ref and later rounds find it"
+    );
+    harness.shutdown().await;
+}

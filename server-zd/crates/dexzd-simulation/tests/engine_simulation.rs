@@ -481,6 +481,7 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "StepAttemptHeartbeat",
         "StepAttemptFailed",
         "StepMethodCompleted",
+        "StepAttemptQueued",
         "TimersFired",
         "RunPurge",
     ] {
