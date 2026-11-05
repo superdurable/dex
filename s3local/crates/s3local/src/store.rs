@@ -33,6 +33,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use ulid::Ulid;
 
+use crate::durable_directories::DurableDirectories;
 use crate::error::StoreError;
 use crate::key_codec::{encode_object_key, prefix_successor};
 use crate::record::{BucketRecord, VersionRecord};
@@ -145,6 +146,8 @@ pub struct Store {
     deferred_removals: Mutex<DeferredRemovals>,
     /// Set by [`Store::open_refusing_unclean_relaxed_session`] in relaxed mode.
     relaxed_session_marker: Option<PathBuf>,
+    /// Used in strict mode; directories under the root whose entries this process made durable.
+    durable_directories: DurableDirectories,
 }
 
 /// A data file, part file, bucket directory, or upload directory whose metadata a commit dropped.
@@ -209,6 +212,11 @@ impl Store {
         let temporary_directory = config.root_directory.join(TEMPORARY_DIRECTORY_NAME);
         let is_durable = config.durability == Durability::Strict;
         create_directory_durably(&config.root_directory, is_durable)?;
+        // An existing root may come from a process that crashed before flushing its entry.
+        if is_durable {
+            crate::data_file::sync_directory(&parent_directory(&config.root_directory))?;
+        }
+        let durable_directories = DurableDirectories::new(config.root_directory.clone());
         let metadata_path = config.root_directory.join(METADATA_FILE_NAME);
         // A writable open rewrites the redb header, so refuse unsupported stores read-only first.
         if metadata_path.try_exists()? {
@@ -226,8 +234,6 @@ impl Store {
         // Checked before `Store` exists, because its drop commits in relaxed mode.
         let is_format_version_stamped =
             check_store_format_version(&database, &config.root_directory)?;
-        create_directory_durably(&data_directory, is_durable)?;
-        create_directory_durably(&temporary_directory, is_durable)?;
         let mut version_generator = ulid::Generator::new();
         let opened_at = version_generator
             .generate()
@@ -243,7 +249,10 @@ impl Store {
             lifecycle_clock_offset_ms: AtomicI64::new(0),
             deferred_removals: Mutex::new(DeferredRemovals::default()),
             relaxed_session_marker: None,
+            durable_directories,
         };
+        store.create_directory(&store.data_directory)?;
+        store.create_directory(&store.temporary_directory)?;
         store.create_tables(is_format_version_stamped)?;
         store.remove_temporary_files()?;
         Ok(store)
@@ -327,6 +336,16 @@ impl Store {
         Ok(transaction)
     }
 
+    /// Creates `directory` under the root. In strict mode it returns once the entries down to it are durable.
+    fn create_directory(&self, directory: &Path) -> Result<(), StoreError> {
+        if self.is_durable() {
+            self.durable_directories.create_durably(directory)?;
+        } else {
+            fs::create_dir_all(directory)?;
+        }
+        Ok(())
+    }
+
     /// Returns whether writes fsync files and directories.
     fn is_durable(&self) -> bool {
         self.durability == Durability::Strict
@@ -373,7 +392,7 @@ impl Store {
     ) -> Result<(), StoreError> {
         if !self.is_relaxed() || superseded_paths.is_empty() {
             transaction.commit()?;
-            remove_superseded_paths(&superseded_paths);
+            self.remove_superseded_paths(&superseded_paths);
             return Ok(());
         }
         // Held across the commit, so orphan collection sees each path referenced or deferred.
@@ -389,8 +408,18 @@ impl Store {
         // The default durability is immediate, which also persists every earlier relaxed commit.
         self.database.begin_write()?.commit()?;
         let removable = self.lock_deferred_removals().take_covered(covered_sequence);
-        remove_superseded_paths(&removable);
+        self.remove_superseded_paths(&removable);
         Ok(())
+    }
+
+    /// Removes paths whose metadata a committed transaction already dropped.
+    fn remove_superseded_paths(&self, paths: &[SupersededPath]) {
+        for superseded in paths {
+            if let SupersededPath::Directory(directory) = superseded {
+                self.durable_directories.forget(directory);
+            }
+        }
+        remove_superseded_paths(paths);
     }
 
     fn lock_deferred_removals(&self) -> MutexGuard<'_, DeferredRemovals> {

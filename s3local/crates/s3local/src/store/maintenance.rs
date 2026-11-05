@@ -78,6 +78,7 @@ impl Store {
             // A relaxed bucket deletion holds this lock across its commit and defers the directory.
             if self.is_older_than_open(&name) && !self.lock_deferred_removals().contains(&directory)
             {
+                self.durable_directories.forget(&directory);
                 remove_directory(&directory);
             }
         }
@@ -171,6 +172,7 @@ impl Store {
             if !live_uploads.contains(&upload_id) {
                 // Relaxed aborts and completions hold this lock across the commit that defers it.
                 if !self.lock_deferred_removals().contains(&upload_directory) {
+                    self.durable_directories.forget(&upload_directory);
                     remove_directory(&upload_directory);
                 }
                 continue;
