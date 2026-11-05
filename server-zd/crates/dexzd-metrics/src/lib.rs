@@ -123,7 +123,8 @@ pub struct NodeMetrics {
     pub matching_unserved_task_queues: UnservedTaskQueues,
     /// Refs a periodic Heads scan restored because matching had lost them; nonzero is a bug.
     pub matching_heads_restored_refs: Counter,
-    /// Queues a periodic Heads scan skipped because a seek met too many deleted entries.
+    /// Queues a periodic Heads scan skipped because a seek met too many deleted entries or a
+    /// read failed.
     pub matching_heads_incomplete_scans: Counter,
     /// Worker frames that break the reserved-slot dispatch protocol.
     pub worker_stream_protocol_errors: WorkerStreamProtocolErrors,
@@ -402,7 +403,7 @@ impl NodeMetrics {
         );
         registry.register(
             "dexzd_matching_heads_incomplete_scans",
-            "Queues a periodic Heads scan skipped after too many deleted entries.",
+            "Queues a periodic Heads scan skipped after too many deleted entries or a read failure.",
             metrics.matching_heads_incomplete_scans.clone(),
         );
         registry.register(

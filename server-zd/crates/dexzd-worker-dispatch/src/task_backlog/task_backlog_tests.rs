@@ -224,3 +224,125 @@ fn a_head_whose_queued_is_in_flight_is_restored_silently() {
             .is_some()
     );
 }
+
+/// Returns the claimable entries of `name`, checking that each one is its partition's head.
+fn checked_claimable_count(backlog: &TaskBacklog, name: &DispatchQueueName) -> usize {
+    let Some(queue) = backlog.queues.get(name) else {
+        return 0;
+    };
+    for (partition, refs) in &queue.partitions {
+        let expected = match (&refs.head, &refs.claim) {
+            (Some(head), None) => Some((
+                head.position.priority,
+                head.position.pending_since_micros,
+                *partition,
+            )),
+            _ => None,
+        };
+        assert_eq!(refs.claimable_order, expected, "partition {partition:?}");
+    }
+    let indexed = queue
+        .partitions
+        .values()
+        .filter(|refs| refs.claimable_order.is_some())
+        .count();
+    assert_eq!(queue.claimable.len(), indexed, "no stale claimable entry");
+    indexed
+}
+
+#[test]
+fn head_changes_across_many_partitions_keep_exactly_one_claimable_entry_per_head() {
+    let mut backlog = TaskBacklog::default();
+    let name = queue("Charge");
+    for partition in 0..64_u16 {
+        backlog.insert(task(partition, "Charge", 1_000 - i64::from(partition)));
+        backlog.insert(task(partition, "Charge", 500 - i64::from(partition)));
+    }
+    assert_eq!(checked_claimable_count(&backlog, &name), 64);
+    let mut claims = Vec::new();
+    for partition in (0..64_u16).step_by(2) {
+        claims.push(
+            backlog
+                .start_claim(&name, PartitionId(partition))
+                .expect("claimable"),
+        );
+        backlog.insert(task(partition, "Charge", 2_000));
+    }
+    assert_eq!(checked_claimable_count(&backlog, &name), 32);
+    for (claim_id, claimed) in claims {
+        assert!(backlog.finish_claim(&name, claimed.partition, claim_id, None));
+    }
+    assert_eq!(checked_claimable_count(&backlog, &name), 64);
+    for partition in 0..32_u16 {
+        backlog.remove_partition(PartitionId(partition));
+    }
+    assert_eq!(checked_claimable_count(&backlog, &name), 32);
+    assert_eq!(
+        earliest(&backlog),
+        Some((name.clone(), PartitionId(63))),
+        "the oldest remaining head leads"
+    );
+}
+
+fn priority_zero_task(partition: u16, pending_since_micros: i64) -> QueuedTaskRef {
+    let mut handler = task(partition, "Charge", pending_since_micros);
+    handler.position.priority = 0;
+    handler
+}
+
+#[test]
+fn a_priority_zero_head_keeps_older_ordinary_backlog_in_the_oldest_age() {
+    let mut backlog = TaskBacklog::default();
+    let name = queue("Charge");
+    backlog.insert(task(1, "Charge", 100));
+    backlog.insert(priority_zero_task(1, 900));
+    assert_eq!(backlog.oldest_pending_since_micros(), Some(100));
+
+    let (claim_id, _) = backlog
+        .start_claim(&name, PartitionId(1))
+        .expect("claimable");
+    assert_eq!(
+        backlog.oldest_pending_since_micros(),
+        Some(100),
+        "kept while the handler's Claim is in flight"
+    );
+    // The owner's reply names another handler; it reads the ordinary row separately.
+    assert!(backlog.finish_claim(
+        &name,
+        PartitionId(1),
+        claim_id,
+        Some(priority_zero_task(1, 950))
+    ));
+    backlog.set_ordinary_pending_since(&name, PartitionId(1), Some(100));
+    assert_eq!(backlog.oldest_pending_since_micros(), Some(100));
+
+    let (claim_id, _) = backlog
+        .start_claim(&name, PartitionId(1))
+        .expect("claimable");
+    assert!(backlog.finish_claim(
+        &name,
+        PartitionId(1),
+        claim_id,
+        Some(task(1, "Charge", 100))
+    ));
+    assert_eq!(backlog.oldest_pending_since_micros(), Some(100));
+    let (claim_id, _) = backlog
+        .start_claim(&name, PartitionId(1))
+        .expect("claimable");
+    assert!(backlog.finish_claim(&name, PartitionId(1), claim_id, None));
+    assert_eq!(
+        backlog.oldest_pending_since_micros(),
+        None,
+        "nothing is left once the ordinary row is claimed"
+    );
+}
+
+#[test]
+fn a_stale_scan_token_leaves_the_newer_scan_running() {
+    let mut backlog = TaskBacklog::default();
+    let stale = backlog.begin_scan(PartitionId(1));
+    let current = backlog.begin_scan(PartitionId(1));
+    assert!(backlog.finish_scan(stale, Vec::new()).is_empty());
+    let restored = backlog.finish_scan(current, vec![scan_head(Some(task(1, "Charge", 30)))]);
+    assert_eq!(restored.len(), 1, "the newer scan still merges");
+}

@@ -89,6 +89,19 @@ struct PartitionRefs {
     head: Option<QueuedTaskRef>,
     /// The Claim in flight: its ID and the ref it took.
     claim: Option<(u64, QueuedTaskRef)>,
+    /// The head's entry in the queue's claimable set.
+    claimable_order: Option<HeadOrder>,
+    /// Oldest ordinary-priority row behind a priority-0 head or Claim, for the oldest-age gauge.
+    ordinary_pending_since_micros: Option<i64>,
+}
+
+impl PartitionRefs {
+    fn has_priority_zero_ref(&self) -> bool {
+        self.head
+            .iter()
+            .chain(self.claim.iter().map(|(_, task)| task))
+            .any(|task| task.position.priority == 0)
+    }
 }
 
 #[derive(Default)]
@@ -135,22 +148,45 @@ impl TaskBacklog {
             .as_ref()
             .is_some_and(|head| head.position <= task.position)
         {
+            if task.position.priority > 0 && refs.has_priority_zero_ref() {
+                note_ordinary_pending_since(refs, task.position.pending_since_micros);
+            }
             return;
         }
         let partition = task.partition;
         let name = task.queue.clone();
-        refs.head = Some(task);
+        if let Some(displaced) = refs.head.replace(task)
+            && displaced.position.priority > 0
+        {
+            note_ordinary_pending_since(refs, displaced.position.pending_since_micros);
+        }
         self.refresh_claimable(&name, partition);
+    }
+
+    /// Records the oldest ordinary-priority row behind the priority-0 ref of (`partition`,
+    /// `name`), as its owner read it; `None` forgets it.
+    pub(crate) fn set_ordinary_pending_since(
+        &mut self,
+        name: &DispatchQueueName,
+        partition: PartitionId,
+        pending_since_micros: Option<i64>,
+    ) {
+        if let Some(refs) = self
+            .queues
+            .get_mut(name)
+            .and_then(|queue| queue.partitions.get_mut(&partition))
+            .filter(|refs| refs.has_priority_zero_ref())
+        {
+            refs.ordinary_pending_since_micros = pending_since_micros;
+        }
     }
 
     /// Returns whether the queue has backlog: a claimable head or a Claim in flight.
     pub(crate) fn has_backlog(&self, name: &DispatchQueueName) -> bool {
-        self.queues.get(name).is_some_and(|queue| {
-            queue
-                .partitions
-                .values()
-                .any(|refs| refs.head.is_some() || refs.claim.is_some())
-        })
+        // Partitions without a head or a Claim are removed at once.
+        self.queues
+            .get(name)
+            .is_some_and(|queue| !queue.partitions.is_empty())
     }
 
     /// Returns the earliest eligible claimable head among `flow_types`.
@@ -225,13 +261,7 @@ impl TaskBacklog {
         claim_id: u64,
         next: Option<QueuedTaskRef>,
     ) -> bool {
-        let is_tracked = self
-            .queues
-            .get(name)
-            .and_then(|queue| queue.partitions.get(&partition))
-            .and_then(|refs| refs.claim.as_ref())
-            .is_some_and(|(tracked_id, _)| *tracked_id == claim_id);
-        if !is_tracked {
+        if !self.is_claim_tracked(name, partition, claim_id) {
             return false;
         }
         if let Some(refs) = self
@@ -249,6 +279,20 @@ impl TaskBacklog {
         true
     }
 
+    /// Returns whether the Claim `claim_id` of (`partition`, `name`) waits for its reply.
+    pub(crate) fn is_claim_tracked(
+        &self,
+        name: &DispatchQueueName,
+        partition: PartitionId,
+        claim_id: u64,
+    ) -> bool {
+        self.queues
+            .get(name)
+            .and_then(|queue| queue.partitions.get(&partition))
+            .and_then(|refs| refs.claim.as_ref())
+            .is_some_and(|(tracked_id, _)| *tracked_id == claim_id)
+    }
+
     /// Forgets every ref and Claim of `partition`. Replies to its Claims are then dropped.
     pub(crate) fn remove_partition(&mut self, partition: PartitionId) {
         let names = self
@@ -257,8 +301,13 @@ impl TaskBacklog {
             .cloned()
             .unwrap_or_default();
         for name in names {
-            if let Some(queue) = self.queues.get_mut(&name) {
-                queue.partitions.remove(&partition);
+            if let Some(queue) = self.queues.get_mut(&name)
+                && let Some(order) = queue
+                    .partitions
+                    .remove(&partition)
+                    .and_then(|refs| refs.claimable_order)
+            {
+                queue.claimable.remove(&order);
             }
             self.refresh_claimable(&name, partition);
         }
@@ -306,13 +355,18 @@ impl TaskBacklog {
         token: HeadsScanToken,
         results: Vec<ScannedQueueHead>,
     ) -> Vec<RestoredTaskRef> {
-        let Some(scan) = self
+        // A stale token leaves the newer scan of its partition running.
+        let is_current = self
+            .scans
+            .get(&token.partition)
+            .is_some_and(|scan| scan.token_id == token.token_id);
+        if !is_current {
+            return Vec::new();
+        }
+        let scan = self
             .scans
             .remove(&token.partition)
-            .filter(|scan| scan.token_id == token.token_id)
-        else {
-            return Vec::new();
-        };
+            .expect("the current scan is registered");
         let mut restored = Vec::new();
         for result in results {
             let partition = token.partition;
@@ -365,8 +419,9 @@ impl TaskBacklog {
                 refs.head
                     .iter()
                     .chain(refs.claim.iter().map(|(_, task)| task))
+                    .map(|task| task.position.pending_since_micros)
+                    .chain(refs.ordinary_pending_since_micros)
             })
-            .map(|task| task.position.pending_since_micros)
             .min()
     }
 
@@ -416,17 +471,22 @@ impl TaskBacklog {
         let Some(queue) = self.queues.get_mut(name) else {
             return;
         };
-        queue
-            .claimable
-            .retain(|(_, _, claimable_partition)| *claimable_partition != partition);
-        if let Some(refs) = queue.partitions.get(&partition) {
+        if let Some(refs) = queue.partitions.get_mut(&partition) {
+            if let Some(order) = refs.claimable_order.take() {
+                queue.claimable.remove(&order);
+            }
+            if !refs.has_priority_zero_ref() {
+                refs.ordinary_pending_since_micros = None;
+            }
             match (&refs.head, &refs.claim) {
                 (Some(head), None) => {
-                    queue.claimable.insert((
+                    let order = (
                         head.position.priority,
                         head.position.pending_since_micros,
                         partition,
-                    ));
+                    );
+                    queue.claimable.insert(order);
+                    refs.claimable_order = Some(order);
                 }
                 (None, None) => {
                     queue.partitions.remove(&partition);
@@ -460,6 +520,13 @@ impl TaskBacklog {
             self.queues.remove(name);
         }
     }
+}
+
+fn note_ordinary_pending_since(refs: &mut PartitionRefs, pending_since_micros: i64) {
+    let oldest = refs
+        .ordinary_pending_since_micros
+        .get_or_insert(pending_since_micros);
+    *oldest = (*oldest).min(pending_since_micros);
 }
 
 #[cfg(test)]

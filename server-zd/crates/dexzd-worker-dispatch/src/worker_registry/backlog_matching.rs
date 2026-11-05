@@ -87,8 +87,8 @@ pub(super) struct QueueMatching {
     claims_ready: Arc<Notify>,
     next_search_id: u64,
     searches: HashMap<PartitionId, HashMap<u64, Arc<PartitionSearch>>>,
-    /// Connected Step-capable streams per (tenant, Flow type), counted per app Worker.
-    step_workers: HashMap<(u64, String), HashMap<String, usize>>,
+    /// Connected Step-capable streams per (tenant, Flow type), grouped by app Worker.
+    step_workers: HashMap<(u64, String), HashMap<String, HashSet<Uuid>>>,
     /// Idle Step-capable streams per (tenant, Flow type), in idle order.
     idle_step_streams: HashMap<(u64, String), BTreeMap<u64, Uuid>>,
 }
@@ -96,12 +96,12 @@ pub(super) struct QueueMatching {
 impl QueueMatching {
     pub(super) fn add_step_stream(&mut self, worker: &WorkerStream) {
         for flow_type in &worker.backlog_flow_types {
-            *self
-                .step_workers
+            self.step_workers
                 .entry((worker.tenant_id, flow_type.clone()))
                 .or_default()
                 .entry(worker.app_worker_id.clone())
-                .or_default() += 1;
+                .or_default()
+                .insert(worker.id);
         }
     }
 
@@ -111,9 +111,9 @@ impl QueueMatching {
             let Some(workers) = self.step_workers.get_mut(&key) else {
                 continue;
             };
-            if let Some(count) = workers.get_mut(&worker.app_worker_id) {
-                *count -= 1;
-                if *count == 0 {
+            if let Some(stream_ids) = workers.get_mut(&worker.app_worker_id) {
+                stream_ids.remove(&worker.id);
+                if stream_ids.is_empty() {
                     workers.remove(&worker.app_worker_id);
                 }
             }
@@ -230,6 +230,21 @@ impl WorkerDispatch {
         }
     }
 
+    /// Records when the first ordinary-priority row behind a priority-0 ref became pending, so
+    /// the oldest-age gauge still sees it (plan section 3.10). It is ignored once no priority-0
+    /// ref of the queue remains in `partition`.
+    pub fn report_ordinary_backlog(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        pending_since_micros: Option<i64>,
+    ) {
+        self.lock_registry()
+            .queue_matching
+            .backlog
+            .set_ordinary_pending_since(queue, partition, pending_since_micros);
+    }
+
     /// Removes every ref, Claim in flight, and in-memory waiter of `partition`. Its sticky,
     /// sync, and RPC searches end as if matching were closing.
     pub fn remove_partition(&self, partition: PartitionId) {
@@ -240,11 +255,35 @@ impl WorkerDispatch {
             .searches
             .remove(&partition)
             .unwrap_or_default();
+        let (undelivered, kept): (VecDeque<PendingClaim>, VecDeque<PendingClaim>) = registry
+            .queue_matching
+            .claims
+            .drain(..)
+            .partition(|pending| pending.task.partition == partition);
+        registry.queue_matching.claims = kept;
         drop(registry);
         for search in searches.into_values() {
             search.is_removed.store(true, Ordering::Release);
             search.wakeup.notify_one();
         }
+        // Freed slots go to waiters first, then to other partitions' backlog.
+        for pending in undelivered {
+            self.make_idle(&pending.worker);
+        }
+    }
+
+    /// Returns whether matching still waits for the reply to this Claim; a removed partition's
+    /// Claims are no longer tracked, so their owner must not start them.
+    pub fn is_claim_tracked(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        claim_id: u64,
+    ) -> bool {
+        self.lock_registry()
+            .queue_matching
+            .backlog
+            .is_claim_tracked(queue, partition, claim_id)
     }
 
     /// Waits for the next Claim. Claims stop once matching closes.
@@ -369,6 +408,10 @@ pub(super) enum BacklogService {
 impl Registry {
     /// Claims idle Step streams of the Flow type while the queue has a claimable head.
     pub(super) fn match_backlog_queue(&mut self, name: &DispatchQueueName) {
+        // Skips walking idle streams when none may run the queue's Step type.
+        if self.backlog_service(name) != BacklogService::Served {
+            return;
+        }
         let flow_type_key = (name.tenant_id.0, name.flow_type.clone());
         loop {
             let Some(idle) = self.queue_matching.idle_step_streams.get(&flow_type_key) else {
@@ -395,6 +438,7 @@ impl Registry {
         if self.is_closing
             || !self.idle_positions.contains_key(&worker.id)
             || !worker.slot.may_run_steps()
+            || self.is_promised_to_waiter(worker)
             || worker.step_backoff_end(Instant::now()).is_some()
         {
             return false;
@@ -458,10 +502,18 @@ impl Registry {
         else {
             return BacklogService::NoWorker;
         };
+        let step_type = step_type_key(name);
+        // Agrees with Claim eligibility, which also honors evicted declines' reprobe marks.
         let declining = self
             .unsupported_types
-            .declining_workers(&step_type_key(name))
-            .filter(|app_worker_id| workers.contains_key(*app_worker_id))
+            .declining_or_reprobing_workers(&step_type)
+            .filter_map(|app_worker_id| workers.get(app_worker_id))
+            .filter(|stream_ids| {
+                stream_ids
+                    .iter()
+                    .filter_map(|id| self.streams.get(id))
+                    .all(|stream| self.is_unsupported_on(&step_type, stream))
+            })
             .count();
         if declining < workers.len() {
             BacklogService::Served
@@ -479,3 +531,7 @@ fn step_type_key(name: &DispatchQueueName) -> TaskTypeKey {
         name: name.step_type.clone(),
     }
 }
+
+#[cfg(test)]
+#[path = "backlog_matching_tests.rs"]
+mod backlog_matching_tests;
