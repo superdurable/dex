@@ -11,13 +11,24 @@
 
 mod attempt_checkpoints;
 mod attempt_deadlines;
+mod attempt_entries;
 mod attempt_failure;
+mod attempt_handout;
 mod dispatch_scheduler;
 mod method_attempt;
 mod method_dispatcher;
 mod worker_result;
 
-pub(crate) use dispatch_scheduler::{DispatchScheduler, InvocationStartResult};
+#[cfg(test)]
+pub(crate) use attempt_entries::EntryHolder;
+pub(crate) use attempt_entries::{AttemptEntries, ClaimHolder};
+pub(crate) use attempt_handout::{
+    AttemptHandout, ClaimedRow, HandoutEnd, HandoutEndReport, HandoutProgress, InterruptedAttempt,
+};
+pub(crate) use dispatch_scheduler::DispatchScheduler;
+#[cfg(test)]
+pub(crate) use method_attempt::render_task_id;
 pub use method_dispatcher::{
-    MethodDispatchRequest, MethodDispatchSession, MethodDispatchStartError, MethodDispatcher,
+    MethodClaim, MethodDispatchSession, MethodDispatcher, MethodStreamRequest,
+    MethodStreamReservation, MethodTask, ReservedMethodStream,
 };

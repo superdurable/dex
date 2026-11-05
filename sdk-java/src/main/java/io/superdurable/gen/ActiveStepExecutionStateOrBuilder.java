@@ -194,4 +194,70 @@ public interface ActiveStepExecutionStateOrBuilder extends
    * <code>.dex.PullRouting execute_pull_routing = 12;</code>
    */
   io.superdurable.gen.PullRoutingOrBuilder getExecutePullRoutingOrBuilder();
+
+  /**
+   * <pre>
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+   * @return Whether the waitForInvocation field is set.
+   */
+  boolean hasWaitForInvocation();
+  /**
+   * <pre>
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+   * @return The waitForInvocation.
+   */
+  io.superdurable.gen.StepMethodInvocationState getWaitForInvocation();
+  /**
+   * <pre>
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+   */
+  io.superdurable.gen.StepMethodInvocationStateOrBuilder getWaitForInvocationOrBuilder();
+
+  /**
+   * <pre>
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+   * @return Whether the executeInvocation field is set.
+   */
+  boolean hasExecuteInvocation();
+  /**
+   * <pre>
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+   * @return The executeInvocation.
+   */
+  io.superdurable.gen.StepMethodInvocationState getExecuteInvocation();
+  /**
+   * <pre>
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+   */
+  io.superdurable.gen.StepMethodInvocationStateOrBuilder getExecuteInvocationOrBuilder();
 }

@@ -913,7 +913,8 @@ fn describe_write(write: &StateWrite) -> String {
             value.len(),
             xxhash_rust::xxh3::xxh3_64(value)
         ),
-        StateWrite::Delete { column_family, key } => {
+        StateWrite::Delete { column_family, key }
+        | StateWrite::SingleDelete { column_family, key } => {
             format!("delete {column_family:?} {}", hex(key))
         }
         StateWrite::DeleteRange {

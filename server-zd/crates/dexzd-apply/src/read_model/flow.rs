@@ -13,11 +13,12 @@ use dexzd_protocol::dex::{
     ActiveStepExecutionState, ActiveStepPhase, ChannelMessage, ChannelValues, ConditionStatus,
     FlowExecutionId, FlowResult, FlowStatus, GetChannelMessagesResponse, GetFlowStateResponse,
     GetFlowSummaryResponse, InternalTimerStatus, Kv, StepCompletionOutput,
-    StepExecutionCompletedConditions, StepMovement, SubFlowConditionState, TimerInfo,
-    WaitingConditionState,
+    StepExecutionCompletedConditions, StepMethodInvocationPhase, StepMethodInvocationState,
+    StepMethodPendingReason, StepMovement, SubFlowConditionState, TimerInfo, WaitingConditionState,
 };
 use dexzd_protocol::dexzd::v1::{
-    FlowDirectoryRecord, StepExecutionPhase, StepExecutionRecord, StepMethod,
+    FlowDirectoryRecord, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
+    StepInvocationPhase, StepInvocationRecord, StepMethod,
 };
 use prost::Message;
 
@@ -143,7 +144,7 @@ pub fn get_flow_state(
         .iter()
         .filter(|(_, step)| is_active(step))
         .map(|(_, step)| active_step_state(&view, step))
-        .collect();
+        .collect::<Result<Vec<_>, ReadModelError>>()?;
     let mut pending_channel_messages = BTreeMap::new();
     for (channel_name, meta) in view.rows.channel_metas(&view.transaction)? {
         if meta.pending_count == 0 {
@@ -182,7 +183,10 @@ pub fn get_flow_state(
     })
 }
 
-fn active_step_state(view: &RunView<'_>, step: &StepExecutionRecord) -> ActiveStepExecutionState {
+fn active_step_state(
+    view: &RunView<'_>,
+    step: &StepExecutionRecord,
+) -> Result<ActiveStepExecutionState, ReadModelError> {
     // Go passes a WaitFor failure only to Execute; a recovery Step's movement carries its error.
     let has_wait_for_failed = step
         .condition_results
@@ -266,7 +270,16 @@ fn active_step_state(view: &RunView<'_>, step: &StepExecutionRecord) -> ActiveSt
     let execute_pull_routing = invocation
         .filter(|invocation| invocation.method == StepMethod::Execute as i32)
         .and_then(|invocation| invocation.pull_routing.clone());
-    ActiveStepExecutionState {
+    let invocation_state = invocation.map(|invocation| invocation_state(view, step, invocation));
+    let invocation_state = invocation_state.transpose()?;
+    let is_wait_for =
+        invocation.is_some_and(|invocation| invocation.method == StepMethod::WaitFor as i32);
+    let (wait_for_invocation, execute_invocation) = if is_wait_for {
+        (invocation_state, None)
+    } else {
+        (None, invocation_state)
+    };
+    Ok(ActiveStepExecutionState {
         step_execution_id: step.step_execution_id.clone(),
         from_step_execution_id: step.from_step_execution_id.clone(),
         step_type: step.step_type.clone(),
@@ -279,7 +292,73 @@ fn active_step_state(view: &RunView<'_>, step: &StepExecutionRecord) -> ActiveSt
         last_failure_info: invocation.and_then(|invocation| invocation.last_failure.clone()),
         wait_for_pull_routing,
         execute_pull_routing,
+        wait_for_invocation,
+        execute_invocation,
+    })
+}
+
+/// Returns the public state of the Step's current method invocation.
+fn invocation_state(
+    view: &RunView<'_>,
+    step: &StepExecutionRecord,
+    invocation: &StepInvocationRecord,
+) -> Result<StepMethodInvocationState, ReadModelError> {
+    let phase = match StepInvocationPhase::try_from(invocation.phase) {
+        Ok(StepInvocationPhase::Pending) => StepMethodInvocationPhase::Pending,
+        Ok(StepInvocationPhase::Running) => StepMethodInvocationPhase::Running,
+        Ok(StepInvocationPhase::Backoff) => StepMethodInvocationPhase::Backoff,
+        _ => StepMethodInvocationPhase::Unspecified,
+    };
+    let pending_reason = if phase != StepMethodInvocationPhase::Pending {
+        StepMethodPendingReason::Unspecified
+    } else if is_waiting_for_locks(view, step, invocation)? {
+        StepMethodPendingReason::WaitingForLocks
+    } else {
+        StepMethodPendingReason::WaitingForWorker
+    };
+    let timestamp_if_set =
+        |micros: i64| (micros > 0).then(|| crate::command_handlers::run_cursor::timestamp(micros));
+    Ok(StepMethodInvocationState {
+        phase: phase as i32,
+        pending_reason: pending_reason as i32,
+        attempt: i32::try_from(invocation.attempt).unwrap_or(i32::MAX),
+        // The next attempt of a backoff is not pending yet.
+        pending_since_time: (phase != StepMethodInvocationPhase::Backoff)
+            .then(|| timestamp_if_set(crate::effective_pending_since_micros(invocation)))
+            .flatten(),
+        attempt_started_time: (phase == StepMethodInvocationPhase::Running)
+            .then(|| timestamp_if_set(invocation.attempt_started_at_micros))
+            .flatten(),
+        backoff_fires_at_time: (phase == StepMethodInvocationPhase::Backoff)
+            .then(|| timestamp_if_set(invocation.backoff_fires_at_micros))
+            .flatten(),
+    })
+}
+
+/// Returns whether another holder or an earlier waiter blocks one of the invocation's locks.
+fn is_waiting_for_locks(
+    view: &RunView<'_>,
+    step: &StepExecutionRecord,
+    invocation: &StepInvocationRecord,
+) -> Result<bool, ReadModelError> {
+    let key = StepInvocationKey {
+        step_execution_id: step.step_execution_id.clone(),
+        method: invocation.method,
+    };
+    for lock_key in &invocation.lock_keys {
+        let lock = view.rows.lock(&view.transaction, lock_key)?;
+        let is_held_by_other = lock.holder.as_ref().is_some_and(|holder| *holder != key);
+        let is_first_waiter = lock
+            .waiters
+            .first()
+            .and_then(|waiter| waiter.invocation.as_ref())
+            .is_none_or(|waiter| *waiter == key);
+        let is_retained = lock.holder.as_ref() == Some(&key);
+        if is_held_by_other || (!is_retained && !is_first_waiter) {
+            return Ok(true);
+        }
     }
+    Ok(false)
 }
 
 fn completed_conditions(

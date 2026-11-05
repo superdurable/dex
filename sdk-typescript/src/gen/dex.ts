@@ -48,11 +48,25 @@ export enum ServerEngine {
   UNRECOGNIZED = -1,
 }
 
-/** Explains why a Worker declined a task. */
+/** Selects the tasks accepted by a reserved Worker execution slot. */
+export enum PollWorkerSlotKind {
+  /** POLL_WORKER_SLOT_KIND_UNSPECIFIED - Accepts Step and RPC tasks, like STEP_AND_RPC. */
+  POLL_WORKER_SLOT_KIND_UNSPECIFIED = 0,
+  /** POLL_WORKER_SLOT_KIND_STEP_AND_RPC - Accepts Step and RPC tasks. */
+  POLL_WORKER_SLOT_KIND_STEP_AND_RPC = 1,
+  /** POLL_WORKER_SLOT_KIND_RPC_ONLY - Accepts only RPC tasks, letting Workers keep execution capacity for RPCs. */
+  POLL_WORKER_SLOT_KIND_RPC_ONLY = 2,
+  UNRECOGNIZED = -1,
+}
+
+/**
+ * Explains why a Worker declined a task.
+ * See PollWorkerTaskReject for the reasons a reserved-slot stream may send.
+ */
 export enum PollWorkerTaskRejectReason {
   /** POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED - No rejection reason was supplied. */
   POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED = 0,
-  /** POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY - All Worker execution slots are occupied. */
+  /** POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY - All Worker execution slots are occupied; not allowed on reserved-slot streams. */
   POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY = 1,
   /** POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP - The Flow has no registration for the requested Step type. */
   POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP = 2,
@@ -203,6 +217,36 @@ export enum ActiveStepPhase {
   UNRECOGNIZED = -1,
 }
 
+/** Where the current invocation of a Step method stands. */
+export enum StepMethodInvocationPhase {
+  STEP_METHOD_INVOCATION_PHASE_UNSPECIFIED = 0,
+  /** STEP_METHOD_INVOCATION_PHASE_PENDING - The attempt waits for its locks or for a Worker; see pending_reason. */
+  STEP_METHOD_INVOCATION_PHASE_PENDING = 1,
+  /** STEP_METHOD_INVOCATION_PHASE_RUNNING - A Worker received the attempt. */
+  STEP_METHOD_INVOCATION_PHASE_RUNNING = 2,
+  /** STEP_METHOD_INVOCATION_PHASE_BACKOFF - The last attempt failed and the next attempt waits for its retry backoff. */
+  STEP_METHOD_INVOCATION_PHASE_BACKOFF = 3,
+  UNRECOGNIZED = -1,
+}
+
+/** Why a pending Step method attempt has not reached a Worker yet. */
+export enum StepMethodPendingReason {
+  STEP_METHOD_PENDING_REASON_UNSPECIFIED = 0,
+  /** STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER - The attempt waits in the Step task queue for a Worker of its Flow type. */
+  STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER = 1,
+  /**
+   * STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER - Workers of the Flow type are connected, but every one of them declined the
+   * Step type. The attempt waits for a Worker that supports it.
+   */
+  STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER = 2,
+  /**
+   * STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS - Another Step or a transactional RPC holds one of the attempt's locks, or an
+   * earlier Step waits for one of them.
+   */
+  STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS = 3,
+  UNRECOGNIZED = -1,
+}
+
 export enum FlowResetType {
   FLOW_RESET_TYPE_UNSPECIFIED = 0,
   FLOW_RESET_TYPE_BEGINNING = 1,
@@ -289,6 +333,24 @@ export enum InternalTimerStatus {
   UNRECOGNIZED = -1,
 }
 
+/** Reports the furthest progress across attempts of a Step method call. */
+export enum StepAttemptProgress {
+  /**
+   * STEP_ATTEMPT_PROGRESS_UNSPECIFIED - Older Servers, or failures recorded before the Server upgrade.
+   * Treat it like NOT_COMPLETED.
+   */
+  STEP_ATTEMPT_PROGRESS_UNSPECIFIED = 0,
+  /** STEP_ATTEMPT_PROGRESS_NOT_STARTED - No attempt ran the handler. */
+  STEP_ATTEMPT_PROGRESS_NOT_STARTED = 1,
+  /**
+   * STEP_ATTEMPT_PROGRESS_NOT_COMPLETED - Some attempt may have run the handler, and none succeeded.
+   * Dex also reports this value when it cannot prove that no attempt ran
+   * (for example every ASYNC failure).
+   */
+  STEP_ATTEMPT_PROGRESS_NOT_COMPLETED = 2,
+  UNRECOGNIZED = -1,
+}
+
 /** Describes the Dex Server release and the inclusive protocol range it supports. */
 export interface ServerInfo {
   /** Identifies the Server artifact for diagnostics. Compatibility uses only the protocol range. */
@@ -305,13 +367,16 @@ export interface ServerInfo {
 export interface PollWorkerTaskRequest {
   frame:
     | //
-    /** Starts this queue stream; no other frame may precede registration. */
+    /** Starts this queue or reserved-slot stream; no other frame may precede registration. */
     { $case: "register"; value: PollWorkerTaskRegister }
     | //
     /** Reports task progress or its final result. */
     { $case: "taskFrame"; value: PollWorkerTaskFrame }
     | //
-    /** Declines an assigned task before output when the Worker lacks capacity or the named handler. */
+    /**
+     * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
+     */
     { $case: "reject"; value: PollWorkerTaskReject }
     | //
     /** Acknowledges a server liveness check. */
@@ -319,9 +384,14 @@ export interface PollWorkerTaskRequest {
     | undefined;
 }
 
-/** Registers one queue stream for a Worker process. */
+/** Registers one queue stream or reserved execution slot for a Worker process. */
 export interface PollWorkerTaskRegister {
-  /** Names this stream's queue: app_worker_id or one declared flow_type. */
+  /**
+   * Names this stream's queue: app_worker_id or one declared flow_type.
+   * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+   * sticky queue (app_worker_id) and every Flow type in flow_types.
+   * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
+   */
   queue: string;
   /** Identifies this Worker process across reconnects; a restart uses a new ID. */
   appWorkerId: string;
@@ -331,6 +401,24 @@ export interface PollWorkerTaskRegister {
   sdkName: string;
   /** Identifies the SDK release for diagnostics. */
   sdkVersion: string;
+  /**
+   * When true, this stream is one reserved Worker execution slot, ready whenever idle.
+   * The Worker never rejects a task for capacity.
+   * It rejects only unknown Step types or RPC names.
+   * While stopping, it drops task frames without sending any frame for them.
+   * See the PollWorkerTask rpc.
+   * When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+   * Requires Server protocol version 4 or later.
+   */
+  supportsReservedSlotDispatch: boolean;
+  /**
+   * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * Applies only to reserved-slot streams.
+   * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+   * and slot_kind is not UNSPECIFIED.
+   * Requires Server protocol version 4 or later.
+   */
+  slotKind: PollWorkerSlotKind;
 }
 
 /** Carries a task's heartbeat, stream write, result, or Worker error. */
@@ -353,7 +441,13 @@ export interface PollWorkerTaskFrame {
     | undefined;
 }
 
-/** Declines a task so Dex can assign it to another available Worker stream. */
+/**
+ * Declines a task so Dex can assign it to another available Worker stream.
+ * Reserved-slot streams may send only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+ * NO_CAPACITY on a reserved-slot stream is a protocol error.
+ * Dex then fails that attempt as not run, which consumes an attempt,
+ * and ends the stream with INVALID_ARGUMENT.
+ */
 export interface PollWorkerTaskReject {
   /** Matches the declined task on this stream. */
   taskId: string;
@@ -369,7 +463,7 @@ export interface PollWorkerTaskPong {
 export interface PollWorkerTaskResponse {
   frame:
     | //
-    /** Confirms that Dex accepted this stream's queue registration. */
+    /** Confirms that Dex accepted this stream's queue or reserved-slot registration. */
     { $case: "registered"; value: PollWorkerTaskRegistered }
     | //
     /** Assigns work to the registered Worker. */
@@ -386,10 +480,21 @@ export interface PollWorkerTaskResponse {
     | undefined;
 }
 
-/** Confirms that Dex accepted the queue registration. */
+/** Confirms that Dex accepted the queue or reserved-slot registration. */
 export interface PollWorkerTaskRegistered {
-  /** Allows this queue-owner stream to reject an assigned unknown Step type or RPC name. */
+  /**
+   * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+   * Reserved-slot streams may always reject unknown names.
+   */
   supportsUnknownNameRejection: boolean;
+  /**
+   * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+   * It counts all of them, including RPC_ONLY slots.
+   * Zero means the Server does not report a limit.
+   * Reported by Server protocol version 4 or later.
+   * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
+   */
+  maxConcurrentTasksPerAppWorker: number;
 }
 
 /** Assigns one task to this stream until its final result, error, or rejection. */
@@ -417,9 +522,9 @@ export interface PollWorkerTaskCancelTask {
   taskId: string;
 }
 
-/** Asks the Worker to finish its task and reconnect for queue ownership changes or shutdown. */
+/** Asks the Worker to finish its task and reconnect for queue or slot ownership changes or shutdown. */
 export interface PollWorkerTaskReconnect {
-  /** Explains why Dex needs a new queue stream. */
+  /** Explains why Dex needs a new queue or reserved-slot stream. */
   reason: string;
 }
 
@@ -1100,7 +1205,15 @@ export interface StepMethodEventContext {
    *
    * Unset whenever wait_for_completed_event_id is zero.
    */
-  waitForCompletedTime: Date | undefined;
+  waitForCompletedTime:
+    | Date
+    | undefined;
+  /**
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   */
+  scheduledTime: Date | undefined;
 }
 
 export interface StepWaitForCompletedOutput {
@@ -1223,7 +1336,53 @@ export interface ActiveStepExecutionState {
   timers: TimerInfo[];
   lastFailureInfo: StepMethodFailure | undefined;
   waitForPullRouting: PullRouting | undefined;
-  executePullRouting: PullRouting | undefined;
+  executePullRouting:
+    | PullRouting
+    | undefined;
+  /**
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   */
+  waitForInvocation:
+    | StepMethodInvocationState
+    | undefined;
+  /**
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   */
+  executeInvocation: StepMethodInvocationState | undefined;
+}
+
+/**
+ * The current invocation of one Step method: its phase, its attempt, and why a
+ * pending attempt waits.
+ *
+ * Requires Server protocol version 4 or later.
+ */
+export interface StepMethodInvocationState {
+  phase: StepMethodInvocationPhase;
+  /** Set only in the pending phase. */
+  pendingReason: StepMethodPendingReason;
+  /** The pending or running attempt, or in the backoff phase the next one. */
+  attempt: number;
+  /**
+   * When the current attempt became pending. A queued attempt keeps this time
+   * when a Worker declines it.
+   */
+  pendingSinceTime:
+    | Date
+    | undefined;
+  /** When a Worker received the running attempt; unset in other phases. */
+  attemptStartedTime:
+    | Date
+    | undefined;
+  /**
+   * When the backoff ends and the next attempt becomes pending; unset in other
+   * phases.
+   */
+  backoffFiresAtTime: Date | undefined;
 }
 
 export interface GetFlowStateRequest {
@@ -1667,9 +1826,18 @@ export interface StepExecutionResumeInfo {
   waitForPullRouting: PullRouting | undefined;
 }
 
+/** Describes a Step method failure for its recovery path. */
 export interface RecoveryErrorInfo {
+  /** Describes the failure. */
   detail: string;
+  /** Identifies the failure type. */
   errorType: string;
+  /**
+   * Furthest progress across all attempts of this Step method call.
+   * Use in recovery to decide whether side effects may have happened.
+   * Requires Server protocol version 4 or later.
+   */
+  attemptProgress: StepAttemptProgress;
 }
 
 export interface AttributeSyncItem {
@@ -1954,7 +2122,15 @@ export const PollWorkerTaskRequest: MessageFns<PollWorkerTaskRequest> = {
 };
 
 function createBasePollWorkerTaskRegister(): PollWorkerTaskRegister {
-  return { queue: "", appWorkerId: "", flowTypes: [], sdkName: "", sdkVersion: "" };
+  return {
+    queue: "",
+    appWorkerId: "",
+    flowTypes: [],
+    sdkName: "",
+    sdkVersion: "",
+    supportsReservedSlotDispatch: false,
+    slotKind: 0,
+  };
 }
 
 export const PollWorkerTaskRegister: MessageFns<PollWorkerTaskRegister> = {
@@ -1973,6 +2149,12 @@ export const PollWorkerTaskRegister: MessageFns<PollWorkerTaskRegister> = {
     }
     if (message.sdkVersion !== "") {
       writer.uint32(42).string(message.sdkVersion);
+    }
+    if (message.supportsReservedSlotDispatch !== false) {
+      writer.uint32(48).bool(message.supportsReservedSlotDispatch);
+    }
+    if (message.slotKind !== 0) {
+      writer.uint32(56).int32(message.slotKind);
     }
     return writer;
   },
@@ -2024,6 +2206,22 @@ export const PollWorkerTaskRegister: MessageFns<PollWorkerTaskRegister> = {
           message.sdkVersion = reader.string();
           continue;
         }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.supportsReservedSlotDispatch = reader.bool();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.slotKind = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2043,6 +2241,8 @@ export const PollWorkerTaskRegister: MessageFns<PollWorkerTaskRegister> = {
     message.flowTypes = object.flowTypes?.map((e) => e) || [];
     message.sdkName = object.sdkName ?? "";
     message.sdkVersion = object.sdkVersion ?? "";
+    message.supportsReservedSlotDispatch = object.supportsReservedSlotDispatch ?? false;
+    message.slotKind = object.slotKind ?? 0;
     return message;
   },
 };
@@ -2381,13 +2581,16 @@ export const PollWorkerTaskResponse: MessageFns<PollWorkerTaskResponse> = {
 };
 
 function createBasePollWorkerTaskRegistered(): PollWorkerTaskRegistered {
-  return { supportsUnknownNameRejection: false };
+  return { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 };
 }
 
 export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
   encode(message: PollWorkerTaskRegistered, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.supportsUnknownNameRejection !== false) {
       writer.uint32(8).bool(message.supportsUnknownNameRejection);
+    }
+    if (message.maxConcurrentTasksPerAppWorker !== 0) {
+      writer.uint32(16).uint32(message.maxConcurrentTasksPerAppWorker);
     }
     return writer;
   },
@@ -2407,6 +2610,14 @@ export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
           message.supportsUnknownNameRejection = reader.bool();
           continue;
         }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.maxConcurrentTasksPerAppWorker = reader.uint32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2422,6 +2633,7 @@ export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
   fromPartial<I extends Exact<DeepPartial<PollWorkerTaskRegistered>, I>>(object: I): PollWorkerTaskRegistered {
     const message = createBasePollWorkerTaskRegistered();
     message.supportsUnknownNameRejection = object.supportsUnknownNameRejection ?? false;
+    message.maxConcurrentTasksPerAppWorker = object.maxConcurrentTasksPerAppWorker ?? 0;
     return message;
   },
 };
@@ -8775,6 +8987,7 @@ function createBaseStepMethodEventContext(): StepMethodEventContext {
     fromEventId: 0n,
     waitForCompletedEventId: 0n,
     waitForCompletedTime: undefined,
+    scheduledTime: undefined,
   };
 }
 
@@ -8824,6 +9037,9 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
     }
     if (message.waitForCompletedTime !== undefined) {
       Timestamp.encode(toTimestamp(message.waitForCompletedTime), writer.uint32(106).fork()).join();
+    }
+    if (message.scheduledTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.scheduledTime), writer.uint32(114).fork()).join();
     }
     return writer;
   },
@@ -8939,6 +9155,14 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
           message.waitForCompletedTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         }
+        case 14: {
+          if (tag !== 114) {
+            break;
+          }
+
+          message.scheduledTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8979,6 +9203,7 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
         ? BigInt(object.waitForCompletedEventId)
         : 0n;
     message.waitForCompletedTime = object.waitForCompletedTime ?? undefined;
+    message.scheduledTime = object.scheduledTime ?? undefined;
     return message;
   },
 };
@@ -9991,6 +10216,8 @@ function createBaseActiveStepExecutionState(): ActiveStepExecutionState {
     lastFailureInfo: undefined,
     waitForPullRouting: undefined,
     executePullRouting: undefined,
+    waitForInvocation: undefined,
+    executeInvocation: undefined,
   };
 }
 
@@ -10031,6 +10258,12 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
     }
     if (message.executePullRouting !== undefined) {
       PullRouting.encode(message.executePullRouting, writer.uint32(98).fork()).join();
+    }
+    if (message.waitForInvocation !== undefined) {
+      StepMethodInvocationState.encode(message.waitForInvocation, writer.uint32(106).fork()).join();
+    }
+    if (message.executeInvocation !== undefined) {
+      StepMethodInvocationState.encode(message.executeInvocation, writer.uint32(114).fork()).join();
     }
     return writer;
   },
@@ -10138,6 +10371,22 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
           message.executePullRouting = PullRouting.decode(reader, reader.uint32());
           continue;
         }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.waitForInvocation = StepMethodInvocationState.decode(reader, reader.uint32());
+          continue;
+        }
+        case 14: {
+          if (tag !== 114) {
+            break;
+          }
+
+          message.executeInvocation = StepMethodInvocationState.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10176,6 +10425,125 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
     message.executePullRouting = (object.executePullRouting !== undefined && object.executePullRouting !== null)
       ? PullRouting.fromPartial(object.executePullRouting)
       : undefined;
+    message.waitForInvocation = (object.waitForInvocation !== undefined && object.waitForInvocation !== null)
+      ? StepMethodInvocationState.fromPartial(object.waitForInvocation)
+      : undefined;
+    message.executeInvocation = (object.executeInvocation !== undefined && object.executeInvocation !== null)
+      ? StepMethodInvocationState.fromPartial(object.executeInvocation)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseStepMethodInvocationState(): StepMethodInvocationState {
+  return {
+    phase: 0,
+    pendingReason: 0,
+    attempt: 0,
+    pendingSinceTime: undefined,
+    attemptStartedTime: undefined,
+    backoffFiresAtTime: undefined,
+  };
+}
+
+export const StepMethodInvocationState: MessageFns<StepMethodInvocationState> = {
+  encode(message: StepMethodInvocationState, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.phase !== 0) {
+      writer.uint32(8).int32(message.phase);
+    }
+    if (message.pendingReason !== 0) {
+      writer.uint32(16).int32(message.pendingReason);
+    }
+    if (message.attempt !== 0) {
+      writer.uint32(24).int32(message.attempt);
+    }
+    if (message.pendingSinceTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.pendingSinceTime), writer.uint32(34).fork()).join();
+    }
+    if (message.attemptStartedTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.attemptStartedTime), writer.uint32(42).fork()).join();
+    }
+    if (message.backoffFiresAtTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.backoffFiresAtTime), writer.uint32(50).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StepMethodInvocationState {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepMethodInvocationState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.phase = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.pendingReason = reader.int32() as any;
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.attempt = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.pendingSinceTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.attemptStartedTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.backoffFiresAtTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepMethodInvocationState>, I>>(base?: I): StepMethodInvocationState {
+    return StepMethodInvocationState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepMethodInvocationState>, I>>(object: I): StepMethodInvocationState {
+    const message = createBaseStepMethodInvocationState();
+    message.phase = object.phase ?? 0;
+    message.pendingReason = object.pendingReason ?? 0;
+    message.attempt = object.attempt ?? 0;
+    message.pendingSinceTime = object.pendingSinceTime ?? undefined;
+    message.attemptStartedTime = object.attemptStartedTime ?? undefined;
+    message.backoffFiresAtTime = object.backoffFiresAtTime ?? undefined;
     return message;
   },
 };
@@ -15149,7 +15517,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
 };
 
 function createBaseRecoveryErrorInfo(): RecoveryErrorInfo {
-  return { detail: "", errorType: "" };
+  return { detail: "", errorType: "", attemptProgress: 0 };
 }
 
 export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
@@ -15159,6 +15527,9 @@ export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
     }
     if (message.errorType !== "") {
       writer.uint32(18).string(message.errorType);
+    }
+    if (message.attemptProgress !== 0) {
+      writer.uint32(24).int32(message.attemptProgress);
     }
     return writer;
   },
@@ -15186,6 +15557,14 @@ export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
           message.errorType = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.attemptProgress = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -15202,6 +15581,7 @@ export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
     const message = createBaseRecoveryErrorInfo();
     message.detail = object.detail ?? "";
     message.errorType = object.errorType ?? "";
+    message.attemptProgress = object.attemptProgress ?? 0;
     return message;
   },
 };
@@ -16590,10 +16970,21 @@ export const WorkerServiceClient = makeGenericClientConstructor(
   serviceName: string;
 };
 
-/** Hosted by Dex server; pull Workers open one queue stream for at most one task at a time. */
+/** Hosted by Dex server; pull Workers open streams for at most one task at a time. */
 export type WorkerTaskServiceService = typeof WorkerTaskServiceService;
 export const WorkerTaskServiceService = {
-  /** Exchanges registration, task, result, and control frames for one Dex task queue. */
+  /**
+   * Exchanges registration, task, result, and control frames for a queue
+   * or a reserved execution slot.
+   * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
+   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+   * and sends no frame at all for a dropped task: no rejection and no output.
+   * On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+   * as not delivered and dispatches it again with the same attempt number.
+   * A half-close of any other stream is still a disconnect.
+   * A Worker must send a started task's final output before half-closing its stream.
+   * A transport error or reset instead means the Worker may have run the task.
+   */
   pollWorkerTask: {
     path: "/dex.WorkerTaskService/PollWorkerTask" as const,
     requestStream: true as const,
@@ -16608,12 +16999,34 @@ export const WorkerTaskServiceService = {
 } as const;
 
 export interface WorkerTaskServiceServer extends UntypedServiceImplementation {
-  /** Exchanges registration, task, result, and control frames for one Dex task queue. */
+  /**
+   * Exchanges registration, task, result, and control frames for a queue
+   * or a reserved execution slot.
+   * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
+   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+   * and sends no frame at all for a dropped task: no rejection and no output.
+   * On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+   * as not delivered and dispatches it again with the same attempt number.
+   * A half-close of any other stream is still a disconnect.
+   * A Worker must send a started task's final output before half-closing its stream.
+   * A transport error or reset instead means the Worker may have run the task.
+   */
   pollWorkerTask: handleBidiStreamingCall<PollWorkerTaskRequest, PollWorkerTaskResponse>;
 }
 
 export interface WorkerTaskServiceClient extends Client {
-  /** Exchanges registration, task, result, and control frames for one Dex task queue. */
+  /**
+   * Exchanges registration, task, result, and control frames for a queue
+   * or a reserved execution slot.
+   * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
+   * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+   * and sends no frame at all for a dropped task: no rejection and no output.
+   * On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+   * as not delivered and dispatches it again with the same attempt number.
+   * A half-close of any other stream is still a disconnect.
+   * A Worker must send a started task's final output before half-closing its stream.
+   * A transport error or reset instead means the Worker may have run the task.
+   */
   pollWorkerTask(): ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse>;
   pollWorkerTask(options: Partial<CallOptions>): ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse>;
   pollWorkerTask(

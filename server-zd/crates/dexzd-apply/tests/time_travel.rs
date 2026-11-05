@@ -97,7 +97,8 @@ impl MemoryState {
                     self.rows
                         .insert((*column_family, key.clone()), value.clone());
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.rows.remove(&(*column_family, key.clone()));
                 }
                 StateWrite::DeleteRange {
@@ -370,6 +371,8 @@ impl Harness {
                     if let Some(invocation) = step.invocation.as_mut() {
                         invocation.task_id.clear();
                         invocation.retry_started_at_micros = 0;
+                        // Time travel makes restored attempts pending at its own time.
+                        invocation.pending_since_micros = 0;
                     }
                     (parsed.suffix.to_vec(), step.encode_to_vec())
                 }
@@ -461,6 +464,7 @@ impl Harness {
 
     fn time_travel(&mut self, request: ResetFlowRequest) -> ApplyOutcome {
         self.apply(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(request),
         }))
     }
@@ -645,16 +649,14 @@ fn started_timeouts(outcome: &ApplyOutcome) -> Vec<(String, i32, i32)> {
         .collect()
 }
 
-fn started_retry_deadlines(outcome: &ApplyOutcome) -> Vec<(String, i64)> {
+fn started_step_execution_ids(outcome: &ApplyOutcome) -> Vec<String> {
     outcome
         .effects
         .iter()
         .filter_map(|effect| match effect {
-            ApplyEffect::InvocationStarted {
-                invocation,
-                retry_deadline_micros,
-                ..
-            } => Some((invocation.step_execution_id.clone(), *retry_deadline_micros)),
+            ApplyEffect::InvocationStarted { invocation, .. } => {
+                Some(invocation.step_execution_id.clone())
+            }
             _ => None,
         })
         .collect()
@@ -898,6 +900,7 @@ fn a_closed_point_closes_each_new_attempt_with_retention_and_history() {
             );
         }
         let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
                 ..reset_to_time(original_close_time)
@@ -1442,6 +1445,7 @@ fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running
         .expect("target history remains in the window")
         .timestamp_micros;
     let travel = harness.command(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
     let target = time_travel_target_hash(&harness.context, &harness.state, &travel)
@@ -1492,8 +1496,8 @@ fn retry_total_duration_starts_when_attempt_one_starts_after_its_lock_wait() {
     let started_at = harness.now_micros;
     assert!(started_at - pending.first_attempt_at_micros > 10 * SECOND);
     assert_eq!(
-        started_retry_deadlines(&started),
-        vec![("ChargeStep-1".to_owned(), started_at + 2 * SECOND)]
+        started_step_execution_ids(&started),
+        vec!["ChargeStep-1".to_owned()]
     );
     let running = harness.step("ChargeStep-1").invocation.unwrap();
     assert_eq!(running.retry_started_at_micros, started_at);
@@ -1527,9 +1531,11 @@ fn retry_total_duration_starts_when_attempt_one_starts_after_its_lock_wait() {
         pull_routing: None,
     }));
     assert_eq!(
-        started_retry_deadlines(&retried),
-        vec![("ChargeStep-1".to_owned(), started_at + 2 * SECOND)]
+        started_step_execution_ids(&retried),
+        vec!["ChargeStep-1".to_owned()]
     );
+    let retrying = harness.step("ChargeStep-1").invocation.unwrap();
+    assert_eq!(retrying.retry_started_at_micros, started_at);
 }
 
 #[test]
@@ -1555,8 +1561,8 @@ fn restored_calls_restart_their_retry_total_duration_at_the_travel_time() {
     let (_, outcome) = harness.travel_to(reset_to_time(execute_point.timestamp_micros));
     let traveled_at = harness.now_micros;
     assert_eq!(
-        started_retry_deadlines(&outcome),
-        vec![("ChargeStep-1".to_owned(), traveled_at + 2 * SECOND)]
+        started_step_execution_ids(&outcome),
+        vec!["ChargeStep-1".to_owned()]
     );
     let restored = harness.step("ChargeStep-1").invocation.unwrap();
     assert_eq!(restored.phase, StepInvocationPhase::Running as i32);
@@ -1800,6 +1806,7 @@ fn rebuilt_states_equal_the_recorded_states_at_every_point() {
     assert!(harness.attempt_record(1).checkpoint_seqs.len() > 2);
     for (seq, timestamp, rows, status, expected_hash) in recorded {
         let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
                 ..reset_to_time(timestamp)
@@ -1843,6 +1850,7 @@ fn diagnostic_hash_detects_a_broken_time_travel_rebuild() {
     .expect("hash current state")
     .expect("start is semantic");
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(reset(FlowResetType::Beginning)),
     }));
     let original = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -2484,6 +2492,7 @@ fn an_unexpected_reapply_rejection_is_an_invariant_violation() {
         .rows
         .insert((ColumnFamily::History, key), record.encode_to_vec());
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(reapplying(reset(FlowResetType::Beginning))),
     }));
     let error = apply_flow_command(&harness.context, &harness.state, &command)
@@ -3185,6 +3194,7 @@ fn permission_rebuild_skips_unread_inputs_when_invalid_wait_for_closes_the_flow(
             .is_some()
     );
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
     let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -3343,6 +3353,7 @@ fn assert_permission_rebuild_with_collected_value(
         .expect("target history remains in the window")
         .timestamp_micros;
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
     let previous_state = harness.state.rows.clone();
@@ -3504,6 +3515,7 @@ fn permission_rebuild_preserves_accumulated_grants_and_reapplies_new_grants() {
     harness.apply(permission_mapping_command("done", "later"));
     let later_attribute = attribute(&harness, PERMISSION_ATTRIBUTE_KEY);
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
     let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)

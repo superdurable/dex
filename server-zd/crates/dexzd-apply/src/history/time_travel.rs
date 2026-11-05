@@ -13,7 +13,8 @@ use std::collections::BTreeSet;
 use dexzd_keyspace::row_keys::{active_work_index_key, retention_index_key, timer_index_key};
 use dexzd_keyspace::{ColumnFamily, RunTable};
 use dexzd_protocol::dex::{
-    ErrorSubStatus, FlowErrorType, FlowStatus, TimeTravelForkHistoryEvent, flow_history_event,
+    ErrorSubStatus, FlowErrorType, FlowStatus, StepAttemptProgress, TimeTravelForkHistoryEvent,
+    flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, CheckpointRunStatus, CommandErrorReply, CommandReply,
@@ -42,8 +43,9 @@ use crate::projections::attribute_sync::{
 };
 use crate::projections::history_event_links::PendingHistoryEvents;
 use crate::state_access::{FlowTransaction, read_flow_directory};
+use crate::steps::dispatch_queue::remove_dispatch_queue_row;
 use crate::steps::{
-    arm_timer, configured_method_timeout_seconds, disarm_timer, invocation_retry_deadline_micros,
+    arm_timer, configured_method_timeout_seconds, disarm_timer, merge_furthest_attempt_progress,
 };
 use crate::values::ValueIdAllocator;
 use crate::{ApplyEffect, ApplyError, BehaviorVersion, WaitableChange};
@@ -140,6 +142,7 @@ pub(crate) fn apply_time_travel(
         transaction,
         &mut cursor,
         scope,
+        command.should_restore_running_as_pending,
         &previous_rows,
         rebuilt.rows,
     )?;
@@ -287,10 +290,14 @@ fn cancel_running_invocations(
 ///
 /// Restored running attempts get new dispatch IDs, so old cancellations miss them. Restored
 /// calls restart their retry total duration, as a Go reset schedules a fresh activity.
+///
+/// With `should_restore_running_as_pending`, a restored running attempt instead becomes pending
+/// with the same attempt number, its snapshot and locks, and `NOT_COMPLETED` progress.
 fn replace_attempt_rows(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
+    should_restore_running_as_pending: bool,
     previous_rows: &[AttemptRow],
     rebuilt_rows: Vec<AttemptRow>,
 ) -> Result<(), ApplyError> {
@@ -301,6 +308,10 @@ fn replace_attempt_rows(
         if row.is_hard_delete_attribute()? {
             hard_delete_keys.insert(row.key_suffix.clone());
             continue;
+        }
+        if row.table == RunTable::StepExecution {
+            // Restored invocations dispatch anew; none of them is in the DispatchQueue.
+            remove_dispatch_queue_row(transaction, cursor, &decode_step_execution(row)?)?;
         }
         if row.table == RunTable::Timer {
             let timer = decode_timer_record(row)?;
@@ -338,10 +349,16 @@ fn replace_attempt_rows(
             RunTable::StepExecution => {
                 let mut step = decode_step_execution(&row)?;
                 if let Some(invocation) = step.invocation.as_mut() {
-                    if invocation.phase == StepInvocationPhase::Running as i32 {
+                    let is_running = invocation.phase == StepInvocationPhase::Running as i32;
+                    if is_running && should_restore_running_as_pending {
+                        restore_running_as_pending(invocation);
+                    } else if is_running {
                         invocation.task_id =
                             restored_task_id(&scope.command.command_id, restored_running_count);
                         restored_running_count += 1;
+                    }
+                    if invocation.phase == StepInvocationPhase::Pending as i32 {
+                        invocation.pending_since_micros = scope.now_micros;
                     }
                     restart_retry_total_duration(invocation, scope.now_micros);
                 }
@@ -376,6 +393,15 @@ pub(crate) fn synced_row_keys(rows: &[AttemptRow]) -> Result<BTreeSet<String>, A
         keys.insert(key);
     }
     Ok(keys)
+}
+
+/// Makes a restored running attempt pending again. It may have run in the abandoned timeline.
+fn restore_running_as_pending(invocation: &mut StepInvocationRecord) {
+    invocation.phase = StepInvocationPhase::Pending as i32;
+    invocation.task_id.clear();
+    invocation.pull_routing = None;
+    invocation.attempt_started_at_micros = 0;
+    merge_furthest_attempt_progress(invocation, StepAttemptProgress::NotCompleted);
 }
 
 /// Restarts the retry total duration at `now_micros`. A call pending attempt 1 starts it when
@@ -584,10 +610,6 @@ fn dispatch_restored_invocations(
                     step.options.as_ref(),
                     invocation.method,
                 ),
-                retry_deadline_micros: invocation_retry_deadline_micros(
-                    step.options.as_ref(),
-                    invocation,
-                ),
             }),
             StepInvocationPhase::Backoff | StepInvocationPhase::Unspecified => {}
         }
@@ -665,7 +687,7 @@ fn reapply_external_inputs(
                 }
             }
         };
-        absorb_writes(transaction, writes);
+        absorb_writes(transaction, writes)?;
         let Some(replayed) = output.replayed else {
             return Err(ApplyError::InvariantViolation {
                 detail: "a reapplied input recorded its own history".to_owned(),

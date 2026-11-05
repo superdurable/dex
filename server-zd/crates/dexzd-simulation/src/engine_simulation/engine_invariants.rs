@@ -27,7 +27,7 @@ use crate::apply_checker::ApplyChecker;
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::simulated_clients::ClientRecords;
 use crate::engine_simulation::simulated_node::PARTITION_COUNT;
-use crate::engine_simulation::simulated_workers::AttemptIdentity;
+use crate::engine_simulation::simulated_workers::{AttemptIdentity, TaskFrameRecord};
 use crate::invariants::{CheckerMemory, InvariantViolation, check_flow};
 use crate::memory_state::MemoryFlowState;
 use crate::row_decoding::hex;
@@ -322,24 +322,64 @@ pub(crate) fn running_attempts(
     Ok(running)
 }
 
-/// Invariant 5: after a crash, the successor redispatches every attempt that is still running.
-pub(crate) fn check_running_attempts_redispatched(
+/// Invariant 5: after a crash, the successor never hands out again an attempt that was handed
+/// out before the crash; it fails the attempt instead, which ends its running phase (plan D68).
+pub(crate) fn check_interrupted_attempts_failed(
     process_label: &str,
     dispatched: &[AttemptIdentity],
-    running_at_recovery: &BTreeSet<AttemptIdentity>,
+    running_at_crash: &BTreeSet<AttemptIdentity>,
     running_now: &BTreeSet<AttemptIdentity>,
 ) -> Result<(), InvariantViolation> {
-    let dispatched: BTreeSet<&AttemptIdentity> = dispatched.iter().collect();
-    let forgotten = running_at_recovery
+    if let Some(attempt) = dispatched
         .iter()
-        .find(|attempt| !dispatched.contains(attempt) && running_now.contains(attempt));
-    match forgotten {
+        .find(|attempt| running_at_crash.contains(attempt))
+    {
+        return Err(InvariantViolation::new(
+            "interrupted-attempt-redispatched",
+            format!("{process_label} handed out interrupted attempt {attempt:?} again"),
+        ));
+    }
+    match running_at_crash
+        .iter()
+        .find(|attempt| running_now.contains(attempt))
+    {
         Some(attempt) => Err(InvariantViolation::new(
-            "running-attempt-not-redispatched",
-            format!("{process_label} never dispatched committed running attempt {attempt:?}"),
+            "interrupted-attempt-still-running",
+            format!("{process_label} never failed interrupted attempt {attempt:?}"),
         )),
         None => Ok(()),
     }
+}
+
+/// A SYNC attempt reaches executable Worker code at most once (plan section 8, case 1): its
+/// task frame goes out only after its start committed, and a restart fails it instead of
+/// handing it out again. Frames the Worker declined or half-closed before running are exempt.
+///
+/// Returns the number of SYNC frames checked.
+pub(crate) fn check_sync_attempts_ran_at_most_once(
+    task_frames: &BTreeMap<AttemptIdentity, Vec<TaskFrameRecord>>,
+) -> Result<u64, InvariantViolation> {
+    let mut sync_frames = 0;
+    for (attempt, frames) in task_frames {
+        let possibly_run: Vec<_> = frames
+            .iter()
+            .filter(|frame| frame.is_sync && frame.has_possibly_run)
+            .collect();
+        sync_frames += frames.iter().filter(|frame| frame.is_sync).count() as u64;
+        if possibly_run.len() > 1 {
+            return Err(InvariantViolation::new(
+                "sync-attempt-ran-twice",
+                format!(
+                    "SYNC attempt {attempt:?} reached Workers in tasks {:?}",
+                    possibly_run
+                        .iter()
+                        .map(|frame| frame.task_id.as_str())
+                        .collect::<Vec<_>>()
+                ),
+            ));
+        }
+    }
+    Ok(sync_frames)
 }
 
 /// Liveness after the calm tail: no overdue timer, no unfinished method call unless blocked
@@ -367,6 +407,15 @@ pub(crate) fn check_drained(
     }
     for flow_id in &all_flow_ids(shadow) {
         let view = shadow.view(flow_id, RunSelection::All)?;
+        if let Some((entry, _)) = view.dispatch_queue_index.first() {
+            return Err(InvariantViolation::new(
+                "queued-task-stranded",
+                format!(
+                    "Flow {flow_id} still queues {} attempt {} after the calm tail",
+                    entry.position.step_execution_id, entry.position.attempt
+                ),
+            ));
+        }
         if let Some(overdue) = view
             .timer_index
             .iter()

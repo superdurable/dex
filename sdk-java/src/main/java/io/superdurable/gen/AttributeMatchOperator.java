@@ -142,7 +142,7 @@ public enum AttributeMatchOperator
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(18);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(21);
   }
 
   private static final AttributeMatchOperator[] VALUES = values();

@@ -6,50 +6,40 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Tracks pending and running method attempts for the effect router: lock-checked starts,
-//! invocations parked on busy locks, running attempt tasks, and cancellation.
+//! Tracks pending and running method attempts for the effect router: one hand-out task per
+//! attempt, invocations parked on busy locks, cancellation of started attempts, and attempts
+//! that a restart interrupted.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Instant;
 
 use dexzd_keyspace::RunId;
-use dexzd_protocol::dex::PullRouting;
-use dexzd_protocol::dexzd::v1::StepInvocationKey;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::effects::dispatch::method_attempt::{MethodAttempt, pull_routing};
-use crate::effects::flow_effect_operations::{FlowEffectOperationError, InvocationStartOutcome};
+use crate::effects::dispatch::attempt_entries::HandoutRestart;
+use crate::effects::dispatch::attempt_handout::{
+    AttemptHandout, HandoutEnd, HandoutEndReport, HandoutProgress, InterruptedAttempt,
+    fail_interrupted_attempt,
+};
 use crate::effects::method_request::MethodAttemptKey;
-use crate::effects::state_reads::read_run_record;
-use crate::effects::{EffectContext, EffectError, RouterMessage};
+use crate::effects::{AttemptDrainProgress, EffectContext};
 use crate::flow_coordination::FlowAddress;
-
-/// Result of one lock-checked start, reported back to the router.
-#[derive(Debug)]
-pub(crate) enum InvocationStartResult {
-    Started,
-    LocksBusy,
-    Stale,
-    Stopped,
-}
 
 struct RunningAttempt {
     cancel: CancellationToken,
 }
 
-struct StartingInvocation {
-    /// Lock releases of the run already seen when the start began.
-    lock_release_count: u64,
-}
-
-/// Dispatch state owned by the effect router task.
+/// Dispatch state owned by the effect router task; attempt entries are shared.
 pub(crate) struct DispatchScheduler {
     context: Arc<EffectContext>,
-    starting: BTreeMap<MethodAttemptKey, StartingInvocation>,
-    parked: BTreeMap<RunId, BTreeMap<MethodAttemptKey, FlowAddress>>,
-    lock_release_counts: BTreeMap<RunId, u64>,
-    /// Running attempts by task ID, then by attempt key; time travel may reuse a task ID.
+    drain: Option<watch::Sender<AttemptDrainProgress>>,
+    /// Hand-out tasks this router spawned, by attempt and entry generation, until they end.
+    in_flight: BTreeSet<(MethodAttemptKey, u64)>,
+    /// Claim tasks this router spawned until they end.
+    claim_tasks: usize,
+    /// Started attempts by task ID, then by attempt key.
     running: BTreeMap<Vec<u8>, BTreeMap<MethodAttemptKey, RunningAttempt>>,
 }
 
@@ -57,109 +47,125 @@ impl DispatchScheduler {
     pub(crate) fn new(context: Arc<EffectContext>) -> Self {
         Self {
             context,
-            starting: BTreeMap::new(),
-            parked: BTreeMap::new(),
-            lock_release_counts: BTreeMap::new(),
+            drain: None,
+            in_flight: BTreeSet::new(),
+            claim_tasks: 0,
             running: BTreeMap::new(),
         }
     }
 
-    /// Starts a pending invocation unless a start of the same attempt is in flight.
-    pub(crate) fn start_pending_invocation(&mut self, flow: FlowAddress, key: MethodAttemptKey) {
-        if self.starting.contains_key(&key) {
-            return;
-        }
-        let lock_release_count = self.lock_release_count(key.run_id);
-        self.starting
-            .insert(key.clone(), StartingInvocation { lock_release_count });
-        let context = Arc::clone(&self.context);
-        self.context.tracker.spawn(async move {
-            let result = try_start_until_answered(&context, &flow, &key).await;
-            context.report(RouterMessage::InvocationStartFinished { flow, key, result });
-        });
-    }
-
-    /// Records the answer of a lock-checked start.
-    pub(crate) fn finish_start(
+    /// Hands out a pending attempt unless a task already holds its entry.
+    pub(crate) fn start_pending_invocation(
         &mut self,
         flow: FlowAddress,
         key: MethodAttemptKey,
-        result: InvocationStartResult,
+        scheduled_at: Option<Instant>,
     ) {
-        let Some(starting) = self.starting.remove(&key) else {
+        let Some(generation) = self.context.attempt_entries().register(&key) else {
             return;
         };
-        if !matches!(result, InvocationStartResult::LocksBusy) {
+        let progress = HandoutProgress { scheduled_at };
+        self.start_handout(flow, key, generation, progress);
+    }
+
+    /// Spawns the hand-out task of `generation`; while attempts drain, releases its entry instead.
+    fn start_handout(
+        &mut self,
+        flow: FlowAddress,
+        key: MethodAttemptKey,
+        generation: u64,
+        progress: HandoutProgress,
+    ) {
+        if self.drain.is_some() {
+            // The attempt stays pending for the successor, as after a refused reservation.
+            let _released = self
+                .context
+                .attempt_entries()
+                .finish_handout(&key, generation, None);
             return;
         }
-        if starting.lock_release_count != self.lock_release_count(key.run_id) {
-            // Locks were released while the start was in flight; try again now.
-            self.start_pending_invocation(flow, key);
-            return;
+        self.in_flight.insert((key.clone(), generation));
+        spawn_handout(&self.context, flow, key, generation, progress);
+    }
+
+    /// Records the end of a hand-out task; one that met busy locks waits for their release.
+    pub(crate) fn finish_handout(
+        &mut self,
+        flow: FlowAddress,
+        key: MethodAttemptKey,
+        generation: u64,
+        end: HandoutEnd,
+    ) {
+        let locks_busy = match end {
+            HandoutEnd::Released => None,
+            HandoutEnd::LocksBusy(progress) => Some((flow, progress)),
+        };
+        self.in_flight.remove(&(key.clone(), generation));
+        let restart = self
+            .context
+            .attempt_entries()
+            .finish_handout(&key, generation, locks_busy);
+        if let HandoutRestart::Again(flow, progress, generation) = restart {
+            self.start_handout(flow, key, generation, progress);
         }
-        self.parked.entry(key.run_id).or_default().insert(key, flow);
+        self.publish_attempt_drain();
+    }
+
+    /// Counts the task of a delivered Claim before the router spawns it.
+    ///
+    /// Returns false while attempts drain: like a new hand-out, the Claim does not run, and its
+    /// row stays queued for the successor.
+    pub(crate) fn admit_claim(&mut self) -> bool {
+        if self.drain.is_some() {
+            return false;
+        }
+        self.claim_tasks += 1;
+        true
+    }
+
+    /// Records the end of a Claim's task.
+    pub(crate) fn finish_claim(&mut self) {
+        self.claim_tasks = self
+            .claim_tasks
+            .checked_sub(1)
+            .expect("each admitted Claim's task reports its end once");
+        self.publish_attempt_drain();
     }
 
     /// Retries the run's invocations that waited for locks.
     pub(crate) fn release_locks(&mut self, run_id: RunId) {
-        *self.lock_release_counts.entry(run_id).or_insert(0) += 1;
-        for (key, flow) in self.parked.remove(&run_id).unwrap_or_default() {
-            self.start_pending_invocation(flow, key);
+        let unparked = self.context.attempt_entries().release_locks(run_id);
+        for (key, flow, progress, generation) in unparked {
+            self.start_handout(flow, key, generation, progress);
         }
     }
 
     /// Retries every parked invocation; in-memory RPC locks release without an effect.
     pub(crate) fn retry_parked_invocations(&mut self) {
-        let parked = std::mem::take(&mut self.parked);
-        for (key, flow) in parked.into_values().flatten() {
-            self.start_pending_invocation(flow, key);
+        let unparked = self.context.attempt_entries().release_all_parked();
+        for (key, flow, progress, generation) in unparked {
+            self.start_handout(flow, key, generation, progress);
         }
     }
 
-    /// Runs a started attempt unless the same attempt of the same run attempt already runs.
-    ///
-    /// A start of a finished attempt still spawns; the attempt ends at once unless state
-    /// shows it running.
-    pub(crate) fn run_started_attempt(
+    /// Registers the cancellation of an attempt whose start is about to be proposed.
+    pub(crate) fn register_attempt(
         &mut self,
-        flow: FlowAddress,
-        key: MethodAttemptKey,
         task_id: Vec<u8>,
-        method_timeout_seconds: i32,
-        scheduled_at: Option<Instant>,
-        retry_deadline_micros: i64,
+        key: MethodAttemptKey,
+        cancel: CancellationToken,
     ) {
-        let attempts = self.running.entry(task_id.clone()).or_default();
-        if attempts.contains_key(&key) {
-            return;
+        if let Some(drain) = &self.drain {
+            drain.send_modify(|progress| progress.attempts_waited += 1);
         }
-        let cancel = self.context.shutdown.child_token();
-        attempts.insert(
-            key.clone(),
-            RunningAttempt {
-                cancel: cancel.clone(),
-            },
-        );
-        let run = self.context.run_location(&flow, key.run_id);
-        let attempt = MethodAttempt {
-            context: Arc::clone(&self.context),
-            flow,
-            run,
-            key: key.clone(),
-            task_id: task_id.clone(),
-            method_timeout_seconds,
-            scheduled_at,
-            retry_deadline_micros,
-            cancel,
-        };
-        let context = Arc::clone(&self.context);
-        self.context.tracker.spawn(async move {
-            attempt.run().await;
-            context.report(RouterMessage::AttemptFinished { task_id, key });
-        });
+        self.running
+            .entry(task_id)
+            .or_default()
+            .insert(key, RunningAttempt { cancel });
+        self.publish_attempt_drain();
     }
 
-    /// Stops the attempts dispatched as `task_id`; their Workers receive a cancel request.
+    /// Stops the attempts started as `task_id`; their Workers receive a cancel request.
     pub(crate) fn cancel_attempt(&mut self, task_id: &[u8]) {
         for attempt in self
             .running
@@ -171,87 +177,95 @@ impl DispatchScheduler {
         }
     }
 
+    pub(crate) fn interrupt_attempts(&self) {
+        for attempt in self.running.values().flat_map(BTreeMap::values) {
+            attempt.cancel.cancel();
+        }
+    }
+
     pub(crate) fn finish_attempt(&mut self, task_id: Vec<u8>, key: &MethodAttemptKey) {
         if let Some(attempts) = self.running.get_mut(&task_id) {
-            attempts.remove(key);
+            if attempts.remove(key).is_some()
+                && let Some(drain) = &self.drain
+            {
+                drain.send_modify(|progress| progress.attempts_finished += 1);
+            }
             if attempts.is_empty() {
                 self.running.remove(&task_id);
             }
         }
+        self.publish_attempt_drain();
+    }
+
+    /// Fails started attempts that a partition rebuild found running, except those this node
+    /// started itself after it began serving.
+    pub(crate) fn fail_interrupted_attempts(
+        &mut self,
+        flow: FlowAddress,
+        attempts: Vec<InterruptedAttempt>,
+    ) {
+        for attempt in attempts {
+            if self.running.contains_key(&attempt.task_id) {
+                continue;
+            }
+            let context = Arc::clone(&self.context);
+            let flow = flow.clone();
+            self.context.tracker.spawn(async move {
+                let run_id = attempt.key.run_id;
+                fail_interrupted_attempt(&context, &flow, run_id, attempt).await;
+            });
+        }
+    }
+
+    pub(crate) fn begin_attempt_drain(&mut self, progress: watch::Sender<AttemptDrainProgress>) {
+        let attempts_waited = self.running.values().map(BTreeMap::len).sum();
+        progress.send_replace(AttemptDrainProgress {
+            attempts_waited,
+            attempts_running: attempts_waited,
+            outstanding_handouts: self.outstanding_handouts(),
+            has_started: true,
+            ..AttemptDrainProgress::default()
+        });
+        self.drain = Some(progress);
+    }
+
+    fn publish_attempt_drain(&self) {
+        if let Some(drain) = &self.drain {
+            drain.send_modify(|progress| {
+                progress.attempts_running = self.running.values().map(BTreeMap::len).sum();
+                progress.outstanding_handouts = self.outstanding_handouts();
+            });
+        }
+    }
+
+    fn outstanding_handouts(&self) -> usize {
+        self.in_flight.len() + self.claim_tasks
     }
 
     pub(crate) fn has_parked_invocations(&self) -> bool {
-        !self.parked.is_empty()
-    }
-
-    fn lock_release_count(&self, run_id: RunId) -> u64 {
-        self.lock_release_counts.get(&run_id).copied().unwrap_or(0)
+        self.context.attempt_entries().has_parked()
     }
 }
 
-/// Asks the runtime to start the attempt, retrying while the runtime or state is unavailable.
-async fn try_start_until_answered(
-    context: &EffectContext,
-    flow: &FlowAddress,
-    key: &MethodAttemptKey,
-) -> InvocationStartResult {
-    let invocation: StepInvocationKey = key.invocation();
-    let task_id = context.id_source.dispatch_task_id().as_bytes().to_vec();
-    let mut backoff = context.retry_backoff();
-    loop {
-        let outcome = match read_dispatch_pull_routing(context, flow, key) {
-            Ok(Some(pull_routing)) => context
-                .flow_effect_operations
-                .try_start_invocation(
-                    flow,
-                    key.run_id,
-                    key.run_attempt,
-                    &invocation,
-                    key.attempt,
-                    task_id.clone(),
-                    pull_routing,
-                )
-                .await
-                .map_err(EffectError::FlowEffectOperations),
-            Ok(None) => return InvocationStartResult::Stale,
-            Err(error) => Err(error),
+/// Spawns the hand-out task of `generation`; it reports its end to the router.
+pub(crate) fn spawn_handout(
+    context: &Arc<EffectContext>,
+    flow: FlowAddress,
+    key: MethodAttemptKey,
+    generation: u64,
+    progress: HandoutProgress,
+) {
+    // Built before the spawn, so a task dropped before its first poll still reports its end.
+    let mut report = HandoutEndReport::new(context, flow.clone(), key.clone(), generation);
+    let task_context = Arc::clone(context);
+    context.tracker.spawn(async move {
+        let handout = AttemptHandout {
+            context: task_context,
+            flow,
+            key,
+            generation,
+            progress,
         };
-        match outcome {
-            Ok(InvocationStartOutcome::Started) => return InvocationStartResult::Started,
-            Ok(InvocationStartOutcome::LocksBusy) => return InvocationStartResult::LocksBusy,
-            Ok(InvocationStartOutcome::Stale) => return InvocationStartResult::Stale,
-            Err(EffectError::FlowEffectOperations(FlowEffectOperationError::NodeStopping {
-                ..
-            })) => {
-                return InvocationStartResult::Stopped;
-            }
-            Err(error) => {
-                // A corrupt run record also waits: dropping the start would strand the call.
-                if error.is_retryable() {
-                    tracing::debug!(%error, run_id = %key.run_id, "invocation start is waiting for the runtime");
-                } else {
-                    tracing::warn!(%error, run_id = %key.run_id, "invocation start cannot read the run");
-                }
-                if !backoff.wait(&context.shutdown).await {
-                    return InvocationStartResult::Stopped;
-                }
-            }
-        }
-    }
-}
-
-/// Returns the routing that the start records: the run's sticky Worker and no serving Worker.
-///
-/// Returns `None` when the run no longer exists, or [`EffectError`] when its state is unreadable.
-fn read_dispatch_pull_routing(
-    context: &EffectContext,
-    flow: &FlowAddress,
-    key: &MethodAttemptKey,
-) -> Result<Option<PullRouting>, EffectError> {
-    let reader = context
-        .flow_effect_operations
-        .flow_state_reader(flow, true)?;
-    let run = context.run_location(flow, key.run_id);
-    let run_record = read_run_record(reader.as_ref(), run)?;
-    Ok(run_record.map(|record| pull_routing(&record.sticky_app_worker_id, "")))
+        report.set_end(handout.run().await);
+    });
 }

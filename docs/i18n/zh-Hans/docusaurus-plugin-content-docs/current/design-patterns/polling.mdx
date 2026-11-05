@@ -47,11 +47,13 @@ interval + call timeout <= HeartbeatTimeout - 10s
 
 **ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/primitives/step/step-options#timeouts-and-total-duration)。
 
+**TotalDuration** 只在失败之后决定是否 retry，所以最后一次 attempt 可能在它之后结束。有 Worker 可用时，总等待时间最多约为 **TotalDuration** 加一个 **ExecuteMethodTimeout**。
+
 Polling Step 可以使用任一种 durability。见 [Step options](/primitives/step/step-options#durability)。
 
 ## 等待超时之后
 
-**ExecuteMethodTimeout** 或 **TotalDuration** 到期时，Dex 以 timeout 让该 Step 失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
+**ExecuteMethodTimeout** 到期时，Dex 以 timeout 让该 attempt 失败。如果 **TotalDuration** 已经不够再 retry 一次，该 Step 失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
 
 失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。不是固定时长的业务条件（例如不归该 Flow 所有、可能过期的 lease）仍然在循环中检查。
 

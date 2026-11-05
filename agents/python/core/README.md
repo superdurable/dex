@@ -767,10 +767,10 @@ Single-attempt calls do not retry; `RecordToolOutcomeUnknown` records
 `outcome_unknown`.
 
 Before calling the runner, the tool Step writes `tool_call_started` and awaits
-a heartbeat. Dex can redeliver a task to another Worker at the same attempt
-when the first Worker disconnects before Dex receives any output, so this
-output narrows that window before the tool runs. Awaiting the heartbeat only
-queues the frame on the Worker; it does not wait for Dex to receive it.
+a heartbeat. Dex hands each attempt number to one Worker only: a Worker that
+disconnects after it received the task fails the attempt, and the call records
+`outcome_unknown`. Earlier Dex Servers could redeliver the attempt to another
+Worker when no output had reached them, and this output narrowed that window.
 
 ### Tool tasks
 
@@ -1756,10 +1756,10 @@ The plan records each of these decisions too.
 - Interrupt deadlines use the Worker clock.
 - One `text_delta` call writes one Stream message; batch very small chunks.
 - Tool call IDs that are empty or contain `/` fail the turn.
-- A tool Step's first output narrows Dex's redelivery window but does not
-  close it. The awaited heartbeat only queues the frame. If the Worker dies
-  before the frame leaves it, or after it left but before Dex received it, Dex
-  can redeliver the same attempt and a single-attempt tool can run twice.
+- The tool Steps use SYNC durability, and Dex never hands one attempt number
+  to a second Worker, so a single-attempt tool does not run twice after a
+  Worker crash. Cancellation is cooperative, though: a cancelled run may keep
+  running while the failure route starts.
 - A tool the framework cannot defer runs inside `RunModel` and repeats on a
   `RunModel` retry.
 - Whether turn records cleared at turn end still count against the Server's
@@ -1776,9 +1776,7 @@ The plan records each of these decisions too.
   seconds pass before the user is asked. A server slower than 10 seconds to
   take an answer in has its question asked twice.
 - A retried `PollToolTask` attempt asks the user again rather than send an
-  answer that its first attempt may have sent. Dex can still redeliver the
-  first attempt itself when its heartbeat never reached Dex, as for a tool
-  Step, and that attempt sends the answer again.
+  answer that its first attempt may have sent.
 - An MCP `input_required` answer to `tools/call` outside a task records
   `failed`; mapping it to a session question interrupt is a follow-up.
 - `dex_agents.mcp` starts a new stdio process, or opens a new HTTP connection,

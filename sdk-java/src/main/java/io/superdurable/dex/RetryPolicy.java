@@ -18,11 +18,9 @@ import java.time.Duration;
  * <p>Only values supplied to the builder override server defaults. An operation stops retrying when
  * either its maximum attempts or total duration limit is reached. Durations use
  * {@link java.time.Duration}; the receiving API determines whether subsecond precision is accepted.
- * With asynchronous Step durability, local and regular execution share the same attempt and elapsed
- * duration budgets. Fallback starts immediately, while later regular retries continue the cumulative
- * exponential-backoff sequence. Step retry total duration defaults to four hours. The asynchronous
- * local phase uses at most seven seconds and three attempts before fallback; smaller user limits
- * still apply.
+ * Step retry total duration defaults to four hours and starts when the Step is first handed to a
+ * Worker. After an attempt fails, Dex uses the duration to decide whether to schedule another retry.
+ * It does not end an attempt that is still running.
  *
  * <pre>{@code
  * RetryPolicy retry = RetryPolicy.newBuilder()
@@ -136,7 +134,8 @@ public final class RetryPolicy {
          * Limits the total elapsed retry duration.
          *
          * <p>Step method retries default to four hours when this value is unset. An explicit value
-         * may be shorter or longer.
+         * may be shorter or longer. It starts at the first Worker hand-out and is checked only after
+         * an attempt fails to decide whether to retry. It never ends a running attempt.
          *
          * @param value the total retry duration, or {@code null} for the server default
          * @return this builder

@@ -531,9 +531,16 @@ impl ServeProcess {
     /// Sends SIGTERM and waits for the process to exit.
     pub(crate) async fn terminate(&mut self, budget: Duration) -> ExitStatus {
         let deadline = tokio::time::Instant::now() + budget;
+        self.send_sigterm(budget).await;
+        self.wait_for_exit(deadline.saturating_duration_since(tokio::time::Instant::now()))
+            .await
+    }
+
+    /// Sends SIGTERM without waiting for the process to exit.
+    pub(crate) async fn send_sigterm(&self, budget: Duration) {
         let process_id = self.child.id().expect("the process is still running");
-        let signal_status = tokio::time::timeout_at(
-            deadline,
+        let signal_status = tokio::time::timeout(
+            budget,
             Command::new("kill")
                 .arg("-TERM")
                 .arg(process_id.to_string())
@@ -547,8 +554,6 @@ impl ServeProcess {
             "kill -TERM {process_id} failed:\n{}",
             self.log()
         );
-        self.wait_for_exit(deadline.saturating_duration_since(tokio::time::Instant::now()))
-            .await
     }
 
     pub(crate) async fn kill(&mut self) -> ExitStatus {
@@ -881,6 +886,7 @@ impl PullWorker {
                         flow_types: vec![flow_type.to_owned()],
                         sdk_name: "dexzd-server-tests".to_owned(),
                         sdk_version: "0".to_owned(),
+                        ..Default::default()
                     },
                 )),
             })

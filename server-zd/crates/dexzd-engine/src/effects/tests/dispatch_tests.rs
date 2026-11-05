@@ -9,21 +9,23 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use dexzd_clock::WallClock;
+use tokio::time::Instant;
+
 use dexzd_apply::ApplyEffect;
 use dexzd_apply::read_model::get_history_events;
 use dexzd_keyspace::VALUE_REFERENCE_PREFIX;
-use dexzd_keyspace::row_keys::{run_named_key, run_singleton_key};
-use dexzd_keyspace::{ColumnFamily, RunTable};
+
 use dexzd_protocol::dex::{
     AttributeWrite, CloseDecision, CloseDecisionType, FlowStatus, FlowTimeoutPolicy,
     InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, PullRouting, PullRoutingSource,
     StartFlowRequest, StepDecision, StepOptions, StopFlowRequest, Value, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, FlowStopCommand, StepAttemptFailureKind, StepInvocationKey, StepMethod,
-    flow_command, step_attempt_heartbeat_command,
+    FlowCommand, FlowStopCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
+    StepInvocationKey, StepInvocationPhase, StepMethod, flow_command,
+    step_attempt_heartbeat_command,
 };
-use dexzd_worker_dispatch::DispatchOutcome;
 
 use super::{
     EffectHarness, SECOND_MICROS, START_MICROS, is_attempt_failed, is_method_completed, settings,
@@ -227,8 +229,8 @@ async fn starts_record_the_dispatch_routing_and_results_the_serving_worker() {
     assert_eq!(
         start_routings,
         vec![
-            routing("", "", PullRoutingSource::Unspecified),
-            routing("worker-a", "", PullRoutingSource::Unspecified),
+            routing("", "worker-a", PullRoutingSource::FlowTypeQueue),
+            routing("worker-a", "worker-a", PullRoutingSource::StickyQueue),
         ]
     );
     let result_routings: Vec<_> = harness
@@ -392,36 +394,31 @@ async fn each_worker_frame_extends_the_heartbeat_timeout() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn matching_waits_do_not_count_against_the_heartbeat_timeout() {
+async fn timeouts_start_when_the_task_frame_goes_out_after_the_start_commits() {
     let harness = EffectHarness::new();
-    harness
-        .dispatcher
-        .is_assignment_manual
-        .store(true, Ordering::SeqCst);
+    *harness
+        .flow_effect_operations
+        .start_commit_delay
+        .lock()
+        .expect("lock") = Duration::from_secs(15);
     harness.rebuild_all_partitions().await;
+    let started_at = Instant::now();
     start_with_heartbeat_timeout(&harness, 10);
+    // A SYNC attempt reaches its Worker only once its start commits (plan D51, D7).
     let dispatch = harness.dispatcher.next_dispatch().await;
-
-    tokio::time::sleep(Duration::from_secs(15)).await;
-    harness.settle().await;
-    assert!(
-        failures(&harness).is_empty(),
-        "no Worker holds the task yet"
-    );
-    dispatch.assign("worker-a");
-    tokio::time::sleep(Duration::from_secs(9)).await;
-    // The Worker rejects the task before any output, and matching continues.
-    dispatch.unassign();
-    tokio::time::sleep(Duration::from_secs(15)).await;
-    harness.settle().await;
-    assert!(
-        failures(&harness).is_empty(),
-        "the rejection stopped the timeout"
-    );
-    dispatch.assign("worker-b");
+    let sent_at = Instant::now();
+    assert!(sent_at - started_at >= Duration::from_secs(15));
+    let deadline_micros = dispatch
+        .request
+        .deadline
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("deadline after epoch")
+        .as_micros();
+    let sent_micros = u128::try_from(harness.clock.now_unix_micros()).expect("positive");
+    assert_eq!(deadline_micros - sent_micros, 2 * 60 * 60 * 1_000_000);
     tokio::time::sleep(Duration::from_millis(9_900)).await;
     harness.settle().await;
-    assert!(failures(&harness).is_empty());
+    assert!(failures(&harness).is_empty(), "the frame went out 9.9s ago");
     tokio::time::sleep(Duration::from_millis(200)).await;
     harness.settle().await;
     assert_eq!(
@@ -650,31 +647,98 @@ async fn requests_over_the_message_limit_fail_before_dispatch() {
     harness.shutdown().await;
 }
 
+/// Returns the recorded attempt failures with their guards.
+fn failure_commands(harness: &EffectHarness) -> Vec<StepAttemptFailedCommand> {
+    harness
+        .flow_effect_operations
+        .commands_matching(is_attempt_failed)
+        .into_iter()
+        .filter_map(|recorded| match recorded.command.command {
+            Some(flow_command::Command::StepAttemptFailed(failure)) => Some(failure),
+            _ => None,
+        })
+        .collect()
+}
+
 #[tokio::test(start_paused = true)]
-async fn dispatch_errors_and_refused_dispatches_fail_the_attempt() {
+async fn an_attempt_no_worker_takes_waits_in_the_queue_and_starts_when_claimed() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
-    harness.start_flow(start_request("order-1"), settings());
-    let dispatch = harness.dispatcher.next_dispatch().await;
-    dispatch.complete(DispatchOutcome::DispatchError {
-        reason: dexzd_protocol::dex::DispatchTaskErrorReason::NoWorkerAvailable,
-        detail: "no Worker accepted the task".to_owned(),
-    });
-    harness.settle().await;
-    let first = failures(&harness);
-    assert_eq!(first[0].0, StepAttemptFailureKind::DispatchError as i32);
-    assert!(first[0].2.contains("NO_WORKER_AVAILABLE"));
-
     harness
         .dispatcher
         .refuse_dispatch
         .store(true, Ordering::SeqCst);
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    let run_id = harness.start_flow(start_request("order-1"), settings());
     harness.settle().await;
-    let second = failures(&harness);
-    assert_eq!(second.len(), 2);
-    assert_eq!(second[1].0, StepAttemptFailureKind::DispatchError as i32);
-    assert!(second[1].2.contains("closing"));
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    harness.settle().await;
+    assert!(
+        failure_commands(&harness).is_empty(),
+        "queueing is not a failure"
+    );
+    let queued = harness.flow_effect_operations.commands_matching(|command| {
+        matches!(command, flow_command::Command::StepAttemptQueued(_))
+    });
+    assert_eq!(queued.len(), 1, "one row for the attempt");
+    let refs = harness.dispatcher.queued_refs.lock().expect("lock").clone();
+    assert_eq!(refs.len(), 1, "matching got the committed row's ref");
+    let task = refs[0].clone();
+    assert_eq!(task.queue.step_type, "ChargeStep");
+    assert_eq!(task.position.step_execution_id, "ChargeStep-1");
+    let invocation = harness
+        .step_execution("order-1", run_id, "ChargeStep-1")
+        .invocation
+        .expect("invocation");
+    assert_eq!(invocation.phase, StepInvocationPhase::Pending as i32);
+    // A stale ref of another attempt number is answered as stale.
+    let mut stale = task.clone();
+    stale.position.attempt = 2;
+    harness.dispatcher.claim(7, stale);
+    harness.settle().await;
+    harness.dispatcher.claim(8, task);
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    assert_eq!(dispatch.request.step_type, "ChargeStep");
+    harness.settle().await;
+    let replies = harness
+        .dispatcher
+        .claim_replies
+        .lock()
+        .expect("lock")
+        .clone();
+    assert_eq!(
+        replies
+            .iter()
+            .map(|(claim_id, reply)| (*claim_id, reply.result))
+            .collect::<Vec<_>>(),
+        vec![
+            (7, dexzd_worker_dispatch::ClaimResult::Stale),
+            (8, dexzd_worker_dispatch::ClaimResult::Started),
+        ]
+    );
+    assert!(replies.iter().all(|(_, reply)| reply.next.is_none()));
+    dispatch.complete_wait_for(dexzd_protocol::dex::InvokeWaitForMethodResponse::default());
+    harness.settle().await;
+    assert!(failure_commands(&harness).is_empty());
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_closing_matching_owner_writes_nothing_for_a_pending_attempt() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    harness.dispatcher.is_closing.store(true, Ordering::SeqCst);
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    assert_eq!(
+        harness.dispatcher.reservation_count.load(Ordering::SeqCst),
+        1
+    );
+    assert!(failure_commands(&harness).is_empty());
+    let invocation = harness
+        .step_execution("order-1", run_id, "ChargeStep-1")
+        .invocation
+        .expect("invocation");
+    assert_eq!(invocation.phase, StepInvocationPhase::Pending as i32);
     harness.shutdown().await;
 }
 
@@ -842,7 +906,6 @@ async fn speculative_and_committed_copies_of_a_start_dispatch_once() {
         attempt: 1,
         task_id: invocation.task_id,
         method_timeout_seconds: 0,
-        retry_deadline_micros: START_MICROS + 4 * 60 * 60 * SECOND_MICROS,
     };
     let flow = EffectHarness::flow("order-1");
     harness
@@ -925,75 +988,6 @@ async fn async_methods_propose_with_batched_urgency() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_restored_running_attempt_is_redispatched_after_its_original_dispatch_finished() {
-    let harness = EffectHarness::new();
-    harness.rebuild_all_partitions().await;
-    let run_id = harness.start_flow(start_request("order-1"), settings());
-    let original = harness.dispatcher.next_dispatch().await;
-    let run = harness.run_location("order-1", run_id);
-    let step_key = run_named_key(
-        run.flow_hash,
-        run.run_id,
-        RunTable::StepExecution,
-        "ChargeStep-1",
-    );
-    let running_step = harness
-        .flow_effect_operations
-        .snapshot()
-        .rows
-        .get(&(ColumnFamily::Flow, step_key.clone()))
-        .expect("the Step execution row exists")
-        .clone();
-    let task_id = harness
-        .step_execution("order-1", run_id, "ChargeStep-1")
-        .invocation
-        .expect("invocation")
-        .task_id;
-    original.complete_wait_for(InvokeWaitForMethodResponse::default());
-    let _execute = harness.dispatcher.next_dispatch().await;
-
-    // Time travel restores the WaitFor attempt, with its task ID, in run attempt 2.
-    {
-        let mut record = harness.run_record("order-1", run_id);
-        record.current_attempt = 2;
-        let mut state = harness.flow_effect_operations.state.lock().expect("lock");
-        state
-            .rows
-            .insert((ColumnFamily::Flow, step_key), running_step);
-        state.put_message(
-            ColumnFamily::Flow,
-            run_singleton_key(run.flow_hash, run.run_id, RunTable::RunRecord),
-            &record,
-        );
-    }
-    harness.runner.handle(
-        &EffectHarness::flow("order-1"),
-        &[ApplyEffect::InvocationStarted {
-            run_id,
-            run_attempt: 2,
-            invocation: StepInvocationKey {
-                step_execution_id: "ChargeStep-1".to_owned(),
-                method: StepMethod::WaitFor as i32,
-            },
-            attempt: 1,
-            task_id,
-            method_timeout_seconds: 0,
-            retry_deadline_micros: START_MICROS + 4 * 60 * 60 * SECOND_MICROS,
-        }],
-        true,
-    );
-    let restored = harness.dispatcher.next_dispatch().await;
-    assert!(matches!(
-        restored.method_request(),
-        MethodRequest::WaitFor(_)
-    ));
-    assert_eq!(restored.context().attempt, 1);
-    assert_eq!(restored.context().run_attempt, 2);
-    assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 3);
-    harness.shutdown().await;
-}
-
-#[tokio::test(start_paused = true)]
 async fn an_unreadable_attempt_state_times_out_the_method_and_retains_its_locks_for_retry() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
@@ -1039,7 +1033,7 @@ async fn an_unreadable_attempt_state_times_out_the_method_and_retains_its_locks_
         vec![(
             StepAttemptFailureKind::MethodTimeout as i32,
             false,
-            "method timeout of 30s expired".to_owned()
+            "method timeout of 30s expired while building the Worker request".to_owned()
         )]
     );
     assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
@@ -1050,6 +1044,92 @@ async fn an_unreadable_attempt_state_times_out_the_method_and_retains_its_locks_
                 if *released == run_id && lock_keys == &["inventory".to_owned()]
         )),
         "the timed-out method retains its locks for retry"
+    );
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rebuild_reports_a_queued_row_as_a_head_and_does_not_queue_it_again() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    let queued_command_count = || {
+        harness
+            .flow_effect_operations
+            .commands_matching(|command| {
+                matches!(command, flow_command::Command::StepAttemptQueued(_))
+            })
+            .len()
+    };
+    assert_eq!(queued_command_count(), 1);
+    let task = harness.dispatcher.queued_refs.lock().expect("lock")[0].clone();
+    let reservations_before = harness.dispatcher.reservations.lock().expect("lock").len();
+    // A restart rebuilds matching's refs from the index alone (plan section 3.6).
+    harness.rebuild_all_partitions().await;
+    harness.settle().await;
+    let heads = harness
+        .dispatcher
+        .rebuilt_heads
+        .lock()
+        .expect("lock")
+        .clone();
+    assert_eq!(heads, vec![task.clone()]);
+    assert_eq!(
+        queued_command_count(),
+        1,
+        "the rebuild queues nothing again"
+    );
+    assert_eq!(
+        harness.dispatcher.reservations.lock().expect("lock").len(),
+        reservations_before,
+        "a queued attempt reaches matching through Heads only"
+    );
+    harness.dispatcher.claim(1, task);
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    assert_eq!(dispatch.request.step_type, "ChargeStep");
+    harness.settle().await;
+    let invocation = harness
+        .step_execution("order-1", run_id, "ChargeStep-1")
+        .invocation
+        .expect("invocation");
+    assert_eq!(invocation.phase, StepInvocationPhase::Running as i32);
+    assert_eq!(invocation.attempt, 1);
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn periodic_heads_restore_a_ref_matching_lost_once() {
+    let config = EffectsConfig {
+        heads_resync_interval: Duration::from_secs(1),
+        ..EffectsConfig::default()
+    };
+    let harness = EffectHarness::with_config(super::DurableState::new(), config);
+    harness.rebuild_all_partitions().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    // The fake never hands its Queued to the matching that merges scans: a lost ref.
+    assert_eq!(
+        harness.dispatcher.queued_refs.lock().expect("lock").len(),
+        1
+    );
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness
+            .dispatcher
+            .restored_head_count
+            .load(Ordering::SeqCst),
+        1,
+        "the first round restores the lost ref and later rounds find it"
     );
     harness.shutdown().await;
 }

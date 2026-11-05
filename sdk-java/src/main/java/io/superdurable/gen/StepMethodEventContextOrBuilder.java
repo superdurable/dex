@@ -249,4 +249,37 @@ public interface StepMethodEventContextOrBuilder extends
    * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
    */
   com.google.protobuf.TimestampOrBuilder getWaitForCompletedTimeOrBuilder();
+
+  /**
+   * <pre>
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+   * @return Whether the scheduledTime field is set.
+   */
+  boolean hasScheduledTime();
+  /**
+   * <pre>
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+   * @return The scheduledTime.
+   */
+  com.google.protobuf.Timestamp getScheduledTime();
+  /**
+   * <pre>
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+   */
+  com.google.protobuf.TimestampOrBuilder getScheduledTimeOrBuilder();
 }

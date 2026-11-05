@@ -24,8 +24,9 @@ use tokio::time::Instant;
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::engine_invariants::{
     TwinComparison, check_acknowledged_writes, check_acknowledged_writes_and_caught_up,
-    check_drained, check_recovered_flows, check_running_attempts_redispatched,
-    check_store_matches_log, outstanding_work, running_attempts,
+    check_drained, check_interrupted_attempts_failed, check_recovered_flows,
+    check_store_matches_log, check_sync_attempts_ran_at_most_once, outstanding_work,
+    running_attempts,
 };
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::seed_summary::{final_state, finish_summary};
@@ -153,6 +154,7 @@ impl Simulation {
         let workers = Arc::new(SimulatedWorkers::new(
             rng.random(),
             config.profile.has_step_failure_policies(),
+            config.has_queue_faults,
             Arc::clone(&trace),
         ));
         let sampled_fault_probability =
@@ -401,38 +403,49 @@ impl Simulation {
         tokio::time::sleep(Duration::from_secs(5)).await;
         self.replace_stopped_processes().await?;
         self.check_now()?;
-        // A crash at a quiet point: the successor must dispatch every running attempt again.
+        // A crash at a quiet point: the successor fails every handed-out attempt, never resends it.
         self.environment.workers.set_holding(true);
         if let Some(serving) = &self.serving {
             let (registry, profile) = (serving.registry.clone(), self.config.profile);
             start_held_runs(&registry, &mut self.rng, profile, &self.environment.trace).await;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
+        let running_before_crash = self
+            .environment
+            .committed_log
+            .with_shadow(running_attempts)?;
         let kind = self.draw_restart_kind();
         self.crash_and_restart(kind).await?;
         let running_at_recovery = self
             .environment
             .committed_log
             .with_shadow(running_attempts)?;
+        // Attempts the crashed process handed out; the successor's own starts are not among them.
+        let running_at_crash: BTreeSet<_> = running_before_crash
+            .intersection(&running_at_recovery)
+            .cloned()
+            .collect();
         tokio::time::sleep(Duration::from_secs(3)).await;
         let running_now = self
             .environment
             .committed_log
             .with_shadow(running_attempts)?;
         let serving_label = self.serving_label();
-        check_running_attempts_redispatched(
+        check_interrupted_attempts_failed(
             &serving_label,
             &self.environment.workers.dispatch_history(&serving_label),
-            &running_at_recovery,
+            &running_at_crash,
             &running_now,
         )?;
         self.summary.dispatch_comparisons += 1;
-        self.summary.attempts_compared_after_quiet_crash += running_at_recovery.len() as u64;
+        self.summary.attempts_compared_after_quiet_crash += running_at_crash.len() as u64;
         self.environment.workers.set_holding(false);
         let tail = Duration::from_secs(self.config.calm_tail_seconds);
         tokio::time::sleep(tail).await;
         self.wait_until_drained().await?;
         self.check_interrupted_work_finished().await?;
+        self.summary.sync_task_frames_checked +=
+            check_sync_attempts_ran_at_most_once(&self.environment.workers.task_frames())?;
         let records = self
             .client_records
             .lock()

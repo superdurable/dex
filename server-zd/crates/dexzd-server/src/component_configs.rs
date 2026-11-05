@@ -242,11 +242,13 @@ impl ComponentConfigs {
                 max_child_flow_result_bytes: config.limits.max_child_flow_result_bytes,
                 ..EffectsConfig::default().child_run_settings
             },
+            heads_resync_interval: config.matching.heads_resync_interval,
             ..EffectsConfig::default()
         };
         let matching = MatchingConfig {
             dispatch_wait: config.matching.dispatch_wait,
             sticky_wait: config.matching.sticky_wait,
+            sync_match_wait: config.matching.sync_match_wait,
             ping_interval: config.matching.ping_interval,
             max_streams: to_usize(
                 "matching.maxStreams",
@@ -267,6 +269,10 @@ impl ComponentConfigs {
             max_flow_type_length: to_usize(
                 "matching.maxFlowTypeLength",
                 u64::from(config.matching.max_flow_type_length),
+            )?,
+            unsupported_type_cache_entries: to_usize(
+                "matching.unsupportedTypeCacheEntries",
+                u64::from(config.matching.unsupported_type_cache_entries),
             )?,
             ..MatchingConfig::default()
         };

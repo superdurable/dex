@@ -83,7 +83,8 @@ impl MemoryState {
                     self.rows
                         .insert((*column_family, key.clone()), value.clone());
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.rows.remove(&(*column_family, key.clone()));
                 }
                 StateWrite::DeleteRange {
@@ -561,6 +562,7 @@ fn time_travel_to_an_unsynced_value_marks_a_store_deletion() {
     assert!(harness.entries().is_empty());
 
     harness.apply(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
@@ -590,6 +592,7 @@ fn time_travel_refreshes_pending_snapshots_before_reapplying_writes() {
         harness.set(vec![synced("status", string_value("opened"))], "opened");
         harness.set(vec![unsynced("status", string_value("quiet"))], "quiet");
         let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "account-1".to_owned(),
                 reset_type: FlowResetType::Beginning as i32,
@@ -618,6 +621,7 @@ fn reapplied_synced_write_retains_its_snapshot_after_an_unsynced_write() {
     harness.set(vec![synced("status", string_value("opened"))], "opened");
     harness.set(vec![unsynced("status", string_value("quiet"))], "quiet");
     harness.apply(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
@@ -659,6 +663,7 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
             );
             // The fork checkpoint holds a reference that replay cannot recreate after collection.
             harness.apply(Command::TimeTravel(TimeTravelCommand {
+                should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::Beginning as i32,
                     ..ResetFlowRequest::default()
@@ -722,6 +727,7 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
             assert!(harness.entries().is_empty());
             assert_eq!(harness.pending_index_count(), 0);
             let traveled = harness.apply(Command::TimeTravel(TimeTravelCommand {
+                should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::HistoryEventTime as i32,
                     history_event_time: (target_time * 1000).to_string(),
@@ -1005,6 +1011,7 @@ fn time_travel_remarks_rows_of_the_abandoned_and_restored_state() {
     assert!(!harness.has_pending_index(PRIMARY));
 
     let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
@@ -1060,6 +1067,7 @@ fn time_travel_reapplies_unsynced_writes_without_requesting_synchronization() {
     assert!(harness.entries().is_empty());
 
     let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,

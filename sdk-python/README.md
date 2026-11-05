@@ -100,7 +100,7 @@ worker = Worker(
     cache,
     WorkerOptions(
         server_address="dex.example:8801",
-        pull=PullWorkerOptions(max_concurrent_tasks=8, idle_streams_per_queue=1),
+        pull=PullWorkerOptions(max_concurrent_tasks=8),
     ),
 )
 worker_thread = threading.Thread(target=worker.start)
@@ -119,30 +119,26 @@ finally:
     worker_thread.join()
 ```
 
-The Worker polls its sticky queue and every registered Flow type queue. Flow
-type names must be unique within a Dex server. `max_concurrent_tasks` defaults
-to the CPU count, and `idle_streams_per_queue` defaults to one. At capacity,
-the Worker rejects an assignment so Dex can reassign it. Each stream runs one
-task at a time; Step heartbeat and stream writes use the same stream. After
-tasks finish, the Worker gracefully closes surplus idle streams while preserving
-readiness. The SDK sends an upstream Pong every 20 seconds while a task runs and
-stops before its final frame. This interval is internal and needs no Worker
-option. After load drops,
-the steady-state bound is `max_concurrent_tasks + (1 + number of Flow types) *
-idle_streams_per_queue` streams.
-Allow up to one more stream per queue for 30 seconds after reserve declines,
-or up to `1 + number of Flow types` additional streams. The transient peak
-during a burst remains bounded by the matching caps. Size these options for
-`matching.maxConcurrentTasksCap` per app Worker ID per matching owner (256 by
-default) and `matching.maxStreams` per Matching instance (100,000 by default).
+The Worker opens exactly `max_concurrent_tasks` long-lived streams. Each stream
+is one execution slot serving the sticky queue and every registered Flow type.
+Flow type names must be unique within a Dex server. Concurrency defaults to the
+CPU count. Start fails if the configured concurrency exceeds the Server's
+reported `matching.maxConcurrentTasksCap`; zero means no limit was reported.
+The Worker checks the limit on its first registration only. It then half-closes
+its streams, drops any task they receive, and never reports readiness;
+registration waiters raise the limit error. A lower limit reported on a later
+reconnect is logged as a warning, and the Worker keeps running.
+`idle_streams_per_queue` is deprecated, remains accepted, and has no effect.
+Each slot executes every task it receives and never rejects a task for capacity.
+Step heartbeats and stream writes use the same stream. Busy streams send a Pong
+every 20 seconds until the final frame.
 
-The Worker rejects an unregistered Step or RPC by name. Dex retries that task
-on another pull Worker without consuming a Step attempt, including when the
-Flow was sticky to the rejecting Worker. If no capable Worker accepts it within
-the server's dispatch wait (10 seconds by default, or the local Step attempt),
-the Step follows its failure and retry policy; an RPC caller receives the named
-error. This reassignment requires a Dex Server that supports it. Against older
-Servers, the Worker returns the not-registered error as before.
+The Worker rejects an unregistered Step or RPC by name before its handler runs.
+Dex tries another Worker without consuming a Step attempt, including when the
+Flow was sticky to the rejecting Worker. If no connected Worker supports the
+Step type, the Step stays queued until a Worker that supports it connects, the
+Flow times out, or the Flow is stopped. An RPC caller receives the named error
+after the Server's dispatch wait.
 
 The generated `app_worker_id` uses the first nonempty `DEX_WORKER_INSTANCE`,
 `POD_NAME`, `HOSTNAME`, or system hostname, plus eight random base32 characters.
@@ -150,41 +146,67 @@ An override must uniquely identify one Worker process and change after restart.
 It must contain 1-63 ASCII letters, digits, dots, underscores, or hyphens and
 must not equal a registered Flow type.
 
-Pull streams reconnect after failures. A server-directed reconnect waits for
-an active task to finish, then waits up to `stop_drain_timeout` for the server
-to close the stream after the final frame. An idle stream reconnects
-immediately. An older server without pull support produces one explicit error
-log and is retried after one minute. `start()` reports startup
-synchronization errors, while later stream errors are logged and retried by default.
-`stop()` drains for at most
-`stop_drain_timeout`, which defaults to 30 seconds. Afterward it requests
-cancellation and waits for handlers to return. Synchronous handlers should
-check `Context.is_cancellation_requested()` during long operations. Streams
-that sent a final frame wait for server EOF until the remaining Stop drain
-deadline before the channel closes.
+Pull streams reconnect after failures. A broken stream cancels its handler;
+its output is never sent on a replacement connection. Server-directed reconnect
+lets an active task finish before sending its final output and half-closing.
+If the Server has not confirmed that final output by EOF when the reconnect wait
+of `stop_drain_timeout` ends, the stream gets up to 5 more seconds before it is
+reset.
+`start()` reports protocol and startup synchronization failures. Later transport
+errors are logged and retried by default.
+
+`stop()` starts no new tasks. Idle streams half-close immediately; busy streams
+finish their handlers and send final output before half-closing. Task frames
+arriving after stop begins are dropped without calling a handler. Streams keep
+reading until server EOF or the remaining `stop_drain_timeout`, which defaults
+to 30 seconds. On timeout, a busy stream is reset and its handler is canceled;
+stop waits for the handler to return. Synchronous handlers should check
+`Context.is_cancellation_requested()` during long operations. Any stream still
+open at the deadline is reset, even one that is half-closed and still waiting
+for server EOF, so stop returns once handlers return. Dex treats a task it sent
+in that window as an attempt that may have run.
+
+A stream whose final output was queued or written, but not yet confirmed by
+server EOF or by the next assignment on that stream, is not reset at the drain
+deadline. This holds even if its handler has finished or the stream has
+half-closed, because a completed local write does not mean the Server read the
+bytes. The stream gets up to 5 more seconds to send the output, half-close, and
+receive server EOF, and is reset after that. `stop()` can therefore return up
+to 5 seconds after the drain deadline.
+
+A stream that fails locally, such as a read error, an undecodable or oversized
+frame, a task frame with an invalid deadline or no request, a failed final
+output write, or an unexpected server EOF, is always reset. It never
+half-closes cleanly, because a clean half-close tells Dex the assigned task did
+not run. A malformed task is never admitted and its handler never runs. Poll
+streams accept only uncompressed responses.
+
+After a slot sends a task's final output, Dex may assign its next task
+immediately. The slot finishes local cleanup for the previous task first, then
+starts the next one, unless stop has begun.
 
 Call `worker.wait_pull_registered(timeout=30)` after starting a synchronous
 Worker on another thread. For AsyncWorker, start it in another task and use
 `await worker.wait_pull_registered(timeout=30)`. The timeout is in seconds;
-`None` waits indefinitely. Each waits for every Flow type queue and the app
-Worker ID queue to register at least once. Timeout raises `TimeoutError`;
+`None` waits indefinitely. Each waits for one `STEP_AND_RPC` stream and, when
+RPC reservation is configured, one `RPC_ONLY` stream to register. Timeout raises `TimeoutError`;
 async cancellation cancels only that wait. Startup failures reach waiters.
 A permanent rejection before readiness raises `PullRegistrationError`, whose
-`queue` and `error` identify the rejected queue and original transport error.
+`queue` and `error` identify the rejected slot kind and original transport error.
 Stopping before readiness raises `RuntimeError`.
 
 Use `worker.pull_registration_state()` for subsequent readiness probes. Its
 immutable `queues` expose `queue`, `has_registered_stream`, and
 `last_permanent_error`. After initial registration, `is_ready` stays true across
-transient failures, reconnects, and stop. It becomes false only when a queue
+transient failures, reconnects, and stop. It becomes false only when a required slot kind
 has a permanent error and no registered stream. Re-registration clears the
 error. The startup wait keeps succeeding after initial registration, including
 after stop. Multiple callers may wait independently before or after start.
 
 `PullWorkerOptions(stop_on_permanent_stream_rejection=True)` makes the first
-permanent rejection leaving a queue without a registered stream drain within
+permanent rejection leaving a slot kind without a registered stream drain within
 `stop_drain_timeout`, then raise `PullRegistrationError` from `start()`. This
-applies before and after readiness. Another registered stream for that queue
+applies before and after readiness. Another registered stream for that slot kind
 prevents shutdown. The default is False and retries indefinitely. Always call
 `stop()` or `close()` afterward; both remain safe after `start()` returns.
 
@@ -199,32 +221,18 @@ long-running Steps; use a limit of at least two or set the reserve explicitly.
 Flows must stay responsive because RPCs share Worker task capacity with Steps.
 The value must be nonnegative and less than `max_concurrent_tasks` after its
 CPU-count default is resolved; invalid values fail construction. RPC and Step
-handlers count together. WaitFor and Execute tasks, including local attempts,
-are declined with `NO_CAPACITY` when the busy
-count reaches the task limit minus the reserve. API-direct and transactional
-InvokeWorkerRPC tasks can use the full limit.
+handlers count together. Reserved slots register as `RPC_ONLY`; the remaining
+slots register as `STEP_AND_RPC`. The Server assigns Steps only to the latter.
+The Worker never declines a Step for capacity.
 
 ```python
 pull = PullWorkerOptions(max_concurrent_tasks=8, reserved_rpc_tasks=2)
 ```
 
-A decline lets Dex try another Worker without consuming an attempt. If all
-Workers remain at their Step limit, a Step can wait until the dispatch wait
-expires, then receive `NO_WORKER_AVAILABLE`, consume an attempt, and follow its
-retry policy, as when all Workers are full. Local attempts wait the local
-dispatch wait, then fall back according to their policy. A queue that declines
-a Step for reserved RPC capacity keeps one additional idle stream until 30
-seconds after its last decline. Other queues retain their configured count.
-The Worker does not open the extra stream while all task slots are busy. Set
-`idle_streams_per_queue` to at least two for heavy Step backlogs. A reserve decline
-does not close a stream or change registration readiness.
-
-Each reserve decline records the Flow type through the dex._pull_worker logger
-at DEBUG level. Export the cumulative `pull_reserved_rpc_declines` Worker value
-to distinguish reserve pressure from full-capacity rejections. The count excludes
-full-capacity rejections and unknown names. It counts decline events, including
-repeated declines of the same Step dispatch while Dex retries it. Read its rate
-to assess reserve pressure. It never resets and remains available after shutdown.
+The `pull_reserved_rpc_declines` counter is deprecated and always zero. It stays
+available for source compatibility. Registration snapshot `queues` and error
+`queue` fields retain their names but now hold slot kind labels, `STEP_AND_RPC`
+and `RPC_ONLY`, rather than individual queue names.
 
 ## Flow state I/O
 
@@ -346,7 +354,7 @@ class TimeoutRecoveryStep(Step[None]):
         return force_fail(failure.detail)
 ```
 
-Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
+Python SDK for [Dex durable workflows](https://github.com/superdurable/dex)
 
 ## New user contracts
 
@@ -455,12 +463,10 @@ option cannot be combined with an index or `sync_to_attribute_store`, and
 the stored value. Handlers and `get_attributes` receive the value inline, and
 the SDK never stores it in the local blob cache.
 
-Hard-delete writes require a Server with an enabled blob store and Server
-protocol version 3 or later. Workers still start against older Servers.
-There, a Step, RPC, or timeout handler result that writes a hard-delete
-Attribute fails that handler attempt with `RuntimeError`, as does a `wait_for`
-result whose SubFlow start initializes one. A Client checks the Server protocol
-once, before its first `start_flow` that initializes one.
+Hard-delete writes require a Server with an enabled blob store. This SDK
+requires protocol 4. Workers negotiate before startup and Clients negotiate
+lazily before their first service request. Incompatible Servers fail with
+`RuntimeError` before values are sent.
 
 Each Flow keeps one stored copy per Attribute key, overwritten in place. A Step
 or RPC attempt writes or deletes the stored value before its result commits, so
@@ -582,19 +588,18 @@ integer and string instances and routes to both by instance and StepRef.
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
 
-`wait_for_retry` and `execute_retry` limit one logical handler execution. With
-`StepDurability.ASYNC`, local and fallback regular activities share maximum
-attempts, total duration, and 1-based attempt numbers. Fallback starts
-immediately; later regular retries continue the backoff sequence at the
-cumulative attempt.
+`wait_for_retry` and `execute_retry` limit one logical handler execution.
+Attempts use one-based numbers. The retry total duration starts when Dex first
+hands the Step to a Worker. After an attempt fails, Dex checks that budget to
+decide whether to schedule another retry; it does not end a running attempt.
 
 The default Step durability is synchronous. A Flow configuration can select
 asynchronous durability, and a Step method override has highest precedence. The
-default retry total duration is four hours. Regular attempts default to a two-hour
+default retry total duration is four hours. Attempts default to a two-hour
 method timeout and one-minute heartbeat timeout; an explicit heartbeat timeout must
 meet the server minimum, which defaults to ten seconds. Asynchronous durability
-first allows at most three local attempts in seven seconds. The local phase ignores
-method timeouts and heartbeat frames before falling back to a regular activity.
+gives lower latency and faster single Flows. Sustained throughput is about the
+same as synchronous durability.
 
 ### Flow run start time
 
@@ -611,8 +616,7 @@ with `datetime.now(timezone.utc)` to measure the run's age. It matches
 current `wait_for`, `execute`, or Flow timeout handler attempt. It is a
 timezone-aware UTC `datetime` with microsecond precision, not a duration.
 Subtract `datetime.now(timezone.utc)` and call `total_seconds()` to budget
-remaining work after checking for `None`. A shorter remaining
-`RetryPolicy.total_duration` limits this deadline; each retry receives its own
+remaining work after checking for `None`. Each retry receives its own
 effective deadline. RPC handlers and tasks without a supplied deadline return
 `None`.
 
@@ -977,15 +981,34 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo ta
 
 ## Server protocol compatibility
 
-Both `Worker` and `AsyncWorker` call `GetServerInfo`, negotiate the highest
-common protocol, synchronize Attribute indexes, and only then open outbound
-task streams. The initial Python SDK interval is `[1,1]`. Missing information,
-invalid or disjoint intervals, and RPC failures stop startup before polling.
-The current Python SDK interval is `[1,3]`. Protocol 3 adds hard-delete
-Attributes. Workers record the negotiated version at startup and reject each
-handler result that contains a hard-delete Attribute write when it is below 3.
-Clients negotiate lazily, once, before the first `start_flow` that initializes
-a hard-delete Attribute.
+Workers call `GetServerInfo`, require protocol 4, synchronize Attribute indexes,
+and then open execution slot streams. The Python SDK protocol interval is
+`[4,4]`. Older Servers fail startup with this error, substituting the protocol
+range and Server version actually reported:
+
+```text
+This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). The Server reports protocol versions <min>-<current> (server version <server_version>). Upgrade the Server before upgrading the SDK.
+```
+
+A Server whose minimum protocol is newer than 4 fails with an error that asks
+you to upgrade the SDK. Missing information, invalid intervals, and RPC
+failures stop startup before polling.
+
+Clients perform no network I/O during construction. Before the first request of
+any method, they negotiate protocol 4. Success and incompatibility are cached;
+later requests against an incompatible Server raise the same clear
+`RuntimeError`. If `GetServerInfo` itself fails, for example because the Server
+is unreachable, the request raises the usual `DexServiceError`, and the next
+call negotiates again. Negotiation counts against a request's timeout, including
+the `request_timeout` of durable waits.
+
+`RetryPolicy.total_duration` counts from the first hand-out to a Worker. After
+an attempt fails, Dex checks it to decide whether to retry. It does not end a
+running attempt. Recovery handlers can inspect `RecoveryErrorInfo.attempt_progress`:
+`StepAttemptProgress.NOT_STARTED` guarantees no handler ran;
+`NOT_COMPLETED` means some attempt may have run but none completed;
+`UNSPECIFIED` covers older Servers or failures recorded before upgrade and must
+be treated like `NOT_COMPLETED`.
 
 The diagnostic SDK version comes from Python distribution metadata for
 `dex-python-sdk` and falls back to `dev` when the distribution is unavailable.

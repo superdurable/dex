@@ -342,6 +342,8 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::StepAttemptHeartbeat(_)) => "StepAttemptHeartbeat",
         Some(Command::StepAttemptFailed(_)) => "StepAttemptFailed",
         Some(Command::StepMethodCompleted(_)) => "StepMethodCompleted",
+        Some(Command::StepAttemptReturned(_)) => "StepAttemptReturned",
+        Some(Command::StepAttemptQueued(_)) => "StepAttemptQueued",
         Some(Command::RpcCommitted(_)) => "RpcCommitted",
         Some(Command::TimersFired(_)) => "TimersFired",
         Some(Command::TimerSkip(_)) => "TimerSkip",

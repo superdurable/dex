@@ -83,6 +83,10 @@ class _ClientRequestBudget:
         seconds = _duration_seconds32(request_timeout)
         self._deadline = monotonic() + seconds if seconds else None
 
+    @property
+    def deadline(self) -> float | None:
+        return self._deadline
+
     def next_attempt(self, operation: str, flow_id: str) -> _ClientRequestAttempt:
         if self._deadline is None:
             return _ClientRequestAttempt(0, None)

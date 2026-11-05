@@ -114,7 +114,7 @@ public enum ExecuteMethodFailurePolicy
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(5);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(6);
   }
 
   private static final ExecuteMethodFailurePolicy[] VALUES = values();

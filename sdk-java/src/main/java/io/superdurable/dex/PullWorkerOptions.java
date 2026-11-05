@@ -15,9 +15,9 @@ import java.time.Duration;
 /**
  * Configures a Worker that opens outbound task streams to Dex.
  *
- * <p>Pass these options to {@link WorkerOptions.Builder#pull(PullWorkerOptions)}. Each Worker polls
- * its sticky queue and every registered Flow type queue. The worker does not open a listener.
- * Zero task and idle counts and a zero timeout select defaults. An empty Worker ID is generated per Worker.
+ * <p>Pass these options to {@link WorkerOptions.Builder#pull(PullWorkerOptions)}. Each slot serves
+ * the Worker identity and every registered Flow type. The worker does not open a listener.
+ * Zero task count and a zero timeout select defaults. An empty Worker ID is generated per Worker.
  *
  * <pre>{@code
  * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
@@ -31,10 +31,8 @@ public final class PullWorkerOptions {
     private final int maxConcurrentTasks;
     private final int reservedRpcTasks;
     private final boolean shouldWarnRpcCapacity;
-    private final int idleStreamsPerQueue;
     private final String appWorkerID;
     private final Duration stopDrainTimeout;
-    private final Duration reservePressureLinger;
     private final boolean stopOnPermanentStreamRejection;
 
     private PullWorkerOptions(final Builder builder) {
@@ -47,16 +45,13 @@ public final class PullWorkerOptions {
         if (reservedRpcTasks < 0 || reservedRpcTasks >= maxConcurrentTasks) {
             throw new IllegalArgumentException("reservedRpcTasks must be nonnegative and less than maxConcurrentTasks");
         }
-        this.idleStreamsPerQueue = builder.idleStreamsPerQueue == 0
-                ? 1 : builder.idleStreamsPerQueue;
         this.appWorkerID = builder.appWorkerID;
         this.stopDrainTimeout = builder.stopDrainTimeout.isZero()
                 ? Duration.ofSeconds(30) : builder.stopDrainTimeout;
-        this.reservePressureLinger = builder.reservePressureLinger;
     }
 
     /**
-     * Creates a builder with CPU-count task capacity, one idle stream per queue, and a 30-second drain.
+     * Creates a builder with CPU-count execution slots and a 30-second drain.
      *
      * @return a mutable pull options builder
      */
@@ -76,10 +71,6 @@ public final class PullWorkerOptions {
         return reservedRpcTasks;
     }
 
-    int getIdleStreamsPerQueue() {
-        return idleStreamsPerQueue;
-    }
-
     String getAppWorkerID() {
         return appWorkerID;
     }
@@ -92,10 +83,6 @@ public final class PullWorkerOptions {
         return stopDrainTimeout;
     }
 
-    Duration getReservePressureLinger() {
-        return reservePressureLinger;
-    }
-
     /**
      * Builds immutable outbound polling options.
      *
@@ -105,28 +92,19 @@ public final class PullWorkerOptions {
     public static final class Builder {
         private int maxConcurrentTasks;
         private Integer reservedRpcTasks;
-        private int idleStreamsPerQueue;
         private String appWorkerID = "";
         private Duration stopDrainTimeout = Duration.ZERO;
-        private Duration reservePressureLinger = Duration.ofSeconds(30);
         private boolean stopOnPermanentStreamRejection;
 
         private Builder() {
         }
 
-        Builder reservePressureLingerForTest(final Duration value) {
-            if (value == null || value.isZero() || value.isNegative()) {
-                throw new IllegalArgumentException("reserve pressure linger must be positive");
-            }
-            this.reservePressureLinger = value;
-            return this;
-        }
-
         /**
-         * Sets the maximum number of concurrent Step and RPC tasks across all queues.
+         * Sets the number of long-lived execution-slot streams for Step and RPC tasks.
          *
-         * <p>This also sizes the Worker's handler pool. Assigned tasks above this capacity
-         * are rejected so Dex can assign them elsewhere.
+         * <p>This also sizes the Worker's handler pool. Worker start fails when this exceeds
+         * the Server's per-Worker limit, matching.maxConcurrentTasksCap. Every received task
+         * executes without a capacity rejection.
          *
          * @param value a nonnegative count; zero uses the available CPU count
          * @return this builder
@@ -141,21 +119,12 @@ public final class PullWorkerOptions {
         }
 
         /**
-         * Reserves handler capacity to protect synchronous RPC latency from long-running Steps.
+         * Reserves streams that accept only RPC tasks to protect RPC latency from long-running Steps.
          *
          * <p>Unset reserves one slot when the resolved task limit is at least two, otherwise zero.
-         * With the CPU-count default, Steps get one fewer slot than before. Set zero to opt out.
-         * With one slot and no explicit reserve, Worker start logs one warning about RPC starvation.
-         * Flows must stay responsive because RPCs share Worker task capacity with Steps.
-         * WaitFor and Execute tasks, including local attempts, are declined when
-         * total busy handlers reach maxConcurrentTasks minus this reserve. RPCs can use the full
-         * task limit, including API-direct and transactional RPCs. Declines reassign without consuming an attempt.
-         * If all Workers remain at the Step limit until the dispatch wait expires, NO_WORKER_AVAILABLE
-         * consumes an attempt and follows the Step retry policy, as when all Workers are full.
-         * Local attempts wait the local dispatch wait, then fall back according to their policy.
-         * Declines emit a FINE debug log, increment getPullReservedRpcDeclines, and preserve readiness.
-         * A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
-         * The Worker does not open that stream while all task slots are busy.
+         * Set zero to opt out. With one slot and no explicit reserve, Worker start logs a warning
+         * about RPC starvation. The remaining streams accept Steps and RPCs. The Server routes
+         * Steps only to those streams, and the Worker never declines a Step for capacity.
          *
          * <pre>{@code
          * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
@@ -172,20 +141,20 @@ public final class PullWorkerOptions {
         }
 
         /**
-         * Sets the number of waiting streams maintained for each task queue.
+         * Retains the legacy idle-stream option for source compatibility.
          *
-         * <p>A queue keeps one more stream after a recent reserve decline.
-         * Use at least two for Workers with heavy Step backlogs.
+         * <p>This value has no effect. Each execution slot has exactly one long-lived stream.
          *
-         * @param value a nonnegative count; zero uses one idle stream per queue
+         * @param value a nonnegative legacy count
          * @return this builder
          * @throws IllegalArgumentException if value is negative
+         * @deprecated execution slots determine the stream count
          */
+        @Deprecated
         public Builder idleStreamsPerQueue(final int value) {
             if (value < 0) {
                 throw new IllegalArgumentException("idleStreamsPerQueue must not be negative");
             }
-            this.idleStreamsPerQueue = value;
             return this;
         }
 
@@ -210,7 +179,9 @@ public final class PullWorkerOptions {
         /**
          * Sets how long Stop waits for active pull tasks before canceling them.
          *
-         * <p>A canceled handler must return before Stop completes.
+         * <p>A canceled handler must return before Stop completes. A stream whose final output the
+         * Server has not yet confirmed gets a five-second flush grace after the timeout. The Server
+         * confirms it by ending the stream or by assigning the stream's next task.
          *
          * @param value a nonnegative duration; zero uses 30 seconds
          * @return this builder
@@ -225,11 +196,11 @@ public final class PullWorkerOptions {
         }
 
         /**
-         * Stops the Worker on a permanent rejection leaving a queue without a registered stream.
+         * Stops the Worker on a permanent rejection leaving a required slot kind without a registered stream.
          *
          * <p>Defaults to false, which retries indefinitely. When enabled, the first such rejection
          * before or after readiness drains within stopDrainTimeout, then makes Worker.start throw
-         * PullRegistrationError. Other registered streams for that queue prevent this shutdown.
+         * PullRegistrationError. Other registered streams of that slot kind prevent this shutdown.
          * See the enclosing type for a complete options example.
          *
          * @param value whether to stop on an uncovered permanent stream rejection

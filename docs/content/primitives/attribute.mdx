@@ -779,6 +779,8 @@ let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
 
 Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
 
+An RPC that cannot get a lock fails with the error "RPC lock conflict: attribute key &lt;key&gt; is locked by a Step". A Step attempt takes its locks when Dex hands it to a Worker. A first attempt that no Worker took yet holds no locks, but later Steps that need the same lock wait behind it. A returned attempt, for example after a Worker declined its Step type, and a retry attempt keep their locks while they wait in the queue. When no Worker can run them, they hold the locks until the Flow times out or stops. Transactional RPCs on those keys get the lock conflict until the attempt runs and finishes.
+
 ### Coordinate writes across the whole AttributeMap {#whole-map-coordination}
 
 An AttributeMap lock protects one exact instance. When an invariant spans several instances or the whole collection, register a separate singleton bool Attribute as its coordination key. For example, register **currentMessages** as an AttributeMap and **currentMessagesLock** as a non-map, non-indexed bool Attribute in the same **PersistenceSchema**.

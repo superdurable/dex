@@ -387,6 +387,7 @@ pub(crate) fn later_handler_command(
             }),
         }),
         _ => Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: flow_id.to_owned(),
                 reset_type: FlowResetType::Beginning as i32,
@@ -404,6 +405,7 @@ pub(crate) fn time_travel_to_window_point(
     run_attempt: i32,
 ) -> Command {
     Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: flow_id.to_owned(),
             reset_type: FlowResetType::HistoryEventTime as i32,

@@ -182,9 +182,10 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 不会让任何进程让位；正在进行的让位可能是你或其他人已经发起的。
 
 这些 command 支持通用的连接、TLS、credential、**--timeout** 和 **--output** flag。
-**dexcli admin step-down** 默认最多等待 2 分钟，长于让位的进程再次竞争 lease 之前的
-hold-off。server 要求身份认证时，credential 必须是 admin JWT。API key 交换无法申请 admin
-audience。参见
+**dexcli admin step-down** 默认最多等待 2 分钟，长于默认的 attempt drain 加上让位的进程
+再次竞争 lease 之前的 hold-off。如果 server 设置了更长的
+**lifecycle.attemptDrainTimeout**，**--timeout** 至少要调大同样的时长。server 要求身份
+认证时，credential 必须是 admin JWT。API key 交换无法申请 admin audience。参见
 [admin 凭证](../production/server-zd-operations.mdx#admin-credentials)。
 
 让位的输出包含 **expectedNodeId**、**expectedNodeEpoch**、**nodeId**、

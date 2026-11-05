@@ -614,29 +614,62 @@ Retry 和 failure route 处理失败的 attempt。但有些失败会让 Dex 无�
 
 ### Heartbeat 没有确认 {#heartbeats-not-acknowledged}
 
-Heartbeat 调用在 Worker 将它放入队列或发出后就返回，不会等待 Dex 存储任何内容。Python 的 **heartbeat**、Go 的 **RecordHeartbeat**、Java 和 TypeScript 的 **recordHeartbeat**，以及 Rust 的 **record_heartbeat** 都是这样。Heartbeat 调用返回，并不能证明 Dex 已经知道 attempt 开始了工作。
+Heartbeat 调用在 Worker 将它放入队列或发出后就返回，不会等待 Dex 存储任何内容。Python 的 **heartbeat**、Go 的 **RecordHeartbeat**、Java 和 TypeScript 的 **recordHeartbeat**，以及 Rust 的 **record_heartbeat** 都是这样。Heartbeat 调用返回，并不能证明 Dex 已经存储了 checkpoint。SYNC Step 也是如此，尽管 SYNC Step 只在 Dex 把 attempt 的开始持久化之后才运行用户代码。
 
-Heartbeat checkpoint 可能丢失。Dex 会批量处理 checkpoint，每批只保留最新的值。attempt 结束时，例如超时或被取消，或者 Dex Server 节点故障时，checkpoint 也可能丢失。下一次 attempt 收到的是 Dex 最后存储的 checkpoint，它可能比 Step 最后发送的那个更旧。不要把 checkpoint 当作外部副作用已经发生的唯一记录。
+Heartbeat checkpoint 可能丢失。Dex 会批量处理 checkpoint，每批只保留最新的值。attempt 结束时，例如超时或被取消，或者 Dex Server 节点故障时，checkpoint 也可能丢失。发生中断之后，下一次 attempt 收到的是 Dex 最后存储的 checkpoint。它可能比 Step 最后发送的那个更旧。不要把 checkpoint 当作外部副作用已经发生的唯一记录。
 
-### 同一个 attempt 编号可能再次运行 {#same-attempt-redelivery}
+### Attempt 在 Dex 交给 Worker 时开始 {#same-attempt-redelivery}
 
-在两种情况下，Dex 会以相同的 attempt 编号再次投递 attempt，并且不消耗 retry：
+Step attempt 在 Dex 把它交给 Worker 的那一刻开始。Dex 先预留一个空闲的 Worker slot，然后记录开始。这条记录会固定 attempt 的输入 snapshot，并获取它的 Attribute lock。最后 Dex 才发送任务。对于 SYNC Step，开始记录在 Worker 收到任务之前就已经持久化到 object storage。ASYNC Step 不等待这次写入。
 
-- Worker 在 attempt 发出任何输出之前崩溃或断开，例如 heartbeat 或 Stream message，并且 dispatch wait 还没有结束。Dispatch wait 默认是 10 秒，从 Dex 开始寻找 Worker 时算起。
-- Dex Server 节点重启，或者其他节点接管了它的 Flow。Dex 会重新 dispatch 每个正在运行的 attempt，不论它是否已经发出输出。
+Dex 把 attempt 交给 Worker 之后，就不会再把同一个 attempt 编号交给另一个 Worker。如果 Worker 崩溃或连接断开，不论它是否已经发出输出，这个 attempt 都会失败，然后 retry policy 运行：消耗一次 retry，并等待 backoff。如果 Worker 不再响应但没有断开，attempt 会在 heartbeat timeout 到期时失败。Server 重启或 failover 对每个已经交出的 attempt 都是同样的处理，失败类型为 STARTED_ATTEMPT_INTERRUPTED。这些情况下 SYNC 和 ASYNC 的行为相同。
 
-两种情况下，之前的那次运行都可能已经完成了外部调用。新的运行看到相同的 attempt 编号，所以无法用 attempt 编号区分这两次运行。
+少数情况会让 attempt 回到 pending。它保留 attempt 编号、输入 snapshot 和 lock，并且不消耗 retry。只有在可以确定 Worker 从未运行过这个 attempt 时才会这样：
 
-如果 Worker 在 attempt 已经发出输出之后断开，或者在 dispatch wait 之后断开，这个 attempt 会失败并消耗一次 retry。如果 Worker 不再响应但没有断开，attempt 会在 heartbeat timeout 到期时失败。
+- Worker 以 Step type 未知为由拒绝了任务。之后 Dex 会让这个 Step type 避开该 Worker。
+- 任务从未到达 Worker，因为发送前 stream 已经关闭，或者发送失败。
+- 使用 reserved-slot dispatch 的 Worker 在任务还没有任何输出时干净地关闭了 stream。这是正常的 Worker 关闭。正在关闭的 Worker 会先完成正在运行的任务，发送它们的结果，然后才关闭。关闭期间到达的任务不会运行，会返回给 Dex。
+- 较旧 SDK 的 Worker 因容量不足而拒绝了任务。
+
+ASYNC Step 还有一种情况。如果 Dex Server 节点在 ASYNC 的开始记录写入 object storage 之前崩溃，Dex 会回滚这次开始。同一个 attempt 编号随后再次运行，不消耗 retry，输入也可能不同。因此对 ASYNC 来说，同一个 attempt 编号可能运行两次，两次执行也可能重叠。这时 Step Stream 的写入可能在同一个 source 中重复。
+
+不论哪种 durability，同一个 Step 的各次 attempt 都不是严格顺序的。取消是协作式的，所以被中断的执行可能仍在运行，而下一次 attempt 或 failure route 已经开始。
+
+| | SYNC（默认） | ASYNC |
+| --- | --- | --- |
+| 一个 attempt 编号会到达几个 Worker | 最多一个，上面描述的 attempt 回到 pending 的情况除外。 | 最多一个，但节点崩溃后的回滚会让同一个编号再次运行。 |
+| 开始与执行的顺序 | 开始记录在 Worker 收到任务之前已经持久化。 | Worker 可能在开始记录持久化之前就运行。 |
+| Worker 断开或节点 failover | attempt 失败，retry policy 运行。 | 相同。开始记录写入之前节点崩溃属于回滚的情况。 |
+| **attempt_progress** | **NOT_STARTED** 或 **NOT_COMPLETED**。 | 始终是 **NOT_COMPLETED**。 |
+| attempt 重叠 | 取消之后可能出现，因为取消是协作式的。 | 取消之后可能出现，同一个 attempt 编号的两次执行之间也可能出现。 |
+| Step Stream 写入 | 可能在各次 attempt 之间重复。 | 在同一个 attempt 编号内也可能在同一个 source 中重复。 |
+| 何时使用 | 需要最严格保证的副作用。 | 延迟重要、Step 较短，并且可以接受偶尔重新运行。 |
 
 ### Failure route 无法判断工作是否运行过 {#unknown-outcome}
 
-如果在 dispatch wait 内没有 Worker 接受 attempt，这个 attempt 会在没有运行的情况下失败，并消耗一次 retry。当该 Flow type 的所有 Worker 都达到任务上限，或者没有 Worker 在运行时，就会发生这种情况。这种失败的 recovery error type 与 Worker 在 attempt 中途断开时相同：**FLOW_ERROR_TYPE_WORKER_API_FAIL**，只有 error detail 不同。因此，读取 recovery error 的 failure route 无法判断工作是否运行过。Flow 的 history 会记录实际是哪一种情况，Dex Web 也会显示。
+如果在 dispatch wait 内没有 Worker 接受 attempt，这个 attempt 会在没有运行的情况下失败，并消耗一次 retry。当该 Flow type 的所有 Worker 都达到任务上限，或者没有 Worker 在运行时，就会发生这种情况。这种失败的 recovery error type 与 Worker 在 attempt 中途断开时相同：**FLOW_ERROR_TYPE_WORKER_API_FAIL**，只有 error detail 不同。
+
+Recovery error（**RecoveryErrorInfo**）还带有 **attempt_progress**。它是失败的方法调用的所有 attempt 中走得最远的进度：
+
+- **NOT_STARTED**：没有任何 attempt 到达过可能运行它的 Worker。Handler 一定没有运行。
+- **NOT_COMPLETED**：至少有一个 attempt 被交给了 Worker 并且可能运行过，但没有一个完成。
+- **UNSPECIFIED**：较旧的 server 没有报告进度，或者调用在升级之前就已开始。按 **NOT_COMPLETED** 处理。
+
+ASYNC 的失败始终报告 **NOT_COMPLETED**，因为被回滚的执行可能已经运行过。
+
+**NOT_COMPLETED** 是保守的。即使 Worker 从未运行 handler，Dex 也可能报告它：
+
+- Server 在开始记录持久化之后、任务到达 Worker 之前崩溃。
+- 连接在 Dex 刚写出任务之后、Worker 读取之前断开。
+- Worker 拒绝了任务或干净地关闭了，但 server 在记录这件事之前崩溃。
+- SDK 在调用 handler 之前失败，例如读取输入 blob 或解码。Dex 把它报告为普通的 Worker 错误。**FlowServiceAddress** 配置错误会让每个带有 blob 输入的 attempt 都这样失败。**values.hydrateBeforeDispatch** 可以避免。
+
+Failure route 可以依赖 **NOT_STARTED** 表示工作没有运行，但不能依赖 **NOT_COMPLETED** 表示工作运行过。Flow 的 history 会记录 Dex 所知道的情况，Dex Web 也会显示。
 
 ### 按这些限制设计 {#design-for-redelivery}
 
-- 让每个外部副作用保持幂等。用一个在各次 attempt 和重新投递之间保持不变的 ID 作为 key，例如 Flow ID 加 Step execution ID，或者你自己的业务 key。把这个 key 发送给执行副作用的服务，让它只执行一次。
-- 只有在这些限制之内，单次 attempt 的 Step 才算 at most once。以相同 attempt 编号重新投递时，它仍可能运行两次。它的 failure route 可能在工作已经发生时运行，也可能在工作从未运行时运行。
-- 对结果未知的情况做对账。当 failure route 无法知道副作用是否发生时，先用幂等 key 或业务 key 到目标系统中检查，再决定是否重复或报告这个副作用。把查到的结果记录到 Flow 中。
+- 让每个外部副作用保持幂等。用一个在各次 attempt 之间保持不变的 ID 作为 key，例如 Flow ID 加 Step execution ID，或者你自己的业务 key。把这个 key 发送给执行副作用的服务，让它只执行一次。
+- 只有在这些限制之内，单次 attempt 的 Step 才算 at most once。被中断的 attempt 可能已经发出调用，被取消的执行也可能仍在运行。它的 failure route 可能在工作已经发生时运行，也可能在工作从未运行时运行。对 ASYNC 来说，同一个 attempt 编号还可能运行两次。
+- 对结果未知的情况做对账。当 failure route 看到 **NOT_COMPLETED** 时，先用幂等 key 或业务 key 到目标系统中检查，再决定是否重复或报告这个副作用。把查到的结果记录到 Flow 中。
 
-缩小这些情况的引擎改进正在跟踪中。关于 agent 包中单次 attempt 的 tool Step，见 [Tool call limits](/production/agents#tool-call-limits)。
+关于 agent 包中单次 attempt 的 tool Step，见 [Tool call limits](/production/agents#tool-call-limits)。

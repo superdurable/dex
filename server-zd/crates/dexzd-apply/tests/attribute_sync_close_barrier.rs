@@ -90,7 +90,8 @@ impl MemoryState {
                     self.rows
                         .insert((*column_family, key.clone()), value.clone());
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.rows.remove(&(*column_family, key.clone()));
                 }
                 StateWrite::DeleteRange {
@@ -393,6 +394,7 @@ impl Harness {
 
     fn travel_to(&mut self, request: ResetFlowRequest) -> ApplyOutcome {
         let outcome = self.apply(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(request),
         }));
         assert!(
@@ -1046,6 +1048,7 @@ fn rebuilt_cleanup_points_equal_their_recorded_states() {
 
     for (timestamp, expected) in &points {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(reset_to_time(*timestamp)),
         }));
         let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -1283,6 +1286,7 @@ fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
 
         for (timestamp, expected) in &points {
             let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+                should_restore_running_as_pending: false,
                 request: Some(reset_to_time(*timestamp)),
             }));
             let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -1445,6 +1449,7 @@ fn a_reapplied_flow_timeout_skip_waits_for_remarked_attributes() {
 
     for (timestamp, expected) in &points {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 2,
                 ..reset_to_time(*timestamp)
@@ -1500,6 +1505,7 @@ fn a_reapplied_flow_timeout_skip_closes_when_reapplied_writes_leave_nothing_to_s
 
     let expected = harness.semantic_point_hash();
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             run_attempt: 2,
             ..reset_to_time(travel_time)

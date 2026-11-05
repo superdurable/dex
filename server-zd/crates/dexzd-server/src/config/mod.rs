@@ -33,8 +33,8 @@ pub use engine_config::{
     RetentionConfig, SnapshotConfig, ValuesConfig,
 };
 pub use service_config::{
-    ApiConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig, StreamStoreBackend,
-    StreamStoreConfig,
+    ApiConfig, LifecycleConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig,
+    StreamStoreBackend, StreamStoreConfig,
 };
 pub use source_config::ConfigError;
 pub use standby_config::{StandbyConfig, StandbyMode};
@@ -61,6 +61,8 @@ pub struct Config {
     pub lease: LeaseConfig,
     /// How a process waits for the lease and steps down. Defaults to a cold standby.
     pub standby: StandbyConfig,
+    /// Planned shutdown and step-down. Defaults to a 30-second Step attempt drain.
+    pub lifecycle: LifecycleConfig,
     /// Snapshot cadence and log cleanup. Defaults to 256 MiB or ten minutes.
     pub snapshot: SnapshotConfig,
     /// Log replay read-ahead at startup. Defaults to 64 batches and 64 MiB.

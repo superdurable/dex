@@ -12,10 +12,13 @@
 mod attribute_sync_tests;
 mod deadline_tests;
 mod dispatch_tests;
+mod handout_tests;
 mod hard_delete_tests;
 mod keyword_index_tests;
 mod outbox_and_purge_tests;
 mod rebuild_tests;
+mod task_queue_race_tests;
+mod task_queue_tests;
 mod timer_tests;
 mod worker_output_tests;
 
@@ -30,6 +33,7 @@ use dexzd_apply::{
     apply_flow_command,
 };
 use dexzd_clock::WallClock;
+use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId};
 use dexzd_object_store::{FaultAction, FaultInjector, InMemoryObjectStore, ObjectStoreOperation};
@@ -48,21 +52,25 @@ use dexzd_protocol::dexzd::v1::{
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::InMemoryLocalStore;
 use dexzd_stream_store::{StreamStore, StreamStoreConfig};
-use dexzd_worker_dispatch::{DispatchEvent, DispatchOutcome};
+use dexzd_worker_dispatch::{
+    ClaimReply, DispatchOutcome, HeadsScanToken, QueuedTaskRef, ScannedQueueHead, StepTaskEvent,
+    StepTaskSendFailure, WorkerDispatch,
+};
 use futures::future::BoxFuture;
 use prost::Message;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::SystemEngineIdSource;
 use crate::attribute_sync::AttributeSyncWaker;
 use crate::effects::flow_effect_operations::{
-    FlowEffectOperationError, FlowEffectOperations, InvocationStartOutcome,
+    FlowEffectOperationError, FlowEffectOperations, InvocationLockCheck, InvocationStartOutcome,
 };
 use crate::effects::state_reads::{RunLocation, read_step_execution};
 use crate::effects::{
-    EffectDependencies, EffectError, EffectRunner, EffectTasksHandle, EffectsConfig,
-    HardDeleteObjects, HardDeleteUploadLedger, MethodDispatchRequest, MethodDispatchSession,
-    MethodDispatchStartError, MethodDispatcher, MethodRequest, NodeMetaUploadLedger,
+    AttemptDrainProgress, EffectDependencies, EffectError, EffectRunner, EffectTasksHandle,
+    EffectsConfig, HardDeleteObjects, HardDeleteUploadLedger, MethodClaim, MethodDispatchSession,
+    MethodDispatcher, MethodRequest, MethodStreamRequest, MethodStreamReservation, MethodTask,
+    NodeMetaUploadLedger, ReservedMethodStream,
 };
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 
@@ -133,7 +141,8 @@ impl MemoryState {
                     self.rows
                         .insert((*column_family, key.clone()), value.clone());
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.rows.remove(&(*column_family, key.clone()));
                 }
                 StateWrite::DeleteRange {
@@ -177,6 +186,14 @@ pub(super) struct RecordedCommand {
     pub(super) reply: CommandReply,
 }
 
+/// Proposals applied speculatively behind a held attempt start.
+struct HeldCommits {
+    /// The committed state from before the held start.
+    committed: MemoryState,
+    /// Effects to publish as committed on release, in apply order.
+    effects: Vec<(FlowAddress, Vec<ApplyEffect>)>,
+}
+
 /// Fake Flow runtime: stamps, applies with the real apply, and publishes committed effects.
 pub(super) struct InMemoryFlowEffectOperations {
     pub(super) state: Arc<Mutex<MemoryState>>,
@@ -196,10 +213,30 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) is_flow_state_unreadable_after_start: AtomicBool,
     /// Holds `flow_state_reader` calls from blocking threads while closed.
     pub(super) state_read_gate: Arc<StateReadGate>,
+    /// Holds committed reads from blocking threads while closed.
+    pub(super) committed_read_gate: Arc<StateReadGate>,
+    /// Holds the entries gauge's row-count pages from blocking threads while closed.
+    pub(super) row_count_gate: Arc<StateReadGate>,
     /// Counts `committed_state_reader` calls.
     pub(super) committed_reads: AtomicUsize,
+    /// Fails the next `committed_state_reader` calls as unavailable; other reads succeed.
+    pub(super) committed_reader_failures: AtomicUsize,
+    /// Counts committed DispatchQueue seeks and pages other than row-count pages.
+    pub(super) committed_queue_seeks: Arc<AtomicUsize>,
+    /// Counts `flow_state_reader` calls that leave out speculative state.
+    pub(super) committed_flow_reads: AtomicUsize,
     /// Delays each `propose_committed`, like a group commit window plus an object store write.
     pub(super) proposal_delay: Mutex<Duration>,
+    /// Delays the commit of each attempt start after its speculative apply.
+    pub(super) start_commit_delay: Mutex<Duration>,
+    /// Holds the next attempt start, and every later proposal, uncommitted until released.
+    pub(super) should_hold_next_start: AtomicBool,
+    held_commits: Mutex<Option<HeldCommits>>,
+    /// Turns true when held commits are released.
+    held_commits_released: tokio::sync::watch::Sender<bool>,
+    /// Starts that find their locks taken although the pre-check passed, as when a
+    /// transactional RPC takes them in between.
+    pub(super) starts_finding_busy_locks: AtomicUsize,
     overrides: Mutex<Vec<CommandOverride>>,
     /// Transactional RPCs a test holds in flight; pending close checks wait for zero.
     pub(super) transactional_rpcs: tokio::sync::watch::Sender<u32>,
@@ -265,8 +302,49 @@ impl InMemoryFlowEffectOperations {
                 .expect("lock")
                 .extend(effects.iter().cloned());
         }
-        self.sink.handle(flow, &effects, true);
+        let is_held = match self.held_commits.lock().expect("lock").as_mut() {
+            Some(held) => {
+                held.effects.push((flow.clone(), effects.clone()));
+                true
+            }
+            None => false,
+        };
+        self.sink.handle(flow, &effects, !is_held);
         Ok(reply)
+    }
+
+    /// Returns the committed state, which leaves out held proposals.
+    pub(super) fn committed_snapshot(&self) -> MemoryState {
+        match self.held_commits.lock().expect("lock").as_ref() {
+            Some(held) => held.committed.clone(),
+            None => self.snapshot(),
+        }
+    }
+
+    /// Commits the held start and every proposal behind it, and publishes their effects.
+    pub(super) fn release_held_commits(&self) {
+        let held = self
+            .held_commits
+            .lock()
+            .expect("lock")
+            .take()
+            .expect("a start is held");
+        for (flow, effects) in &held.effects {
+            self.sink.handle(flow, effects, true);
+        }
+        self.held_commits_released.send_replace(true);
+    }
+
+    /// Waits until no proposal is held.
+    async fn wait_for_held_commits(&self) {
+        let mut released = self.held_commits_released.subscribe();
+        if self.held_commits.lock().expect("lock").is_none() {
+            return;
+        }
+        // The sender lives as long as this runtime.
+        if released.wait_for(|is_released| *is_released).await.is_err() {
+            tracing::debug!("the test runtime dropped");
+        }
     }
 
     pub(super) fn add_override(&self, handler: CommandOverride) {
@@ -304,7 +382,9 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             if !delay.is_zero() {
                 tokio::time::sleep(delay).await;
             }
-            self.commit(flow, command, urgency)
+            let reply = self.commit(flow, command, urgency)?;
+            self.wait_for_held_commits().await;
+            Ok(reply)
         })
     }
 
@@ -321,8 +401,11 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
         &'a self,
         _flow: &'a FlowAddress,
     ) -> BoxFuture<'a, Result<(), FlowEffectOperationError>> {
-        // Proposals commit before they return.
-        Box::pin(async { Ok(()) })
+        // Proposals commit before they return, unless a start is held.
+        Box::pin(async move {
+            self.wait_for_held_commits().await;
+            Ok(())
+        })
     }
 
     fn wait_for_transactional_rpcs<'a>(
@@ -364,6 +447,15 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             if record.phase != StepInvocationPhase::Pending as i32 || record.attempt != attempt {
                 return Ok(InvocationStartOutcome::Stale);
             }
+            if self
+                .starts_finding_busy_locks
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok()
+            {
+                return Ok(InvocationStartOutcome::LocksBusy);
+            }
             let busy = self.busy_lock_keys.lock().expect("lock");
             if record.lock_keys.iter().any(|key| busy.contains(key)) {
                 return Ok(InvocationStartOutcome::LocksBusy);
@@ -384,7 +476,23 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
                 )),
                 ..FlowCommand::default()
             };
-            let reply = self.commit(flow, command, CommitUrgency::Prompt)?;
+            let urgency = if record.effective_durability
+                == dexzd_protocol::dex::StepDurability::Async as i32
+            {
+                CommitUrgency::Batched
+            } else {
+                CommitUrgency::Prompt
+            };
+            let is_held = self.should_hold_next_start.swap(false, Ordering::SeqCst);
+            if is_held {
+                self.held_commits_released.send_replace(false);
+                *self.held_commits.lock().expect("lock") = Some(HeldCommits {
+                    committed: self.snapshot(),
+                    effects: Vec::new(),
+                });
+            }
+            let mut released = self.held_commits_released.subscribe();
+            let reply = self.commit(flow, command, urgency)?;
             if is_error_reply(&reply) {
                 return Ok(InvocationStartOutcome::Stale);
             }
@@ -394,15 +502,53 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             {
                 self.is_flow_state_unreadable.store(true, Ordering::SeqCst);
             }
-            Ok(InvocationStartOutcome::Started)
+            let commit_delay = *self.start_commit_delay.lock().expect("lock");
+            Ok(InvocationStartOutcome::Started(Box::pin(async move {
+                if is_held && released.wait_for(|is_released| *is_released).await.is_err() {
+                    tracing::debug!("the test runtime dropped");
+                }
+                tokio::time::sleep(commit_delay).await;
+                Ok(())
+            })))
+        })
+    }
+
+    fn check_invocation_locks<'a>(
+        &'a self,
+        flow: &'a FlowAddress,
+        run_id: RunId,
+        invocation: &'a StepInvocationKey,
+        attempt: u32,
+    ) -> BoxFuture<'a, Result<InvocationLockCheck, FlowEffectOperationError>> {
+        Box::pin(async move {
+            let run = RunLocation {
+                flow_hash: self.hasher.flow_hash(flow.tenant_id, &flow.flow_id),
+                run_id,
+            };
+            let step = read_step_execution(&self.snapshot(), run, &invocation.step_execution_id)
+                .expect("state reads succeed");
+            let Some(record) = step.and_then(|step| step.invocation) else {
+                return Ok(InvocationLockCheck::Stale);
+            };
+            if record.phase != StepInvocationPhase::Pending as i32 || record.attempt != attempt {
+                return Ok(InvocationLockCheck::Stale);
+            }
+            let busy = self.busy_lock_keys.lock().expect("lock");
+            if record.lock_keys.iter().any(|key| busy.contains(key)) {
+                return Ok(InvocationLockCheck::Busy);
+            }
+            Ok(InvocationLockCheck::Free)
         })
     }
 
     fn flow_state_reader(
         &self,
         _flow: &FlowAddress,
-        _should_include_speculative: bool,
+        should_include_speculative: bool,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
+        if !should_include_speculative {
+            self.committed_flow_reads.fetch_add(1, Ordering::SeqCst);
+        }
         if self.is_flow_state_unreadable.load(Ordering::SeqCst)
             || self
                 .flow_state_reader_failures
@@ -415,8 +561,13 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
                 detail: "injected state reader outage".to_owned(),
             });
         }
+        let state = if should_include_speculative {
+            self.snapshot()
+        } else {
+            self.committed_snapshot()
+        };
         Ok(Box::new(GatedStateReader {
-            state: self.snapshot(),
+            state,
             read: StateReadInProgress::begin(&self.state_read_gate),
         }))
     }
@@ -425,7 +576,24 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
         &self,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
         self.committed_reads.fetch_add(1, Ordering::SeqCst);
-        Ok(Box::new(self.snapshot()))
+        if self
+            .committed_reader_failures
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok()
+        {
+            return Err(FlowEffectOperationError::Unavailable {
+                detail: "injected committed reader outage".to_owned(),
+            });
+        }
+        Ok(Box::new(CountingStateReader {
+            state: self.committed_snapshot(),
+            queue_seeks: Arc::clone(&self.committed_queue_seeks),
+            committed_read_gate: Arc::clone(&self.committed_read_gate),
+            row_count_gate: Arc::clone(&self.row_count_gate),
+            _open_read: StateReadInProgress::begin(&self.state_read_gate),
+        }))
     }
 }
 
@@ -435,6 +603,8 @@ pub(super) struct StateReadGate {
     runtime_thread: ThreadId,
     state: Mutex<StateReadGateState>,
     changed: Condvar,
+    /// When set, the next store read past the gate panics, as a read that hits a bug.
+    pub(super) should_panic_next_read: AtomicBool,
 }
 
 #[derive(Default)]
@@ -453,6 +623,13 @@ impl StateReadGate {
             runtime_thread: std::thread::current().id(),
             state: Mutex::new(StateReadGateState::default()),
             changed: Condvar::new(),
+            should_panic_next_read: AtomicBool::new(false),
+        }
+    }
+
+    fn panic_if_armed(&self) {
+        if self.should_panic_next_read.swap(false, Ordering::SeqCst) {
+            panic!("injected store read panic");
         }
     }
 
@@ -556,6 +733,7 @@ impl FlowStateReader for GatedStateReader {
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, StateReadError> {
         self.read.0.hold_while_closed();
+        self.read.0.panic_if_armed();
         self.state.get(column_family, key)
     }
 
@@ -567,7 +745,77 @@ impl FlowStateReader for GatedStateReader {
         limit: usize,
     ) -> Result<Vec<StateRow>, StateReadError> {
         self.read.0.hold_while_closed();
+        self.read.0.panic_if_armed();
         self.state.scan(column_family, start, end, limit)
+    }
+}
+
+/// Page size of the entries gauge's row count, which reads every row by design.
+const ROW_COUNT_PAGE_ROWS: usize = 1024;
+
+/// Counts DispatchQueue seeks and pages, except the row count's full pages.
+struct CountingStateReader {
+    state: MemoryState,
+    queue_seeks: Arc<AtomicUsize>,
+    committed_read_gate: Arc<StateReadGate>,
+    row_count_gate: Arc<StateReadGate>,
+    /// Counts the reader as open, so `settle` waits for its blocking read.
+    _open_read: StateReadInProgress,
+}
+
+impl CountingStateReader {
+    fn count_queue_seek(&self, column_family: ColumnFamily, start: &[u8]) {
+        if is_dispatch_queue_key(column_family, start) {
+            self.queue_seeks.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+fn is_dispatch_queue_key(column_family: ColumnFamily, key: &[u8]) -> bool {
+    column_family == ColumnFamily::PartitionIndex
+        && key.get(2) == Some(&(dexzd_keyspace::IndexKind::DispatchQueue as u8))
+}
+
+impl FlowStateReader for CountingStateReader {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        self.committed_read_gate.hold_while_closed();
+        self.committed_read_gate.panic_if_armed();
+        self.state.get(column_family, key)
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        self.committed_read_gate.hold_while_closed();
+        self.committed_read_gate.panic_if_armed();
+        if limit < ROW_COUNT_PAGE_ROWS {
+            self.count_queue_seek(column_family, start);
+        } else if is_dispatch_queue_key(column_family, start) {
+            self.row_count_gate.hold_while_closed();
+        }
+        self.state.scan(column_family, start, end, limit)
+    }
+
+    fn seek_first_bounded(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        max_skipped_deletions: u64,
+    ) -> Result<dexzd_apply::BoundedRowSeek, StateReadError> {
+        self.committed_read_gate.hold_while_closed();
+        self.committed_read_gate.panic_if_armed();
+        self.count_queue_seek(column_family, start);
+        self.state
+            .seek_first_bounded(column_family, start, end, max_skipped_deletions)
     }
 }
 
@@ -609,10 +857,23 @@ pub(super) fn error_reply(message: &str) -> CommandReply {
     }
 }
 
-/// One dispatch seen by the fake dispatcher.
+/// What the fake Worker received for one sent attempt.
+#[derive(Debug, Clone)]
+pub(super) struct FakeDispatchRequest {
+    pub(super) flow_id: String,
+    pub(super) flow_type: String,
+    pub(super) step_type: String,
+    pub(super) sticky_app_worker_id: Option<String>,
+    pub(super) app_worker_id: String,
+    pub(super) task_id: String,
+    pub(super) request: MethodRequest,
+    pub(super) deadline: std::time::SystemTime,
+}
+
+/// One task the fake dispatcher sent to a Worker.
 pub(super) struct FakeDispatch {
-    pub(super) request: MethodDispatchRequest,
-    events: mpsc::UnboundedSender<DispatchEvent>,
+    pub(super) request: FakeDispatchRequest,
+    events: mpsc::UnboundedSender<StepTaskEvent>,
     pub(super) is_cancelled: Arc<AtomicBool>,
 }
 
@@ -629,33 +890,45 @@ impl FakeDispatch {
         .expect("requests carry a Context")
     }
 
-    /// Reports that `app_worker_id` received the task.
-    pub(super) fn assign(&self, app_worker_id: &str) {
-        self.events
-            .send(DispatchEvent::Assigned {
-                app_worker_id: app_worker_id.to_owned(),
-            })
-            .expect("the attempt listens");
-    }
-
-    /// Reports that the assigned Worker rejected the task before any output.
-    pub(super) fn unassign(&self) {
-        self.events
-            .send(DispatchEvent::Unassigned)
-            .expect("the attempt listens");
+    fn send_event(&self, event: StepTaskEvent) {
+        // The attempt may already have stopped listening (timeouts, cancellation).
+        if self.events.send(event).is_err() {
+            tracing::debug!("attempt stopped listening");
+        }
     }
 
     pub(super) fn send_frame(&self, frame: PollWorkerTaskFrame) {
         self.events
-            .send(DispatchEvent::Output(frame))
+            .send(StepTaskEvent::Output(frame))
             .expect("the attempt listens");
     }
 
     pub(super) fn complete(&self, outcome: DispatchOutcome) {
-        // The attempt may already have stopped listening (timeouts, cancellation).
-        if self.events.send(DispatchEvent::Completed(outcome)).is_err() {
-            tracing::debug!("attempt stopped listening");
-        }
+        self.send_event(StepTaskEvent::Completed(outcome));
+    }
+
+    /// The Worker declines the task before any output.
+    pub(super) fn reject(
+        &self,
+        reason: dexzd_protocol::dex::PollWorkerTaskRejectReason,
+        is_reserved_slot: bool,
+    ) {
+        self.send_event(StepTaskEvent::Rejected {
+            reason,
+            is_reserved_slot,
+        });
+    }
+
+    /// The Worker cleanly half-closes its reserved slot before any output.
+    pub(super) fn half_close_before_output(&self) {
+        self.send_event(StepTaskEvent::NotDelivered);
+    }
+
+    /// The Worker's stream breaks after the task frame went out.
+    pub(super) fn disconnect(&self) {
+        self.send_event(StepTaskEvent::Disconnected {
+            detail: "Worker stream disconnected".to_owned(),
+        });
     }
 
     pub(super) fn complete_wait_for(&self, response: InvokeWaitForMethodResponse) {
@@ -736,26 +1009,156 @@ impl FakeDispatch {
     }
 }
 
-/// Method dispatcher that hands every dispatch to the test.
+/// Method dispatcher whose Worker `worker-a` takes every attempt at once and hands each sent
+/// task to the test.
 pub(super) struct FakeDispatcher {
-    dispatches: Mutex<mpsc::UnboundedSender<FakeDispatch>>,
+    dispatches: Arc<Mutex<mpsc::UnboundedSender<FakeDispatch>>>,
     receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<FakeDispatch>>,
-    pub(super) dispatch_count: AtomicUsize,
+    /// Sent tasks.
+    pub(super) dispatch_count: Arc<AtomicUsize>,
+    /// Reserved Worker slots, including those never sent.
+    pub(super) reservation_count: AtomicUsize,
+    /// When set, every reservation finds no Worker and the attempt goes to the queue.
     pub(super) refuse_dispatch: AtomicBool,
-    /// When set, the test reports the assignment; otherwise `worker-a` receives every task at once.
-    pub(super) is_assignment_manual: AtomicBool,
+    /// When set, every reservation reports that matching is closing.
+    pub(super) is_closing: AtomicBool,
+    /// Sends that fail as never delivered, before later sends succeed.
+    pub(super) undelivered_sends: Arc<AtomicUsize>,
+    /// Requests of every reservation, in order.
+    pub(super) reservations: Mutex<Vec<MethodStreamRequest>>,
+    /// Refs of every Queued, in order.
+    pub(super) queued_refs: Mutex<Vec<QueuedTaskRef>>,
+    /// Heads of every rebuild, in order.
+    pub(super) rebuilt_heads: Mutex<Vec<QueuedTaskRef>>,
+    /// Replies to the Claims the test injected, in order.
+    pub(super) claim_replies: Mutex<Vec<(u64, ClaimReply)>>,
+    claims: Mutex<mpsc::UnboundedSender<MethodClaim>>,
+    claim_receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<MethodClaim>>,
+    /// Issues periodic Heads tokens and merges scans like production matching.
+    pub(super) heads_matching: WorkerDispatch,
+    /// Refs that periodic Heads scans restored, summed over scans.
+    pub(super) restored_head_count: AtomicUsize,
+    /// Partition removals, shared with the slots so a slot can remove its partition.
+    pub(super) partition_removals: Arc<FakePartitionRemovals>,
+    /// Panics the slots inject once, shared with every slot.
+    pub(super) slot_panics: Arc<FakeSlotPanics>,
+    /// Ordinary-priority pending times reported behind priority-0 heads, in order.
+    pub(super) ordinary_backlog: Mutex<Vec<Option<i64>>>,
+}
+
+/// One-shot panics of the next slot call, as a hand-out that hits a bug.
+#[derive(Default)]
+pub(super) struct FakeSlotPanics {
+    /// When set, the next slot asked for its Worker panics, before the attempt starts.
+    pub(super) should_panic_at_routing: AtomicBool,
+    /// When set, the next send panics, after the attempt started.
+    pub(super) should_panic_at_send: AtomicBool,
+}
+
+/// Partition removals as matching counts them, and the Claims they ended.
+#[derive(Default)]
+pub(super) struct FakePartitionRemovals {
+    /// Removals of each partition.
+    removals: Mutex<BTreeMap<PartitionId, u64>>,
+    /// Claims that matching no longer tracks, as after a partition removal.
+    pub(super) untracked_claim_ids: Mutex<BTreeSet<u64>>,
+    /// When set, the next claimed slot asked for its Worker first removes its partition.
+    pub(super) should_remove_before_start: AtomicBool,
+}
+
+impl FakePartitionRemovals {
+    /// Removes `partition` as matching would, ending its tracked `claim_ids`.
+    fn remove(&self, partition: PartitionId, claim_ids: &[u64]) {
+        *self
+            .removals
+            .lock()
+            .expect("lock")
+            .entry(partition)
+            .or_default() += 1;
+        self.untracked_claim_ids
+            .lock()
+            .expect("lock")
+            .extend(claim_ids.iter().copied());
+    }
+
+    fn removals_of(&self, partition: PartitionId) -> u64 {
+        self.removals
+            .lock()
+            .expect("lock")
+            .get(&partition)
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 impl FakeDispatcher {
     fn new() -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
+        let (claim_sender, claim_receiver) = mpsc::unbounded_channel();
         Self {
-            dispatches: Mutex::new(sender),
+            dispatches: Arc::new(Mutex::new(sender)),
             receiver: tokio::sync::Mutex::new(receiver),
-            dispatch_count: AtomicUsize::new(0),
+            dispatch_count: Arc::new(AtomicUsize::new(0)),
+            reservation_count: AtomicUsize::new(0),
             refuse_dispatch: AtomicBool::new(false),
-            is_assignment_manual: AtomicBool::new(false),
+            is_closing: AtomicBool::new(false),
+            undelivered_sends: Arc::new(AtomicUsize::new(0)),
+            reservations: Mutex::new(Vec::new()),
+            queued_refs: Mutex::new(Vec::new()),
+            rebuilt_heads: Mutex::new(Vec::new()),
+            claim_replies: Mutex::new(Vec::new()),
+            claims: Mutex::new(claim_sender),
+            claim_receiver: tokio::sync::Mutex::new(claim_receiver),
+            heads_matching: WorkerDispatch::new(
+                dexzd_worker_dispatch::MatchingConfig::default(),
+                Arc::new(dexzd_clock::SystemWallClock),
+            ),
+            restored_head_count: AtomicUsize::new(0),
+            partition_removals: Arc::new(FakePartitionRemovals::default()),
+            slot_panics: Arc::new(FakeSlotPanics::default()),
+            ordinary_backlog: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Claims `task` on a slot of the fake Worker, as matching would for a free stream.
+    pub(super) fn claim(&self, claim_id: u64, task: QueuedTaskRef) {
+        let request = MethodStreamRequest {
+            partition: task.partition,
+            tenant_id: task.queue.tenant_id.0,
+            flow_id: task.flow_id.clone(),
+            flow_type: task.queue.flow_type.clone(),
+            step_type: task.queue.step_type.clone(),
+            sticky_app_worker_id: None,
+        };
+        let partition_removals = self.removals_of(task.partition);
+        let claim = MethodClaim {
+            claim_id,
+            partition_removals,
+            task,
+            stream: Box::new(FakeSlot {
+                request,
+                dispatches: Arc::clone(&self.dispatches),
+                dispatch_count: Arc::clone(&self.dispatch_count),
+                undelivered_sends: Arc::clone(&self.undelivered_sends),
+                claim_id: Some(claim_id),
+                partition_removals: Arc::clone(&self.partition_removals),
+                panics: Arc::clone(&self.slot_panics),
+            }),
+        };
+        self.claims
+            .lock()
+            .expect("lock")
+            .send(claim)
+            .expect("the claim pump holds the receiver");
+    }
+
+    /// Removes `partition` as matching would, ending its tracked Claims.
+    pub(super) fn remove_partition(&self, partition: PartitionId, claim_ids: &[u64]) {
+        self.partition_removals.remove(partition, claim_ids);
+    }
+
+    fn removals_of(&self, partition: PartitionId) -> u64 {
+        self.partition_removals.removals_of(partition)
     }
 
     /// Waits for the next dispatch.
@@ -773,26 +1176,195 @@ impl FakeDispatcher {
 }
 
 impl MethodDispatcher for FakeDispatcher {
-    fn dispatch(
+    fn reserve_stream(
         &self,
-        request: MethodDispatchRequest,
-    ) -> Result<Box<dyn MethodDispatchSession>, MethodDispatchStartError> {
-        self.dispatch_count.fetch_add(1, Ordering::SeqCst);
-        if self.refuse_dispatch.load(Ordering::SeqCst) {
-            return Err(MethodDispatchStartError {
-                detail: "matching server is closing".to_owned(),
-            });
+        request: MethodStreamRequest,
+    ) -> BoxFuture<'_, MethodStreamReservation> {
+        Box::pin(async move {
+            self.reservation_count.fetch_add(1, Ordering::SeqCst);
+            self.reservations
+                .lock()
+                .expect("lock")
+                .push(request.clone());
+            if self.is_closing.load(Ordering::SeqCst) {
+                return MethodStreamReservation::ServerClosing;
+            }
+            if self.refuse_dispatch.load(Ordering::SeqCst) {
+                return MethodStreamReservation::Enqueue;
+            }
+            MethodStreamReservation::Reserved(Box::new(FakeSlot {
+                request,
+                dispatches: Arc::clone(&self.dispatches),
+                dispatch_count: Arc::clone(&self.dispatch_count),
+                undelivered_sends: Arc::clone(&self.undelivered_sends),
+                claim_id: None,
+                partition_removals: Arc::clone(&self.partition_removals),
+                panics: Arc::clone(&self.slot_panics),
+            }))
+        })
+    }
+
+    fn queued(&self, task: QueuedTaskRef) {
+        self.queued_refs.lock().expect("lock").push(task);
+    }
+
+    fn report_rebuilt_heads(&self, heads: Vec<QueuedTaskRef>) {
+        self.rebuilt_heads.lock().expect("lock").extend(heads);
+    }
+
+    fn take_heads_token(&self, partition: PartitionId) -> HeadsScanToken {
+        self.heads_matching.take_heads_token(partition)
+    }
+
+    fn report_scanned_heads(&self, token: HeadsScanToken, results: Vec<ScannedQueueHead>) -> usize {
+        let restored = self.heads_matching.report_scanned_heads(token, results);
+        self.restored_head_count
+            .fetch_add(restored, Ordering::SeqCst);
+        restored
+    }
+
+    fn next_claim(&self) -> BoxFuture<'_, Option<MethodClaim>> {
+        Box::pin(async move { self.claim_receiver.lock().await.recv().await })
+    }
+
+    fn reply_to_claim(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        claim_id: u64,
+        reply: ClaimReply,
+    ) {
+        self.claim_replies
+            .lock()
+            .expect("lock")
+            .push((claim_id, reply));
+    }
+
+    fn partition_removals(&self, partition: PartitionId) -> u64 {
+        self.removals_of(partition)
+    }
+
+    fn is_partition_unremoved_since(
+        &self,
+        partition: PartitionId,
+        partition_removals: u64,
+    ) -> bool {
+        self.removals_of(partition) == partition_removals
+    }
+
+    fn is_claim_tracked(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        claim_id: u64,
+    ) -> bool {
+        !self
+            .partition_removals
+            .untracked_claim_ids
+            .lock()
+            .expect("lock")
+            .contains(&claim_id)
+    }
+
+    fn report_ordinary_backlog(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        pending_since_micros: Option<i64>,
+    ) {
+        self.ordinary_backlog
+            .lock()
+            .expect("lock")
+            .push(pending_since_micros);
+    }
+
+    fn is_waiting_for_supporting_worker(
+        &self,
+        _tenant_id: u64,
+        _flow_type: &str,
+        _step_type: &str,
+    ) -> bool {
+        false
+    }
+
+    fn refresh_task_queue_gauges(&self) {}
+}
+
+/// A reserved slot of the fake Worker `worker-a`.
+struct FakeSlot {
+    request: MethodStreamRequest,
+    dispatches: Arc<Mutex<mpsc::UnboundedSender<FakeDispatch>>>,
+    dispatch_count: Arc<AtomicUsize>,
+    undelivered_sends: Arc<AtomicUsize>,
+    /// The Claim that delivered this slot, if any.
+    claim_id: Option<u64>,
+    partition_removals: Arc<FakePartitionRemovals>,
+    panics: Arc<FakeSlotPanics>,
+}
+
+impl ReservedMethodStream for FakeSlot {
+    fn app_worker_id(&self) -> &str {
+        // The hand-out asks for the Worker after the Claim's checks and before its start.
+        if let Some(claim_id) = self.claim_id
+            && self
+                .partition_removals
+                .should_remove_before_start
+                .swap(false, Ordering::SeqCst)
+        {
+            self.partition_removals
+                .remove(self.request.partition, &[claim_id]);
         }
+        if self
+            .panics
+            .should_panic_at_routing
+            .swap(false, Ordering::SeqCst)
+        {
+            panic!("injected panic at routing");
+        }
+        "worker-a"
+    }
+
+    fn may_hand_out_tasks(&self) -> bool {
+        true
+    }
+
+    fn send_task(
+        self: Box<Self>,
+        task: MethodTask,
+    ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
+        if self
+            .panics
+            .should_panic_at_send
+            .swap(false, Ordering::SeqCst)
+        {
+            panic!("injected panic at send");
+        }
+        if self
+            .undelivered_sends
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                count.checked_sub(1)
+            })
+            .is_ok()
+        {
+            return Err(StepTaskSendFailure::NotDelivered);
+        }
+        self.dispatch_count.fetch_add(1, Ordering::SeqCst);
         let (events, receiver) = mpsc::unbounded_channel();
         let is_cancelled = Arc::new(AtomicBool::new(false));
         let dispatch = FakeDispatch {
-            request,
+            request: FakeDispatchRequest {
+                flow_id: self.request.flow_id.clone(),
+                flow_type: self.request.flow_type.clone(),
+                step_type: self.request.step_type.clone(),
+                sticky_app_worker_id: self.request.sticky_app_worker_id.clone(),
+                app_worker_id: "worker-a".to_owned(),
+                task_id: task.task_id,
+                request: task.request,
+                deadline: task.deadline,
+            },
             events,
             is_cancelled: Arc::clone(&is_cancelled),
         };
-        if !self.is_assignment_manual.load(Ordering::SeqCst) {
-            dispatch.assign("worker-a");
-        }
         self.dispatches
             .lock()
             .expect("lock")
@@ -806,12 +1378,12 @@ impl MethodDispatcher for FakeDispatcher {
 }
 
 struct FakeSession {
-    receiver: mpsc::UnboundedReceiver<DispatchEvent>,
+    receiver: mpsc::UnboundedReceiver<StepTaskEvent>,
     is_cancelled: Arc<AtomicBool>,
 }
 
 impl MethodDispatchSession for FakeSession {
-    fn next_event(&mut self) -> BoxFuture<'_, Option<DispatchEvent>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Option<StepTaskEvent>> {
         Box::pin(self.receiver.recv())
     }
 
@@ -852,6 +1424,13 @@ pub(super) struct EffectHarness {
     pub(super) stream_store: Arc<StreamStore>,
     pub(super) attribute_sync_waker: AttributeSyncWaker,
     tasks: EffectTasksHandle,
+}
+
+impl EffectHarness {
+    /// Returns the effect state the running tasks share, such as attempt entries.
+    pub(super) fn effect_context(&self) -> &Arc<crate::effects::EffectContext> {
+        self.tasks.context()
+    }
 }
 
 impl EffectHarness {
@@ -930,12 +1509,22 @@ impl EffectHarness {
             commands: Mutex::new(Vec::new()),
             published_effects: Mutex::new(Vec::new()),
             busy_lock_keys: Mutex::new(BTreeSet::new()),
+            start_commit_delay: Mutex::new(Duration::ZERO),
+            should_hold_next_start: AtomicBool::new(false),
+            held_commits: Mutex::new(None),
+            held_commits_released: tokio::sync::watch::Sender::new(false),
+            starts_finding_busy_locks: AtomicUsize::new(0),
             unavailable_proposals: AtomicUsize::new(0),
             is_flow_state_unreadable: AtomicBool::new(false),
             flow_state_reader_failures: Arc::new(AtomicUsize::new(0)),
             is_flow_state_unreadable_after_start: AtomicBool::new(false),
             state_read_gate: Arc::new(StateReadGate::new()),
+            committed_read_gate: Arc::new(StateReadGate::new()),
+            row_count_gate: Arc::new(StateReadGate::new()),
             committed_reads: AtomicUsize::new(0),
+            committed_reader_failures: AtomicUsize::new(0),
+            committed_queue_seeks: Arc::new(AtomicUsize::new(0)),
+            committed_flow_reads: AtomicUsize::new(0),
             proposal_delay: Mutex::new(Duration::ZERO),
             overrides: Mutex::new(Vec::new()),
             transactional_rpcs: tokio::sync::watch::Sender::new(0),
@@ -1050,7 +1639,7 @@ impl EffectHarness {
     /// Lets every runnable task proceed without moving time forward much.
     pub(super) async fn settle(&self) {
         self.yield_to_tasks().await;
-        if self
+        while self
             .flow_effect_operations
             .state_read_gate
             .may_have_unconsumed_reads()
@@ -1066,6 +1655,13 @@ impl EffectHarness {
         for _ in 0..50 {
             tokio::task::yield_now().await;
         }
+    }
+
+    /// Begins a Step attempt drain, as a planned stop does after matching closes.
+    pub(super) fn begin_attempt_drain(&self) -> watch::Receiver<AttemptDrainProgress> {
+        self.tasks
+            .begin_attempt_drain()
+            .expect("the effect router runs")
     }
 
     pub(super) async fn shutdown(self) {

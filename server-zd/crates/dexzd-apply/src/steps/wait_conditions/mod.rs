@@ -66,6 +66,7 @@ pub(crate) fn register_wait(
             StepMethod::Execute,
             1,
             scope.now_micros,
+            scope.now_micros,
         )?;
         cursor.rows.put_step_execution(transaction, step);
         return Ok(Ok(()));
@@ -394,6 +395,7 @@ fn evaluate_waiting_step(
         step,
         StepMethod::Execute,
         1,
+        now_micros,
         now_micros,
     )?;
     Ok(true)

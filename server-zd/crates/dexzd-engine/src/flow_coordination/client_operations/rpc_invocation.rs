@@ -237,6 +237,11 @@ impl FlowCoordinatorRegistry {
             .dependencies
             .rpc_invoker
             .invoke_worker_rpc(WorkerRpcInvocation {
+                partition: self
+                    .inner
+                    .dependencies
+                    .hasher
+                    .partition_of_flow(flow.tenant_id, &flow.flow_id),
                 flow: flow.clone(),
                 run_id: run.run_id,
                 flow_type: run.record.flow_type.clone(),

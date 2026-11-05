@@ -17,6 +17,9 @@ pub struct MatchingConfig {
     pub dispatch_wait: Duration,
     /// Default 5 seconds. Bounds sticky queue search before Flow type fallback.
     pub sticky_wait: Duration,
+    /// Default 200 milliseconds, greater than zero. How long a Step waits in memory for a Worker
+    /// of its Flow type before it goes to the durable task queue (plan D53).
+    pub sync_match_wait: Duration,
     /// Default 30 seconds. Preserves same-Flow affinity within a Flow type queue.
     pub affinity_duration: Duration,
     /// Default 20 seconds. Sends pings only to idle Worker streams.
@@ -31,6 +34,10 @@ pub struct MatchingConfig {
     pub max_flow_types: usize,
     /// Default 256 bytes. Bounds each registered Flow type.
     pub max_flow_type_length: usize,
+    /// Default 10000. Bounds the (task type, app_worker_id) pairs remembered as unsupported;
+    /// the least recently recorded pair is evicted when full. An evicted pair still excludes
+    /// its Worker until that Worker completes a Step.
+    pub unsupported_type_cache_entries: usize,
 }
 
 impl Default for MatchingConfig {
@@ -38,6 +45,7 @@ impl Default for MatchingConfig {
         Self {
             dispatch_wait: Duration::from_secs(10),
             sticky_wait: Duration::from_secs(5),
+            sync_match_wait: Duration::from_millis(200),
             affinity_duration: Duration::from_secs(30),
             ping_interval: Duration::from_secs(20),
             max_streams: 100_000,
@@ -45,6 +53,7 @@ impl Default for MatchingConfig {
             max_queue_length: 256,
             max_flow_types: 256,
             max_flow_type_length: 256,
+            unsupported_type_cache_entries: 10_000,
         }
     }
 }

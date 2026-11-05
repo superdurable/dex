@@ -54,6 +54,9 @@ standby:
   laggingTakeoverDelay: 1500ms
   # hot only: the lag above which a standby is behind, not hot.
   behindLagThreshold: 10s
+lifecycle:
+  # Defaults to 30s; 0s disables waiting for running Step results before planned lease release.
+  attemptDrainTimeout: 30s
 snapshot:
   logThresholdBytes: 268435456
   interval: 10min
@@ -105,11 +108,14 @@ metrics:
 matching:
   dispatchWait: 10s
   stickyWait: 5s
+  syncMatchWait: 200ms
+  headsResyncInterval: 5m
   maxConcurrentTasksCap: 256
   maxStreams: 100000
   maxQueueLength: 256
   maxFlowTypes: 256
   maxFlowTypeLength: 256
+  unsupportedTypeCacheEntries: 10000
   pingInterval: 20s
 streamStore:
   backend: disabled

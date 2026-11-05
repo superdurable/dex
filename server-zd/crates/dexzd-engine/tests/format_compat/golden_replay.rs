@@ -29,12 +29,12 @@ use crate::testdata_tree::{
 };
 
 /// Digest of every file of each version, README included. Regenerate v1 before 1.0; afterward versions are immutable: add `v<N+1>`.
-const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "308a5d5a561ddb78effa112fc4b0e636")];
+const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "e5e010a278daf1c4fe72d377f51b4bb0")];
 /// The restoring node starts this long after the last recorded command.
-const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
+pub(crate) const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SnapshotUse {
+pub(crate) enum SnapshotUse {
     /// Restore the recorded snapshot, then replay the log after it.
     Restore,
     /// Ignore the snapshot and replay the whole log into an empty store.
@@ -269,7 +269,7 @@ async fn replay_version(version: &TestdataVersion, snapshot_use: SnapshotUse) ->
 }
 
 /// Removes every snapshot reference, so recovery starts from an empty store at seq 1.
-async fn forget_snapshots(object_store: &dyn ObjectStore, mut manifest: Manifest) {
+pub(crate) async fn forget_snapshots(object_store: &dyn ObjectStore, mut manifest: Manifest) {
     for partition in &mut manifest.partitions {
         partition.snapshot = None;
     }
@@ -295,6 +295,8 @@ const ALL_COMMAND_KINDS: &[&str] = &[
     "StepAttemptHeartbeat",
     "StepAttemptFailed",
     "StepMethodCompleted",
+    "StepAttemptReturned",
+    "StepAttemptQueued",
     "RpcCommitted",
     "TimersFired",
     "TimerSkip",
@@ -303,6 +305,8 @@ const ALL_COMMAND_KINDS: &[&str] = &[
     "OutboxAck",
     "AttributeSyncAck",
     "PendingCloseCheck",
+    "SearchOutboxAck",
+    "SetSearchProjectionMode",
     "HardDeleteObjectsDeleted",
     "RunPurge",
 ];
@@ -324,6 +328,8 @@ fn command_kind(command: &FlowCommand) -> &'static str {
         Command::StepAttemptHeartbeat(_) => "StepAttemptHeartbeat",
         Command::StepAttemptFailed(_) => "StepAttemptFailed",
         Command::StepMethodCompleted(_) => "StepMethodCompleted",
+        Command::StepAttemptReturned(_) => "StepAttemptReturned",
+        Command::StepAttemptQueued(_) => "StepAttemptQueued",
         Command::RpcCommitted(_) => "RpcCommitted",
         Command::TimersFired(_) => "TimersFired",
         Command::TimerSkip(_) => "TimerSkip",

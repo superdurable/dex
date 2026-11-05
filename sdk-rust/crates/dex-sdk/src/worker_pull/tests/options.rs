@@ -25,7 +25,6 @@ fn validates_pull_options() {
                 .max_concurrent_tasks(2)
                 .reserved_rpc_tasks(3),
         ),
-        WorkerOptions::new().pull(PullWorkerOptions::new().idle_streams_per_queue(0)),
         WorkerOptions::new().pull(PullWorkerOptions::new().stop_drain_timeout(Duration::ZERO)),
         WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("bad/id")),
         WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("RegisteredFlow")),
@@ -43,9 +42,9 @@ fn validates_pull_options() {
     .err()
     .expect("zero task capacity must fail");
     assert!(
-        zero_capacity_error.to_string().contains(
-            "pull Worker task limit, idle stream count, and drain timeout must be positive"
-        )
+        zero_capacity_error
+            .to_string()
+            .contains("pull Worker task limit and drain timeout must be positive")
     );
     assert!(
         Worker::try_new(

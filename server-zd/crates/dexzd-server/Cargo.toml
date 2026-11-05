@@ -68,6 +68,7 @@ libc.workspace = true
 prost-types.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+time.workspace = true
 tokio = { workspace = true, features = ["process", "test-util"] }
 tokio-postgres.workspace = true
 tonic-health.workspace = true

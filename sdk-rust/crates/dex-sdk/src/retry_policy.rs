@@ -64,7 +64,18 @@ impl RetryPolicy {
         self
     }
 
-    /// Sets the total elapsed-time limit for all attempts.
+    /// Sets the elapsed-time budget used to decide whether to retry a failed Step attempt.
+    ///
+    /// For Steps, time starts when Dex first hands the Step to a Worker. Dex checks this budget
+    /// only after an attempt fails; expiration never ends a running attempt. Unset uses the Server
+    /// default. `value` uses [`Duration`] and is serialized in seconds; invalid durations fail when
+    /// the policy is submitted. Returns this policy with the budget applied.
+    ///
+    /// ```
+    /// use dex_sdk::RetryPolicy;
+    /// use std::time::Duration;
+    /// let retry = RetryPolicy::new().total_duration(Duration::from_secs(60));
+    /// ```
     pub fn total_duration(mut self, value: Duration) -> Self {
         self.total_duration = Some(value);
         self

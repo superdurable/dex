@@ -10,22 +10,25 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dexzd_clock::WallClock;
 use dexzd_protocol::dex::{
-    self, DispatchTaskErrorReason, PollWorkerTask, PollWorkerTaskFrame, PollWorkerTaskRegister,
-    poll_worker_task, poll_worker_task_frame,
+    self, DispatchTaskErrorReason, PollWorkerSlotKind, PollWorkerTask, PollWorkerTaskFrame,
+    PollWorkerTaskRegister, poll_worker_task, poll_worker_task_frame,
 };
 use tonic::Status;
 
 use super::{DispatchOutcome, DispatchRequest, DispatchTaskPayload};
 use crate::MatchingConfig;
 
-pub(super) fn build_task(task_id: &str, request: &DispatchRequest) -> PollWorkerTask {
+pub(super) fn build_task(
+    task_id: &str,
+    payload: &DispatchTaskPayload,
+    deadline: SystemTime,
+) -> PollWorkerTask {
     let mut task = PollWorkerTask {
         task_id: task_id.to_owned(),
         deadline: Some(Default::default()),
         request: None,
     };
-    let deadline = request
-        .deadline
+    let deadline = deadline
         .duration_since(UNIX_EPOCH)
         .expect("validated deadline is after Unix epoch");
     let timestamp = task
@@ -34,7 +37,7 @@ pub(super) fn build_task(task_id: &str, request: &DispatchRequest) -> PollWorker
         .expect("task deadline was initialized");
     timestamp.seconds = i64::try_from(deadline.as_secs()).unwrap_or(i64::MAX);
     timestamp.nanos = i32::try_from(deadline.subsec_nanos()).expect("nanoseconds fit i32");
-    task.request = Some(match &request.payload {
+    task.request = Some(match payload {
         DispatchTaskPayload::WaitFor(value) => poll_worker_task::Request::WaitFor(value.clone()),
         DispatchTaskPayload::Execute(value) => poll_worker_task::Request::Execute(value.clone()),
         DispatchTaskPayload::Rpc(value) => poll_worker_task::Request::Rpc(value.clone()),
@@ -90,8 +93,24 @@ pub(super) fn validate_registration(
             "app_worker_id contains an invalid character",
         ));
     }
-    if registration.queue.is_empty() || registration.queue.len() > config.max_queue_length {
-        return Err(Status::invalid_argument("queue must have a valid length"));
+    if registration.supports_reserved_slot_dispatch {
+        if !registration.queue.is_empty() {
+            return Err(Status::invalid_argument(
+                "a reserved-slot registration must leave queue empty",
+            ));
+        }
+        if PollWorkerSlotKind::try_from(registration.slot_kind).is_err() {
+            return Err(Status::invalid_argument("invalid slot_kind"));
+        }
+    } else {
+        if registration.slot_kind != PollWorkerSlotKind::Unspecified as i32 {
+            return Err(Status::invalid_argument(
+                "slot_kind requires supports_reserved_slot_dispatch",
+            ));
+        }
+        if registration.queue.is_empty() || registration.queue.len() > config.max_queue_length {
+            return Err(Status::invalid_argument("queue must have a valid length"));
+        }
     }
     if registration.flow_types.len() > config.max_flow_types {
         return Err(Status::invalid_argument("too many flow_types"));
@@ -105,7 +124,8 @@ pub(super) fn validate_registration(
             "flow_type exceeds the length limit",
         ));
     }
-    if registration.queue != registration.app_worker_id
+    if !registration.supports_reserved_slot_dispatch
+        && registration.queue != registration.app_worker_id
         && !registration.flow_types.contains(&registration.queue)
     {
         return Err(Status::invalid_argument(

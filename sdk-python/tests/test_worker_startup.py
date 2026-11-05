@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Iterator
+from typing import Iterator, cast
 
 import grpc
 import pytest
@@ -23,8 +23,9 @@ from dex.blob_cache import BlobCacheConfig
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Flow, PersistenceSchema, Registry
+from dex.pull_registration import PullRegistrationError
 from dex.worker import Worker
-from dex.worker_options import WorkerOptions
+from dex.worker_options import PullWorkerOptions, WorkerOptions
 
 
 class IndexedFlow(Flow[None]):
@@ -78,15 +79,17 @@ class SyncService(
         failure: bool = False,
         server_info: pb.ServerInfo | None = None,
         server_info_failure: grpc.StatusCode | None = None,
+        poll_rejection: grpc.StatusCode | None = None,
     ) -> None:
         self.failure = failure
+        self.poll_rejection = poll_rejection
         self.server_info = (
             server_info
             if server_info is not None
             else pb.ServerInfo(
                 server_version="test",
                 minimum_supported_protocol_version=1,
-                current_protocol_version=1,
+                current_protocol_version=4,
             )
         )
         self.server_info_failure = server_info_failure
@@ -126,6 +129,8 @@ class SyncService(
     ) -> Iterator[pb.PollWorkerTaskResponse]:
         self.poll_calls.append("PollWorkerTask")
         next(request_iterator)
+        if self.poll_rejection is not None:
+            context.abort(self.poll_rejection, "poll stream rejected")
         yield pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered())
         for request in request_iterator:
             pass
@@ -138,6 +143,7 @@ def test_worker_synchronizes_indexes_before_polling() -> None:
         Registry((IndexedFlow(),)),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )
@@ -176,6 +182,7 @@ def test_worker_sync_failure_prevents_polling() -> None:
         Registry((IndexedFlow(),)),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )
@@ -194,11 +201,12 @@ def test_worker_sync_failure_prevents_polling() -> None:
         (
             pb.ServerInfo(
                 server_version="future",
-                minimum_supported_protocol_version=4,
-                current_protocol_version=4,
+                minimum_supported_protocol_version=5,
+                current_protocol_version=5,
             ),
             None,
-            "do not overlap",
+            r"supports Dex Server protocol versions 4-4.*"
+            r"protocol versions 5-5.*Upgrade the SDK",
         ),
         (pb.ServerInfo(server_version="invalid"), None, "interval is invalid"),
         (
@@ -228,6 +236,7 @@ def test_worker_protocol_failure_precedes_sync_and_polling(
         Registry((IndexedFlow(),)),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )
@@ -241,72 +250,46 @@ def test_worker_protocol_failure_precedes_sync_and_polling(
         flow_server.stop(grace=None).wait(timeout=5)
 
 
-PROTOCOL_2_SERVER_INFO = pb.ServerInfo(
-    server_version="previous",
-    minimum_supported_protocol_version=1,
-    current_protocol_version=2,
-)
+@pytest.mark.parametrize("is_async", [False, True])
+def test_worker_rejects_protocol_3_before_polling(is_async: bool) -> None:
+    asyncio.run(_worker_rejects_protocol_3_before_polling(is_async))
 
 
-@pytest.mark.parametrize("flow_type", (IndexedFlow, HardDeleteFlow))
-def test_worker_starts_on_protocol_2_server_and_records_version(
-    flow_type: type[Flow[None]],
-) -> None:
-    service = SyncService(server_info=PROTOCOL_2_SERVER_INFO)
-    flow_server, flow_port = _start_flow_server(service)
-    worker = Worker(
-        Registry((flow_type(),)),
-        MemoryBlobCache(),
-        WorkerOptions(server_address=f"127.0.0.1:{flow_port}"),
+async def _worker_rejects_protocol_3_before_polling(is_async: bool) -> None:
+    service = SyncService(
+        server_info=pb.ServerInfo(
+            server_version="previous-3",
+            minimum_supported_protocol_version=1,
+            current_protocol_version=3,
+        )
     )
-    failures: list[BaseException] = []
-
-    def run_worker() -> None:
-        try:
-            worker.start()
-        except BaseException as failure:
-            failures.append(failure)
-
-    thread = threading.Thread(target=run_worker)
-    thread.start()
-    try:
-        assert service.called.wait(timeout=5)
-        worker.wait_pull_registered(timeout=5)
-        assert not service.polling_during_sync
-        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
-        assert worker._server_protocol.version == 2
-    finally:
-        worker.stop()
-        thread.join(timeout=10)
-        flow_server.stop(grace=None).wait(timeout=5)
-    assert not thread.is_alive()
-    assert failures == []
-
-
-def test_async_worker_with_hard_delete_attributes_starts_on_protocol_2_server() -> None:
-    asyncio.run(_test_async_worker_starts_on_protocol_2_server())
-
-
-async def _test_async_worker_starts_on_protocol_2_server() -> None:
-    service = SyncService(server_info=PROTOCOL_2_SERVER_INFO)
-    flow_server, flow_port = _start_flow_server(service)
-    worker = AsyncWorker(
-        Registry((HardDeleteFlow(),), allow_async_handlers=True),
+    server, port = _start_flow_server(service)
+    worker_type = AsyncWorker if is_async else Worker
+    worker = worker_type(
+        Registry([]),
         MemoryBlobCache(),
         WorkerOptions(
-            server_address=f"127.0.0.1:{flow_port}",
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=f"127.0.0.1:{port}",
         ),
     )
-    worker_task = asyncio.create_task(worker.start())
     try:
-        await worker.wait_pull_registered(timeout=5)
-        assert not service.polling_during_sync
-        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
-        assert worker._server_protocol.version == 2
+        with pytest.raises(
+            RuntimeError,
+            match=r"requires a Dex Server with protocol version 4.*newer than v0.1.16.*protocol versions 1-3.*server version previous-3.*Upgrade the Server",
+        ):
+            if isinstance(worker, AsyncWorker):
+                await worker.start()
+            else:
+                worker.start()
+        assert service.calls == ["GetServerInfo"]
+        assert service.poll_calls == []
     finally:
-        await worker.stop()
-        await asyncio.wait_for(worker_task, timeout=5)
-        flow_server.stop(grace=None).wait(timeout=5)
+        if isinstance(worker, AsyncWorker):
+            await worker.close()
+        else:
+            worker.close()
+        server.stop(grace=None).wait(timeout=5)
 
 
 def test_async_worker_synchronizes_indexes_before_polling() -> None:
@@ -320,6 +303,7 @@ async def _test_async_worker_synchronizes_indexes_before_polling() -> None:
         Registry((IndexedFlow(),), allow_async_handlers=True),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )
@@ -332,6 +316,59 @@ async def _test_async_worker_synchronizes_indexes_before_polling() -> None:
     finally:
         await worker.stop()
         await asyncio.wait_for(worker_task, timeout=5)
+        flow_server.stop(grace=None).wait(timeout=5)
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+@pytest.mark.parametrize(
+    "code", [grpc.StatusCode.PERMISSION_DENIED, grpc.StatusCode.INVALID_ARGUMENT]
+)
+def test_registration_waiter_settles_when_every_stream_is_rejected(
+    is_async: bool, code: grpc.StatusCode
+) -> None:
+    asyncio.run(
+        _registration_waiter_settles_when_every_stream_is_rejected(is_async, code)
+    )
+
+
+async def _registration_waiter_settles_when_every_stream_is_rejected(
+    is_async: bool, code: grpc.StatusCode
+) -> None:
+    service = SyncService(poll_rejection=code)
+    flow_server, flow_port = _start_flow_server(service)
+    options = WorkerOptions(
+        pull=PullWorkerOptions(max_concurrent_tasks=2),
+        server_address=f"127.0.0.1:{flow_port}",
+    )
+    try:
+        if is_async:
+            async_worker = AsyncWorker(
+                Registry((IndexedFlow(),), allow_async_handlers=True),
+                MemoryBlobCache(),
+                options,
+            )
+            worker_task = asyncio.create_task(async_worker.start())
+            try:
+                with pytest.raises(PullRegistrationError) as rejected:
+                    await async_worker.wait_pull_registered(timeout=5)
+                assert not async_worker.pull_registration_state().is_ready
+            finally:
+                await async_worker.stop()
+                await asyncio.wait_for(worker_task, timeout=5)
+        else:
+            worker = Worker(Registry((IndexedFlow(),)), MemoryBlobCache(), options)
+            thread = threading.Thread(target=worker.start)
+            thread.start()
+            try:
+                with pytest.raises(PullRegistrationError) as rejected:
+                    await asyncio.to_thread(worker.wait_pull_registered, 5)
+                assert not worker.pull_registration_state().is_ready
+            finally:
+                await asyncio.to_thread(worker.stop)
+                thread.join(timeout=5)
+            assert not thread.is_alive()
+        assert cast(grpc.RpcError, rejected.value.error).code() == code
+    finally:
         flow_server.stop(grace=None).wait(timeout=5)
 
 

@@ -22,6 +22,7 @@ mod outbox_delivery;
 mod partition_rebuild;
 mod pending_close_check;
 mod state_reads;
+mod task_queue;
 mod timer_service;
 
 #[cfg(test)]
@@ -35,20 +36,25 @@ use dexzd_apply::{ApplyEffect, StateReadError};
 use dexzd_clock::WallClock;
 use dexzd_keyspace::{PartitionHasher, PartitionId, RunId};
 use dexzd_object_store::ObjectStoreError;
-use dexzd_protocol::dexzd::v1::{CommandReply, FlowCommand, PendingHardDeleteUpload, RunSettings};
+use dexzd_protocol::dexzd::v1::{
+    CommandReply, FlowCommand, LogPosition, PendingHardDeleteUpload, RunSettings,
+};
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::StorageError;
 use dexzd_stream_store::StreamStore;
 use futures::future::BoxFuture;
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use task_queue::QueueChangePosition;
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 pub use dispatch::{
-    MethodDispatchRequest, MethodDispatchSession, MethodDispatchStartError, MethodDispatcher,
+    MethodClaim, MethodDispatchSession, MethodDispatcher, MethodStreamRequest,
+    MethodStreamReservation, MethodTask, ReservedMethodStream,
 };
 pub use flow_effect_operations::{
-    FlowEffectOperationError, FlowEffectOperations, InvocationStartOutcome,
+    FlowEffectOperationError, FlowEffectOperations, InvocationLockCheck, InvocationStartOutcome,
+    StartCommit,
 };
 pub use hard_delete_objects::{
     HARD_DELETE_OBJECT_KEY_PREFIX, HardDeleteObjectOwner, HardDeleteObjects,
@@ -56,7 +62,7 @@ pub use hard_delete_objects::{
     encode_hard_delete_value, hard_delete_placeholder_value,
 };
 pub use method_request::MethodRequest;
-pub(crate) use method_request::resolve_method_durability;
+pub(crate) use method_request::pinned_durability;
 pub(crate) use state_reads::{
     RunLocation, decode_row, hex, read_run_record, read_step_execution, scan_all,
 };
@@ -66,7 +72,7 @@ use crate::blocking_work::BlockingWorkPlacement;
 use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
-use dispatch::{DispatchScheduler, InvocationStartResult};
+use dispatch::{AttemptEntries, DispatchScheduler, HandoutEnd, InterruptedAttempt};
 use method_request::MethodAttemptKey;
 use timer_service::TimerServices;
 
@@ -116,6 +122,13 @@ pub struct EffectsConfig {
     /// Default [`BlockingWorkPlacement::BlockingThreadPool`]. Where method attempts run their
     /// local store reads; see [`BlockingWorkPlacement`].
     pub blocking_work: BlockingWorkPlacement,
+    /// Default 5 minutes, `matching.headsResyncInterval`; zero disables. One round of periodic
+    /// Heads scans every owned partition once, spread over the interval. The scans only catch
+    /// implementation bugs that lose queued tasks.
+    pub heads_resync_interval: Duration,
+    /// Default 100000. Deleted entries one periodic Heads seek may skip before it gives up on
+    /// a queue until the next round.
+    pub heads_max_skipped_deletions: u64,
 }
 
 impl Default for EffectsConfig {
@@ -147,6 +160,8 @@ impl Default for EffectsConfig {
                 max_child_flow_result_bytes: 16 * 1024 * 1024,
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
+            heads_resync_interval: Duration::from_secs(5 * 60),
+            heads_max_skipped_deletions: 100_000,
         }
     }
 }
@@ -213,19 +228,41 @@ pub(crate) enum RouterMessage {
         effects: Vec<ApplyEffect>,
         is_committed: bool,
         scheduled_at: Option<std::time::Instant>,
+        /// The committed command's log batch, when known.
+        position: Option<QueueChangePosition>,
     },
     RebuildPartition {
         partition: PartitionId,
         reply: oneshot::Sender<Result<usize, EffectError>>,
     },
-    InvocationStartFinished {
+    InterruptAttempts,
+    DrainAttempts {
+        progress: watch::Sender<AttemptDrainProgress>,
+    },
+    /// A Claim matching delivered; the router runs it, so an attempt drain counts it.
+    ClaimDelivered {
+        claim: MethodClaim,
+    },
+    /// A Claim's task ended, after the end of its hand-out if it ran one.
+    ClaimFinished,
+    HandoutFinished {
         flow: FlowAddress,
         key: MethodAttemptKey,
-        result: InvocationStartResult,
+        generation: u64,
+        end: HandoutEnd,
+    },
+    AttemptStarting {
+        task_id: Vec<u8>,
+        key: MethodAttemptKey,
+        cancel: CancellationToken,
     },
     AttemptFinished {
         task_id: Vec<u8>,
         key: MethodAttemptKey,
+    },
+    InterruptedAttempts {
+        flow: FlowAddress,
+        attempts: Vec<InterruptedAttempt>,
     },
     WorkFinished {
         flow: FlowAddress,
@@ -283,9 +320,15 @@ pub(crate) struct EffectContext {
     pub(crate) startup_pending_uploads: Result<Vec<PendingHardDeleteUpload>, String>,
     pub(crate) shutdown: CancellationToken,
     pub(crate) tracker: TaskTracker,
-    /// Permits for method attempt store reads on blocking threads; see
+    /// Permits for method attempt and task queue store reads on blocking threads; see
     /// [`EffectsConfig::max_blocking_state_reads`].
     pub(crate) blocking_read_slots: Arc<Semaphore>,
+    /// One permit: initial task queue row counts run one at a time, outside the read slots.
+    pub(crate) row_count_slot: Arc<Semaphore>,
+    /// The entry of every attempt a task holds; never held across an await.
+    attempt_entries: std::sync::Mutex<AttemptEntries>,
+    /// What periodic Heads resume from, and the queue row counts.
+    task_queue_memory: task_queue::SharedTaskQueueMemory,
     router: mpsc::UnboundedSender<RouterMessage>,
 }
 
@@ -295,6 +338,20 @@ impl EffectContext {
         if self.router.send(message).is_err() {
             tracing::debug!("effect router stopped before a task report");
         }
+    }
+
+    pub(crate) fn attempt_entries(&self) -> std::sync::MutexGuard<'_, AttemptEntries> {
+        self.attempt_entries
+            .lock()
+            .expect("attempt entry lock poisoned")
+    }
+
+    pub(crate) fn task_queue_memory(
+        &self,
+    ) -> std::sync::MutexGuard<'_, task_queue::TaskQueueMemory> {
+        self.task_queue_memory
+            .lock()
+            .expect("task queue memory lock poisoned")
     }
 
     pub(crate) fn run_location(&self, flow: &FlowAddress, run_id: RunId) -> RunLocation {
@@ -308,6 +365,38 @@ impl EffectContext {
         RetryBackoff {
             next: self.config.retry_initial_backoff,
             max: self.config.retry_max_backoff,
+        }
+    }
+
+    /// Proposes `command` and waits for its speculative reply, retrying while the runtime is
+    /// unavailable. Returns `None` when the node is stopping.
+    pub(crate) async fn propose_until_applied(
+        &self,
+        flow: &FlowAddress,
+        command: FlowCommand,
+        urgency: CommitUrgency,
+    ) -> Option<CommandReply> {
+        let mut backoff = self.retry_backoff();
+        loop {
+            let proposal =
+                self.flow_effect_operations
+                    .propose_speculative(flow, command.clone(), urgency);
+            // Biased for reproducible simulation; shutdown fires once.
+            let outcome = tokio::select! {
+                biased;
+                () = self.shutdown.cancelled() => return None,
+                outcome = proposal => outcome,
+            };
+            match outcome {
+                Ok(reply) => return Some(reply),
+                Err(FlowEffectOperationError::NodeStopping { .. }) => return None,
+                Err(error @ FlowEffectOperationError::Unavailable { .. }) => {
+                    tracing::debug!(%error, flow_id = %flow.flow_id, "retrying an effect proposal");
+                    if !backoff.wait(&self.shutdown).await {
+                        return None;
+                    }
+                }
+            }
         }
     }
 
@@ -381,8 +470,30 @@ pub struct EffectTasks {
 
 /// Owner of running effect tasks.
 pub struct EffectTasksHandle {
+    router: mpsc::UnboundedSender<RouterMessage>,
     shutdown: CancellationToken,
     tracker: TaskTracker,
+    /// Lets tests inspect and drive the shared effect state.
+    #[cfg(test)]
+    context: Arc<EffectContext>,
+}
+
+/// Progress of a planned Step attempt drain, including handouts already being prepared.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AttemptDrainProgress {
+    /// Attempts running at the drain boundary, including starts already in flight that register afterward.
+    pub attempts_waited: usize,
+    /// Waited attempts whose hand-out task stopped tracking them during the drain: after their
+    /// result or failure committed, after they were canceled, when their start was not proposed,
+    /// or when their return was applied. A hand-out stays outstanding until its returns commit.
+    pub attempts_finished: usize,
+    /// Attempts still running or committing their final output.
+    pub attempts_running: usize,
+    /// Handout tasks still active, including reservations being released without starting an attempt.
+    /// Claims delivered before the drain count as hand-out tasks.
+    pub outstanding_handouts: usize,
+    /// Whether the router has stopped admitting new handout tasks and published its first snapshot.
+    pub has_started: bool,
 }
 
 impl EffectRunner {
@@ -434,6 +545,28 @@ impl FlowCoordinationEffectSink for EffectRunner {
             effects: effects.to_vec(),
             is_committed,
             scheduled_at: is_committed.then(std::time::Instant::now),
+            position: None,
+        };
+        if self.router.send(message).is_err() {
+            tracing::debug!("effect runner stopped; effects are rebuilt after restart");
+        }
+    }
+
+    fn handle_committed(
+        &self,
+        flow: &FlowAddress,
+        effects: &[ApplyEffect],
+        position: &LogPosition,
+    ) {
+        if effects.is_empty() {
+            return;
+        }
+        let message = RouterMessage::Effects {
+            flow: flow.clone(),
+            effects: effects.to_vec(),
+            is_committed: true,
+            scheduled_at: Some(std::time::Instant::now()),
+            position: Some((position.incarnation, position.seq)),
         };
         if self.router.send(message).is_err() {
             tracing::debug!("effect runner stopped; effects are rebuilt after restart");
@@ -475,6 +608,10 @@ impl EffectTasks {
                 .max_blocking_state_reads
                 .clamp(1, Semaphore::MAX_PERMITS),
         ));
+        let task_queue_memory = task_queue::TaskQueueMemory::new(
+            self.dependencies.metrics.step_task_queue_entries.clone(),
+        );
+        let router_sender = self.router_sender.clone();
         let context = Arc::new(EffectContext {
             metrics: self.dependencies.metrics,
             config: self.config,
@@ -495,8 +632,15 @@ impl EffectTasks {
             shutdown: shutdown.clone(),
             tracker: tracker.clone(),
             blocking_read_slots,
+            row_count_slot: Arc::new(Semaphore::new(1)),
+            attempt_entries: std::sync::Mutex::new(AttemptEntries::default()),
+            task_queue_memory: std::sync::Mutex::new(task_queue_memory),
             router: self.router_sender,
         });
+        tracker.spawn(task_queue::run_claim_pump(Arc::clone(&context)));
+        tracker.spawn(task_queue::run_heads_resync(Arc::clone(&context)));
+        #[cfg(test)]
+        let test_context = Arc::clone(&context);
         let router = EffectRouter {
             dispatch: DispatchScheduler::new(Arc::clone(&context)),
             timers: TimerServices::new(Arc::clone(&context)),
@@ -504,11 +648,45 @@ impl EffectTasks {
             context,
         };
         tracker.spawn(router.run(self.router_receiver));
-        EffectTasksHandle { shutdown, tracker }
+        EffectTasksHandle {
+            router: router_sender,
+            shutdown,
+            tracker,
+            #[cfg(test)]
+            context: test_context,
+        }
     }
 }
 
 impl EffectTasksHandle {
+    /// Returns the shared effect state of the running tasks.
+    #[cfg(test)]
+    pub(crate) fn context(&self) -> &Arc<EffectContext> {
+        &self.context
+    }
+
+    /// Asks the router to stop new handouts after matching closes, without waiting for it.
+    ///
+    /// Returns the drain progress, which sets `has_started` once the router stopped new handouts
+    /// and then follows the remaining ones through their final commits, or Stopped when the
+    /// router ended.
+    pub fn begin_attempt_drain(
+        &self,
+    ) -> Result<watch::Receiver<AttemptDrainProgress>, EffectError> {
+        let (progress, receiver) = watch::channel(AttemptDrainProgress::default());
+        self.router
+            .send(RouterMessage::DrainAttempts { progress })
+            .map_err(|_| EffectError::Stopped)?;
+        Ok(receiver)
+    }
+
+    /// Interrupts remaining Step attempts; returns Stopped if the router ended. Recovery handles their uncommitted results.
+    pub fn interrupt_attempts(&self) -> Result<(), EffectError> {
+        self.router
+            .send(RouterMessage::InterruptAttempts)
+            .map_err(|_| EffectError::Stopped)
+    }
+
     /// Cancels every effect task and waits until all of them ended.
     pub async fn shutdown(self) {
         self.shutdown.cancel();
@@ -555,9 +733,10 @@ impl EffectRouter {
                 effects,
                 is_committed,
                 scheduled_at,
+                position,
             } => {
                 for effect in effects {
-                    self.route_effect(&flow, effect, is_committed, scheduled_at);
+                    self.route_effect(&flow, effect, is_committed, scheduled_at, position);
                 }
             }
             RouterMessage::RebuildPartition { partition, reply } => {
@@ -570,11 +749,36 @@ impl EffectRouter {
                     }
                 });
             }
-            RouterMessage::InvocationStartFinished { flow, key, result } => {
-                self.dispatch.finish_start(flow, key, result);
+            RouterMessage::InterruptAttempts => self.dispatch.interrupt_attempts(),
+            RouterMessage::DrainAttempts { progress } => {
+                self.dispatch.begin_attempt_drain(progress)
+            }
+            RouterMessage::ClaimDelivered { claim } => {
+                if self.dispatch.admit_claim() {
+                    task_queue::spawn_claim(&self.context, claim);
+                }
+            }
+            RouterMessage::ClaimFinished => self.dispatch.finish_claim(),
+            RouterMessage::HandoutFinished {
+                flow,
+                key,
+                generation,
+                end,
+            } => {
+                self.dispatch.finish_handout(flow, key, generation, end);
+            }
+            RouterMessage::AttemptStarting {
+                task_id,
+                key,
+                cancel,
+            } => {
+                self.dispatch.register_attempt(task_id, key, cancel);
             }
             RouterMessage::AttemptFinished { task_id, key } => {
                 self.dispatch.finish_attempt(task_id, &key);
+            }
+            RouterMessage::InterruptedAttempts { flow, attempts } => {
+                self.dispatch.fail_interrupted_attempts(flow, attempts);
             }
             RouterMessage::WorkFinished { flow, work } => {
                 if self.tracked_work.remove(&work) == Some(true) {
@@ -590,6 +794,7 @@ impl EffectRouter {
         effect: ApplyEffect,
         is_committed: bool,
         scheduled_at: Option<std::time::Instant>,
+        position: Option<QueueChangePosition>,
     ) {
         match effect {
             ApplyEffect::InvocationPending {
@@ -599,32 +804,34 @@ impl EffectRouter {
                 attempt,
             } => {
                 let key = MethodAttemptKey::new(run_id, run_attempt, &invocation, attempt);
-                self.dispatch.start_pending_invocation(flow.clone(), key);
+                self.dispatch
+                    .start_pending_invocation(flow.clone(), key, scheduled_at);
             }
-            ApplyEffect::InvocationStarted {
-                run_id,
-                run_attempt,
-                invocation,
-                attempt,
-                task_id,
-                method_timeout_seconds,
-                retry_deadline_micros,
-            } => {
-                let key = MethodAttemptKey::new(run_id, run_attempt, &invocation, attempt);
-                self.dispatch.run_started_attempt(
-                    flow.clone(),
-                    key,
-                    task_id,
-                    method_timeout_seconds,
-                    scheduled_at,
-                    retry_deadline_micros,
-                );
-            }
+            // The task that proposed the start sends the attempt; a start never dispatches.
+            ApplyEffect::InvocationStarted { .. } => {}
             ApplyEffect::InvocationCanceled { task_id, .. } => {
                 self.dispatch.cancel_attempt(&task_id);
             }
             ApplyEffect::LocksReleased { run_id, .. } => self.dispatch.release_locks(run_id),
             ApplyEffect::WakeWaiters { .. } => {}
+            ApplyEffect::DispatchQueueChanged {
+                written_keys,
+                removed_count,
+            } if is_committed => {
+                let partition = self
+                    .context
+                    .hasher
+                    .partition_of_flow(flow.tenant_id, &flow.flow_id);
+                task_queue::note_queue_change(
+                    &self.context,
+                    partition,
+                    position,
+                    &written_keys,
+                    removed_count,
+                );
+            }
+            // A speculative change may roll back; only its committed copy counts.
+            ApplyEffect::DispatchQueueChanged { .. } => {}
             effect if !is_committed => {
                 tracing::debug!(?effect, "ignoring a speculative external effect");
             }

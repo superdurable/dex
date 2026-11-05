@@ -33,7 +33,7 @@ pub use flow_coordination_error::{FlowCoordinationError, grpc_code};
 pub use flow_coordination_ports::{
     FlowCoordinationEffectSink, HardDeleteReadError, HardDeleteUploadError,
     HardDeleteUploadOutcome, HardDeleteUploads, HardDeleteValueReader, HardDeleteValueUploader,
-    RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult,
+    RpcInvokeError, RpcWorkerInvoker, StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
 };
 pub use registry::{
     FlowCoordinatorDependencies, FlowCoordinatorRegistry, PendingInvocation, ProposalResult,

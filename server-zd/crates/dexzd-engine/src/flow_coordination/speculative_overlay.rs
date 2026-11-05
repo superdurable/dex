@@ -123,6 +123,10 @@ impl SpeculativeOverlay {
                     StateWrite::Delete {
                         column_family: family,
                         key: written,
+                    }
+                    | StateWrite::SingleDelete {
+                        column_family: family,
+                        key: written,
                     } if *family == column_family && written.as_slice() == key => {
                         return OverlayResolution::Deleted;
                     }
@@ -285,7 +289,7 @@ impl FlowStateReader for OwnedOverlayView {
 fn write_size_bytes(write: &StateWrite) -> usize {
     match write {
         StateWrite::Put { key, value, .. } => key.len() + value.len(),
-        StateWrite::Delete { key, .. } => key.len(),
+        StateWrite::Delete { key, .. } | StateWrite::SingleDelete { key, .. } => key.len(),
         StateWrite::DeleteRange { start, end, .. } => start.len() + end.len(),
     }
 }
@@ -314,6 +318,9 @@ fn effect_size_bytes(effect: &ApplyEffect) -> usize {
             attribute_keys,
             ..
         } => store_name.len() + attribute_keys.iter().map(String::len).sum::<usize>(),
+        ApplyEffect::DispatchQueueChanged { written_keys, .. } => {
+            written_keys.iter().map(Vec::len).sum()
+        }
         ApplyEffect::TimerArmed { .. }
         | ApplyEffect::RunPurgeRequested { .. }
         | ApplyEffect::PendingCloseHeldByRpcs { .. }

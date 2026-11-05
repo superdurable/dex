@@ -581,7 +581,8 @@ fn touched_runs(outcome: &ApplyOutcome) -> BTreeSet<RunId> {
             StateWrite::Put {
                 column_family, key, ..
             }
-            | StateWrite::Delete { column_family, key } => (column_family, key),
+            | StateWrite::Delete { column_family, key }
+            | StateWrite::SingleDelete { column_family, key } => (column_family, key),
             StateWrite::DeleteRange {
                 column_family,
                 start,
@@ -637,7 +638,8 @@ fn describe_write(write: &StateWrite) -> String {
             key,
             value,
         } => format!("put {column_family:?} {} ({} bytes)", hex(key), value.len()),
-        StateWrite::Delete { column_family, key } => {
+        StateWrite::Delete { column_family, key }
+        | StateWrite::SingleDelete { column_family, key } => {
             format!("delete {column_family:?} {}", hex(key))
         }
         StateWrite::DeleteRange {

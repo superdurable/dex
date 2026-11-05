@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tonic::Code;
 
+use super::ActiveTask;
 use super::task_frame_sender::TaskFrameSender;
 use crate::context::InvocationCancellation;
 
@@ -61,4 +62,45 @@ async fn blocked_task_frame_send_leaves_final_frame_flag_unlocked() {
         .expect("join send");
     assert_eq!(Code::Cancelled, result.expect_err("cancelled send").code());
     assert!(!*final_frame_sent.lock().expect("final frame lock"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn forced_stop_cancels_only_tasks_without_queued_final_output() {
+    for _ in 0..200 {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let transport_cancellation = InvocationCancellation::new();
+        let progress_cancellation = InvocationCancellation::new();
+        let cancel_code = Arc::new(AtomicI32::new(0));
+        let final_frame_sent = Arc::new(Mutex::new(false));
+        let frame_sender = TaskFrameSender::new(
+            "task-1".to_string(),
+            sender,
+            transport_cancellation.clone(),
+            progress_cancellation.clone(),
+            Arc::clone(&cancel_code),
+            Arc::clone(&final_frame_sent),
+        );
+        let handler = tokio::spawn(async {});
+        let task = ActiveTask {
+            task_id: "task-1".to_string(),
+            cancellation: InvocationCancellation::new(),
+            transport_cancellation,
+            progress_cancellation,
+            cancel_code,
+            handler,
+            final_frame_sent,
+            deadline: None,
+        };
+        let sending = tokio::spawn(async move {
+            frame_sender
+                .send(Output::WorkerError(WorkerErrorResponse::default()))
+                .await
+        });
+        let is_cancelled = task.cancel_unless_final_frame_sent(Code::Cancelled);
+        let sent = sending.await.expect("join send");
+        // Exactly one wins: a queued final output is never cancelled, and a cancelled task queues none.
+        assert_ne!(is_cancelled, sent.is_ok());
+        assert_eq!(sent.is_ok(), receiver.try_recv().is_ok());
+        task.handler.await.expect("join handler");
+    }
 }

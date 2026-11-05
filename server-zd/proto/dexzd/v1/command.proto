@@ -56,6 +56,8 @@ message FlowCommand {
     StepAttemptHeartbeatCommand step_attempt_heartbeat = 31;
     StepAttemptFailedCommand step_attempt_failed = 32;
     StepMethodCompletedCommand step_method_completed = 33;
+    StepAttemptReturnedCommand step_attempt_returned = 34;
+    StepAttemptQueuedCommand step_attempt_queued = 35;
     RpcCommittedCommand rpc_committed = 40;
     TimersFiredCommand timers_fired = 50;
     TimerSkipCommand timer_skip = 51;
@@ -189,6 +191,8 @@ message StepAttemptHeartbeatCommand {
     // An explicit heartbeat without a value clears the checkpoint.
     bool is_cleared = 4;
   }
+  // Task ID of the running attempt; apply ignores a mismatch. Empty in older logs skips the check.
+  bytes task_id = 5;
 }
 
 // Why an attempt failed.
@@ -210,8 +214,10 @@ enum StepAttemptFailureKind {
   STEP_ATTEMPT_FAILURE_KIND_VALUE_TOO_LARGE = 7;
   // The snapshot of the attempt is larger than the gRPC message limit.
   STEP_ATTEMPT_FAILURE_KIND_REQUEST_TOO_LARGE = 8;
-  // The retry policy's total duration expired during an attempt.
+  // The retry policy's total duration expired during an attempt. Only older logs record it.
   STEP_ATTEMPT_FAILURE_KIND_RETRY_DEADLINE = 9;
+  // The attempt was handed to a Worker, then a server restart or failover interrupted it.
+  STEP_ATTEMPT_FAILURE_KIND_STARTED_ATTEMPT_INTERRUPTED = 10;
 }
 
 message StepAttemptFailedCommand {
@@ -224,6 +230,42 @@ message StepAttemptFailedCommand {
   // When true, the call fails without further retries (server-zd decided it cannot succeed).
   bool is_non_retryable = 6;
   dex.PullRouting pull_routing = 7;
+  // When true, apply requires the attempt to be pending: it failed before any start.
+  bool is_before_start = 8;
+  // When set, apply requires the attempt to be running with this task ID.
+  bytes expected_task_id = 9;
+  // With expected_task_id: the Worker never ran the handler, such as an unbuildable request.
+  bool is_not_run = 10;
+}
+
+// Why a started attempt returns to pending with the same attempt number.
+enum StepAttemptReturnReason {
+  STEP_ATTEMPT_RETURN_REASON_UNSPECIFIED = 0;
+  // The Worker declined the Step type before running it.
+  STEP_ATTEMPT_RETURN_REASON_UNSUPPORTED = 1;
+  // A Worker without reserved-slot dispatch declined the task for capacity.
+  STEP_ATTEMPT_RETURN_REASON_LEGACY_NO_CAPACITY = 2;
+  // The task frame never reached the Worker, or the Worker cleanly closed before any output.
+  STEP_ATTEMPT_RETURN_REASON_NOT_DELIVERED = 3;
+}
+
+// The Worker never ran the started attempt; it becomes pending again without consuming a retry.
+// Apply keeps its snapshot, locks, and progress.
+message StepAttemptReturnedCommand {
+  StepInvocationKey invocation = 1;
+  uint32 attempt = 2;
+  // Task ID of the started attempt; apply ignores the command unless it still runs with it.
+  bytes expected_task_id = 3;
+  StepAttemptReturnReason reason = 4;
+}
+
+// No Worker took the pending attempt at once; it waits in the DispatchQueue index. Apply
+// writes only the index row: no history, run seq, or Flow row changes.
+message StepAttemptQueuedCommand {
+  StepInvocationKey invocation = 1;
+  uint32 attempt = 2;
+  // The attempt's pending_since_micros; apply ignores the command when it differs.
+  int64 pending_since_micros = 3;
 }
 
 // A Worker result for attempt `attempt`. Values are complete or references to values of this
@@ -240,6 +282,8 @@ message StepMethodCompletedCommand {
   // Write indices span response Attributes, then each SubFlow's initial Attributes in order.
   repeated HardDeleteObjectReference hard_delete_objects = 6;
   dex.PullRouting pull_routing = 7;
+  // Task ID of the running attempt; apply ignores a mismatch. Empty in older logs skips the check.
+  bytes task_id = 8;
 }
 
 // An RPC that ran on a Worker and whose effects must be committed.
@@ -298,6 +342,9 @@ message TimerSkipCommand {
 
 message TimeTravelCommand {
   dex.ResetFlowRequest request = 1;
+  // When true, a restored running attempt becomes pending with the same attempt number.
+  // Older logs leave it false and restore it as running.
+  bool should_restore_running_as_pending = 2;
 }
 
 // Identifies the Flow run that sent or receives a cross-Flow message.

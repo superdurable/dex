@@ -204,7 +204,7 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestPullAdapterRegistrationTimeout | pass |  | |
 | TestPullAdapterRejectsAmbiguousWorkersTemporal | pass |  | |
 | TestPullAdapterUnregisteredSubFlowTemporal | pass |  | |
-| TestPullDispatchFailureTextTemporal | pass |  | Applicable application scenarios run; backend-only subtests were retired with the Go Server. |
+| TestPullStepQueuesWithoutWorkerTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullParallelLastWriteTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullRPCDispatchRespectsCallerDeadlineTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullRPCRoutingTemporal | pass |  | Runs against dex-server-zd. |
@@ -219,7 +219,7 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestPullUnknownNameRedispatchTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullUnknownRPCBoundedFailureTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullWaitForAttributeSuccessTemporal | pass |  | Runs against dex-server-zd. |
-| TestPullWorkerAppearsDuringRetriesTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerAppearsWhileStepQueuedTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullWorkerCancellationTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullWorkerDisconnectTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullWorkerDispatchTemporal | pass |  | Runs against dex-server-zd. |

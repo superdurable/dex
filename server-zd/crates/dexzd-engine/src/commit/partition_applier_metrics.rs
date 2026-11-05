@@ -33,6 +33,11 @@ struct RunCloseFields {
 impl FrameApplier {
     pub(super) fn record_committed_metrics(&self, command: &FlowCommand, outcome: &ApplyOutcome) {
         self.record_closed_flow(command, outcome);
+        if let Some(Command::StepAttemptReturned(returned)) = &command.command
+            && !outcome.writes.is_empty()
+        {
+            self.record_returned_attempt(command, returned.reason);
+        }
         if matches!(
             command.command,
             Some(
@@ -43,6 +48,25 @@ impl FrameApplier {
         ) {
             self.record_step_failure(command, outcome);
         }
+    }
+
+    fn record_returned_attempt(&self, command: &FlowCommand, reason: i32) {
+        let reason = match dexzd_protocol::dexzd::v1::StepAttemptReturnReason::try_from(reason) {
+            Ok(dexzd_protocol::dexzd::v1::StepAttemptReturnReason::Unsupported) => {
+                dexzd_metrics::StepAttemptReturnReason::Unsupported
+            }
+            Ok(dexzd_protocol::dexzd::v1::StepAttemptReturnReason::LegacyNoCapacity) => {
+                dexzd_metrics::StepAttemptReturnReason::LegacyNoCapacity
+            }
+            Ok(dexzd_protocol::dexzd::v1::StepAttemptReturnReason::NotDelivered) => {
+                dexzd_metrics::StepAttemptReturnReason::NotDelivered
+            }
+            _ => {
+                metric_mapping_gap(&command.command_id, "returned attempt has unmapped reason");
+                return;
+            }
+        };
+        self.metrics.step_attempts_returned.record(reason);
     }
 
     fn record_closed_flow(&self, command: &FlowCommand, outcome: &ApplyOutcome) {
@@ -173,6 +197,9 @@ impl FrameApplier {
             Ok(StepAttemptFailureKind::ValueTooLarge) => StepFailureKind::ValueTooLarge,
             Ok(StepAttemptFailureKind::RequestTooLarge) => StepFailureKind::RequestTooLarge,
             Ok(StepAttemptFailureKind::RetryDeadline) => StepFailureKind::RetryDeadline,
+            Ok(StepAttemptFailureKind::StartedAttemptInterrupted) => {
+                StepFailureKind::StartedAttemptInterrupted
+            }
             _ => {
                 metric_mapping_gap(&command.command_id, "Step failure has unmapped kind");
                 return;

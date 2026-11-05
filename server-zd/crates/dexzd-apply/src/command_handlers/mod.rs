@@ -127,6 +127,9 @@ fn apply_in_scope(
                 ack,
             )?
         }
+        Command::StepAttemptQueued(queued) => {
+            crate::steps::dispatch_queue::apply_attempt_queued(&mut transaction, scope, queued)?
+        }
         Command::FlowStart(start) => flow_start::apply_flow_start(&mut transaction, scope, start)?,
         Command::InboxMessage(message) => {
             crate::cross_flow::apply_inbox_message(&mut transaction, scope, message)?
@@ -137,7 +140,8 @@ fn apply_in_scope(
         Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)
-        | Command::StepMethodCompleted(_) => {
+        | Command::StepMethodCompleted(_)
+        | Command::StepAttemptReturned(_) => {
             match with_run(&transaction, scope)? {
                 Err(reply) => HandlerResult::Rejected(reply),
                 Ok(cursor) => match apply_step_command(&mut transaction, cursor, scope, body)? {
@@ -242,10 +246,11 @@ fn apply_in_scope(
                     ));
                 }
             }
-            (
-                output.into_outcome(transaction.into_writes()),
-                CommandDisposition::Applied,
-            )
+            let mut outcome = output.into_outcome(transaction.into_writes());
+            if let Some(change) = dispatch_queue_change(&outcome.writes) {
+                outcome.effects.push(change);
+            }
+            (outcome, CommandDisposition::Applied)
         }
         HandlerResult::Rejected(reply) => {
             (ApplyOutcome::rejected(reply), CommandDisposition::Rejected)
@@ -274,8 +279,42 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         // Delivery retries rejections forever. Parents counted child starts; child results
         // have their own limit.
         Command::InboxMessage(_) => false,
+        // A return only clears the running attempt, so state never grows.
+        Command::StepAttemptReturned(_) => false,
+        // A queued attempt writes only its DispatchQueue row, outside run storage.
+        Command::StepAttemptQueued(_) => false,
         _ => false,
     }
+}
+
+/// Returns the committed-only effect that counts this command's DispatchQueue writes, or
+/// `None` when it wrote none.
+fn dispatch_queue_change(writes: &[crate::StateWrite]) -> Option<crate::ApplyEffect> {
+    let is_queue_key = |column_family: &dexzd_keyspace::ColumnFamily, key: &[u8]| {
+        *column_family == dexzd_keyspace::ColumnFamily::PartitionIndex
+            && key.get(2) == Some(&(dexzd_keyspace::IndexKind::DispatchQueue as u8))
+    };
+    let mut written_keys = Vec::new();
+    let mut removed_count = 0_u32;
+    for write in writes {
+        match write {
+            crate::StateWrite::Put {
+                column_family, key, ..
+            } if is_queue_key(column_family, key) => written_keys.push(key.clone()),
+            crate::StateWrite::SingleDelete { column_family, key }
+                if is_queue_key(column_family, key) =>
+            {
+                removed_count += 1;
+            }
+            _ => {}
+        }
+    }
+    (!written_keys.is_empty() || removed_count > 0).then_some(
+        crate::ApplyEffect::DispatchQueueChanged {
+            written_keys,
+            removed_count,
+        },
+    )
 }
 
 fn has_attribute_value(writes: &[AttributeWrite]) -> bool {
@@ -285,9 +324,17 @@ fn has_attribute_value(writes: &[AttributeWrite]) -> bool {
 }
 
 fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAttemptFailedCommand> {
-    let (invocation, attempt) = match body {
-        Command::StepAttemptHeartbeat(command) => (command.invocation.clone(), command.attempt),
-        Command::StepMethodCompleted(command) => (command.invocation.clone(), command.attempt),
+    let (invocation, attempt, task_id) = match body {
+        Command::StepAttemptHeartbeat(command) => (
+            command.invocation.clone(),
+            command.attempt,
+            &command.task_id,
+        ),
+        Command::StepMethodCompleted(command) => (
+            command.invocation.clone(),
+            command.attempt,
+            &command.task_id,
+        ),
         _ => return None,
     };
     Some(StepAttemptFailedCommand {
@@ -296,6 +343,8 @@ fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAtt
         kind: StepAttemptFailureKind::ValueTooLarge as i32,
         server_detail: detail.to_owned(),
         is_non_retryable: true,
+        // The failure is fenced like the result it replaces; an older log has no task ID.
+        expected_task_id: task_id.clone(),
         ..StepAttemptFailedCommand::default()
     })
 }
@@ -363,6 +412,7 @@ pub(crate) fn apply_run_command(
         }
         Command::SetSearchProjectionMode(_)
         | Command::SearchOutboxAck(_)
+        | Command::StepAttemptQueued(_)
         | Command::InboxMessage(_)
         | Command::RunPurge(_) => Err(ApplyError::InvariantViolation {
             detail: "cross-Flow or partition command routed to the wrong handler".to_owned(),
@@ -371,7 +421,8 @@ pub(crate) fn apply_run_command(
         | Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)
-        | Command::StepMethodCompleted(_) => Err(ApplyError::InvariantViolation {
+        | Command::StepMethodCompleted(_)
+        | Command::StepAttemptReturned(_) => Err(ApplyError::InvariantViolation {
             detail: "command routed to the wrong handler".to_owned(),
         }),
     }

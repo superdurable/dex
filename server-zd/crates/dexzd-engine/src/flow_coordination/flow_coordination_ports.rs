@@ -15,7 +15,7 @@ use dexzd_protocol::dex::{
     AttributeWrite, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, PullRouting, Value,
     WorkerErrorResponse,
 };
-use dexzd_protocol::dexzd::v1::HardDeleteObjectReference;
+use dexzd_protocol::dexzd::v1::{HardDeleteObjectReference, LogPosition};
 use futures::future::BoxFuture;
 use tokio::time::Instant;
 
@@ -28,11 +28,25 @@ pub trait FlowCoordinationEffectSink: Send + Sync + 'static {
     ///
     /// Must not block: the runtime calls it while it serializes the Flow.
     fn handle(&self, flow: &FlowAddress, effects: &[ApplyEffect], is_committed: bool);
+
+    /// Handles the committed effects of a command applied in the log batch at `position`.
+    ///
+    /// Must not block, like [`Self::handle`].
+    fn handle_committed(
+        &self,
+        flow: &FlowAddress,
+        effects: &[ApplyEffect],
+        _position: &LogPosition,
+    ) {
+        self.handle(flow, effects, true);
+    }
 }
 
 /// One RPC call to a Worker.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkerRpcInvocation {
+    /// Partition of the Flow; removing it from matching ends the RPC's wait for a Worker.
+    pub partition: dexzd_keyspace::PartitionId,
     /// Flow the RPC targets.
     pub flow: FlowAddress,
     /// Run the RPC targets.
@@ -99,6 +113,18 @@ pub trait RpcWorkerInvoker: Send + Sync + 'static {
         &self,
         invocation: WorkerRpcInvocation,
     ) -> BoxFuture<'_, Result<WorkerRpcResult, RpcInvokeError>>;
+}
+
+/// Answers what Worker matching knows about queued Steps. Worker matching implements it.
+pub trait StepQueueStatus: Send + Sync + 'static {
+    /// Returns whether Workers of the Flow type are connected but every one of them declined
+    /// the Step type, so a queued attempt of it waits for a Worker that supports it.
+    fn is_waiting_for_supporting_worker(
+        &self,
+        tenant_id: u64,
+        flow_type: &str,
+        step_type: &str,
+    ) -> bool;
 }
 
 /// Error from reading a hard-delete Attribute object.

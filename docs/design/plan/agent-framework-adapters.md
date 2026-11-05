@@ -134,18 +134,18 @@ Both are documented for operators in the
 [deployment guide](../../content/production/agents.mdx#tool-call-limits), and
 their fix is deferred until after M2.
 
-- **A single-attempt call can run twice.** The tool Step heartbeats before it
-  calls the tool, so that Dex sees output before any effect. Dex redelivers an
-  attempt at the same attempt number when its Worker's stream ends with no
-  output. The heartbeat is not acknowledged: at SDK 1.30.0 both SDKs queue it
-  and return at once, and the pull protocol has no acknowledgement frame. A
-  Worker that dies, or loses its stream, after the tool starts but before the
-  heartbeat frame reaches the server therefore runs the tool again on another
-  Worker. The window lasts from the tool's start until that frame arrives. It
-  is about one network hop when the tool awaits I/O. It covers the whole
-  blocking section when tool code blocks the event loop. A heartbeat checkpoint
-  cannot serve as a "started" marker either: server-zd batches checkpoints and
-  treats a lost one as harmless, so a later attempt may not see it.
+- **A single-attempt call runs twice only in narrow cases.** Dex starts an attempt when it
+  hands the attempt to a Worker, and it never hands the same attempt number to
+  a second Worker. A Worker that dies, or loses its stream, after it received
+  the tool Step fails the attempt, and the call records `outcome_unknown`. The
+  tool Step still heartbeats before it calls the tool. Earlier Dex Servers
+  redelivered an attempt at the same attempt number when its Worker's stream
+  ended with no output, and the heartbeat narrowed that window. Two narrow
+  cases remain. An ASYNC Step can run again at the same attempt number when a
+  Dex Server node crashes before the attempt start is durable; the tool Steps
+  use SYNC durability, so this case does not apply to them. Cancellation is
+  cooperative, so a cancelled run may keep running while the failure route
+  starts.
 - **A call that never ran records `outcome_unknown`.** When no Worker accepts
   the tool Step within the dispatch wait, because every Worker is at its task
   limit or none is running, the attempt fails without running and still
@@ -308,13 +308,10 @@ Rules:
   commit that makes its record final. A tool Step whose record is already final
   ends without running or publishing.
 - Before a tool Step calls `execute_deferred_tool_call`, it writes
-  `tool_call_started` and awaits a heartbeat. Dex can redeliver a task to
-  another Worker at the same attempt when the first Worker disconnects before
-  Dex receives any output; that output narrows the window before the tool
-  runs. Awaiting the heartbeat only queues the frame on the Worker. If the
-  Worker dies before the frame leaves it, or after it left but before Dex
-  received it, Dex can still redeliver the attempt, so a small residual window
-  remains.
+  `tool_call_started` and awaits a heartbeat. Dex hands each attempt number to
+  one Worker only, so a Worker that disconnects after it received the task
+  fails the attempt instead of running it again elsewhere. The heartbeat
+  narrowed the redelivery window of earlier Dex Servers.
 - `ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
   the error message and is not retried. Any other error fails the attempt.
 - A record with `task_id` belongs to remote work that started. Nothing but the

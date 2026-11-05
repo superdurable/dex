@@ -12,6 +12,25 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize, Serializer};
 
+/// Controls planned server shutdown and step-down.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifecycleConfig {
+    /// Defaults to 30 s; keeps the lease and Worker streams open until running Step results commit.
+    /// Zero disables attempt draining. Step method and heartbeat timeouts still apply during the drain.
+    /// `dex-server-zd dev` defaults to 2 s unless its configuration sets this field.
+    #[serde(with = "humantime_serde")]
+    pub attempt_drain_timeout: Duration,
+}
+
+impl Default for LifecycleConfig {
+    fn default() -> Self {
+        Self {
+            attempt_drain_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
 /// Configures the public FlowService and WorkerTaskService gRPC listener.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -54,12 +73,22 @@ pub struct MetricsConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct MatchingConfig {
-    /// Defaults to 10 s; total time to find a Worker for a regular attempt.
+    /// Defaults to 10 s; total time an RPC waits for a Worker. Steps never fail for want of a
+    /// Worker; they use stickyWait and syncMatchWait, then the durable task queue.
     #[serde(with = "humantime_serde")]
     pub dispatch_wait: Duration,
     /// Defaults to 5 s; time to try a connected sticky Worker before fallback, no greater than dispatchWait.
     #[serde(with = "humantime_serde")]
     pub sticky_wait: Duration,
+    /// Defaults to 200 ms and must be positive; how long a Step waits in memory for a Worker of
+    /// its Flow type before it goes to the durable task queue.
+    #[serde(with = "humantime_serde")]
+    pub sync_match_wait: Duration,
+    /// Defaults to 5 min; 0 disables. One round of periodic Heads scans every partition this
+    /// node owns once, spread over the interval, to restore queued tasks that matching lost
+    /// through a bug. Rebuild, failover, and restart Heads do not depend on it.
+    #[serde(with = "humantime_serde")]
+    pub heads_resync_interval: Duration,
     /// Defaults to 256; maximum registered streams for one appWorkerID on this node.
     pub max_concurrent_tasks_cap: u32,
     /// Defaults to 100000; maximum registered pull Worker streams on this node.
@@ -70,6 +99,10 @@ pub struct MatchingConfig {
     pub max_flow_types: u32,
     /// Defaults to 256 characters; maximum length of each registered Flow type.
     pub max_flow_type_length: u32,
+    /// Defaults to 10000; most (Step type or RPC name, appWorkerID) pairs remembered as
+    /// unsupported after a Worker declined them. The least recent pair is evicted when full;
+    /// an evicted pair still excludes its Worker until that Worker completes a Step.
+    pub unsupported_type_cache_entries: u32,
     /// Defaults to 20 s; interval between pings on idle Worker streams.
     #[serde(with = "humantime_serde")]
     pub ping_interval: Duration,
@@ -80,11 +113,14 @@ impl Default for MatchingConfig {
         Self {
             dispatch_wait: Duration::from_secs(10),
             sticky_wait: Duration::from_secs(5),
+            sync_match_wait: Duration::from_millis(200),
+            heads_resync_interval: Duration::from_secs(5 * 60),
             max_concurrent_tasks_cap: 256,
             max_streams: 100_000,
             max_queue_length: 256,
             max_flow_types: 256,
             max_flow_type_length: 256,
+            unsupported_type_cache_entries: 10_000,
             ping_interval: Duration::from_secs(20),
         }
     }

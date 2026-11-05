@@ -462,6 +462,50 @@ private static final long serialVersionUID = 0L;
     return waitForCompletedTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : waitForCompletedTime_;
   }
 
+  public static final int SCHEDULED_TIME_FIELD_NUMBER = 14;
+  private com.google.protobuf.Timestamp scheduledTime_;
+  /**
+   * <pre>
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+   * @return Whether the scheduledTime field is set.
+   */
+  @java.lang.Override
+  public boolean hasScheduledTime() {
+    return ((bitField0_ & 0x00000040) != 0);
+  }
+  /**
+   * <pre>
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+   * @return The scheduledTime.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getScheduledTime() {
+    return scheduledTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : scheduledTime_;
+  }
+  /**
+   * <pre>
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.TimestampOrBuilder getScheduledTimeOrBuilder() {
+    return scheduledTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : scheduledTime_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -515,6 +559,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000020) != 0)) {
       output.writeMessage(13, getWaitForCompletedTime());
     }
+    if (((bitField0_ & 0x00000040) != 0)) {
+      output.writeMessage(14, getScheduledTime());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -567,6 +614,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000020) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(13, getWaitForCompletedTime());
+    }
+    if (((bitField0_ & 0x00000040) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(14, getScheduledTime());
     }
     return size;
   }
@@ -635,6 +686,11 @@ private static final long serialVersionUID = 0L;
       if (!getWaitForCompletedTime()
           .equals(other.getWaitForCompletedTime())) return false;
     }
+    if (hasScheduledTime() != other.hasScheduledTime()) return false;
+    if (hasScheduledTime()) {
+      if (!getScheduledTime()
+          .equals(other.getScheduledTime())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -685,6 +741,10 @@ private static final long serialVersionUID = 0L;
     if (hasWaitForCompletedTime()) {
       hash = (37 * hash) + WAIT_FOR_COMPLETED_TIME_FIELD_NUMBER;
       hash = (53 * hash) + getWaitForCompletedTime().hashCode();
+    }
+    if (hasScheduledTime()) {
+      hash = (37 * hash) + SCHEDULED_TIME_FIELD_NUMBER;
+      hash = (53 * hash) + getScheduledTime().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -822,6 +882,7 @@ private static final long serialVersionUID = 0L;
         internalGetLastFailureInfoFieldBuilder();
         internalGetPullRoutingFieldBuilder();
         internalGetWaitForCompletedTimeFieldBuilder();
+        internalGetScheduledTimeFieldBuilder();
       }
     }
     @java.lang.Override
@@ -864,6 +925,11 @@ private static final long serialVersionUID = 0L;
       if (waitForCompletedTimeBuilder_ != null) {
         waitForCompletedTimeBuilder_.dispose();
         waitForCompletedTimeBuilder_ = null;
+      }
+      scheduledTime_ = null;
+      if (scheduledTimeBuilder_ != null) {
+        scheduledTimeBuilder_.dispose();
+        scheduledTimeBuilder_ = null;
       }
       return this;
     }
@@ -956,6 +1022,12 @@ private static final long serialVersionUID = 0L;
             : waitForCompletedTimeBuilder_.build();
         to_bitField0_ |= 0x00000020;
       }
+      if (((from_bitField0_ & 0x00002000) != 0)) {
+        result.scheduledTime_ = scheduledTimeBuilder_ == null
+            ? scheduledTime_
+            : scheduledTimeBuilder_.build();
+        to_bitField0_ |= 0x00000040;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -1015,6 +1087,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasWaitForCompletedTime()) {
         mergeWaitForCompletedTime(other.getWaitForCompletedTime());
+      }
+      if (other.hasScheduledTime()) {
+        mergeScheduledTime(other.getScheduledTime());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -1119,6 +1194,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00001000;
               break;
             } // case 106
+            case 114: {
+              input.readMessage(
+                  internalGetScheduledTimeFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00002000;
+              break;
+            } // case 114
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2479,6 +2561,181 @@ private static final long serialVersionUID = 0L;
         waitForCompletedTime_ = null;
       }
       return waitForCompletedTimeBuilder_;
+    }
+
+    private com.google.protobuf.Timestamp scheduledTime_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> scheduledTimeBuilder_;
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     * @return Whether the scheduledTime field is set.
+     */
+    public boolean hasScheduledTime() {
+      return ((bitField0_ & 0x00002000) != 0);
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     * @return The scheduledTime.
+     */
+    public com.google.protobuf.Timestamp getScheduledTime() {
+      if (scheduledTimeBuilder_ == null) {
+        return scheduledTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : scheduledTime_;
+      } else {
+        return scheduledTimeBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     */
+    public Builder setScheduledTime(com.google.protobuf.Timestamp value) {
+      if (scheduledTimeBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        scheduledTime_ = value;
+      } else {
+        scheduledTimeBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00002000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     */
+    public Builder setScheduledTime(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      if (scheduledTimeBuilder_ == null) {
+        scheduledTime_ = builderForValue.build();
+      } else {
+        scheduledTimeBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00002000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     */
+    public Builder mergeScheduledTime(com.google.protobuf.Timestamp value) {
+      if (scheduledTimeBuilder_ == null) {
+        if (((bitField0_ & 0x00002000) != 0) &&
+          scheduledTime_ != null &&
+          scheduledTime_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+          getScheduledTimeBuilder().mergeFrom(value);
+        } else {
+          scheduledTime_ = value;
+        }
+      } else {
+        scheduledTimeBuilder_.mergeFrom(value);
+      }
+      if (scheduledTime_ != null) {
+        bitField0_ |= 0x00002000;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     */
+    public Builder clearScheduledTime() {
+      bitField0_ = (bitField0_ & ~0x00002000);
+      scheduledTime_ = null;
+      if (scheduledTimeBuilder_ != null) {
+        scheduledTimeBuilder_.dispose();
+        scheduledTimeBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     */
+    public com.google.protobuf.Timestamp.Builder getScheduledTimeBuilder() {
+      bitField0_ |= 0x00002000;
+      onChanged();
+      return internalGetScheduledTimeFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     */
+    public com.google.protobuf.TimestampOrBuilder getScheduledTimeOrBuilder() {
+      if (scheduledTimeBuilder_ != null) {
+        return scheduledTimeBuilder_.getMessageOrBuilder();
+      } else {
+        return scheduledTime_ == null ?
+            com.google.protobuf.Timestamp.getDefaultInstance() : scheduledTime_;
+      }
+    }
+    /**
+     * <pre>
+     * When the method's final attempt became pending. The time it waited for
+     * locks and a Worker is started_time minus scheduled_time.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp scheduled_time = 14;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> 
+        internalGetScheduledTimeFieldBuilder() {
+      if (scheduledTimeBuilder_ == null) {
+        scheduledTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>(
+                getScheduledTime(),
+                getParentForChildren(),
+                isClean());
+        scheduledTime_ = null;
+      }
+      return scheduledTimeBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepMethodEventContext)

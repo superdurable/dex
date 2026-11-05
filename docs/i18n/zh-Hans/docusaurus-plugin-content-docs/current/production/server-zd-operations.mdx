@@ -117,7 +117,7 @@ spec:
         app: dex-server-zd
     spec:
       serviceAccountName: dex-server-zd
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 45
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
@@ -168,22 +168,42 @@ spec:
 
 ### 优雅关闭 {#graceful-shutdown}
 
-把 **terminationGracePeriodSeconds** 设为至少 30 秒。收到 SIGTERM 后，节点在大约 14 秒内
-按以下顺序停止：
+收到 SIGTERM 后，节点停止派发新的 Step 任务，并报告 **NOT_SERVING**。它继续持有
+lease，并保持 pull Worker stream 打开，等待运行中的 attempt 完成。Heartbeat、完成结果
+和失败结果仍然会提交。所有运行中的 attempt 结束且结果提交后，或
+**lifecycle.attemptDrainTimeout** 到期后，节点才释放 lease。热 standby 在此期间跟随提交，
+在 lease 释放后接管。
 
-1. gRPC health 报告 **NOT_SERVING**。
-2. 通知 Worker 重新连接，关闭 long poll 和 Stream Store。
-3. 在途的 RPC 最多有 4 秒完成。
-4. 后台工作和引擎停止。
-5. 停止续约 lease，并用条件写释放 lease。
-6. 其他未结束的调用在同样的 4 秒内结束。它们返回 **UNAVAILABLE**，客户端会在新的 active
-   进程上重试。
-7. 关闭 metrics 监听器。
-8. 进程退出。
+Drain 期间，新的 Flow RPC 返回 **UNAVAILABLE**，SDK 会重试它们。还没有交给 Worker 的
+Step 会等待，由后继进程拿到 lease 后再 dispatch。drain 开始时 start 已经在写入的 Step
+仍会发给它的 Worker，并像运行中的 attempt 一样被 drain。drain 开始前 Worker 已经从
+[Step 任务队列](#step-task-queue)取走的 Step 也是如此。仍在任务队列中的 Step 会留给后继进程。
+
+**lifecycle.attemptDrainTimeout** 默认为 **30s**，设为 **0s** 可禁用 attempt drain。
+Step 方法和 heartbeat 的超时在 drain 期间仍然生效，drain 不会延长它们。选择 drain 超时
+时，要为希望完成的 Step 方法留出足够的剩余执行时间。**dexcli dev** 在 10 秒后停止
+server，所以除非它的配置设置了这个字段，它使用 **2s** 的 drain。
+
+Kubernetes 的 **terminationGracePeriodSeconds** 必须长于 drain 超时，并至少额外留出
+15 秒用于关闭组件。默认 drain 为 **30s**，因此至少应设为 **45** 秒。否则 Kubernetes
+可能在结果提交和 lease 释放之前杀死进程。
+
+Attempt drain 结束后，Worker 重新连接，long poll 和 Stream Store 关闭。在途 RPC 最多
+有 4 秒完成。后台工作停止，然后引擎释放 lease。其他未结束的调用返回 **UNAVAILABLE**，
+客户端会在新的 active 进程上重试。最后关闭 metrics 监听器。这些关闭步骤另有约 15 秒预算。
+
+**Step attempt drain ended** 日志记录 **attempts_waited**、**attempts_finished** 和
+**attempts_running**，包括仍在等待最终提交的 attempt。它的 **outcome** 字段在所有
+attempt 都完成时为 **completed**，在 drain 超时到期时为 **timed_out**，在节点先因其他
+原因停止时为 **node_stopped**。超时为 **0s** 时，节点改为记录
+**Step attempt drain disabled**。
 
 每一步都完成时，进程以 0 退出，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。
 如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
 最多要等 **lease.duration** 再加约 1 秒。
+
+Dex 还没有交给 Worker 的 attempt 不会失败，由后继进程负责 dispatch。进程交出 lease 时仍在
+运行的 attempt，会被新的 active 进程以 **NOT_COMPLETED** 判为失败，并各消耗一次 retry。
 
 启动期间收到 SIGTERM 会中断 lease 获取或恢复。如果节点已经持有 lease，它会在关闭预算内
 停止启动并释放 lease。释放失败时进程以 1 退出，下次启动可能要等待旧 lease 过期。如果
@@ -300,7 +320,9 @@ Kubernetes 随后按退避策略重启容器。
 
 时长影响崩溃后的接管时间。优雅关闭会释放 lease，替代进程可以立即启动。崩溃、SIGKILL
 或 Kubernetes 节点丢失之后，替代进程要等旧 lease 过期，再多等 1 秒。这段等待最多是
-**lease.duration** 加 1 秒，之后才开始恢复。
+**lease.duration** 加 1 秒，之后才开始恢复。恢复时，已经交给 Worker 的 attempt 以 NOT_COMPLETED
+失败，并消耗一次 retry。例外是节点崩溃时开始记录尚未持久化的 ASYNC attempt：
+它以同一个 attempt 编号再次运行，不消耗 retry。
 
 时长对对象存储故障只有部分影响：
 
@@ -438,11 +460,16 @@ dexzd_hot_standby_lag_seconds > 5
 ## 让 active 进程让位 {#step-down}
 
 **dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
-服务，并短暂等待在途的提交完成，然后释放 lease，并继续作为 standby 运行。在释放之前完成的
-调用保留原来的结果。释放时仍未结束的调用立即返回 **UNAVAILABLE**，客户端会在新的 active
-进程上重试。正在执行任务的 pull Worker 在任务结束后重新连接。释放之后才到达的结果不会被
-记录，这个 Step 会再次分派。同一个 node ID
-的另一个进程随即可以拿到 lease，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
+派发新的 Step 任务，按照[优雅关闭](#graceful-shutdown)的方式 drain 运行中的 attempt，
+使用相同的 **lifecycle.attemptDrainTimeout**。Drain 期间继续续约 lease，并接收 Worker
+heartbeat 和最终输出。忙碌的 Worker stream 会保持打开，直到结果提交或超时到期。
+
+随后进程释放 lease，并继续作为 standby 运行。在释放之前完成的调用保留原来的结果。
+释放时仍未结束的调用返回 **UNAVAILABLE**，客户端会在新的 active 进程上重试。
+Drain 到期时仍在运行的 attempt 会被中断，新的 active 进程以 **NOT_COMPLETED** 将其
+判为失败，并按 retry policy 消耗一次 retry。尚未交给 Worker 的 attempt 不会失败，
+新的 active 进程会派发它们。同一个 node ID 的其他进程，包括热 standby，只有在 active
+释放 lease 后才能接管，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
 **standby.stepDownHoldOff**，才会再次竞争 lease。如果这段时间内没有其他进程接管，它会把
 lease 拿回来。**standby.mode** 为 **hot** 时，它在等待期间作为[热 standby](#hot-standby)
 跟随日志。
@@ -477,8 +504,8 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
 让位。
 
 释放 lease 之后，让位调用会观察 lease。一旦有其他进程接管，调用立即返回。否则，它在
-hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长持续：提交排空的上限、释放
-lease、hold-off，再加一次获取 lease 的尝试。
+hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长持续：attempt drain 超时、
+提交排空的上限、释放 lease、hold-off，再加一次获取 lease 的尝试。
 
 有一个例外。进程要等已停止的服务阶段的本地 store 关闭之后，才会再次竞争 lease。如果某个
 卡住的任务一直让这个 store 保持打开，进程在释放 lease 之后最多等待约 64 秒。如果到那时还
@@ -486,7 +513,9 @@ lease、hold-off，再加一次获取 lease 的尝试。
 会释放这个 store。在此期间，同一个 node ID 的另一个进程可以接管。
 
 除非设置了 **--timeout**，
-**dexcli admin step-down** 最多等待 2 分钟。输出包含这些字段：
+**dexcli admin step-down** 最多等待 2 分钟。这足以覆盖默认 **30s** 的 attempt drain。
+如果调大 **lifecycle.attemptDrainTimeout**，**--timeout** 至少要调大同样的时长，否则
+command 可能在让位完成之前就停止等待。输出包含这些字段：
 
 - **expectedNodeId** 和 **expectedNodeEpoch** 给出 command 发送的前置条件。
 - **nodeId**、**releasedNodeEpoch** 和 **leaseReacquisitionHoldOff** 给出 node ID、
@@ -699,6 +728,7 @@ server-zd 执行以下限制。被限制拒绝的请求会立即失败，不会�
 | --- | --- | --- |
 | **commit.applierLanes** | 8 与进程可用 CPU 数中的较大者，最多为 **cluster.partitionCount** 和 1024 | 并行把已提交命令应用到本地存储的 lane 数。同一个 partition 总是使用同一个 lane，所以它的命令按顺序应用。应用命令需要读写本地存储，所以即使是小主机也至少使用 8 个 lane。显式设置的值必须在 1 到 **cluster.partitionCount** 与 1024 中的较小者之间。无法读取 CPU 数时，默认值为 8。 |
 | **commit.applierQueueFrames** | 64 | 每个 lane 排队的已提交 partition 批次数。lane 的队列满时，提交路径会等待它。 |
+| **commit.batchWindow** | 20ms | ASYNC 命令在批次封口之前等待更多命令的时间。只要写入流水线还有空位，SYNC 命令会立即让批次封口。两者写入的数据相同。speculation 上限对两者都起作用：Step proposal 会重试而不会让 Step 失败，而 Client 调用可能收到 UNAVAILABLE。 |
 | **commit.maxBatchRecords** | 10000 | 一个日志批次中的最大命令数。批次达到这个数量、**commit.sealAtBytes** 或 **commit.batchWindow** 时封口。 |
 | **commit.maxUnappliedBytes** | 67108864（64 MiB） | 节点已接受但尚未在本地应用的命令的编码字节数。放不下的命令以 UNAVAILABLE 失败。必须至少为 **api.grpcMaxMessageBytes** 与 32 MiB 中的较小者，这样最大的命令也能放下。 |
 | **localStorage.writeBufferBytes** | 67108864（64 MiB） | 每个 column family 的单个 RocksDB memtable 大小。RocksDB 为六个 column family 各保留最多两个 memtable，所以 memtable 最多使用这个值的 12 倍（默认 768 MiB），另加 **localStorage.blockCacheBytes**。write-ahead log 达到 **localStorage.maxWalBytes** 时会强制 flush，所以要和这个值一起调大。取值范围为 64 KiB 到 **localStorage.maxWalBytes**。 |
@@ -905,10 +935,14 @@ key label。
 | --- | --- |
 | API 请求和错误 | **dexzd_api_requests_total**，带 **rpc_class** 和 **code** |
 | API 延迟 | **dexzd_api_request_latency_seconds**，带 **rpc_class**；只统计 unary 调用 |
-| Step 失败 | **dexzd_step_attempt_failures_total**，带 **durability** 和 **failure_kind**；**dexzd_step_retries_exhausted_total**，带 **durability** |
+| Step 失败 | **dexzd_step_attempt_failures_total**，带 **durability** 和 **failure_kind**，其中包括 **started_attempt_interrupted**；**dexzd_step_retries_exhausted_total**，带 **durability** |
+| 被退回的 attempt | **dexzd_step_attempts_returned_total**，带 **reason** |
+| 不支持的类型 | **dexzd_matching_unsupported_type_entries**；**dexzd_matching_unsupported_type_evictions_total** |
+| Worker stream 协议错误 | **dexzd_worker_stream_protocol_errors_total**，带 **error** |
 | Flow 关闭 | **dexzd_flow_closes_total**，带 **close_status**；**dexzd_flow_end_to_end_latency_seconds** |
 | 派发延迟 | **dexzd_step_schedule_to_start_latency_seconds** |
-| Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks** |
+| Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks**（只计内存中的等待者） |
+| Step 任务队列 | **dexzd_step_task_queue_entries**；**dexzd_step_task_queue_oldest_age_seconds**；**dexzd_matching_unserved_task_queues**，带 **reason**；**dexzd_matching_heads_restored_refs_total**；**dexzd_matching_heads_incomplete_scans_total**；**dexzd_step_task_queue_incomplete_seeks_total** |
 | 提交延迟 | **dexzd_commit_latency_seconds** |
 | 对象存储 | **dexzd_object_store_requests_total**，带 **operation** 和 **object_kind**；**dexzd_object_store_request_errors_total**，带 **operation** |
 | Lease 和节点状态 | **dexzd_node_role**，带 **role**；**dexzd_lease_epoch**；**dexzd_lease_renewals_total**，带 **outcome** |
@@ -930,8 +964,27 @@ key label。
 store 或恢复快照时为 **restored**，例如 standby 的 store 缺失或过旧时。
 **dexzd_takeover_duration_seconds** 只统计热接管，按 **store_source** 区分。
 
+**dexzd_step_attempts_returned_total** 的 **reason** 统计回到 pending 且没有消耗 retry 的
+attempt，取值为 **unsupported**（Worker 拒绝了该 Step type）、**legacy_no_capacity**（较旧
+SDK 的 Worker 因容量不足而拒绝）和 **not_delivered**（任务从未到达 Worker）。所有 SDK 都升级
+之后，**legacy_no_capacity** 应降为零。**dexzd_worker_stream_protocol_errors_total** 的
+**error** 取值为 **no_capacity_on_reserved_slot**、**half_close_after_output** 和
+**reject_after_output**。出现
+**no_capacity_on_reserved_slot** 表示使用 reserved-slot 的 Worker 因容量不足拒绝了任务，这个
+attempt 按未运行处理而失败，并且 stream 结束。出现 **half_close_after_output** 表示 Worker
+在发出输出之后、发送最终结果之前关闭了 stream，这个 attempt 以 NOT_COMPLETED 失败。出现
+**reject_after_output** 表示 Worker 在已经为某个任务发出输出之后又拒绝了它。这个 attempt
+按可能已运行处理，以 NOT_COMPLETED 失败，server 以 INVALID_ARGUMENT 结束该 stream，因此
+它不会再收到任务。
+**dexzd_matching_unsupported_type_evictions_total** 是 counter，持续上升说明应该调大
+**matching.unsupportedTypeCacheEntries**。被淘汰的条目在对应 Worker 完成一个 Step 之前，
+不会再派给这个 Worker。因此缓存溢出时，Worker 拒绝过的类型可能在它每完成一个 Step 之后再次
+派给它。这个 counter 上升，或者 server 日志出现缓存已满的 WARN 时，请调大
+**matching.unsupportedTypeCacheEntries**。
+
 Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
-**dexzd_worker_stream_events_total** 统计每次任务投递和每次 stream 关闭。long poll 的
+**dexzd_worker_stream_events_total** 统计每次 stream 关闭，并且在 **event="delivered"** 时统计
+每个发出的任务帧，包括 RPC 任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
 等待时间计入 **flow_read** 延迟。
 
 ~~~text
@@ -958,8 +1011,11 @@ server-zd 以单节点运行，因此自己拥有所有 Worker 队列。Worker �
 matching:
   dispatchWait: 10s
   stickyWait: 5s
+  syncMatchWait: 200ms
+  headsResyncInterval: 5m
   maxConcurrentTasksCap: 256
   maxStreams: 100000
+  unsupportedTypeCacheEntries: 10000
   maxQueueLength: 256
   maxFlowTypes: 256
   maxFlowTypeLength: 256
@@ -968,17 +1024,66 @@ matching:
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| **matching.dispatchWait** | 10s | 为一次 attempt 寻找 Worker 的总时间。 |
+| **matching.dispatchWait** | 10s | 为一次 RPC 寻找 Worker 的总时间。Step 不使用它，而是在持久任务队列中等待。 |
 | **matching.stickyWait** | 5s | 回退到 Flow type 队列之前，尝试已连接 sticky Worker 的时间。不得超过 **dispatchWait**。没有连接上一个 app Worker ID 的 stream 时，server-zd 立即使用 Flow type 队列。 |
-| **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。 |
-| **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。 |
+| **matching.syncMatchWait** | 200ms | 在 sticky 等待之后、Step 进入持久任务队列之前，尝试该 Flow 类型任意 Worker 的时间。必须大于 0。 |
+| **matching.headsResyncInterval** | 5m | 后台检查的间隔，用来找出 matching 丢失的排队任务。0 表示禁用。见 [Step 任务队列](#step-task-queue)。 |
+| **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。Dex 在注册时把它告知 Worker。 |
+| **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。按总 slot 数估算。 |
+| **matching.unsupportedTypeCacheEntries** | 10000 | Dex 记为不支持的（tenant、Flow type、Step type 或 RPC 名称、app Worker ID）组合的最大数量。 |
 | **matching.maxQueueLength** | 256 | 队列名称的最大字符数。 |
 | **matching.maxFlowTypes** | 256 | 一次 Worker 注册中 Flow type 的最大数量。 |
 | **matching.maxFlowTypeLength** | 256 | 已注册 Flow type 的最大字符数。 |
 | **matching.pingInterval** | 20s | 空闲 Worker stream 上 **Ping** 帧的间隔。 |
 
-如果在 **dispatchWait** 内没有可用的 Worker，Step 会收到可重试的 unavailable 错误，并消耗一次
-Step 重试。RPC 调用方会直接收到 **Unavailable** 错误。
+使用 reserved-slot dispatch 的 Worker 为每个执行 slot 打开一个 stream。空闲的 stream 就是空闲的
+slot，它服务该 Worker 的 sticky queue 和它声明的每个 Flow type。预留的 RPC slot 是只服务 RPC 的
+stream，不会收到 Step。slot 空闲下来时，等待中的 RPC 先于等待中的 Step 得到它。注册数量超过
+**matching.maxConcurrentTasksCap** 或 **matching.maxStreams** 时会收到 **RESOURCE_EXHAUSTED**。
+
+Worker 以未知为由拒绝某个 Step type 或 RPC 名称时，Dex 会把（tenant、Flow type、Step type 或
+RPC 名称、app Worker ID）这个组合记在一个有上限的缓存中，并不再向该 Worker 提供这个类型。使用
+这个 app Worker ID 的所有 stream 都断开时，Dex 删除这个条目。重启后的 Worker 会得到新的 app
+Worker ID，因此不会被排除。如果你覆盖了 app Worker ID，请在每次进程重启后设置新的值。否则在滚动
+发布中沿用这个 ID 的升级后进程会被旧进程的条目排除，直到使用这个 ID 的所有 stream 都消失，包括
+升级后进程自己的 stream。如果缓存先淘汰了这个条目，使用这个 ID 的 Worker 完成一个 Step 之后，Dex
+会再次向它提供这个类型。对于 RPC，Dex 会在调用方的 deadline
+内尝试其他 Worker。没有 Worker 支持时，RPC 仍然以现有的错误失败。
+
+### Step 任务队列 {#step-task-queue}
+
+没有 Worker 立即接收的 Step attempt 不会失败。它先尝试已连接的 sticky Worker，最多 **stickyWait**。
+然后尝试该 Flow 类型的任意 Worker，最多 **syncMatchWait**。如果该 Step 类型已有已连接 Worker
+能运行的积压，新的 Step 会直接进入队列。
+
+之后 attempt 在持久任务队列中等待，直到有 Worker 接收它、Flow 超时或 Flow 被停止。队列按租户、
+Flow 类型和 Step 类型划分。没有已连接 Worker 支持的 Step 类型会一直留在队列中，不会阻塞其他
+Step 类型。大致按任务就绪的先后派发，不保证严格顺序。Dex 把每个队列分到多个 partition，
+每个节点服务自己拥有的 partition。
+
+空出的 Worker slot 先服务等待的 RPC，然后是内存中等待的 Step，最后是持久队列。排队时间不计入
+method timeout 和 heartbeat timeout。
+
+RPC 从不排队。如果在 **dispatchWait** 内没有可用的 Worker，RPC 调用方会直接收到
+**Unavailable** 错误。未知的 RPC 名称仍返回现有错误。
+
+请对 **dexzd_step_task_queue_entries** 和 **dexzd_step_task_queue_oldest_age_seconds**
+设置告警，而不是 **dexzd_matching_queued_tasks**。**dexzd_matching_queued_tasks** 现在只计内存中的
+等待者，即等待 slot 的 Step 和 RPC，不计持久积压。
+**dexzd_step_task_queue_entries** 是本节点所拥有 partition 中排队 Step 任务的 gauge。
+**dexzd_step_task_queue_oldest_age_seconds** 是其中最老任务年龄的 gauge。
+**dexzd_matching_unserved_task_queues** 是有积压、但没有已连接 Worker 能服务的队列数的 gauge，
+**reason** 为 **no_worker** 或 **no_supporting_worker**。
+
+重启或 failover 之后，每个 partition 要等它的后台计数完成，才会计入
+**dexzd_step_task_queue_entries**，所以这个 gauge 可能会在一段时间内偏低。这段时间里请以
+**dexzd_step_task_queue_oldest_age_seconds** 为准，重建会根据每个队列的第一个排队任务让它保持准确。
+
+**matching.headsResyncInterval** 设置一个周期性的后台检查。它只能发现丢失排队任务的 server bug。
+**dexzd_matching_heads_restored_refs_total** 是应保持为 0 的 counter。如果它不为 0，请查看 WARN 日志
+"periodic Heads restored a queued task that matching had lost"，并把它当作 bug 报告。
+**dexzd_matching_heads_incomplete_scans_total** 统计未完成的检查次数。
+**dexzd_step_task_queue_incomplete_seeks_total** 统计查找下一个排队任务时跳过了过多已删除条目的次数。Dex 会在退避后重试每一次。持续增长说明 compaction 跟不上。
 
 当前 SDK 在任务运行期间每 20 秒发送一次上行 **Pong** 帧。请为长连接 HTTP/2 stream 配置负载均衡器和
 代理，并把它们的空闲超时设置得高于 20 秒和 **matching.pingInterval**，同时留出网络延迟的余量。
@@ -1079,10 +1184,22 @@ server-zd 和每个 SDK 版本都声明闭区间形式的协议范围。两个�
 Worker 会协商出双方都支持的最高协议，然后同步 Attribute 索引，最后绑定 WorkerTaskService。
 server 和 SDK 的制品版本只用于诊断，不决定兼容性。
 
-新 SDK 保留旧协议时可以使用旧 server；新 server 也可以在协议范围仍然重叠时使用旧 SDK。
-破坏性的 server 版本会提高最低协议。升级 server 之前，先停止旧 Worker 及其流量，升级后再恢复流量。
-也可以使用相互隔离的蓝绿环境，使协议范围不相交的部署永远不会互相通信。运行中的 Worker 在
-server 升级后不会重新协商，因此破坏性变更之前必须显式停止它们。
+server-zd 协议版本 4 没有提高最低协议。较旧 SDK 的 Worker 和 Client 在新 server 上继续工作，
+它们因容量不足而被拒绝时，attempt 会被退回，不消耗 retry。**dexzd_step_attempts_returned_total**
+的 **reason="legacy_no_capacity"** 会统计这些情况。这种兼容性持续到 server-zd 1.0。
+
+新 SDK 需要新 server。在较旧的 server 上，新 SDK 的 Worker 无法启动，新 SDK 的 Client 第一次
+调用会失败，两者都会给出清晰的错误。先升级 server，再逐个升级 SDK，不需要停止 Worker。
+
+这次 server 升级不支持混合版本。启动新版本之前，先停止所有旧的 server 进程，包括 active、热
+standby 和冷 standby。新版本写入过某个 storage prefix 之后，旧 server 不能再在其上运行。请向前
+升级，或把升级前的备份恢复到新的 prefix。只有在每个进程都运行新版本之后才设置新的配置项，回滚
+之前要先删除它们。这适用于 **matching.syncMatchWait** 和 **matching.headsResyncInterval**。
+matching 配置会拒绝未知的键。
+
+以后提高最低协议的版本需要同样的谨慎：升级 server 之前先停止旧 Worker 及其流量，或者使用相互
+隔离的蓝绿环境，使协议范围不相交的部署永远不会互相通信。运行中的 Worker 在 server 升级后不会
+重新协商。
 
 协议兼容性只覆盖 Worker 到 server 的 API。它不能替代 open Flow 的兼容性规则，包括
 Flow type 名称、Step 图和已持久化的 payload。

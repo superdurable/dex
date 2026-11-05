@@ -331,7 +331,8 @@ impl NodeProcess {
                     committer: Arc::new(services.committer),
                     applier: factory_applier,
                     effects: Arc::new(effect_runner.clone()),
-                    rpc_invoker: worker_port,
+                    rpc_invoker: worker_port.clone(),
+                    step_queue_status: worker_port,
                     hard_delete_reader: Arc::new(hard_delete_objects.clone()),
                     hard_delete_uploader: Arc::new(hard_delete_objects),
                     id_source: services.id_source,
@@ -540,6 +541,8 @@ fn effects_config(settings: RunSettings) -> EffectsConfig {
         retry_max_backoff: Duration::from_secs(5),
         child_run_settings: settings,
         blocking_work: BlockingWorkPlacement::CallingTaskForTest,
+        // Periodic Heads would restore a lost ref and hide a stranded-task bug.
+        heads_resync_interval: Duration::ZERO,
         ..EffectsConfig::default()
     }
 }

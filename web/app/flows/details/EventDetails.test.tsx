@@ -736,6 +736,17 @@ describe('flow start event details', () => {
   });
 });
 
+describe('scheduled time', () => {
+  it('shows when the final attempt became pending', () => {
+    const event = executeEvent(1);
+    (event.payload.context as Record<string, unknown>).scheduledTime = '2026-08-05T23:44:30.000000000Z';
+    expect(renderDetails(event)).toContain('Scheduled');
+  });
+  it('omits it for events from older Servers', () => {
+    expect(renderDetails(executeEvent(1))).not.toContain('>Scheduled<');
+  });
+});
+
 describe('routing context and dispatch failures', () => {
   it('shows the serving Worker and dispatch sticky Worker in method context', () => {
     const event = executeEvent(1);

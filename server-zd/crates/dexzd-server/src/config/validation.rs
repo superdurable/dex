@@ -319,6 +319,11 @@ impl Config {
             "must be positive and no greater than matching.dispatchWait",
         )?;
         ensure(
+            self.matching.sync_match_wait > Duration::ZERO,
+            "matching.syncMatchWait",
+            "must be positive",
+        )?;
+        ensure(
             self.matching.max_concurrent_tasks_cap > 0,
             "matching.maxConcurrentTasksCap",
             "must be positive",
@@ -346,6 +351,11 @@ impl Config {
         ensure(
             self.matching.ping_interval > Duration::ZERO,
             "matching.pingInterval",
+            "must be positive",
+        )?;
+        ensure(
+            self.matching.unsupported_type_cache_entries > 0,
+            "matching.unsupportedTypeCacheEntries",
             "must be positive",
         )?;
         ensure(

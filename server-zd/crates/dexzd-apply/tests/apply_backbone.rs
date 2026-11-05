@@ -47,6 +47,10 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+#[path = "apply_backbone/attempt_handout.rs"]
+mod attempt_handout;
+#[path = "apply_backbone/dispatch_queue.rs"]
+mod dispatch_queue;
 #[path = "apply_backbone/retry_snapshots.rs"]
 mod retry_snapshots;
 #[path = "apply_backbone/run_state_limit.rs"]
@@ -132,7 +136,8 @@ impl MemoryState {
                     self.rows
                         .insert((*column_family, key.clone()), value.clone());
                 }
-                StateWrite::Delete { column_family, key } => {
+                StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
                     self.rows.remove(&(*column_family, key.clone()));
                 }
                 StateWrite::DeleteRange {
@@ -211,6 +216,7 @@ impl Harness {
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         assert_eq!(outcome.writes, again.writes, "apply must be deterministic");
         self.state.commit(&outcome);
+        self.assert_dispatch_queue_invariant();
         if !self.run_id.is_empty() && !outcome.writes.is_empty() {
             if self.is_storage_recount_checked {
                 assert_eq!(
@@ -1611,6 +1617,7 @@ fn long_history_window_work_is_bounded_and_resumes_across_commands() {
     for _ in 0..300 {
         let (outcome, history_reads, metadata_scan_rows) = harness.apply_with_history_counts(
             Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+                task_id: Vec::new(),
                 invocation: Some(key("ChargeStep-1", StepMethod::WaitFor)),
                 attempt: 1,
                 checkpoint: None,
@@ -1721,6 +1728,7 @@ fn reapplied_external_input_keeps_history_metadata_and_window_counts() {
     harness.set_attribute("status", string_value("first"), "set-1");
     harness.set_attribute("status", string_value("second"), "set-2");
     let outcome = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "order-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
@@ -1964,6 +1972,7 @@ fn empty_heartbeat_at_state_limit_does_not_fail_the_attempt() {
         .storage
         .expect("run storage is accounted");
     let heartbeat = harness.apply(Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+        task_id: Vec::new(),
         invocation: Some(key("ChargeStep-1", StepMethod::WaitFor)),
         attempt: 1,
         checkpoint: None,
@@ -2723,6 +2732,7 @@ fn exhausted_retries_release_the_heartbeat_checkpoint() {
     harness.start(request);
     harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
     harness.apply(Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+        task_id: Vec::new(),
         invocation: Some(key("ChargeStep-1", StepMethod::WaitFor)),
         attempt: 1,
         checkpoint: Some(step_attempt_heartbeat_command::Checkpoint::Value(

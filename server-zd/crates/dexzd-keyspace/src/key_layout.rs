@@ -237,11 +237,15 @@ pub enum IndexKind {
     SearchOutbox = 0x0b,
     /// No suffix: the partition's SearchProjectionModeRecord; absent means disabled.
     SearchProjectionMode = 0x0c,
+    /// `tenant_id(8) ‖ type_length(2) ‖ flow_type ‖ type_length(2) ‖ step_type ‖ priority(1) ‖
+    /// pending_since(8) ‖ flow_hash(8) ‖ run_id(16) ‖ method(1) ‖ attempt(4) ‖ step_execution_id`:
+    /// pending Step attempts that no Worker took at once; see `dispatch_queue_keys`.
+    DispatchQueue = 0x0d,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -254,6 +258,7 @@ impl IndexKind {
         Self::SearchOrder,
         Self::SearchOutbox,
         Self::SearchProjectionMode,
+        Self::DispatchQueue,
     ];
 }
 
@@ -416,7 +421,7 @@ mod tests {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
         assert_eq!(bytes, (1..=26).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=12).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=13).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
     }

@@ -50,55 +50,55 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0x7ca5c261cc5b5ee764b84d104bfbf44f,
+        0x216dab7f1c04e0631e1e6f5f8d48fff3,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990458,
         120,
-        0x777396ff113b66f0ff11ae9bc7cd6e56,
+        0xeb28ce76f9925180180a95aa54e337a8,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990875,
         120,
-        0xa64613f7311c3b91222fbf2a7fac22c4,
+        0x10e0d89bc5919fb6b27ad0d2df8828ed,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990400,
         120,
-        0x5c90f8f67a995cf5a9e21f54884d72e3,
+        0x9677bd868a00836031d6b0d1045fb1ee,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0xc70d6441310a4d8c7851792e0a5204d1,
+        0x6835855b420e314659cdaf66091d0703,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 1,
         120,
-        0x2f362294c24ff4114b49b849915acb25,
+        0xbf6834db43324eff654d0430512a17c4,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0x5f472247b17d81d110915823a6682038,
+        0x65901e026f434ae19867cfa273d1fec7,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
         FIRST_REDEPLOY_SEED,
         120,
-        0xa330eed649fe9012242114b785ee5ac3,
+        0x45a96bc6410b6d68fefec4c56877c21d,
     ),
     (
         EngineSimulationProfile::HotStandbyTakeovers,
         FIRST_HOT_STANDBY_SEED,
         120,
-        0xc0cb0b10a638a971f53dddda5c6b3b16,
+        0x626b65f0c2f0b58987fa3d4fc568ed56,
     ),
 ];
 
@@ -140,6 +140,14 @@ fn configured(
             (seeds, false)
         }
     }
+}
+
+/// Returns whether `seed` is a pinned regression seed, which runs without queue faults.
+fn is_regression_seed(seed: u64) -> bool {
+    regression_seed_cases()
+        .iter()
+        .chain(HOT_STANDBY_REGRESSION_SEEDS)
+        .any(|&(regression_seed, _)| regression_seed == seed)
 }
 
 fn regression_seed_cases() -> Vec<(u64, u64)> {
@@ -309,7 +317,7 @@ fn step_failure_policies_keep_every_invariant() {
         "wait-for-proceed",
         "execute-recovery",
         "timeout-handler-recovery",
-        "retry-deadline",
+        "retry-total-duration-exhausted",
     ] {
         assert!(
             total
@@ -319,6 +327,11 @@ fn step_failure_policies_keep_every_invariant() {
             "the Step failure profile had no {outcome}: {total:#?}"
         );
     }
+    // The retry total duration never ends a running attempt (plan D74).
+    assert!(
+        !total.step_failure_recoveries.contains_key("retry-deadline"),
+        "the engine failed an attempt with RETRY_DEADLINE: {total:#?}"
+    );
 }
 
 #[test]
@@ -340,6 +353,7 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
         let config = EngineSimulationConfig {
             active_seconds,
             profile,
+            has_queue_faults: !is_regression_seed(seed),
             ..EngineSimulationConfig::default()
         };
         let summary = run_engine_seed(seed, &config).unwrap_or_else(|failure| panic!("{failure}"));
@@ -382,6 +396,7 @@ fn run_seeds(
                     u8::try_from(percent).expect("validated fault percentage fits in u8")
                 },
             ),
+            has_queue_faults: !is_regression_seed(seed),
             ..EngineSimulationConfig::default()
         };
         match run_engine_seed(seed, &config) {
@@ -447,9 +462,11 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "Fail",
         "Hang",
         "Slow",
-        "RepeatResult",
-        "DisconnectBeforeOutput",
+        "DisconnectAfterHandOut",
         "DisconnectAfterOutput",
+        "Unsupported",
+        "LegacyNoCapacity",
+        "HalfCloseBeforeOutput",
         "NoWorker",
         "Hold",
         "HeartbeatWithValue",
@@ -457,6 +474,8 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "RpcSucceed",
         "RpcFail",
         "RpcTimeout",
+        "DuplicateQueueRef",
+        "ClaimWithoutLease",
     ] {
         assert!(
             count(&total.worker_behaviors, behavior) > 0,
@@ -474,6 +493,7 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "StepAttemptHeartbeat",
         "StepAttemptFailed",
         "StepMethodCompleted",
+        "StepAttemptQueued",
         "TimersFired",
         "RunPurge",
     ] {
@@ -513,6 +533,7 @@ fn assert_covered(total: &EngineSimulationSummary) {
             "attempts compared after the quiet crash",
             total.attempts_compared_after_quiet_crash,
         ),
+        ("SYNC task frames checked", total.sync_task_frames_checked),
         ("runs in the final state", total.final_runs as u64),
         ("old-epoch overlaps", total.old_epoch_overlaps),
         ("crashes during start", total.crashes_during_start),

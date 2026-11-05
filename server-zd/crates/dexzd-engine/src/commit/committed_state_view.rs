@@ -8,9 +8,9 @@
 
 use std::sync::Arc;
 
-use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
+use dexzd_apply::{BoundedRowSeek, FlowStateReader, StateReadError, StateRow};
 use dexzd_keyspace::ColumnFamily;
-use dexzd_storage::{LocalReadView, ScanDirection, StorageError};
+use dexzd_storage::{BoundedSeek, LocalReadView, ScanDirection, StorageError};
 
 use dexzd_storage::LocalStore;
 
@@ -85,6 +85,24 @@ impl FlowStateReader for CommittedStateView {
         limit: usize,
     ) -> Result<Vec<StateRow>, StateReadError> {
         scan_rows(self.read_view(), column_family, start, end, limit)
+    }
+
+    fn seek_first_bounded(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        max_skipped_deletions: u64,
+    ) -> Result<BoundedRowSeek, StateReadError> {
+        let seek = self
+            .read_view()
+            .seek_first_bounded(column_family, start, end, max_skipped_deletions)
+            .map_err(|error| state_read_error(column_family, &error))?;
+        Ok(match seek {
+            BoundedSeek::Found { key, value } => BoundedRowSeek::Found((key, value)),
+            BoundedSeek::Exhausted => BoundedRowSeek::Exhausted,
+            BoundedSeek::Incomplete => BoundedRowSeek::Incomplete,
+        })
     }
 }
 

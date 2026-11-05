@@ -32,8 +32,8 @@ pub use command_handlers::command_replies::{CLOSED_RUN_STOP_MESSAGE, TERMINAL_CL
 pub use command_handlers::flow_close::{TransactionalRpcHold, transactional_rpc_hold};
 pub use hard_delete_admission::{HardDeleteAdmissionError, validate_hard_delete_command};
 pub use history::diagnostics;
-pub use state_access::{FlowStateReader, StateReadError, StateRow};
-pub use steps::invocation_retry_deadline_micros;
+pub use state_access::{BoundedRowSeek, FlowStateReader, StateReadError, StateRow};
+pub use steps::dispatch_queue::{dispatch_queue_entry, effective_pending_since_micros};
 
 use dexzd_protocol::dexzd::v1::FlowCommand;
 

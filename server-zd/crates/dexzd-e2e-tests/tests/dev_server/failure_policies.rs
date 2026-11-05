@@ -484,10 +484,11 @@ async fn assert_timeout_recovery(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn method_heartbeat_and_retry_deadlines_keep_go_recovery_error_types() {
+async fn method_and_heartbeat_timeouts_keep_go_recovery_error_types() {
     assert_timeout_recovery("method-timeout-recovery", 1, 10, 30, "StartToClose", 1).await;
     assert_timeout_recovery("heartbeat-timeout-recovery", 20, 10, 30, "Heartbeat", 10).await;
-    assert_timeout_recovery("retry-deadline-recovery", 20, 10, 1, "ScheduleToClose", 1).await;
+    // The retry total duration never cuts a running attempt (plan D74).
+    assert_timeout_recovery("retry-duration-recovery", 20, 10, 1, "Heartbeat", 10).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -542,6 +543,77 @@ async fn lock_wait_before_the_first_attempt_does_not_consume_the_retry_total_dur
     assert_eq!(execute_step_type(&hold), "HoldStep");
     // The Worker holds the lock longer than QueuedStep's total duration.
     tokio::time::sleep(Duration::from_secs(3)).await;
+    worker.reply(
+        hold.task_id,
+        execute_output(InvokeExecuteMethodResponse {
+            step_decision: Some(StepDecision {
+                close_decision: Some(CloseDecision {
+                    close_decision_type: CloseDecisionType::DeadEnd as i32,
+                    ..CloseDecision::default()
+                }),
+                ..StepDecision::default()
+            }),
+            ..InvokeExecuteMethodResponse::default()
+        }),
+    );
+    let queued = worker.next_task().await;
+    assert_eq!(execute_step_type(&queued), "QueuedStep");
+    worker.reply(queued.task_id, complete_flow_output());
+    assert_flow_completed(&server, flow_id).await;
+    worker.stop().await;
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lock_held_longer_than_the_dispatch_wait_still_runs_the_waiting_step() {
+    let server = DevServer::start_with_config_overrides(Some(
+        "matching:\n  dispatchWait: 1s\n  stickyWait: 500ms\n",
+    ))
+    .await;
+    let mut worker = ScriptedWorker::start(server.worker_client(), FLOW_TYPE).await;
+    let flow_id = "lock-wait-past-dispatch-wait";
+    start_flow_at_step(
+        &server,
+        flow_id,
+        "ParentStep",
+        text_value("input"),
+        StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        },
+    )
+    .await;
+    let locked_options = StepOptions {
+        skip_wait_for: true,
+        execute_lock_attribute_keys: vec!["k".to_owned()],
+        ..StepOptions::default()
+    };
+    let parent = worker.next_task().await;
+    worker.reply(
+        parent.task_id,
+        execute_output(InvokeExecuteMethodResponse {
+            step_decision: Some(StepDecision {
+                next_steps: vec![
+                    StepMovement {
+                        step_type: "HoldStep".to_owned(),
+                        step_options: Some(locked_options.clone()),
+                        ..StepMovement::default()
+                    },
+                    StepMovement {
+                        step_type: "QueuedStep".to_owned(),
+                        step_options: Some(locked_options),
+                        ..StepMovement::default()
+                    },
+                ],
+                ..StepDecision::default()
+            }),
+            ..InvokeExecuteMethodResponse::default()
+        }),
+    );
+    let hold = worker.next_task().await;
+    assert_eq!(execute_step_type(&hold), "HoldStep");
+    // The lock outlasts the dispatch wait. The Step parks before any search starts its clock.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
     worker.reply(
         hold.task_id,
         execute_output(InvokeExecuteMethodResponse {

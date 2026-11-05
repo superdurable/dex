@@ -63,7 +63,7 @@ fn without_applied_position(value: &[u8]) -> Vec<u8> {
     meta.encode_to_vec()
 }
 
-fn dumped_value(value: &[u8]) -> String {
+pub(crate) fn dumped_value(value: &[u8]) -> String {
     if value.len() <= FULL_VALUE_DUMP_BYTES {
         format!("={}", hex(value))
     } else {

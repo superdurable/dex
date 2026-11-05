@@ -222,3 +222,29 @@ export function grpcStatusLabel(value: unknown): string {
   }
   return `Unknown (${String(value)})`;
 }
+
+export function stepMethodInvocationPhaseLabel(value: unknown): string {
+  return enumLabel(value, {
+    0: 'Unspecified',
+    1: 'Pending',
+    2: 'Running',
+    3: 'Backoff',
+    STEP_METHOD_INVOCATION_PHASE_UNSPECIFIED: 'Unspecified',
+    STEP_METHOD_INVOCATION_PHASE_PENDING: 'Pending',
+    STEP_METHOD_INVOCATION_PHASE_RUNNING: 'Running',
+    STEP_METHOD_INVOCATION_PHASE_BACKOFF: 'Backoff',
+  });
+}
+
+export function stepMethodPendingReasonLabel(value: unknown): string {
+  return enumLabel(value, {
+    0: 'Unspecified',
+    1: 'Waiting for a Worker',
+    2: 'Waiting for a Worker that supports this Step type',
+    3: 'Waiting for locks',
+    STEP_METHOD_PENDING_REASON_UNSPECIFIED: 'Unspecified',
+    STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER: 'Waiting for a Worker',
+    STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER: 'Waiting for a Worker that supports this Step type',
+    STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS: 'Waiting for locks',
+  });
+}

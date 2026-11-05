@@ -333,6 +333,20 @@ message StepInvocationRecord {
   // Start of the retry total duration: when attempt 1 started, after its locks.
   // Zero on older records.
   int64 retry_started_at_micros = 16;
+  // Furthest progress across ended attempts of this method call. Zero on older records.
+  dex.StepAttemptProgress furthest_attempt_progress = 17;
+  // When the current attempt became pending: the command that made it pending, or the
+  // TimeTravel that restored it. Returns keep it. Zero on older records, which use
+  // first_attempt_at_micros. It orders the DispatchQueue index.
+  int64 pending_since_micros = 19;
+}
+
+// Row of IndexKind::DispatchQueue: a pending Step attempt that waits for a Worker.
+message DispatchQueueRecord {
+  // Attempt number, also in the key.
+  uint32 attempt = 1;
+  // Run attempt of the pending attempt; a Claim of an older run attempt is stale.
+  uint32 run_attempt = 2;
 }
 
 // Exactly what a Worker receives for one attempt, with values kept as stored values.

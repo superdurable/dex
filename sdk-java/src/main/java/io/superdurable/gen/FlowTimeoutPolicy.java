@@ -115,7 +115,7 @@ public enum FlowTimeoutPolicy
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(9);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(10);
   }
 
   private static final FlowTimeoutPolicy[] VALUES = values();
