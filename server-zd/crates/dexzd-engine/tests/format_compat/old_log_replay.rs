@@ -34,6 +34,8 @@ use crate::testdata_tree::{
 
 /// The format-compat log that the last binary before attempt hand-out recorded.
 const OLDER_LOG_DIRECTORY: &str = "pre-attempt-handout-log";
+/// Full values of the recorded run records, which `state.txt` only hashes.
+const RUN_RECORDS_FILE: &str = "run_records.txt";
 
 /// Committed rows by column family name and key, as stored.
 type StoredRows = BTreeMap<(String, Vec<u8>), Vec<u8>>;
@@ -45,6 +47,7 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
         let recorded_text = std::fs::read_to_string(directory.join(STATE_DUMP_FILE))
             .expect("read the older state dump");
         let recorded = parse_state_dump(&recorded_text);
+        let recorded_run_records = read_run_records(&directory);
         let (replayed, stored) = replay(&directory, snapshot_use).await;
         assert_eq!(
             recorded.keys().collect::<Vec<_>>(),
@@ -55,7 +58,13 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
             .iter()
             .filter(|(key, value)| replayed.get(*key) != Some(*value))
             .filter(|((column_family, key), value)| {
-                !matches_without_new_fields(column_family, key, value, &stored)
+                !matches_without_new_fields(
+                    column_family,
+                    key,
+                    value,
+                    &recorded_run_records,
+                    &stored,
+                )
             })
             .map(|(key, _)| key)
             .collect();
@@ -89,13 +98,13 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
 
 /// Returns whether the replayed row equals the recorded one after clearing the fields that only
 /// the new binary writes: the attempt progress on Step executions and in attempt checkpoints.
-///
-/// Run records and history row metadata are never compared byte for byte: they count the
-/// bytes of the rows above, which grow by those fields.
+/// Run records are compared without their byte counters, which count the bytes of those
+/// fields. History row metadata, which records checkpoint sizes, is not compared.
 fn matches_without_new_fields(
     column_family: &str,
     hex_key: &str,
     recorded_value: &str,
+    recorded_run_records: &BTreeMap<String, Vec<u8>>,
     stored: &StoredRows,
 ) -> bool {
     let key = decode_hex(hex_key);
@@ -119,14 +128,42 @@ fn matches_without_new_fields(
             }
             checkpoint.encode_to_vec()
         }
-        (name, RunTable::RunRecord | RunTable::HistoryRowMetadata)
-            if name == ColumnFamily::Flow.name() =>
-        {
+        (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
+            let Some(recorded_run) = recorded_run_records.get(hex_key) else {
+                return false;
+            };
+            return run_record_without_storage(recorded_run) == run_record_without_storage(value);
+        }
+        (name, RunTable::HistoryRowMetadata) if name == ColumnFamily::Flow.name() => {
             return true;
         }
         _ => return false,
     };
     dumped_value(&cleared) == recorded_value
+}
+
+/// Decodes a run record without its byte counters: storage usage and checkpoint byte counts.
+fn run_record_without_storage(value: &[u8]) -> RunRecord {
+    let mut run = RunRecord::decode(value).expect("run record rows decode");
+    run.storage = None;
+    run.written_bytes_since_checkpoint = 0;
+    run.last_checkpoint_state_bytes = 0;
+    run
+}
+
+/// Reads the recorded run records: one `<key hex> <value hex>` line each, after a comment line.
+fn read_run_records(directory: &std::path::Path) -> BTreeMap<String, Vec<u8>> {
+    std::fs::read_to_string(directory.join(RUN_RECORDS_FILE))
+        .expect("read the recorded run records")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| {
+            let (key, value) = line
+                .split_once(' ')
+                .expect("a run record line has a key and a value");
+            (key.to_owned(), decode_hex(value))
+        })
+        .collect()
 }
 
 fn step_execution_without_progress(value: &[u8]) -> Vec<u8> {
