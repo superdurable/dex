@@ -170,6 +170,8 @@ struct Assignment {
     task_id: String,
     task_type: TaskTypeKey,
     frames: mpsc::Sender<AssignmentFrame>,
+    /// The Worker sent output for the task, so it may be running it.
+    has_output: bool,
 }
 
 enum AssignmentFrame {
@@ -872,6 +874,7 @@ impl WorkerDispatch {
             task_id: task_id.to_owned(),
             task_type: task_type.clone(),
             frames: sender,
+            has_output: false,
         });
         let is_sent = worker
             .output

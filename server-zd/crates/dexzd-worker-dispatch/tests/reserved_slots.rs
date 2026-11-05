@@ -823,3 +823,32 @@ async fn an_execute_task_carries_the_engine_task_id_and_deadline() {
     assert_eq!(task.task_id, "0192f3a4-5b6c-7d8e-9fa0-b1c2d3e4f5a6");
     assert_eq!(task.deadline.expect("deadline").seconds, 4_000_000_000);
 }
+
+/// The handler may still run after output, so a later rejection ends the stream.
+#[tokio::test]
+async fn a_rejection_after_output_ends_the_stream_instead_of_freeing_the_slot() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut running) = hand_out(&dispatch, "Flow", "Running", "running").await;
+    slot.task().await;
+    slot.heartbeat("running");
+    slot.reject("running", PollWorkerTaskRejectReason::UnknownStep);
+    assert!(matches!(
+        final_event(&mut running).await,
+        StepTaskEvent::Disconnected { .. }
+    ));
+    assert_eq!(
+        slot.next().await.expect_err("the stream ends").code(),
+        Code::InvalidArgument
+    );
+    let next = reserve(&dispatch, step_request("Flow", "Other", None)).await;
+    assert!(
+        !matches!(next, StepStreamReservation::Reserved(_)),
+        "the slot was reused without a final output after it had already produced a heartbeat"
+    );
+}

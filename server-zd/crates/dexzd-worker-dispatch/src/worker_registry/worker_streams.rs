@@ -206,7 +206,7 @@ pub(super) fn finish_assignment(
     true
 }
 
-/// Records a reserved-slot stream that broke the dispatch protocol.
+/// Records a Worker stream that broke the dispatch protocol.
 pub(super) fn record_protocol_error(dispatch: &WorkerDispatch, error: WorkerStreamProtocolError) {
     dispatch
         .inner

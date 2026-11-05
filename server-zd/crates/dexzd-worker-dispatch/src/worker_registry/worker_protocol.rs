@@ -224,9 +224,10 @@ async fn process_worker_frame(
         }
         Some(poll_worker_task_request::Frame::Pong(_)) => Ok(true),
         Some(poll_worker_task_request::Frame::TaskFrame(frame)) => {
+            let is_final = is_final(&frame);
             let assignment_sender = {
-                let state = worker.state.lock().expect("Worker state lock poisoned");
-                let Some(assignment) = state.current.as_ref() else {
+                let mut state = worker.state.lock().expect("Worker state lock poisoned");
+                let Some(assignment) = state.current.as_mut() else {
                     return Ok(true);
                 };
                 if frame.task_id != assignment.task_id {
@@ -235,9 +236,9 @@ async fn process_worker_frame(
                 if frame.output.is_none() {
                     return Err(Status::invalid_argument("task output is required"));
                 }
+                assignment.has_output = true;
                 assignment.frames.clone()
             };
-            let is_final = is_final(&frame);
             let task_id = frame.task_id.clone();
             if assignment_sender
                 .send(AssignmentFrame::Output(Box::new(frame)))
@@ -267,7 +268,7 @@ async fn process_worker_frame(
             ) {
                 return Err(Status::invalid_argument("invalid task rejection"));
             }
-            let assignment_sender = {
+            let (assignment_sender, has_output) = {
                 let state = worker.state.lock().expect("Worker state lock poisoned");
                 let Some(assignment) = state.current.as_ref() else {
                     return Ok(true);
@@ -275,7 +276,7 @@ async fn process_worker_frame(
                 if rejection.task_id != assignment.task_id {
                     return Ok(true);
                 }
-                assignment.frames.clone()
+                (assignment.frames.clone(), assignment.has_output)
             };
             if assignment_sender
                 .send(AssignmentFrame::Reject(reason))
@@ -283,6 +284,13 @@ async fn process_worker_frame(
                 .is_err()
             {
                 tracing::debug!("abandoned task rejection received");
+            }
+            if has_output {
+                // The handler may still run, so the stream must never take another task.
+                record_protocol_error(dispatch, WorkerStreamProtocolError::RejectAfterOutput);
+                return Err(Status::invalid_argument(
+                    "a Worker never declines a task after sending output for it",
+                ));
             }
             if reason == PollWorkerTaskRejectReason::NoCapacity && worker.slot.is_reserved() {
                 // The assignment already has the rejection; the stream ends here.
