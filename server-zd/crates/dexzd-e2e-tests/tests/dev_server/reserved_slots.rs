@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use dexzd_protocol::dex::{
     FlowStatus, InvokeExecuteMethodResponse, PollWorkerTask, PollWorkerTaskRejectReason,
-    StepOptions, WaitForFlowRequest,
+    RetryPolicy, StepOptions, WaitForFlowRequest,
 };
 
 use crate::harness::{
@@ -83,6 +83,51 @@ async fn a_clean_half_close_before_output_returns_the_attempt_to_another_worker(
         attempt(&task),
         1,
         "a task without output when its stream half-closed was never run"
+    );
+    runner.reply(task.task_id, complete_flow_output());
+    assert_flow_completed(&server, flow_id).await;
+    runner.stop().await;
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reset_right_after_a_half_close_fails_the_attempt_and_retries_it() {
+    let server = DevServer::start().await;
+    let mut first =
+        ScriptedWorker::start_reserved_slot(server.worker_client(), FLOW_TYPE, "a").await;
+    let mut second =
+        ScriptedWorker::start_reserved_slot(server.worker_client(), FLOW_TYPE, "b").await;
+    let flow_id = "reserved-half-close-reset";
+    start_pull_flow(
+        &mut server.flow_client(),
+        flow_id,
+        FLOW_TYPE,
+        "ShipStep",
+        string_value("parcel"),
+        StepOptions {
+            skip_wait_for: true,
+            execute_retry_policy: Some(RetryPolicy {
+                initial_interval_seconds: 1,
+                maximum_attempts: 2,
+                ..RetryPolicy::default()
+            }),
+            ..StepOptions::default()
+        },
+    )
+    .await;
+
+    let (receiver, abandoned) = next_task_of_either(&mut first, &mut second).await;
+    assert_eq!(attempt(&abandoned), 1);
+    let (cancelling, mut runner) = match receiver {
+        Receiver::First => (first, second),
+        Receiver::Second => (second, first),
+    };
+    cancelling.half_close_then_reset().await;
+    let task = runner.next_task().await;
+    assert_eq!(
+        attempt(&task),
+        2,
+        "a reset after hand-out means the Worker may have run the task"
     );
     runner.reply(task.task_id, complete_flow_output());
     assert_flow_completed(&server, flow_id).await;

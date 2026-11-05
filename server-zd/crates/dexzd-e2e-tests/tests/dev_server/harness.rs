@@ -308,6 +308,16 @@ impl ScriptedWorker {
             .expect("the outgoing stream is open");
     }
 
+    /// Half-closes the stream and then resets it, as some clients cancel a call.
+    pub(crate) async fn half_close_then_reset(self) {
+        drop(self.frames);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        self.task.abort();
+        if let Err(error) = self.task.await {
+            assert!(error.is_cancelled(), "the Worker task panicked: {error}");
+        }
+    }
+
     /// Closes the Worker's stream.
     pub(crate) async fn stop(self) {
         drop(self.frames);
