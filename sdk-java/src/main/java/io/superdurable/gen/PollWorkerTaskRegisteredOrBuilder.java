@@ -13,10 +13,25 @@ public interface PollWorkerTaskRegisteredOrBuilder extends
   /**
    * <pre>
    * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+   * Reserved-slot streams may always reject unknown names.
    * </pre>
    *
    * <code>bool supports_unknown_name_rejection = 1;</code>
    * @return The supportsUnknownNameRejection.
    */
   boolean getSupportsUnknownNameRejection();
+
+  /**
+   * <pre>
+   * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+   * It counts all of them, including RPC_ONLY slots.
+   * Zero means the Server does not report a limit.
+   * Reported by Server protocol version 4 or later.
+   * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
+   * </pre>
+   *
+   * <code>uint32 max_concurrent_tasks_per_app_worker = 2;</code>
+   * @return The maxConcurrentTasksPerAppWorker.
+   */
+  int getMaxConcurrentTasksPerAppWorker();
 }

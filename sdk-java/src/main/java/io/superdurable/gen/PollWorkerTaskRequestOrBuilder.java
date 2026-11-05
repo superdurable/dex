@@ -12,7 +12,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
 
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -21,7 +21,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   boolean hasRegister();
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -30,7 +30,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   io.superdurable.gen.PollWorkerTaskRegister getRegister();
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -67,6 +67,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -76,6 +77,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -85,6 +87,7 @@ public interface PollWorkerTaskRequestOrBuilder extends
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>

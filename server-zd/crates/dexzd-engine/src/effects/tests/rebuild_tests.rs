@@ -11,7 +11,6 @@ use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use dexzd_apply::FlowStateReader;
-use dexzd_clock::WallClock;
 use dexzd_keyspace::row_keys::{
     hard_delete_pending_key, outbox_key, run_item_index_key, run_singleton_key,
 };
@@ -19,12 +18,12 @@ use dexzd_keyspace::{ColumnFamily, IndexKind, RunTable, partition_index_prefix};
 use dexzd_object_store::{FaultAction, ObjectStore, ObjectStoreOperation};
 use dexzd_protocol::dex::{
     AttributeWrite, CloseDecision, CloseDecisionType, FlowStatus, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodResponse, RetryPolicy, StepDecision, StepOptions,
+    InvokeWaitForMethodResponse, StepAttemptProgress, StepDecision, StepDurability, StepOptions,
 };
 use dexzd_protocol::dexzd::v1::{
     ChildFlowCompletedMessage, CrossFlowEndpoint, HardDeleteObjectRecord,
     HardDeleteObjectReference, OutboxRecord, PendingHardDeleteUpload, StepAttemptFailureKind,
-    flow_command, outbox_record,
+    StepInvocationPhase, flow_command, outbox_record,
 };
 use dexzd_storage::LocalStore;
 use prost::Message;
@@ -38,180 +37,112 @@ use super::{
 use crate::effects::{
     EffectError, EffectsConfig, HardDeleteUploadLedger, MethodRequest, NodeMetaUploadLedger,
 };
+use crate::flow_coordination::CommitUrgency;
 
 fn restart(harness_durable: &DurableState) -> EffectHarness {
     EffectHarness::with_config(harness_durable.clone(), EffectsConfig::default())
 }
 
-fn encoded_request(request: &MethodRequest) -> Vec<u8> {
-    match request {
-        MethodRequest::WaitFor(request) => request.encode_to_vec(),
-        MethodRequest::Execute(request) => request.encode_to_vec(),
+#[tokio::test(start_paused = true)]
+async fn a_restart_fails_handed_out_attempts_and_retries_them_with_the_next_attempt() {
+    for durability in [StepDurability::Sync, StepDurability::Async] {
+        let first = EffectHarness::new();
+        first.rebuild_all_partitions().await;
+        let mut request = start_request("order-1");
+        request.step_options = Some(StepOptions {
+            wait_for_durability_override: durability as i32,
+            ..StepOptions::default()
+        });
+        let run_id = first.start_flow(request, settings());
+        let before = first.dispatcher.next_dispatch().await;
+        let task_id = first
+            .step_execution("order-1", run_id, "ChargeStep-1")
+            .invocation
+            .expect("invocation")
+            .task_id;
+        let durable = first.durable.clone();
+        first.shutdown().await;
+        assert!(
+            before
+                .is_cancelled
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "shutdown cancels the Worker task"
+        );
+
+        let second = restart(&durable);
+        second.rebuild_all_partitions().await;
+        second.settle().await;
+        // The Worker may have run the attempt, so it fails and uses a retry (plan D68, D20).
+        let failures = second
+            .flow_effect_operations
+            .commands_matching(is_attempt_failed);
+        assert_eq!(failures.len(), 1, "{durability:?}");
+        let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
+        else {
+            panic!("expected a failure");
+        };
+        assert_eq!(
+            failure.kind,
+            StepAttemptFailureKind::StartedAttemptInterrupted as i32
+        );
+        assert_eq!(failure.expected_task_id, task_id);
+        let urgency = if durability == StepDurability::Async {
+            CommitUrgency::Batched
+        } else {
+            CommitUrgency::Prompt
+        };
+        assert_eq!(failures[0].urgency, urgency);
+        let invocation = second
+            .step_execution("order-1", run_id, "ChargeStep-1")
+            .invocation
+            .expect("invocation");
+        assert_eq!(invocation.phase, StepInvocationPhase::Backoff as i32);
+        assert_eq!(
+            invocation.furthest_attempt_progress,
+            StepAttemptProgress::NotCompleted as i32
+        );
+        let retry = second.dispatcher.next_dispatch().await;
+        assert_eq!(retry.context().attempt, 2, "no attempt is handed out twice");
+        retry.complete_wait_for(InvokeWaitForMethodResponse::default());
+        let execute = second.dispatcher.next_dispatch().await;
+        assert!(matches!(
+            execute.method_request(),
+            MethodRequest::Execute(_)
+        ));
+        second.shutdown().await;
     }
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_restart_redispatches_running_attempts_with_the_same_attempt_and_request() {
-    let first = EffectHarness::new();
-    first.rebuild_all_partitions().await;
-    let run_id = first.start_flow(start_request("order-1"), settings());
-    let before = first.dispatcher.next_dispatch().await;
-    let task_id = first
-        .step_execution("order-1", run_id, "ChargeStep-1")
-        .invocation
-        .expect("invocation")
-        .task_id;
-    let durable = first.durable.clone();
-    first.shutdown().await;
+async fn a_rebuild_never_fails_an_attempt_this_node_handed_out() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    // Commands are accepted before a rebuild finishes, so it can see this node's own start.
+    harness.rebuild_all_partitions().await;
+    harness.settle().await;
     assert!(
-        before
-            .is_cancelled
-            .load(std::sync::atomic::Ordering::SeqCst),
-        "shutdown cancels the Worker task"
-    );
-
-    tokio::time::sleep(Duration::from_secs(30)).await;
-    let second = restart(&durable);
-    second.rebuild_all_partitions().await;
-    let after = second.dispatcher.next_dispatch().await;
-    assert_eq!(
-        encoded_request(after.method_request()),
-        encoded_request(before.method_request()),
-        "S1: a redispatch sends the same snapshot"
-    );
-    assert_eq!(after.context().attempt, 1, "D8: no retry is consumed");
-    let invocation = second
-        .step_execution("order-1", run_id, "ChargeStep-1")
-        .invocation
-        .expect("invocation");
-    assert_eq!(invocation.task_id, task_id);
-    assert!(
-        second
+        harness
             .flow_effect_operations
-            .commands_matching(|command| matches!(
-                command,
-                flow_command::Command::StepAttemptStarted(_)
-            ))
+            .commands_matching(is_attempt_failed)
             .is_empty()
     );
-    after.complete_wait_for(InvokeWaitForMethodResponse::default());
-    let execute = second.dispatcher.next_dispatch().await;
+    assert_eq!(
+        harness
+            .step_execution("order-1", run_id, "ChargeStep-1")
+            .invocation
+            .expect("invocation")
+            .phase,
+        StepInvocationPhase::Running as i32
+    );
+    dispatch.complete_wait_for(InvokeWaitForMethodResponse::default());
+    let execute = harness.dispatcher.next_dispatch().await;
     assert!(matches!(
         execute.method_request(),
         MethodRequest::Execute(_)
     ));
-    second.shutdown().await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_restarted_attempt_with_unreadable_state_times_out_at_its_configured_method_timeout() {
-    let first = EffectHarness::new();
-    first.rebuild_all_partitions().await;
-    let mut request = start_request("order-1");
-    request.step_options = Some(StepOptions {
-        wait_for_timeout_seconds: 30,
-        ..StepOptions::default()
-    });
-    first.start_flow(request, settings());
-    let _before = first.dispatcher.next_dispatch().await;
-    let durable = first.durable.clone();
-    first.shutdown().await;
-
-    let second = restart(&durable);
-    second
-        .flow_effect_operations
-        .is_flow_state_unreadable
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-    second.rebuild_all_partitions().await;
-    tokio::time::sleep(Duration::from_millis(29_900)).await;
-    second.settle().await;
-    assert!(
-        second
-            .flow_effect_operations
-            .commands_matching(is_attempt_failed)
-            .is_empty()
-    );
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    second.settle().await;
-    let failures = second
-        .flow_effect_operations
-        .commands_matching(is_attempt_failed);
-    let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
-    else {
-        panic!("expected a failure");
-    };
-    assert_eq!(failure.kind, StepAttemptFailureKind::MethodTimeout as i32);
-    assert_eq!(
-        failure.server_detail, "method timeout of 30s expired",
-        "the rebuilt start carries the configured method timeout"
-    );
-    assert_eq!(
-        second
-            .dispatcher
-            .dispatch_count
-            .load(std::sync::atomic::Ordering::SeqCst),
-        0
-    );
-    second.shutdown().await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_restart_cuts_a_running_attempt_at_its_original_retry_deadline() {
-    let first = EffectHarness::new();
-    first.rebuild_all_partitions().await;
-    let mut request = start_request("order-1");
-    request.step_options = Some(StepOptions {
-        wait_for_timeout_seconds: 60,
-        wait_for_retry_policy: Some(RetryPolicy {
-            total_duration_seconds: 10,
-            ..RetryPolicy::default()
-        }),
-        ..StepOptions::default()
-    });
-    let run_id = first.start_flow(request, settings());
-    let _before = first.dispatcher.next_dispatch().await;
-    let invocation = first
-        .step_execution("order-1", run_id, "ChargeStep-1")
-        .invocation
-        .expect("invocation");
-    assert_eq!(
-        invocation.retry_started_at_micros,
-        invocation.attempt_started_at_micros
-    );
-    let retry_deadline_micros = invocation.retry_started_at_micros + 10 * SECOND_MICROS;
-    let durable = first.durable.clone();
-    tokio::time::sleep(Duration::from_secs(4)).await;
-    first.shutdown().await;
-
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    let second = restart(&durable);
-    second.rebuild_all_partitions().await;
-    let _after = second.dispatcher.next_dispatch().await;
-    let until_deadline = Duration::from_micros(
-        u64::try_from(retry_deadline_micros - durable.clock.now_unix_micros())
-            .expect("the deadline is still ahead"),
-    );
-    tokio::time::sleep(until_deadline - Duration::from_millis(100)).await;
-    second.settle().await;
-    assert!(
-        second
-            .flow_effect_operations
-            .commands_matching(is_attempt_failed)
-            .is_empty(),
-        "the rebuilt attempt keeps its original deadline"
-    );
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    second.settle().await;
-    let failures = second
-        .flow_effect_operations
-        .commands_matching(is_attempt_failed);
-    let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
-    else {
-        panic!("expected a failure");
-    };
-    assert_eq!(failure.kind, StepAttemptFailureKind::RetryDeadline as i32);
-    assert!(failure.is_non_retryable);
-    second.shutdown().await;
+    harness.shutdown().await;
 }
 
 #[tokio::test(start_paused = true)]

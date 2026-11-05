@@ -137,7 +137,8 @@ fn apply_in_scope(
         Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)
-        | Command::StepMethodCompleted(_) => {
+        | Command::StepMethodCompleted(_)
+        | Command::StepAttemptReturned(_) => {
             match with_run(&transaction, scope)? {
                 Err(reply) => HandlerResult::Rejected(reply),
                 Ok(cursor) => match apply_step_command(&mut transaction, cursor, scope, body)? {
@@ -274,6 +275,8 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         // Delivery retries rejections forever. Parents counted child starts; child results
         // have their own limit.
         Command::InboxMessage(_) => false,
+        // A return only clears the running attempt, so state never grows.
+        Command::StepAttemptReturned(_) => false,
         _ => false,
     }
 }
@@ -371,7 +374,8 @@ pub(crate) fn apply_run_command(
         | Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)
-        | Command::StepMethodCompleted(_) => Err(ApplyError::InvariantViolation {
+        | Command::StepMethodCompleted(_)
+        | Command::StepAttemptReturned(_) => Err(ApplyError::InvariantViolation {
             detail: "command routed to the wrong handler".to_owned(),
         }),
     }

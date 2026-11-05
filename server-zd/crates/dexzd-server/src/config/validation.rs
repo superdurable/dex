@@ -349,6 +349,11 @@ impl Config {
             "must be positive",
         )?;
         ensure(
+            self.matching.unsupported_type_cache_entries > 0,
+            "matching.unsupportedTypeCacheEntries",
+            "must be positive",
+        )?;
+        ensure(
             self.stream_store.max_message_bytes > 0,
             "streamStore.maxMessageBytes",
             "must be positive",

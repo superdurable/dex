@@ -49,7 +49,7 @@ class FlowServiceStub:
     raw worker code/detail/type in original_worker_error_*
     when available
     Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
-    held by another RPC or a running Step
+    held by another RPC or a Step
     sub_status WORKER_API_ERROR
     ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
@@ -245,7 +245,7 @@ class FlowServiceServicer:
     raw worker code/detail/type in original_worker_error_*
     when available
     Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
-    held by another RPC or a running Step
+    held by another RPC or a Step
     sub_status WORKER_API_ERROR
     ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
@@ -608,7 +608,7 @@ class FlowService:
     raw worker code/detail/type in original_worker_error_*
     when available
     Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
-    held by another RPC or a running Step
+    held by another RPC or a Step
     sub_status WORKER_API_ERROR
     ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
@@ -1533,7 +1533,7 @@ class WorkerService:
 
 
 class WorkerTaskServiceStub:
-    """Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+    """Hosted by Dex server; pull Workers open streams for at most one task at a time.
     """
 
     def __init__(self, channel):
@@ -1550,11 +1550,20 @@ class WorkerTaskServiceStub:
 
 
 class WorkerTaskServiceServicer:
-    """Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+    """Hosted by Dex server; pull Workers open streams for at most one task at a time.
     """
 
     def PollWorkerTask(self, request_iterator, context):
-        """Exchanges registration, task, result, and control frames for one Dex task queue.
+        """Exchanges registration, task, result, and control frames for a queue
+        or a reserved execution slot.
+        To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
+        and keeps reading until Dex ends the stream. It drops tasks arriving after that decision
+        and sends no frame at all for a dropped task: no rejection and no output.
+        On a clean half-close of a reserved-slot stream, Dex treats a sent task without output
+        as not delivered and dispatches it again with the same attempt number.
+        A half-close of any other stream is still a disconnect.
+        A Worker must send a started task's final output before half-closing its stream.
+        A transport error or reset instead means the Worker may have run the task.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1577,7 +1586,7 @@ def add_WorkerTaskServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class WorkerTaskService:
-    """Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+    """Hosted by Dex server; pull Workers open streams for at most one task at a time.
     """
 
     @staticmethod

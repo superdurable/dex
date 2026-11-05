@@ -528,10 +528,16 @@ impl CommandGenerator {
                 self.invocation_envelope(flow_id, &call, body)
             }
             Proposal::WorkerOutcome(call) => {
-                let body = match rng.random_range(0..10) {
-                    0..=5 => worker_model::complete(rng, &call, is_synced, is_step_failure_stream),
-                    6..=7 => worker_model::fail(rng, &call, is_step_failure_stream),
-                    _ => worker_model::heartbeat(rng, &call),
+                let body = if is_step_failure_stream && rng.random_bool(0.1) {
+                    worker_model::return_attempt(rng, &call)
+                } else {
+                    match rng.random_range(0..10) {
+                        0..=5 => {
+                            worker_model::complete(rng, &call, is_synced, is_step_failure_stream)
+                        }
+                        6..=7 => worker_model::fail(rng, &call, is_step_failure_stream),
+                        _ => worker_model::heartbeat(rng, &call),
+                    }
                 };
                 let command = self.invocation_envelope(flow_id, &call, body);
                 self.remember_result(&command);

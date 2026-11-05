@@ -385,6 +385,7 @@ async fn register_worker(
                     flow_types: vec!["AuthenticatedWorkerFlow".to_owned()],
                     sdk_name: "test".to_owned(),
                     sdk_version: "0".to_owned(),
+                    ..Default::default()
                 },
             )),
         })
