@@ -32,7 +32,9 @@ import (
 )
 
 type PullGreetingDiagnostics struct {
-	IsReady             bool
+	IsReady bool
+	//
+	// Deprecated: reserved slot streams never decline Steps; this field is always zero.
 	ReservedRPCDeclines uint64
 }
 
@@ -84,7 +86,7 @@ func StopPullGreeting(ctx context.Context, worker *dex.Worker, client *dex.Clien
 func PullGreetingReadiness(worker *dex.Worker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !worker.PullRegistrationState().IsReady {
-			http.Error(w, "pull queues unavailable", http.StatusServiceUnavailable)
+			http.Error(w, "pull slot registrations unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -94,7 +96,7 @@ func PullGreetingReadiness(worker *dex.Worker) http.Handler {
 func GetPullGreetingDiagnostics(worker *dex.Worker) PullGreetingDiagnostics {
 	return PullGreetingDiagnostics{
 		IsReady:             worker.PullRegistrationState().IsReady,
-		ReservedRPCDeclines: worker.PullReservedRPCDeclines(),
+		ReservedRPCDeclines: 0,
 	}
 }
 

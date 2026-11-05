@@ -15,8 +15,8 @@ import "time"
 // RetryPolicy overrides retry timing for a Step's WaitFor or Execute method.
 // Zero fields preserve server defaults, including a four-hour total duration.
 // MaximumAttempts counts the initial attempt.
-// With asynchronous durability, local and regular execution share attempts and elapsed duration.
-// Fallback is immediate, while subsequent regular retries continue the cumulative backoff sequence.
+// With asynchronous durability, all execution attempts share the retry limits and elapsed duration.
+// Fallback is immediate, while subsequent retries continue the cumulative backoff sequence.
 type RetryPolicy struct {
 	// InitialInterval is the delay before the first retry.
 	InitialInterval time.Duration
@@ -26,7 +26,9 @@ type RetryPolicy struct {
 	MaximumInterval time.Duration
 	// MaximumAttempts limits total attempts, including the initial attempt.
 	MaximumAttempts int32
-	// TotalDuration limits elapsed time across all attempts.
+	// TotalDuration bounds retry scheduling from the first hand-out of this Step method to a Worker.
+	// After an attempt fails, Dex uses it to decide whether to schedule another retry.
+	// It never ends a running attempt. Zero uses the Server default (4 hours).
 	TotalDuration time.Duration
 }
 
@@ -39,6 +41,7 @@ const (
 	// StepDurabilitySync waits for persistence before completing the handler request.
 	StepDurabilitySync
 	// StepDurabilityAsync permits persistence after accepting the handler result.
+	// It lowers latency and speeds up individual Flows; sustained throughput is about the same as synchronous durability.
 	StepDurabilityAsync
 )
 
@@ -94,16 +97,16 @@ func ProceedToOnFlowTimeoutHandlerFailure(
 
 // StepOptions configures one Step's handler execution and persistence behavior.
 //
-// Zero values preserve server defaults. Regular attempts default to two hours with a one-minute
+// Zero values preserve server defaults. The fallback defaults to two hours per attempt with a one-minute
 // heartbeat timeout. Durability resolves from the method override, FlowConfig, then synchronous.
-// Asynchronous durability first uses at most seven local-activity seconds and three attempts.
+// Asynchronous durability first uses at most seven seconds and three attempts before fallback.
 // WaitFor failures fail the Flow by default. Each lock is held only for the matching handler call.
 type StepOptions struct {
 	// WaitForMethodTimeout limits one WaitFor attempt; zero uses the server default.
 	WaitForMethodTimeout time.Duration
 	// ExecuteMethodTimeout limits one Execute attempt; zero uses the server default.
 	ExecuteMethodTimeout time.Duration
-	// HeartbeatTimeout detects stalled regular WaitFor and Execute activities.
+	// HeartbeatTimeout detects stalled WaitFor and Execute attempts after fallback.
 	// Zero uses the one-minute default. Positive values must be whole seconds within int32 range
 	// and meet the server-configured minimum, which defaults to ten seconds.
 	HeartbeatTimeout time.Duration

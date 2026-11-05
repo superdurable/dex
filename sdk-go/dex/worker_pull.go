@@ -38,9 +38,6 @@ type pullWorker struct {
 	maxConcurrentTasks             int
 	reservedRPCTasks               int
 	shouldWarnRPCCapacity          bool
-	reservedRPCDeclines            uint64
-	idleStreamsPerQueue            int
-	reservePressureLinger          time.Duration
 	stopDrainTimeout               time.Duration
 	stopOnPermanentStreamRejection bool
 	sdkVersion                     string
@@ -54,44 +51,45 @@ type pullWorker struct {
 	isStopping                     bool
 	wake                           chan struct{}
 	done                           chan struct{}
+	stopBegan                      chan struct{}
+	stopOnce                       sync.Once
 	registrationChanged            chan struct{}
 	queueRegistrations             map[string]*pullQueueRegistration
 	hasRegisteredAllQueues         bool
 	initialRegistrationError       error
 	startError                     error
 	hasStartReturned               bool
-	permanentStreamError           *PullRegistrationError
+	permanentStreamError           error
 	permanentStreamRejected        chan struct{}
 }
 
 type pullQueueRegistration struct {
-	registeredStreams    int
-	hasRegistered        bool
-	lastPermanentError   error
-	lastReserveDecline   time.Time
-	reservePressureTimer *time.Timer
+	registeredStreams  int
+	hasRegistered      bool
+	lastPermanentError error
 }
 
 type pullStream struct {
-	worker           *pullWorker
-	queue            string
-	ctx              context.Context
-	cancel           context.CancelFunc
-	mu               sync.Mutex
-	sendMu           sync.Mutex
-	stream           dexpb.WorkerTaskService_PollWorkerTaskClient
-	isSendClosed     bool
-	keepaliveDone    chan struct{}
-	isFinalFrameSent bool
+	worker             *pullWorker
+	queue              string
+	slotKind           dexpb.PollWorkerSlotKind
+	ctx                context.Context
+	cancel             context.CancelFunc
+	mu                 sync.Mutex
+	sendMu             sync.Mutex
+	stream             dexpb.WorkerTaskService_PollWorkerTaskClient
+	pollCancel         context.CancelFunc
+	isSendClosed       bool
+	keepaliveDone      chan struct{}
+	isFinalFrameSent   bool
+	hasSentFinalOutput bool
 	// Registration state is guarded by worker.mu, independently of stream.mu and sendMu.
-	isRegistered                 bool
-	taskID                       string
-	taskCancel                   context.CancelFunc
-	taskFinished                 chan struct{}
-	isBusy                       bool
-	isDraining                   bool
-	isRetiring                   bool
-	supportsUnknownNameRejection bool
+	isRegistered bool
+	taskID       string
+	taskCancel   context.CancelFunc
+	taskFinished chan struct{}
+	isBusy       bool
+	isDraining   bool
 }
 
 const busyPullStreamKeepaliveInterval = 20 * time.Second
@@ -112,13 +110,6 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 	}
 	if reservedRPCTasks < 0 || reservedRPCTasks >= maxConcurrentTasks {
 		return nil, fmt.Errorf("dex: ReservedRPCTasks must be nonnegative and less than MaxConcurrentTasks")
-	}
-	idleStreamsPerQueue := options.IdleStreamsPerQueue
-	if idleStreamsPerQueue < 0 {
-		return nil, fmt.Errorf("dex: IdleStreamsPerQueue must not be negative")
-	}
-	if idleStreamsPerQueue == 0 {
-		idleStreamsPerQueue = 1
 	}
 	stopDrainTimeout := options.StopDrainTimeout
 	if stopDrainTimeout < 0 {
@@ -149,7 +140,10 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	queues := append([]string{appWorkerID}, flowTypes...)
+	queues := []string{dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String()}
+	if reservedRPCTasks > 0 {
+		queues = append(queues, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY.String())
+	}
 	queueRegistrations := make(map[string]*pullQueueRegistration, len(queues))
 	for _, queue := range queues {
 		queueRegistrations[queue] = &pullQueueRegistration{}
@@ -161,9 +155,8 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
 		shouldWarnRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
-		idleStreamsPerQueue:   idleStreamsPerQueue, reservePressureLinger: 30 * time.Second,
-		stopDrainTimeout: stopDrainTimeout, sdkVersion: sdkVersion,
-		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}),
+		stopDrainTimeout:      stopDrainTimeout, sdkVersion: sdkVersion,
+		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}), stopBegan: make(chan struct{}),
 	}, nil
 }
 
@@ -232,7 +225,7 @@ func (worker *pullWorker) run() error {
 			worker.mu.Lock()
 			err := worker.permanentStreamError
 			worker.mu.Unlock()
-			if err != nil && worker.stopOnPermanentStreamRejection {
+			if err != nil {
 				return err
 			}
 			return nil
@@ -254,17 +247,13 @@ func (worker *pullWorker) run() error {
 func (worker *pullWorker) stop() {
 	worker.mu.Lock()
 	worker.isStopping = true
-	for _, registration := range worker.queueRegistrations {
-		if registration.reservePressureTimer != nil {
-			registration.reservePressureTimer.Stop()
-		}
-	}
+	worker.stopOnce.Do(func() { close(worker.stopBegan) })
 	worker.notifyRegistrationChanged()
 	for stream := range worker.streams {
 		stream.mu.Lock()
 		stream.isDraining = true
 		if !stream.isBusy {
-			stream.cancel()
+			stream.closeSend()
 		}
 		stream.mu.Unlock()
 	}
@@ -288,49 +277,27 @@ func (worker *pullWorker) reconcile() {
 		return
 	}
 	for _, queue := range worker.queues {
+		slotKind := dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+		desired := worker.maxConcurrentTasks - worker.reservedRPCTasks
+		if queue == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY.String() {
+			slotKind = dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY
+			desired = worker.reservedRPCTasks
+		}
+		existing := 0
 		for stream := range worker.streams {
-			if stream.queue != queue {
-				continue
-			}
-			stream.mu.Lock()
-			if stream.isRegistered && !stream.isBusy && !stream.isDraining && stream.hasIdleReplacements() {
-				stream.isDraining = true
-				stream.isRetiring = true
-				stream.closeSend()
-			}
-			stream.mu.Unlock()
-		}
-		idle := 0
-		for stream := range worker.streams {
-			stream.mu.Lock()
-			isIdle := !stream.isBusy && !stream.isRetiring
-			stream.mu.Unlock()
-			if stream.queue == queue && isIdle {
-				idle++
+			if stream.queue == queue {
+				existing++
 			}
 		}
-		desired := worker.desiredIdleStreamsPerQueue(queue)
-		if worker.busyTasks == worker.maxConcurrentTasks && desired > worker.idleStreamsPerQueue {
-			desired = worker.idleStreamsPerQueue
-		}
-		for idle < desired {
+		for existing < desired {
 			streamCtx, cancel := context.WithCancel(worker.ctx)
-			stream := &pullStream{worker: worker, queue: queue, ctx: streamCtx, cancel: cancel}
+			stream := &pullStream{worker: worker, queue: queue, slotKind: slotKind, ctx: streamCtx, cancel: cancel}
 			worker.streams[stream] = struct{}{}
 			worker.streamWG.Add(1)
-			idle++
+			existing++
 			go stream.run()
 		}
 	}
-}
-
-func (worker *pullWorker) desiredIdleStreamsPerQueue(queue string) int {
-	desired := worker.idleStreamsPerQueue
-	lastDecline := worker.queueRegistrations[queue].lastReserveDecline
-	if worker.reservedRPCTasks > 0 && !lastDecline.IsZero() && time.Since(lastDecline) < worker.reservePressureLinger {
-		desired++
-	}
-	return desired
 }
 
 func (worker *pullWorker) waitRegistered(ctx context.Context) error {
@@ -380,9 +347,24 @@ func (worker *pullWorker) registrationState() PullRegistrationState {
 	return state
 }
 
-func (worker *pullWorker) recordRegisteredStream(stream *pullStream) {
+func (worker *pullWorker) recordRegisteredStream(stream *pullStream, acknowledgement *dexpb.PollWorkerTaskRegistered) error {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
+	if worker.isStopping && worker.initialRegistrationError != nil {
+		return worker.initialRegistrationError
+	}
+	limit := acknowledgement.GetMaxConcurrentTasksPerAppWorker()
+	if limit != 0 && uint64(worker.maxConcurrentTasks) > uint64(limit) {
+		err := fmt.Errorf("dex: MaxConcurrentTasks %d exceeds Server matching.maxConcurrentTasksCap %d", worker.maxConcurrentTasks, limit)
+		if worker.permanentStreamError == nil {
+			worker.permanentStreamError = err
+			worker.initialRegistrationError = err
+			worker.isStopping = true
+			close(worker.permanentStreamRejected)
+		}
+		worker.notifyRegistrationChanged()
+		return err
+	}
 	registration := worker.queueRegistrations[stream.queue]
 	stream.isRegistered = true
 	registration.registeredStreams++
@@ -399,6 +381,7 @@ func (worker *pullWorker) recordRegisteredStream(stream *pullStream) {
 		worker.hasRegisteredAllQueues = hasRegisteredAllQueues
 	}
 	worker.notifyRegistrationChanged()
+	return nil
 }
 
 func (worker *pullWorker) recordStreamResult(stream *pullStream, err error) {
@@ -442,6 +425,12 @@ func (stream *pullStream) run() {
 	backoff := 100 * time.Millisecond
 	hasReconnectedWithFreshToken := false
 	for stream.ctx.Err() == nil {
+		stream.worker.mu.Lock()
+		isStopping := stream.worker.isStopping
+		stream.worker.mu.Unlock()
+		if isStopping {
+			return
+		}
 		observer := &rejectedTokenObserver{}
 		wasRegistered, err := stream.poll(observer)
 		if wasRegistered {
@@ -463,12 +452,9 @@ func (stream *pullStream) run() {
 			return
 		}
 		stream.worker.mu.Lock()
-		isStopping := stream.worker.isStopping
+		isStopping = stream.worker.isStopping
 		stream.worker.mu.Unlock()
-		stream.mu.Lock()
-		isRetiring := stream.isRetiring
-		stream.mu.Unlock()
-		if isStopping || isRetiring {
+		if isStopping {
 			return
 		}
 		if shouldReconnectWithFreshToken {
@@ -500,6 +486,8 @@ func (stream *pullStream) run() {
 		select {
 		case <-stream.ctx.Done():
 			return
+		case <-stream.worker.stopBegan:
+			return
 		case <-time.After(wait):
 		}
 		if !isPermanent {
@@ -521,9 +509,6 @@ func isPermanentPullStreamError(err error) bool {
 }
 
 func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
-	stream.mu.Lock()
-	stream.supportsUnknownNameRejection = false
-	stream.mu.Unlock()
 	pollCtx, cancel := context.WithCancel(stream.ctx)
 	clientStream, err := stream.worker.client.PollWorkerTask(withRejectedTokenObserver(pollCtx, observer))
 	if err != nil {
@@ -532,8 +517,10 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	}
 	stream.sendMu.Lock()
 	stream.stream = clientStream
+	stream.pollCancel = cancel
 	stream.isSendClosed = false
 	stream.isFinalFrameSent = false
+	stream.hasSentFinalOutput = false
 	stream.sendMu.Unlock()
 	responses := make(chan *dexpb.PollWorkerTaskResponse, 1)
 	receiveErrors := make(chan error, 1)
@@ -542,18 +529,28 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	defer func() {
 		cancel()
 		<-receiveDone
-		stream.closeSend()
 	}()
 	register := &dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Register{Register: &dexpb.PollWorkerTaskRegister{
-		Queue: stream.queue, AppWorkerId: stream.worker.appWorkerID, FlowTypes: stream.worker.flowTypes, SdkName: "go", SdkVersion: stream.worker.sdkVersion,
+		SupportsReservedSlotDispatch: true, SlotKind: stream.slotKind, AppWorkerId: stream.worker.appWorkerID, FlowTypes: stream.worker.flowTypes, SdkName: "go", SdkVersion: stream.worker.sdkVersion,
 	}}}
 	if err := stream.send(register); err != nil {
 		return false, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
 	}
+	stream.mu.Lock()
+	if stream.isDraining {
+		stream.closeSend()
+	}
+	stream.mu.Unlock()
 	wasRegistered := false
 	for {
 		select {
 		case response := <-responses:
+			stream.worker.mu.Lock()
+			isStopping := stream.worker.isStopping
+			stream.worker.mu.Unlock()
+			if isStopping && (response.GetTask() != nil || response.GetReconnect() != nil) {
+				continue
+			}
 			if !wasRegistered {
 				if response.GetReconnect() != nil {
 					stream.markDraining()
@@ -562,16 +559,16 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 				if response.GetRegistered() == nil {
 					return false, fmt.Errorf("dex: Worker task stream did not register")
 				}
-				stream.mu.Lock()
-				stream.supportsUnknownNameRejection = response.GetRegistered().GetSupportsUnknownNameRejection()
-				stream.mu.Unlock()
 				wasRegistered = true
-				stream.worker.recordRegisteredStream(stream)
+				if err := stream.worker.recordRegisteredStream(stream, response.GetRegistered()); err != nil {
+					return false, err
+				}
 				stream.worker.signal()
 				continue
 			}
 			switch frame := response.Frame.(type) {
 			case *dexpb.PollWorkerTaskResponse_Task:
+				stream.waitForTaskFinished()
 				stream.startTask(frame.Task)
 			case *dexpb.PollWorkerTaskResponse_CancelTask:
 				stream.mu.Lock()
@@ -643,41 +640,18 @@ func receivePullFrames(ctx context.Context, stream dexpb.WorkerTaskService_PollW
 }
 
 func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
-	stream.mu.Lock()
-	supportsUnknownNameRejection := stream.supportsUnknownNameRejection
-	stream.mu.Unlock()
-	reason := stream.worker.unknownTaskReason(task)
-	if supportsUnknownNameRejection && reason != dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED {
-		stream.rejectTask(task.GetTaskId(), reason)
-		return
-	}
 	stream.worker.mu.Lock()
 	stream.mu.Lock()
-	if stream.isBusy || stream.isDraining || stream.worker.isStopping || stream.worker.busyTasks >= stream.worker.maxConcurrentTasks {
+	if stream.isDraining || stream.worker.isStopping {
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()
-		stream.rejectTask(task.GetTaskId(), dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY)
 		return
 	}
-	isStepTask := task.GetWaitFor() != nil || task.GetExecute() != nil
-	if isStepTask && stream.worker.reservedRPCTasks > 0 && stream.worker.busyTasks >= stream.worker.maxConcurrentTasks-stream.worker.reservedRPCTasks && reason == dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED {
-		stream.worker.reservedRPCDeclines++
-		registration := stream.worker.queueRegistrations[stream.queue]
-		registration.lastReserveDecline = time.Now()
-		if registration.reservePressureTimer == nil {
-			registration.reservePressureTimer = time.AfterFunc(stream.worker.reservePressureLinger, stream.worker.signal)
-		} else {
-			registration.reservePressureTimer.Reset(stream.worker.reservePressureLinger)
-		}
+	reason := stream.worker.unknownTaskReason(task)
+	if reason != dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED {
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()
-		stream.worker.signal()
-		flowType := task.GetWaitFor().GetFlowType()
-		if task.GetExecute() != nil {
-			flowType = task.GetExecute().GetFlowType()
-		}
-		stream.worker.service.logger.Debug("decline Step task for reserved RPC capacity", "flowType", flowType)
-		stream.rejectTask(task.GetTaskId(), dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY)
+		stream.rejectTask(task.GetTaskId(), reason)
 		return
 	}
 	taskCtx := stream.ctx
@@ -819,6 +793,11 @@ func (stream *pullStream) finishTask() {
 
 func (stream *pullStream) completeTask() {
 	stream.stopKeepalive()
+	stream.sendMu.Lock()
+	if !stream.hasSentFinalOutput {
+		stream.pollCancel()
+	}
+	stream.sendMu.Unlock()
 	stream.worker.mu.Lock()
 	stream.mu.Lock()
 	stream.taskCancel()
@@ -827,14 +806,10 @@ func (stream *pullStream) completeTask() {
 	stream.isBusy = false
 	stream.taskFinished = nil
 	stream.worker.busyTasks--
-	if !stream.isDraining && stream.hasIdleReplacements() {
-		stream.isDraining = true
-		stream.isRetiring = true
-	}
 	isDraining := stream.isDraining
 	stream.mu.Unlock()
 	stream.worker.mu.Unlock()
-	if isDraining {
+	if isDraining && stream.ctx.Err() == nil {
 		stream.closeSend()
 	} else {
 		stream.sendMu.Lock()
@@ -842,22 +817,6 @@ func (stream *pullStream) completeTask() {
 		stream.sendMu.Unlock()
 	}
 	stream.worker.signal()
-}
-
-func (stream *pullStream) hasIdleReplacements() bool {
-	idleStreams := 0
-	for candidate := range stream.worker.streams {
-		if candidate == stream || candidate.queue != stream.queue || !candidate.isRegistered {
-			continue
-		}
-		candidate.mu.Lock()
-		isIdle := !candidate.isBusy && !candidate.isDraining
-		candidate.mu.Unlock()
-		if isIdle {
-			idleStreams++
-		}
-	}
-	return idleStreams >= stream.worker.desiredIdleStreamsPerQueue(stream.queue)
 }
 
 func (stream *pullStream) cancelTaskContext() {
@@ -920,6 +879,7 @@ func (stream *pullStream) send(request *dexpb.PollWorkerTaskRequest) error {
 func (stream *pullStream) startKeepalive() {
 	stream.sendMu.Lock()
 	stream.isFinalFrameSent = false
+	stream.hasSentFinalOutput = false
 	done := make(chan struct{})
 	stream.keepaliveDone = done
 	stream.sendMu.Unlock()
@@ -976,7 +936,7 @@ func (stream *pullStream) closeSend() {
 	stream.sendMu.Lock()
 	defer stream.sendMu.Unlock()
 	stream.stopKeepaliveLocked()
-	if stream.isSendClosed {
+	if stream.isSendClosed || stream.stream == nil || stream.ctx.Err() != nil || stream.stream.Context().Err() != nil {
 		return
 	}
 	stream.isSendClosed = true
@@ -1007,11 +967,16 @@ func (stream *pullStream) sendTaskFrameLocked(frame *dexpb.PollWorkerTaskFrame) 
 	if stream.isSendClosed {
 		return io.ErrClosedPipe
 	}
-	if frame.GetRpc() != nil || frame.GetWorkerError() != nil || frame.GetWaitFor().GetResult() != nil || frame.GetExecute().GetResult() != nil {
+	isFinalFrame := frame.GetRpc() != nil || frame.GetWorkerError() != nil || frame.GetWaitFor().GetResult() != nil || frame.GetExecute().GetResult() != nil
+	if isFinalFrame {
 		stream.stopKeepaliveLocked()
 		stream.isFinalFrameSent = true
 	}
-	return stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: frame}})
+	err := stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: frame}})
+	if isFinalFrame && err == nil {
+		stream.hasSentFinalOutput = true
+	}
+	return err
 }
 
 type pullWaitForSender struct {

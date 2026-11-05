@@ -61,7 +61,9 @@ type ClientOptions struct {
 //
 // A Client is safe for concurrent use. Calls use their context for cancellation and
 // return an error after Close. The Client owns its gRPC connection; callers should
-// close it when the application shuts down.
+// close it when the application shuts down. Before its first request of any method, it negotiates
+// Server protocol 4. Incompatibility is cached and returned on later calls. Transient negotiation
+// failures are retried on the next call. NewClient performs no network I/O.
 //
 //	client, err := dex.NewClient(registry, cache, dex.ClientOptions{})
 //	if err != nil {
@@ -77,8 +79,10 @@ type Client struct {
 	hydrator   valueHydrator
 	connection *grpc.ClientConn
 	logger     Logger
-	// serverProtocol is negotiated lazily because only hard-delete writes depend on it.
+	// serverProtocol is negotiated lazily before the first request.
 	serverProtocol negotiatedServerProtocol
+	protocolMu     sync.Mutex
+	protocolError  error
 
 	lifecycleMu sync.RWMutex
 	closed      bool
@@ -176,6 +180,13 @@ func (client *Client) Close() error {
 }
 
 func (client *Client) validateCall(ctx context.Context) error {
+	if err := client.validateCallContext(ctx); err != nil {
+		return err
+	}
+	return client.negotiateProtocol(ctx)
+}
+
+func (client *Client) validateCallContext(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("dex: context must not be nil")
 	}
@@ -188,6 +199,29 @@ func (client *Client) validateCall(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (client *Client) negotiateProtocol(ctx context.Context) error {
+	client.protocolMu.Lock()
+	defer client.protocolMu.Unlock()
+	if client.protocolError != nil {
+		return client.protocolError
+	}
+	if client.serverProtocol.version.Load() != 0 {
+		return nil
+	}
+	sdkVersion := currentGoSDKVersion()
+	serverInfo, err := client.service.GetServerInfo(ctx, &emptypb.Empty{})
+	if err != nil {
+		return serverProtocolRequestError(sdkVersion, err)
+	}
+	version, err := negotiateServerProtocol(serverInfo, sdkVersion)
+	if err != nil {
+		client.protocolError = err
+		return err
+	}
+	client.serverProtocol.version.Store(version)
 	return nil
 }
 
@@ -404,11 +438,14 @@ func (client *Client) StartFlow(
 	input any,
 	options StartFlowOptions,
 ) (runID string, err error) {
-	if err := client.validateFlowCall(ctx, flowID); err != nil {
+	if err := client.validateCallContext(ctx); err != nil {
 		return "", err
 	}
 	registered, err := client.registry.resolveFlow(flow)
 	if err != nil {
+		return "", err
+	}
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return "", err
 	}
 	startStepType, stepInput, stepOptions, err := mapStartingStep(registered, input)
@@ -456,7 +493,7 @@ func (client *Client) StartFlow(
 	return response.RunId, nil
 }
 
-// requireHardDeleteAttributeSupport negotiates the Server protocol before the first hard-delete write.
+// requireHardDeleteAttributeSupport checks the negotiated protocol before hard-delete writes.
 func (client *Client) requireHardDeleteAttributeSupport(
 	ctx context.Context,
 	writes []*dexpb.AttributeWrite,
@@ -464,17 +501,8 @@ func (client *Client) requireHardDeleteAttributeSupport(
 	if !slices.ContainsFunc(writes, (*dexpb.AttributeWrite).GetIsHardDeleteOnNull) {
 		return nil
 	}
-	if client.serverProtocol.version.Load() == 0 {
-		sdkVersion := currentGoSDKVersion()
-		serverInfo, err := client.service.GetServerInfo(ctx, &emptypb.Empty{})
-		if err != nil {
-			return serverProtocolRequestError(sdkVersion, err)
-		}
-		negotiatedProtocolVersion, err := negotiateServerProtocol(serverInfo, sdkVersion)
-		if err != nil {
-			return err
-		}
-		client.serverProtocol.version.Store(negotiatedProtocolVersion)
+	if err := client.negotiateProtocol(ctx); err != nil {
+		return err
 	}
 	return client.serverProtocol.requireHardDeleteAttributeSupport(writes)
 }

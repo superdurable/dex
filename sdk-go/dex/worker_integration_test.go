@@ -1332,7 +1332,7 @@ func TestWorkerSynchronizesAttributeIndexesBeforePolling(t *testing.T) {
 		serverInfo: &dexpb.ServerInfo{
 			ServerVersion:                   "test",
 			MinimumSupportedProtocolVersion: 1,
-			CurrentProtocolVersion:          2,
+			CurrentProtocolVersion:          4,
 		},
 	}
 	flowServiceAddress := startWorkerFlowService(t, flowService, &workerStartupTaskService{flowService: flowService})
@@ -1355,7 +1355,7 @@ func TestWorkerSynchronizesAttributeIndexesBeforePolling(t *testing.T) {
 	require.Equal(t, map[string]dexpb.IndexType{
 		"WorkerTestStatus": dexpb.IndexType_INDEX_TYPE_KEYWORD,
 	}, request.AttributeIndexes)
-	require.Equal(t, uint32(2), worker.serverProtocol.version.Load())
+	require.Equal(t, uint32(4), worker.serverProtocol.version.Load())
 	require.Equal(t, "dev", worker.sdkVersion)
 	require.Equal(t, []string{"GetServerInfo", "SyncAttributeIndexes"}, flowService.recordedCalls())
 	syncRelease <- struct{}{}
@@ -1780,7 +1780,7 @@ func (service *workerSyncFlowService) GetServerInfo(
 	return &dexpb.ServerInfo{
 		ServerVersion:                   "test",
 		MinimumSupportedProtocolVersion: 2,
-		CurrentProtocolVersion:          2,
+		CurrentProtocolVersion:          4,
 	}, nil
 }
 
@@ -1818,8 +1818,14 @@ func (service *workerStartupTaskService) PollWorkerTask(
 	service.flowService.callsMu.Lock()
 	service.flowService.calls = append(service.flowService.calls, "PollWorkerTask")
 	service.flowService.callsMu.Unlock()
-	<-stream.Context().Done()
-	return stream.Context().Err()
+	for {
+		if _, err := stream.Recv(); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+	}
 }
 
 func (service *workerSyncFlowService) recordedCalls() []string {

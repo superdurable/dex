@@ -62,13 +62,13 @@ type WorkerOptions struct {
 	GrpcMaxMessageBytes int
 }
 
-// PullWorkerOptions configures outbound polling of Dex task queues.
+// PullWorkerOptions configures outbound execution slot streams.
 //
 // Use it with WorkerOptions.Pull to tune outbound task streams.
-// MaxConcurrentTasks defaults to runtime.NumCPU; IdleStreamsPerQueue defaults to one.
+// MaxConcurrentTasks defaults to runtime.NumCPU; each task slot owns one long-lived stream.
 // StopDrainTimeout defaults to 30 seconds.
-// Each stream runs one task at a time. Negative values and an invalid AppWorkerID
-// cause NewWorker to return an error.
+// Each stream runs one task at a time. Negative task limits or drain timeouts and an invalid
+// AppWorkerID cause NewWorker to return an error.
 //
 //	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
 //		Pull: &dex.PullWorkerOptions{MaxConcurrentTasks: 8},
@@ -76,33 +76,27 @@ type WorkerOptions struct {
 //	if err != nil { return err }
 //	defer worker.Stop(context.Background())
 type PullWorkerOptions struct {
-	// StopOnPermanentStreamRejection makes Start return a permanent rejection when its queue has no registered stream. Default: false retries indefinitely.
-	// A rejection while another stream holds the same queue is recorded and retried without stopping.
-	// This applies before and after initial registration. Start begins draining all queues and bounds
-	// the drain with StopDrainTimeout, then cancels streams and waits for handlers to return.
-	// Handlers must respond to cancellation. Other queues may still hold streams while draining.
+	// StopOnPermanentStreamRejection makes Start return a permanent rejection when its slot kind has no registered stream.
+	// Default: false retries indefinitely. Slot kinds are STEP_AND_RPC and, when reserved, RPC_ONLY.
+	// A rejection while another stream of that kind remains registered is recorded and retried.
+	// Before or after readiness, a fatal rejection drains all streams within StopDrainTimeout,
+	// then cancels them and waits for handlers. Handlers must respond to cancellation.
 	// Always call Stop before exiting; it remains safe after Start returns.
 	StopOnPermanentStreamRejection bool
-	// MaxConcurrentTasks bounds simultaneous handlers. Zero uses runtime.NumCPU().
+	// MaxConcurrentTasks sets the number of long-lived execution slot streams and bounds simultaneous handlers.
+	// Zero uses runtime.NumCPU(); negative values are invalid. Each idle stream can accept one task.
+	// Start fails when this exceeds the Server's reported matching.maxConcurrentTasksCap per Worker.
 	MaxConcurrentTasks int
-	// ReservedRPCTasks protects synchronous RPC latency from long-running Steps.
-	// Nil reserves one slot when resolved MaxConcurrentTasks is at least two, otherwise zero.
-	// With the CPU-count default, Steps therefore get one fewer slot than before. Set ptr.Any(0) to opt out.
-	// With one slot and nil reserve, Start warns once that RPCs may wait behind Steps.
-	// Flows must stay responsive because RPCs share Worker task capacity with Steps.
-	// WaitFor and Execute tasks, including local attempts, are declined when total busy handlers reach
-	// MaxConcurrentTasks minus the reserve. API-direct and transactional RPC tasks may use the full limit.
+	// ReservedRPCTasks sets the number of execution slot streams that accept only RPCs.
+	// Nil reserves one when resolved MaxConcurrentTasks is at least two, otherwise zero.
+	// Set ptr.Any(0) to opt out. With one slot and nil reserve, Start warns that RPCs may wait behind Steps.
+	// The remaining streams accept Steps and RPCs. The Worker executes every received task without capacity declines.
 	// NewWorker returns an error unless 0 <= reserve < resolved MaxConcurrentTasks.
-	// Declines reassign without consuming an attempt. If all Workers stay at their Step limit until the
-	// dispatch wait expires, NO_WORKER_AVAILABLE consumes an attempt and follows the Step retry policy.
-	// Local attempts wait the local dispatch wait, then fall back according to their policy.
-	// Declines emit a Flow-type debug log, increment PullReservedRPCDeclines, and preserve readiness.
-	// A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
-	// The Worker does not open that stream while all task slots are busy.
-	// For example: PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2)}.
+	// For example: PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2)} creates six shared and two RPC-only slots.
 	ReservedRPCTasks *int
-	// IdleStreamsPerQueue sets waiting streams for each Flow type and the sticky queue. Zero uses one.
-	// A queue keeps one more after a recent reserve decline. Use at least two for heavy Step backlogs.
+	// IdleStreamsPerQueue is accepted for source compatibility and has no effect. Default: zero.
+	//
+	// Deprecated: MaxConcurrentTasks determines the fixed number of slot streams.
 	IdleStreamsPerQueue int
 	// AppWorkerID overrides the generated process identity. Empty generates identity plus eight base32 characters.
 	// Set a new value after each process restart. It must not equal a registered Flow type.
@@ -112,7 +106,7 @@ type PullWorkerOptions struct {
 	StopDrainTimeout time.Duration
 }
 
-// PullRegistrationError identifies a permanent rejection that leaves a pull queue without a registered stream.
+// PullRegistrationError identifies a permanent rejection that leaves a slot kind without a registered stream.
 //
 // WaitPullRegistered returns this error for such a rejection before startup readiness.
 // Start also returns it when StopOnPermanentStreamRejection is enabled. Use
@@ -126,16 +120,17 @@ type PullWorkerOptions struct {
 // SDK-produced values always have a nonempty Queue and non-nil Err. Treat returned
 // errors as immutable; they can be shared by concurrent readiness callers.
 type PullRegistrationError struct {
-	// Queue names the rejected Flow type queue or app Worker ID queue.
+	// Queue contains POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY.
+	// It identifies the rejected slot kind; slot streams serve all registered Flow types and have no individual queue.
 	Queue string
 	// Err is the non-nil gRPC status error returned by the rejected stream.
 	Err error
 }
 
-// Error returns the queue name and underlying rejection for diagnostics.
+// Error returns the slot kind and underlying rejection for diagnostics.
 // It does not change the error; concurrent calls are safe on immutable values.
 func (rejection *PullRegistrationError) Error() string {
-	return fmt.Sprintf("dex: pull queue %q registration rejected: %v", rejection.Queue, rejection.Err)
+	return fmt.Sprintf("dex: pull slot kind %q registration rejected: %v", rejection.Queue, rejection.Err)
 }
 
 // Unwrap returns Err so errors.Is, errors.As, and gRPC status inspection retain the rejection.
@@ -150,23 +145,24 @@ func (rejection *PullRegistrationError) Unwrap() error { return rejection.Err }
 // Treat errors inside entries as immutable. See WaitPullRegistered for a complete
 // startup and HTTP readiness probe example.
 type PullRegistrationState struct {
-	// IsReady becomes true after every queue has registered at least once.
-	// Afterwards it is false only if a queue has no registered stream and a permanent error.
-	// Transient failures and ownership moves preserve readiness. Successful registration clears that queue's error.
+	// IsReady becomes true after each required slot kind has registered at least once.
+	// Afterwards it is false only if a required slot kind has no registered stream and a permanent error.
+	// Transient failures and ownership moves preserve readiness. Successful registration clears that slot kind's error.
 	IsReady bool
-	// Queues contains the app Worker ID queue followed by Flow type queues in sorted order.
+	// Queues contains STEP_AND_RPC followed by RPC_ONLY when a reservation is configured.
+	// Each Queue uses the full POLL_WORKER_SLOT_KIND_ enum name for compatibility with registration errors.
 	// The Worker returns a fresh non-nil slice.
 	Queues []PullQueueRegistrationState
 }
 
-// PullQueueRegistrationState describes one queue in a PullRegistrationState snapshot.
+// PullQueueRegistrationState describes one slot kind in a PullRegistrationState snapshot.
 //
-// Inspect these entries to diagnose a failing readiness probe. A queue may have
+// Inspect these entries to diagnose a failing readiness probe. A slot kind may have
 // both a registered stream and LastPermanentError when another stream was rejected.
 // The snapshot owns its values; errors are shared immutable errors. See
 // WaitPullRegistered for the startup and readiness probe example.
 type PullQueueRegistrationState struct {
-	// Queue is the Flow type name or app Worker ID identifying this queue.
+	// Queue is POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY.
 	Queue string
 	// HasRegisteredStream reports whether at least one acknowledged stream is currently held.
 	HasRegisteredStream bool
@@ -334,8 +330,9 @@ func validatePlaintextTarget(address string) error {
 // Start serves Worker tasks and blocks until Stop or a serve failure.
 //
 // Start may be called exactly once. Before serving, it negotiates a Server
-// protocol, synchronizes Attribute indexes, and waits up to
+// protocol (exactly version 4), synchronizes Attribute indexes, and waits up to
 // WorkerOptions.AttributeIndexSyncTimeout for each startup request.
+// Start fails without retry if MaxConcurrentTasks exceeds the first registration's reported Server limit.
 // It returns nil after a normal Stop, or an error for synchronization, polling,
 // or invalid lifecycle state failures. Call Start on a dedicated goroutine when
 // the application must continue doing other work.
@@ -390,19 +387,19 @@ func (worker *Worker) Start() (startErr error) {
 	return startErr
 }
 
-// WaitPullRegistered waits until every pull queue has received a Registered acknowledgement at least once.
+// WaitPullRegistered waits for at least one registered STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream.
 //
 // Use it to gate application startup and to start replacement Workers before
 // stopping old Workers during a rolling deployment. Call Start in another
 // goroutine. WaitPullRegistered is safe before or after Start and from multiple
-// goroutines. Once all queues have registered, every later call returns nil,
+// goroutines. Once each required slot kind has registered, every later call returns nil,
 // including after Stop; use PullRegistrationState for subsequent readiness probes.
 // A successful wait establishes registration, not available handler capacity.
 //
 // Before initial readiness, it returns the first *PullRegistrationError immediately
-// on a permanent rejection when that queue has no other registered stream, or
+// on a permanent rejection when that slot kind has no other registered stream, or
 // Start's error if startup fails. Surplus stream rejections are recorded for
-// diagnostics and retried while another stream holds the queue. Wrapped startup
+// diagnostics and retried while another stream of that kind remains registered. Wrapped startup
 // errors retain errors.Is and errors.As behavior. Stop before readiness returns an error. A nil ctx returns an argument error. Otherwise ctx
 // bounds only this wait; cancellation returns ctx.Err without stopping the Worker.
 // A completed registration or recorded failure takes precedence over cancellation.
@@ -437,35 +434,32 @@ func (worker *Worker) WaitPullRegistered(ctx context.Context) error {
 	return worker.pull.waitRegistered(ctx)
 }
 
-// PullReservedRPCDeclines returns the cumulative number of Step tasks declined for reserved RPC capacity.
-// It counts decline events; Dex may decline the same Step dispatch repeatedly while retrying it.
-// Read its rate to assess reserve pressure. It excludes full-capacity rejections and unknown names.
-// It never resets during this Worker's lifetime.
-// Calls are safe alongside Start, Stop, and handlers.
-// Export the value to a monitoring counter to distinguish reserve pressure from full capacity:
+// PullReservedRPCDeclines returns zero. Reserved RPC slots no longer decline Step tasks.
+// Calls are safe concurrently with Start, Stop, and handlers.
 //
-//	declines := worker.PullReservedRPCDeclines()
-//	log.Printf("reserved RPC capacity declines: %d", declines)
+// Deprecated: reservations are enforced by RPC_ONLY streams, so this counter is always zero.
 func (worker *Worker) PullReservedRPCDeclines() uint64 {
-	worker.pull.mu.Lock()
-	defer worker.pull.mu.Unlock()
-	return worker.pull.reservedRPCDeclines
+	return 0
 }
 
-// PullRegistrationState returns an independent snapshot of all pull queue registrations.
+// PullRegistrationState returns an independent snapshot of the required slot kind registrations.
 //
 // Use IsReady for a readiness probe and Queues for diagnostics. It is safe to call
 // concurrently before, during, or after Start and Stop. The snapshot does not flap
 // for reconnects or transient errors after initial registration; only a permanent
-// rejection on a queue with no registered stream makes it unready. Re-registration
-// clears that queue's error. Stop alone does not clear latched readiness, so remove
+// rejection on a required slot kind with no registered stream makes it unready. Re-registration
+// clears that slot kind's error. Stop alone does not clear latched readiness, so remove
 // a stopping Worker from service separately.
 // See WaitPullRegistered for a complete HTTP probe and startup gating example.
 func (worker *Worker) PullRegistrationState() PullRegistrationState {
 	return worker.pull.registrationState()
 }
 
-// Stop stops accepting tasks and drains handlers until ctx or StopDrainTimeout expires.
+// Stop stops starting tasks and drains handlers until ctx or StopDrainTimeout expires.
+// Idle streams immediately half-close their request side. Busy streams finish their handlers,
+// send final output, then half-close. Tasks arriving after Stop begins are dropped without execution.
+// Streams keep reading until the Server ends them. On timeout, active streams are reset instead
+// of half-closed, so the Server knows a handler may have run.
 //
 // Stop accepts calls before Start and repeated calls after shutdown. A nil context is
 // invalid. When the drain deadline expires, Stop requests cancellation, waits for

@@ -148,7 +148,10 @@ gateway must authorize the selected RPC against its statically registered
 permission and current state. Search Attribute contents are never proof that a
 caller is authorized or that the Action remains available.
 
-Go SDK v0.10.2 requires Server protocol 2.
+The Go SDK requires a server-zd release supporting Server protocol 4. Worker startup
+fails immediately against older Servers. Client construction stays lazy and performs
+no network I/O. Every Client method negotiates before its first request; successful
+negotiation and incompatibility are cached, while transient failures retry on the next call.
 
 ## Step and timeout-handler state loading
 
@@ -168,10 +171,17 @@ Recognize Dex time limits with `RecoveryErrorInfo.IsMethodTimeout`,
 `ErrorType` with a fixed string, because each Dex backend spells these error
 types differently. The methods return false for a nil `RecoveryErrorInfo`. When
 the call to the Worker fails before Dex records a method timeout, the failure is
-a Worker API failure instead. `IsRetryTotalDurationExceeded` means the overall
-deadline of the method call ended a running attempt; its API documentation lists
-which Dex Servers set that deadline. When the retry total duration ends between
-attempts, the final attempt's error type is reported instead.
+a Worker API failure instead. `IsRetryTotalDurationExceeded` recognizes historical
+records from before the upgrade. Current server-zd never ends a running attempt at
+the retry total duration. `RetryPolicy.TotalDuration` starts when the Step is first
+handed to a Worker and decides whether to schedule another retry after an attempt
+fails. It does not end a running attempt.
+
+`RecoveryErrorInfo.AttemptProgress` reports progress across all attempts of the
+failed Step method. `StepAttemptProgressNotStarted` guarantees the handler never
+ran. `StepAttemptProgressNotCompleted` means an attempt may have run but none
+completed. Treat `StepAttemptProgressUnspecified` from an older Server like
+NotCompleted when deciding whether external side effects may have happened.
 
 ```go
 type timeoutRecoveryStep struct {
@@ -301,20 +311,18 @@ handler calls. Timer and channel conditions determine how long a Step waits.
 Use `dex.Until(condition)` for one condition, and `dex.AllOf` or `dex.AnyOf`
 for multiple conditions.
 
-`WaitForRetry` and `ExecuteRetry` limit one logical handler execution. With
-`StepDurabilityAsync`, local and fallback regular activities share maximum
-attempts, total duration, and 1-based attempt numbers. Fallback starts
-immediately; later regular retries continue the backoff sequence at the
-cumulative attempt.
+`WaitForRetry` and `ExecuteRetry` limit one logical handler execution across all
+attempts, including the ASYNC fast path and its fallback. Attempt numbers start
+at one. Total duration starts at the first hand-out to a Worker and decides
+whether to schedule another retry after failure; it does not interrupt a
+running attempt. The default is four hours.
 
-Step durability resolves from the method override, then FlowConfig, then
-`StepDurabilitySync`. Retry total duration defaults to four hours. Regular
-attempts default to two hours with a one-minute heartbeat timeout. The server's
-minimum explicit heartbeat timeout defaults to ten seconds and can be changed
-by operators; the Go SDK validates only non-negative whole seconds in the
-signed int32 range. Async execution first uses at most seven local-activity
-seconds and three attempts. The local phase ignores method and heartbeat
-timeouts before regular fallback.
+ASYNC lowers latency and speeds up individual Flows; sustained throughput is
+about the same as SYNC. Step durability resolves from the method override,
+then FlowConfig, then `StepDurabilitySync`. Method timeouts default to two hours
+with a one-minute heartbeat timeout. The Server's minimum explicit heartbeat
+timeout defaults to ten seconds and can be changed by operators; the Go SDK
+validates only non-negative whole seconds in the signed int32 range.
 
 ### Heartbeats and Stream progress
 
@@ -643,7 +651,6 @@ worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
 	FlowServiceAddress: "dex.example:8801",
 	Pull: &dex.PullWorkerOptions{
 		MaxConcurrentTasks: 8,
-		IdleStreamsPerQueue: 1,
 		StopDrainTimeout: 30 * time.Second,
 	},
 })
@@ -663,44 +670,40 @@ if err := worker.Start(); err != nil {
 }
 ```
 
-From Go SDK 1.13.0, call `WaitPullRegistered(ctx)` after launching `Start`
-on a goroutine to gate startup and rolling deployments on registration of every
-queue. Concurrent calls before or after `Start` are safe. The context bounds the
-wait, and startup failures retain their error chain. A permanent rejection before
-readiness returns `*PullRegistrationError` with `Queue` and the underlying gRPC
-status in `Err`. This error requires that the rejected queue has no other
-registered stream; surplus stream rejections are recorded and retried. Stop before readiness and non-pull mode return errors. Once all
-queues have registered, this wait always returns nil.
+Call `WaitPullRegistered(ctx)` after launching `Start` on a goroutine to gate
+startup and rolling deployments. Readiness requires at least one registered
+`STEP_AND_RPC` stream and, when `ReservedRPCTasks` is positive, one `RPC_ONLY`
+stream. Concurrent waits are safe. The context bounds the wait; startup failures
+retain their error chain. Once ready, later waits return nil even after Stop.
 
-Use `PullRegistrationState().IsReady` in readiness probes. `Queues` includes each
-queue's name, `HasRegisteredStream`, and `LastPermanentError`. After initial
-readiness, ownership moves, transient disconnects, and backoff preserve readiness.
-Only a queue with no registered stream and a permanent error makes it false;
-successful re-registration clears the error. Stop alone preserves the latched
-state, so remove a stopping Worker from service separately. Non-pull Workers
-return the zero snapshot. See the [runnable startup and HTTP readiness
-example](../examples/go/production/pull-workers/worker.go).
+`PullRegistrationError.Queue` identifies the slot kind with its full
+`POLL_WORKER_SLOT_KIND_STEP_AND_RPC` or `POLL_WORKER_SLOT_KIND_RPC_ONLY` name,
+not a Flow type or Worker ID. A permanent rejection is fatal to readiness only
+when no other stream of that kind remains registered. `PullRegistrationState`
+keeps its existing `Queues` field, with one entry per required slot kind.
+Transient failures preserve readiness after initial registration. A successful
+registration clears that kind's permanent error. Remove stopping Workers from
+service separately because Stop preserves latched readiness. See the
+[runnable startup and HTTP readiness example](../examples/go/production/pull-workers/worker.go).
 
-`PullWorkerOptions.StopOnPermanentStreamRejection` defaults to false and preserves
-retries. When enabled, the first permanent stream rejection that leaves its queue
-with no registered stream, before or after readiness, makes `Start` drain all
-queues within `StopDrainTimeout`, request
-cancellation after the timeout, and wait for handlers before returning a
-`*PullRegistrationError`. Other queues can still hold streams while draining.
-Handlers must respond to cancellation. Always call `Stop` before exiting; it is
-safe after `Start` returns. Other SDKs will follow with readiness APIs.
+`StopOnPermanentStreamRejection` defaults to false, which retries permanent
+rejections. When enabled, a permanent rejection leaving a required slot kind
+without a registered stream makes `Start` drain all streams within
+`StopDrainTimeout`, then cancel them and wait for handlers before returning the
+registration error. Always call `Stop` before exiting.
 
-Pull mode polls the Worker's sticky queue and every registered Flow type queue.
-Flow type names must be unique within a Dex server. `MaxConcurrentTasks` defaults
-to the CPU count, and `IdleStreamsPerQueue` defaults to one. When capacity is
-full, the Worker rejects additional assignments for reassignment. The Worker
-also rejects a pull task when its Flow registration lacks the requested
-Step type or RPC name. Dex retries that task with another Worker without using
-another Step attempt. The rejecting Worker is excluded from that dispatch.
-If no capable Worker accepts before the dispatch wait ends, the Step follows
-its failure and retry policy; an RPC caller receives the named error. This
-reassignment requires a Dex Server that supports it. Against older Servers, the
-Worker returns the not-registered error as before.
+The Worker keeps exactly `MaxConcurrentTasks` long-lived execution slot streams.
+Zero uses the CPU count. Each stream registers an empty queue, the Worker ID,
+and every registered Flow type; it is ready while idle and busy while executing
+one task. `ReservedRPCTasks` streams accept only RPCs; the others accept Steps
+and RPCs. The Worker executes every received task without capacity rejections.
+`IdleStreamsPerQueue` is deprecated, remains accepted, and has no effect.
+Start fails without background retry when the Server's first registration reports
+a nonzero `max_concurrent_tasks_per_app_worker` below `MaxConcurrentTasks`.
+The error names both values and `matching.maxConcurrentTasksCap`.
+
+Unknown Step types and RPC names can still be rejected before the handler runs.
+Flow type names must be unique within a Dex Server.
 
 The generated Worker ID uses the first nonempty value from `DEX_WORKER_INSTANCE`, `POD_NAME`,
 `HOSTNAME`, or the system hostname, plus a random suffix. An `AppWorkerID`
@@ -710,28 +713,20 @@ hyphens, and must not equal a registered Flow type. The Worker reconnects after
 stream failures and drains in-flight tasks before a server-directed reconnect. It logs permanent
 registration failures and retries them after at least one minute. `Start`
 returns startup synchronization errors, not later poll stream errors.
-An older server without pull support produces one explicit error log and is retried.
-
-The Worker keeps idle streams on each queue even when all task slots are busy,
-so excess assignments can be rejected for reassignment. It gracefully closes
-surplus idle streams after tasks finish, retaining `IdleStreamsPerQueue` registered
-idle streams per queue. After load drops, the steady-state bound is
-`MaxConcurrentTasks + (1 + number of Flow types) * IdleStreamsPerQueue` streams.
-Allow up to one more stream per queue for 30 seconds after reserve declines,
-or up to `1 + number of Flow types` additional streams.
 The SDK sends an upstream Pong every 20 seconds while a task runs and stops
-before its final frame. This interval is internal and needs no Worker option.
-The transient peak during a burst remains bounded by the matching caps. Size both
-options for `matching.maxConcurrentTasksCap` per app Worker ID per matching owner
-(default 256) and `matching.maxStreams` per Matching instance (default 100,000).
-Server stream limits may reject registration with `ResourceExhausted`.
-Pull mode `Stop` drains for at most `StopDrainTimeout`, which defaults to 30 seconds.
-After that timeout, it cancels active task contexts and waits for handlers to return.
+before its final frame. This internal interval needs no Worker option.
 
-`Start` blocks and is one-shot. `Stop(ctx)` is idempotent, drains in-flight
-calls, and force-stops them if the context expires. The SDK does not install
-signal handlers; the [Order example](examples/order/main.go) shows signal-driven
-shutdown.
+`Start` blocks and is one-shot. `Stop(ctx)` starts no new tasks. Idle streams
+immediately half-close their request side; busy streams finish the handler, send
+final output, then half-close. Tasks arriving after shutdown begins are dropped
+without calling a handler, including frames arriving after the half-close.
+Streams keep reading until the Server ends them. After `StopDrainTimeout`
+(default 30 seconds) or context expiry, Stop resets active streams and cancels
+handlers instead of half-closing a running task. It waits for handlers to return,
+so handlers must honor cancellation. Stop is idempotent. A broken connection
+cancels its tasks, and their output is never sent on a later connection.
+The SDK does not install signal handlers; the [Order example](examples/order/main.go)
+shows signal-driven shutdown.
 
 Each invocation receives independent buffered attributes, channel messages,
 locals, and events. Successful handlers commit the whole response. Returned
@@ -780,34 +775,17 @@ slot than before. Set it explicitly to zero to opt out. With one slot and no
 explicit reserve, Worker start logs one warning: RPCs may wait behind
 long-running Steps; use a limit of at least two or set the reserve explicitly.
 Flows must stay responsive because RPCs share Worker task capacity with Steps.
-The value must be nonnegative and less than `MaxConcurrentTasks` after its
-CPU-count default is resolved; invalid values fail construction. RPC and Step
-handlers count together. WaitFor and Execute tasks, including local attempts,
-are declined with `NO_CAPACITY` when the busy
-count reaches the task limit minus the reserve. API-direct and transactional
-InvokeWorkerRPC tasks can use the full limit.
+The value must be nonnegative and less than resolved `MaxConcurrentTasks`;
+invalid values fail construction. Reserved streams register as `RPC_ONLY` so
+Steps use the other slots without being declined. RPCs can use either kind.
+For example, eight task slots with two reserved slots means six shared streams
+and two RPC-only streams:
 
 ```go
 pull := dex.PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2)}
 ```
 
-A decline lets Dex try another Worker without consuming an attempt. If all
-Workers remain at their Step limit, a Step can wait until the dispatch wait
-expires, then receive `NO_WORKER_AVAILABLE`, consume an attempt, and follow its
-retry policy, as when all Workers are full. Local attempts wait the local
-dispatch wait, then fall back according to their policy. A queue that declines
-a Step for reserved RPC capacity keeps one additional idle stream until 30
-seconds after its last decline. Other queues retain their configured count.
-The Worker does not open the extra stream while all task slots are busy. Set
-`IdleStreamsPerQueue` to at least two for heavy Step backlogs. A reserve decline
-does not close a stream or change registration readiness.
-
-Each reserve decline records the Flow type through the configured Go logger at
-debug level. Export the cumulative `PullReservedRPCDeclines()` Worker value to
-distinguish reserve pressure from full-capacity rejections. The count excludes
-full-capacity rejections and unknown names. It counts decline events, including
-repeated declines of the same Step dispatch while Dex retries it. Read its rate
-to assess reserve pressure. It never resets and remains available after shutdown.
+`PullReservedRPCDeclines()` is deprecated and always returns zero.
 
 ## FlowService TLS
 

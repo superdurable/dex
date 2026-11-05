@@ -134,7 +134,7 @@ DEX_WEB_ADDRESS="127.0.0.1:${web_port}" \
   run_go_test -count=1 -race -v ./integ -run "${DEX_GO_INTEG_TEST_PATTERN:-.}"
 
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  run_go_test -count=1 -race -tags pullintegration -v ./dex -run '^TestWorkerPull(ShrinksStreamsWithRealServer|ReservedRPC(WithRealServer|WithStepBacklog))$'
+  run_go_test -count=1 -race -tags pullintegration -v ./dex -run '^TestWorkerPull(KeepsFixedSlotsWithRealServer|ReservedRPC(WithRealServer|WithStepBacklog))$'
 
 if $coverage; then
   mkdir -p coverage

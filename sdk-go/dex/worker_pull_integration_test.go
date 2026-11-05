@@ -29,13 +29,14 @@ import (
 
 type pullTestServer struct {
 	dexpb.UnimplementedWorkerTaskServiceServer
-	registered                   chan *pullTestStream
-	mu                           sync.Mutex
-	supportsUnknownNameRejection bool
-	reconnectFirst               bool
-	firstReconnectQueue          chan string
-	streams                      []*pullTestStream
-	holdAfterEOFQueue            string
+	registered                     chan *pullTestStream
+	mu                             sync.Mutex
+	supportsUnknownNameRejection   bool
+	reconnectFirst                 bool
+	firstReconnectQueue            chan string
+	streams                        []*pullTestStream
+	holdAfterEOFQueue              string
+	maxConcurrentTasksPerAppWorker uint32
 }
 
 type pullTestStream struct {
@@ -59,7 +60,7 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 	server.streams = append(server.streams, registered)
 	shouldReconnect := server.reconnectFirst
 	server.reconnectFirst = false
-	if registered.registration != nil && registered.registration.Queue == server.holdAfterEOFQueue {
+	if registered.registration != nil && (registered.registration.SlotKind.String() == server.holdAfterEOFQueue || server.holdAfterEOFQueue == "*") {
 		registered.eofReceived = make(chan struct{})
 		registered.allowReturn = make(chan struct{})
 		registered.ended = make(chan error, 1)
@@ -69,7 +70,7 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 		server.firstReconnectQueue <- registered.registration.Queue
 		return stream.Send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Reconnect{Reconnect: &dexpb.PollWorkerTaskReconnect{Reason: "owner moved"}}})
 	}
-	if err := stream.Send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{SupportsUnknownNameRejection: server.supportsUnknownNameRejection}}}); err != nil {
+	if err := stream.Send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{SupportsUnknownNameRejection: server.supportsUnknownNameRejection, MaxConcurrentTasksPerAppWorker: server.maxConcurrentTasksPerAppWorker}}}); err != nil {
 		return err
 	}
 	select {
@@ -188,19 +189,14 @@ func TestWorkerPullTaskFramesAndReconnect(t *testing.T) {
 	require.NoError(t, err)
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
-	first := awaitPullRegistration(t, server)
-	second := awaitPullRegistration(t, server)
-	queues := map[string]*pullTestStream{first.registration.Queue: first, second.registration.Queue: second}
-	require.Contains(t, queues, "worker-test-12345678")
+	queueStream := awaitPullRegistration(t, server)
 	flowType := GetFinalFlowType(workerFlow)
-	require.Contains(t, queues, flowType)
-	for _, stream := range queues {
-		require.Equal(t, "worker-test-12345678", stream.registration.AppWorkerId)
-		require.Equal(t, []string{flowType}, stream.registration.FlowTypes)
-		require.Equal(t, "go", stream.registration.SdkName)
-		require.NotEmpty(t, stream.registration.SdkVersion)
-	}
-	queueStream := queues[flowType]
+	require.Empty(t, queueStream.registration.Queue)
+	require.True(t, queueStream.registration.SupportsReservedSlotDispatch)
+	require.Equal(t, "worker-test-12345678", queueStream.registration.AppWorkerId)
+	require.Equal(t, []string{flowType}, queueStream.registration.FlowTypes)
+	require.Equal(t, "go", queueStream.registration.SdkName)
+	require.NotEmpty(t, queueStream.registration.SdkVersion)
 	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
 	require.NotNil(t, awaitPullFrame(t, queueStream).GetPong())
 	input := workerTestInput{OrderID: "order-1", Mode: "progress"}
@@ -278,11 +274,11 @@ func TestWorkerPullTaskFramesAndReconnect(t *testing.T) {
 	var reconnected *pullTestStream
 	for reconnected == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType && candidate != queueStream {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC && candidate != queueStream {
 			reconnected = candidate
 		}
 	}
-	require.Equal(t, flowType, reconnected.registration.Queue)
+	require.Empty(t, reconnected.registration.Queue)
 	require.Equal(t, "worker-test-12345678", reconnected.registration.AppWorkerId)
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -290,7 +286,7 @@ func TestWorkerPullTaskFramesAndReconnect(t *testing.T) {
 	require.NoError(t, <-started)
 }
 
-func TestWorkerPullLegacyRegistrationReturnsUnknownTaskErrors(t *testing.T) {
+func TestWorkerPullReservedSlotsRejectUnknownNamesWithoutLegacyFlag(t *testing.T) {
 	address, server := startPullTestServer(t)
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "legacy-registration-worker"}})
 	require.NoError(t, err)
@@ -300,7 +296,7 @@ func TestWorkerPullLegacyRegistrationReturnsUnknownTaskErrors(t *testing.T) {
 	var queueStream *pullTestStream
 	for queueStream == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
 			queueStream = candidate
 		}
 	}
@@ -310,10 +306,13 @@ func TestWorkerPullLegacyRegistrationReturnsUnknownTaskErrors(t *testing.T) {
 	} {
 		require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: task}}))
 		frame := awaitPullFrame(t, queueStream)
-		require.Nil(t, frame.GetReject())
-		require.Equal(t, task.GetTaskId(), frame.GetTaskFrame().GetTaskId())
-		require.Equal(t, int32(codes.NotFound), frame.GetTaskFrame().GetWorkerError().GetGrpcStatus())
-		require.Contains(t, frame.GetTaskFrame().GetWorkerError().GetDetail(), "not registered")
+		require.Nil(t, frame.GetTaskFrame())
+		require.Equal(t, task.GetTaskId(), frame.GetReject().GetTaskId())
+		expectedReason := dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP
+		if task.GetRpc() != nil {
+			expectedReason = dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC
+		}
+		require.Equal(t, expectedReason, frame.GetReject().GetReason())
 		awaitPullTaskCompletion(t, worker)
 		queueStream = awaitPullIdleQueueStream(t, worker, server, flowType)
 	}
@@ -345,22 +344,14 @@ func TestWorkerPullGeneratedIdentityAndDefaultRouting(t *testing.T) {
 	require.True(t, subFlowOptions.FlowConfigOverride.WorkerTarget.IsPullMode)
 }
 
-func TestWorkerPullCancelCapacityAndStopDrain(t *testing.T) {
+func TestWorkerPullCancelAndStopDrain(t *testing.T) {
 	address, server := startPullTestServer(t)
 	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "blocking-worker-12345678"}})
 	require.NoError(t, err)
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
-	var queueStream, stickyStream *pullTestStream
-	for queueStream == nil || stickyStream == nil {
-		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == GetFinalFlowType(flow) {
-			queueStream = candidate
-		} else if candidate.registration.Queue == "blocking-worker-12345678" {
-			stickyStream = candidate
-		}
-	}
+	queueStream := awaitPullRegistration(t, server)
 	input := mustEncodeWorkerTestValue(t, struct{}{})
 	makeTask := func(taskID string) *dexpb.PollWorkerTaskResponse {
 		return &dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{
@@ -376,13 +367,6 @@ func TestWorkerPullCancelCapacityAndStopDrain(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("RPC did not start")
 	}
-	require.NoError(t, stickyStream.send(makeTask("overflow")))
-	rejected := awaitPullFrame(t, stickyStream).GetReject()
-	require.NotNil(t, rejected)
-	require.Equal(t, "overflow", rejected.TaskId)
-	require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY, rejected.Reason)
-	require.NoError(t, stickyStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
-	require.NotNil(t, awaitPullFrame(t, stickyStream).GetPong())
 	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_CancelTask{CancelTask: &dexpb.PollWorkerTaskCancelTask{TaskId: "blocking-1"}}}))
 	frame := awaitPullFrame(t, queueStream).GetTaskFrame()
 	require.NotNil(t, frame.GetWorkerError())
@@ -425,7 +409,7 @@ func TestWorkerPullKeepaliveDuringRunningRPCPreservesResult(t *testing.T) {
 	var queueStream *pullTestStream
 	for queueStream == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == GetFinalFlowType(flow) {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
 			queueStream = candidate
 		}
 	}
@@ -464,7 +448,7 @@ func TestWorkerPullPingAfterFinalFramePreservesResult(t *testing.T) {
 	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
 	flowType := GetFinalFlowType(flow)
 	server.mu.Lock()
-	server.holdAfterEOFQueue = flowType
+	server.holdAfterEOFQueue = dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String()
 	server.mu.Unlock()
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "post-final-ping-worker"}})
 	require.NoError(t, err)
@@ -473,7 +457,7 @@ func TestWorkerPullPingAfterFinalFramePreservesResult(t *testing.T) {
 	var queueStream *pullTestStream
 	for queueStream == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
 			queueStream = candidate
 		}
 	}
@@ -490,7 +474,7 @@ func TestWorkerPullPingAfterFinalFramePreservesResult(t *testing.T) {
 		defer worker.pull.mu.Unlock()
 		for stream := range worker.pull.streams {
 			stream.mu.Lock()
-			isDraining := stream.queue == flowType && stream.isBusy && stream.isDraining
+			isDraining := stream.queue == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String() && stream.isBusy && stream.isDraining
 			stream.mu.Unlock()
 			if isDraining {
 				return true
@@ -536,7 +520,7 @@ func TestWorkerPullForcedStopWaitsForHandler(t *testing.T) {
 	var queueStream *pullTestStream
 	for queueStream == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == GetFinalFlowType(flow) {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
 			queueStream = candidate
 		}
 	}
@@ -596,7 +580,7 @@ func TestWorkerPullTaskDeadlineCancelsHandler(t *testing.T) {
 	var queueStream *pullTestStream
 	for queueStream == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == GetFinalFlowType(flow) {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
 			queueStream = candidate
 		}
 	}
@@ -619,10 +603,9 @@ func TestWorkerPullStreamFailureBacksOff(t *testing.T) {
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
 	var queueStream *pullTestStream
-	flowType := GetFinalFlowType(workerFlow)
 	for queueStream == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
 			queueStream = candidate
 		}
 	}
@@ -631,7 +614,7 @@ func TestWorkerPullStreamFailureBacksOff(t *testing.T) {
 	var reconnected *pullTestStream
 	for reconnected == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType && candidate != queueStream {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC && candidate != queueStream {
 			reconnected = candidate
 		}
 	}
@@ -642,7 +625,7 @@ func TestWorkerPullStreamFailureBacksOff(t *testing.T) {
 	require.NoError(t, <-started)
 }
 
-func TestWorkerPullReplenishesIdleStreamAndDrainsReconnect(t *testing.T) {
+func TestWorkerPullFixedSlotsDrainReconnect(t *testing.T) {
 	address, server := startPullTestServer(t)
 	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 2, AppWorkerID: "reconnect-worker-12345678"}})
@@ -650,11 +633,13 @@ func TestWorkerPullReplenishesIdleStreamAndDrainsReconnect(t *testing.T) {
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
 	flowType := GetFinalFlowType(flow)
-	var busyStream *pullTestStream
-	for busyStream == nil {
+	var busyStream, replacement *pullTestStream
+	for range 2 {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
 			busyStream = candidate
+		} else {
+			replacement = candidate
 		}
 	}
 	request := &dexpb.InvokeWorkerRPCRequest{Context: workerRPCContext(), FlowType: flowType, RpcName: "Block", Input: mustEncodeWorkerTestValue(t, struct{}{})}
@@ -664,19 +649,13 @@ func TestWorkerPullReplenishesIdleStreamAndDrainsReconnect(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("RPC did not start")
 	}
-	var replacement *pullTestStream
-	for replacement == nil {
-		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType && candidate != busyStream {
-			replacement = candidate
-		}
-	}
+	require.Equal(t, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY, replacement.registration.SlotKind)
 	require.NoError(t, busyStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Reconnect{Reconnect: &dexpb.PollWorkerTaskReconnect{Reason: "owner changed"}}}))
 	require.Eventually(t, func() bool {
 		worker.pull.mu.Lock()
 		defer worker.pull.mu.Unlock()
 		for active := range worker.pull.streams {
-			if active.queue != flowType {
+			if active.queue != dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String() {
 				continue
 			}
 			active.mu.Lock()
@@ -698,7 +677,7 @@ func TestWorkerPullReplenishesIdleStreamAndDrainsReconnect(t *testing.T) {
 	var reconnected *pullTestStream
 	for reconnected == nil {
 		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == flowType && candidate != replacement && candidate != busyStream {
+		if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC && candidate != replacement && candidate != busyStream {
 			reconnected = candidate
 		}
 	}
@@ -709,54 +688,32 @@ func TestWorkerPullReplenishesIdleStreamAndDrainsReconnect(t *testing.T) {
 	require.NoError(t, <-started)
 }
 
-func TestWorkerPullShrinksSurplusIdleStreams(t *testing.T) {
-	for _, idleStreams := range []int{1, 2} {
-		t.Run(fmt.Sprint(idleStreams), func(t *testing.T) {
-			address, server := startPullTestServer(t)
-			flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
-			worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 3, IdleStreamsPerQueue: idleStreams, AppWorkerID: "shrink-worker"}})
-			require.NoError(t, err)
-			started := make(chan error, 1)
-			go func() { started <- worker.Start() }()
-			t.Cleanup(func() {
-				require.NoError(t, worker.Stop(context.Background()))
-				require.NoError(t, <-started)
-			})
-			flowType := GetFinalFlowType(flow)
-			for taskNumber := 0; taskNumber < 3; taskNumber++ {
-				var taskStream *pullTestStream
-				for taskStream == nil {
-					candidate := awaitPullRegistration(t, server)
-					if candidate.registration.Queue == flowType {
-						taskStream = candidate
-					}
-				}
-				request := &dexpb.InvokeWorkerRPCRequest{Context: workerRPCContext(), FlowType: flowType, RpcName: "Block", Input: mustEncodeWorkerTestValue(t, struct{}{})}
-				require.NoError(t, taskStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{TaskId: fmt.Sprint(taskNumber), Request: &dexpb.PollWorkerTask_Rpc{Rpc: request}}}}))
-			}
-			require.Eventually(t, func() bool {
-				worker.pull.mu.Lock()
-				defer worker.pull.mu.Unlock()
-				return worker.pull.busyTasks == 3 && len(worker.pull.streams) == 3+2*idleStreams && worker.pull.queueRegistrations[flowType].registeredStreams == 3+idleStreams
-			}, 5*time.Second, time.Millisecond)
-			require.True(t, worker.PullRegistrationState().IsReady)
-			worker.pull.mu.Lock()
-			for stream := range worker.pull.streams {
-				stream.mu.Lock()
-				require.False(t, stream.isBusy && stream.isDraining)
-				stream.mu.Unlock()
-			}
-			worker.pull.mu.Unlock()
-			close(flow.release)
-			require.Eventually(t, func() bool {
-				require.True(t, worker.PullRegistrationState().IsReady)
-				worker.pull.mu.Lock()
-				defer worker.pull.mu.Unlock()
-				return worker.pull.busyTasks == 0 && len(worker.pull.streams) == 2*idleStreams && worker.pull.queueRegistrations[flowType].registeredStreams == idleStreams
-			}, 5*time.Second, time.Millisecond)
-			require.NoError(t, worker.WaitPullRegistered(context.Background()))
-		})
+func TestWorkerPullKeepsFixedSlotCountAfterLoad(t *testing.T) {
+	address, server := startPullTestServer(t)
+	flow := &reservedRPCFlow{entered: make(chan string, 3), release: make(chan struct{})}
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 3, IdleStreamsPerQueue: 20}})
+	require.NoError(t, err)
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	t.Cleanup(func() { require.NoError(t, worker.Stop(context.Background())); require.NoError(t, <-started) })
+	streams := make([]*pullTestStream, 3)
+	for index := range streams {
+		streams[index] = awaitPullRegistration(t, server)
+		require.NoError(t, streams[index].send(reservedRPCTestTask("rpc", fmt.Sprint(index))))
+		require.Equal(t, "rpc", awaitReservedRPCEntry(t, flow))
 	}
+	worker.pull.mu.Lock()
+	require.Len(t, worker.pull.streams, 3)
+	require.Equal(t, 3, worker.pull.busyTasks)
+	worker.pull.mu.Unlock()
+	close(flow.release)
+	for _, stream := range streams {
+		require.NotNil(t, awaitPullFrame(t, stream).GetTaskFrame().GetRpc())
+	}
+	awaitPullTaskCompletion(t, worker)
+	worker.pull.mu.Lock()
+	require.Len(t, worker.pull.streams, 3)
+	worker.pull.mu.Unlock()
 }
 
 func awaitPullIdleQueueStream(t *testing.T, worker *Worker, server *pullTestServer, queue string) *pullTestStream {
@@ -765,13 +722,13 @@ func awaitPullIdleQueueStream(t *testing.T, worker *Worker, server *pullTestServ
 	require.Eventually(t, func() bool {
 		worker.pull.mu.Lock()
 		defer worker.pull.mu.Unlock()
-		if len(worker.pull.streams) != len(worker.pull.queues) {
+		if len(worker.pull.streams) != worker.pull.maxConcurrentTasks {
 			return false
 		}
 		server.mu.Lock()
 		defer server.mu.Unlock()
 		for _, candidate := range server.streams {
-			if candidate.registration.Queue == queue && candidate.stream.Context().Err() == nil {
+			if candidate.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC && candidate.stream.Context().Err() == nil {
 				idleStream = candidate
 			}
 		}

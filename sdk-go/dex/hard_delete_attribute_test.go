@@ -72,7 +72,7 @@ func (hardDeleteTestStep) Execute(Context, None) (*StepDecision, error) {
 
 func TestHardDeleteAttributeWritesCarryTheHardDeleteMarker(t *testing.T) {
 	client, closeService := newWorkerClientForServerProtocol(
-		t, []Flow{hardDeleteTestFlow{}}, nil, hardDeleteAttributeProtocolVersion,
+		t, []Flow{hardDeleteTestFlow{}}, nil, maximumSupportedServerProtocolVersion,
 	)
 	defer closeService()
 
@@ -107,7 +107,7 @@ func TestHardDeleteAttributeClientNegotiatesBeforeStartFlow(t *testing.T) {
 		isAccepted            bool
 	}{
 		{name: "older Server", serverProtocolVersion: 2},
-		{name: "current Server", serverProtocolVersion: 3, isAccepted: true},
+		{name: "current Server", serverProtocolVersion: 4, isAccepted: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			client, service := newHardDeleteTestClient(t, testCase.serverProtocolVersion)
@@ -117,8 +117,7 @@ func TestHardDeleteAttributeClientNegotiatesBeforeStartFlow(t *testing.T) {
 				Attributes: []InitialAttributeDef{initialSecret},
 			})
 			if !testCase.isAccepted {
-				var unsupported *HardDeleteAttributeUnsupportedError
-				require.ErrorAs(t, err, &unsupported)
+				require.ErrorContains(t, err, "requires a server-zd release supporting protocol 4")
 				require.Nil(t, service.startRequest)
 				return
 			}
@@ -142,7 +141,7 @@ func TestHardDeleteAttributeClientReportsGetServerInfoFailure(t *testing.T) {
 		{name: "connection failure", failure: status.Error(codes.Unavailable, "offline"), want: "FlowService connection failed", isConnectionFailure: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			client, service := newHardDeleteTestClient(t, hardDeleteAttributeProtocolVersion)
+			client, service := newHardDeleteTestClient(t, maximumSupportedServerProtocolVersion)
 			service.serverInfoFailure = testCase.failure
 			initialSecret, err := InitialAttribute(hardDeleteTestSecret, "secret")
 			require.NoError(t, err)

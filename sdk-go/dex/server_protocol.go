@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	minimumSupportedServerProtocolVersion uint32 = 2
-	maximumSupportedServerProtocolVersion uint32 = 3
+	minimumSupportedServerProtocolVersion uint32 = 4
+	maximumSupportedServerProtocolVersion uint32 = 4
 	// hardDeleteAttributeProtocolVersion is the first Server protocol that keeps hard-delete Attributes out of history.
 	hardDeleteAttributeProtocolVersion uint32 = 3
 	goSDKModulePath                           = "github.com/superdurable/dex/sdk-go"
@@ -130,7 +130,7 @@ func serverProtocolError(
 		serverVersion = "unknown"
 	}
 	return fmt.Errorf(
-		"dex: Go SDK version %q protocol [%d,%d] is incompatible with Server version %q protocol [%d,%d]: %s",
+		"dex: Go SDK version %q protocol [%d,%d] is incompatible with Server version %q protocol [%d,%d]: %s; requires a server-zd release supporting protocol 4",
 		sdkVersion,
 		minimumSupportedServerProtocolVersion,
 		maximumSupportedServerProtocolVersion,
