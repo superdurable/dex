@@ -39,6 +39,8 @@ use crate::{PRIMARY_BUCKET, string_value};
 
 const FLOW_TYPE: &str = "AttemptDrainFlow";
 const FLOW_ID: &str = "attempt-drain";
+/// A second Flow whose Step waits in the durable task queue.
+const QUEUED_FLOW_ID: &str = "attempt-drain-queued";
 const FIRST_STEP: &str = "RunningStep";
 const NEXT_STEP: &str = "NextStep";
 const RECOVERY_STEP: &str = "RecoverStep";
@@ -111,6 +113,60 @@ async fn drain_keeps_worker_stream_open_until_the_result_commits() {
         active.log()
     );
     fixture.emulator.clear_fault_rules().await;
+    fixture.emulator.shutdown().await;
+}
+
+/// A Step queued at SIGTERM stays queued when a Worker slot frees during the drain; the
+/// successor hands it out once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sigterm_leaves_a_queued_step_for_the_successor() {
+    let fixture = DrainFixture::start().await;
+    let metrics_address = free_loopback_address();
+    let mut active = fixture.spawn_with_metrics("active", metrics_address);
+    let channel = active.wait_until_serving().await;
+    let mut worker = DrainWorker::start(channel.clone()).await;
+    start_flow(channel.clone(), StepDurability::Sync).await;
+    let running = worker.next_execute().await;
+    // The Worker's only slot is busy, so this Step goes to the durable task queue.
+    start_flow_with_id(channel, StepDurability::Sync, QUEUED_FLOW_ID).await;
+    wait_for_metric_sample(metrics_address, "dexzd_step_task_queue_entries 1").await;
+
+    let (status, ()) = tokio::join!(
+        active.terminate(BUDGET),
+        worker.complete_after(&running, Duration::from_secs(2), None),
+    );
+    assert_eq!(status.code(), Some(0), "{}", active.log());
+    let active_log = active.log();
+    assert!(active_log.contains("attempts_waited=1"), "{active_log}");
+    assert!(active_log.contains("outcome=completed"), "{active_log}");
+    // The freed slot gets no Claim while matching closes.
+    worker.assert_no_task_until_closed().await;
+
+    let mut successor = fixture.spawn("replacement", None, false);
+    let successor_channel = successor.wait_until_serving().await;
+    let mut successor_worker = DrainWorker::start(successor_channel.clone()).await;
+    let mut queued_attempts = Vec::new();
+    for _ in 0..2 {
+        let task = successor_worker.next_execute().await;
+        let request = execute_request(&task);
+        let context = request.context.as_ref().expect("Execute carries context");
+        if context.flow_id == QUEUED_FLOW_ID {
+            assert_eq!(request.step_type, FIRST_STEP);
+            queued_attempts.push(context.attempt);
+        } else {
+            assert_eq!(request.step_type, NEXT_STEP);
+        }
+        successor_worker.complete(&task, close_flow());
+    }
+    assert_eq!(
+        queued_attempts,
+        vec![1],
+        "the queued Step runs once, on attempt 1"
+    );
+    assert_flow_completed(successor_channel.clone(), FLOW_ID).await;
+    assert_flow_completed(successor_channel, QUEUED_FLOW_ID).await;
+    let stopped = successor.terminate(BUDGET).await;
+    assert_eq!(stopped.code(), Some(0), "{}", successor.log());
     fixture.emulator.shutdown().await;
 }
 
@@ -660,6 +716,23 @@ impl DrainWorker {
         .expect("a Step reaches the Worker")
     }
 
+    /// Reads the stream until the server ends it, asserting that no task arrives.
+    async fn assert_no_task_until_closed(&mut self) {
+        tokio::time::timeout(BUDGET, async {
+            while let Ok(Some(response)) = self.incoming.message().await {
+                assert!(
+                    !matches!(
+                        response.frame,
+                        Some(poll_worker_task_response::Frame::Task(_))
+                    ),
+                    "a draining node hands out no queued task: {response:?}"
+                );
+            }
+        })
+        .await
+        .expect("the stopped server ends the stream");
+    }
+
     /// Half-closes the stream cleanly and waits until the server ends it.
     async fn half_close(self) {
         let Self {
@@ -797,9 +870,13 @@ fn worker_registration() -> PollWorkerTaskRegister {
 }
 
 async fn start_flow(channel: Channel, durability: StepDurability) {
+    start_flow_with_id(channel, durability, FLOW_ID).await;
+}
+
+async fn start_flow_with_id(channel: Channel, durability: StepDurability, flow_id: &str) {
     FlowServiceClient::new(channel)
         .start_flow(StartFlowRequest {
-            flow_id: FLOW_ID.to_owned(),
+            flow_id: flow_id.to_owned(),
             flow_type: FLOW_TYPE.to_owned(),
             start_step_type: FIRST_STEP.to_owned(),
             step_options: Some(StepOptions {
@@ -827,7 +904,7 @@ async fn start_flow(channel: Channel, durability: StepDurability) {
                 }),
                 ..Default::default()
             }),
-            request_id: "start-drain-flow".to_owned(),
+            request_id: format!("start-{flow_id}"),
             ..Default::default()
         })
         .await
@@ -856,9 +933,13 @@ fn close_flow() -> StepDecision {
 }
 
 async fn assert_completed(channel: Channel) {
+    assert_flow_completed(channel, FLOW_ID).await;
+}
+
+async fn assert_flow_completed(channel: Channel, flow_id: &str) {
     let response = FlowServiceClient::new(channel)
         .wait_for_flow(WaitForFlowRequest {
-            flow_id: FLOW_ID.to_owned(),
+            flow_id: flow_id.to_owned(),
             wait_time_seconds: 30,
             ..Default::default()
         })
@@ -900,6 +981,10 @@ fn direct_channel(address: std::net::SocketAddr) -> Channel {
 /// Waits until the matching queue gauge reports `expected` waiting tasks.
 async fn wait_for_queued_tasks(metrics_address: SocketAddr, expected: u64) {
     let sample = format!("dexzd_matching_queued_tasks {expected}");
+    wait_for_metric_sample(metrics_address, &sample).await;
+}
+
+async fn wait_for_metric_sample(metrics_address: SocketAddr, sample: &str) {
     tokio::time::timeout(BUDGET, async {
         let mut polls = tokio::time::interval(Duration::from_millis(20));
         loop {
@@ -912,7 +997,7 @@ async fn wait_for_queued_tasks(metrics_address: SocketAddr, expected: u64) {
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("the queue gauge never reported {expected}"));
+    .unwrap_or_else(|_| panic!("the metrics never reported {sample}"));
 }
 
 /// Returns s3mock fault rules that delay every log batch write by `milliseconds`.
