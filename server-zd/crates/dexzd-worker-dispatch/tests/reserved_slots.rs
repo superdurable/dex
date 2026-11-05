@@ -1069,3 +1069,39 @@ async fn a_rejection_after_output_ends_the_stream_instead_of_freeing_the_slot() 
         "the slot was reused without a final output after it had already produced a heartbeat"
     );
 }
+
+/// More evictions than the cache holds keep every Worker that declined the type excluded
+/// until it next becomes idle (plan section 3.5).
+#[tokio::test]
+async fn evictions_beyond_the_cache_size_never_reprobe_an_idle_worker() {
+    let mut matching = config();
+    matching.unsupported_type_cache_entries = 1;
+    let dispatch = WorkerDispatch::new(matching, Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slots = Vec::new();
+    for worker in ["first", "second", "third"] {
+        slots.push(
+            register(
+                &server.channel,
+                reserved(worker, &["Flow"], PollWorkerSlotKind::StepAndRpc),
+            )
+            .await,
+        );
+    }
+    for (index, worker) in ["first", "second", "third"].iter().enumerate() {
+        let (worker_id, mut task) = hand_out(&dispatch, "Flow", "Missing", worker).await;
+        assert_eq!(&worker_id, worker);
+        slots[index].task().await;
+        slots[index].reject(worker, PollWorkerTaskRejectReason::UnknownStep);
+        final_event(&mut task).await;
+    }
+    let reprobe = futures::FutureExt::now_or_never(
+        dispatch.reserve_step_stream(step_request("Flow", "Missing", None)),
+    );
+    assert!(
+        !matches!(reprobe, Some(StepStreamReservation::Reserved(_))),
+        "an evicted decline reenabled a Worker that never became idle again"
+    );
+    // Another Step type still reaches the Workers.
+    let (_, _other) = hand_out(&dispatch, "Flow", "Present", "present").await;
+}

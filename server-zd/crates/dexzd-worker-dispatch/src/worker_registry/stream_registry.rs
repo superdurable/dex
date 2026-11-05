@@ -29,6 +29,8 @@ pub(super) struct Registry {
 impl Registry {
     /// Adds `worker` to the idle order of every queue it serves.
     pub(super) fn add_idle(&mut self, worker: &WorkerStream) {
+        self.unsupported_types
+            .release_reprobes(worker.tenant_id, &worker.app_worker_id);
         self.next_idle_position += 1;
         let position = self.next_idle_position;
         self.idle_positions.insert(worker.id, position);
@@ -71,13 +73,10 @@ impl Registry {
     }
 
     /// Returns whether `worker` may not run `task_type`: its Worker declined the type, or an
-    /// evicted decline waits for this stream's next idle transition.
+    /// evicted decline waits for the Worker's next idle stream.
     pub(super) fn is_unsupported_on(&self, task_type: &TaskTypeKey, worker: &WorkerStream) -> bool {
-        self.unsupported_types.excludes(
-            task_type,
-            &worker.app_worker_id,
-            self.idle_positions.get(&worker.id).copied(),
-        )
+        self.unsupported_types
+            .excludes(task_type, &worker.app_worker_id)
     }
 
     /// Wakes the waiter that should take the newly idle `worker` among all queues it serves:
