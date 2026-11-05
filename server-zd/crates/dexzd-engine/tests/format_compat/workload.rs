@@ -36,11 +36,12 @@ use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, InboxMessageCommand,
     OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
     RunSettings, SearchOutboxAckCommand, SetSearchProjectionModeCommand, StepAttemptFailedCommand,
-    StepAttemptFailureKind, StepAttemptHeartbeatCommand, StepAttemptReturnReason,
-    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, TimeTravelCommand, TimerRecord, TimerSkipCommand,
-    TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
-    step_attempt_heartbeat_command, step_method_completed_command, timer_id,
+    StepAttemptFailureKind, StepAttemptHeartbeatCommand, StepAttemptQueuedCommand,
+    StepAttemptReturnReason, StepAttemptReturnedCommand, StepAttemptStartedCommand,
+    StepExecutionRecord, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
+    TimeTravelCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
+    flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
+    step_method_completed_command, timer_id,
 };
 use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
 use prost::Message;
@@ -121,8 +122,84 @@ impl Workload<'_> {
         self.skip_timer_update_config_and_stop().await;
         self.purge_after_retention().await;
         self.hand_outs_return_fail_and_recover().await;
+        self.queued_attempts_wait_in_the_dispatch_queue().await;
         self.travel_restores_a_running_attempt_as_pending().await;
         self.search_projection_acknowledges_its_outbox().await;
+    }
+
+    /// Queued attempts: one row starts and leaves the index, one returned attempt queues again
+    /// at its old key, and one row stays queued in the final state.
+    async fn queued_attempts_wait_in_the_dispatch_queue(&self) {
+        let mut runs = Vec::new();
+        for flow_id in ["queued-started", "queued-waiting"] {
+            let run = self
+                .start_flow(
+                    StartFlowRequest {
+                        flow_id: flow_id.to_owned(),
+                        flow_type: "QueueFlow".to_owned(),
+                        start_step_type: "PackStep".to_owned(),
+                        step_options: Some(skip_wait_for()),
+                        request_id: format!("start-{flow_id}"),
+                        ..StartFlowRequest::default()
+                    },
+                    default_run_settings(),
+                )
+                .await;
+            self.queue_pending_attempt(&run, "PackStep-1", StepMethod::Execute)
+                .await;
+            runs.push(run);
+        }
+        let started = &runs[0];
+        let task_id = self
+            .start_handed_out(started, "PackStep-1", StepMethod::Execute, 1)
+            .await;
+        self.commit(
+            started,
+            Command::StepAttemptReturned(StepAttemptReturnedCommand {
+                invocation: Some(invocation("PackStep-1", StepMethod::Execute)),
+                attempt: 1,
+                expected_task_id: task_id,
+                reason: StepAttemptReturnReason::Unsupported as i32,
+            }),
+        )
+        .await;
+        self.queue_pending_attempt(started, "PackStep-1", StepMethod::Execute)
+            .await;
+        self.start_handed_out(started, "PackStep-1", StepMethod::Execute, 1)
+            .await;
+    }
+
+    /// Commits the `StepAttemptQueued` of the Step's pending attempt.
+    async fn queue_pending_attempt(
+        &self,
+        run: &FlowRun,
+        step_execution_id: &str,
+        method: StepMethod,
+    ) {
+        let invocation_record = self
+            .run_rows::<StepExecutionRecord>(run, RunTable::StepExecution)
+            .await
+            .into_iter()
+            .find(|step| step.step_execution_id == step_execution_id)
+            .and_then(|step| step.invocation)
+            .expect("the Step has a pending invocation");
+        let outcome = self
+            .commit(
+                run,
+                Command::StepAttemptQueued(StepAttemptQueuedCommand {
+                    invocation: Some(invocation(step_execution_id, method)),
+                    attempt: invocation_record.attempt,
+                    pending_since_micros: invocation_record.pending_since_micros,
+                }),
+            )
+            .await;
+        assert!(
+            outcome
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, ApplyEffect::DispatchQueueChanged { .. })),
+            "{step_execution_id} queues"
+        );
     }
 
     /// Returned attempts for every reason, a failure before any start, an interrupted attempt,
