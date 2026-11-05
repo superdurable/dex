@@ -14,29 +14,33 @@ use dexzd_engine::{
     decode_hard_delete_value, default_run_settings, encode_hard_delete_value,
     hard_delete_placeholder_value,
 };
-use dexzd_keyspace::row_keys::prefix_range;
-use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
+use dexzd_keyspace::row_keys::{decode_search_outbox_key, partition_index_range, prefix_range};
+use dexzd_keyspace::{
+    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix,
+};
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore, WriteCondition, WriteOutcome};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig, AttributeWrite, ChannelCondition, ChannelMessage,
-    CloseDecision, CloseDecisionType, DeleteChannelMessageRequest, FlowConfig, FlowResetStepMethod,
-    FlowResetType, FlowStartOptions, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
-    InvokeRpcRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, Kv,
-    PublishToChannelRequest, ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest,
-    StartFlowRequest, StepDecision, StepDurability, StepMovement, StepOptions, StopFlowRequest,
-    StopType, SubFlowCondition, SubFlowOptions, TimerCondition, UpdateFlowConfigRequest, Value,
-    WaitingCondition, WaitingConditionType, WorkerErrorResponse, WorkerTarget, value,
+    CloseDecision, CloseDecisionType, DeleteChannelMessageRequest, ExecuteMethodFailurePolicy,
+    FlowConfig, FlowResetStepMethod, FlowResetType, FlowStartOptions, FlowTimeoutPolicy,
+    InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
+    InvokeWorkerRpcResponse, Kv, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
+    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepDurability,
+    StepMovement, StepOptions, StopFlowRequest, StopType, SubFlowCondition, SubFlowOptions,
+    TimerCondition, UpdateFlowConfigRequest, Value, WaitingCondition, WaitingConditionType,
+    WorkerErrorResponse, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
     HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, InboxMessageCommand,
     OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
-    RunSettings, StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
-    StepAttemptStartedCommand, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
-    TimeTravelCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
-    flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
-    step_method_completed_command, timer_id,
+    RunSettings, SearchOutboxAckCommand, SetSearchProjectionModeCommand, StepAttemptFailedCommand,
+    StepAttemptFailureKind, StepAttemptHeartbeatCommand, StepAttemptReturnReason,
+    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, TimeTravelCommand, TimerRecord, TimerSkipCommand,
+    TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
+    step_attempt_heartbeat_command, step_method_completed_command, timer_id,
 };
 use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
 use prost::Message;
@@ -116,6 +120,310 @@ impl Workload<'_> {
         self.travel_back_to_second_step().await;
         self.skip_timer_update_config_and_stop().await;
         self.purge_after_retention().await;
+        self.hand_outs_return_fail_and_recover().await;
+        self.travel_restores_a_running_attempt_as_pending().await;
+        self.search_projection_acknowledges_its_outbox().await;
+    }
+
+    /// Returned attempts for every reason, a failure before any start, an interrupted attempt,
+    /// a not-run failure, and a recovery Step that reports the furthest attempt progress.
+    async fn hand_outs_return_fail_and_recover(&self) {
+        let run = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: "handout-sync".to_owned(),
+                    flow_type: "HandoutFlow".to_owned(),
+                    start_step_type: "ReserveStep".to_owned(),
+                    step_options: Some(StepOptions {
+                        skip_wait_for: true,
+                        execute_lock_attribute_keys: vec!["stock".to_owned()],
+                        execute_retry_policy: Some(RetryPolicy {
+                            initial_interval_seconds: 1,
+                            maximum_attempts: 4,
+                            ..RetryPolicy::default()
+                        }),
+                        execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep
+                            as i32,
+                        execute_failure_proceed_step_type: "ReleaseStep".to_owned(),
+                        execute_failure_proceed_step_options: Some(Box::new(skip_wait_for())),
+                        ..StepOptions::default()
+                    }),
+                    request_id: "start-handout-sync".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                default_run_settings(),
+            )
+            .await;
+        for reason in [
+            StepAttemptReturnReason::Unsupported,
+            StepAttemptReturnReason::LegacyNoCapacity,
+            StepAttemptReturnReason::NotDelivered,
+        ] {
+            let task_id = self
+                .start_handed_out(&run, "ReserveStep-1", StepMethod::Execute, 1)
+                .await;
+            self.commit(
+                &run,
+                Command::StepAttemptReturned(StepAttemptReturnedCommand {
+                    invocation: Some(invocation("ReserveStep-1", StepMethod::Execute)),
+                    attempt: 1,
+                    expected_task_id: task_id,
+                    reason: reason as i32,
+                }),
+            )
+            .await;
+        }
+        self.commit(
+            &run,
+            Command::StepAttemptFailed(StepAttemptFailedCommand {
+                invocation: Some(invocation("ReserveStep-1", StepMethod::Execute)),
+                attempt: 1,
+                kind: StepAttemptFailureKind::DispatchError as i32,
+                server_detail:
+                    "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted \
+                                the task"
+                        .to_owned(),
+                is_before_start: true,
+                ..StepAttemptFailedCommand::default()
+            }),
+        )
+        .await;
+        self.fire_due_timers(&run, 2 * SECOND_MICROS).await;
+        let task_id = self
+            .start_handed_out(&run, "ReserveStep-1", StepMethod::Execute, 2)
+            .await;
+        self.commit(
+            &run,
+            Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+                invocation: Some(invocation("ReserveStep-1", StepMethod::Execute)),
+                attempt: 2,
+                checkpoint: Some(step_attempt_heartbeat_command::Checkpoint::Value(
+                    string_value("reserved 3 of 5"),
+                )),
+                task_id: task_id.clone(),
+            }),
+        )
+        .await;
+        self.commit(
+            &run,
+            Command::StepAttemptFailed(StepAttemptFailedCommand {
+                invocation: Some(invocation("ReserveStep-1", StepMethod::Execute)),
+                attempt: 2,
+                kind: StepAttemptFailureKind::StartedAttemptInterrupted as i32,
+                server_detail: "a server restart or failover interrupted the attempt after a \
+                                Worker received it"
+                    .to_owned(),
+                expected_task_id: task_id,
+                ..StepAttemptFailedCommand::default()
+            }),
+        )
+        .await;
+        self.fire_due_timers(&run, 3 * SECOND_MICROS).await;
+        let task_id = self
+            .start_handed_out(&run, "ReserveStep-1", StepMethod::Execute, 3)
+            .await;
+        self.commit(
+            &run,
+            Command::StepAttemptFailed(StepAttemptFailedCommand {
+                invocation: Some(invocation("ReserveStep-1", StepMethod::Execute)),
+                attempt: 3,
+                kind: StepAttemptFailureKind::RequestTooLarge as i32,
+                server_detail: "Worker request of 40000000 bytes exceeds the 33554432 byte \
+                                message limit"
+                    .to_owned(),
+                expected_task_id: task_id,
+                is_not_run: true,
+                ..StepAttemptFailedCommand::default()
+            }),
+        )
+        .await;
+        self.fire_due_timers(&run, 5 * SECOND_MICROS).await;
+        let task_id = self
+            .start_handed_out(&run, "ReserveStep-1", StepMethod::Execute, 4)
+            .await;
+        self.commit(
+            &run,
+            Command::StepAttemptFailed(StepAttemptFailedCommand {
+                invocation: Some(invocation("ReserveStep-1", StepMethod::Execute)),
+                attempt: 4,
+                kind: StepAttemptFailureKind::WorkerError as i32,
+                worker_error: Some(WorkerErrorResponse {
+                    detail: "inventory service unavailable".to_owned(),
+                    error_type: "InventoryUnavailable".to_owned(),
+                    grpc_status: 14,
+                    ..WorkerErrorResponse::default()
+                }),
+                expected_task_id: task_id,
+                ..StepAttemptFailedCommand::default()
+            }),
+        )
+        .await;
+        let task_id = self
+            .start_handed_out(&run, "ReleaseStep-1", StepMethod::Execute, 1)
+            .await;
+        let mut completed = execute_completed(
+            "ReleaseStep-1",
+            1,
+            close_response(CloseDecisionType::ForceComplete, "released"),
+        );
+        if let Command::StepMethodCompleted(completed) = &mut completed {
+            completed.task_id = task_id;
+        }
+        self.commit(&run, completed).await;
+    }
+
+    /// A TimeTravel from the new engine makes a restored running attempt pending again.
+    async fn travel_restores_a_running_attempt_as_pending(&self) {
+        let run = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: "handout-travel".to_owned(),
+                    flow_type: "HandoutFlow".to_owned(),
+                    start_step_type: "ShipStep".to_owned(),
+                    step_options: Some(StepOptions {
+                        skip_wait_for: true,
+                        execute_lock_attribute_keys: vec!["parcel".to_owned()],
+                        ..StepOptions::default()
+                    }),
+                    request_id: "start-handout-travel".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                default_run_settings(),
+            )
+            .await;
+        let task_id = self
+            .start_handed_out(&run, "ShipStep-1", StepMethod::Execute, 1)
+            .await;
+        self.set_attributes(
+            &run,
+            vec![attribute("carrier", string_value("ground"))],
+            "set-carrier-1",
+        )
+        .await;
+        let target_micros = self.clock.now_unix_micros();
+        let mut completed = execute_completed(
+            "ShipStep-1",
+            1,
+            close_response(CloseDecisionType::ForceComplete, "shipped"),
+        );
+        if let Command::StepMethodCompleted(completed) = &mut completed {
+            completed.task_id = task_id;
+        }
+        self.commit(&run, completed).await;
+        let outcome = self
+            .commit(
+                &run,
+                Command::TimeTravel(TimeTravelCommand {
+                    should_restore_running_as_pending: true,
+                    request: Some(ResetFlowRequest {
+                        flow_id: run.flow_id.clone(),
+                        reset_type: FlowResetType::HistoryEventTime as i32,
+                        reason: "ship again".to_owned(),
+                        history_event_time: (i128::from(target_micros) * 1000).to_string(),
+                        skip_writes_reapply: true,
+                        ..ResetFlowRequest::default()
+                    }),
+                }),
+            )
+            .await;
+        assert!(
+            !outcome
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, ApplyEffect::InvocationStarted { .. })),
+            "the restored attempt is pending, not running"
+        );
+        let task_id = self
+            .start_handed_out(&run, "ShipStep-1", StepMethod::Execute, 1)
+            .await;
+        let mut completed = execute_completed(
+            "ShipStep-1",
+            1,
+            close_response(CloseDecisionType::ForceComplete, "shipped again"),
+        );
+        if let Command::StepMethodCompleted(completed) = &mut completed {
+            completed.task_id = task_id;
+        }
+        self.commit(&run, completed).await;
+    }
+
+    /// Enables the search projection of one partition, writes a search document change, and
+    /// acknowledges the queued entry.
+    async fn search_projection_acknowledges_its_outbox(&self) {
+        let partition = self.context("search-flow").partition;
+        let partition_flow_id =
+            self.hasher.partition_command_flow_ids()[usize::from(partition.0)].clone();
+        self.commit_to(
+            &partition_flow_id,
+            &[],
+            Command::SetSearchProjectionMode(SetSearchProjectionModeCommand { enabled: true }),
+        )
+        .await;
+        let run = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: "search-flow".to_owned(),
+                    flow_type: "SearchFlow".to_owned(),
+                    start_step_type: "IndexStep".to_owned(),
+                    step_options: Some(skip_wait_for()),
+                    request_id: "start-search-flow".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                default_run_settings(),
+            )
+            .await;
+        self.set_attributes(
+            &run,
+            vec![attribute("title", string_value("searchable"))],
+            "set-title-1",
+        )
+        .await;
+        let view = self
+            .node
+            .committer()
+            .committed_view()
+            .expect("open a committed view");
+        let (start, end) = partition_index_range(partition, IndexKind::SearchOutbox);
+        let newest_seq = tokio::task::spawn_blocking(move || {
+            view.scan(ColumnFamily::PartitionIndex, &start, &end, usize::MAX)
+                .expect("scan the search outbox")
+                .into_iter()
+                .map(|(key, _)| {
+                    decode_search_outbox_key(partition, &key)
+                        .expect("search outbox keys decode")
+                        .seq
+                })
+                .max()
+                .expect("the search outbox holds entries")
+        })
+        .await
+        .expect("the scan task completes");
+        self.commit_to(
+            &partition_flow_id,
+            &[],
+            Command::SearchOutboxAck(SearchOutboxAckCommand {
+                partition: u32::from(partition.0),
+                through_seq: newest_seq,
+            }),
+        )
+        .await;
+    }
+
+    /// Starts an attempt the way the new engine does and returns its task ID.
+    async fn start_handed_out(
+        &self,
+        run: &FlowRun,
+        step_execution_id: &str,
+        method: StepMethod,
+        attempt: u32,
+    ) -> Vec<u8> {
+        let command = self.start_attempt_command(step_execution_id, method, attempt);
+        let Command::StepAttemptStarted(started) = &command else {
+            unreachable!("start_attempt_command builds a start");
+        };
+        let task_id = started.task_id.clone();
+        self.commit(run, command).await;
+        task_id
     }
 
     /// SYNC Steps: a timer and Channel WaitFor, a failed then retried Execute, then a locking Step.
