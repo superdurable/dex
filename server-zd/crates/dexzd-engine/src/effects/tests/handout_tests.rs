@@ -12,6 +12,7 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use dexzd_apply::{ApplyContext, apply_flow_command};
 use dexzd_keyspace::{RunId, VALUE_REFERENCE_PREFIX};
 use dexzd_protocol::dex::{
     InvokeWaitForMethodResponse, PollWorkerTaskRejectReason, StepAttemptProgress, StepDurability,
@@ -268,21 +269,13 @@ async fn a_stop_while_the_start_commits_sends_no_task_frame() {
     harness.settle().await;
     assert_eq!(started_task_ids(&harness).len(), 1, "the start is proposed");
     // The Flow stops after the start applied but before it committed (TA16).
-    let stop = FlowCommand {
-        flow_id: "order-1".to_owned(),
-        run_id: run_id.as_bytes().to_vec(),
-        command: Some(flow_command::Command::FlowStop(FlowStopCommand {
-            request: Some(StopFlowRequest {
-                flow_id: "order-1".to_owned(),
-                stop_type: StopType::Terminate as i32,
-                ..StopFlowRequest::default()
-            }),
-        })),
-        ..FlowCommand::default()
-    };
     harness
         .flow_effect_operations
-        .commit(&EffectHarness::flow("order-1"), stop, CommitUrgency::Prompt)
+        .commit(
+            &EffectHarness::flow("order-1"),
+            stop_command(run_id),
+            CommitUrgency::Prompt,
+        )
         .expect("stop commits");
     tokio::time::sleep(Duration::from_secs(6)).await;
     harness.settle().await;
@@ -297,6 +290,69 @@ async fn a_stop_while_the_start_commits_sends_no_task_frame() {
     );
     assert!(failures(&harness).is_empty());
     harness.shutdown().await;
+}
+
+/// The start commits and the request is built; then the Flow stops, but the cancellation has
+/// not reached the attempt yet. The SYNC recheck of the state keeps the frame unsent (TA16).
+#[tokio::test(start_paused = true)]
+async fn a_stop_before_the_cancellation_arrives_sends_no_task_frame() {
+    let harness = EffectHarness::new();
+    *harness
+        .flow_effect_operations
+        .start_commit_delay
+        .lock()
+        .expect("lock") = Duration::from_secs(5);
+    harness.rebuild_all_partitions().await;
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    assert_eq!(started_task_ids(&harness).len(), 1, "the start is proposed");
+    // The stop applies without publishing its effects, so no cancellation reaches the attempt.
+    let context = ApplyContext {
+        partition: harness.partition_of("order-1"),
+        flow_hash: harness.run_location("order-1", run_id).flow_hash,
+    };
+    harness
+        .flow_effect_operations
+        .add_override(Box::new(move |command, state| {
+            matches!(command.command, Some(flow_command::Command::FlowStop(_))).then(|| {
+                let outcome =
+                    apply_flow_command(&context, &*state, command).expect("the stop applies");
+                state.commit(&outcome.writes);
+                outcome.reply
+            })
+        }));
+    harness
+        .flow_effect_operations
+        .commit(
+            &EffectHarness::flow("order-1"),
+            stop_command(run_id),
+            CommitUrgency::Prompt,
+        )
+        .expect("stop commits");
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness.dispatcher.dispatch_count.load(Ordering::SeqCst),
+        0,
+        "no task frame goes out"
+    );
+    assert!(failures(&harness).is_empty());
+    harness.shutdown().await;
+}
+
+fn stop_command(run_id: RunId) -> FlowCommand {
+    FlowCommand {
+        flow_id: "order-1".to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                flow_id: "order-1".to_owned(),
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            }),
+        })),
+        ..FlowCommand::default()
+    }
 }
 
 #[tokio::test(start_paused = true)]
