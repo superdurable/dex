@@ -6,20 +6,21 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Durable task queue tests (plan section 3.2): Claim replies for busy locks and transient
-//! failures, retry clocks of queued attempts, and closing matching owners.
+//! Durable task queue tests: Claim replies, retry clocks of queued attempts, and closing owners.
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
-use dexzd_keyspace::RunId;
+use dexzd_keyspace::dispatch_queue_keys::{DispatchQueueEntry, dispatch_queue_key};
+use dexzd_keyspace::{ColumnFamily, RunId};
 use dexzd_protocol::dex::{
-    FlowStatus, PollWorkerTaskRejectReason, RetryPolicy, StartFlowRequest, StepDurability,
-    StepOptions,
+    FlowStatus, FlowTimeoutPolicy, PollWorkerTaskRejectReason, RetryPolicy, StartFlowRequest,
+    StepDurability, StepOptions, StopFlowRequest, StopType,
 };
 use dexzd_protocol::dexzd::v1::{
-    StepAttemptFailureKind, StepInvocationPhase, StepMethod, flow_command,
+    FlowCommand, FlowStopCommand, StepAttemptFailureKind, StepInvocationPhase, StepMethod,
+    flow_command,
 };
 use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 
@@ -28,7 +29,7 @@ use super::{EffectHarness, is_attempt_failed, is_timers_fired, settings, start_r
 use crate::effects::dispatch::{AttemptEntries, ClaimHolder, HandoutProgress};
 use crate::effects::method_request::MethodAttemptKey;
 use crate::effects::{EffectsConfig, MethodRequest};
-use crate::flow_coordination::FlowCoordinationEffectSink;
+use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 
 const LOCK_KEY: &str = "balance";
 
@@ -95,9 +96,9 @@ fn start_execute_flow(harness: &EffectHarness, flow_id: &str, options: StepOptio
     harness.start_flow(request, settings())
 }
 
-/// Queues one locked and one unlocked row of the same queue and partition.
+/// Queues a locked row, then an unlocked row, in one queue and partition.
 ///
-/// Returns the run of the locked row and both refs in queue order.
+/// Returns the locked row's run and both refs in queue order.
 async fn queue_locked_and_unlocked_rows(
     harness: &EffectHarness,
 ) -> (RunId, QueuedTaskRef, QueuedTaskRef) {
@@ -131,8 +132,7 @@ async fn queue_locked_and_unlocked_rows(
     (locked_run, refs[0].clone(), refs[1].clone())
 }
 
-/// TB7: a claimed row whose locks are busy is answered "lock busy" with the next row after it,
-/// stays with its holder until the locks are released, then goes back to matching and starts.
+/// TB7: a row claimed with busy locks answers "lock busy", then returns to matching on release.
 #[tokio::test(start_paused = true)]
 async fn a_claimed_row_with_busy_locks_is_sent_back_after_the_release_and_starts() {
     let config = EffectsConfig {
@@ -210,8 +210,7 @@ async fn a_claimed_row_with_busy_locks_is_sent_back_after_the_release_and_starts
     harness.shutdown().await;
 }
 
-/// A start that the runtime cannot propose answers "retry later" with the next row, then the
-/// owner sends the row back after its backoff and a later Claim starts it.
+/// An unavailable start answers "retry later"; the owner sends the row back after a backoff.
 #[tokio::test(start_paused = true)]
 async fn an_unavailable_start_answers_retry_later_and_sends_the_row_back_after_a_backoff() {
     check_retry_later(RetryLaterCause::StartUnavailable).await;
@@ -276,8 +275,7 @@ async fn check_retry_later(cause: RetryLaterCause) {
     harness.shutdown().await;
 }
 
-/// A pending attempt that a closing matching owner refused stays pending without any command,
-/// and the next owner's rebuild dispatches it.
+/// A closing owner's refusal writes nothing; the next rebuild dispatches the pending attempt.
 #[tokio::test(start_paused = true)]
 async fn an_attempt_refused_by_a_closing_owner_stays_pending_and_the_rebuild_dispatches_it() {
     let harness = EffectHarness::new();
@@ -436,8 +434,7 @@ async fn check_queued_retry_past_total_duration(durability: StepDurability, outc
     harness.shutdown().await;
 }
 
-/// TB4 and TB4c (plan D71): the retry clock starts when attempt 1 is first handed out, so an
-/// attempt 1 queued past the total duration and the method timeout runs, fails fast, and retries.
+/// TB4 and TB4c (plan D71): queue time before the first hand-out does not count against retries.
 #[tokio::test(start_paused = true)]
 async fn the_retry_clock_starts_at_the_first_hand_out_not_while_queued() {
     for durability in [StepDurability::Sync, StepDurability::Async] {
@@ -485,8 +482,7 @@ async fn the_retry_clock_starts_at_the_first_hand_out_not_while_queued() {
     }
 }
 
-/// TB4 control: the retry clock does run from the hand-out, so an attempt 1 that runs past the
-/// total duration before it fails is not retried.
+/// TB4 control: an attempt that runs past the total duration before failing is not retried.
 #[tokio::test(start_paused = true)]
 async fn an_attempt_that_runs_past_the_total_duration_is_not_retried() {
     let harness = EffectHarness::new();
@@ -514,8 +510,7 @@ async fn an_attempt_that_runs_past_the_total_duration_is_not_retried() {
     harness.shutdown().await;
 }
 
-/// A Claim takes an attempt that no holder has, is told "busy" while a hand-out holds it, and
-/// "lock busy" while it is parked, until the lock release hands it to a new hand-out.
+/// A Claim takes an unheld attempt, gets "busy" from a hand-out, and "lock busy" while parked.
 #[test]
 fn claims_are_classified_by_the_holder_of_the_attempt_entry() {
     let key = MethodAttemptKey {
@@ -563,8 +558,7 @@ fn claims_are_classified_by_the_holder_of_the_attempt_entry() {
     ));
 }
 
-/// TB4d (plan D54, D74): a retry that a Worker declined waits in the queue past the total
-/// duration for a supporting Worker, then runs and completes without a deadline failure.
+/// TB4d (plan D54, D74): a declined retry queued past the total duration still completes.
 #[tokio::test(start_paused = true)]
 async fn a_declined_retry_waits_past_the_total_duration_and_completes() {
     for durability in [StepDurability::Sync, StepDurability::Async] {
@@ -628,8 +622,7 @@ async fn a_declined_retry_waits_past_the_total_duration_and_completes() {
     }
 }
 
-/// TB24 (plan D69): a retry joins its queue at its backoff expiry, behind rows queued earlier,
-/// and a Claim reply's next ref follows that order.
+/// TB24 (plan D69): a retry queues at its backoff expiry, behind rows queued earlier.
 #[tokio::test(start_paused = true)]
 async fn a_queued_retry_goes_behind_the_backlog_queued_before_its_backoff_ended() {
     let harness = EffectHarness::new();
@@ -692,5 +685,169 @@ async fn a_queued_retry_goes_behind_the_backlog_queued_before_its_backoff_ended(
             (2, ClaimResult::Started, Some(refs[2].clone())),
         ]
     );
+    harness.shutdown().await;
+}
+
+/// TB4 (plan D71): a declined attempt 1 restarts its retry clock at its next hand-out.
+#[tokio::test(start_paused = true)]
+async fn a_declined_first_attempt_queued_past_the_total_duration_still_retries() {
+    for durability in [StepDurability::Sync, StepDurability::Async] {
+        let harness = EffectHarness::new();
+        harness.rebuild_all_partitions().await;
+        let run_id = start_execute_flow(&harness, "order-1", retry_options(durability, 0));
+        let declined = harness.dispatcher.next_dispatch().await;
+        assert_eq!(declined.context().attempt, 1);
+        harness
+            .dispatcher
+            .refuse_dispatch
+            .store(true, Ordering::SeqCst);
+        declined.reject(PollWorkerTaskRejectReason::UnknownStep, true);
+        harness.settle().await;
+        let refs = queued_refs(&harness);
+        assert_eq!(
+            refs.len(),
+            1,
+            "{durability:?}: the declined attempt is queued"
+        );
+        assert_eq!(refs[0].position.attempt, 1);
+        tokio::time::sleep(QUEUED_DURATION).await;
+        harness.settle().await;
+        harness
+            .dispatcher
+            .refuse_dispatch
+            .store(false, Ordering::SeqCst);
+        harness.dispatcher.claim(1, refs[0].clone());
+        let first = harness.dispatcher.next_dispatch().await;
+        assert_eq!(first.context().attempt, 1);
+        first.fail_with_worker_error("fails fast");
+        let second = harness.dispatcher.next_dispatch().await;
+        assert_eq!(
+            second.context().attempt,
+            2,
+            "{durability:?}: the declined hand-out does not start the retry clock"
+        );
+        second.complete_execute(force_complete());
+        harness.settle().await;
+        assert_eq!(
+            harness.run_record("order-1", run_id).status,
+            FlowStatus::Completed as i32
+        );
+        harness.shutdown().await;
+    }
+}
+
+fn has_queue_row(harness: &EffectHarness, task: &QueuedTaskRef) -> bool {
+    let key = dispatch_queue_key(&DispatchQueueEntry {
+        partition: task.partition,
+        queue: task.queue.clone(),
+        position: task.position.clone(),
+    });
+    harness
+        .flow_effect_operations
+        .snapshot()
+        .rows
+        .contains_key(&(ColumnFamily::PartitionIndex, key))
+}
+
+/// Queues the Execute attempt of `request` and returns its ref.
+async fn queue_first_attempt(
+    harness: &EffectHarness,
+    request: StartFlowRequest,
+    timeout_policy: FlowTimeoutPolicy,
+) -> (RunId, QueuedTaskRef) {
+    harness.rebuild_all_partitions().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    let run_id = harness.start_flow_with_timeout_policy(request, settings(), timeout_policy);
+    harness.settle().await;
+    let refs = queued_refs(harness);
+    assert_eq!(refs.len(), 1);
+    assert!(has_queue_row(harness, &refs[0]));
+    (run_id, refs[0].clone())
+}
+
+/// TB6: stopping a Flow deletes its queued row, and a later Claim of it is stale.
+#[tokio::test(start_paused = true)]
+async fn stopping_a_flow_deletes_its_queued_row() {
+    let harness = EffectHarness::new();
+    let (run_id, task) =
+        queue_first_attempt(&harness, start_request("order-1"), FlowTimeoutPolicy::Fail).await;
+    let stop = FlowCommand {
+        flow_id: "order-1".to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                flow_id: "order-1".to_owned(),
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            }),
+        })),
+        ..FlowCommand::default()
+    };
+    harness
+        .flow_effect_operations
+        .commit(&EffectHarness::flow("order-1"), stop, CommitUrgency::Prompt)
+        .expect("stop commits");
+    harness.settle().await;
+    assert!(!has_queue_row(&harness, &task));
+    harness.dispatcher.claim(1, task);
+    harness.settle().await;
+    assert_eq!(claim_results(&harness)[0].1, ClaimResult::Stale);
+    assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
+    harness.shutdown().await;
+}
+
+/// TB4b: a Flow timeout with the FAIL policy closes a Flow whose Step never left the queue.
+#[tokio::test(start_paused = true)]
+async fn a_flow_timeout_closes_a_flow_whose_step_waits_in_the_queue() {
+    let harness = EffectHarness::new();
+    let request = StartFlowRequest {
+        flow_timeout_seconds: 5,
+        ..start_request("order-1")
+    };
+    let (run_id, task) = queue_first_attempt(&harness, request, FlowTimeoutPolicy::Fail).await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness.run_record("order-1", run_id).status,
+        FlowStatus::Failed as i32
+    );
+    assert!(!has_queue_row(&harness, &task), "closing deletes the row");
+    assert!(failure_kinds(&harness).is_empty(), "queueing never failed");
+    harness.shutdown().await;
+}
+
+/// TB4b: with the HANDLER policy the Flow keeps running and its timeout handler queues too.
+#[tokio::test(start_paused = true)]
+async fn a_flow_timeout_handler_queues_ahead_of_the_waiting_step() {
+    let harness = EffectHarness::new();
+    let request = StartFlowRequest {
+        flow_timeout_seconds: 5,
+        ..start_request("order-1")
+    };
+    let (run_id, task) = queue_first_attempt(&harness, request, FlowTimeoutPolicy::Handler).await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness.run_record("order-1", run_id).status,
+        FlowStatus::Running as i32
+    );
+    let refs = queued_refs(&harness);
+    let handler = refs
+        .iter()
+        .find(|queued| {
+            queued
+                .position
+                .step_execution_id
+                .starts_with("sys:timeout_handler")
+        })
+        .unwrap_or_else(|| panic!("the timeout handler is queued: {refs:?}"));
+    assert!(
+        handler.position.priority < task.position.priority,
+        "the handler sorts ahead (plan D16): {handler:?}"
+    );
+    assert!(failure_kinds(&harness).is_empty());
     harness.shutdown().await;
 }
