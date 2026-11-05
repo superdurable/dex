@@ -339,6 +339,43 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
 }
 
 #[test]
+fn dev_defaults_to_a_two_second_attempt_drain_unless_the_overrides_set_it() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let dev_options = |config: Option<PathBuf>| DevCommandOptions {
+        data_dir: temporary.path().join("data"),
+        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        log_dir: None,
+        config,
+        attribute_store_config: None,
+    };
+    let without_overrides =
+        Config::load_dev(&dev_options(None)).expect("dev defaults without YAML");
+    assert_eq!(
+        without_overrides.lifecycle.attempt_drain_timeout,
+        Duration::from_secs(2)
+    );
+
+    let explicit_timeout_path = temporary.path().join("attempt-drain.yaml");
+    fs::write(
+        &explicit_timeout_path,
+        "lifecycle:\n  attemptDrainTimeout: 20s\n",
+    )
+    .expect("write test config");
+    let with_explicit_timeout = Config::load_dev(&dev_options(Some(explicit_timeout_path)))
+        .expect("dev configuration with an explicit attempt drain timeout");
+    assert_eq!(
+        with_explicit_timeout.lifecycle.attempt_drain_timeout,
+        Duration::from_secs(20)
+    );
+
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert_eq!(
+        serve.lifecycle.attempt_drain_timeout,
+        Duration::from_secs(30)
+    );
+}
+
+#[test]
 fn dev_rejects_a_separate_hard_delete_store_before_resolving_credentials() {
     let temporary = tempfile::tempdir().expect("test directory");
     let yaml_path = temporary.path().join("config.yaml");

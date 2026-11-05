@@ -42,8 +42,8 @@ const LEASE_DEFERRAL_FIELD: &str = "delay_milliseconds=";
 /// The default 1.5 s lagging takeover delay less its 20% jitter, rounded down.
 const LAGGING_DEFERRAL_FLOOR: Duration = Duration::from_millis(1000);
 const DEFERRAL_LOG_BUDGET: Duration = Duration::from_secs(5);
-/// A loaded active's release after SIGTERM and a hot takeover; well under the held read.
-const SERVED_AFTER_SIGTERM_BOUND: Duration = Duration::from_millis(2500);
+/// A loaded active's release after its attempt drain and a hot takeover; well under the held read.
+const SERVED_AFTER_DRAIN_BOUND: Duration = Duration::from_millis(2500);
 /// Snapshots and log cleanup run every second, so cleanup soon passes a stopped standby.
 const FAST_SNAPSHOT_INTERVAL: &str = "1s";
 const FAST_LOG_DELETION_DELAY: &str = "1s";
@@ -107,10 +107,13 @@ async fn hot_standby_takes_over_when_the_active_is_terminated() {
     let served_at = Instant::now();
     assert_hot_takeover(group, SECOND).await;
     let served_after = served_at - terminated_at;
+    // The active first drains running Step attempts; the takeover is prompt after that drain.
+    let drain_ended_at = group.attempt_drain_ended_at(FIRST, terminated_at);
+    let served_after_drain = served_at - drain_ended_at;
     let (_, held_read_ended_at) = held_read.finish().await;
     assert!(
-        served_after <= SERVED_AFTER_SIGTERM_BOUND,
-        "the hot standby served {served_after:?} after SIGTERM"
+        served_after_drain <= SERVED_AFTER_DRAIN_BOUND,
+        "the hot standby served {served_after_drain:?} after the active's attempt drain ended"
     );
     assert!(
         held_read_ended_at > served_at,
@@ -124,7 +127,9 @@ async fn hot_standby_takes_over_when_the_active_is_terminated() {
         .finish(
             "hot_standby_takes_over_when_the_active_is_terminated",
             terminated_at,
-            format!("served {served_after:?} after SIGTERM"),
+            format!(
+                "served {served_after:?} after SIGTERM, {served_after_drain:?} after the drain"
+            ),
         )
         .await;
 }

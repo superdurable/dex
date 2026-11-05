@@ -33,13 +33,13 @@ pub use commit::{
     ReplayCheck, ReplayMismatch,
 };
 pub use effects::{
-    EffectDependencies, EffectError, EffectRunner, EffectTasks, EffectTasksHandle, EffectsConfig,
-    FlowEffectOperationError, FlowEffectOperations, HARD_DELETE_OBJECT_KEY_PREFIX,
-    HardDeleteObjectOwner, HardDeleteObjects, HardDeleteUploadLedger, HardDeleteUploads,
-    InvocationLockCheck, InvocationStartOutcome, MethodDispatchSession, MethodDispatcher,
-    MethodRequest, MethodStreamRequest, MethodStreamReservation, MethodTask, NodeMetaUploadLedger,
-    ReservedMethodStream, StartCommit, decode_hard_delete_value, encode_hard_delete_value,
-    hard_delete_placeholder_value,
+    AttemptDrainProgress, EffectDependencies, EffectError, EffectRunner, EffectTasks,
+    EffectTasksHandle, EffectsConfig, FlowEffectOperationError, FlowEffectOperations,
+    HARD_DELETE_OBJECT_KEY_PREFIX, HardDeleteObjectOwner, HardDeleteObjects,
+    HardDeleteUploadLedger, HardDeleteUploads, InvocationLockCheck, InvocationStartOutcome,
+    MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
+    MethodStreamReservation, MethodTask, NodeMetaUploadLedger, ReservedMethodStream, StartCommit,
+    decode_hard_delete_value, encode_hard_delete_value, hard_delete_placeholder_value,
 };
 #[cfg(feature = "test-util")]
 pub use engine_id_source::SeededEngineIdSourceForTest;

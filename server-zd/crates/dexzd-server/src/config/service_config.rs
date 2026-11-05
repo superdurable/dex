@@ -12,6 +12,25 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize, Serializer};
 
+/// Controls planned server shutdown and step-down.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct LifecycleConfig {
+    /// Defaults to 30 s; keeps the lease and Worker streams open until running Step results commit.
+    /// Zero disables attempt draining. Step method and heartbeat timeouts still apply during the drain.
+    /// `dex-server-zd dev` defaults to 2 s unless its configuration sets this field.
+    #[serde(with = "humantime_serde")]
+    pub attempt_drain_timeout: Duration,
+}
+
+impl Default for LifecycleConfig {
+    fn default() -> Self {
+        Self {
+            attempt_drain_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
 /// Configures the public FlowService and WorkerTaskService gRPC listener.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]

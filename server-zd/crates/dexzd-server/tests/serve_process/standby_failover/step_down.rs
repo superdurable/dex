@@ -44,7 +44,7 @@ const BEHIND_STANDBY_LATENCY: Duration = Duration::from_millis(1500);
 const BEHIND_TAKEOVER_AFTER_RELEASE_BOUND: Duration = Duration::from_secs(3);
 /// A hot standby polls a held lease every 250 ms; a 1 s poll fails this in most runs.
 const STEP_DOWN_HANDOVER_BOUND: Duration = Duration::from_millis(600);
-/// A loaded active's release after a step down call and a hot takeover; under the 4 s gRPC drain.
+/// A loaded active's release after its attempt drain and a hot takeover; under the 4 s gRPC drain.
 const STEP_DOWN_SERVED_BOUND: Duration = Duration::from_secs(3);
 /// A stopping active closes waiting ReadStream calls at once, well before the 4 s gRPC drain.
 const WAITING_READ_END_BOUND: Duration = Duration::from_secs(2);
@@ -112,9 +112,13 @@ async fn step_down_hands_over_to_the_hot_standby_and_the_old_active_stays_hot() 
     );
     assert_hot_takeover(group, SECOND).await;
     let answered_after = stepped_down_at.elapsed();
+    // The hold-off starts at the release, which follows the active's attempt drain.
+    let answered_after_drain = group
+        .attempt_drain_ended_at(FIRST, stepped_down_at)
+        .elapsed();
     assert!(
-        answered_after < STEP_DOWN_HOLD_OFF,
-        "a hot standby must take over before the hold-off ends: {answered_after:?}"
+        answered_after_drain < STEP_DOWN_HOLD_OFF,
+        "a hot standby must take over before the hold-off ends: {answered_after_drain:?} after the drain"
     );
     group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
     assert_eq!(
@@ -476,16 +480,20 @@ async fn ten_switchovers_under_load_lose_no_acknowledged_write() {
             group.wait_for_takeover(active, TAKEOVER_BUDGET).await,
             standby
         );
-        let served_after = failed_at.elapsed();
+        let served_at = Instant::now();
+        let served_after = served_at - failed_at;
+        // The active first drains running Step attempts; the bounds start when that drain ended.
+        let drain_ended_at = group.attempt_drain_ended_at(active, failed_at);
+        let served_after_drain = served_at - drain_ended_at;
         assert!(
-            round % 2 == 1 || served_after <= STEP_DOWN_SERVED_BOUND,
-            "round {round}: a waiting ReadStream held up the step down: served after {served_after:?}"
+            round % 2 == 1 || served_after_drain <= STEP_DOWN_SERVED_BOUND,
+            "round {round}: a waiting ReadStream held up the step down: served {served_after_drain:?} after the drain"
         );
         let (waiting_answer, waiting_read_ended_at) = waiting_read.finish().await;
-        let waited = waiting_read_ended_at - failed_at;
+        let waited = waiting_read_ended_at.saturating_duration_since(drain_ended_at);
         assert!(
             waiting_answer.is_err() && waited <= WAITING_READ_END_BOUND,
-            "round {round}: the waiting ReadStream ended {waited:?} after the switchover with {waiting_answer:?}"
+            "round {round}: the waiting ReadStream ended {waited:?} after the drain with {waiting_answer:?}"
         );
         assert_hot_takeover(group, standby).await;
         switchovers.push(served_after);

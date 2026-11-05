@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! Worker stream kinds, the Step backoff of streams without reserved-slot dispatch, clean
-//! half-close, and the end of an assignment.
+//! half-close, and the start and end of an assignment.
 
 use super::*;
 use dexzd_metrics::WorkerStreamProtocolError;
@@ -124,6 +124,52 @@ pub(super) async fn half_close(dispatch: &WorkerDispatch, worker: &WorkerStream)
     if frames.send(AssignmentFrame::HalfClosed).await.is_err() {
         tracing::debug!("half-close reached an abandoned assignment");
     }
+}
+
+/// Sends `task_frame` on a stream this caller took, checking the node lease and the stream's
+/// half-close under the stream's state lock, with no await in between. It also refuses once
+/// matching began ending streams; an attempt drain does not withhold the frame.
+///
+/// Returns the receiver of the Worker's frames for the task, [`TaskSendError::LeaseInvalid`]
+/// when the node may not hand out tasks (the stream stays taken), or
+/// [`TaskSendError::NotDelivered`] when the stream half-closed, is gone, or matching is
+/// ending its streams.
+pub(super) fn send_task_frame(
+    dispatch: &WorkerDispatch,
+    worker: &WorkerStream,
+    task_id: &str,
+    task_type: &TaskTypeKey,
+    task_frame: dexzd_protocol::dex::PollWorkerTask,
+) -> Result<mpsc::Receiver<AssignmentFrame>, TaskSendError> {
+    // Read before the state lock: stream readers hold this watch while taking that lock.
+    let is_stream_shutdown = *dispatch.inner.stream_shutdown.borrow();
+    let mut state = worker.state.lock().expect("Worker state lock poisoned");
+    if state.is_send_stopped || state.is_closing || is_stream_shutdown {
+        return Err(TaskSendError::NotDelivered);
+    }
+    if !dispatch.may_hand_out_tasks() {
+        return Err(TaskSendError::LeaseInvalid);
+    }
+    let (sender, receiver) = mpsc::channel(32);
+    state.current = Some(Assignment {
+        task_id: task_id.to_owned(),
+        task_type: task_type.clone(),
+        frames: sender,
+        has_output: false,
+    });
+    let is_sent = worker
+        .output
+        .send(Ok(PollWorkerTaskResponse {
+            frame: Some(poll_worker_task_response::Frame::Task(task_frame)),
+        }))
+        .is_ok();
+    if !is_sent {
+        state.current = None;
+        drop(state);
+        dispatch.disconnect(worker.id);
+        return Err(TaskSendError::NotDelivered);
+    }
+    Ok(receiver)
 }
 
 /// How an assignment ended on its stream.

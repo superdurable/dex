@@ -32,7 +32,7 @@ const (
 	unknownStepDownOutcome = "unknown"
 	// notAttemptedStepDownOutcome marks a failed describe before any step down request was sent.
 	notAttemptedStepDownOutcome = "notAttempted"
-	// adminStepDownDefaultTimeout exceeds the commit drain bound, hold-off, and lease attempt with a wide margin.
+	// adminStepDownDefaultTimeout exceeds the default 30s attempt drain, commit drain bound, hold-off, and lease attempt with a wide margin.
 	adminStepDownDefaultTimeout = 2 * time.Minute
 	notAttemptedStepDownHint    = "This command stepped nothing down. A step down in progress may be one " +
 		"that you or someone else already started. Wait past the hold-off and run dexcli admin describe, " +

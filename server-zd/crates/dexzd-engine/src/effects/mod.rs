@@ -40,7 +40,7 @@ use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::StorageError;
 use dexzd_stream_store::StreamStore;
 use futures::future::BoxFuture;
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -219,6 +219,10 @@ pub(crate) enum RouterMessage {
     RebuildPartition {
         partition: PartitionId,
         reply: oneshot::Sender<Result<usize, EffectError>>,
+    },
+    InterruptAttempts,
+    DrainAttempts {
+        progress: watch::Sender<AttemptDrainProgress>,
     },
     HandoutFinished {
         flow: FlowAddress,
@@ -424,8 +428,26 @@ pub struct EffectTasks {
 
 /// Owner of running effect tasks.
 pub struct EffectTasksHandle {
+    router: mpsc::UnboundedSender<RouterMessage>,
     shutdown: CancellationToken,
     tracker: TaskTracker,
+}
+
+/// Progress of a planned Step attempt drain, including handouts already being prepared.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AttemptDrainProgress {
+    /// Attempts running at the drain boundary, including starts already in flight that register afterward.
+    pub attempts_waited: usize,
+    /// Waited attempts whose hand-out task stopped tracking them during the drain: after their
+    /// result or failure committed, after they were canceled, when their start was not proposed,
+    /// or when their return was applied. A hand-out stays outstanding until its returns commit.
+    pub attempts_finished: usize,
+    /// Attempts still running or committing their final output.
+    pub attempts_running: usize,
+    /// Handout tasks still active, including reservations being released without starting an attempt.
+    pub outstanding_handouts: usize,
+    /// Whether the router has stopped admitting new handout tasks and published its first snapshot.
+    pub has_started: bool,
 }
 
 impl EffectRunner {
@@ -518,6 +540,7 @@ impl EffectTasks {
                 .max_blocking_state_reads
                 .clamp(1, Semaphore::MAX_PERMITS),
         ));
+        let router_sender = self.router_sender.clone();
         let context = Arc::new(EffectContext {
             metrics: self.dependencies.metrics,
             config: self.config,
@@ -547,11 +570,37 @@ impl EffectTasks {
             context,
         };
         tracker.spawn(router.run(self.router_receiver));
-        EffectTasksHandle { shutdown, tracker }
+        EffectTasksHandle {
+            router: router_sender,
+            shutdown,
+            tracker,
+        }
     }
 }
 
 impl EffectTasksHandle {
+    /// Asks the router to stop new handouts after matching closes, without waiting for it.
+    ///
+    /// Returns the drain progress, which sets `has_started` once the router stopped new handouts
+    /// and then follows the remaining ones through their final commits, or Stopped when the
+    /// router ended.
+    pub fn begin_attempt_drain(
+        &self,
+    ) -> Result<watch::Receiver<AttemptDrainProgress>, EffectError> {
+        let (progress, receiver) = watch::channel(AttemptDrainProgress::default());
+        self.router
+            .send(RouterMessage::DrainAttempts { progress })
+            .map_err(|_| EffectError::Stopped)?;
+        Ok(receiver)
+    }
+
+    /// Interrupts remaining Step attempts; returns Stopped if the router ended. Recovery handles their uncommitted results.
+    pub fn interrupt_attempts(&self) -> Result<(), EffectError> {
+        self.router
+            .send(RouterMessage::InterruptAttempts)
+            .map_err(|_| EffectError::Stopped)
+    }
+
     /// Cancels every effect task and waits until all of them ended.
     pub async fn shutdown(self) {
         self.shutdown.cancel();
@@ -612,6 +661,10 @@ impl EffectRouter {
                         tracing::debug!(%partition, "rebuild caller stopped waiting");
                     }
                 });
+            }
+            RouterMessage::InterruptAttempts => self.dispatch.interrupt_attempts(),
+            RouterMessage::DrainAttempts { progress } => {
+                self.dispatch.begin_attempt_drain(progress)
             }
             RouterMessage::HandoutFinished { flow, key, end } => {
                 self.dispatch.finish_handout(flow, key, end);
