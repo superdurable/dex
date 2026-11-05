@@ -25,8 +25,10 @@ import (
 
 type reservedRPCFlow struct {
 	FlowDefaults
-	entered chan string
-	release chan struct{}
+	entered                 chan string
+	release                 chan struct{}
+	cancellationObserved    chan struct{}
+	finishAfterCancellation <-chan struct{}
 }
 
 func TestWorkerPullReservedRPCValidation(t *testing.T) {
@@ -36,142 +38,90 @@ func TestWorkerPullReservedRPCValidation(t *testing.T) {
 	}
 }
 
-func TestWorkerPullReservedRPCAdmission(t *testing.T) {
+func TestWorkerPullReservedSlotAdmission(t *testing.T) {
 	for _, reserve := range []int{0, 1} {
-		for _, kind := range []string{"waitFor", "execute", "rpc"} {
-			t.Run(fmt.Sprintf("reserve=%d/first=%s", reserve, kind), func(t *testing.T) {
-				address, server := startPullTestServer(t)
-				server.supportsUnknownNameRejection = true
-				flow := &reservedRPCFlow{entered: make(chan string, 20), release: make(chan struct{})}
-				worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 2, ReservedRPCTasks: ptr.Any(reserve)}})
-				require.NoError(t, err)
-				started := make(chan error, 1)
-				go func() { started <- worker.Start() }()
-				defer func() {
-					close(flow.release)
-					require.NoError(t, worker.Stop(context.Background()))
-					require.NoError(t, <-started)
-				}()
-				first := awaitReservedRPCStream(t, server, GetFinalFlowType(flow))
-				require.NoError(t, first.send(reservedRPCTestTask(kind, "first")))
-				require.Equal(t, kind, awaitReservedRPCEntry(t, flow))
-				second := awaitReservedRPCStream(t, server, GetFinalFlowType(flow))
-				unknownStep := reservedRPCTestTask("execute", "unknown-step")
-				unknownStep.GetTask().GetExecute().StepType = "MissingStep"
-				require.NoError(t, second.send(unknownStep))
-				require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP, awaitPullFrame(t, second).GetReject().GetReason())
+		t.Run(fmt.Sprint(reserve), func(t *testing.T) {
+			address, server := startPullTestServer(t)
+			server.supportsUnknownNameRejection = true
+			flow := &reservedRPCFlow{entered: make(chan string, 8), release: make(chan struct{})}
+			worker, err := newWorkerForTest(t, []Flow{flow, clientNoStartFlow{}}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 2, ReservedRPCTasks: ptr.Any(reserve), IdleStreamsPerQueue: 20}})
+			require.NoError(t, err)
+			started := make(chan error, 1)
+			go func() { started <- worker.Start() }()
+			var releaseOnce sync.Once
+			t.Cleanup(func() {
+				releaseOnce.Do(func() { close(flow.release) })
+				require.NoError(t, worker.Stop(context.Background()))
+				require.NoError(t, <-started)
+			})
+			streams := []*pullTestStream{awaitPullRegistration(t, server), awaitPullRegistration(t, server)}
+			rpcOnly := 0
+			for index, stream := range streams {
+				registration := stream.registration
+				require.True(t, registration.SupportsReservedSlotDispatch)
+				require.Empty(t, registration.Queue)
+				require.Equal(t, worker.pull.appWorkerID, registration.AppWorkerId)
+				require.ElementsMatch(t, []string{GetFinalFlowType(flow), GetFinalFlowType(clientNoStartFlow{})}, registration.FlowTypes)
+				kind := "execute"
+				if registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY {
+					rpcOnly++
+					kind = "rpc"
+				} else {
+					require.Equal(t, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC, registration.SlotKind)
+				}
+				if kind == "execute" {
+					unknownStep := reservedRPCTestTask("execute", "unknown-step")
+					unknownStep.GetTask().GetExecute().StepType = "MissingStep"
+					require.NoError(t, stream.send(unknownStep))
+					require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP, awaitPullFrame(t, stream).GetReject().GetReason())
+				}
 				unknownRPC := reservedRPCTestTask("rpc", "unknown-rpc")
 				unknownRPC.GetTask().GetRpc().RpcName = "MissingRPC"
-				require.NoError(t, second.send(unknownRPC))
-				require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC, awaitPullFrame(t, second).GetReject().GetReason())
-				require.NoError(t, second.send(reservedRPCTestTask("execute", "second-step")))
-				if reserve > 0 {
-					require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY, awaitPullFrame(t, second).GetReject().GetReason())
-					require.NoError(t, second.send(reservedRPCTestTask("rpc", "second-rpc")))
-					require.Equal(t, "rpc", awaitReservedRPCEntry(t, flow))
-				} else {
-					require.Equal(t, "execute", awaitReservedRPCEntry(t, flow))
-				}
-				idle := awaitReservedRPCStream(t, server, GetFinalFlowType(flow))
-				for _, overflow := range []string{"waitFor", "execute", "rpc"} {
-					require.NoError(t, idle.send(reservedRPCTestTask(overflow, "overflow-"+overflow)))
-					require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY, awaitPullFrame(t, idle).GetReject().GetReason())
-				}
-				require.Equal(t, uint64(reserve), worker.PullReservedRPCDeclines())
-				require.NoError(t, idle.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
-				require.NotNil(t, awaitPullFrame(t, idle).GetPong())
-				require.True(t, worker.PullRegistrationState().IsReady)
-			})
-		}
+				require.NoError(t, stream.send(unknownRPC))
+				require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC, awaitPullFrame(t, stream).GetReject().GetReason())
+				require.NoError(t, stream.send(reservedRPCTestTask(kind, fmt.Sprint(index))))
+				require.Equal(t, kind, awaitReservedRPCEntry(t, flow))
+			}
+			require.Equal(t, reserve, rpcOnly)
+			worker.pull.mu.Lock()
+			require.Len(t, worker.pull.streams, 2)
+			require.Equal(t, 2, worker.pull.busyTasks)
+			worker.pull.mu.Unlock()
+			require.Zero(t, worker.PullReservedRPCDeclines())
+			releaseOnce.Do(func() { close(flow.release) })
+			for _, stream := range streams {
+				frame := awaitPullFrame(t, stream)
+				require.Nil(t, frame.GetReject())
+				require.NotNil(t, frame.GetTaskFrame())
+			}
+			awaitPullTaskCompletion(t, worker)
+		})
 	}
 }
 
-func TestWorkerPullReservedRPCConcurrentAdmission(t *testing.T) {
+func TestWorkerPullExecutesStepDeliveredToRPCOnlySlot(t *testing.T) {
 	address, server := startPullTestServer(t)
-	flow := &reservedRPCFlow{entered: make(chan string, 20), release: make(chan struct{})}
-	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 2, ReservedRPCTasks: ptr.Any(1), IdleStreamsPerQueue: 20}})
+	flow := &reservedRPCFlow{entered: make(chan string, 2), release: make(chan struct{})}
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 2}})
 	require.NoError(t, err)
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
-	defer func() {
+	t.Cleanup(func() {
 		close(flow.release)
 		require.NoError(t, worker.Stop(context.Background()))
 		require.NoError(t, <-started)
-	}()
-	streams := make([]*pullTestStream, 0, 20)
-	for len(streams) < 20 {
-		candidate := awaitPullRegistration(t, server)
-		if candidate.registration.Queue == GetFinalFlowType(flow) {
-			streams = append(streams, candidate)
+	})
+	var rpcOnly *pullTestStream
+	for range 2 {
+		stream := awaitPullRegistration(t, server)
+		if stream.registration.SlotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY {
+			rpcOnly = stream
 		}
 	}
-	var wg sync.WaitGroup
-	for index, stream := range streams {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			require.NoError(t, stream.send(reservedRPCTestTask("execute", fmt.Sprint(index))))
-		}()
-	}
-	wg.Wait()
+	require.NotNil(t, rpcOnly)
+	// The Server owns slot routing; even a misrouted Step must execute rather than consume an attempt through rejection.
+	require.NoError(t, rpcOnly.send(reservedRPCTestTask("execute", "misrouted-step")))
 	require.Equal(t, "execute", awaitReservedRPCEntry(t, flow))
-	rejected := 0
-	for _, stream := range streams {
-		require.NoError(t, stream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
-		frame := awaitPullFrame(t, stream)
-		if frame.GetReject() != nil {
-			require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY, frame.GetReject().GetReason())
-			rejected++
-			frame = awaitPullFrame(t, stream)
-		}
-		require.NotNil(t, frame.GetPong())
-	}
-	require.Equal(t, 19, rejected)
-	require.Equal(t, uint64(19), worker.PullReservedRPCDeclines())
-	worker.pull.mu.Lock()
-	require.Equal(t, 1, worker.pull.busyTasks)
-	worker.pull.mu.Unlock()
-}
-
-func TestWorkerPullReservePressureKeepsOnlyDecliningQueueExtra(t *testing.T) {
-	address, server := startPullTestServer(t)
-	flow := &reservedRPCFlow{entered: make(chan string, 3), release: make(chan struct{})}
-	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
-		FlowServiceAddress: address,
-		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(1)},
-	})
-	require.NoError(t, err)
-	worker.pull.reservePressureLinger = 1500 * time.Millisecond
-	started := make(chan error, 1)
-	go func() { started <- worker.Start() }()
-	var releaseOnce sync.Once
-	t.Cleanup(func() {
-		releaseOnce.Do(func() { close(flow.release) })
-		require.NoError(t, worker.Stop(context.Background()))
-		require.NoError(t, <-started)
-	})
-	flowQueue := GetFinalFlowType(flow)
-	for taskNumber := 0; taskNumber < 2; taskNumber++ {
-		stream := awaitReservedRPCStream(t, server, flowQueue)
-		require.NoError(t, stream.send(reservedRPCTestTask("execute", fmt.Sprint(taskNumber))))
-		require.Equal(t, "execute", awaitReservedRPCEntry(t, flow))
-	}
-	decliningStream := awaitReservedRPCStream(t, server, flowQueue)
-	require.NoError(t, decliningStream.send(reservedRPCTestTask("execute", "declined")))
-	require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY, awaitPullFrame(t, decliningStream).GetReject().GetReason())
-	require.Eventually(t, func() bool {
-		return pullRegisteredIdleStreams(worker, flowQueue) == 2 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
-	}, 5*time.Second, time.Millisecond)
-	releaseOnce.Do(func() { close(flow.release) })
-	require.Eventually(t, func() bool {
-		worker.pull.mu.Lock()
-		busyTasks := worker.pull.busyTasks
-		worker.pull.mu.Unlock()
-		return busyTasks == 0 && pullRegisteredIdleStreams(worker, flowQueue) == 2 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
-	}, 5*time.Second, time.Millisecond)
-	require.Eventually(t, func() bool {
-		return pullRegisteredIdleStreams(worker, flowQueue) == 1 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
-	}, 5*time.Second, time.Millisecond)
 }
 
 func (flow *reservedRPCFlow) GetSteps() []StepDef {
@@ -197,6 +147,12 @@ func (flow *reservedRPCFlow) block(ctx Context, kind string) error {
 	case <-flow.release:
 		return nil
 	case <-ctx.Done():
+		if flow.cancellationObserved != nil {
+			close(flow.cancellationObserved)
+		}
+		if flow.finishAfterCancellation != nil {
+			<-flow.finishAfterCancellation
+		}
 		return ctx.Err()
 	}
 }

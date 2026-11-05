@@ -200,6 +200,11 @@ when some shutdown step does not complete in time or fails, for example when
 object storage rejects the lease release. A replacement may then wait up to
 **lease.duration** plus about 1 second.
 
+Attempts that Dex has not handed to a Worker yet do not fail. The successor
+dispatches them. Attempts that are running when the process lets go of the
+lease are failed by the new active process with NOT_COMPLETED, and each
+consumes a retry.
+
 A SIGTERM during startup interrupts lease acquisition or recovery. If the node holds
 its lease, it stops startup and releases the lease within the shutdown budget.
 A failed release makes the process exit 1, and the next start may wait for the
@@ -356,7 +361,10 @@ The duration affects takeover time after a crash. A graceful shutdown releases
 the lease, so the replacement starts at once. After a crash, a SIGKILL, or the
 loss of a Kubernetes node, the replacement waits until the old lease expires,
 plus 1 second. That wait is at most **lease.duration** plus 1 second. Recovery
-starts after it.
+starts after it. Recovery fails each attempt that a Worker had received with
+NOT_COMPLETED, and the attempt consumes a retry. The exception is an ASYNC
+attempt whose start was not yet durable when the node crashed. It runs again
+with the same attempt number and consumes no retry.
 
 The duration only partly affects object storage outages:
 
@@ -523,7 +531,9 @@ it releases the lease and keeps running as a standby. Calls that finish before
 the release keep their answers. Calls still open at the release answer
 **UNAVAILABLE** at once, so clients retry them on the new active process. A pull
 Worker that runs a task reconnects when the task ends. A result that arrives
-after the release is not recorded, so the Step is dispatched again. Another
+after the release is not recorded. The new active process fails that attempt
+with NOT_COMPLETED, and it consumes a retry. Attempts that Dex has not handed to
+a Worker yet do not fail, and the new active process dispatches them. Another
 process of the same node ID can take the lease at once, as after a graceful
 shutdown. The stepped-down process waits for a hold-off,
 **standby.stepDownHoldOff**, before it competes for the lease again. If no other
@@ -834,6 +844,7 @@ key applies when the node starts.
 | --- | --- | --- |
 | **commit.applierLanes** | The larger of 8 and the CPUs available to the process, at most **cluster.partitionCount** and 1024 | Lanes that apply committed commands to the local store in parallel. One partition always uses the same lane, so its commands apply in order. Applying a command reads and writes the local store, so even a small host uses at least 8 lanes. An explicit value must be from 1 to the smaller of **cluster.partitionCount** and 1024. If the CPU count cannot be read, the default is 8. |
 | **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
+| **commit.batchWindow** | 20ms | How long an ASYNC command waits for more commands before its batch is sealed. A SYNC command seals its batch at once while the write pipeline has room. Both write the same data. The speculation limits apply to both, so Step proposals retry without failing the Step, while Client calls can get UNAVAILABLE. |
 | **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
 | **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Must be at least the smaller of **api.grpcMaxMessageBytes** and 32 MiB, so that the largest command can fit. |
 | **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. |
@@ -1082,7 +1093,10 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | --- | --- |
 | API requests and errors | **dexzd_api_requests_total** with **rpc_class** and **code** |
 | API latency | **dexzd_api_request_latency_seconds** with **rpc_class**; unary calls only |
-| Step failures | **dexzd_step_attempt_failures_total** with **durability** and **failure_kind**; **dexzd_step_retries_exhausted_total** with **durability** |
+| Step failures | **dexzd_step_attempt_failures_total** with **durability** and **failure_kind**, which includes **started_attempt_interrupted**; **dexzd_step_retries_exhausted_total** with **durability** |
+| Returned attempts | **dexzd_step_attempts_returned_total** with **reason** |
+| Unsupported types | **dexzd_matching_unsupported_type_entries**; **dexzd_matching_unsupported_type_evictions_total** |
+| Worker stream protocol errors | **dexzd_worker_stream_protocol_errors_total** with **error** |
 | Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
 | Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
 | Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** |
@@ -1110,9 +1124,32 @@ a snapshot, such as when the standby store was missing or stale.
 **dexzd_takeover_duration_seconds** covers hot takeovers only, by
 **store_source**.
 
+**reason** of **dexzd_step_attempts_returned_total** counts attempts that went
+back to pending without consuming a retry. It is one of **unsupported** (a
+Worker declined the Step type), **legacy_no_capacity** (an older SDK Worker
+declined for capacity), and **not_delivered** (the task never reached the
+Worker). **legacy_no_capacity** should drop to zero once every SDK is
+upgraded. **error** of **dexzd_worker_stream_protocol_errors_total** is one
+of **no_capacity_on_reserved_slot**, **half_close_after_output**, and
+**reject_after_output**. With
+**no_capacity_on_reserved_slot**, a reserved-slot Worker declined a task for
+capacity. The attempt fails as not run, and the stream ends. With
+**half_close_after_output**, a Worker closed its stream after output but before
+the final result. The attempt fails with NOT_COMPLETED. With
+**reject_after_output**, a Worker declined a task after it had already sent
+output for it. The attempt fails as possibly run, with NOT_COMPLETED. The
+server ends that stream with INVALID_ARGUMENT, so it gets no further task.
+**dexzd_matching_unsupported_type_evictions_total** is a counter. A steady rise
+means you should raise **matching.unsupportedTypeCacheEntries**. An evicted pair is
+not sent to its Worker again until that Worker completes a Step. While the cache
+overflows, a type that a Worker declined can therefore be offered to it again
+after each Step it completes. Raise **matching.unsupportedTypeCacheEntries** when
+this counter rises or the server logs the full-cache WARN.
+
 Worker polls use one persistent stream, so there is no empty-poll count.
-**dexzd_worker_stream_events_total** counts each task delivery and each stream
-close. Long-poll waits count toward **flow_read** latency.
+**dexzd_worker_stream_events_total** counts each stream close and, with
+**event="delivered"**, every task frame sent, including RPC task frames. A returned attempt
+that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
 
 ~~~text
 # Failed API calls by class and code
@@ -1141,6 +1178,7 @@ matching:
   stickyWait: 5s
   maxConcurrentTasksCap: 256
   maxStreams: 100000
+  unsupportedTypeCacheEntries: 10000
   maxQueueLength: 256
   maxFlowTypes: 256
   maxFlowTypeLength: 256
@@ -1151,12 +1189,32 @@ matching:
 | --- | --- | --- |
 | **matching.dispatchWait** | 10s | Total time to find a Worker for one attempt. |
 | **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
-| **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. |
-| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. |
+| **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. Dex reports it to Workers at registration. |
+| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by total slots. |
+| **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, Flow type, Step type or RPC name, app Worker ID) pairs that Dex remembers as unsupported. |
 | **matching.maxQueueLength** | 256 | Longest queue name, in characters. |
 | **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
 | **matching.maxFlowTypeLength** | 256 | Longest registered Flow type, in characters. |
 | **matching.pingInterval** | 20s | Interval between **Ping** frames on idle Worker streams. |
+
+A Worker that uses reserved-slot dispatch opens one stream for each execution
+slot. An idle stream is a free slot. It serves the Worker's sticky queue and
+every Flow type the Worker declares. Reserved RPC slots are RPC-only streams and
+never receive Steps. When a slot frees up, waiting RPCs get it before waiting
+Steps. Registration beyond **matching.maxConcurrentTasksCap** or
+**matching.maxStreams** gets **RESOURCE_EXHAUSTED**.
+
+When a Worker declines a Step type or an RPC name as unknown, Dex remembers the
+(tenant, Flow type, Step type or RPC name, app Worker ID) pair in a bounded
+cache and stops offering that type to that Worker. Dex drops the entry when
+every stream with that app Worker ID disconnects. A restarted Worker gets a new
+app Worker ID, so Dex does not exclude it. If you override the app Worker ID,
+set a new value after each process restart. Otherwise an upgraded process that
+reuses the ID during a rolling deploy is excluded by the old process's entry,
+until every stream with that ID is gone, including the upgraded process's own
+streams. If the cache evicts the entry first, Dex offers the type again after a
+Worker with that ID completes a Step. For an RPC, Dex tries other Workers within the caller's deadline. An RPC
+still fails with the existing error when no Worker supports it.
 
 If no Worker is available within **dispatchWait**, a Step receives a retryable
 unavailable error that consumes a Step retry. An RPC caller receives an
@@ -1277,13 +1335,28 @@ can start when those intervals overlap. It negotiates the highest common
 protocol, then synchronizes Attribute indexes, then binds WorkerTaskService. The
 server and SDK artifact versions are diagnostic and do not decide compatibility.
 
-A new SDK can use an older server when it retains the older protocol, and a new
-server can use an older SDK while their intervals still overlap. A breaking
-server release raises its minimum protocol. Stop old Workers and their traffic
-before that server upgrade, then restart traffic. Alternatively, use isolated
-blue and green environments so deployments with disjoint intervals never
-communicate. Running Workers do not renegotiate after a server upgrade, so stop
-them explicitly before a breaking change.
+server-zd protocol version 4 does not raise the minimum protocol. Older SDK
+Workers and Clients keep working on the new server. Their capacity rejections
+return the attempt without consuming a retry.
+**dexzd_step_attempts_returned_total** with **reason="legacy_no_capacity"**
+counts them. This compatibility lasts until server-zd 1.0.
+
+New SDKs require the new server. On an older server, a new SDK Worker fails to
+start and a new SDK Client fails its first call, each with a clear error.
+Upgrade the server first, then the SDKs, one at a time. You do not need to stop
+Workers.
+
+This server upgrade does not support mixed versions. Stop every old server
+process, including active, hot standby, and cold standby, before you start the
+new version. After the new version wrote to a storage prefix, an older server
+must not run on it again. Roll forward, or restore a backup taken before the
+upgrade into a new prefix. Set new configuration keys only after every process
+runs the new version, and remove them before any rollback.
+
+A later release that raises the minimum protocol needs the same care. Stop old
+Workers and their traffic before that server upgrade, or use isolated blue and
+green environments so deployments with disjoint intervals never communicate.
+Running Workers do not renegotiate after a server upgrade.
 
 Protocol compatibility covers the Worker-to-server API only. It does not
 replace the compatibility rules for open Flows, including Flow type names, Step

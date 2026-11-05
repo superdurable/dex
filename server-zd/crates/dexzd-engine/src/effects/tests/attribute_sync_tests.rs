@@ -1408,6 +1408,7 @@ async fn time_travel_to_an_unsynced_value_deletes_the_store_row() {
         flow_id: FLOW_ID.to_owned(),
         run_id: run_id.as_bytes().to_vec(),
         command: Some(flow_command::Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: FLOW_ID.to_owned(),
                 reset_type: FlowResetType::Beginning as i32,
@@ -1515,6 +1516,7 @@ async fn assert_pending_reset_store_row(
                 flow_id: flow_id.to_owned(),
                 run_id: run_id.as_bytes().to_vec(),
                 command: Some(flow_command::Command::TimeTravel(TimeTravelCommand {
+                    should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: flow_id.to_owned(),
                         reset_type: FlowResetType::Beginning as i32,

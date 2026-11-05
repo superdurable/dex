@@ -16,9 +16,10 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
-    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
-    StepInvocationRecord, StepMethod, StepMethodCompletedCommand, TimerId, TimersFiredCommand,
-    flow_command::Command, step_attempt_heartbeat_command, step_method_completed_command,
+    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord,
+    StepInvocationKey, StepInvocationRecord, StepMethod, StepMethodCompletedCommand, TimerId,
+    TimersFiredCommand, flow_command::Command, step_attempt_heartbeat_command,
+    step_method_completed_command,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
@@ -308,14 +309,22 @@ fn step_decision(
     }
 }
 
-/// Only the Step failure stream reports `RETRY_DEADLINE`, the engine's total duration failure.
+/// Only the Step failure stream reports `STARTED_ATTEMPT_INTERRUPTED` and fences on the task ID.
 pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>, is_step_failure_stream: bool) -> Command {
-    let kind = if is_step_failure_stream {
-        rng.random_range(1..10)
-    } else {
-        rng.random_range(1..9)
+    let kind = match rng.random_range(1..if is_step_failure_stream { 10 } else { 9 }) {
+        9 => StepAttemptFailureKind::StartedAttemptInterrupted as i32,
+        kind => kind,
     };
+    let expected_task_id = if is_step_failure_stream && rng.random_bool(0.5) {
+        call.invocation.task_id.clone()
+    } else {
+        Vec::new()
+    };
+    let is_not_run = !expected_task_id.is_empty() && rng.random_bool(0.3);
     Command::StepAttemptFailed(StepAttemptFailedCommand {
+        expected_task_id,
+        is_before_start: false,
+        is_not_run,
         invocation: Some(call.key()),
         attempt: call.invocation.attempt,
         kind,
@@ -329,10 +338,18 @@ pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>, is_step_failure_stream
             ..WorkerErrorResponse::default()
         }),
         server_detail: String::new(),
-        // The engine reports an expired retry deadline as non-retryable.
-        is_non_retryable: kind == StepAttemptFailureKind::RetryDeadline as i32
-            || rng.random_bool(0.03),
+        is_non_retryable: rng.random_bool(0.03),
         pull_routing: None,
+    })
+}
+
+/// The Worker never ran the attempt, so it returns to pending with the same number.
+pub(crate) fn return_attempt(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
+    Command::StepAttemptReturned(StepAttemptReturnedCommand {
+        invocation: Some(call.key()),
+        attempt: call.invocation.attempt,
+        expected_task_id: call.invocation.task_id.clone(),
+        reason: rng.random_range(1..4),
     })
 }
 
@@ -349,6 +366,7 @@ pub(crate) fn heartbeat(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
         ))
     };
     Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+        task_id: Vec::new(),
         invocation: Some(call.key()),
         attempt: call.invocation.attempt,
         checkpoint: Some(checkpoint),

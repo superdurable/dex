@@ -94,6 +94,12 @@ where
     }
 
     fn call(&mut self, request: http::Request<RequestBody>) -> Self::Future {
+        if request.uri().path() == "/dex.FlowService/GetServerInfo" {
+            return Box::pin(async move {
+                let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
+                Ok(grpc.unary(GetServerInfo, request).await)
+            });
+        }
         let authorization = request
             .headers()
             .get("authorization")
@@ -171,7 +177,7 @@ impl UnaryService<()> for GetServerInfo {
             Ok(Response::new(ServerInfo {
                 server_version: "test".to_string(),
                 minimum_supported_protocol_version: 1,
-                current_protocol_version: 3,
+                current_protocol_version: 4,
                 server_engine: 0,
             }))
         })
@@ -440,6 +446,7 @@ fn exercise_worker_poll_rejection(accepts_token_b: bool, should_stop_on_rejectio
                 .pull(
                     PullWorkerOptions::new()
                         .app_worker_id("api-key-test-worker")
+                        .max_concurrent_tasks(1)
                         .stop_on_permanent_stream_rejection(should_stop_on_rejection),
                 ),
         )

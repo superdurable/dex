@@ -137,7 +137,8 @@ fn apply_in_scope(
         Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)
-        | Command::StepMethodCompleted(_) => {
+        | Command::StepMethodCompleted(_)
+        | Command::StepAttemptReturned(_) => {
             match with_run(&transaction, scope)? {
                 Err(reply) => HandlerResult::Rejected(reply),
                 Ok(cursor) => match apply_step_command(&mut transaction, cursor, scope, body)? {
@@ -274,6 +275,8 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         // Delivery retries rejections forever. Parents counted child starts; child results
         // have their own limit.
         Command::InboxMessage(_) => false,
+        // A return only clears the running attempt, so state never grows.
+        Command::StepAttemptReturned(_) => false,
         _ => false,
     }
 }
@@ -285,9 +288,17 @@ fn has_attribute_value(writes: &[AttributeWrite]) -> bool {
 }
 
 fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAttemptFailedCommand> {
-    let (invocation, attempt) = match body {
-        Command::StepAttemptHeartbeat(command) => (command.invocation.clone(), command.attempt),
-        Command::StepMethodCompleted(command) => (command.invocation.clone(), command.attempt),
+    let (invocation, attempt, task_id) = match body {
+        Command::StepAttemptHeartbeat(command) => (
+            command.invocation.clone(),
+            command.attempt,
+            &command.task_id,
+        ),
+        Command::StepMethodCompleted(command) => (
+            command.invocation.clone(),
+            command.attempt,
+            &command.task_id,
+        ),
         _ => return None,
     };
     Some(StepAttemptFailedCommand {
@@ -296,6 +307,8 @@ fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAtt
         kind: StepAttemptFailureKind::ValueTooLarge as i32,
         server_detail: detail.to_owned(),
         is_non_retryable: true,
+        // The failure is fenced like the result it replaces; an older log has no task ID.
+        expected_task_id: task_id.clone(),
         ..StepAttemptFailedCommand::default()
     })
 }
@@ -371,7 +384,8 @@ pub(crate) fn apply_run_command(
         | Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)
-        | Command::StepMethodCompleted(_) => Err(ApplyError::InvariantViolation {
+        | Command::StepMethodCompleted(_)
+        | Command::StepAttemptReturned(_) => Err(ApplyError::InvariantViolation {
             detail: "command routed to the wrong handler".to_owned(),
         }),
     }

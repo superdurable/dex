@@ -14,7 +14,7 @@ Use **RetryAfter** if you want to deeply customize the retry behavior. It overri
 
 Retries recover from failed attempts. Do not use **RetryAfter** to wait for an external system; use the [Polling](/design-patterns/polling) pattern.
 
-A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) loaded for its first attempt, so it does not see Attribute writes made after that load. To wait for an external write, have the writer also publish a [Channel](/primitives/channel) message, directly or from an RPC handler, and wait on that message in the **WaitFor** of the next Step. Alternatively, the next Step can wait on a [Timer](/primitives/timer) and read fresh state when it runs.
+A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) that Dex took when it handed the first attempt to a Worker, so it does not see Attribute writes made after that. To wait for an external write, have the writer also publish a [Channel](/primitives/channel) message, directly or from an RPC handler, and wait on that message in the **WaitFor** of the next Step. Alternatively, the next Step can wait on a [Timer](/primitives/timer) and read fresh state when it runs.
 
 <SdkTabs
   examples={{
@@ -82,17 +82,25 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 ## Durability {#durability}
 
-**SYNC** durability records the Step completion in Dex Server and persists it to storage synchronously.
+**SYNC** durability records the Step completion in Dex Server and persists it to storage synchronously. It also makes the attempt start durable in storage before the Worker receives the task.
 
-**ASYNC** durability does this asynchronously. Dex Server starts the next work before the Step completion is persisted, and it batches these commits within about 20 milliseconds. It provides much higher throughput because it removes a lot of overhead from storage and the server.
+**ASYNC** durability does this asynchronously. Dex Server hands the task to the Worker and starts the next work before the start and the completion are persisted, and it batches these commits within about 20 milliseconds. Sustained server throughput is about the same for both modes. **ASYNC** has lower latency, and a single Flow runs faster. On object storage with low write latency, **ASYNC** also makes far fewer requests.
 
-If a Dex Server node fails before the commit, a recent **ASYNC** result is lost. The method runs again, and so does any later work that started from that result. Make **ASYNC** methods and the work they start idempotent.
+If a Dex Server node fails before the commit, a recent **ASYNC** result is lost. The method runs again, and so does any later work that started from that result. If the node fails before the **ASYNC** start was persisted, Dex rolls the start back and runs the same attempt number again. This consumes no retry, and the attempt can see different input. Two executions of the same attempt number can overlap, and Step Stream writes can repeat in the same source. Make **ASYNC** methods and the work they start idempotent.
+
+For either mode, the attempts of one Step are not strictly sequential. Cancellation is cooperative, so an interrupted execution may still run while the next attempt or the failure route starts.
+
+Choose **SYNC** for effects that need the tightest guarantees. Choose **ASYNC** for short Steps where latency matters and a rare rerun is acceptable. See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery) for the full comparison.
+
+Dex pins the durability when a method call becomes pending. Changing **step_durability** in the Flow config affects only method calls scheduled afterward.
 
 **SYNC** is the default. Dex resolves durability in this order: a method override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
 
-Durability changes only when Dex Server persists a result. Retry policy, method timeout, and heartbeat settings apply to every attempt in both modes. The default method attempt timeout is two hours, and the default heartbeat timeout is one minute.
+Durability changes when Dex Server persists an attempt start and a result. With **SYNC**, the start is durable before the task goes to the Worker. With **ASYNC**, Dex Server does not wait for the start to be persisted, so the task can go out before the start is durable. Retry policy, method timeout, and heartbeat settings apply to every attempt in both modes. The default method attempt timeout is two hours, and the default heartbeat timeout is one minute.
 
-The default total retry duration is four hours for both durability modes. An explicit retry duration may be shorter or longer.
+The method timeout and the heartbeat timeout start when Dex sends the task to the Worker. Waiting for locks or for a Worker does not count. The deadline in the task is the send time plus the method timeout.
+
+The default total retry duration (**TotalDuration**) is four hours for both durability modes. An explicit retry duration may be shorter or longer. **TotalDuration** starts when Dex first hands attempt 1 to a Worker. If attempt 1 was returned without running, the clock resets. Dex uses **TotalDuration** only after an attempt fails, to decide whether to retry. It never cuts a running attempt, so the last attempt can start or end after **TotalDuration**. Only the method timeout limits a single attempt. To bound one long attempt, set **ExecuteMethodTimeout** or **WaitForMethodTimeout**, not **TotalDuration**. The server no longer produces the RETRY_DEADLINE failure kind. The SDK helper **IsRetryTotalDurationExceeded**, and its equivalent in other SDKs, can be true only for records from before the upgrade.
 
 <SdkTabs
   examples={{
@@ -337,12 +345,12 @@ Three options bound the time a Step method can take.
 | Limit | Option | Enforcement |
 | --- | --- | --- |
 | Longest single attempt | **WaitForMethodTimeout** or **ExecuteMethodTimeout** | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
-| Longest total time, including every retry | **TotalDuration** in the retry policy | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Time budget for retries | **TotalDuration** in the retry policy | The budget starts when Dex first hands attempt 1 to a Worker. After an attempt fails, Dex retries only while the budget has time left. It never stops an attempt in progress. |
 | Stalled Worker | **HeartbeatTimeout**, one minute by default | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. See [Heartbeat](#heartbeat). |
 
 A method timeout defaults to two hours, and the server has no hard cap. **TotalDuration** defaults to four hours.
 
-To bound a long wait, set the method timeout and **TotalDuration** to the same maximum. Dex enforces both, so the Step does not need its own deadline. Give the retry policy a few attempts with backoff for transient errors and Worker crashes.
+To bound a long wait, set the method timeout and **TotalDuration** to the same maximum. Dex enforces both, so the Step does not need its own deadline. **TotalDuration** only decides whether to retry after a failure, so the last attempt can end after it. With Workers available, the total wait is at most about **TotalDuration** plus one method timeout. Give the retry policy a few attempts with backoff for transient errors and Worker crashes.
 
 When a timeout expires, Dex fails the attempt with a timeout error. After retries end, the failure policy decides what happens next. If no failure route is configured, the Flow fails. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery). For a long wait on an external system, see [Polling](/design-patterns/polling).
 
@@ -352,7 +360,7 @@ Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary A
 
 **StepOptions** has separate selections for **WaitFor** and **Execute**. Select an entire AttributeMap or ChannelMap when the method must enumerate current instances. Select an exact map instance when its key is already known. An Attribute lock controls concurrency but does not load the AttributeMap value.
 
-The two methods receive independent snapshots. **Execute** reads its snapshot after the winning Wait conditions consume their messages, so it does not see those consumed messages again. Retries of one logical method call reuse its first snapshot.
+The two methods receive independent snapshots. **Execute** reads its snapshot after the winning Wait conditions consume their messages, so it does not see those consumed messages again. Dex takes the snapshot of attempt 1 when it hands the attempt to a Worker. Retries of one logical method call, and attempts that return to pending, reuse that snapshot.
 
 This Step loads pending **Queued** messages only for **Execute**. It deletes the first pending message in the same successful handler response.
 
@@ -422,6 +430,8 @@ Reading an unselected AttributeMap value or pending Channel message returns the 
 Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
 
 **WaitFor** and **Execute** have separate lock sets. Set them by returning **StepOptions**.
+
+An attempt keeps its locks while it waits to run again after a return, for example when a Worker declined its Step type. Transactional RPCs on those keys get a lock conflict meanwhile.
 
 See [Attribute locking](/primitives/attribute#locking) for more details.
 

@@ -46,11 +46,13 @@ Choose the interval for the wait. Use a few seconds when a user is watching, suc
 
 Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. Dex enforces them, so the Step does not compute a deadline. Neither the checkpoint nor the Step input carries one. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes. See [Timeouts and total duration](/primitives/step/step-options#timeouts-and-total-duration).
 
+**TotalDuration** only decides whether Dex retries after a failure, so the last attempt can end after it. With Workers available, the total wait is at most about **TotalDuration** plus one **ExecuteMethodTimeout**.
+
 The polling Step can use either durability. See [Step options](/primitives/step/step-options#durability).
 
 ## When the wait expires
 
-When **ExecuteMethodTimeout** or **TotalDuration** expires, Dex fails the Step with a timeout. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+When **ExecuteMethodTimeout** expires, Dex fails the attempt with a timeout. If **TotalDuration** leaves no time for another retry, the Step fails. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 
 The failure record does not include the last observed status. The progress Stream and the logs show it. A business condition that is not a fixed duration, such as a lease the Flow does not own, still belongs in the loop.
 

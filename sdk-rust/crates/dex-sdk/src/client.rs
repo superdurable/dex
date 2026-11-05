@@ -33,9 +33,7 @@ pub use attribute_reads::{AttributeRead, AttributeReads};
 
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
-use crate::server_protocol::{
-    NegotiatedServerProtocolVersion, negotiate_server_protocol, server_info_request_error,
-};
+use crate::server_protocol::{NegotiatedServerProtocolVersion, negotiate_server_protocol};
 use crate::stop_flow_options::StopType;
 use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
 use crate::value_hydrator::ValueHydrator;
@@ -56,6 +54,13 @@ use crate::{
 /// Client methods block the calling thread while an internal Tokio runtime performs gRPC and blob
 /// hydration. The Client owns its transport resources; dropping it releases them. Flow, Step, RPC,
 /// Attribute, and Channel arguments are checked against the [`Registry`].
+/// Construction performs no network I/O. Before its first service request, every Client negotiates
+/// protocol version 4. Successful negotiation and incompatibility errors are cached for its lifetime;
+/// transient negotiation failures are retried on the next call. Incompatibility errors name the
+/// Server version and required server-zd release. Concurrent first calls share one negotiation.
+/// An unreachable Server during negotiation returns the usual service error with its gRPC code.
+/// A positive request timeout on a wait method also bounds negotiation and the wait for another
+/// caller's negotiation; its expiry returns [`SdkError::RequestTimeout`] and is not cached.
 ///
 /// # Examples
 ///
@@ -76,6 +81,7 @@ pub struct Client {
     service: FlowServiceClient<CredentialChannel>,
     hydrator: ValueHydrator,
     negotiated_protocol_version: NegotiatedServerProtocolVersion,
+    protocol_negotiation: tokio::sync::Mutex<Option<Result<u32, String>>>,
 }
 
 impl Client {
@@ -119,6 +125,7 @@ impl Client {
             service,
             hydrator,
             negotiated_protocol_version: NegotiatedServerProtocolVersion::default(),
+            protocol_negotiation: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -144,15 +151,15 @@ impl Client {
     /// Always selects pull Workers, overriding any server-configured push target.
     /// Returns the server-assigned run ID. A missing request ID is replaced with a generated UUID.
     /// When the options contain an initial value for a hard-delete Attribute, the Client first
-    /// requests the Server protocol version once and reuses the result for later calls.
+    /// uses the Server protocol version negotiated before the first service request.
     ///
     /// # Errors
     ///
     /// Returns [`SdkError`] for invalid IDs, unregistered or mismatched Flow types, encoding
     /// failures, invalid option durations, reuse conflicts, and service failures. Returns
     /// [`SdkError::InvalidArgument`] for an invalid initial hard-delete Attribute value or a
-    /// definition that does not match the registered one. Returns [`SdkError::Service`] when an
-    /// initial hard-delete Attribute targets a Server older than protocol version 3.
+    /// definition that does not match the registered one. Returns [`SdkError::Service`] when the
+    /// Server does not support the protocol version this SDK requires.
     pub fn start_flow_with_options<SomeFlow: Flow>(
         &self,
         flow: &SomeFlow,
@@ -209,6 +216,7 @@ impl Client {
                 .clone()
                 .unwrap_or_else(|| Uuid::new_v4().to_string()),
         };
+        self.require_server_protocol("start_flow")?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             service
@@ -382,6 +390,7 @@ impl Client {
             page_size,
             before_page_token: before_page_token.to_string(),
         };
+        self.require_server_protocol("list_stream_messages")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -454,6 +463,7 @@ impl Client {
     ///
     /// Returns [`SdkError::FlowNotFound`] for an unknown ID or a service/protocol error.
     pub fn describe_flow(&self, flow_id: &str) -> SdkResult<FlowInfo> {
+        self.require_server_protocol("describe_flow")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -518,6 +528,7 @@ impl Client {
         if page_size < 0 {
             return Err(invalid("search page size must not be negative"));
         }
+        self.require_server_protocol("search_flows")?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             let response = service
@@ -636,6 +647,7 @@ impl Client {
                 };
             }
         }
+        self.require_server_protocol("time_travel")?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             service
@@ -710,6 +722,11 @@ impl Client {
     ) -> SdkResult<()> {
         let request_budget = ClientRequestBudget::new(options.request_timeout)?;
         let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
+        self.require_server_protocol_within_budget(
+            "wait_for_step_completion",
+            flow_id,
+            &request_budget,
+        )?;
         loop {
             let request_attempt =
                 request_budget.next_attempt("wait_for_step_completion", flow_id)?;
@@ -806,6 +823,11 @@ impl Client {
         encoded_match.key = key.to_string();
         let request_budget = ClientRequestBudget::new(options.request_timeout)?;
         let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
+        self.require_server_protocol_within_budget(
+            "wait_for_attribute_match",
+            flow_id,
+            &request_budget,
+        )?;
         let response = loop {
             let request_attempt =
                 request_budget.next_attempt("wait_for_attribute_match", flow_id)?;
@@ -982,6 +1004,7 @@ impl Client {
             load_channel_names,
             load_channel_map_instances: load_channel_map_instances.into_iter().collect(),
         };
+        self.require_server_protocol("invoke_rpc")?;
         let mut service = self.service.clone();
         let output = self.runtime.block_on(async {
             service
@@ -1021,6 +1044,7 @@ impl Client {
             resume_token: resume_token.to_string(),
             wait_time_seconds,
         };
+        self.require_server_protocol("read_stream")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -1062,6 +1086,7 @@ impl Client {
         flow_id: &str,
         timeout: Option<Duration>,
     ) -> SdkResult<FlowResult> {
+        self.require_server_protocol("wait_for_flow")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -1179,27 +1204,63 @@ impl Client {
         Ok(flow_start_options)
     }
 
+    fn require_server_protocol(&self, operation: &'static str) -> SdkResult<()> {
+        self.runtime
+            .block_on(self.negotiate_server_protocol_once(operation))
+    }
+
+    /// Negotiates within the caller's remaining request budget and returns
+    /// [`SdkError::RequestTimeout`] when it expires first; a timeout is never cached.
+    fn require_server_protocol_within_budget(
+        &self,
+        operation: &'static str,
+        flow_id: &str,
+        request_budget: &ClientRequestBudget,
+    ) -> SdkResult<()> {
+        let Some(deadline) = request_budget.deadline() else {
+            return self.require_server_protocol(operation);
+        };
+        self.runtime
+            .block_on(async {
+                tokio::time::timeout_at(
+                    tokio::time::Instant::from_std(deadline),
+                    self.negotiate_server_protocol_once(operation),
+                )
+                .await
+            })
+            .unwrap_or_else(|_| Err(SdkError::request_timeout(operation, flow_id)))
+    }
+
+    async fn negotiate_server_protocol_once(&self, operation: &'static str) -> SdkResult<()> {
+        let mut cached = self.protocol_negotiation.lock().await;
+        if cached.is_none() {
+            let mut service = self.service.clone();
+            let server_info = service
+                .get_server_info(())
+                .await
+                .map_err(|status| {
+                    SdkError::from_status(status, operation, None, FlowTargetRequirement::None)
+                })?
+                .into_inner();
+            *cached = Some(negotiate_server_protocol(&server_info));
+        }
+        match cached.as_ref().expect("Server negotiation was cached") {
+            Ok(version) => {
+                self.negotiated_protocol_version.store(*version);
+                Ok(())
+            }
+            Err(message) => Err(SdkError::Service {
+                service: ServiceError::local("server_protocol", message.clone()),
+            }),
+        }
+    }
+
     fn require_hard_delete_attribute_support(
         &self,
         operation: &'static str,
         attribute_key: &str,
     ) -> SdkResult<()> {
-        if !self.negotiated_protocol_version.has_negotiated() {
-            let mut service = self.service.clone();
-            let server_info = self
-                .runtime
-                .block_on(service.get_server_info(()))
-                .map_err(|status| SdkError::Service {
-                    service: ServiceError::local(operation, server_info_request_error(status)),
-                })?
-                .into_inner();
-            let negotiated_protocol_version =
-                negotiate_server_protocol(&server_info).map_err(|error| SdkError::Service {
-                    service: ServiceError::local(operation, error),
-                })?;
-            self.negotiated_protocol_version
-                .store(negotiated_protocol_version);
-        }
+        self.require_server_protocol(operation)?;
         self.negotiated_protocol_version
             .require_hard_delete_attribute_support(attribute_key)
             .map_err(|error| SdkError::Service {
@@ -1222,6 +1283,7 @@ impl Client {
         Call: FnOnce(FlowServiceClient<CredentialChannel>) -> Future,
         Future: std::future::Future<Output = Result<tonic::Response<Response>, tonic::Status>>,
     {
+        self.require_server_protocol(operation)?;
         let service = self.service.clone();
         self.runtime
             .block_on(call(service))
@@ -1491,276 +1553,7 @@ fn service_error(error: impl std::fmt::Display) -> SdkError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::map_flow_config;
-    use crate::FlowConfig;
-
-    #[test]
-    fn attribute_store_names_preserve_protocol_presence() {
-        let absent = map_flow_config(Some(&FlowConfig::new())).expect("map absent config");
-        let named = map_flow_config(Some(
-            &FlowConfig::new()
-                .attribute_store_names(vec!["profiles".to_owned(), "audit".to_owned()]),
-        ))
-        .expect("map named config");
-        let disabled = map_flow_config(Some(&FlowConfig::new().attribute_store_names(vec![])))
-            .expect("map disabled config");
-
-        assert_eq!(absent.attribute_store_names, None);
-        assert_eq!(
-            named.attribute_store_names.expect("named stores").names,
-            vec!["profiles", "audit"]
-        );
-        assert_eq!(
-            disabled
-                .attribute_store_names
-                .expect("disabled stores")
-                .names,
-            Vec::<String>::new()
-        );
-    }
-
-    mod hard_delete {
-        use std::convert::Infallible;
-        use std::sync::atomic::{AtomicU32, Ordering};
-        use std::sync::{Arc, LazyLock, Mutex};
-        use std::task::{Context, Poll};
-
-        use dex_protocol::dex::ServerInfo;
-        use tokio::net::TcpListener;
-        use tokio::sync::oneshot;
-        use tokio_stream::wrappers::TcpListenerStream;
-        use tonic::codegen::{BoxFuture, Service, http};
-        use tonic::server::{NamedService, UnaryService};
-        use tonic::transport::Server;
-        use tonic::{Request, Response, Status};
-
-        use crate::{
-            Attribute, AttributeMap, AttributeMatch, BlobCache, BlobCacheConfig, Client,
-            ClientOptions, Flow, PersistenceSchema, Registry, SdkError, StartFlowOptions,
-            WaitForAttributeOptions,
-        };
-
-        static API_KEY: LazyLock<Attribute<String>> =
-            LazyLock::new(|| Attribute::new("api-key").hard_delete_on_null());
-        static TENANT_KEYS: LazyLock<AttributeMap<String>> =
-            LazyLock::new(|| AttributeMap::new("tenant-keys").hard_delete_on_null());
-        static PLAIN_NOTE: LazyLock<Attribute<String>> =
-            LazyLock::new(|| Attribute::new("plain-note"));
-
-        struct HardDeleteClientFlow;
-
-        impl Flow for HardDeleteClientFlow {
-            type StartInput = ();
-
-            fn persistence(&self) -> PersistenceSchema {
-                PersistenceSchema::new()
-                    .attribute(&API_KEY)
-                    .attribute_map(&TENANT_KEYS)
-                    .attribute(&PLAIN_NOTE)
-            }
-        }
-
-        #[derive(Clone)]
-        struct OldFlowService {
-            paths: Arc<Mutex<Vec<String>>>,
-            current_protocol_version: Arc<AtomicU32>,
-        }
-
-        impl NamedService for OldFlowService {
-            const NAME: &'static str = "dex.FlowService";
-        }
-
-        impl<B> Service<http::Request<B>> for OldFlowService
-        where
-            B: tonic::codegen::Body + Send + 'static,
-            B::Error: Into<tonic::codegen::StdError> + Send + 'static,
-        {
-            type Response = http::Response<tonic::body::Body>;
-            type Error = Infallible;
-            type Future = BoxFuture<Self::Response, Self::Error>;
-
-            fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-                Poll::Ready(Ok(()))
-            }
-
-            fn call(&mut self, request: http::Request<B>) -> Self::Future {
-                let path = request.uri().path().to_string();
-                self.paths.lock().expect("paths lock").push(path.clone());
-                let server_info = GetServerInfo {
-                    current_protocol_version: self.current_protocol_version.load(Ordering::SeqCst),
-                };
-                Box::pin(async move {
-                    if path == "/dex.FlowService/GetServerInfo" {
-                        let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
-                        Ok(grpc.unary(server_info, request).await)
-                    } else {
-                        Ok(Status::unimplemented("fake FlowService").into_http())
-                    }
-                })
-            }
-        }
-
-        struct GetServerInfo {
-            current_protocol_version: u32,
-        }
-
-        impl UnaryService<()> for GetServerInfo {
-            type Response = ServerInfo;
-            type Future = BoxFuture<Response<Self::Response>, Status>;
-
-            fn call(&mut self, _: Request<()>) -> Self::Future {
-                let current_protocol_version = self.current_protocol_version;
-                Box::pin(async move {
-                    Ok(Response::new(ServerInfo {
-                        server_version: "fake".to_string(),
-                        minimum_supported_protocol_version: 1,
-                        current_protocol_version,
-                        server_engine: 0,
-                    }))
-                })
-            }
-        }
-
-        fn client_for(address: &str, cache_directory: &tempfile::TempDir) -> Client {
-            let cache = Arc::new(
-                BlobCache::open(
-                    BlobCacheConfig::new(cache_directory.path(), 1024 * 1024, 0)
-                        .expect("blob cache config"),
-                )
-                .expect("blob cache"),
-            );
-            Client::try_new(
-                Registry::new()
-                    .register(HardDeleteClientFlow)
-                    .expect("register hard-delete Flow"),
-                cache,
-                ClientOptions::new().server_address(address),
-            )
-            .expect("Client")
-        }
-
-        #[test]
-        fn wait_for_attribute_rejects_hard_delete_attributes_before_contacting_dex() {
-            let cache_directory = tempfile::tempdir().expect("blob cache directory");
-            let client = client_for("127.0.0.1:1", &cache_directory);
-            let single = client.wait_for_attribute_match(
-                "flow-1",
-                &API_KEY,
-                AttributeMatch::equal_to("key-1".to_string()),
-                WaitForAttributeOptions::new(),
-            );
-            let map = client.wait_for_attribute_map_instance_match(
-                "flow-1",
-                &TENANT_KEYS,
-                "tenant-a",
-                AttributeMatch::equal_to("key-a".to_string()),
-                WaitForAttributeOptions::new(),
-            );
-            for result in [single, map] {
-                let Err(SdkError::InvalidArgument { message }) = result else {
-                    panic!("expected a local InvalidArgument");
-                };
-                assert!(message.contains("does not support hard-delete Attribute"));
-            }
-        }
-
-        #[test]
-        fn start_flow_negotiates_once_and_rejects_hard_delete_writes_to_old_servers() {
-            let runtime = tokio::runtime::Runtime::new().expect("server runtime");
-            let listener = runtime
-                .block_on(TcpListener::bind("127.0.0.1:0"))
-                .expect("bind fake FlowService");
-            let address = listener.local_addr().expect("fake server address");
-            let paths = Arc::new(Mutex::new(Vec::new()));
-            let current_protocol_version = Arc::new(AtomicU32::new(2));
-            let (shutdown, stopped) = oneshot::channel::<()>();
-            runtime.spawn(
-                Server::builder()
-                    .add_service(OldFlowService {
-                        paths: Arc::clone(&paths),
-                        current_protocol_version: Arc::clone(&current_protocol_version),
-                    })
-                    .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
-                        stopped.await.expect("FlowService shutdown signal");
-                    }),
-            );
-            let cache_directory = tempfile::tempdir().expect("blob cache directory");
-            let client = client_for(&address.to_string(), &cache_directory);
-
-            for options in [
-                StartFlowOptions::new().initial_attribute(&API_KEY, "key-1".to_string()),
-                StartFlowOptions::new().initial_attribute_map(
-                    &TENANT_KEYS,
-                    "tenant-a",
-                    "key-a".to_string(),
-                ),
-            ] {
-                let error = client
-                    .start_flow_with_options(&HardDeleteClientFlow, "flow-1", (), options)
-                    .expect_err("old Server rejects hard-delete writes");
-                let SdkError::Service { service } = error else {
-                    panic!("expected a Service error, got {error}");
-                };
-                assert!(service.detail().contains("protocol version 3 or later"));
-                assert!(
-                    service
-                        .detail()
-                        .contains("negotiated protocol version is 2")
-                );
-            }
-            assert_eq!(
-                vec!["/dex.FlowService/GetServerInfo".to_string()],
-                *paths.lock().expect("paths lock")
-            );
-
-            current_protocol_version.store(3, Ordering::SeqCst);
-            let error = client
-                .start_flow_with_options(
-                    &HardDeleteClientFlow,
-                    "flow-1",
-                    (),
-                    StartFlowOptions::new().initial_attribute(&API_KEY, "key-1".to_string()),
-                )
-                .expect_err("cached negotiation still rejects the write");
-            assert!(
-                error
-                    .to_string()
-                    .contains("negotiated protocol version is 2")
-            );
-            client
-                .start_flow_with_options(
-                    &HardDeleteClientFlow,
-                    "flow-1",
-                    (),
-                    StartFlowOptions::new().initial_attribute(&PLAIN_NOTE, "note".to_string()),
-                )
-                .expect_err("fake StartFlow is unimplemented");
-            assert_eq!(
-                vec![
-                    "/dex.FlowService/GetServerInfo".to_string(),
-                    "/dex.FlowService/StartFlow".to_string(),
-                ],
-                *paths.lock().expect("paths lock")
-            );
-
-            let fresh_client = client_for(&address.to_string(), &cache_directory);
-            fresh_client
-                .start_flow_with_options(
-                    &HardDeleteClientFlow,
-                    "flow-1",
-                    (),
-                    StartFlowOptions::new().initial_attribute(&API_KEY, "key-1".to_string()),
-                )
-                .expect_err("fake StartFlow is unimplemented");
-            assert_eq!(
-                Some(&"/dex.FlowService/StartFlow".to_string()),
-                paths.lock().expect("paths lock").last()
-            );
-            shutdown.send(()).expect("stop fake FlowService");
-        }
-    }
-}
+mod tests;
 
 #[cfg(test)]
 #[path = "client_pull_routing_tests.rs"]

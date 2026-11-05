@@ -268,6 +268,10 @@ impl ComponentConfigs {
                 "matching.maxFlowTypeLength",
                 u64::from(config.matching.max_flow_type_length),
             )?,
+            unsupported_type_cache_entries: to_usize(
+                "matching.unsupportedTypeCacheEntries",
+                u64::from(config.matching.unsupported_type_cache_entries),
+            )?,
             ..MatchingConfig::default()
         };
         let stream_store = StreamStoreConfig {

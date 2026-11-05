@@ -7,21 +7,25 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! Seeded pull Workers behind the engine's dispatch ports, without the matching layer.
+//!
+//! A reservation stands for an idle reserved Worker slot; the drawn behavior plays once the task
+//! frame is sent.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_engine::{
-    MethodDispatchRequest, MethodDispatchSession, MethodDispatchStartError, MethodDispatcher,
-    MethodRequest, RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult,
+    MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
+    MethodStreamReservation, MethodTask, ReservedMethodStream, RpcInvokeError, RpcWorkerInvoker,
+    WorkerRpcInvocation, WorkerRpcResult,
 };
 use dexzd_protocol::dex::{
     Context, DispatchTaskErrorReason, InvokeExecuteMethodOutput, InvokeWaitForMethodOutput,
-    PollWorkerTaskFrame, StepMethodHeartbeat, invoke_execute_method_output,
-    invoke_wait_for_method_output, poll_worker_task_frame,
+    PollWorkerTaskFrame, PollWorkerTaskRejectReason, StepMethodHeartbeat,
+    invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task_frame,
 };
-use dexzd_worker_dispatch::{DispatchEvent, DispatchOutcome};
+use dexzd_worker_dispatch::{DispatchOutcome, StepTaskEvent, StepTaskSendFailure};
 use futures::future::BoxFuture;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -66,6 +70,15 @@ impl AttemptIdentity {
     }
 }
 
+/// One task frame a Worker received.
+#[derive(Debug, Clone)]
+pub(crate) struct TaskFrameRecord {
+    pub(crate) task_id: String,
+    pub(crate) is_sync: bool,
+    /// False when the Worker declined or half-closed before running the task.
+    pub(crate) has_possibly_run: bool,
+}
+
 /// How a Worker handles one dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum WorkerBehavior {
@@ -78,8 +91,16 @@ pub(crate) enum WorkerBehavior {
     Slow,
     /// Returns the result it already returned for the same attempt.
     RepeatResult,
-    DisconnectBeforeOutput,
+    /// The stream breaks after the task frame, before any output.
+    DisconnectAfterHandOut,
     DisconnectAfterOutput,
+    /// The Worker declines the Step type before running it.
+    Unsupported,
+    /// A Worker without reserved-slot dispatch declines the task for capacity.
+    LegacyNoCapacity,
+    /// The Worker cleanly half-closes its slot before running the task.
+    HalfCloseBeforeOutput,
+    /// The reservation finds no Worker within the dispatch wait.
     NoWorker,
     RpcSucceed,
     RpcFail,
@@ -95,7 +116,7 @@ struct ScriptedEvent {
     /// Whether the delay starts only once the pool stops holding.
     should_wait_for_release: bool,
     delay: Duration,
-    event: Option<DispatchEvent>,
+    event: Option<StepTaskEvent>,
 }
 
 struct WorkerPoolState {
@@ -105,6 +126,8 @@ struct WorkerPoolState {
     is_calm: bool,
     is_holding: bool,
     dispatch_history: BTreeMap<String, Vec<AttemptIdentity>>,
+    /// Every task frame of every process, by attempt.
+    task_frames: BTreeMap<AttemptIdentity, Vec<TaskFrameRecord>>,
     returned_results: BTreeMap<AttemptIdentity, PollWorkerTaskFrame>,
     steps_left: BTreeMap<(String, String), u32>,
     /// WaitFor results that wait for a child Flow, as (Flow ID, run ID, Step execution ID).
@@ -131,6 +154,7 @@ impl SimulatedWorkers {
                 is_calm: false,
                 is_holding: false,
                 dispatch_history: BTreeMap::new(),
+                task_frames: BTreeMap::new(),
                 returned_results: BTreeMap::new(),
                 steps_left: BTreeMap::new(),
                 child_waits: BTreeSet::new(),
@@ -162,6 +186,11 @@ impl SimulatedWorkers {
             .unwrap_or_default()
     }
 
+    /// Returns every task frame a Worker received, by attempt, across all processes.
+    pub(crate) fn task_frames(&self) -> BTreeMap<AttemptIdentity, Vec<TaskFrameRecord>> {
+        self.lock().task_frames.clone()
+    }
+
     pub(crate) fn behavior_counts(&self) -> BTreeMap<WorkerBehavior, u64> {
         self.lock().behaviors.clone()
     }
@@ -178,13 +207,76 @@ impl SimulatedWorkers {
         })
     }
 
+    /// Draws whether any Worker takes the reservation; without one, it ends after a delay.
+    async fn reserve(self: &Arc<Self>, process_label: &str) -> MethodStreamReservation {
+        let delay = {
+            let mut state = self.lock();
+            let has_no_worker =
+                !state.is_calm && !state.is_holding && state.rng.random_range(0..100) < 3;
+            if !has_no_worker {
+                None
+            } else {
+                *state.behaviors.entry(WorkerBehavior::NoWorker).or_default() += 1;
+                Some(Duration::from_millis(state.rng.random_range(10..1_000)))
+            }
+        };
+        let Some(delay) = delay else {
+            return MethodStreamReservation::Reserved(Box::new(SimulatedSlot {
+                workers: Arc::clone(self),
+                process_label: process_label.to_owned(),
+            }));
+        };
+        self.trace
+            .record(&format!("{process_label} reservation found no Worker"));
+        tokio::time::sleep(delay).await;
+        MethodStreamReservation::NoWorker {
+            reason: DispatchTaskErrorReason::NoWorkerAvailable,
+            detail: "no simulated Worker is available".to_owned(),
+        }
+    }
+
     fn start_dispatch(
         self: &Arc<Self>,
         process_label: &str,
-        request: &MethodRequest,
-    ) -> Result<Box<dyn MethodDispatchSession>, MethodDispatchStartError> {
+        task: &MethodTask,
+    ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
+        let request = &task.request;
         let identity = AttemptIdentity::of(request);
         let mut state = self.lock();
+        let behavior = state.draw_behavior(&identity);
+        *state.behaviors.entry(behavior).or_default() += 1;
+        self.trace.record(&format!(
+            "{process_label} dispatch {} run {} step {} execute={} attempt {} {behavior:?}",
+            identity.flow_id,
+            identity.run_id,
+            identity.step_execution_id,
+            identity.is_execute,
+            identity.attempt
+        ));
+        if behavior == WorkerBehavior::HalfCloseBeforeOutput && state.rng.random_bool(0.5) {
+            // The slot half-closed before the frame went out.
+            return Err(StepTaskSendFailure::NotDelivered);
+        }
+        state
+            .dispatch_history
+            .entry(process_label.to_owned())
+            .or_default()
+            .push(identity.clone());
+        let has_possibly_run = !matches!(
+            behavior,
+            WorkerBehavior::Unsupported
+                | WorkerBehavior::LegacyNoCapacity
+                | WorkerBehavior::HalfCloseBeforeOutput
+        );
+        state
+            .task_frames
+            .entry(identity.clone())
+            .or_default()
+            .push(TaskFrameRecord {
+                task_id: task.task_id.clone(),
+                is_sync: task.is_sync,
+                has_possibly_run,
+            });
         // An Execute dispatch means the WaitFor condition, such as a child result, was met.
         if identity.is_execute
             && state.child_waits.remove(&(
@@ -195,26 +287,6 @@ impl SimulatedWorkers {
         {
             self.child_waits_ended
                 .send_modify(|generation| *generation += 1);
-        }
-        let behavior = state.draw_behavior(&identity);
-        *state.behaviors.entry(behavior).or_default() += 1;
-        state
-            .dispatch_history
-            .entry(process_label.to_owned())
-            .or_default()
-            .push(identity.clone());
-        self.trace.record(&format!(
-            "{process_label} dispatch {} run {} step {} execute={} attempt {} {behavior:?}",
-            identity.flow_id,
-            identity.run_id,
-            identity.step_execution_id,
-            identity.is_execute,
-            identity.attempt
-        ));
-        if behavior == WorkerBehavior::NoWorker && state.rng.random_bool(0.5) {
-            return Err(MethodDispatchStartError {
-                detail: "no simulated Worker polls this Flow type".to_owned(),
-            });
         }
         let script = state.script(behavior, &identity, request);
         drop(state);
@@ -342,9 +414,11 @@ impl WorkerPoolState {
             70..=77 => WorkerBehavior::Slow,
             78..=84 if has_result => WorkerBehavior::RepeatResult,
             78..=84 => WorkerBehavior::Succeed,
-            85..=90 => WorkerBehavior::DisconnectBeforeOutput,
-            91..=96 => WorkerBehavior::DisconnectAfterOutput,
-            _ => WorkerBehavior::NoWorker,
+            85..=87 => WorkerBehavior::DisconnectAfterHandOut,
+            88..=91 => WorkerBehavior::DisconnectAfterOutput,
+            92..=94 => WorkerBehavior::Unsupported,
+            95..=96 => WorkerBehavior::LegacyNoCapacity,
+            _ => WorkerBehavior::HalfCloseBeforeOutput,
         }
     }
 
@@ -355,17 +429,9 @@ impl WorkerPoolState {
         request: &MethodRequest,
     ) -> Vec<ScriptedEvent> {
         let worker_id = format!("worker-{}", self.rng.random_range(0..3));
-        let assigned = ScriptedEvent {
-            should_wait_for_release: false,
-            delay: Duration::from_millis(self.rng.random_range(1..200)),
-            event: Some(DispatchEvent::Assigned {
-                app_worker_id: worker_id.clone(),
-            }),
-        };
         let mut script = Vec::new();
         match behavior {
             WorkerBehavior::Succeed | WorkerBehavior::Slow => {
-                script.push(assigned);
                 let is_slow = behavior == WorkerBehavior::Slow;
                 self.push_heartbeats(&mut script, request, is_slow);
                 let delay = if is_slow {
@@ -376,7 +442,6 @@ impl WorkerPoolState {
                 script.push(self.result_event(delay, identity, request, worker_id));
             }
             WorkerBehavior::RepeatResult => {
-                script.push(assigned);
                 let frame = self
                     .returned_results
                     .get(identity)
@@ -385,18 +450,17 @@ impl WorkerPoolState {
                 script.push(ScriptedEvent {
                     should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(1..300)),
-                    event: Some(DispatchEvent::Completed(DispatchOutcome::WorkerResult {
+                    event: Some(StepTaskEvent::Completed(DispatchOutcome::WorkerResult {
                         frame,
                         app_worker_id: worker_id,
                     })),
                 });
             }
             WorkerBehavior::Fail => {
-                script.push(assigned);
                 script.push(ScriptedEvent {
                     should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..1_000)),
-                    event: Some(DispatchEvent::Completed(DispatchOutcome::WorkerError {
+                    event: Some(StepTaskEvent::Completed(DispatchOutcome::WorkerError {
                         frame: PollWorkerTaskFrame {
                             task_id: String::new(),
                             output: Some(poll_worker_task_frame::Output::WorkerError(
@@ -408,7 +472,6 @@ impl WorkerPoolState {
                 });
             }
             WorkerBehavior::Hang => {
-                script.push(assigned);
                 self.push_heartbeats(&mut script, request, false);
                 script.push(ScriptedEvent {
                     should_wait_for_release: false,
@@ -417,40 +480,50 @@ impl WorkerPoolState {
                 });
             }
             WorkerBehavior::Hold => {
-                script.push(assigned);
                 let delay = Duration::from_millis(self.rng.random_range(10..500));
                 let mut result = self.result_event(delay, identity, request, worker_id);
                 result.should_wait_for_release = true;
                 script.push(result);
             }
-            WorkerBehavior::DisconnectBeforeOutput => {
-                script.push(assigned);
+            WorkerBehavior::DisconnectAfterHandOut => {
                 script.push(ScriptedEvent {
                     should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..2_000)),
-                    event: Some(DispatchEvent::Unassigned),
-                });
-                let other_worker = format!("worker-{}", self.rng.random_range(3..6));
-                script.push(ScriptedEvent {
-                    should_wait_for_release: false,
-                    delay: Duration::from_millis(self.rng.random_range(10..500)),
-                    event: Some(DispatchEvent::Assigned {
-                        app_worker_id: other_worker.clone(),
+                    event: Some(StepTaskEvent::Disconnected {
+                        detail: "simulated Worker disconnected".to_owned(),
                     }),
                 });
-                let delay = Duration::from_millis(self.rng.random_range(10..1_500));
-                script.push(self.result_event(delay, identity, request, other_worker));
+            }
+            WorkerBehavior::Unsupported | WorkerBehavior::LegacyNoCapacity => {
+                let reason = if behavior == WorkerBehavior::Unsupported {
+                    PollWorkerTaskRejectReason::UnknownStep
+                } else {
+                    PollWorkerTaskRejectReason::NoCapacity
+                };
+                script.push(ScriptedEvent {
+                    should_wait_for_release: false,
+                    delay: Duration::from_millis(self.rng.random_range(1..300)),
+                    event: Some(StepTaskEvent::Rejected {
+                        reason,
+                        is_reserved_slot: false,
+                    }),
+                });
+            }
+            WorkerBehavior::HalfCloseBeforeOutput => {
+                script.push(ScriptedEvent {
+                    should_wait_for_release: false,
+                    delay: Duration::from_millis(self.rng.random_range(1..300)),
+                    event: Some(StepTaskEvent::NotDelivered),
+                });
             }
             WorkerBehavior::DisconnectAfterOutput => {
-                script.push(assigned);
                 self.push_heartbeats(&mut script, request, false);
                 script.push(ScriptedEvent {
                     should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..1_000)),
-                    event: Some(DispatchEvent::Completed(DispatchOutcome::DispatchError {
-                        reason: DispatchTaskErrorReason::WorkerDisconnected,
+                    event: Some(StepTaskEvent::Disconnected {
                         detail: "simulated Worker disconnected".to_owned(),
-                    })),
+                    }),
                 });
             }
             WorkerBehavior::NoWorker
@@ -459,14 +532,7 @@ impl WorkerPoolState {
             | WorkerBehavior::RpcTimeout
             | WorkerBehavior::HeartbeatWithValue
             | WorkerBehavior::HeartbeatWithoutValue => {
-                script.push(ScriptedEvent {
-                    should_wait_for_release: false,
-                    delay: Duration::from_millis(self.rng.random_range(10..1_000)),
-                    event: Some(DispatchEvent::Completed(DispatchOutcome::DispatchError {
-                        reason: DispatchTaskErrorReason::NoWorkerAvailable,
-                        detail: "no simulated Worker is available".to_owned(),
-                    })),
-                });
+                unreachable!("{behavior:?} is never drawn for a sent Step task")
             }
         }
         script
@@ -508,7 +574,7 @@ impl WorkerPoolState {
             script.push(ScriptedEvent {
                 should_wait_for_release: false,
                 delay: Duration::from_millis(self.rng.random_range(100..2_000)),
-                event: Some(DispatchEvent::Output(PollWorkerTaskFrame {
+                event: Some(StepTaskEvent::Output(PollWorkerTaskFrame {
                     task_id: String::new(),
                     output: Some(output),
                 })),
@@ -580,7 +646,7 @@ impl WorkerPoolState {
         ScriptedEvent {
             should_wait_for_release: false,
             delay,
-            event: Some(DispatchEvent::Completed(DispatchOutcome::WorkerResult {
+            event: Some(StepTaskEvent::Completed(DispatchOutcome::WorkerResult {
                 frame,
                 app_worker_id: worker_id,
             })),
@@ -591,7 +657,7 @@ impl WorkerPoolState {
 /// Plays `script` until it ends, the session goes away, or the engine cancels the dispatch.
 async fn play_script(
     script: Vec<ScriptedEvent>,
-    events: mpsc::Sender<DispatchEvent>,
+    events: mpsc::Sender<StepTaskEvent>,
     mut cancel: watch::Receiver<bool>,
     mut hold: watch::Receiver<bool>,
 ) {
@@ -609,16 +675,16 @@ async fn play_script(
                 () = tokio::time::sleep(scripted.delay) => false,
             };
         let event = match scripted.event {
-            _ if is_canceled => DispatchEvent::Completed(DispatchOutcome::Cancelled),
+            _ if is_canceled => StepTaskEvent::Completed(DispatchOutcome::Cancelled),
             Some(event) => event,
             None => {
                 if cancel.wait_for(|is_canceled| *is_canceled).await.is_err() {
                     return;
                 }
-                DispatchEvent::Completed(DispatchOutcome::Cancelled)
+                StepTaskEvent::Completed(DispatchOutcome::Cancelled)
             }
         };
-        let is_final = matches!(event, DispatchEvent::Completed(_));
+        let is_final = !matches!(event, StepTaskEvent::Output(_));
         // A failed send means the engine dropped the session; the script ends either way.
         if events.send(event).await.is_err() || is_final {
             return;
@@ -627,13 +693,13 @@ async fn play_script(
 }
 
 struct SimulatedDispatchSession {
-    events: mpsc::Receiver<DispatchEvent>,
+    events: mpsc::Receiver<StepTaskEvent>,
     cancel: watch::Sender<bool>,
     worker_task: tokio::task::JoinHandle<()>,
 }
 
 impl MethodDispatchSession for SimulatedDispatchSession {
-    fn next_event(&mut self) -> BoxFuture<'_, Option<DispatchEvent>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Option<StepTaskEvent>> {
         Box::pin(self.events.recv())
     }
 
@@ -655,12 +721,30 @@ pub(crate) struct NodeWorkerPort {
 }
 
 impl MethodDispatcher for NodeWorkerPort {
-    fn dispatch(
+    fn reserve_stream(
         &self,
-        request: MethodDispatchRequest,
-    ) -> Result<Box<dyn MethodDispatchSession>, MethodDispatchStartError> {
-        self.workers
-            .start_dispatch(&self.process_label, &request.request)
+        _request: MethodStreamRequest,
+    ) -> BoxFuture<'_, MethodStreamReservation> {
+        Box::pin(self.workers.reserve(&self.process_label))
+    }
+}
+
+/// A reserved slot of the simulated Worker pool.
+struct SimulatedSlot {
+    workers: Arc<SimulatedWorkers>,
+    process_label: String,
+}
+
+impl ReservedMethodStream for SimulatedSlot {
+    fn app_worker_id(&self) -> &str {
+        "worker-0"
+    }
+
+    fn send_task(
+        self: Box<Self>,
+        task: MethodTask,
+    ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
+        self.workers.start_dispatch(&self.process_label, &task)
     }
 }
 

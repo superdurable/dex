@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Asks the Worker to finish its task and reconnect for queue ownership changes or shutdown.
+ * Asks the Worker to finish its task and reconnect for queue or slot ownership changes or shutdown.
  * </pre>
  *
  * Protobuf type {@code dex.PollWorkerTaskReconnect}
@@ -58,7 +58,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object reason_ = "";
   /**
    * <pre>
-   * Explains why Dex needs a new queue stream.
+   * Explains why Dex needs a new queue or reserved-slot stream.
    * </pre>
    *
    * <code>string reason = 1;</code>
@@ -79,7 +79,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Explains why Dex needs a new queue stream.
+   * Explains why Dex needs a new queue or reserved-slot stream.
    * </pre>
    *
    * <code>string reason = 1;</code>
@@ -262,7 +262,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Asks the Worker to finish its task and reconnect for queue ownership changes or shutdown.
+   * Asks the Worker to finish its task and reconnect for queue or slot ownership changes or shutdown.
    * </pre>
    *
    * Protobuf type {@code dex.PollWorkerTaskReconnect}
@@ -405,7 +405,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object reason_ = "";
     /**
      * <pre>
-     * Explains why Dex needs a new queue stream.
+     * Explains why Dex needs a new queue or reserved-slot stream.
      * </pre>
      *
      * <code>string reason = 1;</code>
@@ -425,7 +425,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Explains why Dex needs a new queue stream.
+     * Explains why Dex needs a new queue or reserved-slot stream.
      * </pre>
      *
      * <code>string reason = 1;</code>
@@ -446,7 +446,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Explains why Dex needs a new queue stream.
+     * Explains why Dex needs a new queue or reserved-slot stream.
      * </pre>
      *
      * <code>string reason = 1;</code>
@@ -463,7 +463,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Explains why Dex needs a new queue stream.
+     * Explains why Dex needs a new queue or reserved-slot stream.
      * </pre>
      *
      * <code>string reason = 1;</code>
@@ -477,7 +477,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Explains why Dex needs a new queue stream.
+     * Explains why Dex needs a new queue or reserved-slot stream.
      * </pre>
      *
      * <code>string reason = 1;</code>

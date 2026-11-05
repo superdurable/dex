@@ -118,7 +118,7 @@ import {
 } from "./persistence.js";
 import type { RPCInvokeOptions, RPCResult } from "./rpc.js";
 import { sdkVersion } from "./sdk-version.generated.js";
-import { negotiateServerProtocol, serverInfoRequestError } from "./server-protocol.js";
+import { negotiateServerProtocol } from "./server-protocol.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { voidCodec } from "./codec.js";
@@ -133,6 +133,11 @@ const defaultServerAddress = "localhost:8801";
  *
  * Methods perform asynchronous gRPC I/O. A Client owns its service connection but
  * not its Registry or BlobCache; call `close` during application shutdown.
+ * Before its first request, every method shares lazy Server protocol negotiation.
+ * The constructor performs no I/O. This SDK requires protocol 4.
+ * After an incompatible Server answers, every later call fails with a new Error that has the same message.
+ * A transport failure during negotiation rejects with the usual DexServiceError and is retried on the next call.
+ * Wait methods with a request timeout bound negotiation by that timeout and reject with RequestTimeoutError.
  *
  * @example
  * ```ts
@@ -147,7 +152,7 @@ const defaultServerAddress = "localhost:8801";
 export class Client {
   private readonly service: FlowServiceClientType;
   private readonly hydrator: ValueHydrator;
-  private negotiatedServerProtocolVersion: Promise<number> | undefined;
+  private serverInfoRequest: Promise<ServerInfo> | undefined;
 
   /**
    * Constructs a Client and lazy plaintext gRPC connection.
@@ -180,7 +185,7 @@ export class Client {
    * @throws {@link FlowDefinitionError} when `flow` is not registered.
    * @throws {@link TypeError} when a hard-delete initial Attribute is not the definition registered with `flow`.
    * @throws {@link ValueMappingError} when a hard-delete initial value encodes to a number or Boolean.
-   * @throws {@link Error} when the Server cannot accept hard-delete writes because its protocol version is below 3.
+   * @throws {@link Error} when the Server is incompatible with required protocol version 4.
    */
   public async startFlow<StartInput>(
     flow: Flow<StartInput>,
@@ -238,7 +243,7 @@ export class Client {
       );
     }
     await this.requireHardDeleteAttributeWriteSupport(initialAttributeWrites);
-    return (await unary<StartFlowResponse>(
+    return (await this.unary<StartFlowResponse>(
       { operation: "startFlow", flowId, requirement: "none" },
       (callback) => this.service.startFlow(request, callback),
     ))
@@ -254,30 +259,65 @@ export class Client {
     requireHardDeleteAttributeWriteSupport(await this.negotiateServerProtocol(), writes);
   }
 
-  private negotiateServerProtocol(): Promise<number> {
-    if (this.negotiatedServerProtocolVersion === undefined) {
-      const negotiation = this.getServerInfo().then((serverInfo) =>
-        negotiateServerProtocol(serverInfo, sdkVersion),
-      );
-      this.negotiatedServerProtocolVersion = negotiation;
-      negotiation.catch(() => {
-        if (this.negotiatedServerProtocolVersion === negotiation) {
-          this.negotiatedServerProtocolVersion = undefined;
-        }
-      });
-    }
-    return this.negotiatedServerProtocolVersion;
+  private async negotiateServerProtocol(): Promise<number> {
+    return negotiateServerProtocol(await this.sharedServerInfo(), sdkVersion);
   }
 
-  private async getServerInfo(): Promise<ServerInfo> {
+  private async negotiateServerProtocolWithinBudget(
+    requestBudget: ClientRequestBudget,
+    operation: string,
+    flowId: string,
+  ): Promise<number> {
+    const remainingMs = requestBudget.remainingMs(operation, flowId);
+    if (remainingMs === undefined) return this.negotiateServerProtocol();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await unary<ServerInfo>(
-        { operation: "getServerInfo", requirement: "none" },
-        (callback) => this.service.getServerInfo({}, callback),
-      );
-    } catch (failure) {
-      throw serverInfoRequestError(sdkVersion, failure);
+      const serverInfo = await Promise.race([
+        this.sharedServerInfo(),
+        new Promise<never>((_resolve, reject) => {
+          // Re-arms in steps because Node fires longer setTimeout delays immediately.
+          const expireAtBudget = (): void => {
+            try {
+              const leftMs = requestBudget.remainingMs(operation, flowId) ?? remainingMs;
+              timer = setTimeout(expireAtBudget, Math.min(leftMs, 2_147_483_647));
+            } catch (failure) {
+              reject(failure);
+            }
+          };
+          expireAtBudget();
+        }),
+      ]);
+      return negotiateServerProtocol(serverInfo, sdkVersion);
+    } finally {
+      clearTimeout(timer);
     }
+  }
+
+  private sharedServerInfo(): Promise<ServerInfo> {
+    if (this.serverInfoRequest === undefined) {
+      const request = this.getServerInfo();
+      this.serverInfoRequest = request;
+      // Transient failures are not cached; the next call asks the Server again.
+      request.catch(() => {
+        if (this.serverInfoRequest === request) this.serverInfoRequest = undefined;
+      });
+    }
+    return this.serverInfoRequest;
+  }
+
+  private async unary<Response>(
+    target: Parameters<typeof unary>[0],
+    invoke: (callback: (error: ServiceError | null, response: Response) => void) => unknown,
+  ): Promise<Response> {
+    await this.negotiateServerProtocol();
+    return unary(target, invoke);
+  }
+
+  private getServerInfo(): Promise<ServerInfo> {
+    return unary<ServerInfo>(
+      { operation: "getServerInfo", requirement: "none" },
+      (callback) => this.service.getServerInfo({}, callback),
+    );
   }
 
   /**
@@ -517,7 +557,7 @@ export class Client {
         return physicalName(load.channelMap.name, load.instance);
       },
     );
-    const response = await unary<InvokeRPCResponse>(
+    const response = await this.unary<InvokeRPCResponse>(
       { operation: "invokeRPC", flowId, requirement: "active" },
       (callback) =>
       this.service.invokeRpc(
@@ -585,7 +625,7 @@ export class Client {
       throw new TypeError("Stream source is required");
     }
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "writeStream", flowId, requirement: "none" },
       (callback) => this.service.writeStream({
         flowId: requireName(flowId),
@@ -614,7 +654,7 @@ export class Client {
     timeoutMs?: number,
   ): Promise<StreamMessage<T>> {
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
-    const response = await unary<ReadStreamResponse>(
+    const response = await this.unary<ReadStreamResponse>(
       { operation: "readStream", flowId, requirement: "none" },
       (callback) => this.service.readStream({
         flowId: requireName(flowId),
@@ -659,7 +699,7 @@ export class Client {
       throw new RangeError("Stream page size must be a positive 32-bit integer");
     }
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
-    const response = await unary<ListStreamMessagesResponse>(
+    const response = await this.unary<ListStreamMessagesResponse>(
       { operation: "listStreamMessages", flowId, requirement: "none" },
       (callback) => this.service.listStreamMessages({
         flowId: requireName(flowId),
@@ -697,7 +737,7 @@ export class Client {
     flowId: string,
     timeoutMs?: number,
   ): Promise<FlowResult> {
-    const response = await unary<ProtoFlowResult>(
+    const response = await this.unary<ProtoFlowResult>(
       { operation: "waitForFlow", flowId, requirement: "existing" },
       (callback) =>
         this.service.waitForFlow(
@@ -724,7 +764,7 @@ export class Client {
    * @param options - Stop mode and optional recorded reason.
    */
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "stopFlow", flowId, requirement: "active" },
       (callback) =>
       this.service.stopFlow(
@@ -745,7 +785,7 @@ export class Client {
    * @returns Flow ID, run ID, type, status, and UTC start time.
    */
   public async describeFlow(flowId: string): Promise<FlowInfo> {
-    const response = await unary<GetFlowSummaryResponse>(
+    const response = await this.unary<GetFlowSummaryResponse>(
       { operation: "describeFlow", flowId, requirement: "existing" },
       (callback) => this.service.getFlowSummary({ flowId: requireName(flowId), runId: "" }, callback),
     );
@@ -895,7 +935,7 @@ export class Client {
     keys: readonly string[],
   ): Promise<Map<string, ProtoValue>> {
     const joinedKeys = keys.join(", ");
-    const response = await unary<GetAttributesResponse>(
+    const response = await this.unary<GetAttributesResponse>(
       {
         operation: "getAttributes",
         flowId,
@@ -959,7 +999,7 @@ export class Client {
     if (pageSize < 0) {
       throw new RangeError("search page size must not be negative");
     }
-    const response = await unary<SearchFlowsResponse>(
+    const response = await this.unary<SearchFlowsResponse>(
       { operation: "searchFlows", requirement: "none" },
       (callback) => this.service.searchFlows({
         query, pageSize, nextPageToken,
@@ -1001,7 +1041,7 @@ export class Client {
    * @returns The new server-assigned run ID; the Flow ID remains unchanged.
    */
   public async timeTravel(flowId: string, options: TimeTravelOptions): Promise<string> {
-    const response = await unary<ResetFlowResponse>(
+    const response = await this.unary<ResetFlowResponse>(
       { operation: "timeTravel", flowId, requirement: "existing" },
       (callback) =>
       this.service.resetFlow(
@@ -1034,7 +1074,7 @@ export class Client {
     stepExecutionId: StepExecutionId,
     timerId: TimerId,
   ): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "skipTimer", flowId, requirement: "active" },
       (callback) =>
       this.service.skipTimer(
@@ -1066,6 +1106,7 @@ export class Client {
     const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
     const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
+      await this.negotiateServerProtocolWithinBudget(requestBudget, "waitForStepCompletion", flowId);
       const requestAttempt = requestBudget.nextAttempt("waitForStepCompletion", flowId);
       try {
         await unary<WaitForStepCompletionResponse>(
@@ -1201,6 +1242,7 @@ export class Client {
     const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
     const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
+      await this.negotiateServerProtocolWithinBudget(requestBudget, "waitForAttributeMatch", flowId);
       const requestAttempt = requestBudget.nextAttempt("waitForAttributeMatch", flowId);
       try {
         const response = await unary<WaitForAttributeResponse>(
@@ -1256,7 +1298,7 @@ export class Client {
    * @param config - New optional Flow configuration fields.
    */
   public async updateFlowConfig(flowId: string, config: FlowConfig): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "updateFlowConfig", flowId, requirement: "active" },
       (callback) =>
       this.service.updateFlowConfig(
@@ -1276,7 +1318,7 @@ export class Client {
    * @param flowId - Non-empty active Flow ID.
    */
   public async triggerContinueAsNew(flowId: string): Promise<void> {
-    await unary<Empty>(
+    await this.unary<Empty>(
       { operation: "triggerContinueAsNew", flowId, requirement: "active" },
       (callback) =>
         this.service.triggerContinueAsNew(
@@ -1837,6 +1879,17 @@ class ClientRequestBudget {
     this.deadlineMs = requestTimeoutSeconds === 0
       ? undefined
       : performance.now() + requestTimeoutSeconds * 1_000;
+  }
+
+  public remainingMs(operation: string, flowId: string): number | undefined {
+    if (this.deadlineMs === undefined) {
+      return undefined;
+    }
+    const remainingMs = this.deadlineMs - performance.now();
+    if (remainingMs <= 0) {
+      throw this.timeoutError(operation, flowId);
+    }
+    return remainingMs;
   }
 
   public nextAttempt(operation: string, flowId: string): ClientRequestAttempt {

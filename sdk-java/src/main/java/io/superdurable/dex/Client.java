@@ -91,9 +91,18 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Provides synchronous, strongly typed operations for starting and controlling Dex Flows.
+ *
+ * <p>Construction is lazy and performs no network I/O. Every network method requires Server
+ * protocol 4. The first network call reads the Server protocol and caches a compatible result.
+ * An older Server causes {@link IllegalStateException} on that call and on every later call.
+ * A Server that requires a newer protocol than this SDK supports causes the same error.
+ * A failure to reach the Server during that check throws {@link DexServiceException}, as any
+ * request does. The next call retries the check. The check counts against the call's request
+ * timeout and gRPC Context deadline.
  *
  * <p>All network methods block the calling thread until the gRPC request completes. Create one
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
@@ -114,6 +123,9 @@ import java.util.concurrent.TimeUnit;
  */
 public final class Client implements AutoCloseable {
     private static final long SERVER_INFO_TIMEOUT_SECONDS = 30L;
+    private static final long NO_REQUEST_DEADLINE = 0L;
+    // Bounds each wait for another caller's negotiation so Context cancellation is observed.
+    private static final long NEGOTIATION_LOCK_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(50);
 
     private final Registry registry;
     private final BlobCache blobCache;
@@ -124,6 +136,8 @@ public final class Client implements AutoCloseable {
     private final ValueHydrator hydrator;
     private final WorkerDispatcher mappings;
     private final NegotiatedServerProtocol serverProtocol = new NegotiatedServerProtocol();
+    private final ReentrantLock serverProtocolNegotiationLock = new ReentrantLock();
+    private volatile String serverProtocolIncompatibility;
     private final ThreadLocal<RPCInvokeOptions> rpcInvokeOptions =
             new ThreadLocal<RPCInvokeOptions>();
 
@@ -191,6 +205,7 @@ public final class Client implements AutoCloseable {
      *     does not match the registered start Step
      * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <I> String startFlow(
             final Flow<I> flow,
@@ -212,9 +227,7 @@ public final class Client implements AutoCloseable {
      *     an initial value targets a {@link Attribute#hardDeleteOnNull()} Attribute and maps to a
      *     number or a Boolean, or if an initial Attribute's hard-delete setting differs from the
      *     definition registered for the Flow
-     * @throws IllegalStateException if an initial value targets a hard-delete Attribute and the
-     *     Server does not support protocol version 3 or later, or the Server protocol cannot be
-     *     negotiated
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
      */
@@ -299,26 +312,111 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    synchronized void negotiateServerProtocol() {
+    void negotiateServerProtocol() {
+        negotiateServerProtocol(NO_REQUEST_DEADLINE);
+    }
+
+    void negotiateServerProtocol(final long deadlineNanos) {
+        negotiateServerProtocol(deadlineNanos, null);
+    }
+
+    // deadlineNanos is a System.nanoTime() deadline, or NO_REQUEST_DEADLINE.
+    // A non-null detailPrefix starts the detail of a translated failure.
+    private void negotiateServerProtocol(final long deadlineNanos, final String detailPrefix) {
         if (serverProtocol.isNegotiated()) {
             return;
         }
-        final String sdkVersion = ServerProtocolCompatibility.sdkVersion();
-        final ServerInfo serverInfo;
-        final FlowServiceGrpc.FlowServiceBlockingStub serverInfoService =
-                service.withDeadlineAfter(SERVER_INFO_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        throwIfServerProtocolIncompatible();
+        acquireServerProtocolNegotiationLock(deadlineNanos, detailPrefix);
         try {
-            serverInfo = GrpcCredential.callUnaryWithRetry(options.getCredential(),
+            if (serverProtocol.isNegotiated()) {
+                return;
+            }
+            throwIfServerProtocolIncompatible();
+            final ServerInfo serverInfo = readServerInfo(deadlineNanos, detailPrefix);
+            try {
+                serverProtocol.recordNegotiatedVersion(ServerProtocolCompatibility.negotiate(
+                        serverInfo, ServerProtocolCompatibility.sdkVersion()));
+            } catch (ServerProtocolCompatibility.IncompatibleServerProtocolException incompatible) {
+                serverProtocolIncompatibility = incompatible.getMessage();
+                throw incompatible;
+            }
+        } finally {
+            serverProtocolNegotiationLock.unlock();
+        }
+    }
+
+    private void throwIfServerProtocolIncompatible() {
+        final String incompatibility = serverProtocolIncompatibility;
+        if (incompatibility != null) {
+            throw new IllegalStateException(incompatibility);
+        }
+    }
+
+    private void acquireServerProtocolNegotiationLock(final long deadlineNanos,
+            final String detailPrefix) {
+        final io.grpc.Context callerContext = io.grpc.Context.current();
+        final long lockDeadlineNanos = earliestCallerDeadline(deadlineNanos);
+        try {
+            while (true) {
+                if (callerContext.isCancelled()) {
+                    throw GrpcExceptionTranslator.translate(
+                            io.grpc.Contexts.statusFromCancelled(callerContext).asRuntimeException(),
+                            FlowTargetRequirement.NONE, null, detailPrefix);
+                }
+                long waitNanos = NEGOTIATION_LOCK_POLL_NANOS;
+                if (lockDeadlineNanos != NO_REQUEST_DEADLINE) {
+                    final long remainingNanos = lockDeadlineNanos - System.nanoTime();
+                    if (remainingNanos <= 0) {
+                        break;
+                    }
+                    waitNanos = Math.min(waitNanos, remainingNanos);
+                }
+                if (serverProtocolNegotiationLock.tryLock(waitNanos, TimeUnit.NANOSECONDS)) {
+                    return;
+                }
+            }
+        } catch (InterruptedException interruption) {
+            Thread.currentThread().interrupt();
+            throw GrpcExceptionTranslator.translate(io.grpc.Status.CANCELLED
+                    .withDescription("interrupted while waiting for Server protocol negotiation")
+                    .withCause(interruption).asRuntimeException(), FlowTargetRequirement.NONE, null, detailPrefix);
+        }
+        throw GrpcExceptionTranslator.translate(io.grpc.Status.DEADLINE_EXCEEDED
+                .withDescription("request deadline expired during Server protocol negotiation")
+                .asRuntimeException(), FlowTargetRequirement.NONE, null, detailPrefix);
+    }
+
+    // Combines the request budget with the caller's gRPC Context deadline.
+    private static long earliestCallerDeadline(final long deadlineNanos) {
+        final io.grpc.Deadline contextDeadline = io.grpc.Context.current().getDeadline();
+        if (contextDeadline == null) {
+            return deadlineNanos;
+        }
+        final long contextDeadlineNanos = System.nanoTime()
+                + contextDeadline.timeRemaining(TimeUnit.NANOSECONDS);
+        return deadlineNanos == NO_REQUEST_DEADLINE
+                ? contextDeadlineNanos : Math.min(deadlineNanos, contextDeadlineNanos);
+    }
+
+    private ServerInfo readServerInfo(final long deadlineNanos, final String detailPrefix) {
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(SERVER_INFO_TIMEOUT_SECONDS);
+        if (deadlineNanos != NO_REQUEST_DEADLINE) {
+            timeoutNanos = Math.min(timeoutNanos, deadlineNanos - System.nanoTime());
+        }
+        if (timeoutNanos <= 0) {
+            throw GrpcExceptionTranslator.translate(io.grpc.Status.DEADLINE_EXCEEDED
+                    .withDescription("request deadline expired before Server protocol negotiation")
+                    .asRuntimeException(), FlowTargetRequirement.NONE, null, detailPrefix);
+        }
+        final FlowServiceGrpc.FlowServiceBlockingStub serverInfoService =
+                service.withDeadlineAfter(timeoutNanos, TimeUnit.NANOSECONDS);
+        try {
+            return GrpcCredential.callUnaryWithRetry(options.getCredential(),
                     () -> serverInfoService.getServerInfo(Empty.getDefaultInstance()));
         } catch (StatusRuntimeException failure) {
-            if (failure.getStatus().getCode() == io.grpc.Status.Code.UNAUTHENTICATED) {
-                throw GrpcExceptionTranslator.translate(
-                        failure, FlowTargetRequirement.NONE, null);
-            }
-            throw ServerProtocolCompatibility.requestFailure(sdkVersion, failure);
+            throw GrpcExceptionTranslator.translate(failure, FlowTargetRequirement.NONE, null, detailPrefix);
         }
-        serverProtocol.recordNegotiatedVersion(
-                ServerProtocolCompatibility.negotiate(serverInfo, sdkVersion));
     }
 
     static FlowTimeoutPolicy resolveTimeoutPolicy(
@@ -425,6 +523,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <I, O> O invokeRPC(
             final RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
@@ -448,6 +547,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <I, O> O invokeRPC(
             final RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
@@ -472,6 +572,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <O> O invokeRPC(final RpcDefinitions.RpcFunc0<O> rpcStubMethod) {
         return rpcStubMethod.execute(null).getOutput();
@@ -491,6 +592,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <O> O invokeRPC(
             final RpcDefinitions.RpcFunc0<O> rpcStubMethod,
@@ -514,6 +616,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <I> void invokeRPC(
             final RpcDefinitions.RpcProc1<I> rpcStubMethod,
@@ -535,6 +638,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <I> void invokeRPC(
             final RpcDefinitions.RpcProc1<I> rpcStubMethod,
@@ -558,6 +662,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void invokeRPC(final RpcDefinitions.RpcProc0 rpcStubMethod) {
         rpcStubMethod.execute(null);
@@ -575,6 +680,7 @@ public final class Client implements AutoCloseable {
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void invokeRPC(
             final RpcDefinitions.RpcProc0 rpcStubMethod,
@@ -599,6 +705,7 @@ public final class Client implements AutoCloseable {
      * @throws FlowDefinitionException if the Stream is not registered
      * @throws IllegalArgumentException if the Flow ID or source is invalid
      * @throws DexServiceException if Dex cannot append the message
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <T> void writeStream(
             final String flowId,
@@ -625,6 +732,7 @@ public final class Client implements AutoCloseable {
      * @param resumeToken the prior token, or empty for the retained head
      * @param <T> the Stream message type
      * @return the decoded message and resumable metadata
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <T> StreamMessage<T> readStream(
             final String flowId,
@@ -645,6 +753,7 @@ public final class Client implements AutoCloseable {
      * @throws LongPollTimeoutException if no message arrives before the wait expires
      * @throws FlowDefinitionException if the Stream is not registered
      * @throws DexServiceException if Dex cannot read the Stream
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <T> StreamMessage<T> readStream(
             final String flowId,
@@ -693,6 +802,7 @@ public final class Client implements AutoCloseable {
      * @throws IllegalArgumentException if {@code pageSize} is not positive
      * @throws FlowDefinitionException if the Stream is not registered
      * @throws DexServiceException if Dex cannot list the Stream
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <T> StreamMessagesPage<T> listStreamMessages(
             final String flowId,
@@ -736,6 +846,7 @@ public final class Client implements AutoCloseable {
      * @param flowId the target Flow ID
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot stop the Flow
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void stopFlow(final String flowId) {
         stopFlow(flowId, new StopFlowOptions());
@@ -748,6 +859,7 @@ public final class Client implements AutoCloseable {
      * @param stopOptions the stop mode and optional reason
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot stop the Flow
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
         call(() -> service.stopFlow(StopFlowRequest.newBuilder()
@@ -764,6 +876,7 @@ public final class Client implements AutoCloseable {
      * @return the terminal Flow result
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public FlowResult waitForFlow(final String flowId) {
         return waitForFlow(flowId, null);
@@ -779,6 +892,7 @@ public final class Client implements AutoCloseable {
      * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public FlowResult waitForFlow(
             final String flowId,
@@ -801,6 +915,7 @@ public final class Client implements AutoCloseable {
      * @return the current Flow run summary
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot describe the Flow
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public FlowInfo describeFlow(final String flowId) {
         final GetFlowSummaryResponse response = call(() -> service.getFlowSummary(
@@ -887,7 +1002,7 @@ public final class Client implements AutoCloseable {
      * @throws ValueMappingException when a stored value cannot be loaded or decoded as its
      *     definition's value class
      * @throws IllegalStateException when Dex returns an unexpected key, a duplicate key, or a key
-     *     without a value
+     *     without a value, or if the Dex Server does not support protocol version 4
      * @throws DexServiceException for other FlowService failures, including a failed LoadBlobs
      *     request; the exception keeps the gRPC code and Dex sub-status, and both its message and
      *     its {@link DexServiceException#getDetail() detail} start with the call context, such as
@@ -932,7 +1047,7 @@ public final class Client implements AutoCloseable {
      * @throws ValueMappingException when a stored value cannot be loaded or decoded as its
      *     definition's value class
      * @throws IllegalStateException when Dex returns an unexpected key, a duplicate key, or a key
-     *     without a value
+     *     without a value, or if the Dex Server does not support protocol version 4
      * @throws DexServiceException for other FlowService failures, including a failed LoadBlobs
      *     request; both its message and its detail start with the call context
      */
@@ -1003,6 +1118,7 @@ public final class Client implements AutoCloseable {
             final Set<String> keys) {
         final String context = "getAttributes Flow " + flowId + " Attributes "
                 + String.join(", ", keys);
+        negotiateServerProtocol(NO_REQUEST_DEADLINE, context);
         final GetAttributesResponse response;
         try {
             response = GrpcCredential.callUnaryWithRetry(
@@ -1079,6 +1195,7 @@ public final class Client implements AutoCloseable {
      * @return the first immutable search-results page
      * @throws IllegalArgumentException if {@code pageSize} is negative
      * @throws DexServiceException if Dex cannot execute the search
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public SearchFlowsPage searchFlows(final String query, final int pageSize) {
         return searchFlows(query, pageSize, "");
@@ -1093,6 +1210,7 @@ public final class Client implements AutoCloseable {
      * @return an immutable search-results page
      * @throws IllegalArgumentException if {@code pageSize} is negative
      * @throws DexServiceException if Dex cannot execute the search
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public SearchFlowsPage searchFlows(
             final String query,
@@ -1108,6 +1226,7 @@ public final class Client implements AutoCloseable {
      * @param nextPageToken token
      * @param options inclusion
      * @return page
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public SearchFlowsPage searchFlows(
             final String query,
@@ -1158,6 +1277,7 @@ public final class Client implements AutoCloseable {
      * @return the server-assigned run ID of the new execution
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public String timeTravel(final String flowId, final TimeTravelOptions options) {
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
@@ -1191,6 +1311,7 @@ public final class Client implements AutoCloseable {
      * @param timerId the timer selected by condition ID or index
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot find or skip the timer
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void skipTimer(
             final String flowId,
@@ -1225,6 +1346,7 @@ public final class Client implements AutoCloseable {
      * @throws RequestTimeoutException if a positive request timeout expires first
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void waitForStepCompletion(
             final String flowId,
@@ -1234,6 +1356,7 @@ public final class Client implements AutoCloseable {
         final int internalHandlerTimeoutSeconds = seconds32(options.getInternalHandlerTimeout());
         while (true) {
             try {
+                negotiateServerProtocol(requestBudget.getDeadlineNanos());
                 final ClientRequestAttempt requestAttempt = requestBudget.nextAttempt();
                 final FlowServiceGrpc.FlowServiceBlockingStub requestService = requestAttempt.hasDeadline()
                         ? service.withDeadlineAfter(
@@ -1284,6 +1407,7 @@ public final class Client implements AutoCloseable {
      * @throws RequestTimeoutException if a positive request timeout expires first
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <T> T waitForAttributeMatch(
             final String flowId,
@@ -1310,6 +1434,7 @@ public final class Client implements AutoCloseable {
      * @throws RequestTimeoutException if a positive request timeout expires first
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public <T> T waitForAttributeMatch(
             final String flowId,
@@ -1343,6 +1468,7 @@ public final class Client implements AutoCloseable {
         final int internalHandlerTimeoutSeconds = seconds32(options.getInternalHandlerTimeout());
         while (true) {
             try {
+                negotiateServerProtocol(requestBudget.getDeadlineNanos());
                 final ClientRequestAttempt requestAttempt = requestBudget.nextAttempt();
                 final FlowServiceGrpc.FlowServiceBlockingStub requestService = requestAttempt.hasDeadline()
                         ? service.withDeadlineAfter(
@@ -1422,6 +1548,7 @@ public final class Client implements AutoCloseable {
      * @param config the new Flow configuration
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot update the Flow
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void updateFlowConfig(final String flowId, final FlowConfig config) {
         call(
@@ -1439,6 +1566,7 @@ public final class Client implements AutoCloseable {
      * @param flowId the target Flow ID
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot apply the request
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void triggerContinueAsNew(final String flowId) {
         call(
@@ -1697,6 +1825,10 @@ public final class Client implements AutoCloseable {
                     : System.nanoTime() + requestTimeout.toNanos();
         }
 
+        private long getDeadlineNanos() {
+            return deadlineNanos;
+        }
+
         private ClientRequestAttempt nextAttempt() {
             if (deadlineNanos == 0) {
                 return new ClientRequestAttempt(0, 0);
@@ -1855,6 +1987,7 @@ public final class Client implements AutoCloseable {
             final RpcCall<T> rpc,
             final FlowTargetRequirement requirement,
             final String flowId) {
+        negotiateServerProtocol();
         try {
             return GrpcCredential.callUnaryWithRetry(options.getCredential(), rpc::invoke);
         } catch (StatusRuntimeException exception) {

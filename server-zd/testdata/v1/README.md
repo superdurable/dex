@@ -60,8 +60,19 @@ Then the node took a snapshot. After the snapshot:
 - `idle-flow`: a timer wait is skipped, the Flow config is updated, and the Flow is canceled.
 - `short-lived-flow`: a run with a 60-second retention completes; the retention timer fires
   and the run is purged.
+- `handout-sync`: an Execute that locks an Attribute is started and returned three times, with
+  reasons UNSUPPORTED, LEGACY_NO_CAPACITY, and NOT_DELIVERED, then fails before any start. Its
+  retries fail as STARTED_ATTEMPT_INTERRUPTED after a heartbeat with a task ID, as a not-run
+  REQUEST_TOO_LARGE, and with a Worker error, which exhausts four attempts. The recovery Step
+  receives `attempt_progress` NOT_COMPLETED and completes the Flow. Every hand-out command
+  carries its task ID.
+- `handout-travel`: a running Execute holding a lock is completed, then a time travel that
+  restores running attempts as pending reopens it; it starts again and completes.
+- `search-flow`: the search projection of its partition is enabled, an Attribute write queues
+  a search outbox entry, and a SearchOutboxAck deletes it.
 
-Every `FlowCommand` kind of behavior version 1 appears in the log. Log cleanup did not run,
+Every `FlowCommand` kind of behavior version 1 appears in the log. Hand-out commands outside
+`handout-sync` and `handout-travel` carry no task ID, as an older log does. Log cleanup did not run,
 because no snapshot was older than the deletion delay, so the log keeps every batch.
 
 ## Contents

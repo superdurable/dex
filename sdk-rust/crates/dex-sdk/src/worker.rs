@@ -17,9 +17,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::watch;
 use tonic::transport::Endpoint;
 
-use crate::server_protocol::{
-    NegotiatedServerProtocolVersion, negotiate_server_protocol, server_info_request_error,
-};
+use crate::server_protocol::{NegotiatedServerProtocolVersion, negotiate_server_protocol};
 use crate::value_hydrator::ValueHydrator;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::worker_pull::PullWorker;
@@ -130,7 +128,11 @@ impl Worker {
     /// # Errors
     ///
     /// Returns FlowDefinition if called more than once, or Service for index synchronization,
-    /// timeout, and server failures.
+    /// timeout, incompatible Server protocol, and server failures. An unreachable Server returns
+    /// the Service error carrying the original gRPC status code, such as `UNAVAILABLE`.
+    /// Startup also fails with a Service error whose code is `FAILED_PRECONDITION` when
+    /// `max_concurrent_tasks` exceeds the Server setting `matching.maxConcurrentTasksCap`. The
+    /// first registered stream reports that setting; the Worker then half-closes its streams.
     /// Returns a service error exposing [`SdkError::pull_registration_error`] after draining when permanent-rejection shutdown is enabled.
     pub fn start(&self) -> SdkResult<()> {
         let result = self.start_worker();
@@ -159,11 +161,16 @@ impl Worker {
             Ok(Ok(response)) => response.into_inner(),
             Ok(Err(status)) => {
                 self.state.store(STOPPED, Ordering::Release);
-                return Err(service_error(server_info_request_error(status)));
+                return Err(SdkError::from_status(
+                    status,
+                    "get_server_info",
+                    None,
+                    crate::sdk_error::FlowTargetRequirement::None,
+                ));
             }
             Err(elapsed) => {
                 self.state.store(STOPPED, Ordering::Release);
-                return Err(service_error(server_info_request_error(elapsed)));
+                return Err(service_error(format!("GetServerInfo: {elapsed}")));
             }
         };
         let negotiated_protocol_version =
@@ -198,7 +205,7 @@ impl Worker {
         result
     }
 
-    /// Waits until every Flow type queue and the app Worker ID queue has registered once.
+    /// Waits until a Step-and-RPC slot and, when reserved, an RPC-only slot have registered once.
     ///
     /// Safe before or after [`Self::start`] and for concurrent callers. Start the Worker on a
     /// dedicated thread. Drop this future to cancel the wait, or use `tokio::time::timeout`.
@@ -209,6 +216,9 @@ impl Worker {
     /// Returns a service error exposing [`SdkError::pull_registration_error`] for a permanent rejection without another registered
     /// stream before readiness. Returns the startup error if startup fails, or InvalidArgument
     /// for shutdown before readiness.
+    /// When `max_concurrent_tasks` exceeds the Server setting `matching.maxConcurrentTasksCap`,
+    /// readiness is never reported and this returns the same `FAILED_PRECONDITION` Service error
+    /// as [`Self::start`].
     ///
     /// ```no_run
     /// # async fn ready(worker: &dex_sdk::Worker) -> Result<(), Box<dyn std::error::Error>> {
@@ -220,26 +230,28 @@ impl Worker {
         self.pull.registration.wait().await
     }
 
-    /// Returns cumulative Step declines caused by reserved RPC capacity for this Worker.
+    /// Returns zero for the obsolete reserved-RPC decline counter.
     ///
-    /// The counter counts decline events. Dex may decline the same Step dispatch repeatedly
-    /// while retrying it, so read the counter as a rate. Full-capacity rejections and unknown names are excluded. The count never resets and
-    /// remains available after stop. Concurrent reads are safe.
-    /// Export the count to a monitoring counter to identify reserve pressure.
+    /// Deprecated: the Server assigns work to reserved slots, and the Worker never declines tasks
+    /// for capacity. This method remains callable after shutdown and is safe for concurrent reads.
+    /// Remove calls to it; existing callers keep compiling with a deprecation warning.
     ///
     /// ```no_run
     /// # fn inspect(worker: &dex_sdk::Worker) {
+    /// #[expect(deprecated, reason = "the counter is kept for source compatibility")]
     /// let declines: u64 = worker.pull_reserved_rpc_declines();
+    /// assert_eq!(declines, 0);
     /// # }
     /// ```
+    #[deprecated(note = "reserved slots never decline for capacity; this counter is always zero")]
     pub fn pull_reserved_rpc_declines(&self) -> u64 {
-        self.pull.reserved_rpc_declines()
+        0
     }
 
-    /// Returns an independent snapshot of current pull queue registrations.
+    /// Returns an independent snapshot of current pull slot-kind registrations.
     ///
-    /// Readiness latches after every queue registers once. Only a permanent rejection with no
-    /// registered stream makes it false. Successful registration clears that queue's error.
+    /// Readiness latches after each required slot kind registers once. Only a permanent rejection with no
+    /// registered stream makes it false. Successful registration clears that slot kind's error.
     /// Transient disconnects and Stop do not clear readiness. See [`Self::wait_pull_registered`] for a startup and probe example.
     pub fn pull_registration_state(&self) -> crate::PullRegistrationState {
         self.pull.registration.snapshot()
@@ -248,10 +260,20 @@ impl Worker {
     /// Requests shutdown of a running Worker and returns immediately.
     ///
     /// Calling `stop` before or after `start` is safe; [`Self::start`] observes the shutdown signal.
-    /// The Worker first drains active handlers. After the drain timeout it cancels them, and
-    /// [`Self::start`] waits for their return. Half-closed pull streams wait for server EOF
-    /// until the remaining drain deadline. Stop is idempotent.
+    /// No new handler starts after this request. Idle streams half-close immediately; busy streams
+    /// finish their handler and send its final output before half-closing. Task frames arriving
+    /// after Stop are dropped without invoking a handler, including after half-close. Streams keep
+    /// reading until the Server ends them or the drain deadline expires. At that deadline, busy
+    /// streams whose final output is not yet queued are reset and their handlers are cancelled;
+    /// [`Self::start`] waits for their return. Dex treats a task on a reset stream as one that may
+    /// have run. A busy stream whose final output is already queued still sends it and half-closes.
+    /// A stream whose last final output Dex has not yet acknowledged with a new task waits up to
+    /// five seconds past the drain deadline for the Server to end it, even after its handler has
+    /// returned. [`Self::start`] can therefore return up to five seconds after the drain deadline.
+    /// Every other stream still open at the deadline, including one blocked on a send, is reset.
+    /// Stop is idempotent.
     pub fn stop(&self) {
+        self.pull.stop_accepting_tasks();
         self.pull.registration.finish(None);
         self.shutdown.send_replace(true);
     }

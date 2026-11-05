@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Registers one queue stream for a Worker process.
+ * Registers one queue stream or reserved execution slot for a Worker process.
  * </pre>
  *
  * Protobuf type {@code dex.PollWorkerTaskRegister}
@@ -38,6 +38,7 @@ private static final long serialVersionUID = 0L;
         com.google.protobuf.LazyStringArrayList.emptyList();
     sdkName_ = "";
     sdkVersion_ = "";
+    slotKind_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -64,6 +65,9 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Names this stream's queue: app_worker_id or one declared flow_type.
+   * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+   * sticky queue (app_worker_id) and every Flow type in flow_types.
+   * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>string queue = 1;</code>
@@ -85,6 +89,9 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Names this stream's queue: app_worker_id or one declared flow_type.
+   * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+   * sticky queue (app_worker_id) and every Flow type in flow_types.
+   * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>string queue = 1;</code>
@@ -299,6 +306,61 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int SUPPORTS_RESERVED_SLOT_DISPATCH_FIELD_NUMBER = 6;
+  private boolean supportsReservedSlotDispatch_ = false;
+  /**
+   * <pre>
+   * When true, this stream is one reserved Worker execution slot, ready whenever idle.
+   * The Worker never rejects a task for capacity.
+   * It rejects only unknown Step types or RPC names.
+   * While stopping, it drops task frames without sending any frame for them.
+   * See the PollWorkerTask rpc.
+   * When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>bool supports_reserved_slot_dispatch = 6;</code>
+   * @return The supportsReservedSlotDispatch.
+   */
+  @java.lang.Override
+  public boolean getSupportsReservedSlotDispatch() {
+    return supportsReservedSlotDispatch_;
+  }
+
+  public static final int SLOT_KIND_FIELD_NUMBER = 7;
+  private int slotKind_ = 0;
+  /**
+   * <pre>
+   * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * Applies only to reserved-slot streams.
+   * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+   * and slot_kind is not UNSPECIFIED.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+   * @return The enum numeric value on the wire for slotKind.
+   */
+  @java.lang.Override public int getSlotKindValue() {
+    return slotKind_;
+  }
+  /**
+   * <pre>
+   * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * Applies only to reserved-slot streams.
+   * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+   * and slot_kind is not UNSPECIFIED.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+   * @return The slotKind.
+   */
+  @java.lang.Override public io.superdurable.gen.PollWorkerSlotKind getSlotKind() {
+    io.superdurable.gen.PollWorkerSlotKind result = io.superdurable.gen.PollWorkerSlotKind.forNumber(slotKind_);
+    return result == null ? io.superdurable.gen.PollWorkerSlotKind.UNRECOGNIZED : result;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -328,6 +390,12 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(sdkVersion_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 5, sdkVersion_);
     }
+    if (supportsReservedSlotDispatch_ != false) {
+      output.writeBool(6, supportsReservedSlotDispatch_);
+    }
+    if (slotKind_ != io.superdurable.gen.PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_UNSPECIFIED.getNumber()) {
+      output.writeEnum(7, slotKind_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -351,6 +419,14 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(sdkVersion_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(5, sdkVersion_);
+    }
+    if (supportsReservedSlotDispatch_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(6, supportsReservedSlotDispatch_);
+    }
+    if (slotKind_ != io.superdurable.gen.PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(7, slotKind_);
     }
     return size;
   }
@@ -386,6 +462,9 @@ private static final long serialVersionUID = 0L;
         .equals(other.getSdkName())) return false;
     if (!getSdkVersion()
         .equals(other.getSdkVersion())) return false;
+    if (getSupportsReservedSlotDispatch()
+        != other.getSupportsReservedSlotDispatch()) return false;
+    if (slotKind_ != other.slotKind_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -409,6 +488,11 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getSdkName().hashCode();
     hash = (37 * hash) + SDK_VERSION_FIELD_NUMBER;
     hash = (53 * hash) + getSdkVersion().hashCode();
+    hash = (37 * hash) + SUPPORTS_RESERVED_SLOT_DISPATCH_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getSupportsReservedSlotDispatch());
+    hash = (37 * hash) + SLOT_KIND_FIELD_NUMBER;
+    hash = (53 * hash) + slotKind_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -508,7 +592,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Registers one queue stream for a Worker process.
+   * Registers one queue stream or reserved execution slot for a Worker process.
    * </pre>
    *
    * Protobuf type {@code dex.PollWorkerTaskRegister}
@@ -550,6 +634,8 @@ private static final long serialVersionUID = 0L;
           com.google.protobuf.LazyStringArrayList.emptyList();
       sdkName_ = "";
       sdkVersion_ = "";
+      supportsReservedSlotDispatch_ = false;
+      slotKind_ = 0;
       return this;
     }
 
@@ -599,6 +685,12 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000010) != 0)) {
         result.sdkVersion_ = sdkVersion_;
       }
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.supportsReservedSlotDispatch_ = supportsReservedSlotDispatch_;
+      }
+      if (((from_bitField0_ & 0x00000040) != 0)) {
+        result.slotKind_ = slotKind_;
+      }
     }
 
     @java.lang.Override
@@ -642,6 +734,12 @@ private static final long serialVersionUID = 0L;
         sdkVersion_ = other.sdkVersion_;
         bitField0_ |= 0x00000010;
         onChanged();
+      }
+      if (other.getSupportsReservedSlotDispatch() != false) {
+        setSupportsReservedSlotDispatch(other.getSupportsReservedSlotDispatch());
+      }
+      if (other.slotKind_ != 0) {
+        setSlotKindValue(other.getSlotKindValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -694,6 +792,16 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000010;
               break;
             } // case 42
+            case 48: {
+              supportsReservedSlotDispatch_ = input.readBool();
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 48
+            case 56: {
+              slotKind_ = input.readEnum();
+              bitField0_ |= 0x00000040;
+              break;
+            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -715,6 +823,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Names this stream's queue: app_worker_id or one declared flow_type.
+     * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+     * sticky queue (app_worker_id) and every Flow type in flow_types.
+     * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>string queue = 1;</code>
@@ -735,6 +846,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Names this stream's queue: app_worker_id or one declared flow_type.
+     * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+     * sticky queue (app_worker_id) and every Flow type in flow_types.
+     * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>string queue = 1;</code>
@@ -756,6 +870,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Names this stream's queue: app_worker_id or one declared flow_type.
+     * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+     * sticky queue (app_worker_id) and every Flow type in flow_types.
+     * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>string queue = 1;</code>
@@ -773,6 +890,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Names this stream's queue: app_worker_id or one declared flow_type.
+     * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+     * sticky queue (app_worker_id) and every Flow type in flow_types.
+     * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>string queue = 1;</code>
@@ -787,6 +907,9 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Names this stream's queue: app_worker_id or one declared flow_type.
+     * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+     * sticky queue (app_worker_id) and every Flow type in flow_types.
+     * Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>string queue = 1;</code>
@@ -1222,6 +1345,160 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       sdkVersion_ = value;
       bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+
+    private boolean supportsReservedSlotDispatch_ ;
+    /**
+     * <pre>
+     * When true, this stream is one reserved Worker execution slot, ready whenever idle.
+     * The Worker never rejects a task for capacity.
+     * It rejects only unknown Step types or RPC names.
+     * While stopping, it drops task frames without sending any frame for them.
+     * See the PollWorkerTask rpc.
+     * When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>bool supports_reserved_slot_dispatch = 6;</code>
+     * @return The supportsReservedSlotDispatch.
+     */
+    @java.lang.Override
+    public boolean getSupportsReservedSlotDispatch() {
+      return supportsReservedSlotDispatch_;
+    }
+    /**
+     * <pre>
+     * When true, this stream is one reserved Worker execution slot, ready whenever idle.
+     * The Worker never rejects a task for capacity.
+     * It rejects only unknown Step types or RPC names.
+     * While stopping, it drops task frames without sending any frame for them.
+     * See the PollWorkerTask rpc.
+     * When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>bool supports_reserved_slot_dispatch = 6;</code>
+     * @param value The supportsReservedSlotDispatch to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSupportsReservedSlotDispatch(boolean value) {
+
+      supportsReservedSlotDispatch_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When true, this stream is one reserved Worker execution slot, ready whenever idle.
+     * The Worker never rejects a task for capacity.
+     * It rejects only unknown Step types or RPC names.
+     * While stopping, it drops task frames without sending any frame for them.
+     * See the PollWorkerTask rpc.
+     * When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>bool supports_reserved_slot_dispatch = 6;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSupportsReservedSlotDispatch() {
+      bitField0_ = (bitField0_ & ~0x00000020);
+      supportsReservedSlotDispatch_ = false;
+      onChanged();
+      return this;
+    }
+
+    private int slotKind_ = 0;
+    /**
+     * <pre>
+     * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+     * Applies only to reserved-slot streams.
+     * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+     * and slot_kind is not UNSPECIFIED.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+     * @return The enum numeric value on the wire for slotKind.
+     */
+    @java.lang.Override public int getSlotKindValue() {
+      return slotKind_;
+    }
+    /**
+     * <pre>
+     * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+     * Applies only to reserved-slot streams.
+     * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+     * and slot_kind is not UNSPECIFIED.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+     * @param value The enum numeric value on the wire for slotKind to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSlotKindValue(int value) {
+      slotKind_ = value;
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+     * Applies only to reserved-slot streams.
+     * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+     * and slot_kind is not UNSPECIFIED.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+     * @return The slotKind.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.PollWorkerSlotKind getSlotKind() {
+      io.superdurable.gen.PollWorkerSlotKind result = io.superdurable.gen.PollWorkerSlotKind.forNumber(slotKind_);
+      return result == null ? io.superdurable.gen.PollWorkerSlotKind.UNRECOGNIZED : result;
+    }
+    /**
+     * <pre>
+     * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+     * Applies only to reserved-slot streams.
+     * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+     * and slot_kind is not UNSPECIFIED.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+     * @param value The slotKind to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setSlotKind(io.superdurable.gen.PollWorkerSlotKind value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000040;
+      slotKind_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+     * Applies only to reserved-slot streams.
+     * Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+     * and slot_kind is not UNSPECIFIED.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSlotKind() {
+      bitField0_ = (bitField0_ & ~0x00000040);
+      slotKind_ = 0;
       onChanged();
       return this;
     }

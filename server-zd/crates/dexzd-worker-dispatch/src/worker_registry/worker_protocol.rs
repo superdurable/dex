@@ -8,7 +8,12 @@
 
 //! Tonic pull Worker stream handling.
 
+use super::worker_streams::{
+    AssignmentEnd, finish_assignment, half_close, record_protocol_error, send_reconnect,
+    subscribed_queues,
+};
 use super::*;
+use dexzd_metrics::WorkerStreamProtocolError;
 
 /// Tonic WorkerTaskService implementation for one trusted tenant.
 #[derive(Clone)]
@@ -67,8 +72,9 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: self.tenant_id,
-            queue: registration.queue.clone(),
+            queues: subscribed_queues(&registration),
             app_worker_id: registration.app_worker_id.clone(),
+            slot: StreamSlot::of(&registration),
             output,
             close,
             state: Mutex::new(WorkerState {
@@ -77,12 +83,7 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
             }),
         });
         let shutdown = {
-            let mut registry = self
-                .dispatch
-                .inner
-                .registry
-                .lock()
-                .expect("matching registry lock poisoned");
+            let mut registry = self.dispatch.lock_registry();
             if registry.is_closing {
                 return Err(Status::unavailable("matching server is closing"));
             }
@@ -90,35 +91,41 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
             if registry.streams.len() >= self.dispatch.inner.config.max_streams {
                 return Err(Status::resource_exhausted("matching stream limit reached"));
             }
+            let worker_key = (worker.tenant_id, worker.app_worker_id.clone());
             if registry
-                .worker_counts
-                .get(&(worker.tenant_id, worker.app_worker_id.clone()))
-                .copied()
-                .unwrap_or(0)
+                .worker_stream_ids
+                .get(&worker_key)
+                .map_or(0, HashSet::len)
                 >= self.dispatch.inner.config.max_concurrent_tasks_cap
             {
                 return Err(Status::resource_exhausted("Worker stream limit reached"));
             }
-            *registry
-                .worker_counts
-                .entry((worker.tenant_id, worker.app_worker_id.clone()))
-                .or_default() += 1;
-            let queue = registry
-                .queues
-                .entry((worker.tenant_id, worker.queue.clone()))
-                .or_insert_with(QueueState::new);
-            queue.stream_ids.insert(worker.id);
-            queue.users += 1;
+            registry
+                .worker_stream_ids
+                .entry(worker_key)
+                .or_default()
+                .insert(worker.id);
+            for queue_name in &worker.queues {
+                let queue = registry
+                    .queues
+                    .entry((worker.tenant_id, queue_name.clone()))
+                    .or_insert_with(QueueState::new);
+                queue.stream_ids.insert(worker.id);
+                queue.users += 1;
+            }
             registry.streams.insert(worker.id, worker.clone());
             self.dispatch.inner.metrics.matching_worker_streams.inc();
             shutdown
         };
+        let max_concurrent_tasks_per_app_worker =
+            u32::try_from(self.dispatch.inner.config.max_concurrent_tasks_cap).unwrap_or(u32::MAX);
         if worker
             .output
             .send(Ok(PollWorkerTaskResponse {
                 frame: Some(poll_worker_task_response::Frame::Registered(
                     PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: true,
+                        max_concurrent_tasks_per_app_worker,
                     },
                 )),
             }))
@@ -174,7 +181,11 @@ async fn read_worker_stream(
                         break;
                     }
                 },
-                Ok(None) => break,
+                // A legacy stream's half-close is a disconnect (plan D70).
+                Ok(None) => {
+                    if worker.slot.is_reserved() { half_close(&dispatch, &worker).await; }
+                    break;
+                }
                 Err(status) => { tracing::debug!(code = ?status.code(), "Worker stream receive failed"); break; }
             },
             _ = ping.tick() => {
@@ -214,9 +225,10 @@ async fn process_worker_frame(
         }
         Some(poll_worker_task_request::Frame::Pong(_)) => Ok(true),
         Some(poll_worker_task_request::Frame::TaskFrame(frame)) => {
+            let is_final = is_final(&frame);
             let assignment_sender = {
-                let state = worker.state.lock().expect("Worker state lock poisoned");
-                let Some(assignment) = state.current.as_ref() else {
+                let mut state = worker.state.lock().expect("Worker state lock poisoned");
+                let Some(assignment) = state.current.as_mut() else {
                     return Ok(true);
                 };
                 if frame.task_id != assignment.task_id {
@@ -225,9 +237,9 @@ async fn process_worker_frame(
                 if frame.output.is_none() {
                     return Err(Status::invalid_argument("task output is required"));
                 }
+                assignment.has_output = true;
                 assignment.frames.clone()
             };
-            let is_final = is_final(&frame);
             let task_id = frame.task_id.clone();
             if assignment_sender
                 .send(AssignmentFrame::Output(Box::new(frame)))
@@ -237,7 +249,12 @@ async fn process_worker_frame(
                 tracing::debug!("abandoned task output received");
             }
             if is_final {
-                return Ok(finish_assignment(dispatch, worker, &task_id));
+                return Ok(finish_assignment(
+                    dispatch,
+                    worker,
+                    &task_id,
+                    AssignmentEnd::Final,
+                ));
             }
             Ok(true)
         }
@@ -252,7 +269,7 @@ async fn process_worker_frame(
             ) {
                 return Err(Status::invalid_argument("invalid task rejection"));
             }
-            let assignment_sender = {
+            let (assignment_sender, has_output) = {
                 let state = worker.state.lock().expect("Worker state lock poisoned");
                 let Some(assignment) = state.current.as_ref() else {
                     return Ok(true);
@@ -260,7 +277,7 @@ async fn process_worker_frame(
                 if rejection.task_id != assignment.task_id {
                     return Ok(true);
                 }
-                assignment.frames.clone()
+                (assignment.frames.clone(), assignment.has_output)
             };
             if assignment_sender
                 .send(AssignmentFrame::Reject(reason))
@@ -269,44 +286,30 @@ async fn process_worker_frame(
             {
                 tracing::debug!("abandoned task rejection received");
             }
-            Ok(finish_assignment(dispatch, worker, &rejection.task_id))
+            if has_output {
+                // The handler may still run, so the stream must never take another task.
+                record_protocol_error(dispatch, WorkerStreamProtocolError::RejectAfterOutput);
+                return Err(Status::invalid_argument(
+                    "a Worker never declines a task after sending output for it",
+                ));
+            }
+            if reason == PollWorkerTaskRejectReason::NoCapacity && worker.slot.is_reserved() {
+                // The assignment already has the rejection; the stream ends here.
+                record_protocol_error(
+                    dispatch,
+                    WorkerStreamProtocolError::NoCapacityOnReservedSlot,
+                );
+                return Err(Status::invalid_argument(
+                    "a reserved-slot stream never declines a task for capacity",
+                ));
+            }
+            Ok(finish_assignment(
+                dispatch,
+                worker,
+                &rejection.task_id,
+                AssignmentEnd::Rejected(reason),
+            ))
         }
         None => Err(Status::invalid_argument("unknown Worker frame")),
-    }
-}
-
-fn finish_assignment(dispatch: &WorkerDispatch, worker: &WorkerStream, task_id: &str) -> bool {
-    let mut state = worker.state.lock().expect("Worker state lock poisoned");
-    if !state
-        .current
-        .as_ref()
-        .is_some_and(|assignment| assignment.task_id == task_id)
-    {
-        return true;
-    }
-    state.current = None;
-    state.is_busy = false;
-    if state.is_closing {
-        send_reconnect(worker, "matching server is closing");
-        return false;
-    }
-    drop(state);
-    dispatch.make_idle(worker);
-    true
-}
-
-fn send_reconnect(worker: &WorkerStream, reason: &str) {
-    if worker
-        .output
-        .send(Ok(PollWorkerTaskResponse {
-            frame: Some(poll_worker_task_response::Frame::Reconnect(
-                PollWorkerTaskReconnect {
-                    reason: reason.to_owned(),
-                },
-            )),
-        }))
-        .is_err()
-    {
-        tracing::debug!("Worker response stream closed before reconnect");
     }
 }

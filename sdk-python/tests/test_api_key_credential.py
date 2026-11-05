@@ -540,6 +540,15 @@ def test_api_key_single_flight_and_rejected_token(
 
 
 class RejectingFlowService(dex_pb2_grpc.FlowServiceServicer):
+    def GetServerInfo(  # noqa: N802
+        self, request: empty_pb2.Empty, context: grpc.ServicerContext
+    ) -> pb.ServerInfo:
+        return pb.ServerInfo(
+            server_version="test",
+            minimum_supported_protocol_version=1,
+            current_protocol_version=4,
+        )
+
     def __init__(self, reject_all: bool = False) -> None:
         self.attempts: list[str | bytes | None] = []
         self.reject_all = reject_all
@@ -829,7 +838,7 @@ def test_api_key_poll_retries_immediately_then_uses_permanent_backoff(
         stopping = asyncio.Event()
         runtime._stopping = stopping
         stub = RejectingPollStub()
-        stream = PullStream(runtime, stub, "api-key-poll-worker")
+        stream = PullStream(runtime, stub, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
         backoffs: list[float] = []
 
         async def capture_backoff(

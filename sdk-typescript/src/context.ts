@@ -11,12 +11,46 @@ import type { Channel, ChannelMap, ChannelMessage } from "./wait.js";
 import type { Codec } from "./codec.js";
 import type { Stream } from "./stream.js";
 
+/**
+ * Reports the furthest progress across all attempts of one Step method call.
+ *
+ * Read it from recoveryError.attemptProgress in a recovery Step to decide whether the failed
+ * handler may have caused external effects. Treat UNSPECIFIED, an omitted value, and any value
+ * this SDK does not know like NOT_COMPLETED.
+ * @example
+ * ```ts
+ * const progress = context.recoveryError?.attemptProgress ?? StepAttemptProgress.UNSPECIFIED;
+ * if (progress === StepAttemptProgress.NOT_STARTED) {
+ *   // No attempt ran the handler, so no external effect happened.
+ * } else {
+ *   // Some attempt may have run; reconcile external effects before repeating them.
+ * }
+ * ```
+ */
+export const StepAttemptProgress = Object.freeze({
+  /** An older Server did not report progress; treat this like NOT_COMPLETED. */
+  UNSPECIFIED: "unspecified",
+  /** The handler did not run in any attempt of this Step method call. */
+  NOT_STARTED: "notStarted",
+  /** Some attempt may have run the handler, but none completed; reconcile possible external effects. */
+  NOT_COMPLETED: "notCompleted",
+} as const);
+
+/** Represents a value from {@link StepAttemptProgress}. */
+export type StepAttemptProgress = (typeof StepAttemptProgress)[keyof typeof StepAttemptProgress];
+
 /** Describes the final failure that selected a recovery path. */
 export interface RecoveryErrorInfo {
   /** Failure message supplied by the Worker or backend. */
   readonly detail: string;
   /** Original Worker error type or backend failure type. */
   readonly errorType: string;
+  /**
+   * Furthest progress across this Step method call's attempts.
+   * SDK-provided contexts always include a value. Omitted values remain accepted for source compatibility.
+   * Treat UNSPECIFIED or an omitted value like NOT_COMPLETED. See StepAttemptProgress for a recovery example.
+   */
+  readonly attemptProgress?: StepAttemptProgress;
 }
 
 /**
@@ -36,14 +70,15 @@ export interface Context {
   readonly fromStepExecutionId: string;
   /** Final failure that selected this recovery path, or `undefined` when absent. */
   readonly recoveryError: RecoveryErrorInfo | undefined;
-  /** UTC timestamp of the first handler attempt. */
+  /** UTC timestamp when this Step method call was first handed to a Worker. */
   readonly firstAttemptAt: Date;
   /**
    * Absolute UTC deadline of the current Step method attempt, or `undefined` when absent.
    *
    * Available during `waitFor`, `execute`, and Flow timeout handlers. RPC handlers have no
-   * deadline. A shorter remaining RetryPolicy total duration limits this value. Each retry
-   * receives its own effective deadline. Dates have millisecond precision.
+   * deadline. The method timeout bounds this value. RetryPolicy total duration never ends a
+   * running attempt; it is checked after failure when deciding whether to retry.
+   * Each retry receives its own deadline. Dates have millisecond precision.
    *
    * @example
    * Compute the remaining attempt budget in milliseconds inside a handler:
@@ -216,7 +251,7 @@ export interface AsyncContext extends Context {
    *
    * Passing `undefined` explicitly clears persisted heartbeat details. Every other value produces
    * a present Value; omitted codecs use JSON. The Promise resolves when grpc-js accepts the frame,
-   * not when Temporal persists it. Local activities ignore heartbeat frames.
+   * not when Dex persists it.
    *
    * @typeParam T - Heartbeat value type.
    * @param value - Value to persist, or `undefined` to clear existing details.

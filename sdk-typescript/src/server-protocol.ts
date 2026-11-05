@@ -8,8 +8,9 @@
 
 import type { ServerInfo } from "./gen/dex.js";
 
-export const minimumSupportedServerProtocolVersion: number = 1;
-export const maximumSupportedServerProtocolVersion: number = 3;
+export const minimumSupportedServerProtocolVersion: number = 4;
+export const maximumSupportedServerProtocolVersion: number = 4;
+const minimumServerRelease = "server-zd newer than v0.1.16";
 
 export function negotiateServerProtocol(
   serverInfo: ServerInfo,
@@ -22,38 +23,37 @@ export function negotiateServerProtocol(
     || maximumSupportedServerProtocolVersion === 0
     || minimumSupportedServerProtocolVersion > maximumSupportedServerProtocolVersion
   ) {
-    throw compatibilityError(
-      serverInfo,
-      sdkVersion,
-      "TypeScript SDK protocol interval is invalid",
-    );
+    throw new Error(`${sdkDescription(sdkVersion)} has an invalid protocol range.`);
   }
   if (serverMinimum === 0 || serverCurrent === 0 || serverMinimum > serverCurrent) {
-    throw compatibilityError(serverInfo, sdkVersion, "Server protocol interval is invalid");
+    throw new Error(
+      `${sdkDescription(sdkVersion)} cannot use the Server: GetServerInfo returned an empty or invalid `
+        + `protocol range. ${serverDescription(serverInfo)}`,
+    );
   }
-  const negotiated = Math.min(serverCurrent, maximumSupportedServerProtocolVersion);
-  if (negotiated < serverMinimum || negotiated < minimumSupportedServerProtocolVersion) {
-    throw compatibilityError(serverInfo, sdkVersion, "protocol intervals do not overlap");
+  if (serverCurrent < minimumSupportedServerProtocolVersion) {
+    throw new Error(
+      `${sdkDescription(sdkVersion)} is incompatible with the Server. `
+        + `This SDK requires a Dex Server with protocol version ${minimumSupportedServerProtocolVersion} or later `
+        + `(${minimumServerRelease}). ${serverDescription(serverInfo)} Upgrade the Server before upgrading the SDK.`,
+    );
   }
-  return negotiated;
+  if (serverMinimum > maximumSupportedServerProtocolVersion) {
+    throw new Error(
+      `${sdkDescription(sdkVersion)} is incompatible with the Server. `
+        + `The Server requires protocol version ${serverMinimum} or later. ${serverDescription(serverInfo)} `
+        + "Upgrade the TypeScript SDK.",
+    );
+  }
+  return Math.min(serverCurrent, maximumSupportedServerProtocolVersion);
 }
 
-export function serverInfoRequestError(sdkVersion: string, cause: unknown): Error {
-  return new Error(
-    `TypeScript SDK version "${sdkVersion}" protocol `
-      + `[${minimumSupportedServerProtocolVersion},${maximumSupportedServerProtocolVersion}] `
-      + "is incompatible with "
-      + "Server version \"unknown\" protocol [unknown,unknown]: GetServerInfo failed",
-    { cause },
-  );
+function sdkDescription(sdkVersion: string): string {
+  return `TypeScript SDK version "${sdkVersion}" protocol `
+    + `[${minimumSupportedServerProtocolVersion},${maximumSupportedServerProtocolVersion}]`;
 }
 
-function compatibilityError(serverInfo: ServerInfo, sdkVersion: string, reason: string): Error {
-  return new Error(
-    `TypeScript SDK version "${sdkVersion}" protocol `
-      + `[${minimumSupportedServerProtocolVersion},${maximumSupportedServerProtocolVersion}] `
-      + `is incompatible with Server version "${serverInfo.serverVersion || "unknown"}" `
-      + `protocol [${serverInfo.minimumSupportedProtocolVersion},`
-      + `${serverInfo.currentProtocolVersion}]: ${reason}`,
-  );
+function serverDescription(serverInfo: ServerInfo): string {
+  return `The Server reports protocol versions ${serverInfo.minimumSupportedProtocolVersion}-${serverInfo.currentProtocolVersion} `
+    + `(server version ${serverInfo.serverVersion || "unknown"}).`;
 }

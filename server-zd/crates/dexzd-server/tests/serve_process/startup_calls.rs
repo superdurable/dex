@@ -260,6 +260,7 @@ async fn register_worker_until_accepted(
                         flow_types: vec![WORKER_FLOW_TYPE.to_owned()],
                         sdk_name: "dexzd-server-tests".to_owned(),
                         sdk_version: "0".to_owned(),
+                        ..Default::default()
                     },
                 )),
             })

@@ -10,11 +10,14 @@ package dex
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -41,14 +44,28 @@ func (server *registrationTestServer) PollWorkerTask(stream dexpb.WorkerTaskServ
 	if err != nil {
 		return err
 	}
-	registration := &registrationTestStream{queue: request.GetRegister().GetQueue(), commands: make(chan registrationTestCommand, 8)}
+	registration := &registrationTestStream{queue: request.GetRegister().GetSlotKind().String(), commands: make(chan registrationTestCommand, 8)}
 	select {
 	case server.streams <- registration:
 	case <-stream.Context().Done():
 		return stream.Context().Err()
 	}
+	receiveError := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := stream.Recv(); err != nil {
+				receiveError <- err
+				return
+			}
+		}
+	}()
 	for {
 		select {
+		case err := <-receiveError:
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
 		case command := <-registration.commands:
 			if command.err != nil {
 				return command.err
@@ -231,7 +248,7 @@ func TestWorkerPullRegistrationRejectionWithRemainingStream(t *testing.T) {
 	for _, shouldStop := range []bool{false, true} {
 		t.Run(map[bool]string{false: "default retries", true: "stop enabled"}[shouldStop], func(t *testing.T) {
 			worker, server, result := startRegistrationTestWorker(t, PullWorkerOptions{
-				IdleStreamsPerQueue: 2, StopOnPermanentStreamRejection: shouldStop,
+				MaxConcurrentTasks: 4, ReservedRPCTasks: ptr.Any(2), IdleStreamsPerQueue: 2, StopOnPermanentStreamRejection: shouldStop,
 			}, &workerSyncFlowService{})
 			go func() { result <- worker.Start() }()
 			streamsByQueue := make(map[string][]*registrationTestStream)
@@ -239,7 +256,7 @@ func TestWorkerPullRegistrationRejectionWithRemainingStream(t *testing.T) {
 				stream := awaitRegistrationTestStream(t, server, 5*time.Second)
 				streamsByQueue[stream.queue] = append(streamsByQueue[stream.queue], stream)
 			}
-			stickyStreams := streamsByQueue[worker.pull.appWorkerID]
+			stickyStreams := streamsByQueue[dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String()]
 			stickyStreams[0].register()
 			require.Eventually(t, func() bool {
 				return worker.PullRegistrationState().Queues[0].HasRegisteredStream
@@ -256,7 +273,7 @@ func TestWorkerPullRegistrationRejectionWithRemainingStream(t *testing.T) {
 			initialRegistrationError := worker.pull.initialRegistrationError
 			worker.pull.mu.Unlock()
 			require.Nil(t, initialRegistrationError)
-			for _, stream := range streamsByQueue[GetFinalFlowType(workerFlow)] {
+			for _, stream := range streamsByQueue[dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY.String()] {
 				stream.register()
 			}
 			require.NoError(t, <-waitResult)
@@ -271,7 +288,7 @@ func TestWorkerPullRegistrationRejectionWithRemainingStream(t *testing.T) {
 			stickyStreams[0].reject(status.Error(codes.Unavailable, "last stream disconnected"))
 			require.Eventually(t, func() bool { return !worker.PullRegistrationState().IsReady }, 5*time.Second, time.Millisecond)
 			replacement := awaitRegistrationTestStream(t, server, 5*time.Second)
-			require.Equal(t, worker.pull.appWorkerID, replacement.queue)
+			require.Equal(t, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String(), replacement.queue)
 			replacement.reject(status.Error(codes.ResourceExhausted, "queue has no registered stream"))
 			if shouldStop {
 				select {
@@ -310,7 +327,7 @@ func TestWorkerPullPermanentRejectionDrainsActiveHandler(t *testing.T) {
 	for range 2 {
 		stream := awaitRegistrationTestStream(t, server, 5*time.Second)
 		stream.register()
-		if stream.queue == GetFinalFlowType(flow) {
+		if stream.queue == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String() {
 			taskStream = stream
 		} else {
 			controlStream = stream
@@ -353,6 +370,9 @@ func startRegistrationTestWorker(t *testing.T, options PullWorkerOptions, flowSe
 	go servePullTestServer(grpcServer, listener, serveResult)
 	if len(flows) == 0 {
 		flows = []Flow{workerFlow}
+	}
+	if options.MaxConcurrentTasks == 0 {
+		options.MaxConcurrentTasks = 2
 	}
 	worker, err := newWorkerForTest(t, flows, WorkerOptions{FlowServiceAddress: listener.Addr().String(), Pull: &options})
 	require.NoError(t, err)

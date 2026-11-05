@@ -8,6 +8,10 @@ package io.superdurable.gen;
 /**
  * <pre>
  * Declines a task so Dex can assign it to another available Worker stream.
+ * Reserved-slot streams may send only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+ * NO_CAPACITY on a reserved-slot stream is a protocol error.
+ * Dex then fails that attempt as not run, which consumes an attempt,
+ * and ends the stream with INVALID_ARGUMENT.
  * </pre>
  *
  * Protobuf type {@code dex.PollWorkerTaskReject}
@@ -300,6 +304,10 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Declines a task so Dex can assign it to another available Worker stream.
+   * Reserved-slot streams may send only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+   * NO_CAPACITY on a reserved-slot stream is a protocol error.
+   * Dex then fails that attempt as not run, which consumes an attempt,
+   * and ends the stream with INVALID_ARGUMENT.
    * </pre>
    *
    * Protobuf type {@code dex.PollWorkerTaskReject}

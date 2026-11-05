@@ -346,13 +346,17 @@ test("pull registration readiness succeeds and reports a real InvalidArgument", 
         pull: { stopOnPermanentStreamRejection: isInvalid },
       });
       try {
-        await worker.start();
         if (isInvalid) {
-          await assert.rejects(worker.waitPullRegistered({ timeoutMs: 10_000 }),
-            (failure: unknown) => failure instanceof PullRegistrationError &&
-              (failure.cause as { code: number }).code === 3);
+          const isInvalidArgumentRejection = (failure: unknown) => failure instanceof PullRegistrationError &&
+            (failure.cause as { code: number }).code === 3;
+          // Start rejects once the Server permanently rejects every stream.
+          const starting = worker.start();
+          starting.catch(() => {});
+          await assert.rejects(worker.waitPullRegistered({ timeoutMs: 10_000 }), isInvalidArgumentRejection);
+          await assert.rejects(starting, isInvalidArgumentRejection);
           assert.equal(worker.pullRegistrationState().isReady, false);
         } else {
+          await worker.start();
           await worker.waitPullRegistered({ timeoutMs: 10_000 });
           assert.equal(worker.pullRegistrationState().isReady, true);
           assert.equal(worker.pullRegistrationState().queues.length, 2);

@@ -22,7 +22,7 @@ use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, StepCommandOutcome, TIMEOUT_HANDLER_STEP_EXECUTION_ID, apply_attempt_failed,
-    apply_attempt_heartbeat, apply_attempt_started, apply_method_completed,
+    apply_attempt_heartbeat, apply_attempt_returned, apply_attempt_started, apply_method_completed,
     apply_retry_backoff_fired, create_step_execution, disarm_timer, make_invocation_pending,
 };
 use crate::values::ValueRejection;
@@ -54,11 +54,16 @@ pub(crate) fn apply_step_command(
             apply_attempt_failed(transaction, &mut cursor, scope, failed)?,
             HistoryKind::SEMANTIC,
         ),
+        Command::StepAttemptReturned(returned) => (
+            apply_attempt_returned(transaction, &mut cursor, returned)?,
+            HistoryKind::BOOKKEEPING,
+        ),
         Command::StepMethodCompleted(completed) => {
             let outcome = apply_method_completed(transaction, &mut cursor, scope, completed)?;
             if let Some(failure) = rejected_result_failure(
                 completed.invocation.clone(),
                 completed.attempt,
+                &completed.task_id,
                 completed.pull_routing.clone(),
                 &outcome,
             ) {
@@ -84,13 +89,15 @@ pub(crate) fn apply_step_command(
         }
         outcome @ (StepCommandOutcome::RejectedResult(_)
         | StepCommandOutcome::MismatchedResult(_)) => {
-            let (invocation, attempt) = match command {
-                Command::StepAttemptHeartbeat(heartbeat) => {
-                    (heartbeat.invocation.clone(), heartbeat.attempt)
-                }
-                _ => (None, 0),
+            let (invocation, attempt, task_id) = match command {
+                Command::StepAttemptHeartbeat(heartbeat) => (
+                    heartbeat.invocation.clone(),
+                    heartbeat.attempt,
+                    heartbeat.task_id.as_slice(),
+                ),
+                _ => (None, 0, [].as_slice()),
             };
-            rejected_result_failure(invocation, attempt, None, &outcome)
+            rejected_result_failure(invocation, attempt, task_id, None, &outcome)
                 .map(StepHandlerResult::ApplyAsFailure)
                 .ok_or_else(|| ApplyError::InvariantViolation {
                     detail: "a rejected Step result produced no attempt failure".to_owned(),
@@ -100,10 +107,12 @@ pub(crate) fn apply_step_command(
 }
 
 /// Returns the non-retryable attempt failure that replaces a rejected Worker result, keeping
-/// the result's `pull_routing`, or `None` when the outcome is not a rejection.
+/// the result's `pull_routing` and fenced on its `task_id`, or `None` when the outcome is not
+/// a rejection.
 fn rejected_result_failure(
     invocation: Option<dexzd_protocol::dexzd::v1::StepInvocationKey>,
     attempt: u32,
+    task_id: &[u8],
     pull_routing: Option<PullRouting>,
     outcome: &StepCommandOutcome,
 ) -> Option<StepAttemptFailedCommand> {
@@ -130,6 +139,8 @@ fn rejected_result_failure(
         server_detail,
         is_non_retryable: true,
         pull_routing,
+        expected_task_id: task_id.to_vec(),
+        ..StepAttemptFailedCommand::default()
     })
 }
 

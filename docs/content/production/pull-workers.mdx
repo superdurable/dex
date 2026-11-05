@@ -458,7 +458,13 @@ Flow type queue after the sticky wait so another Worker can take the call. Stick
 routing is best effort; keep durable state in Dex rather than
 depending on one Worker's memory. Flow type names must be unique within a Dex
 Server. An app Worker ID must identify one Worker process and change when that
-process restarts. The SDK generates one unless you set it explicitly.
+process restarts. The SDK generates one unless you set it explicitly. If you
+set it, use a new value after each process restart. Dex remembers unsupported
+types by app Worker ID. If an upgraded process reuses the old ID during a rolling
+deploy, the old process's entry also excludes the upgraded process. The entry
+lasts until every stream with that ID is gone, including the upgraded process's
+own streams. If the cache evicts the entry first, Dex offers the type again after
+a Worker with that ID completes a Step.
 
 Dex waits for an available Worker within the matching dispatch budget. If none
 is available, a Step receives a retryable unavailable error that consumes a
@@ -470,17 +476,32 @@ for the wait settings.
 When a pull Worker has the Flow type but lacks the requested Step type or RPC
 name, it declines the task before running a handler. Dex immediately tries the
 Flow type queue and excludes that Worker from this dispatch, even if the Flow
-was sticky to it. This reassignment does not consume a Step attempt. If no
+was sticky to it. Dex remembers the unsupported type for that app Worker ID and
+stops offering it to that Worker until every stream of the Worker disconnects.
+This reassignment does not consume a Step attempt. The attempt keeps its
+attempt number, input snapshot, and Attribute locks. If no
 capable Worker accepts within the dispatch wait, the Step follows its failure
 and retry policy with an error that names the Step or RPC. An RPC caller gets
-the named error directly after waiting up to the dispatch wait of 10
-seconds. This reassignment requires a Dex Server release that supports it.
+the named error directly after Dex tries other Workers within the caller's
+deadline, up to the dispatch wait of 10 seconds. This reassignment requires a Dex Server release that supports it.
 Against older Servers, the Worker returns the not-registered error as before.
 
-Delivery is at least once. A call can be assigned again when its Worker
-disconnects before Dex receives any output. Make external side effects
-idempotent, for example by using the Flow ID and Step execution ID as an
-idempotency key.
+Once Dex hands a Step attempt to a Worker, Dex never hands the same attempt
+number to another Worker. When the Worker disconnects or crashes, the attempt
+fails and the retry policy runs. This holds for SYNC and ASYNC Steps alike, with
+or without output. There is one exception. When a Dex Server node crashes before
+an ASYNC attempt start was written to object storage, Dex rolls the start back
+and runs the same attempt number again, possibly on another Worker. That rerun
+consumes no retry, and the two runs can overlap. See
+[Failure and redelivery](/primitives/step/basic#same-attempt-redelivery)
+for this case and for the cases where an attempt returns to pending without consuming a retry.
+Make external side effects idempotent, for example by using the Flow ID and Step
+execution ID as an idempotency key.
+
+New SDKs require the new server. On an older server, a new SDK Worker fails to
+start and a new SDK Client fails its first call, each with a clear error.
+Older SDK Workers keep working on the new server. Upgrade the server first, then
+the SDKs, one at a time.
 
 ## Capacity and shutdown
 
@@ -520,6 +541,12 @@ new calls and waits for active handlers for the configured drain timeout, 30
 seconds by default. After the deadline, it requests cancellation and waits for handlers
 to return. Long-running handlers should respond to cancellation. A Worker also
 finishes an active call before a server-directed reconnect.
+
+A Worker that uses reserved-slot dispatch finishes its running tasks, sends
+their results, and then closes its streams. Tasks that arrive while it closes
+are not run. They return to Dex without consuming a retry, and Dex hands them
+to another Worker. When a slot frees up, Dex gives it to waiting RPCs before
+waiting Steps.
 
 ### Reserved RPC capacity
 

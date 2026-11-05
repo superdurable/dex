@@ -548,6 +548,7 @@ fn pinned_snapshot_value_survives_window_advance_and_final_holder_release() {
                 travel.proposed_at_micros += 1;
                 travel.command_id = vec![0x83; 16];
                 travel.command = Some(Command::TimeTravel(TimeTravelCommand {
+                    should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: command.flow_id.clone(),
                         reset_type: FlowResetType::HistoryEventTime as i32,

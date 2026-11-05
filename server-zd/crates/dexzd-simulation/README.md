@@ -20,7 +20,8 @@ Attribute Stores and receives acks. It never changes the main stream, whose per-
 `regression_seeds_keep_their_main_command_trajectories` pins. A third stream, also with its own
 draws, drives `order-recovery-1` and `order-recovery-2`. Their Steps and timeout handlers carry
 WaitFor and Execute failure policies, recovery targets, and retry total durations of 1 to 5
-seconds. Workers there also report `RETRY_DEADLINE` failures. SearchOrder rows must match the
+seconds. Workers there also report `STARTED_ATTEMPT_INTERRUPTED` failures, fence some failures
+on the running task ID, and return attempts they never ran. SearchOrder rows must match the
 search documents (SO1).
 
 The Attribute Sync stream also attaches permission mappings to its plain
@@ -155,7 +156,10 @@ directory invariants hold on the committed history. The engine simulation adds t
    runs from the node's applied position when the call began to the one when it returned. A
    value that a later applied write overwrote fails, as does an uncommitted one.
 3. **One result per attempt.** The shadow rejects a second applied result (S2). Any frame
-   applied again after recovery must reproduce its first outcome exactly.
+   applied again after recovery must reproduce its first outcome exactly. A ledger of every
+   task frame that any process sent allows at most one frame per SYNC attempt that its Worker
+   may have run; frames the Worker declined or half-closed before running are exempt. The
+   summary field `sync_task_frames_checked` counts the SYNC frames it covered.
 4. **Locks.** The shadow checks L1 to L4 after every command, and the recovered store passes
    `check_flow` again, including right after a takeover while the old-epoch process still runs.
    A successor replays every batch below its EpochStart before it serves, so its store never
@@ -178,8 +182,9 @@ directory invariants hold on the committed history. The engine simulation adds t
    counts the timers, running attempts, undelivered outbox rows, and pending hard-delete objects
    it interrupts.
    Recovered processes must deliver each interrupted outbox row and delete each interrupted
-   hard-delete object from storage. After a crash at a quiet point, the successor dispatches
-   every attempt that was running again. After a calm tail, every due timer has fired, no
+   hard-delete object from storage. After a crash at a quiet point, the successor never hands
+   out again an attempt that the crashed process had handed out; it fails each one as
+   STARTED_ATTEMPT_INTERRUPTED, so none is still running a few seconds later. After a calm tail, every due timer has fired, no
    runnable method call is unfinished, and no outbox row or hard-delete object is left waiting.
    Pending calls blocked by a lock holder whose retry is scheduled in the future may remain pending.
 
@@ -208,8 +213,8 @@ whose batch an EpochStart of a newer epoch at a lower seq of the same stream voi
 
 The fixed seed set also asserts that these checks had something to check. It requires every
 fault kind with each effect it can have on a call, such as a timed-out write that did or did
-not take effect. It requires every restart mode and Worker behavior, and crashes during
-recovery. It also requires 412 races on log and lease objects. An old-epoch window opens only
+not take effect. It requires every restart mode and every Worker behavior except a repeated
+result, which needs the same attempt handed out twice, and crashes during recovery. It also requires 412 races on log and lease objects. An old-epoch window opens only
 when a successor's lease write takes effect; the seed set requires log and lease writes that
 old-epoch processes started, and frames they applied, inside such a window. Log writes that
 landed after their process died are required, along with EpochStarts written below an
@@ -280,14 +285,16 @@ seed group: 32 seeds from `1604386816` (`0x5fa10000`). It uses the fixed set's e
 
 - Some Steps let a failed WaitFor proceed to Execute. Others send a failed Execute to a
   `RecoverStep` recovery Step.
-- Some retry policies have a total duration of 1 to 5 seconds. The engine ends such a method
-  with a `RETRY_DEADLINE` failure once the duration expires.
+- Some retry policies have a total duration of 1 to 5 seconds. Only the retry decision after a
+  failure reads it, so a method ends once a retryable failure leaves no time for its next
+  attempt. The engine never fails an attempt with `RETRY_DEADLINE`.
 - Flow timeouts last 5 to 30 seconds, so they expire before most runs close. Every timeout runs
   a timeout handler, which makes at most two attempts. In 60% of the Flows, a failed handler
   proceeds to `RecoverStep`.
 
 The test requires each outcome that `step_failure_recoveries` counts: `wait-for-proceed`,
-`execute-recovery`, `timeout-handler-recovery`, and `retry-deadline`. It reads the same
+`execute-recovery`, `timeout-handler-recovery`, and `retry-total-duration-exhausted`. It also
+requires that no committed failure has kind `RETRY_DEADLINE`. It reads the same
 environment variables as the fixed set, without the regression seeds.
 
 ### Hot standby profile

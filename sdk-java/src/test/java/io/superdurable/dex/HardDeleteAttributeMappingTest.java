@@ -15,7 +15,7 @@ import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
@@ -83,7 +83,7 @@ final class HardDeleteAttributeMappingTest {
     @Test
     void routesDefaultAndConfiguredStartsToPullWorkers() throws Exception {
         final HardDeleteMappingFlow flow = new HardDeleteMappingFlow();
-        try (FakeFlowService service = new FakeFlowService(3);
+        try (FakeFlowService service = new FakeFlowService(4);
                 Client client = service.newClient(new Registry(Arrays.<Flow<?>>asList(
                         flow, new HardDeleteMappingChildFlow())))) {
             client.startFlow(flow, "default-pull", "input");
@@ -104,7 +104,7 @@ final class HardDeleteAttributeMappingTest {
 
     @Test
     void updateFlowConfigLeavesWorkerTargetUnset() throws Exception {
-        try (FakeFlowService service = new FakeFlowService(3);
+        try (FakeFlowService service = new FakeFlowService(4);
                 Client client = service.newClient(new Registry(Collections.<Flow<?>>singletonList(
                         new HardDeleteMappingFlow())))) {
             client.updateFlowConfig("existing-flow", FlowConfig.newBuilder()
@@ -308,21 +308,7 @@ final class HardDeleteAttributeMappingTest {
 
     @Test
     void workerUsesTheProtocolNegotiatedAtStartup() throws Exception {
-        try (FakeFlowService protocolTwo = new FakeFlowService(2);
-                RunningWorker worker = new RunningWorker(protocolTwo)) {
-            final StatusRuntimeException failure = assertThrows(
-                    StatusRuntimeException.class,
-                    () -> worker.invokeExecute("write"));
-            assertEquals(Status.Code.INTERNAL, failure.getStatus().getCode());
-            final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
-                    .getDetails(0)
-                    .unpack(WorkerErrorResponse.class);
-            assertEquals(IllegalStateException.class.getName(), details.getErrorType());
-            assertTrue(details.getDetail().contains("requires Server protocol version 3"),
-                    details.getDetail());
-            assertFalse(worker.invokeExecute("plain").getUpsertAttributes(0).getIsHardDeleteOnNull());
-        }
-        try (FakeFlowService protocolThree = new FakeFlowService(3);
+        try (FakeFlowService protocolThree = new FakeFlowService(4);
                 RunningWorker worker = new RunningWorker(protocolThree)) {
             final Map<String, AttributeWrite> writes =
                     writesByKey(worker.invokeExecute("write").getUpsertAttributesList());
@@ -338,11 +324,10 @@ final class HardDeleteAttributeMappingTest {
         try (FakeFlowService protocolTwo = new FakeFlowService(2)) {
             final Client client = protocolTwo.newClient(registry);
             try {
-                client.startFlow(flow, "plain-start", "plain", StartFlowOptions.newBuilder()
-                        .addAttribute(PLAIN, "plain")
-                        .build());
                 assertEquals(0, protocolTwo.serverInfoCalls.get());
-                assertEquals(1, protocolTwo.startRequests.size());
+                assertThrows(IllegalStateException.class, () -> client.startFlow(flow, "plain-start", "plain"));
+                assertEquals(1, protocolTwo.serverInfoCalls.get());
+                assertEquals(0, protocolTwo.startRequests.size());
                 for (int attempt = 0; attempt < 2; attempt++) {
                     final IllegalStateException failure = assertThrows(
                             IllegalStateException.class,
@@ -350,17 +335,17 @@ final class HardDeleteAttributeMappingTest {
                                     StartFlowOptions.newBuilder()
                                             .addAttribute(TENANT_SECRETS, "tenant-a", "secret")
                                             .build()));
-                    assertTrue(failure.getMessage().contains("requires Server protocol version 3"),
+                    assertTrue(failure.getMessage().contains("server-zd newer than v0.1.16"),
                             failure.getMessage());
-                    assertTrue(failure.getMessage().contains("is 2"), failure.getMessage());
+                    assertTrue(failure.getMessage().contains("protocol versions 1-2"), failure.getMessage());
                 }
                 assertEquals(1, protocolTwo.serverInfoCalls.get());
-                assertEquals(1, protocolTwo.startRequests.size());
+                assertEquals(0, protocolTwo.startRequests.size());
             } finally {
                 client.close();
             }
         }
-        try (FakeFlowService protocolThree = new FakeFlowService(3)) {
+        try (FakeFlowService protocolThree = new FakeFlowService(4)) {
             final Client client = protocolThree.newClient(registry);
             try {
                 for (int attempt = 0; attempt < 2; attempt++) {
@@ -389,7 +374,7 @@ final class HardDeleteAttributeMappingTest {
         final HardDeleteMappingFlow flow = new HardDeleteMappingFlow();
         final Registry registry = new Registry(Arrays.<Flow<?>>asList(
                 flow, new HardDeleteMappingChildFlow()));
-        try (FakeFlowService protocolThree = new FakeFlowService(3)) {
+        try (FakeFlowService protocolThree = new FakeFlowService(4)) {
             final Client client = protocolThree.newClient(registry);
             try {
                 final IllegalArgumentException mismatch = assertThrows(
@@ -649,7 +634,7 @@ final class HardDeleteAttributeMappingTest {
 
         private FakeFlowService(final int currentProtocolVersion) throws IOException {
             this.currentProtocolVersion = currentProtocolVersion;
-            this.server = ServerBuilder.forPort(0).addService(this).addService(tasks).build().start();
+            this.server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0)).addService(this).addService(tasks).build().start();
         }
 
         String getAddress() {

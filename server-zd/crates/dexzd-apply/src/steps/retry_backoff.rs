@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_protocol::dex::{RetryPolicy, StepOptions};
-use dexzd_protocol::dexzd::v1::{StepInvocationRecord, StepMethod};
+use dexzd_protocol::dexzd::v1::{StepInvocationPhase, StepInvocationRecord, StepMethod};
 
 pub(crate) const DEFAULT_INITIAL_INTERVAL_SECONDS: i64 = 1;
 pub(crate) const DEFAULT_BACKOFF_COEFFICIENT: f64 = 2.0;
@@ -22,22 +22,6 @@ pub(crate) enum RetryDecision {
     RetryAt { fires_at_micros: i64 },
     /// No retry is left; the method call failed.
     Exhausted,
-}
-
-/// Returns the absolute time in microseconds at which the retry policy total duration of the
-/// invocation's method expires. The Go Server's 4-hour default applies when the Step options set
-/// no total duration. A running attempt that is still running at this time fails without retry.
-///
-/// The duration counts from [`retry_started_at_micros`]. Apply reports this value when an attempt
-/// starts, and a rebuilt partition re-arms the same value from the persisted invocation.
-pub fn invocation_retry_deadline_micros(
-    options: Option<&StepOptions>,
-    invocation: &StepInvocationRecord,
-) -> i64 {
-    retry_deadline_micros(
-        method_retry_policy(options, invocation.method),
-        retry_started_at_micros(invocation),
-    )
 }
 
 /// Returns the retry policy of `method` in the Step options, or `None` when the options leave
@@ -57,12 +41,16 @@ pub(crate) fn method_retry_policy(
 
 /// Returns when the retry policy total duration of the invocation started counting: the start of
 /// attempt 1, or `first_attempt_at_micros` for a record written before that start was persisted.
-pub(crate) fn retry_started_at_micros(invocation: &StepInvocationRecord) -> i64 {
+///
+/// Returns `None` for a pending attempt 1 whose clock has not started; only records written
+/// before the clock existed fall back to `first_attempt_at_micros`.
+pub(crate) fn retry_started_at_micros(invocation: &StepInvocationRecord) -> Option<i64> {
     if invocation.retry_started_at_micros > 0 {
-        invocation.retry_started_at_micros
-    } else {
-        invocation.first_attempt_at_micros
+        return Some(invocation.retry_started_at_micros);
     }
+    let is_older_record =
+        invocation.phase == StepInvocationPhase::Running as i32 || invocation.attempt > 1;
+    is_older_record.then_some(invocation.first_attempt_at_micros)
 }
 
 fn retry_deadline_micros(policy: Option<&RetryPolicy>, retry_started_at_micros: i64) -> i64 {

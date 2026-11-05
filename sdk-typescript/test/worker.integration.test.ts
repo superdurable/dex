@@ -47,7 +47,7 @@ test("Worker synchronizes indexes before opening task streams", async () => {
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0 } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
@@ -89,16 +89,16 @@ test("Worker rejects incompatible Server before sync and task streams", async ()
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0 } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
     getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
       calls.push("GetServerInfo");
       callback(null, {
-        serverVersion: "future",
-        minimumSupportedProtocolVersion: 4,
-        currentProtocolVersion: 4,
+        serverVersion: "server-zd/v0.1.16",
+        minimumSupportedProtocolVersion: 1,
+        currentProtocolVersion: 3,
         serverEngine: 0,
       });
     },
@@ -113,7 +113,9 @@ test("Worker rejects incompatible Server before sync and task streams", async ()
   });
   try {
     await assert.rejects(worker.start(), (failure: Error) => {
-      assert.match(String(failure.cause), /protocol intervals do not overlap/);
+      assert.match(failure.message, /The Server reports protocol versions 1-3 \(server version server-zd\/v0.1.16\)/);
+      assert.match(failure.message, /protocol version 4 or later \(server-zd newer than v0.1.16\)/);
+      assert.match(failure.message, /Upgrade the Server before upgrading the SDK/);
       return true;
     });
     assert.deepEqual(calls, ["GetServerInfo"]);
@@ -131,7 +133,7 @@ test("Worker sync failure prevents task streams", async () => {
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0 } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
@@ -177,7 +179,7 @@ function compatibleServerInfo(): ServerInfo {
   return {
     serverVersion: "test",
     minimumSupportedProtocolVersion: 1,
-    currentProtocolVersion: 1,
+    currentProtocolVersion: 4,
     serverEngine: 0,
   };
 }

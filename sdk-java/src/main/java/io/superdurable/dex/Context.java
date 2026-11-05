@@ -133,11 +133,11 @@ public interface Context {
     /**
      * Sends a best-effort heartbeat for the current Step method or Flow timeout attempt.
      *
-     * <p>Dex persists a nonnull value with the activity heartbeat and supplies it to a later
+     * <p>Dex persists a nonnull value with the heartbeat and supplies it to a later
      * attempt through {@link #getLastHeartbeatValue}. Passing {@code null} sends a heartbeat
      * without details, clearing any value previously reported during the current attempt. A Stream
      * write also acts as a heartbeat and preserves the most recently reported details. Heartbeats
-     * are ignored while an asynchronous Step runs as a local activity. This method sends directly
+     * behave the same with either Step durability. This method sends directly
      * on the invocation's response stream and must be called only from the handler thread.
      *
      * <pre>{@code

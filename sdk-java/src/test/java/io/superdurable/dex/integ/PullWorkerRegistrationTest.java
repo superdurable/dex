@@ -33,6 +33,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -81,7 +83,10 @@ final class PullWorkerRegistrationTest {
                     assertEquals(Status.Code.INVALID_ARGUMENT, Status.fromThrowable(rejection.getCause()).getCode());
                     starting.join(5000L);
                     assertFalse(starting.isAlive());
-                    assertSame(rejection, failure.get());
+                    assertInstanceOf(PullRegistrationError.class, failure.get());
+                    assertNotSame(rejection, failure.get());
+                    assertSame(rejection.getCause(), failure.get().getCause());
+                    assertEquals(rejection.getQueue(), ((PullRegistrationError) failure.get()).getQueue());
                     assertFalse(worker.getPullRegistrationState().isReady());
                 } else {
                     worker.waitPullRegistered(Duration.ofSeconds(10));

@@ -41,7 +41,11 @@ pub(crate) fn refresh_search_document(
     if old_document.is_some()
         && matches!(
             scope.command.command.as_ref(),
-            Some(Command::StepAttemptStarted(_) | Command::StepAttemptHeartbeat(_))
+            Some(
+                Command::StepAttemptStarted(_)
+                    | Command::StepAttemptHeartbeat(_)
+                    | Command::StepAttemptReturned(_)
+            )
         )
     {
         return Ok(());

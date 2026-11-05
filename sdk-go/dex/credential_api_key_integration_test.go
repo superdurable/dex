@@ -160,7 +160,9 @@ func newAPIKeyTestClient(t *testing.T, address string, credential Credential) *C
 }
 
 func TestClientRetriesRejectedUnaryCallOnceWithFreshAPIKeyToken(t *testing.T) {
-	gate := newBearerTokenGate(func(_ string, authorization string) bool { return authorization == "Bearer "+apiKeyAccessTokenB })
+	gate := newBearerTokenGate(func(fullMethod string, authorization string) bool {
+		return fullMethod == dexpb.FlowService_GetServerInfo_FullMethodName || authorization == "Bearer "+apiKeyAccessTokenB
+	})
 	address := startBearerTokenGatedServer(t, gate, nil)
 	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
 	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
@@ -186,7 +188,9 @@ func TestClientRetriesRejectedUnaryCallOnceWithFreshAPIKeyToken(t *testing.T) {
 }
 
 func TestClientFailsUnaryCallAfterSecondRejectedAPIKeyToken(t *testing.T) {
-	gate := newBearerTokenGate(func(string, string) bool { return false })
+	gate := newBearerTokenGate(func(fullMethod string, _ string) bool {
+		return fullMethod == dexpb.FlowService_GetServerInfo_FullMethodName
+	})
 	address := startBearerTokenGatedServer(t, gate, nil)
 	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
 	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
@@ -216,7 +220,9 @@ func TestClientRetryOfRejectedUnaryCallWaitsForFreshAPIKeyTokenOnlyUntilCallCont
 		{name: "cancellation", expectedErr: context.Canceled},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			gate := newBearerTokenGate(func(_ string, authorization string) bool { return authorization != "Bearer "+apiKeyAccessTokenA })
+			gate := newBearerTokenGate(func(fullMethod string, authorization string) bool {
+				return fullMethod == dexpb.FlowService_GetServerInfo_FullMethodName || authorization != "Bearer "+apiKeyAccessTokenA
+			})
 			address := startBearerTokenGatedServer(t, gate, nil)
 			refreshStarted := make(chan struct{})
 			releaseRefresh := make(chan struct{})
@@ -273,7 +279,7 @@ func startAPIKeyPullWorker(
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 		FlowServiceAddress: address,
 		Credential:         credential,
-		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: apiKeyTestAppWorkerID},
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 2, AppWorkerID: apiKeyTestAppWorkerID},
 	})
 	require.NoError(t, err)
 	if configurePull != nil {
@@ -290,10 +296,10 @@ func startAPIKeyPullWorker(
 	registeredByQueue := map[string]*pullTestStream{}
 	for len(registeredByQueue) < 2 {
 		stream := awaitPullRegistration(t, pullServer)
-		registeredByQueue[stream.registration.Queue] = stream
+		registeredByQueue[stream.registration.SlotKind.String()] = stream
 	}
-	require.NotNil(t, registeredByQueue[GetFinalFlowType(workerFlow)])
-	require.NotNil(t, registeredByQueue[apiKeyTestAppWorkerID])
+	require.NotNil(t, registeredByQueue[dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String()])
+	require.NotNil(t, registeredByQueue[dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY.String()])
 	return worker, registeredByQueue
 }
 
@@ -307,8 +313,8 @@ func TestWorkerPollStreamDiscardsRejectedAPIKeyTokenAndReconnectsAtOnceWithFresh
 	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
 	require.NoError(t, err)
 	_, registeredByQueue := startAPIKeyPullWorker(t, address, credential, pullServer, nil)
-	flowTypeStream := registeredByQueue[GetFinalFlowType(workerFlow)]
-	appWorkerStream := registeredByQueue[apiKeyTestAppWorkerID]
+	flowTypeStream := registeredByQueue[dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String()]
+	appWorkerStream := registeredByQueue[dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY.String()]
 	require.Equal(t, "Bearer "+apiKeyAccessTokenA, pullStreamAuthorization(flowTypeStream))
 	require.Equal(t, "Bearer "+apiKeyAccessTokenA, pullStreamAuthorization(appWorkerStream))
 	require.Equal(t, 1, tokenEndpoint.exchangeCount())
@@ -316,7 +322,7 @@ func TestWorkerPollStreamDiscardsRejectedAPIKeyTokenAndReconnectsAtOnceWithFresh
 	gate.acceptOnly("Bearer " + apiKeyAccessTokenB)
 	close(flowTypeStream.abort)
 	reconnected := awaitPullRegistration(t, pullServer)
-	require.Equal(t, GetFinalFlowType(workerFlow), reconnected.registration.Queue)
+	require.Equal(t, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC, reconnected.registration.SlotKind)
 	require.Equal(t, "Bearer "+apiKeyAccessTokenB, pullStreamAuthorization(reconnected),
 		"the rejected stream reconnects at once with a fresh token instead of waiting about a minute")
 	require.Equal(t, 1, gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName))
@@ -324,7 +330,7 @@ func TestWorkerPollStreamDiscardsRejectedAPIKeyTokenAndReconnectsAtOnceWithFresh
 
 	close(appWorkerStream.abort)
 	reconnected = awaitPullRegistration(t, pullServer)
-	require.Equal(t, apiKeyTestAppWorkerID, reconnected.registration.Queue)
+	require.Equal(t, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY, reconnected.registration.SlotKind)
 	require.Equal(t, "Bearer "+apiKeyAccessTokenB, pullStreamAuthorization(reconnected), "other streams reuse the fresh token")
 	require.Equal(t, 1, gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName))
 	require.Equal(t, 2, tokenEndpoint.exchangeCount())
@@ -338,7 +344,7 @@ func TestWorkerPollStreamFallsBackToBackoffAfterFreshAPIKeyTokenIsRejected(t *te
 	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
 	require.NoError(t, err)
 	worker, registeredByQueue := startAPIKeyPullWorker(t, address, credential, pullServer, nil)
-	flowType := GetFinalFlowType(workerFlow)
+	flowType := dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String()
 
 	gate.rejectAll()
 	close(registeredByQueue[flowType].abort)
@@ -451,7 +457,7 @@ func TestWorkerReportsUnauthenticatedPollStreamRejectedBeforeRegistrationIsSent(
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 		FlowServiceAddress: address,
 		Credential:         credential,
-		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: apiKeyTestAppWorkerID},
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 2, AppWorkerID: apiKeyTestAppWorkerID},
 	})
 	require.NoError(t, err)
 	worker.pull.client = newDelayedSendPollClient(t, address, credential, delayedSends)

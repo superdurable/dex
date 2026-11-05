@@ -50,7 +50,7 @@ func (step pullBurstStep) Execute(ctx Context, input string) (*StepDecision, err
 	}
 }
 
-func TestWorkerPullShrinksStreamsWithRealServer(t *testing.T) {
+func TestWorkerPullKeepsFixedSlotsWithRealServer(t *testing.T) {
 	address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
 	require.NotEmpty(t, address)
 	flow := &pullBurstFlow{entered: make(chan struct{}, 3), release: make(chan struct{})}
@@ -87,7 +87,7 @@ func TestWorkerPullShrinksStreamsWithRealServer(t *testing.T) {
 	require.Eventually(t, func() bool {
 		worker.pull.mu.Lock()
 		defer worker.pull.mu.Unlock()
-		return len(worker.pull.streams) == 5 && worker.pull.busyTasks == 3
+		return len(worker.pull.streams) == 3 && worker.pull.busyTasks == 3
 	}, 5*time.Second, time.Millisecond)
 	close(flow.release)
 	for _, flowID := range flowIDs {
@@ -99,7 +99,7 @@ func TestWorkerPullShrinksStreamsWithRealServer(t *testing.T) {
 		require.True(t, worker.PullRegistrationState().IsReady)
 		worker.pull.mu.Lock()
 		defer worker.pull.mu.Unlock()
-		return len(worker.pull.streams) == 2 && worker.pull.busyTasks == 0
+		return len(worker.pull.streams) == 3 && worker.pull.busyTasks == 0
 	}, 5*time.Second, time.Millisecond)
 }
 
@@ -182,11 +182,7 @@ func TestWorkerPullReservedRPCWithRealServer(t *testing.T) {
 	secondID := "reserved-step-" + uuid.NewString()
 	_, err = client.StartFlow(ctx, flow, secondID, "second", StartFlowOptions{})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		worker.pull.mu.Lock()
-		defer worker.pull.mu.Unlock()
-		return worker.pull.reservedRPCDeclines > 0
-	}, 5*time.Second, time.Millisecond)
+	require.Zero(t, worker.PullReservedRPCDeclines())
 	secondFlow := &pullReservedRPCFlow{workerID: "fallback", entered: entered, release: release}
 	fallback, err := newWorkerForTest(t, []Flow{secondFlow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 2}})
 	require.NoError(t, err)
@@ -254,9 +250,7 @@ func TestWorkerPullReservedRPCWithStepBacklog(t *testing.T) {
 		_, err = client.StartFlow(ctx, flow, flowIDs[index], "step", StartFlowOptions{})
 		require.NoError(t, err)
 	}
-	require.Eventually(t, func() bool {
-		return worker.PullReservedRPCDeclines() > 0
-	}, 5*time.Second, time.Millisecond)
+	require.Zero(t, worker.PullReservedRPCDeclines())
 	rpcCtx, cancelRPC := context.WithTimeout(ctx, 3*time.Second)
 	defer cancelRPC()
 	startedRPC := time.Now()

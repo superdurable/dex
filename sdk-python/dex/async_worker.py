@@ -143,7 +143,9 @@ class AsyncWorker:
 
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
-            RuntimeError: If lifecycle state is invalid or index synchronization fails.
+            RuntimeError: If lifecycle state is invalid, Server protocol 4 is
+                unsupported, concurrency exceeds matching.maxConcurrentTasksCap,
+                or index synchronization fails.
         """
         if self._has_start_called:
             raise RuntimeError("Worker can only start once")
@@ -160,23 +162,29 @@ class AsyncWorker:
                 await self.stop()
 
     async def wait_pull_registered(self, timeout: float | None = None) -> None:
-        """Wait until every pull queue has registered at least once.
+        """Wait until the required execution slot kinds have registered.
 
         Start the Worker separately before waiting, or start it concurrently.
-        Successful registration latches, including after stop. Use
+        Readiness requires one STEP_AND_RPC stream and, when RPC reservation is
+        configured, one RPC_ONLY stream. Successful registration latches after stop. Use
         pull_registration_state for subsequent readiness probes. A permanent
         rejection before readiness raises PullRegistrationError only when no
-        other stream is registered for that queue. Startup failures wake waiters.
+        other stream is registered for that slot kind. Startup failures wake waiters.
+        When the first registration reports a Server per-Worker limit below
+        ``max_concurrent_tasks``, every waiter raises that limit error and the
+        Worker never becomes ready.
         Multiple callers may wait independently, including before start.
 
         Args:
             timeout: Maximum seconds to wait; None waits indefinitely.
 
         Raises:
-            PullRegistrationError: A queue is permanently rejected before readiness.
+            PullRegistrationError: A slot kind is permanently rejected before readiness.
             TimeoutError: The timeout expires.
             asyncio.CancelledError: The calling task is canceled; the Worker keeps running.
-            RuntimeError: The Worker stops before readiness.
+            RuntimeError: The Worker stops before readiness, or
+                ``max_concurrent_tasks`` exceeds the Server's
+                ``matching.maxConcurrentTasksCap``.
             BaseException: The original startup failure, if start fails.
 
         Examples:
@@ -189,17 +197,14 @@ class AsyncWorker:
 
     @property
     def pull_reserved_rpc_declines(self) -> int:
-        """Return cumulative Step declines caused by reserved RPC capacity.
+        """Return the deprecated reserved RPC decline counter, always zero.
 
-        The counter counts decline events. Dex may decline the same Step dispatch
-        repeatedly while retrying it, so read the counter as a rate.
-        Full-capacity rejections and unknown names are excluded. The count never
-        resets during this Worker's lifetime and stays available after stop.
-        Reading it alongside handlers is safe.
-        Export this value to a monitoring counter to identify reserve pressure.
+        Reserved RPC capacity uses RPC_ONLY slots. Steps are never declined for
+        capacity. This property remains available for source compatibility and
+        is safe to read concurrently, including after stop.
 
         Returns:
-            The cumulative reserve-decline count.
+            Zero.
 
         Examples:
             >>> declines = worker.pull_reserved_rpc_declines
@@ -207,16 +212,16 @@ class AsyncWorker:
         return self._pull.reserved_rpc_declines
 
     def pull_registration_state(self) -> PullRegistrationState:
-        """Return an immutable snapshot of pull queue registrations.
+        """Return an immutable snapshot of execution slot kind registrations.
 
         Transient failures, reconnects, and stop preserve initial readiness.
-        A permanent rejection makes readiness false only while that queue has no
+        A permanent rejection makes readiness false only while that slot kind has no
         registered stream. Re-registration clears its error. Calls are safe
         concurrently with start, stop, and other waiters. See wait_pull_registered
         for an example.
 
         Returns:
-            Current per-queue state.
+            Current state grouped by STEP_AND_RPC and, when configured, RPC_ONLY.
         """
         return self._pull.registration.snapshot()
 
@@ -274,8 +279,20 @@ class AsyncWorker:
         Calls before ``start`` and repeated calls after shutdown are safe. Pull
         mode drains for ``PullWorkerOptions.stop_drain_timeout`` (30 seconds by
         default), then cancels active tasks and waits for handlers to return.
-        Half-closed pull streams wait for server EOF until the remaining drain
-        deadline before the channel closes.
+        Idle streams half-close immediately. Busy streams send final output before
+        half-closing. Tasks received after stop begins are dropped without running
+        handlers. A timed-out busy stream is reset before cancellation.
+        Half-closed streams keep reading server frames until EOF or the remaining drain
+        deadline before the channel closes. When the deadline expires, every stream
+        that is still open is reset, even one blocked on a send or without Server EOF,
+        so stop returns once handlers return. The Server may count a task it sent in
+        that window as an attempt that may have run.
+        One exception applies to a stream whose final output was queued or written
+        but not yet confirmed by Server EOF or by the next assignment. Such a stream
+        is not reset at the drain deadline, even if its handler finished or it
+        already half-closed. It gets up to 5 more seconds to send the output,
+        half-close, and receive Server EOF, and is reset after that. Stop can
+        therefore return up to 5 seconds after the drain deadline.
         """
         self._pull.registration.record_stopping()
         if self._state in ("stopped", "closed"):
@@ -294,7 +311,11 @@ class AsyncWorker:
     async def close(self) -> None:
         """Stop the AsyncWorker and permanently mark it closed.
 
-        Pull streams finish their bounded EOF wait before the channel closes.
+        Uses the same shutdown contract as stop: idle streams half-close, busy
+        streams send final output before half-closing, and later tasks are dropped.
+        A handler exceeding the drain timeout has its stream reset.
+        Pull streams finish their bounded EOF wait before the channel closes; a
+        stream still open at the deadline is reset.
         Repeated calls are safe; a closed Worker cannot be started again.
         """
         try:

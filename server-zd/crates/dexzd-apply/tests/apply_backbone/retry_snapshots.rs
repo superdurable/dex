@@ -273,6 +273,7 @@ fn timeout_handler_and_step_retries_keep_their_snapshot_across_restart() {
         fixture
             .harness
             .apply(Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+                task_id: Vec::new(),
                 invocation: Some(key(fixture.step_execution_id, fixture.method)),
                 attempt: 1,
                 checkpoint: Some(step_attempt_heartbeat_command::Checkpoint::Value(
@@ -430,6 +431,7 @@ fn time_travel_restores_retry_snapshot_pins_and_releases_abandoned_snapshots() {
             let outcome = fixture
                 .harness
                 .apply(Command::TimeTravel(TimeTravelCommand {
+                    should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: fixture.harness.flow_id.clone(),
                         reset_type: FlowResetType::HistoryEventTime as i32,
@@ -451,6 +453,7 @@ fn time_travel_restores_retry_snapshot_pins_and_releases_abandoned_snapshots() {
             let outcome = fixture
                 .harness
                 .apply(Command::TimeTravel(TimeTravelCommand {
+                    should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: fixture.harness.flow_id.clone(),
                         reset_type: FlowResetType::Beginning as i32,

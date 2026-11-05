@@ -278,7 +278,7 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 | framework 无法推迟的 tool | tool 在 **RunModel** 内部运行，**RunModel** 重跑时它也会重复，属于至少一次。 |
 | Claude Agent SDK 的一段轮次 | 被推迟的自定义 tool 在各自的 **CallTool** 或 **CallSingleAttemptTool** Step 中运行，规则同上。模型调用、inline 读取 tool，以及 **Bash**、**Write**、**Edit**、**Task** 等 CLI tool 在 **RunModel** 内部运行，**RunModel** 重跑时会重复，属于至少一次。 |
 
-单次尝试的 tool 只有一种很窄的情况会运行两次。见
+单次尝试的 tool 在少数很窄的情况下会运行两次，例如节点崩溃后 ASYNC 的重新运行。见
 [Tool call 的限制](#tool-runs-twice)。
 
 优雅停止 Worker 时，它会在 drain 超时内等待正在运行的 handler，默认 30 秒，然后取消它们。
@@ -292,27 +292,28 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 单次尝试的 tool 在 **CallSingleAttemptTool** Step 中运行。这个 Step 负责
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
 已经运行过时记录 **outcome_unknown**。有两种情况会打破这一点，两种都要提前准备。它们源于
-Dex 投递任何 Step attempt 的方式。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
+Dex 交出任何 Step attempt 的方式。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
 
-tool Step 在运行 tool 之前会先向 Dex 发送一次 heartbeat。Dex 不会确认 heartbeat，所以 tool
-不等它送达就开始运行。假设 Worker 在 tool 开始之后、这次 heartbeat 到达 Dex 之前停掉，或者
-断开了与 Dex 的连接，Dex 看到的就是一个没有任何输出的 attempt。它会再次投递同一个 attempt，
-另一个 Worker 会再运行一次 tool。session 记录第二次运行的结果，第一次运行不会留下任何标记。
-如果在分发等待内没有 Worker 接手这个 attempt，这次调用会改为记录 **outcome_unknown**。
+Dex 在把 attempt 交给 Worker 时开始这个 attempt，并且不会再把同一个 attempt 编号交给另一个
+Worker。如果 Worker 在 tool 运行期间停掉，或者断开了与 Dex 的连接，这个 attempt 会失败。单次
+尝试的 tool 没有剩余的 retry，所以这次调用记录 **outcome_unknown**。之前的那次运行可能已经
+完成了副作用，因此 session 不会再次运行这个 tool。
 
-这个窗口从 tool 开始运行，持续到 heartbeat 到达 Dex：
+只有两种很窄的情况仍可能让单次尝试的 tool 运行两次：
 
-- 等待 I/O 的 tool 会在第一次 await 时把 heartbeat 发出去。这时窗口大约是到 Dex 的一次网络
-  传输，通常只有几毫秒或更短。
-- 阻塞 event loop 的 tool 会让 heartbeat 一直等到阻塞代码返回。在 Python 中，async tool 里的
-  同步 HTTP 客户端或 SDK 调用会让整个调用都落在窗口内。用 **asyncio.to_thread** 运行这类调用。
-  在 TypeScript 中，第一次 await 之前的同步工作也有同样的效果。
+- 这个 Step 使用 ASYNC durability，并且 Dex Server 节点在 Dex 把 attempt 的开始记录写入
+  object storage 之前崩溃。Dex 会回滚这次开始，并再次运行同一个 attempt 编号，可能在另一个
+  Worker 上。两次运行可能重叠。
+- 取消是协作式的。Dex 取消一个 attempt 时，被中断的运行可能仍在继续，而 failure route 已经开始。
+
+tool 从未运行时，failure route 也可能看到 **NOT_COMPLETED**，例如 server 在任务到达 Worker
+之前崩溃。请把这种结果当作未知。见[失败与重新投递](/primitives/step/basic#unknown-outcome)。
 
 要让第二次运行无害，把这次调用的幂等键传给 tool 写入的服务。每个 tool call 都会收到一个幂等键：
 session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **session-42/turn-3/call-7**。
-同一次调用的每次 attempt、每次投递都使用同一个键。服务按这个键去重时，把这个 tool 归类为
+同一次调用的每次 attempt 都使用同一个键。服务按这个键去重时，把这个 tool 归类为
 **idempotent_write**，这样它失败后也会重试。
 
 ### 从未运行的调用也可能记录 outcome_unknown {#never-run-outcome-unknown}

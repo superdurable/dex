@@ -22,44 +22,34 @@ class PullWorkerOptions:
     Handlers may run concurrently and must synchronize shared state.
 
     Attributes:
-        max_concurrent_tasks: Maximum simultaneous handlers. Zero uses the CPU
-            count. Negative values are invalid.
-        reserved_rpc_tasks: Capacity reserved to protect synchronous RPC latency
-            from long-running Steps. None reserves one slot when resolved capacity is
-            at least two, otherwise zero. With the CPU-count default, Steps get one
-            fewer slot than before. Set zero to opt out. With one slot and None,
-            start logs one warning that RPCs may wait behind Steps. Flows must stay
-            responsive because RPCs share Worker task capacity with Steps.
-            WaitFor and Execute tasks, including local attempts, are declined when total busy handlers reach
-            max_concurrent_tasks minus this reserve. API-direct and transactional RPCs
-            can use the full limit.
-            Must be nonnegative and less than the task limit after its CPU-count
-            default is resolved. Declines reassign without consuming an attempt.
-            If all Workers remain at the Step limit through the dispatch wait,
-            NO_WORKER_AVAILABLE consumes an attempt and follows the Step retry
-            policy. Local attempts wait the local dispatch wait, then fall back
-            according to their policy. Declines emit a Flow-type debug log,
-            increment pull_reserved_rpc_declines, and preserve readiness.
-            A queue keeps one additional idle stream for 30 seconds after its
-            last reserve decline. The Worker does not open it while all task
-            slots are busy.
-        idle_streams_per_queue: Idle streams for the sticky queue and each Flow
-            type queue. Zero uses one. A queue keeps one more after a recent
-            reserve decline. Use at least two for heavy Step backlogs. Negative values
-            are invalid.
+        max_concurrent_tasks: Execution slots, each owning one long-lived poll
+            stream. Zero uses the CPU count. Negative values are invalid. Start
+            fails if this exceeds the Server's nonzero per-Worker limit reported
+            by matching.maxConcurrentTasksCap.
+        reserved_rpc_tasks: Slots accepting only RPCs. The remaining slots accept
+            Steps and RPCs. Steps are never declined for capacity. None reserves
+            one slot when the resolved task limit is at least two, otherwise zero.
+            Zero disables reservation. Values must be nonnegative and smaller
+            than the resolved task limit. With one slot and no explicit reserve,
+            start warns that RPCs may wait behind long-running Steps.
+        idle_streams_per_queue: Deprecated; accepted for source compatibility and
+            has no effect. The Worker opens exactly max_concurrent_tasks streams.
+            Zero remains valid; negative values remain invalid.
         app_worker_id: Unique process identity for sticky routing. Empty generates
             an identity with eight random base32 characters. A supplied value
             must contain 1-63 ASCII letters, digits, dots, underscores, or hyphens,
             differ from every registered Flow type, and change after restart.
         stop_drain_timeout: Grace period for active tasks on stop. Zero uses 30
-            seconds. After it expires, handlers are canceled and stop waits for
-            them to return. Negative values are invalid.
+            seconds. Idle streams half-close immediately. Busy streams send final
+            output before half-closing. Tasks arriving after stop begins are dropped.
+            On timeout a busy stream is reset, its handler is canceled, and stop
+            waits for the handler to return. Negative values are invalid.
             Busy Reconnect waits this long for server EOF after
             the final frame. During Stop, half-closed streams use the remaining
             drain deadline.
 
         stop_on_permanent_stream_rejection: Whether the first permanent rejection
-            leaving a queue without a registered stream drains the Worker and
+            leaving a slot kind without a registered stream drains the Worker and
             raises PullRegistrationError from start. Defaults to False, which
             retries indefinitely. Applies before and after initial readiness.
 
