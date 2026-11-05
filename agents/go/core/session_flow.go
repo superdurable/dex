@@ -980,10 +980,11 @@ func (step CallSingleAttemptTool) Execute(ctx dex.Context, toolCallID string) (*
 // RecordToolFailure records a CallTool call whose attempts ran out.
 //
 // A read call becomes failed and an idempotent_write call outcome_unknown,
-// with the recovery detail as the error.
+// with the recovery detail as the error. A call whose tool never ran becomes
+// failed with ToolCallNotRunErrorPrefix.
 //
 // dex:group group-id:tools group-label:"Tools"
-// dex:explanation text:"Record a tool call whose attempts ran out as failed for a read and outcome unknown for a write."
+// dex:explanation text:"Record a tool call whose attempts ran out as failed for a read or a never-run call and outcome unknown for a write."
 type RecordToolFailure struct {
 	dex.StepDefaultsNoWaitFor[string]
 	session *AgentSessionFlow
@@ -1019,8 +1020,10 @@ func (step RecordToolFailure) Execute(ctx dex.Context, toolCallID string) (*dex.
 
 // RecordToolOutcomeUnknown records that a single-attempt tool call stopped without a result.
 //
+// A call whose tool never ran becomes failed with ToolCallNotRunErrorPrefix instead.
+//
 // dex:group group-id:tools group-label:"Tools"
-// dex:explanation text:"Record a single-attempt tool call that stopped without a result as outcome unknown."
+// dex:explanation text:"Record a single-attempt tool call that stopped without a result as outcome unknown, or as failed when it never ran."
 type RecordToolOutcomeUnknown struct {
 	dex.StepDefaultsNoWaitFor[string]
 	session *AgentSessionFlow
@@ -1031,7 +1034,7 @@ func (RecordToolOutcomeUnknown) GetStepOptions() *dex.StepOptions {
 	return recoveryStepOptions([]dex.AttributeDef{AgentToolCallsAttributeMap})
 }
 
-// Execute records outcome_unknown with the recovery detail.
+// Execute records outcome_unknown with the recovery detail, or failed when the tool never ran.
 func (step RecordToolOutcomeUnknown) Execute(ctx dex.Context, toolCallID string) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -1616,7 +1619,7 @@ func (flow *AgentSessionFlow) runToolCall(ctx dex.Context, toolCallID string) er
 	if err != nil {
 		return err
 	}
-	// Dex may redeliver a task without output to another Worker, at the same attempt.
+	// Earlier Dex Servers redelivered a task without output to another Worker, at the same attempt.
 	if err := heartbeats.record(); err != nil {
 		return err
 	}
@@ -1662,10 +1665,33 @@ func (flow *AgentSessionFlow) recordToolRecovery(
 	if toolCall.Status.IsFinal() {
 		return nil
 	}
-	detail := recoveryDetail(ctx)
+	finished := recoveredToolCall(toolCall, ctx.RecoveryError(), status)
+	return finishToolCall(ctx, finished, flow.eventWriter(ctx, &toolCall.TurnID))
+}
+
+// recoveredToolCall returns the final record that a tool Step's failure route writes.
+func recoveredToolCall(
+	toolCall AgentToolCall,
+	recoveryError *dex.RecoveryErrorInfo,
+	status ToolCallStatus,
+) AgentToolCall {
+	detail := recoveryErrorDetail(recoveryError)
+	if isToolCallNotRun(toolCall, recoveryError) {
+		status = ToolCallStatusFailed
+		detail = ToolCallNotRunErrorPrefix + ": " + detail
+	}
 	toolCall.Status = status
 	toolCall.Error = &detail
-	return finishToolCall(ctx, toolCall, flow.eventWriter(ctx, &toolCall.TurnID))
+	return toolCall
+}
+
+// isToolCallNotRun reports whether the failed Step certainly never ran the call's tool.
+func isToolCallNotRun(toolCall AgentToolCall, recoveryError *dex.RecoveryErrorInfo) bool {
+	// An answered question's call already ran its tool in an earlier Step.
+	return recoveryError != nil &&
+		recoveryError.AttemptProgress == dex.StepAttemptProgressNotStarted &&
+		toolCall.Status == ToolCallStatusApproved &&
+		len(toolCall.InputAnswers) == 0
 }
 
 func (flow *AgentSessionFlow) failTurn(ctx dex.Context, state AgentState, errorText string) error {
@@ -1987,7 +2013,10 @@ func containsSlash(text string) bool {
 }
 
 func recoveryDetail(ctx dex.Context) string {
-	recoveryError := ctx.RecoveryError()
+	return recoveryErrorDetail(ctx.RecoveryError())
+}
+
+func recoveryErrorDetail(recoveryError *dex.RecoveryErrorInfo) string {
 	if recoveryError == nil {
 		return "unknown failure"
 	}

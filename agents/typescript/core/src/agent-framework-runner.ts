@@ -152,8 +152,9 @@ export interface AgentTurnContext {
   /** Turn ID, `turn-<n>`. */
   readonly turnId: string;
   /**
-   * One-based `RunModel` attempt. A rerun after a Worker crash may keep the same attempt when the
-   * crashed attempt sent no output, so do not rely on it to detect reruns.
+   * One-based `RunModel` attempt. A rerun after a Worker crash gets the next attempt. Earlier Dex Servers
+   * could keep the same attempt when the crashed attempt sent no output, so do not rely on it to detect
+   * reruns.
    */
   readonly attempt: number;
   /**

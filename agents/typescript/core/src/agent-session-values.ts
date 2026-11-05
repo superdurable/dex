@@ -322,7 +322,8 @@ export interface AgentToolCall {
   readonly output: string | null;
   /**
    * The `ToolExecutionError` message, or the failed Step's recovery detail, after `failed` or
-   * `outcome_unknown`; otherwise `null`. Wire field: `error`.
+   * `outcome_unknown`; otherwise `null`. Wire field: `error`. A tool Step that failed before the tool
+   * ran records `failed` with {@link toolCallNotRunErrorPrefix}, `": "`, and the recovery detail.
    */
   readonly error: string | null;
   /** Rejection text after `rejected`, otherwise `null`. Wire field: `rejection_message`. */
@@ -1090,6 +1091,12 @@ export const invalidToolTaskPollInterval = "the tool task's poll interval is not
 /** Error of an `outcome_unknown` record whose task `cancel_turn` abandoned; the same text as the Python core. */
 export const toolTaskAbandonedError =
   "the turn was cancelled while the tool's task was running; the task may have taken effect";
+
+/**
+ * Start of the `error` of a `failed` record whose tool Step certainly never ran the tool; the same text as the
+ * Python core.
+ */
+export const toolCallNotRunErrorPrefix = "the tool did not run, so it is safe to call again";
 
 /**
  * Returns the note text that tells the model what a failed turn already did.

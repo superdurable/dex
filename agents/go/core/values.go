@@ -629,7 +629,8 @@ type AgentToolCall struct {
 	// Output is the tool output text after succeeded, or nil.
 	Output *string `json:"output"`
 	// Error is the ToolExecutionError message after failed, or the recovery detail of the failed
-	// Step after outcome_unknown, or nil.
+	// Step after outcome_unknown, or nil. A tool Step that failed before the tool ran records failed
+	// with ToolCallNotRunErrorPrefix, ": ", and the recovery detail.
 	Error *string `json:"error"`
 	// RejectionMessage is the message after rejected, or nil when the person gave none.
 	RejectionMessage *string `json:"rejection_message"`

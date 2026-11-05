@@ -73,6 +73,7 @@ export {
   describeToolCallOutcome,
   emptyAgentUsage,
   invalidToolTaskPollInterval,
+  toolCallNotRunErrorPrefix,
   toolTaskAbandonedError,
   isFinalToolCallStatus,
   missingToolTaskPoller,

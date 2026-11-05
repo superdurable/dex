@@ -394,7 +394,8 @@ func writeMarker(coordinationDir string, name string) {
 
 // slowFirstAttemptModelClient blocks the first "think slowly" attempt after it streamed output.
 //
-// Output first matters: Dex redelivers an attempt that wrote nothing at the same attempt number.
+// Output first mattered on earlier Dex Servers: they redelivered an attempt that wrote nothing at the
+// same attempt number.
 type slowFirstAttemptModelClient struct {
 	scripted        *agentstest.ScriptedModelClient
 	coordinationDir string

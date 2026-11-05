@@ -855,6 +855,13 @@ so the tool's source can resolve the tool without listing it again.
   or on a crash or timeout, the call is recorded as `failed` for a `read` tool
   and `outcome_unknown` for a write. The model then sees
   `outcomeUnknownToolResult`, because the write may have taken effect.
+- A tool Step that fails before any attempt reaches a Worker never ran the
+  tool. Its recovery error's `attemptProgress` is
+  `StepAttemptProgress.NOT_STARTED`, and the call is recorded as `failed` with an `error` that starts with
+  `toolCallNotRunErrorPrefix` (`the tool did not run, so it is safe to call
+  again`), then `": "` and the recovery detail. The model may call the tool
+  again. A call whose tool already asked a question ran before, so it keeps the
+  status of its effect.
 
 ### Tool tasks
 
@@ -1019,8 +1026,8 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | `CallTool` | tool call ID | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started` | 3 attempts, failure route `RecordToolFailure` |
 | `CallSingleAttemptTool` | tool call ID | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, failure route `RecordToolOutcomeUnknown` |
 | `PollToolTask` | tool call ID | Waits on a Timer for `taskPollIntervalSeconds`, or a zero Timer while `taskAnswerPending`, then calls `pollToolTask`; records the result, stores the next interval and continuation, or records the task's question. Steering waits for the task's result; `cancel_turn` cancels the poll and drops its result | 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls, else `RecordToolOutcomeUnknown`; no lock |
-| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text | Retry backoff capped at 5 s |
-| `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text | Retry backoff capped at 5 s |
+| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text. A call whose tool Step never started (`StepAttemptProgress.NOT_STARTED`) records `failed` with `toolCallNotRunErrorPrefix` instead | Retry backoff capped at 5 s |
+| `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text. A call whose tool Step never started records `failed` with `toolCallNotRunErrorPrefix` instead | Retry backoff capped at 5 s |
 | `ResumeTurn` | expected result count | Waits for that many `ToolCallResults` messages or a `TurnControlRequests` message. A steer wake cancels the pending interrupts of the turn's approvals and of questions no task asked, wakes each such approval, question, and durable wait through `ToolCallCancellations`, and waits again. With every result in, moves to `RunModel`, or to `ApplyTurnControl` when steered or cancelled | Locks `PendingInterrupts` in Execute |
 | `ApplyTurnControl` | none | Consumes every steered message and stale wake. Ends an active steered or cancelled turn with the runner's unfinished-turn messages or a note, and writes `turn_steered` or `turn_cancelled`; then starts a turn with the steered messages | Retry backoff capped at 5 s |
 | `RecordTurnFailure` | the failing Step's input, ignored | Records `last_turn_error` and clears the turn; first appends the runner's unfinished-turn messages, when it has the method, and the turn failure note when the turn has final tool call records | Retry backoff capped at 5 s |
@@ -1933,6 +1940,9 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   `outcome_unknown` instead of running the tool again. Cancellation is
   cooperative, though: a cancelled run may keep running while the failure
   route starts.
+- `StepAttemptProgress.NOT_COMPLETED` is conservative, so a call whose tool never
+  ran can still record `outcome_unknown`, such as when Dex Server crashed after
+  it recorded the attempt start but before the task reached the Worker.
 - Tools a framework cannot defer run inside `RunModel` and repeat with it; each
   adapter documents them as at-least-once.
 - Queued user messages are consumed one per turn, and a queued message does

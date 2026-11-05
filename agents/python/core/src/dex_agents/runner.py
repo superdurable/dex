@@ -86,6 +86,9 @@ TOOL_TASK_ABANDONED_ERROR = (
     "the turn was cancelled while the tool's task was running; the task may have taken effect"
 )
 
+#: Start of the ``error`` of a ``failed`` record whose tool Step certainly never ran the tool.
+TOOL_CALL_NOT_RUN_ERROR_PREFIX = "the tool did not run, so it is safe to call again"
+
 
 @dataclass(frozen=True)
 class ToolPolicy:

@@ -6,6 +6,23 @@ for the Dex SDK and framework versions each release supports.
 
 ## 0.2.0 (Unreleased)
 
+### Tool calls that never ran
+
+- All three cores: `RecordToolFailure` and `RecordToolOutcomeUnknown` read the
+  recovery error's `attempt_progress`. When it is `NOT_STARTED`, no attempt of
+  the tool Step reached a Worker, so the tool never ran. The call then records
+  `failed`, not `outcome_unknown`, with an `error` that starts with the new
+  `TOOL_CALL_NOT_RUN_ERROR_PREFIX` (`toolCallNotRunErrorPrefix`,
+  `ToolCallNotRunErrorPrefix`), `the tool did not run, so it is safe to call
+  again`, then `": "` and the recovery detail. The model sees an ordinary
+  failed call and can call the tool again. No final status is added.
+- `NOT_COMPLETED`, and `UNSPECIFIED` from a server that reports no progress,
+  keep the 0.1.0 behavior: a read records `failed` and any other call
+  `outcome_unknown`. So do task polls, `CancelToolTask`, and a call whose tool
+  already asked a question, because their tool already ran.
+- This needs the Dex SDK release that adds `RecoveryErrorInfo.attempt_progress`
+  (`attemptProgress`, `AttemptProgress`).
+
 ### MCP tool source
 
 - `dex_agents.mcp` (extra `dex-agents[mcp]`, `mcp>=2.3,<3`) and

@@ -447,7 +447,7 @@ async def test_worker_killed_during_run_model_repeats_only_that_model_call(
         (3, MessageRole.TOOL),
         (4, MessageRole.ASSISTANT),
     ]
-    # The killed call had no output yet, so Dex redelivered it; it completed once.
+    # The killed call had no output yet; Dex failed that attempt and retried it; it completed once.
     history = await harness.stack.read_step_history(session_id)
     model_steps = [
         entry.step_execution_id

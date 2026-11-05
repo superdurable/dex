@@ -764,7 +764,13 @@ exception is a Step failure. `read` and `idempotent_write` calls retry up to
 three attempts, and then `RecordToolFailure` records `failed` for a read and
 `outcome_unknown` for a write, because the write may have taken effect.
 Single-attempt calls do not retry; `RecordToolOutcomeUnknown` records
-`outcome_unknown`.
+`outcome_unknown`. Both read the recovery error's `attempt_progress`. When it
+is `NOT_STARTED`, no attempt reached a Worker and the tool never ran, so both
+record `failed` with an `error` that starts with
+`TOOL_CALL_NOT_RUN_ERROR_PREFIX` (`the tool did not run, so it is safe to call
+again`), then `": "` and the recovery detail. The model may call the tool
+again. A call whose tool already asked a question ran before, so it keeps the
+status of its effect.
 
 Before calling the runner, the tool Step writes `tool_call_started` and awaits
 a heartbeat. Dex hands each attempt number to one Worker only: a Worker that
@@ -925,8 +931,8 @@ ApplyTurnControl -> RunModel with steered messages, else AwaitUserMessage
 | `CallTool` (tool call ID) | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started`. 3 attempts, failure route `RecordToolFailure`. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result raises a question instead, and a `ToolTaskStarted` result records `waiting_for_task` and writes `tool_task_started`. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
 | `CallSingleAttemptTool` (tool call ID) | Runs one `non_idempotent_write` or `unclassified` call. 1 attempt, failure route `RecordToolOutcomeUnknown`. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
 | `PollToolTask` (tool call ID) | Waits on a Timer for `task_poll_interval_seconds`, or a zero Timer while `task_answer_pending`, then calls `poll_tool_task`. 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls and `RecordToolOutcomeUnknown` otherwise. No lock: steering waits for the task's result, and `cancel_turn` cancels the poll and drops its result. Records the result and publishes `ToolCallResults`, stores the next interval and continuation, or records the task's question. | Ends, itself, `AwaitQuestionAnswer`, or `FinishTurnCancellation` |
-| `RecordToolFailure` (tool call ID) | Records `failed` for a read and `outcome_unknown` for a write, with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
-| `RecordToolOutcomeUnknown` (tool call ID) | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
+| `RecordToolFailure` (tool call ID) | Records `failed` for a read and `outcome_unknown` for a write, with the recovery detail in `error`, and publishes `ToolCallResults`. A call whose tool Step never started (`attempt_progress` `NOT_STARTED`) records `failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX` instead. | Ends |
+| `RecordToolOutcomeUnknown` (tool call ID) | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. A call whose tool Step never started records `failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX` instead. | Ends |
 | `ResumeTurn` (expected result count) | Waits for `ToolCallResults.for_n(count)` or `TurnControlRequests`. Locks `PendingInterrupts` in Execute. A steer wake cancels the pending interrupts of the turn's approvals and of questions no task asked, and wakes each such approval, question, and durable wait through `ToolCallCancellations`, then waits again. | `RunModel`, `ApplyTurnControl` when steered or cancelled, or itself |
 | `ApplyTurnControl` (none) | Consumes every steered message and stale wake. Ends an active steered or cancelled turn with the runner's unfinished-turn messages or a note, and writes `turn_steered` or `turn_cancelled`. | `RunModel` with the steered messages, else `AwaitUserMessage` |
 | `RecordTurnFailure` (the failing Step's input, ignored) | Records `last_turn_error`. Appends the runner's unfinished-turn messages when it implements `build_unfinished_turn_messages`. When the turn has final tool call records, appends one turn-failure note. Clears the turn's records and run state. | `AwaitUserMessage` |
@@ -1723,6 +1729,10 @@ The plan records each of these decisions too.
 - `RecordToolFailure` records `failed` for a read and `outcome_unknown` for a
   write: it is reached only through crashes, timeouts, or exceptions other
   than `ToolExecutionError`, so a write may have taken effect.
+- A failed tool Step whose recovery error reports `attempt_progress`
+  `NOT_STARTED` never ran the tool, so its call records `failed` with
+  `TOOL_CALL_NOT_RUN_ERROR_PREFIX` rather than a new status. The model sees an
+  ordinary failure and can call the tool again.
 - `AgentToolCall.deferral_order` keeps model order for display and for the
   turn-failure note; AttributeMap keys alone do not keep order.
 - By default nothing from a turn is stored until it completes: `TurnCompleted`
@@ -1760,6 +1770,10 @@ The plan records each of these decisions too.
   to a second Worker, so a single-attempt tool does not run twice after a
   Worker crash. Cancellation is cooperative, though: a cancelled run may keep
   running while the failure route starts.
+- `attempt_progress` `NOT_COMPLETED` is conservative, so a call whose tool
+  never ran can still record `outcome_unknown`, such as when Dex Server
+  crashed after it recorded the attempt start but before the task reached the
+  Worker.
 - A tool the framework cannot defer runs inside `RunModel` and repeats on a
   `RunModel` retry.
 - Whether turn records cleared at turn end still count against the Server's

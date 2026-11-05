@@ -11,6 +11,7 @@ import {
   StepMovement,
   int64Codec,
   StepRef,
+  StepAttemptProgress,
   Timer,
   Wait,
   deadEnd,
@@ -23,6 +24,7 @@ import {
   type Codec,
   type Condition,
   type Context,
+  type RecoveryErrorInfo,
   type Step,
   type StepDecision,
   type StepOptions,
@@ -74,6 +76,7 @@ import {
   isAbandonedToolTask,
   isCancellableByTurnControl,
   readRecoveryDetail,
+  recoveryErrorDetail,
   toRunnerToolCall,
   toolStepTypeForEffect,
   ToolStepHeartbeats,
@@ -95,6 +98,7 @@ import {
   invalidToolTaskPollInterval,
   isFinalToolCallStatus,
   missingToolTaskPoller,
+  toolCallNotRunErrorPrefix,
   toolTaskAbandonedError,
   type AgentInterrupt,
   type AgentPlan,
@@ -948,7 +952,7 @@ export class ToolCallStep implements Step<string> {
       return await transitions.tracer.traceToolCall(context, this.stepType, toolCall, async (toolCallSpan) => {
         events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
         const heartbeats = new ToolStepHeartbeats(context);
-        // Dex re-delivers an attempt whose Worker vanished before any output, so emit output first.
+        // Earlier Dex Servers re-delivered an attempt whose Worker vanished before any output, so emit output first.
         await heartbeats.record();
         const execution: DeferredToolExecution = {
           flowId: context.flowId,
@@ -1066,7 +1070,8 @@ export class ToolCallStep implements Step<string> {
 /**
  * Failure route of a tool Step; it receives the failed Step's input, the tool call ID.
  * `RecordToolFailure` records `failed` for a `read` call and `outcome_unknown` for a write;
- * `RecordToolOutcomeUnknown` always records `outcome_unknown`.
+ * `RecordToolOutcomeUnknown` always records `outcome_unknown`. Either records `failed` with
+ * {@link toolCallNotRunErrorPrefix} when the tool certainly never ran.
  */
 export class ToolCallFailureRecordingStep implements Step<string> {
   public readonly inputCodec = stringCodec;
@@ -1093,14 +1098,36 @@ export class ToolCallFailureRecordingStep implements Step<string> {
     }
     const status =
       this.isReadFailureRecorded && toolCall.effect === "read" ? "failed" : "outcome_unknown";
-    // An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
-    const error =
-      isAbandonedToolTask(toolCall) && (toolCall.cancellationReason ?? null) !== null
-        ? toolTaskAbandonedError
-        : readRecoveryDetail(context);
-    transitions.finishToolCall(context, { ...toolCall, status, error });
+    transitions.finishToolCall(context, recoveredToolCall(toolCall, context.recoveryError, status));
     return deadEnd();
   }
+}
+
+/** Returns the final record that a tool Step's failure route writes. */
+export function recoveredToolCall(
+  toolCall: AgentToolCallRecord,
+  recoveryError: RecoveryErrorInfo | undefined,
+  status: "failed" | "outcome_unknown",
+): AgentToolCallRecord {
+  // An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
+  const error =
+    isAbandonedToolTask(toolCall) && (toolCall.cancellationReason ?? null) !== null
+      ? toolTaskAbandonedError
+      : recoveryErrorDetail(recoveryError);
+  if (isToolCallNotRun(toolCall, recoveryError)) {
+    return { ...toolCall, status: "failed", error: `${toolCallNotRunErrorPrefix}: ${error}` };
+  }
+  return { ...toolCall, status, error };
+}
+
+/** Returns whether the failed Step certainly never ran the call's tool. */
+function isToolCallNotRun(toolCall: AgentToolCallRecord, recoveryError: RecoveryErrorInfo | undefined): boolean {
+  // Polls and cancellations follow a tool that already ran, as does an answered question's call.
+  return (
+    recoveryError?.attemptProgress === StepAttemptProgress.NOT_STARTED &&
+    toolCall.status === "approved" &&
+    toolCall.inputAnswers.length === 0
+  );
 }
 
 /**

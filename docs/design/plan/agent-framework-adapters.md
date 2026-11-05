@@ -131,8 +131,9 @@ across turns.
 The table promises that a `CallSingleAttemptTool` call runs at most once and
 records `outcome_unknown` when it may have run. Two cases break that promise.
 Both are documented for operators in the
-[deployment guide](../../content/production/agents.mdx#tool-call-limits), and
-their fix is deferred until after M2.
+[deployment guide](../../content/production/agents.mdx#tool-call-limits). Dex
+Server's attempt start and the recovery error's `attempt_progress` narrowed
+both after M2.
 
 - **A single-attempt call runs twice only in narrow cases.** Dex starts an attempt when it
   hands the attempt to a Worker, and it never hands the same attempt number to
@@ -146,15 +147,25 @@ their fix is deferred until after M2.
   use SYNC durability, so this case does not apply to them. Cancellation is
   cooperative, so a cancelled run may keep running while the failure route
   starts.
-- **A call that never ran records `outcome_unknown`.** When no Worker accepts
-  the tool Step within the dispatch wait, because every Worker is at its task
-  limit or none is running, the attempt fails without running and still
-  consumes an attempt. `CallSingleAttemptTool` has one attempt, so
-  `RecordToolOutcomeUnknown` records `outcome_unknown`. `RecordToolFailure`
-  does the same for an `idempotent_write` whose last attempt fails this way.
-  The failure route cannot tell this apart from a Worker that disconnected
-  after the tool started: both reach it with the recovery error type
-  `FLOW_ERROR_TYPE_WORKER_API_FAIL`, and only the detail text differs.
+- **A call that never ran can still record `outcome_unknown`.** A tool Step
+  that no Worker accepts waits in the queue without consuming an attempt, so
+  it does not fail for lack of a Worker. When a tool Step does fail,
+  `RecordToolFailure` and `RecordToolOutcomeUnknown` read the recovery error's
+  `attempt_progress`, the furthest progress across the Step's attempts.
+  `NOT_STARTED` means no attempt reached a Worker, so the tool never ran: the
+  call records `failed` with an `error` of `TOOL_CALL_NOT_RUN_ERROR_PREFIX`
+  (`toolCallNotRunErrorPrefix`, `ToolCallNotRunErrorPrefix`),
+  `the tool did not run, so it is safe to call again`, then `": "` and the
+  recovery detail. The model sees an ordinary failure and may call the tool
+  again, and the set of final statuses does not grow. This applies only to a
+  record that is still `approved` and has no `input_answers`: a poll or a
+  cancellation follows a tool that already started a task, and a call whose
+  tool asked a question already ran it. `NOT_COMPLETED`, and `UNSPECIFIED` from a
+  server that reported no progress, keep the status of the call's effect.
+  `NOT_COMPLETED` is conservative, so a call can still record
+  `outcome_unknown` although its tool never ran, for example when a Dex Server
+  node crashed after the attempt start was durable but before the task
+  reached the Worker.
 
 ## MCP tool source
 
@@ -288,8 +299,8 @@ languages.
 | `CallTool` | tool call ID | Execute one `read` or `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. Before `tool_call_started`, when the turn is steered or cancelled, records the call cancelled and publishes its result without running it. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result records `awaiting_answer` with `input_continuation`, `input_question`, `input_choices`, and `input_allows_free_text`, and moves to `AwaitQuestionAnswer`, which raises the `question` interrupt `<tool_call_id>-input-<n>` under the `PendingInterrupts` lock. The tool Step itself never writes `PendingInterrupts`, so parallel tool Steps cannot lose an update. A `ToolTaskStarted` result records `waiting_for_task` with `task_id` and `task_poll_interval_seconds`, clears `input_continuation`, writes `tool_task_started`, and moves to `PollToolTask`. When the runner does not implement `poll_tool_task` (`pollToolTask`), or `task_id` is blank or the interval is not a number, it records `failed` for a `read` call and `outcome_unknown` otherwise, with that error, because the task may run. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
 | `CallSingleAttemptTool` | tool call ID | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. Same check before `tool_call_started`, and the same recording. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
 | `PollToolTask` | tool call ID | WaitFor a Timer for `task_poll_interval_seconds`, or a zero Timer while `task_answer_pending` is set, so a resolved question reaches the task at once. Execute calls `poll_tool_task(ToolTaskPoll)` once, with `pending_answer` set to the last `input_answers` entry while `task_answer_pending` is set, and an `execute_tool` span that records the outcome. `ToolExecutionResult` records `succeeded` and `ToolExecutionError` records `failed`, each publishing `ToolCallResults`; `ToolTaskPending(poll_interval_seconds, continuation)` stores the interval, rounded up to whole seconds from 1 to a day, and `continuation` as `input_continuation`, where `None` clears it; `ToolInputRequested` records `awaiting_answer` as `CallTool` does. The poll's commit clears `task_answer_pending`. The poll with `pending_answer` reads the question's continuation, and each later poll reads what the last `ToolTaskPending` returned, so the runner decides how long it recognizes the request it answered. Options: retry 3 attempts; failure route `RecordToolFailure` for `read` and `idempotent_write` calls and `RecordToolOutcomeUnknown` otherwise. It takes no lock and waits on no cancellation, so steering never abandons a started task. `cancel_turn` cancels it, including a running poll, whose result is dropped. A `PollToolTask` that starts after `cancel_turn` committed waits on a zero Timer and moves to `FinishTurnCancellation` without polling. | Ends, itself, `AwaitQuestionAnswer`, or `FinishTurnCancellation` |
-| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for an `idempotent_write` call, with the recovery detail in `error`, and publishes `ToolCallResults`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts of `CallTool` or `PollToolTask` ran out. | Ends |
-| `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
+| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for an `idempotent_write` call, with the recovery detail in `error`, and publishes `ToolCallResults`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts of `CallTool` or `PollToolTask` ran out. When the recovery error's `attempt_progress` is `NOT_STARTED` and the record is still `approved` with no `input_answers`, it records `failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX`, `": "`, and the recovery detail instead (see Known limits). | Ends |
+| `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. It records a call whose tool never ran as `failed`, as `RecordToolFailure` does. | Ends |
 | `ResumeTurn` | expected result count | WaitFor any of `ToolCallResults.for_n(count)` and `TurnControlRequests.for_range(at_least=1, at_most=MAX)`. Execute locks `PendingInterrupts`. On a control wake in a steered turn that is not cancelled, it removes each pending interrupt of an `awaiting_approval` record or of an `awaiting_answer` record with no `task_id`, writes its `interrupt_resolved` with `cancellation_reason`, and publishes `ToolCallCancellations[id]` for those records and every `waiting_for_timer` record; then, as on a wake with nothing to apply, it waits again for the same count. With every result in, it checks that every record of the turn is final; if a consumed result belonged to an earlier turn, it waits again for the unfinished count. It never writes a record. | `RunModel`, resumed with the final records; `ApplyTurnControl` in a steered or cancelled turn; itself |
 | `ApplyTurnControl` | none | WaitFor all of `SteeredUserMessages.at_most(MAX)` and `TurnControlRequests.at_most(MAX)`, which are non-blocking, so it consumes every steered message and stale wake at once; it is the only consumer of `SteeredUserMessages`. Execute, options SYNC and the recovery retry, locks `TurnCancellationRequest`, so no turn starts while `cancel_turn` decides: with an active turn, every record final, it appends the runner's unfinished-turn messages when the runner implements them and they succeed, otherwise, when the turn has records, the steered or cancelled note. It deletes the turn's records and `FrameworkRunState`, counts the turn, clears it and `last_turn_error`, and writes `turn_steered` or `turn_cancelled`. With consumed steered messages, it starts a turn whose user messages are all of them, in order. | `RunModel` with steered messages, else `AwaitUserMessage` |
 | `RecordTurnFailure` | `CompactContextInput` or none, the failing Step's input, which it ignores | Records `last_turn_error`. When the runner implements `build_unfinished_turn_messages`, first appends what it returns; if it raises, or returns anything but messages with a `user`, `assistant`, or `tool` role and a string `framework_item`, it logs a warning and appends nothing for it, so a runner defect never blocks the failure route. When the turn has final `AgentToolCalls` records, then appends one turn-failure note; otherwise appends nothing more. Deletes the turn's records and `FrameworkRunState`, empties `PendingInterrupts`, and clears the turn. `cancel_turn` cancels a pending `RecordTurnFailure`, and the turn ends as cancelled. | `AwaitUserMessage` |
