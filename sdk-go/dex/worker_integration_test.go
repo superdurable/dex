@@ -1332,7 +1332,7 @@ func TestWorkerSynchronizesAttributeIndexesBeforePolling(t *testing.T) {
 		serverInfo: &dexpb.ServerInfo{
 			ServerVersion:                   "test",
 			MinimumSupportedProtocolVersion: 1,
-			CurrentProtocolVersion:          2,
+			CurrentProtocolVersion:          4,
 		},
 	}
 	flowServiceAddress := startWorkerFlowService(t, flowService, &workerStartupTaskService{flowService: flowService})
@@ -1355,7 +1355,7 @@ func TestWorkerSynchronizesAttributeIndexesBeforePolling(t *testing.T) {
 	require.Equal(t, map[string]dexpb.IndexType{
 		"WorkerTestStatus": dexpb.IndexType_INDEX_TYPE_KEYWORD,
 	}, request.AttributeIndexes)
-	require.Equal(t, uint32(2), worker.serverProtocol.version.Load())
+	require.Equal(t, uint32(4), worker.serverProtocol.version.Load())
 	require.Equal(t, "dev", worker.sdkVersion)
 	require.Equal(t, []string{"GetServerInfo", "SyncAttributeIndexes"}, flowService.recordedCalls())
 	syncRelease <- struct{}{}
@@ -1381,7 +1381,7 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronized(t *testing.T) {
 				MinimumSupportedProtocolVersion: maximumSupportedServerProtocolVersion + 1,
 				CurrentProtocolVersion:          maximumSupportedServerProtocolVersion + 1,
 			},
-			errorDetail: "do not overlap",
+			errorDetail: "Upgrade the Go SDK.",
 		},
 		{
 			name: "Server current is below SDK minimum",
@@ -1390,14 +1390,14 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronized(t *testing.T) {
 				MinimumSupportedProtocolVersion: 1,
 				CurrentProtocolVersion:          1,
 			},
-			errorDetail: "do not overlap",
+			errorDetail: "Upgrade the Server before upgrading the SDK.",
 		},
 		{
 			name: "zero interval",
 			serverInfo: &dexpb.ServerInfo{
 				ServerVersion: "invalid",
 			},
-			errorDetail: "interval is invalid",
+			errorDetail: "returned invalid ServerInfo with protocol versions 0-0",
 		},
 		{
 			name: "reversed interval",
@@ -1418,6 +1418,11 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronized(t *testing.T) {
 			serverInfoFailure: status.Error(codes.Unavailable, "offline"),
 			errorDetail:       "FlowService connection failed",
 		},
+		{
+			name:              "rejected request",
+			serverInfoFailure: status.Error(codes.PermissionDenied, "rejected"),
+			errorDetail:       "GetServerInfo failed",
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1433,10 +1438,14 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronized(t *testing.T) {
 			err = worker.Start()
 			require.ErrorContains(t, err, testCase.errorDetail)
 			require.Contains(t, err.Error(), "Go SDK version")
-			if testCase.name != "request failure" {
-				require.ErrorContains(t, err, "incompatible")
-			} else {
+			switch testCase.name {
+			case "request failure", "rejected request", "zero interval", "reversed interval":
 				require.NotContains(t, err.Error(), "incompatible")
+			default:
+				require.ErrorContains(t, err, "incompatible")
+			}
+			if testCase.serverInfoFailure != nil {
+				require.Equal(t, status.Code(testCase.serverInfoFailure), status.Code(err))
 			}
 			require.Equal(t, []string{"GetServerInfo"}, flowService.recordedCalls())
 		})
@@ -1780,7 +1789,7 @@ func (service *workerSyncFlowService) GetServerInfo(
 	return &dexpb.ServerInfo{
 		ServerVersion:                   "test",
 		MinimumSupportedProtocolVersion: 2,
-		CurrentProtocolVersion:          2,
+		CurrentProtocolVersion:          4,
 	}, nil
 }
 
@@ -1818,8 +1827,14 @@ func (service *workerStartupTaskService) PollWorkerTask(
 	service.flowService.callsMu.Lock()
 	service.flowService.calls = append(service.flowService.calls, "PollWorkerTask")
 	service.flowService.callsMu.Unlock()
-	<-stream.Context().Done()
-	return stream.Context().Err()
+	for {
+		if _, err := stream.Recv(); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+	}
 }
 
 func (service *workerSyncFlowService) recordedCalls() []string {

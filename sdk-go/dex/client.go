@@ -61,7 +61,14 @@ type ClientOptions struct {
 //
 // A Client is safe for concurrent use. Calls use their context for cancellation and
 // return an error after Close. The Client owns its gRPC connection; callers should
-// close it when the application shuts down.
+// close it when the application shuts down. Before its first request of any method, it negotiates
+// Server protocol 4 with one GetServerInfo request, which concurrent first calls share.
+// Each call's context bounds both that negotiation and the request itself.
+// A Server that reports no protocol in common with the SDK returns an upgrade error, which is
+// cached and returned on later calls. A failed GetServerInfo request returns a *ServiceError
+// with Op "GetServerInfo", like other request failures, and the next call retries negotiation.
+// A Server that does not implement GetServerInfo returns an upgrade error that is not cached.
+// NewClient performs no network I/O.
 //
 //	client, err := dex.NewClient(registry, cache, dex.ClientOptions{})
 //	if err != nil {
@@ -77,8 +84,12 @@ type Client struct {
 	hydrator   valueHydrator
 	connection *grpc.ClientConn
 	logger     Logger
-	// serverProtocol is negotiated lazily because only hard-delete writes depend on it.
+	// serverProtocol is negotiated lazily before the first request.
 	serverProtocol negotiatedServerProtocol
+	protocolMu     sync.Mutex
+	protocolError  error
+	// protocolNegotiationDone is non-nil while one call runs GetServerInfo for every caller.
+	protocolNegotiationDone chan struct{}
 
 	lifecycleMu sync.RWMutex
 	closed      bool
@@ -176,6 +187,13 @@ func (client *Client) Close() error {
 }
 
 func (client *Client) validateCall(ctx context.Context) error {
+	if err := client.validateCallContext(ctx); err != nil {
+		return err
+	}
+	return client.negotiateProtocol(ctx)
+}
+
+func (client *Client) validateCallContext(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("dex: context must not be nil")
 	}
@@ -191,14 +209,106 @@ func (client *Client) validateCall(ctx context.Context) error {
 	return nil
 }
 
+// negotiateProtocol runs at most one GetServerInfo at a time; waiters stay bounded by their own ctx.
+func (client *Client) negotiateProtocol(ctx context.Context) error {
+	for {
+		if client.serverProtocol.version.Load() != 0 {
+			return nil
+		}
+		client.protocolMu.Lock()
+		if client.protocolError != nil {
+			err := client.protocolError
+			client.protocolMu.Unlock()
+			return err
+		}
+		if client.serverProtocol.version.Load() != 0 {
+			client.protocolMu.Unlock()
+			return nil
+		}
+		if inFlight := client.protocolNegotiationDone; inFlight != nil {
+			client.protocolMu.Unlock()
+			select {
+			case <-inFlight:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		done := make(chan struct{})
+		client.protocolNegotiationDone = done
+		client.protocolMu.Unlock()
+		return client.doNegotiateProtocol(ctx, done)
+	}
+}
+
+func (client *Client) doNegotiateProtocol(ctx context.Context, done chan struct{}) error {
+	var incompatibleErr error
+	defer func() {
+		client.protocolMu.Lock()
+		client.protocolError = incompatibleErr
+		client.protocolNegotiationDone = nil
+		client.protocolMu.Unlock()
+		close(done)
+	}()
+	serverInfo, err := client.service.GetServerInfo(ctx, &emptypb.Empty{})
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			return serverProtocolRequestError(currentGoSDKVersion(), err)
+		}
+		return translateRPCError(err, "GetServerInfo", "", flowTargetNone)
+	}
+	version, err := negotiateServerProtocol(serverInfo, currentGoSDKVersion())
+	if err != nil {
+		if isDefinitiveServerProtocolMismatch(serverInfo) {
+			incompatibleErr = err
+		}
+		return err
+	}
+	client.serverProtocol.version.Store(version)
+	return nil
+}
+
 func (client *Client) validateFlowCall(ctx context.Context, flowID string) error {
 	if err := client.validateCall(ctx); err != nil {
 		return err
 	}
+	return validateFlowID(flowID)
+}
+
+func validateFlowID(flowID string) error {
 	if strings.TrimSpace(flowID) == "" {
 		return fmt.Errorf("dex: flow ID must not be empty")
 	}
 	return nil
+}
+
+// negotiateProtocolWithinRequestBudget makes RequestTimeout cover protocol negotiation, as part of the complete call.
+func (client *Client) negotiateProtocolWithinRequestBudget(
+	ctx context.Context,
+	requestBudget *clientRequestBudget,
+	op string,
+	flowID string,
+) error {
+	negotiationCtx, cancelNegotiation, err := requestBudget.context(ctx)
+	if err != nil {
+		return newRequestTimeoutError(op, flowID)
+	}
+	defer cancelNegotiation()
+	err = client.negotiateProtocol(negotiationCtx)
+	if err == nil || !requestBudget.hasDeadline() {
+		return err
+	}
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && status.Code(err) != codes.DeadlineExceeded {
+		return err
+	}
+	contextDeadline, hasContextDeadline := ctx.Deadline()
+	if hasContextDeadline && !contextDeadline.After(requestBudget.deadline) {
+		return context.DeadlineExceeded
+	}
+	return newRequestTimeoutError(op, flowID)
 }
 
 func (client *Client) hydrateValues(
@@ -404,11 +514,14 @@ func (client *Client) StartFlow(
 	input any,
 	options StartFlowOptions,
 ) (runID string, err error) {
-	if err := client.validateFlowCall(ctx, flowID); err != nil {
+	if err := client.validateCallContext(ctx); err != nil {
 		return "", err
 	}
 	registered, err := client.registry.resolveFlow(flow)
 	if err != nil {
+		return "", err
+	}
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return "", err
 	}
 	startStepType, stepInput, stepOptions, err := mapStartingStep(registered, input)
@@ -456,7 +569,7 @@ func (client *Client) StartFlow(
 	return response.RunId, nil
 }
 
-// requireHardDeleteAttributeSupport negotiates the Server protocol before the first hard-delete write.
+// requireHardDeleteAttributeSupport checks the negotiated protocol before hard-delete writes.
 func (client *Client) requireHardDeleteAttributeSupport(
 	ctx context.Context,
 	writes []*dexpb.AttributeWrite,
@@ -464,17 +577,8 @@ func (client *Client) requireHardDeleteAttributeSupport(
 	if !slices.ContainsFunc(writes, (*dexpb.AttributeWrite).GetIsHardDeleteOnNull) {
 		return nil
 	}
-	if client.serverProtocol.version.Load() == 0 {
-		sdkVersion := currentGoSDKVersion()
-		serverInfo, err := client.service.GetServerInfo(ctx, &emptypb.Empty{})
-		if err != nil {
-			return serverProtocolRequestError(sdkVersion, err)
-		}
-		negotiatedProtocolVersion, err := negotiateServerProtocol(serverInfo, sdkVersion)
-		if err != nil {
-			return err
-		}
-		client.serverProtocol.version.Store(negotiatedProtocolVersion)
+	if err := client.negotiateProtocol(ctx); err != nil {
+		return err
 	}
 	return client.serverProtocol.requireHardDeleteAttributeSupport(writes)
 }
@@ -931,7 +1035,8 @@ func (client *Client) UpdateFlowConfig(
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
 // When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
-// RequestTimeout bounds the complete call across transparent transport reattachments. A positive
+// RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
+// across transparent transport reattachments. A positive
 // value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
 // callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
 // to a new generation, which adds another Update to history.
@@ -942,7 +1047,10 @@ func (client *Client) WaitForStepCompletion(
 	stepExecution StepExecutionID,
 	options WaitForStepCompletionOptions,
 ) error {
-	if err := client.validateFlowCall(ctx, flowID); err != nil {
+	if err := client.validateCallContext(ctx); err != nil {
+		return err
+	}
+	if err := validateFlowID(flowID); err != nil {
 		return err
 	}
 	executionNumber, err := effectiveExecutionNumber(stepExecution)
@@ -955,6 +1063,9 @@ func (client *Client) WaitForStepCompletion(
 	}
 	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
 	if err != nil {
+		return err
+	}
+	if err := client.negotiateProtocolWithinRequestBudget(ctx, requestBudget, "WaitForStepCompletion", flowID); err != nil {
 		return err
 	}
 	for {
@@ -1232,7 +1343,8 @@ func streamMessagesPageTarget(
 // matched current value is decoded into valuePtr before this method returns.
 // valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
 // server derives one from the Attribute condition.
-// RequestTimeout bounds the complete call across transparent transport reattachments. A positive
+// RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
+// across transparent transport reattachments. A positive
 // value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
 // callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
 // to a new generation, which adds another Update to history.
@@ -1294,7 +1406,10 @@ func (client *Client) waitForAttributeMatch(
 	valuePtr any,
 	options WaitForAttributeOptions,
 ) error {
-	if err := client.validateFlowCall(ctx, flowID); err != nil {
+	if err := client.validateCallContext(ctx); err != nil {
+		return err
+	}
+	if err := validateFlowID(flowID); err != nil {
 		return err
 	}
 	if match == nil {
@@ -1327,6 +1442,9 @@ func (client *Client) waitForAttributeMatch(
 	}
 	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
 	if err != nil {
+		return err
+	}
+	if err := client.negotiateProtocolWithinRequestBudget(ctx, requestBudget, "WaitForAttribute", flowID); err != nil {
 		return err
 	}
 	for {

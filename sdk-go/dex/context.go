@@ -46,6 +46,8 @@ import (
 //			return dex.ForceFail("charging order " + orderID + " exceeded its method timeout"), nil
 //		case failure.IsHeartbeatTimeout():
 //			return dex.ForceFail("charging order " + orderID + " stopped sending heartbeats"), nil
+//		case failure != nil && failure.AttemptProgress == dex.StepAttemptProgressNotStarted:
+//			return dex.ForceFail("charging order " + orderID + " never reached a Worker"), nil
 //		case failure.IsRetryTotalDurationExceeded():
 //			return dex.ForceFail("charging order " + orderID + " used its whole retry duration"), nil
 //		case failure != nil:
@@ -59,7 +61,29 @@ type RecoveryErrorInfo struct {
 	Detail string
 	// ErrorType is the original Worker error type or backend failure type.
 	ErrorType string
+	// AttemptProgress reports the furthest progress across all attempts of this Step method call.
+	// NotStarted guarantees the handler did not run. NotCompleted means side effects may have happened.
+	// Unspecified is the zero value from older Servers and must be treated like NotCompleted.
+	// For example, retry a side effect directly only when failure.AttemptProgress == StepAttemptProgressNotStarted.
+	AttemptProgress StepAttemptProgress
 }
+
+// StepAttemptProgress describes whether any attempt of a failed Step method call may have run.
+// Read RecoveryErrorInfo.AttemptProgress in a recovery handler before repeating external side effects.
+// The zero value is StepAttemptProgressUnspecified; treat it like StepAttemptProgressNotCompleted.
+// See the complete RecoveryErrorInfo example for a recovery handler that checks progress.
+type StepAttemptProgress uint8
+
+const (
+	// StepAttemptProgressUnspecified means an older Server did not report progress.
+	// Treat it like StepAttemptProgressNotCompleted because side effects may have happened.
+	StepAttemptProgressUnspecified StepAttemptProgress = iota
+	// StepAttemptProgressNotStarted guarantees the handler did not run in any attempt.
+	StepAttemptProgressNotStarted
+	// StepAttemptProgressNotCompleted means some attempt may have run, but none completed.
+	// Recovery must account for possible external side effects before repeating them.
+	StepAttemptProgressNotCompleted
+)
 
 // IsMethodTimeout reports whether the final attempt ran longer than its Step method timeout.
 //
@@ -93,25 +117,17 @@ func (info *RecoveryErrorInfo) IsHeartbeatTimeout() bool {
 	return info.hasCanonicalErrorType("HEARTBEAT")
 }
 
-// IsRetryTotalDurationExceeded reports whether the overall deadline of the Step method call ended
-// the final attempt while it was still running.
-//
-// Use it in a recovery path to tell this case apart from a method timeout or a heartbeat timeout.
-// See the RecoveryErrorInfo example.
-//
-// Where the overall deadline comes from depends on the Dex Server:
-//   - server-zd and the Go Server with Temporal set it from RetryPolicy.TotalDuration, which
-//     defaults to 4 hours.
-//   - On the Go Server, the local phase of an ASYNC Step can also end an attempt this way.
-//   - The Go Server with Cadence does not end a running attempt at RetryPolicy.TotalDuration, so
-//     this method returns false for that case there.
+// IsRetryTotalDurationExceeded recognizes historical failures that ended a running attempt at the retry total duration.
+// Current server-zd never ends a running attempt at RetryPolicy.TotalDuration, so this returns false for current records.
+// It may return true for records written before the upgrade. TotalDuration now only decides whether to retry after failure.
+// See the RecoveryErrorInfo example for use in a recovery handler.
 //
 // When the total duration ends between attempts, Dex starts no further attempt. It reports the
 // error type of the final attempt instead, so this method returns false. Check the other methods
 // and ErrorType to handle that case. A Worker error type that reuses the backend's deadline name
 // also matches. Give application error types distinct names.
 //
-// IsRetryTotalDurationExceeded returns true when ErrorType names the overall deadline, ignoring
+// IsRetryTotalDurationExceeded returns true when ErrorType names the historical overall deadline, ignoring
 // letter case and underscores. It returns false for every other ErrorType and for a nil receiver.
 func (info *RecoveryErrorInfo) IsRetryTotalDurationExceeded() bool {
 	return info.hasCanonicalErrorType("SCHEDULETOCLOSE")

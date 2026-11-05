@@ -1191,3 +1191,7 @@ func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {
 	})
 	return client, service
 }
+
+func (*clientTestFlowService) GetServerInfo(context.Context, *emptypb.Empty) (*dexpb.ServerInfo, error) {
+	return &dexpb.ServerInfo{ServerVersion: "test", MinimumSupportedProtocolVersion: 4, CurrentProtocolVersion: 4}, nil
+}
