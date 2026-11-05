@@ -12,14 +12,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dexzd_keyspace::PartitionId;
-use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef, StepTaskSendFailure};
+use dexzd_worker_dispatch::{ClaimReply, ClaimResult, QueuedTaskRef, StepTaskSendFailure};
 
 use super::{
     QueueReadView, is_ref_pending_in, read_off_task, ref_attempt_key, ref_flow, reply_to_claim,
 };
 use crate::effects::dispatch::{
-    AttemptHandout, ClaimHolder, ClaimedRow, HandoutProgress, MethodClaim, MethodDispatchSession,
-    MethodTask, ReservedMethodStream,
+    AttemptHandout, ClaimHolder, ClaimedRow, HandoutEndReport, HandoutProgress, MethodClaim,
+    MethodDispatchSession, MethodTask, ReservedMethodStream,
 };
 use crate::effects::{EffectContext, RouterMessage};
 
@@ -41,10 +41,73 @@ pub(crate) async fn run_claim_pump(context: Arc<EffectContext>) {
 
 /// Handles an admitted Claim in its own task, which reports its end to the router.
 pub(crate) fn spawn_claim(context: &Arc<EffectContext>, claim: MethodClaim) {
+    // Built before the spawn, so a task dropped before its first poll still reports its end.
+    let end = ClaimTaskEnd {
+        context: Arc::clone(context),
+        claim_id: claim.claim_id,
+        task: claim.task.clone(),
+        is_completed: false,
+    };
     let task_context = Arc::clone(context);
     context.tracker.spawn(async move {
-        handle_claim(Arc::clone(&task_context), claim).await;
-        task_context.report(RouterMessage::ClaimFinished);
+        // Moves the whole guard in; assigning a field alone would capture only that field.
+        let mut end = end;
+        handle_claim(task_context, claim).await;
+        end.is_completed = true;
+    });
+}
+
+/// Reports a Claim task's end to the router once, when it drops.
+///
+/// A task that unwinds or is dropped first also gives back a Claim it left unanswered.
+struct ClaimTaskEnd {
+    context: Arc<EffectContext>,
+    claim_id: u64,
+    task: QueuedTaskRef,
+    is_completed: bool,
+}
+
+impl Drop for ClaimTaskEnd {
+    fn drop(&mut self) {
+        if !self.is_completed {
+            release_unanswered_claim(&self.context, self.claim_id, self.task.clone());
+        }
+        self.context.report(RouterMessage::ClaimFinished);
+    }
+}
+
+/// Answers "retry later" for a Claim its task left unanswered, then sends the row back after a
+/// backoff.
+fn release_unanswered_claim(context: &Arc<EffectContext>, claim_id: u64, task: QueuedTaskRef) {
+    // Matching's lock may be poisoned during an unwind, so only the spawned task calls it.
+    if tokio::runtime::Handle::try_current().is_err() || context.shutdown.is_cancelled() {
+        return;
+    }
+    let context = Arc::clone(context);
+    let tracker = context.tracker.clone();
+    tracker.spawn(async move {
+        if !context
+            .dispatcher
+            .is_claim_tracked(task.partition, &task.queue, claim_id)
+        {
+            return;
+        }
+        tracing::error!(
+            claim_id,
+            partition = task.partition.0,
+            "a Claim's task ended without answering it; retrying its row later"
+        );
+        // No seek for the next ref: reading the row may be what failed.
+        let reply = ClaimReply {
+            result: ClaimResult::RetryLater,
+            next: None,
+        };
+        context
+            .dispatcher
+            .reply_to_claim(task.partition, &task.queue, claim_id, reply);
+        if context.retry_backoff().wait(&context.shutdown).await {
+            context.dispatcher.queued(task);
+        }
     });
 }
 
@@ -113,10 +176,11 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
         }
     };
     let flow = ref_flow(&task);
+    let mut report = HandoutEndReport::new(&context, flow.clone(), key.clone(), generation);
     let handout = AttemptHandout {
         context: Arc::clone(&context),
-        flow: flow.clone(),
-        key: key.clone(),
+        flow,
+        key,
         generation,
         progress: HandoutProgress {
             scheduled_at: pending_instant(&context, &task),
@@ -138,12 +202,7 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
             handout.retry_claim_later(claim_id, task).await
         }
     };
-    context.report(RouterMessage::HandoutFinished {
-        flow,
-        key,
-        generation,
-        end,
-    });
+    report.set_end(end);
 }
 
 /// A claimed slot that sends nothing once matching removed the row's partition.

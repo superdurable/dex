@@ -20,10 +20,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::effects::dispatch::attempt_entries::HandoutRestart;
 use crate::effects::dispatch::attempt_handout::{
-    AttemptHandout, HandoutEnd, HandoutProgress, InterruptedAttempt, fail_interrupted_attempt,
+    AttemptHandout, HandoutEnd, HandoutEndReport, HandoutProgress, InterruptedAttempt,
+    fail_interrupted_attempt,
 };
 use crate::effects::method_request::MethodAttemptKey;
-use crate::effects::{AttemptDrainProgress, EffectContext, RouterMessage};
+use crate::effects::{AttemptDrainProgress, EffectContext};
 use crate::flow_coordination::FlowAddress;
 
 struct RunningAttempt {
@@ -254,21 +255,17 @@ pub(crate) fn spawn_handout(
     generation: u64,
     progress: HandoutProgress,
 ) {
+    // Built before the spawn, so a task dropped before its first poll still reports its end.
+    let mut report = HandoutEndReport::new(context, flow.clone(), key.clone(), generation);
     let task_context = Arc::clone(context);
     context.tracker.spawn(async move {
         let handout = AttemptHandout {
-            context: Arc::clone(&task_context),
-            flow: flow.clone(),
-            key: key.clone(),
-            generation,
-            progress,
-        };
-        let end = handout.run().await;
-        task_context.report(RouterMessage::HandoutFinished {
+            context: task_context,
             flow,
             key,
             generation,
-            end,
-        });
+            progress,
+        };
+        report.set_end(handout.run().await);
     });
 }

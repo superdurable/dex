@@ -603,6 +603,8 @@ pub(super) struct StateReadGate {
     runtime_thread: ThreadId,
     state: Mutex<StateReadGateState>,
     changed: Condvar,
+    /// When set, the next store read past the gate panics, as a read that hits a bug.
+    pub(super) should_panic_next_read: AtomicBool,
 }
 
 #[derive(Default)]
@@ -621,6 +623,13 @@ impl StateReadGate {
             runtime_thread: std::thread::current().id(),
             state: Mutex::new(StateReadGateState::default()),
             changed: Condvar::new(),
+            should_panic_next_read: AtomicBool::new(false),
+        }
+    }
+
+    fn panic_if_armed(&self) {
+        if self.should_panic_next_read.swap(false, Ordering::SeqCst) {
+            panic!("injected store read panic");
         }
     }
 
@@ -724,6 +733,7 @@ impl FlowStateReader for GatedStateReader {
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, StateReadError> {
         self.read.0.hold_while_closed();
+        self.read.0.panic_if_armed();
         self.state.get(column_family, key)
     }
 
@@ -735,6 +745,7 @@ impl FlowStateReader for GatedStateReader {
         limit: usize,
     ) -> Result<Vec<StateRow>, StateReadError> {
         self.read.0.hold_while_closed();
+        self.read.0.panic_if_armed();
         self.state.scan(column_family, start, end, limit)
     }
 }
@@ -1026,8 +1037,19 @@ pub(super) struct FakeDispatcher {
     pub(super) restored_head_count: AtomicUsize,
     /// Partition removals, shared with the slots so a slot can remove its partition.
     pub(super) partition_removals: Arc<FakePartitionRemovals>,
+    /// Panics the slots inject once, shared with every slot.
+    pub(super) slot_panics: Arc<FakeSlotPanics>,
     /// Ordinary-priority pending times reported behind priority-0 heads, in order.
     pub(super) ordinary_backlog: Mutex<Vec<Option<i64>>>,
+}
+
+/// One-shot panics of the next slot call, as a hand-out that hits a bug.
+#[derive(Default)]
+pub(super) struct FakeSlotPanics {
+    /// When set, the next slot asked for its Worker panics, before the attempt starts.
+    pub(super) should_panic_at_routing: AtomicBool,
+    /// When set, the next send panics, after the attempt started.
+    pub(super) should_panic_at_send: AtomicBool,
 }
 
 /// Partition removals as matching counts them, and the Claims they ended.
@@ -1090,6 +1112,7 @@ impl FakeDispatcher {
             ),
             restored_head_count: AtomicUsize::new(0),
             partition_removals: Arc::new(FakePartitionRemovals::default()),
+            slot_panics: Arc::new(FakeSlotPanics::default()),
             ordinary_backlog: Mutex::new(Vec::new()),
         }
     }
@@ -1116,6 +1139,7 @@ impl FakeDispatcher {
                 undelivered_sends: Arc::clone(&self.undelivered_sends),
                 claim_id: Some(claim_id),
                 partition_removals: Arc::clone(&self.partition_removals),
+                panics: Arc::clone(&self.slot_panics),
             }),
         };
         self.claims
@@ -1172,6 +1196,7 @@ impl MethodDispatcher for FakeDispatcher {
                 undelivered_sends: Arc::clone(&self.undelivered_sends),
                 claim_id: None,
                 partition_removals: Arc::clone(&self.partition_removals),
+                panics: Arc::clone(&self.slot_panics),
             }))
         })
     }
@@ -1267,6 +1292,7 @@ struct FakeSlot {
     /// The Claim that delivered this slot, if any.
     claim_id: Option<u64>,
     partition_removals: Arc<FakePartitionRemovals>,
+    panics: Arc<FakeSlotPanics>,
 }
 
 impl ReservedMethodStream for FakeSlot {
@@ -1281,6 +1307,13 @@ impl ReservedMethodStream for FakeSlot {
             self.partition_removals
                 .remove(self.request.partition, &[claim_id]);
         }
+        if self
+            .panics
+            .should_panic_at_routing
+            .swap(false, Ordering::SeqCst)
+        {
+            panic!("injected panic at routing");
+        }
         "worker-a"
     }
 
@@ -1292,6 +1325,13 @@ impl ReservedMethodStream for FakeSlot {
         self: Box<Self>,
         task: MethodTask,
     ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
+        if self
+            .panics
+            .should_panic_at_send
+            .swap(false, Ordering::SeqCst)
+        {
+            panic!("injected panic at send");
+        }
         if self
             .undelivered_sends
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {

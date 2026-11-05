@@ -23,7 +23,7 @@ mod worker_result;
 pub(crate) use attempt_entries::EntryHolder;
 pub(crate) use attempt_entries::{AttemptEntries, ClaimHolder};
 pub(crate) use attempt_handout::{
-    AttemptHandout, ClaimedRow, HandoutEnd, HandoutProgress, InterruptedAttempt,
+    AttemptHandout, ClaimedRow, HandoutEnd, HandoutEndReport, HandoutProgress, InterruptedAttempt,
 };
 pub(crate) use dispatch_scheduler::DispatchScheduler;
 #[cfg(test)]

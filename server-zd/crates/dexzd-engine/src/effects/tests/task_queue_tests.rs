@@ -1441,6 +1441,75 @@ async fn a_claim_that_ends_without_a_hand_out_during_an_attempt_drain_lets_it_en
     harness.shutdown().await;
 }
 
+/// A Claim whose store read panics during an attempt drain still ends there, and its row
+/// comes back.
+#[tokio::test(start_paused = true)]
+async fn a_claim_whose_read_panics_during_an_attempt_drain_lets_it_end() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let gate = Arc::clone(&harness.flow_effect_operations.state_read_gate);
+    let reads = gate.close();
+    harness.dispatcher.claim(1, task.clone());
+    harness.yield_to_tasks().await;
+    gate.wait_for_held_reads(1);
+    gate.should_panic_next_read.store(true, Ordering::SeqCst);
+    let progress = harness.begin_attempt_drain();
+    harness.yield_to_tasks().await;
+    assert_eq!(progress.borrow().outstanding_handouts, 1);
+
+    reads.open_and_wait_for_reads();
+    harness.settle().await;
+    assert!(
+        !gate.should_panic_next_read.load(Ordering::SeqCst),
+        "the Claim's read panicked"
+    );
+    assert_eq!(command_count(&harness, is_attempt_started), 0);
+    assert_eq!(
+        progress.borrow().outstanding_handouts,
+        0,
+        "the drain may end"
+    );
+    assert_eq!(
+        claim_results(&harness),
+        vec![(1, ClaimResult::RetryLater, None)],
+        "matching moves on"
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    harness.settle().await;
+    let refs = queued_refs(&harness);
+    assert_eq!(refs.len(), 2, "the row comes back after a backoff");
+    assert_eq!(refs[1], task);
+    harness.shutdown().await;
+}
+
+/// A Claim whose hand-out panics after it took the attempt entry frees the entry, so the row
+/// comes back and starts.
+#[tokio::test(start_paused = true)]
+async fn a_claim_that_panics_after_taking_its_entry_frees_it_and_its_row_starts_later() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let panics = Arc::clone(&harness.dispatcher.slot_panics);
+    panics.should_panic_at_routing.store(true, Ordering::SeqCst);
+    harness.dispatcher.claim(1, task.clone());
+    harness.settle().await;
+    assert!(!panics.should_panic_at_routing.load(Ordering::SeqCst));
+    assert_eq!(command_count(&harness, is_attempt_started), 0);
+    assert_eq!(
+        claim_results(&harness),
+        vec![(1, ClaimResult::RetryLater, None)]
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    harness.settle().await;
+    let refs = queued_refs(&harness);
+    assert_eq!(refs.len(), 2, "the row comes back after a backoff");
+
+    harness.dispatcher.claim(2, refs[1].clone());
+    let runner = harness.dispatcher.next_dispatch().await;
+    assert_eq!(runner.context().attempt, 1);
+    assert_eq!(claim_results(&harness)[1].1, ClaimResult::Started);
+    harness.shutdown().await;
+}
+
 /// Asserts that the fenced send returned the started attempt unchanged as not delivered.
 fn assert_fenced_send_returned(harness: &EffectHarness, task: &QueuedTaskRef) {
     let returned = returns(harness);

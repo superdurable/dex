@@ -54,6 +54,65 @@ pub(crate) enum HandoutEnd {
     LocksBusy(HandoutProgress),
 }
 
+/// Reports a hand-out task's end to the router once, when it drops.
+///
+/// A task that unwinds or is dropped first reports `Released`, which frees its attempt entry.
+pub(crate) struct HandoutEndReport {
+    context: Arc<EffectContext>,
+    /// The hand-out's Flow, attempt, and entry generation, until reported.
+    handout: Option<(FlowAddress, MethodAttemptKey, u64)>,
+    end: Option<HandoutEnd>,
+}
+
+impl HandoutEndReport {
+    pub(crate) fn new(
+        context: &Arc<EffectContext>,
+        flow: FlowAddress,
+        key: MethodAttemptKey,
+        generation: u64,
+    ) -> Self {
+        Self {
+            context: Arc::clone(context),
+            handout: Some((flow, key, generation)),
+            end: None,
+        }
+    }
+
+    /// Records how the hand-out ended.
+    pub(crate) fn set_end(&mut self, end: HandoutEnd) {
+        self.end = Some(end);
+    }
+}
+
+impl Drop for HandoutEndReport {
+    fn drop(&mut self) {
+        if let Some((flow, key, generation)) = self.handout.take() {
+            self.context.report(RouterMessage::HandoutFinished {
+                flow,
+                key,
+                generation,
+                end: self.end.take().unwrap_or(HandoutEnd::Released),
+            });
+        }
+    }
+}
+
+/// Ends an attempt's registration with the router when it drops, so a rebuild may fail it.
+struct AttemptRegistration {
+    context: Arc<EffectContext>,
+    /// The registered task ID and attempt, until reported.
+    attempt: Option<(Vec<u8>, MethodAttemptKey)>,
+}
+
+impl Drop for AttemptRegistration {
+    fn drop(&mut self) {
+        if let Some((task_id, key)) = self.attempt.take() {
+            self.context
+                .report(RouterMessage::AttemptFinished { task_id, key });
+        }
+    }
+}
+
 /// The task that owns the dispatch of one pending attempt.
 pub(crate) struct AttemptHandout {
     pub(crate) context: Arc<EffectContext>,
@@ -194,7 +253,7 @@ impl AttemptHandout {
                 }
                 continue;
             }
-            let cancel = self.register_attempt(&task_id);
+            let (cancel, registration) = self.register_attempt(&task_id);
             let started = self.start(task_id.clone(), routing).await;
             let start_commit = match started {
                 Ok(InvocationStartOutcome::Started(start_commit)) => {
@@ -203,7 +262,7 @@ impl AttemptHandout {
                 }
                 Ok(InvocationStartOutcome::LocksBusy) => {
                     drop(stream);
-                    self.finish_attempt(task_id);
+                    drop(registration);
                     // The row stays held until the lock release sends it back (plan D72).
                     self.answer_claim(claim.as_ref(), ClaimResult::LockBusy);
                     return HandoutEnd::LocksBusy(std::mem::take(&mut self.progress));
@@ -211,14 +270,14 @@ impl AttemptHandout {
                 Ok(InvocationStartOutcome::Stale)
                 | Err(FlowEffectOperationError::NodeStopping { .. }) => {
                     drop(stream);
-                    self.finish_attempt(task_id);
+                    drop(registration);
                     self.answer_claim(claim.as_ref(), ClaimResult::Stale);
                     return HandoutEnd::Released;
                 }
                 Err(error @ FlowEffectOperationError::Unavailable { .. }) => {
                     // The slot goes back at once; the attempt retries after a backoff.
                     drop(stream);
-                    self.finish_attempt(task_id);
+                    drop(registration);
                     self.log_wait(&EffectError::FlowEffectOperations(error));
                     let is_waiting = match claim {
                         Some((claim_id, task)) => {
@@ -244,7 +303,7 @@ impl AttemptHandout {
                 cancel,
             };
             let end = attempt.run(stream, start_commit).await;
-            self.finish_attempt(task_id);
+            drop(registration);
             match end {
                 StartedAttemptEnd::Ended => return HandoutEnd::Released,
                 StartedAttemptEnd::Returned => {
@@ -532,21 +591,20 @@ impl AttemptHandout {
 
     /// Registers the attempt's cancellation before its start is proposed, so a cancellation
     /// ordered after the start always finds it.
-    fn register_attempt(&self, task_id: &[u8]) -> CancellationToken {
+    ///
+    /// Returns the cancellation, and the registration that ends when it drops.
+    fn register_attempt(&self, task_id: &[u8]) -> (CancellationToken, AttemptRegistration) {
         let cancel = self.context.shutdown.child_token();
         self.context.report(RouterMessage::AttemptStarting {
             task_id: task_id.to_vec(),
             key: self.key.clone(),
             cancel: cancel.clone(),
         });
-        cancel
-    }
-
-    fn finish_attempt(&self, task_id: Vec<u8>) {
-        self.context.report(RouterMessage::AttemptFinished {
-            task_id,
-            key: self.key.clone(),
-        });
+        let registration = AttemptRegistration {
+            context: Arc::clone(&self.context),
+            attempt: Some((task_id.to_vec(), self.key.clone())),
+        };
+        (cancel, registration)
     }
 
     /// Fails the pending attempt that matching refused as invalid, such as an overlong Flow

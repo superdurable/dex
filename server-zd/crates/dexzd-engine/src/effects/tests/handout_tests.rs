@@ -9,6 +9,7 @@
 //! The hand-out of an attempt: one task ID, returns of attempts the Worker never ran, failures
 //! after a hand-out, and progress (plan sections 3.1 and 3.9).
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -23,6 +24,7 @@ use dexzd_protocol::dexzd::v1::{
     StepAttemptReturnedCommand, StepInvocationPhase, StepInvocationRecord, flow_command,
 };
 
+use super::dispatch_tests::force_complete;
 use super::{EffectHarness, FakeDispatch, is_attempt_failed, settings, start_request};
 use crate::effects::MethodRequest;
 use crate::effects::dispatch::render_task_id;
@@ -432,4 +434,66 @@ async fn a_sync_request_carries_references_and_an_async_one_checks_for_uncommitt
         dispatch.complete_wait_for(InvokeWaitForMethodResponse::default());
         harness.shutdown().await;
     }
+}
+
+/// A hand-out that panics before its start frees its entry and its drain count, so a rebuild
+/// hands the attempt out.
+#[tokio::test(start_paused = true)]
+async fn a_hand_out_that_panics_before_its_start_frees_its_entry() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let panics = Arc::clone(&harness.dispatcher.slot_panics);
+    panics.should_panic_at_routing.store(true, Ordering::SeqCst);
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    assert!(!panics.should_panic_at_routing.load(Ordering::SeqCst));
+    assert!(started_task_ids(&harness).is_empty());
+    assert_eq!(
+        invocation(&harness, run_id).phase,
+        StepInvocationPhase::Pending as i32
+    );
+
+    harness.rebuild_all_partitions().await;
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    assert_eq!(dispatch.context().attempt, 1);
+    dispatch.complete_wait_for(InvokeWaitForMethodResponse::default());
+    let execute = harness.dispatcher.next_dispatch().await;
+    execute.complete_execute(force_complete());
+    harness.settle().await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    harness.settle().await;
+    let progress = harness.begin_attempt_drain();
+    harness.settle().await;
+    assert_eq!(
+        progress.borrow().outstanding_handouts,
+        0,
+        "no hand-out is left"
+    );
+    harness.shutdown().await;
+}
+
+/// A hand-out that panics after its start ends the attempt's registration, so a rebuild fails
+/// it as interrupted and retries it.
+#[tokio::test(start_paused = true)]
+async fn a_hand_out_that_panics_after_its_start_lets_a_rebuild_fail_it() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let panics = Arc::clone(&harness.dispatcher.slot_panics);
+    panics.should_panic_at_send.store(true, Ordering::SeqCst);
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    harness.settle().await;
+    assert!(!panics.should_panic_at_send.load(Ordering::SeqCst));
+    assert_eq!(started_task_ids(&harness).len(), 1);
+    assert_eq!(
+        invocation(&harness, run_id).phase,
+        StepInvocationPhase::Running as i32
+    );
+
+    harness.rebuild_all_partitions().await;
+    let retry = harness.dispatcher.next_dispatch().await;
+    assert_eq!(retry.context().attempt, 2);
+    let failures = failures(&harness);
+    assert_eq!(failures.len(), 1, "the rebuild failed the unwound attempt");
+    assert_eq!(failures[0].expected_task_id, started_task_ids(&harness)[0]);
+    harness.shutdown().await;
 }
