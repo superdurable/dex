@@ -809,8 +809,7 @@ pub(crate) fn disarm_timer(
     Ok(record)
 }
 
-/// A retry backoff timer fired: the next attempt becomes pending at `now_micros`, behind the
-/// backlog of its queue (plan D69), and queues for its locks.
+/// A retry backoff fired: the next attempt becomes pending at `now_micros` (plan D69).
 pub(crate) fn apply_retry_backoff_fired(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,

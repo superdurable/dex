@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Keys of the DispatchQueue partition index: one row per pending Step attempt that waits for a
-//! Worker. Apply writes and deletes them; the engine seeks them for matching.
+//! Keys of the DispatchQueue partition index of pending Step attempts.
 
 use crate::row_keys::{
     length_prefixed_name, ordered_timestamp_bytes, timestamp_from_ordered_bytes,

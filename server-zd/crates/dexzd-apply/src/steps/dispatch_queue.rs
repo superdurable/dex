@@ -6,11 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The DispatchQueue index (plan section 3.2): a row per pending Step attempt that no Worker
-//! took at once. `StepAttemptQueued` writes it; every exit from the pending phase removes it.
+//! The DispatchQueue index of pending attempts no Worker took at once (plan section 3.2).
 //!
-//! Commands that leave the pending phase are replayed against another index, so whether a row
-//! exists never changes their reply or their Flow rows.
+//! Exit commands are replayed elsewhere, so a row never changes their outcome.
 
 use dexzd_keyspace::dispatch_queue_keys::{
     DEFAULT_DISPATCH_PRIORITY, DispatchQueueEntry, DispatchQueueName, DispatchQueuePosition,
@@ -103,8 +101,7 @@ pub(crate) fn remove_dispatch_queue_row(
 
 /// Writes the DispatchQueue row of a pending attempt that no Worker took at once.
 ///
-/// Replies OK when the row was written or already exists, and FAILED_PRECONDITION without
-/// writes when the attempt is no longer pending with this attempt number and time.
+/// Writes the DispatchQueue row of a pending attempt that no Worker took at once.
 pub(crate) fn apply_attempt_queued(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,

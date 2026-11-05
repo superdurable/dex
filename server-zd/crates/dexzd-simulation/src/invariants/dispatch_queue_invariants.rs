@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! DispatchQueue index invariants (plan section 3.2): every row is the current pending attempt
-//! of a Step of the current run attempt, at most one row per invocation.
+//! DispatchQueue invariants: each row is a current pending attempt (plan section 3.2).
 
 use dexzd_protocol::dexzd::v1::StepInvocationPhase;
 

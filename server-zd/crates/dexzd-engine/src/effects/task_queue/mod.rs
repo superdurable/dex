@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The partition owner's side of the durable task queue (plan section 3.2): refs of committed
-//! DispatchQueue rows, Claims, Heads, and the seeks behind them. Matching never reads storage.
+//! The partition owner's side of the durable task queue (plan section 3.2).
 
 mod queue_claims;
 mod queue_heads;
@@ -36,8 +35,7 @@ pub(crate) use queue_heads::{rebuild_heads, run_heads_resync};
 /// Rows read per page while seeking past rows that holders send back.
 const SEEK_PAGE_ROWS: usize = 64;
 
-/// The owner's memory of its queues: what periodic Heads scans resume from and the row counts
-/// behind the queue entries gauge. Losing it on restart is fine; rebuild scans everything.
+/// What periodic Heads resume from and the row counts; rebuild recreates it.
 #[derive(Default)]
 pub(crate) struct TaskQueueMemory {
     /// Smallest key written since the last scan, per (partition, queue).
@@ -174,8 +172,7 @@ fn decode_queue_row(
     )))
 }
 
-/// Seeks the committed queue for its first row after `from` (or at it, when `is_inclusive`)
-/// that no holder sends back, and, when `should_check_pending`, that is still pending.
+/// Seeks the queue's first row after `from` that no holder sends back.
 ///
 /// Returns the row's ref, `None` when there is none, or the read's error.
 pub(crate) fn next_queue_ref(
@@ -221,8 +218,7 @@ pub(crate) fn next_queue_ref(
     }
 }
 
-/// Answers a Claim with the queue's next ref after the claimed row. When the seek fails, the
-/// reply carries none and the owner sends it later (plan section 3.2, "owed next ref").
+/// Answers a Claim with the queue's next ref, or owes it when the seek fails.
 pub(crate) fn reply_to_claim(
     context: &Arc<EffectContext>,
     task: &QueuedTaskRef,
@@ -252,8 +248,7 @@ pub(crate) fn reply_to_claim(
     );
 }
 
-/// Sends the queue's first row at or after `task`'s key that no holder sends back and that is
-/// still pending, retrying reads after a backoff until one succeeds.
+/// Sends the first pending, unheld row at or after `task`, retrying failed reads.
 pub(crate) fn owe_next_ref(context: &Arc<EffectContext>, task: QueuedTaskRef) {
     let context = Arc::clone(context);
     let tracker = context.tracker.clone();

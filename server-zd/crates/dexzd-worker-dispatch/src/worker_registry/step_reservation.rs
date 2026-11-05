@@ -124,8 +124,7 @@ impl Drop for StepTaskHandle {
 
 /// Reserves an idle Worker slot for `request`; see [`WorkerDispatch::reserve_step_stream`].
 ///
-/// A queue with qualified backlog sends the attempt straight to the durable queue, without the
-/// sticky phase, so new attempts never pass its backlog (plan section 3.1).
+/// Reserves a slot; backlog that a connected Worker can run sends the attempt to the queue.
 pub(super) async fn reserve_step_stream(
     dispatch: &WorkerDispatch,
     request: StepStreamRequest,
@@ -215,9 +214,7 @@ fn reserved(dispatch: &WorkerDispatch, worker: Arc<WorkerStream>) -> StepStreamR
     })
 }
 
-/// Waits in one queue until it reserves a stream, `queue_end`, matching closes, or the
-/// partition is removed. A sticky search also ends once its queue has no streams. It always
-/// tries one pick, even when `queue_end` has passed.
+/// Waits in one queue for a stream until `queue_end`, after at least one pick.
 async fn reserve_in_queue(
     dispatch: &WorkerDispatch,
     request: &StepStreamRequest,

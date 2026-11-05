@@ -29,8 +29,7 @@ struct RunningAttempt {
     cancel: CancellationToken,
 }
 
-/// Dispatch state owned by the effect router task. Attempt entries live in the shared
-/// [`crate::effects::dispatch::AttemptEntries`] so that Claims can read them.
+/// Dispatch state owned by the effect router task; attempt entries are shared.
 pub(crate) struct DispatchScheduler {
     context: Arc<EffectContext>,
     /// Started attempts by task ID, then by attempt key.

@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Heads (plan section 3.2): the queue heads a partition rebuild reports, and the periodic scan
-//! that only catches implementation bugs. Matching's refs are soft state that Heads rebuilds.
+//! Rebuild Heads and the periodic Heads scan (plan section 3.2).
 
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -29,8 +28,7 @@ use crate::effects::{EffectContext, EffectError};
 /// How often the task queue gauges that matching owns are refreshed.
 const GAUGE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Scans every queue of `partition` after a rebuild, before any of its Dispatch, and hands
-/// matching each queue's first row that no holder sends back. Also counts the rows.
+/// Reports the queue heads of a rebuilt partition to matching and counts its rows.
 ///
 /// Returns the number of heads, or the read's error.
 pub(crate) fn rebuild_heads(
@@ -114,8 +112,7 @@ pub(crate) fn rebuild_heads(
     Ok(head_count)
 }
 
-/// Runs periodic Heads, one partition at a time spread over the interval, and refreshes the
-/// task queue gauges. A zero interval disables the scans only.
+/// Runs periodic Heads one partition at a time and refreshes the queue gauges.
 pub(crate) async fn run_heads_resync(context: Arc<EffectContext>) {
     let interval = context.config.heads_resync_interval;
     let mut gauges = tokio::time::interval(GAUGE_REFRESH_INTERVAL);
@@ -175,8 +172,7 @@ fn following_partition(
         .copied()
 }
 
-/// Scans the queues of `partition` that had backlog at the last scan or were written since,
-/// from the smaller of the remembered head and the smallest written key.
+/// Scans the partition's remembered and written queues.
 fn scan_partition(context: &EffectContext, partition: PartitionId) {
     let token = context.dispatcher.take_heads_token(partition);
     let (scanned, mut written) = {
@@ -248,8 +244,7 @@ fn scan_partition(context: &EffectContext, partition: PartitionId) {
 
 /// Seeks one queue from `from`, skipping rows a holder sends back and rows no longer pending.
 ///
-/// Returns the scan result and the first live row seen, `None` when a seek met too many
-/// deleted entries, or the read's error.
+/// Seeks one queue from `from`, skipping held and no longer pending rows.
 fn scan_queue(
     context: &EffectContext,
     partition: PartitionId,

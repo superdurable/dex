@@ -106,8 +106,7 @@ impl AttemptHandout {
         self.run_from(Some(claimed)).await
     }
 
-    /// Holds a claimed row that could not be checked, answers "retry later", and sends the row
-    /// back to matching after a backoff (plan section 3.2).
+    /// Answers "retry later" for an unchecked claimed row and re-sends it after a backoff.
     pub(crate) async fn retry_claim_later(self, claim_id: u64, task: QueuedTaskRef) -> HandoutEnd {
         let mut backoff = self.context.retry_backoff();
         if !self.hold_for_retry(claim_id, &task, &mut backoff).await {
@@ -219,9 +218,7 @@ impl AttemptHandout {
         }
     }
 
-    /// Finds a Worker slot for a pending attempt that holds no claimed stream: checks locks,
-    /// sends a row already in the DispatchQueue back to matching, or reserves a slot and
-    /// queues the attempt when none is free (plan section 3.1).
+    /// Checks locks, then sends a queued row back or reserves a slot (plan section 3.1).
     async fn reserve(
         &mut self,
         pending: &PendingAttempt,
@@ -304,8 +301,7 @@ impl AttemptHandout {
         }
     }
 
-    /// Sends the ref of a row already in the DispatchQueue once it is committed, so that seeks
-    /// can find it (plan section 3.1).
+    /// Sends the ref of a row already queued, once the row is committed.
     async fn send_queued_row(&self, pending: &PendingAttempt) -> Reservation {
         match self.is_in_dispatch_queue(pending, false) {
             Ok(true) => return self.send_queued(pending),

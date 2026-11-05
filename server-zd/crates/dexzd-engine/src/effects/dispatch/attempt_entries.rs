@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The in-flight entry of every attempt that a task dispatches, queues, waits on, or runs
-//! (plan section 3.1). Hand-out tasks, Claims, and Heads scans share it, so a Claim can tell
-//! who holds a queued row and seeks can skip rows a holder sends back later.
+//! In-flight attempt entries (plan section 3.1), shared so Claims and Heads see each holder.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -137,8 +135,7 @@ impl AttemptEntries {
         }
     }
 
-    /// Ends a hand-out task of `generation`: removes its entry, parks it on busy locks, or asks
-    /// to run it again when locks were released while it checked them.
+    /// Ends a hand-out task: removes, parks, or restarts its entry.
     pub(crate) fn finish_handout(
         &mut self,
         key: &MethodAttemptKey,
@@ -197,8 +194,7 @@ impl AttemptEntries {
         !self.parked_by_run.is_empty()
     }
 
-    /// Returns whether a holder that sends the row back later holds `key`: anything but a sent
-    /// Queued. Seeks for a next ref and Heads skip such rows.
+    /// Returns whether a holder that sends the row back later holds `key`.
     pub(crate) fn is_held(&self, key: &MethodAttemptKey) -> bool {
         self.entries
             .get(key)

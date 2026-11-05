@@ -297,8 +297,7 @@ fn active_step_state(
     })
 }
 
-/// Returns the public state of the Step's current method invocation. Apply state cannot tell
-/// whether a Worker supports the Step type; the owner refines WAITING_FOR_WORKER.
+/// Returns the public state of the Step's current method invocation.
 fn invocation_state(
     view: &RunView<'_>,
     step: &StepExecutionRecord,

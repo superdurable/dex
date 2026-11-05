@@ -94,8 +94,7 @@ impl Call<'_> {
     }
 }
 
-/// No Worker took the pending attempt at once, so it waits in the DispatchQueue index; now and
-/// then with a stale pending time that apply must ignore.
+/// Queues the pending attempt, now and then with a stale pending time.
 pub(crate) fn queue_attempt(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
     let mut pending_since_micros = dexzd_apply::effective_pending_since_micros(call.invocation);
     if rng.random_bool(0.05) {

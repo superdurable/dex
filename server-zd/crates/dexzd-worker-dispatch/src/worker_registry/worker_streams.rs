@@ -50,8 +50,7 @@ impl StreamSlot {
     }
 }
 
-/// Returns the Flow types whose durable queues a registration may claim from: a Step slot's
-/// declared Flow types, or a legacy stream's queue unless it is its sticky queue.
+/// Returns the Flow types whose durable queues a registration may claim from.
 pub(super) fn backlog_flow_types(registration: &PollWorkerTaskRegister) -> Vec<String> {
     if !registration.supports_reserved_slot_dispatch {
         return (registration.queue != registration.app_worker_id)

@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Claims (plan section 3.2): matching asks the partition owner to start a queued row on a
-//! reserved stream. The owner checks the row in its speculative state, then answers Started,
-//! stale, busy, lock busy, or retry later, always with the queue's next ref.
+//! Claims (plan section 3.2): check a queued row, then start it or answer why not.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -107,8 +105,7 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
     });
 }
 
-/// Returns when the row became pending on this process's monotonic clock, so the
-/// schedule-to-start latency includes its time in the queue (plan section 3.10).
+/// Returns when the row became pending, on the monotonic clock.
 fn pending_instant(context: &EffectContext, task: &QueuedTaskRef) -> Option<Instant> {
     let waited_micros = context
         .clock

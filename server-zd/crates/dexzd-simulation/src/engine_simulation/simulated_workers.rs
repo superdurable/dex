@@ -723,9 +723,7 @@ impl Drop for SimulatedDispatchSession {
     }
 }
 
-/// The durable task queue refs one node process holds, with matching's ref rules: one ref per
-/// (partition, queue) keeping the smaller, a claimed ref leaves, and only a Claim reply's next
-/// ref comes back. A lost ref therefore strands its row. A process restart loses every ref.
+/// A process's queue refs under matching's rules: keep the smaller, claim removes, replies return.
 #[derive(Default)]
 pub(crate) struct SimulatedTaskQueue {
     refs: Mutex<SimulatedRefs>,

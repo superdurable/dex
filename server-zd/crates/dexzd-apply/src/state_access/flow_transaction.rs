@@ -159,8 +159,7 @@ impl<'reader> FlowTransaction<'reader> {
         self.rows.insert((column_family, key), None);
     }
 
-    /// Deletes a row that was put once since its last deletion; see [`StateWrite::SingleDelete`].
-    /// A row put earlier in this call and absent from the reader just disappears.
+    /// Deletes a row put once since its last deletion; see [`StateWrite::SingleDelete`].
     ///
     /// Returns the reader's error when checking for such a row fails.
     pub(crate) fn single_delete(

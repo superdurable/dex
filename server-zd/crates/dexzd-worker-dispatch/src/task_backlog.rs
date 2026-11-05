@@ -6,10 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The in-memory side of the durable task queue (plan section 3.2): per queue, a min-heap of
-//! the head ref of every partition with backlog, the Claim in flight per (partition, queue),
-//! and the bookkeeping of periodic Heads scans. Matching never reads partition storage; the
-//! partition owner sends refs with Queued, Heads, and Claim replies.
+//! Matching's side of the durable task queue (plan section 3.2): refs, Claims, Heads scans.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -109,8 +106,7 @@ struct HeadsScan {
     smallest_seen: HashMap<DispatchQueueName, DispatchQueuePosition>,
 }
 
-/// Matching's refs of every partition's backlog. The caller holds the registry lock and runs
-/// matching for a queue after any change that may make it claimable.
+/// Matching's refs of every partition's backlog, guarded by the registry lock.
 #[derive(Default)]
 pub(crate) struct TaskBacklog {
     queues: HashMap<DispatchQueueName, QueueBacklog>,
@@ -157,8 +153,7 @@ impl TaskBacklog {
         })
     }
 
-    /// Returns the queue and partition of the earliest claimable head among the Step types of
-    /// `flow_types` that `is_eligible` accepts, by (priority, pending time).
+    /// Returns the earliest eligible claimable head among `flow_types`.
     pub(crate) fn earliest_claimable<'a>(
         &self,
         tenant_id: u64,
@@ -220,8 +215,7 @@ impl TaskBacklog {
         Some((claim_id, task))
     }
 
-    /// Applies a Claim reply: drops the claimed ref, whatever the result, and keeps the smaller
-    /// of the reply's next ref and any ref inserted while the Claim was in flight.
+    /// Applies a Claim reply: drops the claimed ref and keeps the smaller remaining ref.
     ///
     /// Returns false for a reply whose Claim matching no longer tracks; it changes nothing.
     pub(crate) fn finish_claim(

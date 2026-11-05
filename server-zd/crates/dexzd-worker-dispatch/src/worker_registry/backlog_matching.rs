@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The durable task queue in matching (plan section 3.2): Queued, Heads, Claims and their
-//! replies, partition removal, and the wakeup invariant. An idle stream that no RPC, sticky, or
-//! sync waiter takes claims the earliest head it may run (plan D56).
+//! The durable task queue in matching (plan section 3.2); backlog comes last (plan D56).
 
 use super::*;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -369,8 +367,7 @@ pub(super) enum BacklogService {
 }
 
 impl Registry {
-    /// Claims for idle Step streams of the queue's Flow type while the queue has a claimable
-    /// head and an idle stream may run it, keeping the wakeup invariant.
+    /// Claims idle Step streams of the Flow type while the queue has a claimable head.
     pub(super) fn match_backlog_queue(&mut self, name: &DispatchQueueName) {
         let flow_type_key = (name.tenant_id.0, name.flow_type.clone());
         loop {
