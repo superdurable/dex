@@ -42,6 +42,8 @@ const STEP_TYPE: &str = "QueuedStep";
 const LOCK_KEY: &str = "balance";
 /// Short in-memory waits, so attempts reach the durable queue quickly.
 const MATCHING_SETTINGS: &str = "matching:\n  stickyWait: 50ms\n  syncMatchWait: 50ms\n";
+/// Keeps attempts in the in-memory sync wait for the whole test.
+const SYNC_WAIT_SETTINGS: &str = "matching:\n  stickyWait: 50ms\n  syncMatchWait: 1h\n";
 const QUEUED_BUDGET: Duration = Duration::from_secs(30);
 const COMPLETION_WAIT_SECONDS: i32 = 30;
 /// A killed active's lease; the hot standby takes over after it expires.
@@ -69,7 +71,8 @@ async fn queued_steps_complete_on_attempt_one_after_a_sigkill_restart() {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let data_directory = directory.path().join("data");
     let first_metrics = free_loopback_address();
-    let first_config = write_dev_config(directory.path(), "first", first_metrics);
+    let first_config =
+        write_dev_config(directory.path(), "first", first_metrics, MATCHING_SETTINGS);
     let mut first = ServeProcess::spawn_dev(
         &data_directory,
         &first_config,
@@ -77,12 +80,17 @@ async fn queued_steps_complete_on_attempt_one_after_a_sigkill_restart() {
         directory.path().join("first.log"),
     );
     let channel = first.wait_until_serving().await;
-    let flow_ids = start_queued_flows(&channel, first_metrics, "restart").await;
+    let flow_ids = start_queued_flows(&channel, first_metrics, "restart", true).await;
 
     let killed = first.kill().await;
     assert!(!killed.success(), "SIGKILL stops the first process");
     let second_metrics = free_loopback_address();
-    let second_config = write_dev_config(directory.path(), "second", second_metrics);
+    let second_config = write_dev_config(
+        directory.path(),
+        "second",
+        second_metrics,
+        MATCHING_SETTINGS,
+    );
     let mut second = ServeProcess::spawn_dev(
         &data_directory,
         &second_config,
@@ -92,6 +100,44 @@ async fn queued_steps_complete_on_attempt_one_after_a_sigkill_restart() {
     let channel = second.wait_until_serving().await;
     // A restart rebuilds the queue from the index.
     wait_for_queue_entries(second_metrics, flow_ids.len()).await;
+    complete_queued_flows(&channel, second_metrics, &flow_ids).await;
+    let stopped = second.terminate(SHUTDOWN_BUDGET).await;
+    assert!(stopped.success(), "{}", second.log());
+}
+
+/// TB26: SIGKILL while attempts wait in memory for a Worker; the restart dispatches them again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn steps_in_the_sync_wait_complete_on_attempt_one_after_a_sigkill_restart() {
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let data_directory = directory.path().join("data");
+    let first_metrics = free_loopback_address();
+    let first_config =
+        write_dev_config(directory.path(), "first", first_metrics, SYNC_WAIT_SETTINGS);
+    let mut first = ServeProcess::spawn_dev(
+        &data_directory,
+        &first_config,
+        free_loopback_address(),
+        directory.path().join("first.log"),
+    );
+    let channel = first.wait_until_serving().await;
+    let flow_ids = start_queued_flows(&channel, first_metrics, "sync-wait", false).await;
+
+    let killed = first.kill().await;
+    assert!(!killed.success(), "SIGKILL stops the first process");
+    let second_metrics = free_loopback_address();
+    let second_config = write_dev_config(
+        directory.path(),
+        "second",
+        second_metrics,
+        SYNC_WAIT_SETTINGS,
+    );
+    let mut second = ServeProcess::spawn_dev(
+        &data_directory,
+        &second_config,
+        free_loopback_address(),
+        directory.path().join("second.log"),
+    );
+    let channel = second.wait_until_serving().await;
     complete_queued_flows(&channel, second_metrics, &flow_ids).await;
     let stopped = second.terminate(SHUTDOWN_BUDGET).await;
     assert!(stopped.success(), "{}", second.log());
@@ -137,7 +183,7 @@ async fn queued_steps_complete_on_attempt_one_after_a_hot_standby_failover() {
         directory.path().join("standby.log"),
     );
     wait_for_hot_standby(&mut standby).await;
-    let flow_ids = start_queued_flows(&channel, active_metrics, "failover").await;
+    let flow_ids = start_queued_flows(&channel, active_metrics, "failover", true).await;
 
     let killed = active.kill().await;
     assert!(!killed.success(), "SIGKILL stops the active");
@@ -157,13 +203,18 @@ async fn queued_steps_complete_on_attempt_one_after_a_hot_standby_failover() {
 }
 
 /// Writes a `dev` overlay with strict durability, a metrics listener, and short matching waits.
-fn write_dev_config(directory: &Path, name: &str, metrics: SocketAddr) -> std::path::PathBuf {
+fn write_dev_config(
+    directory: &Path,
+    name: &str,
+    metrics: SocketAddr,
+    matching_settings: &str,
+) -> std::path::PathBuf {
     let path = directory.join(format!("{name}.yaml"));
     // Relaxed object writes do not survive SIGKILL.
     fs::write(
         &path,
         format!(
-            "cluster:\n  partitionCount: 16\ndev:\n  durabilityMode: strict\nmetrics:\n  listen: '{metrics}'\n{MATCHING_SETTINGS}"
+            "cluster:\n  partitionCount: 16\ndev:\n  durabilityMode: strict\nmetrics:\n  listen: '{metrics}'\n{matching_settings}"
         ),
     )
     .expect("the dev configuration is written");
@@ -205,11 +256,16 @@ async fn wait_for_hot_standby(standby: &mut ServeProcess) {
     }
 }
 
-/// Starts every Step kind with no Worker registered and waits until each attempt is in the
-/// durable queue, pending on attempt 1 without a failure.
+/// Starts every Step kind with no Worker registered and checks that each attempt is pending on
+/// attempt 1 without a failure, in the durable queue when `is_queued` and in memory otherwise.
 ///
 /// Returns the started Flow IDs.
-async fn start_queued_flows(channel: &Channel, metrics: SocketAddr, prefix: &str) -> Vec<String> {
+async fn start_queued_flows(
+    channel: &Channel,
+    metrics: SocketAddr,
+    prefix: &str,
+    is_queued: bool,
+) -> Vec<String> {
     let mut client = FlowServiceClient::new(channel.clone());
     let mut flow_ids = Vec::new();
     for kind in STEP_KINDS {
@@ -222,7 +278,8 @@ async fn start_queued_flows(channel: &Channel, metrics: SocketAddr, prefix: &str
             flow_ids.push(flow_id);
         }
     }
-    wait_for_queue_entries(metrics, flow_ids.len()).await;
+    let expected_entries = if is_queued { flow_ids.len() } else { 0 };
+    wait_for_queue_entries(metrics, expected_entries).await;
     for flow_id in &flow_ids {
         let state = client
             .get_flow_state(GetFlowStateRequest {
@@ -259,6 +316,7 @@ async fn start_queued_flows(channel: &Channel, metrics: SocketAddr, prefix: &str
         assert_eq!(invocation.attempt, 1, "{flow_id}");
         assert!(invocation.pending_since_time.is_some(), "{flow_id}");
     }
+    wait_for_queue_entries(metrics, expected_entries).await;
     flow_ids
 }
 
