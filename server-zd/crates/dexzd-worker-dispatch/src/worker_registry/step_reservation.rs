@@ -14,7 +14,7 @@ use dexzd_metrics::WorkerStreamProtocolError;
 use dexzd_protocol::dex::PollWorkerTask;
 use dexzd_request_validation::quote_go_string;
 
-use super::worker_streams::record_protocol_error;
+use super::worker_streams::{record_protocol_error, send_task_frame};
 
 /// Inputs for reserving one Worker stream for a Step method attempt.
 #[derive(Debug, Clone)]
@@ -29,8 +29,8 @@ pub struct StepStreamRequest {
     pub step_type: String,
     /// Worker process ID preferred while the sticky wait lasts.
     pub sticky_app_worker_id: Option<String>,
-    /// When the attempt first searched for a Worker; the sticky and dispatch waits count from
-    /// it, also across returns of the same attempt.
+    /// When this search for a Worker started; the sticky and dispatch waits count from it.
+    /// A search whose waits already ended still tries the idle slots once.
     pub search_started_at: Instant,
 }
 
@@ -244,7 +244,7 @@ async fn reserve_in_queue(
     let mut shutdown = dispatch.inner.shutdown.subscribe();
     let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
     tokio::pin!(search_timer);
-    while Instant::now() < queue_end {
+    loop {
         if *shutdown.borrow() || !dispatch.may_hand_out_tasks() {
             return QueueReservation::ServerClosing;
         }
@@ -258,7 +258,7 @@ async fn reserve_in_queue(
         if let Some(worker) = picked.worker {
             return QueueReservation::Reserved(worker);
         }
-        if is_sticky && !picked.has_streams {
+        if (is_sticky && !picked.has_streams) || Instant::now() >= queue_end {
             return QueueReservation::Ended;
         }
         let wake = picked.next_backoff_end.unwrap_or(queue_end).min(queue_end);
@@ -276,7 +276,6 @@ async fn reserve_in_queue(
             },
         }
     }
-    QueueReservation::Ended
 }
 
 enum QueueReservation {
@@ -321,19 +320,17 @@ impl ReservedStepStream {
             name: step_type.clone(),
         };
         let task_frame: PollWorkerTask = build_task(&task_id, &payload, deadline);
-        let frames = match self
-            .dispatch
-            .send_task_frame(&worker, &task_id, &task_type, task_frame)
-        {
-            Ok(frames) => frames,
-            Err(TaskSendError::LeaseInvalid) => return Err(StepTaskSendFailure::LeaseInvalid),
-            Err(TaskSendError::NotDelivered) => {
-                // The stream half-closed, broke, or is shutting down; it never becomes idle again.
-                self.worker = None;
-                self.dispatch.disconnect(worker.id);
-                return Err(StepTaskSendFailure::NotDelivered);
-            }
-        };
+        let frames =
+            match send_task_frame(&self.dispatch, &worker, &task_id, &task_type, task_frame) {
+                Ok(frames) => frames,
+                Err(TaskSendError::LeaseInvalid) => return Err(StepTaskSendFailure::LeaseInvalid),
+                Err(TaskSendError::NotDelivered) => {
+                    // The stream half-closed, broke, or is shutting down; it never becomes idle again.
+                    self.worker = None;
+                    self.dispatch.disconnect(worker.id);
+                    return Err(StepTaskSendFailure::NotDelivered);
+                }
+            };
         self.worker = None;
         self.dispatch.record_delivery(scheduled_at);
         let (events_sender, events) = mpsc::channel(32);

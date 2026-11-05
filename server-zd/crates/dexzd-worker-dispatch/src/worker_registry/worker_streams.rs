@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! Worker stream kinds, the Step backoff of streams without reserved-slot dispatch, clean
-//! half-close, and the end of an assignment.
+//! half-close, and the start and end of an assignment.
 
 use super::*;
 use dexzd_metrics::WorkerStreamProtocolError;
@@ -126,6 +126,52 @@ pub(super) async fn half_close(dispatch: &WorkerDispatch, worker: &WorkerStream)
     }
 }
 
+/// Sends `task_frame` on a stream this caller took, checking the node lease and the stream's
+/// half-close under the stream's state lock, with no await in between. It also refuses once
+/// matching began ending streams; an attempt drain does not withhold the frame.
+///
+/// Returns the receiver of the Worker's frames for the task, [`TaskSendError::LeaseInvalid`]
+/// when the node may not hand out tasks (the stream stays taken), or
+/// [`TaskSendError::NotDelivered`] when the stream half-closed, is gone, or matching is
+/// ending its streams.
+pub(super) fn send_task_frame(
+    dispatch: &WorkerDispatch,
+    worker: &WorkerStream,
+    task_id: &str,
+    task_type: &TaskTypeKey,
+    task_frame: dexzd_protocol::dex::PollWorkerTask,
+) -> Result<mpsc::Receiver<AssignmentFrame>, TaskSendError> {
+    // Read before the state lock: stream readers hold this watch while taking that lock.
+    let is_stream_shutdown = *dispatch.inner.stream_shutdown.borrow();
+    let mut state = worker.state.lock().expect("Worker state lock poisoned");
+    if state.is_send_stopped || state.is_closing || is_stream_shutdown {
+        return Err(TaskSendError::NotDelivered);
+    }
+    if !dispatch.may_hand_out_tasks() {
+        return Err(TaskSendError::LeaseInvalid);
+    }
+    let (sender, receiver) = mpsc::channel(32);
+    state.current = Some(Assignment {
+        task_id: task_id.to_owned(),
+        task_type: task_type.clone(),
+        frames: sender,
+        has_output: false,
+    });
+    let is_sent = worker
+        .output
+        .send(Ok(PollWorkerTaskResponse {
+            frame: Some(poll_worker_task_response::Frame::Task(task_frame)),
+        }))
+        .is_ok();
+    if !is_sent {
+        state.current = None;
+        drop(state);
+        dispatch.disconnect(worker.id);
+        return Err(TaskSendError::NotDelivered);
+    }
+    Ok(receiver)
+}
+
 /// How an assignment ended on its stream.
 pub(super) enum AssignmentEnd {
     /// The Worker sent the task's final output.
@@ -157,8 +203,15 @@ pub(super) fn finish_assignment(
     state.current = None;
     state.is_busy = false;
     match end {
-        // An RPC result says nothing about the Worker's Step capacity.
-        AssignmentEnd::Final if task_type.kind == TaskKind::Step => state.step_backoff = None,
+        // An RPC result says nothing about the Worker's Step capacity or Step types.
+        AssignmentEnd::Final if task_type.kind == TaskKind::Step => {
+            state.step_backoff = None;
+            drop(state);
+            dispatch
+                .lock_registry()
+                .release_reprobes_after_step(worker, Instant::now());
+            state = worker.state.lock().expect("Worker state lock poisoned");
+        }
         AssignmentEnd::Final => {}
         AssignmentEnd::Rejected(PollWorkerTaskRejectReason::NoCapacity)
             if worker.slot == StreamSlot::Legacy =>
@@ -189,10 +242,7 @@ pub(super) fn finish_assignment(
             };
             if is_unknown_type {
                 drop(state);
-                dispatch
-                    .lock_registry()
-                    .unsupported_types
-                    .insert(task_type, &worker.app_worker_id);
+                record_declined_type(dispatch, worker, task_type);
                 state = worker.state.lock().expect("Worker state lock poisoned");
             }
         }
@@ -206,7 +256,18 @@ pub(super) fn finish_assignment(
     true
 }
 
-/// Records a reserved-slot stream that broke the dispatch protocol.
+/// Caches that `worker`'s Worker declined `task_type`, unless the stream is gone: its
+/// disconnect already removed the Worker's entries, and nothing would remove a later one.
+fn record_declined_type(dispatch: &WorkerDispatch, worker: &WorkerStream, task_type: TaskTypeKey) {
+    let mut registry = dispatch.lock_registry();
+    if registry.streams.contains_key(&worker.id) {
+        registry
+            .unsupported_types
+            .insert(task_type, &worker.app_worker_id);
+    }
+}
+
+/// Records a Worker stream that broke the dispatch protocol.
 pub(super) fn record_protocol_error(dispatch: &WorkerDispatch, error: WorkerStreamProtocolError) {
     dispatch
         .inner
@@ -228,5 +289,57 @@ pub(super) fn send_reconnect(worker: &WorkerStream, reason: &str) {
         .is_err()
     {
         tracing::debug!("Worker response stream closed before reconnect");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dexzd_clock::SystemWallClock;
+
+    fn registered_stream(dispatch: &WorkerDispatch, app_worker_id: &str) -> Arc<WorkerStream> {
+        let (output, _response) = mpsc::unbounded_channel();
+        let (close, _closing) = watch::channel(false);
+        let worker = Arc::new(WorkerStream {
+            id: Uuid::now_v7(),
+            tenant_id: 7,
+            queues: Vec::new(),
+            app_worker_id: app_worker_id.to_owned(),
+            slot: StreamSlot::ReservedStepAndRpc,
+            output,
+            close,
+            state: Mutex::new(WorkerState::default()),
+        });
+        let mut registry = dispatch.lock_registry();
+        registry
+            .worker_stream_ids
+            .insert((7, app_worker_id.to_owned()), HashSet::from([worker.id]));
+        registry.streams.insert(worker.id, worker.clone());
+        worker
+    }
+
+    /// A decline that races the Worker's final disconnect leaves no entry behind: nothing
+    /// would remove it, and its eviction would wait forever for a Step the Worker never runs.
+    #[test]
+    fn a_decline_after_the_final_disconnect_records_nothing() {
+        let config = MatchingConfig {
+            unsupported_type_cache_entries: 1,
+            ..MatchingConfig::default()
+        };
+        let dispatch = WorkerDispatch::new(config, Arc::new(SystemWallClock));
+        let task_type = TaskTypeKey {
+            tenant_id: 7,
+            flow_type: "Flow".to_owned(),
+            kind: TaskKind::Step,
+            name: "Missing".to_owned(),
+        };
+        let gone = registered_stream(&dispatch, "gone");
+        dispatch.disconnect(gone.id);
+        record_declined_type(&dispatch, &gone, task_type.clone());
+        let present = registered_stream(&dispatch, "present");
+        record_declined_type(&dispatch, &present, task_type.clone());
+        let registry = dispatch.lock_registry();
+        assert!(!registry.unsupported_types.excludes(&task_type, "gone"));
+        assert!(registry.unsupported_types.excludes(&task_type, "present"));
     }
 }

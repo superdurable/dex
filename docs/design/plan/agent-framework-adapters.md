@@ -134,7 +134,7 @@ Both are documented for operators in the
 [deployment guide](../../content/production/agents.mdx#tool-call-limits), and
 their fix is deferred until after M2.
 
-- **A single-attempt call can run twice.** Dex starts an attempt when it
+- **A single-attempt call runs twice only in narrow cases.** Dex starts an attempt when it
   hands the attempt to a Worker, and it never hands the same attempt number to
   a second Worker. A Worker that dies, or loses its stream, after it received
   the tool Step fails the attempt, and the call records `outcome_unknown`. The

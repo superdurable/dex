@@ -37,8 +37,6 @@ use crate::flow_coordination::{CommitUrgency, FlowAddress};
 /// Hand-out state that survives returns and lock waits of one attempt.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct HandoutProgress {
-    /// When the attempt first searched for a Worker; the dispatch wait counts from it.
-    pub(crate) search_started_at: Option<Instant>,
     /// When the attempt's pending effect committed, for the schedule-to-start latency.
     pub(crate) scheduled_at: Option<Instant>,
 }
@@ -123,10 +121,9 @@ impl AttemptHandout {
                     continue;
                 }
             }
-            let search_started_at = *self
-                .progress
-                .search_started_at
-                .get_or_insert_with(Instant::now);
+            // Each search gets a full dispatch wait: lock waits, backoffs, and returns are not
+            // searches.
+            let search_started_at = Instant::now();
             let request = MethodStreamRequest {
                 tenant_id: pending.tenant_id,
                 flow_id: self.flow.flow_id.clone(),
@@ -368,6 +365,17 @@ pub(crate) async fn fail_interrupted_attempt(
     run_id: RunId,
     attempt: InterruptedAttempt,
 ) {
+    if attempt.task_id.is_empty() {
+        // Every binary records a task ID on its starts, so this record is corrupt.
+        tracing::error!(
+            run_id = %run_id,
+            step_execution_id = %attempt.key.step_execution_id,
+            method = ?attempt.key.method,
+            attempt = attempt.key.attempt,
+            "a running attempt has no task ID, so it is not failed as interrupted"
+        );
+        return;
+    }
     let urgency = match attempt.durability {
         dex::StepDurability::Async => CommitUrgency::Batched,
         _ => CommitUrgency::Prompt,

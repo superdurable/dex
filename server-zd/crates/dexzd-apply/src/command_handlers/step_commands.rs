@@ -63,6 +63,7 @@ pub(crate) fn apply_step_command(
             if let Some(failure) = rejected_result_failure(
                 completed.invocation.clone(),
                 completed.attempt,
+                &completed.task_id,
                 completed.pull_routing.clone(),
                 &outcome,
             ) {
@@ -88,13 +89,15 @@ pub(crate) fn apply_step_command(
         }
         outcome @ (StepCommandOutcome::RejectedResult(_)
         | StepCommandOutcome::MismatchedResult(_)) => {
-            let (invocation, attempt) = match command {
-                Command::StepAttemptHeartbeat(heartbeat) => {
-                    (heartbeat.invocation.clone(), heartbeat.attempt)
-                }
-                _ => (None, 0),
+            let (invocation, attempt, task_id) = match command {
+                Command::StepAttemptHeartbeat(heartbeat) => (
+                    heartbeat.invocation.clone(),
+                    heartbeat.attempt,
+                    heartbeat.task_id.as_slice(),
+                ),
+                _ => (None, 0, [].as_slice()),
             };
-            rejected_result_failure(invocation, attempt, None, &outcome)
+            rejected_result_failure(invocation, attempt, task_id, None, &outcome)
                 .map(StepHandlerResult::ApplyAsFailure)
                 .ok_or_else(|| ApplyError::InvariantViolation {
                     detail: "a rejected Step result produced no attempt failure".to_owned(),
@@ -104,10 +107,12 @@ pub(crate) fn apply_step_command(
 }
 
 /// Returns the non-retryable attempt failure that replaces a rejected Worker result, keeping
-/// the result's `pull_routing`, or `None` when the outcome is not a rejection.
+/// the result's `pull_routing` and fenced on its `task_id`, or `None` when the outcome is not
+/// a rejection.
 fn rejected_result_failure(
     invocation: Option<dexzd_protocol::dexzd::v1::StepInvocationKey>,
     attempt: u32,
+    task_id: &[u8],
     pull_routing: Option<PullRouting>,
     outcome: &StepCommandOutcome,
 ) -> Option<StepAttemptFailedCommand> {
@@ -134,6 +139,7 @@ fn rejected_result_failure(
         server_detail,
         is_non_retryable: true,
         pull_routing,
+        expected_task_id: task_id.to_vec(),
         ..StepAttemptFailedCommand::default()
     })
 }

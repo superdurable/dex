@@ -131,6 +131,8 @@ pub struct EngineSimulationSummary {
     pub interrupted_work_finished: BTreeMap<String, u64>,
     /// Running attempts the quiet-point crash compared with the successor's dispatches.
     pub attempts_compared_after_quiet_crash: u64,
+    /// SYNC task frames the ledger check covered at the end of the seed.
+    pub sync_task_frames_checked: u64,
     /// Processes that stopped by themselves, such as after losing the lease.
     pub self_stopped_processes: u64,
     /// Those stops by reason, such as `older-epoch-batch` when a late write of a dead
@@ -242,6 +244,7 @@ impl EngineSimulationSummary {
             &other.interrupted_work_finished,
         );
         self.attempts_compared_after_quiet_crash += other.attempts_compared_after_quiet_crash;
+        self.sync_task_frames_checked += other.sync_task_frames_checked;
         self.self_stopped_processes += other.self_stopped_processes;
         merge_counts(&mut self.self_stop_reasons, &other.self_stop_reasons);
         merge_counts(
