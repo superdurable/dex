@@ -8,7 +8,7 @@ Use **WaitForStepCompletion** when a Flow has a durable client-visible milestone
 
 The **WaitForStepCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
 
-Set **RequestTimeout** at an HTTP or admission boundary. The runnable controller below stays unbounded until its published SDK dependency includes this API. See [Wait timeouts and limits](/primitives/client/advanced#wait-timeouts-and-limits).
+Set **RequestTimeout** at an HTTP or admission boundary. The runnable controller below leaves it unset. See [Wait timeouts and limits](/primitives/client/advanced#wait-timeouts-and-limits).
 
 ## Core implementation
 

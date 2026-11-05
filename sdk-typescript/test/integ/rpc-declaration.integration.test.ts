@@ -1,0 +1,451 @@
+// Portions of this file are derived from indeedeng/iwf-java-sdk.
+// Those portions are licensed under the Apache License, Version 2.0.
+// See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+//
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications are licensed under the Sustainable Use License 1.0.
+// Third-Party Materials remain under the Apache License, Version 2.0.
+// See LICENSE and LEGACY_NOTICES.md.
+
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  Attribute,
+  Channel,
+  FlowDefinitionError,
+  Registry,
+  StepList,
+  declareRPCMethod,
+  gracefulComplete,
+  rpc,
+  stringCodec,
+  type AsyncContext,
+  type Context,
+  type Flow,
+  type PersistenceSchema,
+  type RPCOptions,
+  type RPCResult,
+  type StepDecision,
+} from "../../src/index.js";
+import { registeredRPCs } from "../../src/rpc.js";
+import { flowId, withEnvironment } from "./environment.js";
+import { DeclaredRpcBaseFlow, DeclaredRpcFlow } from "./rpc_declaration_flow.js";
+
+test("declared RPC methods are invoked through the Client alongside @rpc methods", async () => {
+  const flow = new DeclaredRpcFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const id = flowId("rpc-declaration");
+    await client.startFlow(flow, id, undefined);
+    assert.equal(await client.invokeRPC(flow.setDeclaredValue, id, "first"), "first");
+    assert.equal(await client.invokeRPC(flow.setDeclaredValue, id, "second"), "second");
+    assert.equal(await client.invokeRPC(flow.getDeclaredValue, id), "second");
+    assert.equal(await client.invokeRPC(flow.describeDeclaredRpcFlow, id), `${id}:second`);
+    assert.equal(await client.invokeRPC(flow.getDeclaredWriteCount, id), 2);
+    await client.stopFlow(id);
+  });
+});
+
+test("declared RPC methods keep their options and explicit names", () => {
+  const rpcs = registeredRPCs(new DeclaredRpcFlow() as Flow<unknown>);
+  assert.deepEqual(
+    rpcs.map((registered) => [registered.name, registered.hasInput]).sort(),
+    [
+      ["describeFlowWithDeclaredName", false],
+      ["getDeclaredValue", false],
+      ["getDeclaredWriteCount", false],
+      ["setDeclaredValue", true],
+    ],
+  );
+  const describe = rpcs.find((registered) => registered.name === "describeFlowWithDeclaredName");
+  assert.equal(describe?.options.timeoutMs, 10_000);
+  assert.ok(Object.isFrozen(describe?.options));
+});
+
+test("a method declared through a base class is an RPC of every subclass", async () => {
+  class SiblingDeclaredRpcFlow extends DeclaredRpcBaseFlow {
+    public getFlowType(): string {
+      return "SiblingDeclaredRpcFlow";
+    }
+  }
+  const sibling = new SiblingDeclaredRpcFlow();
+  assert.deepEqual(
+    registeredRPCs(sibling as Flow<unknown>).map((registered) => registered.name).sort(),
+    ["getDeclaredValue", "setDeclaredValue"],
+  );
+  await withEnvironment([sibling], async ({ client }) => {
+    const id = flowId("rpc-declaration-sibling");
+    await client.startFlow(sibling, id, undefined);
+    await client.invokeRPC(sibling.setDeclaredValue, id, "inherited");
+    assert.equal(await client.invokeRPC(sibling.getDeclaredValue, id), "inherited");
+    await client.stopFlow(id);
+  });
+});
+
+test("declaring a method twice or with @rpc is rejected", () => {
+  class TwiceDeclaredFlow implements Flow {
+    public getFlowType(): string {
+      return "TwiceDeclaredFlow";
+    }
+
+    public getSteps() {
+      return StepList.empty();
+    }
+
+    public getTwiceDeclaredValue(_context: Context): RPCResult<string> {
+      return { output: "value" };
+    }
+
+    @rpc()
+    public getDecoratedValue(_context: Context): RPCResult<string> {
+      return { output: "value" };
+    }
+  }
+  declareRPCMethod(TwiceDeclaredFlow, "getTwiceDeclaredValue");
+  assert.throws(
+    () => declareRPCMethod(TwiceDeclaredFlow, "getTwiceDeclaredValue", { name: "otherName" }),
+    new TypeError(
+      "RPC method TwiceDeclaredFlow.getTwiceDeclaredValue is already declared by @rpc or declareRPCMethod",
+    ),
+  );
+  assert.throws(
+    () => declareRPCMethod(TwiceDeclaredFlow, "getDecoratedValue"),
+    new TypeError(
+      "RPC method TwiceDeclaredFlow.getDecoratedValue is already declared by @rpc or declareRPCMethod",
+    ),
+  );
+  assert.deepEqual(
+    registeredRPCs(new TwiceDeclaredFlow() as Flow<unknown>).map((registered) => registered.name).sort(),
+    ["getDecoratedValue", "getTwiceDeclaredValue"],
+  );
+});
+
+test("declaring an inherited method through a subclass is rejected", () => {
+  abstract class UndeclaredBaseFlow implements Flow {
+    public abstract getFlowType(): string;
+
+    public getSteps() {
+      return StepList.empty();
+    }
+
+    public getInheritedValue(_context: Context): RPCResult<string> {
+      return { output: "base" };
+    }
+  }
+  class FirstSubclassFlow extends UndeclaredBaseFlow {
+    public getFlowType(): string {
+      return "FirstSubclassFlow";
+    }
+  }
+  class OverridingSubclassFlow extends UndeclaredBaseFlow {
+    public getFlowType(): string {
+      return "OverridingSubclassFlow";
+    }
+
+    public override getInheritedValue(_context: Context): RPCResult<string> {
+      return { output: "override" };
+    }
+  }
+  class SiblingSubclassFlow extends UndeclaredBaseFlow {
+    public getFlowType(): string {
+      return "SiblingSubclassFlow";
+    }
+  }
+
+  assert.throws(
+    () => declareRPCMethod(FirstSubclassFlow, "getInheritedValue"),
+    new TypeError(
+      "Flow class FirstSubclassFlow method getInheritedValue is inherited from UndeclaredBaseFlow; " +
+        'declare it with declareRPCMethod(UndeclaredBaseFlow, "getInheritedValue") ' +
+        "or override it in FirstSubclassFlow and declare the override",
+    ),
+  );
+  // A base method declared with @rpc or declareRPCMethod is still inherited, not redeclared.
+  assert.throws(
+    () => declareRPCMethod(DeclaredRpcFlow, "getDeclaredValue"),
+    new TypeError(
+      "Flow class DeclaredRpcFlow method getDeclaredValue is inherited from DeclaredRpcBaseFlow; " +
+        'declare it with declareRPCMethod(DeclaredRpcBaseFlow, "getDeclaredValue") ' +
+        "or override it in DeclaredRpcFlow and declare the override",
+    ),
+  );
+
+  declareRPCMethod(OverridingSubclassFlow, "getInheritedValue");
+  assert.deepEqual(
+    registeredRPCs(new OverridingSubclassFlow() as Flow<unknown>).map((registered) => registered.name),
+    ["getInheritedValue"],
+  );
+  // The rejected and the override declarations leave the base class and siblings unchanged.
+  assert.deepEqual(registeredRPCs(new FirstSubclassFlow() as Flow<unknown>), []);
+  assert.deepEqual(registeredRPCs(new SiblingSubclassFlow() as Flow<unknown>), []);
+  new Registry([new OverridingSubclassFlow(), new SiblingSubclassFlow(), new FirstSubclassFlow()]);
+});
+
+test("errors for anonymous mixin classes name no class", () => {
+  class AuditedBaseFlow implements Flow {
+    public getFlowType(): string {
+      return "AuditedBaseFlow";
+    }
+
+    public getSteps() {
+      return StepList.empty();
+    }
+  }
+  function withAuditStatus<Base extends new (...args: any[]) => object>(base: Base) {
+    return class extends base {
+      public getAuditStatus(_context: Context): RPCResult<string> {
+        return { output: "audited" };
+      }
+    };
+  }
+  const AnonymousAuditedFlow = withAuditStatus(AuditedBaseFlow);
+  class MixedAuditedFlow extends withAuditStatus(AuditedBaseFlow) {}
+  assert.equal(Object.getPrototypeOf(MixedAuditedFlow).name, "");
+
+  assert.throws(
+    () => declareRPCMethod(MixedAuditedFlow, "getAuditStatus"),
+    new TypeError(
+      "Flow class MixedAuditedFlow method getAuditStatus is inherited from an anonymous base class; " +
+        "override it in MixedAuditedFlow and declare the override",
+    ),
+  );
+  const untypedAnonymous = AnonymousAuditedFlow as unknown as Parameters<typeof declareRPCMethod>[0];
+  assert.throws(
+    () => declareRPCMethod(untypedAnonymous, "getMissingAuditStatus" as never),
+    new TypeError(
+      "Anonymous Flow class has no method getMissingAuditStatus; declare RPC handlers as class methods, not instance fields",
+    ),
+  );
+  assert.throws(
+    () => declareRPCMethod(untypedAnonymous, "getFlowType" as never),
+    new TypeError(
+      "Anonymous Flow class method getFlowType is inherited from AuditedBaseFlow; " +
+        'declare it with declareRPCMethod(AuditedBaseFlow, "getFlowType") ' +
+        "or override it in the subclass and declare the override",
+    ),
+  );
+  declareRPCMethod(AnonymousAuditedFlow, "getAuditStatus");
+  assert.throws(
+    () => declareRPCMethod(AnonymousAuditedFlow, "getAuditStatus"),
+    new TypeError(
+      "RPC method getAuditStatus of an anonymous Flow class is already declared by @rpc or declareRPCMethod",
+    ),
+  );
+});
+
+test("declaring the Flow timeout handler as an RPC is rejected", () => {
+  class TimeoutHandlerFlow implements Flow {
+    public getFlowType(): string {
+      return "TimeoutHandlerFlow";
+    }
+
+    public getSteps() {
+      return StepList.empty();
+    }
+
+    public handleTimeout(_context: AsyncContext): StepDecision {
+      return gracefulComplete();
+    }
+  }
+  const untyped = TimeoutHandlerFlow as unknown as Parameters<typeof declareRPCMethod>[0];
+  assert.throws(
+    () => declareRPCMethod(untyped, "handleTimeout" as never),
+    new TypeError("Flow class TimeoutHandlerFlow handleTimeout is the Flow timeout handler, not an RPC method"),
+  );
+});
+
+test("declaring a member that is not a prototype method is rejected", () => {
+  let accessorReads = 0;
+  class InvalidMemberFlow implements Flow {
+    public readonly arrowHandler = (_context: Context): RPCResult<string> => ({ output: "arrow" });
+    public static readonly staticValue = 1;
+
+    public getFlowType(): string {
+      return "InvalidMemberFlow";
+    }
+
+    public getSteps() {
+      return StepList.empty();
+    }
+
+    public get accessorHandler(): (context: Context) => RPCResult<string> {
+      accessorReads += 1;
+      return () => ({ output: "accessor" });
+    }
+  }
+  Object.defineProperty(InvalidMemberFlow.prototype, "valueHandler", { value: "not a function" });
+  const untyped = InvalidMemberFlow as unknown as Parameters<typeof declareRPCMethod>[0];
+  const declareUntyped = (name: string) => declareRPCMethod(untyped, name as never);
+
+  assert.throws(
+    () => declareRPCMethod(InvalidMemberFlow, "arrowHandler"),
+    new TypeError(
+      "Flow class InvalidMemberFlow has no method arrowHandler; declare RPC handlers as class methods, not instance fields",
+    ),
+  );
+  assert.throws(
+    () => declareUntyped("missingHandler"),
+    new TypeError(
+      "Flow class InvalidMemberFlow has no method missingHandler; declare RPC handlers as class methods, not instance fields",
+    ),
+  );
+  assert.throws(
+    () => declareRPCMethod(InvalidMemberFlow, "accessorHandler"),
+    new TypeError("Flow class InvalidMemberFlow member accessorHandler is an accessor, not an RPC method"),
+  );
+  assert.equal(accessorReads, 0);
+  assert.throws(
+    () => declareUntyped("valueHandler"),
+    new TypeError("Flow class InvalidMemberFlow member valueHandler is not a method"),
+  );
+  assert.throws(
+    () => declareUntyped("constructor"),
+    new TypeError("Flow class InvalidMemberFlow constructor cannot be an RPC method"),
+  );
+  assert.throws(
+    () => declareRPCMethod({} as unknown as typeof untyped, "getFlowType" as never),
+    new TypeError("declareRPCMethod requires a Flow class"),
+  );
+});
+
+const validatedValue = new Attribute("validated-value", stringCodec);
+const unregisteredValue = new Attribute("unregistered-value", stringCodec);
+const unregisteredChannel = new Channel("unregistered-channel", stringCodec);
+
+interface ValidationCase {
+  readonly description: string;
+  readonly firstOptions: RPCOptions<any, any>;
+  readonly secondOptions?: RPCOptions<any, any>;
+  readonly expectedError: Error;
+}
+
+const validationCases: readonly ValidationCase[] = [
+  {
+    description: "blank name",
+    firstOptions: { name: "  " },
+    expectedError: new TypeError("durable name is required"),
+  },
+  {
+    description: "negative timeout",
+    firstOptions: { timeoutMs: -1 },
+    expectedError: new RangeError("RPC timeout must be non-negative"),
+  },
+  {
+    description: "duplicate RPC name",
+    firstOptions: { name: "getValidatedValue" },
+    secondOptions: { name: "getValidatedValue" },
+    expectedError: new FlowDefinitionError("Flow ValidationFlow has duplicate RPC getValidatedValue"),
+  },
+  {
+    description: "unregistered Attribute lock",
+    firstOptions: { lockAttributes: [unregisteredValue.lock()] },
+    expectedError: new FlowDefinitionError(
+      "Flow ValidationFlow RPC getValidatedValue locks an unregistered attribute",
+    ),
+  },
+  {
+    description: "unregistered Channel load",
+    firstOptions: { loadChannels: [unregisteredChannel] },
+    expectedError: new FlowDefinitionError(
+      "Flow ValidationFlow RPC getValidatedValue loads an unregistered Channel",
+    ),
+  },
+];
+
+for (const validationCase of validationCases) {
+  test(`declareRPCMethod reports the same ${validationCase.description} error as @rpc`, () => {
+    const expected = validationCase.expectedError;
+    const decorated = capturedFailure(() => decoratedValidationRegistry(validationCase));
+    const declared = capturedFailure(() => declaredValidationRegistry(validationCase));
+    for (const failure of [decorated, declared]) {
+      assert.equal(failure.constructor, expected.constructor);
+      assert.equal(failure.message, expected.message);
+    }
+  });
+}
+
+test("Registry rejects a declared inherited method registered by two Flows", () => {
+  class FirstInheritingFlow extends DeclaredRpcBaseFlow {
+    public getFlowType(): string {
+      return "FirstInheritingFlow";
+    }
+  }
+  class SecondInheritingFlow extends DeclaredRpcBaseFlow {
+    public getFlowType(): string {
+      return "SecondInheritingFlow";
+    }
+  }
+  assert.throws(
+    () => new Registry([new FirstInheritingFlow(), new SecondInheritingFlow()]),
+    new FlowDefinitionError(
+      "Flow SecondInheritingFlow RPC method getDeclaredValue is registered by multiple Flows",
+    ),
+  );
+});
+
+function decoratedValidationRegistry(validationCase: ValidationCase): Registry {
+  const firstOptions = validationCase.firstOptions;
+  const secondOptions = validationCase.secondOptions ?? {};
+  class ValidationFlow implements Flow {
+    public getFlowType(): string {
+      return "ValidationFlow";
+    }
+
+    public getSteps() {
+      return StepList.empty();
+    }
+
+    public getPersistenceSchema(): PersistenceSchema {
+      return { attributes: [validatedValue] };
+    }
+
+    @rpc(firstOptions)
+    public getValidatedValue(context: Context): RPCResult<string> {
+      return { output: validatedValue.get(context) };
+    }
+
+    @rpc(secondOptions)
+    public describeValidatedValue(context: Context): RPCResult<string> {
+      return { output: validatedValue.get(context) };
+    }
+  }
+  return new Registry([new ValidationFlow()]);
+}
+
+function declaredValidationRegistry(validationCase: ValidationCase): Registry {
+  class ValidationFlow implements Flow {
+    public getFlowType(): string {
+      return "ValidationFlow";
+    }
+
+    public getSteps() {
+      return StepList.empty();
+    }
+
+    public getPersistenceSchema(): PersistenceSchema {
+      return { attributes: [validatedValue] };
+    }
+
+    public getValidatedValue(context: Context): RPCResult<string> {
+      return { output: validatedValue.get(context) };
+    }
+
+    public describeValidatedValue(context: Context): RPCResult<string> {
+      return { output: validatedValue.get(context) };
+    }
+  }
+  declareRPCMethod(ValidationFlow, "getValidatedValue", validationCase.firstOptions);
+  declareRPCMethod(ValidationFlow, "describeValidatedValue", validationCase.secondOptions ?? {});
+  return new Registry([new ValidationFlow()]);
+}
+
+function capturedFailure(operation: () => unknown): Error {
+  try {
+    operation();
+  } catch (failure) {
+    assert.ok(failure instanceof Error);
+    return failure;
+  }
+  assert.fail("expected the RPC definition to be rejected");
+}

@@ -122,13 +122,21 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Drain Channels',
+          link: {type: 'doc', id: 'design-patterns/drain-channels'},
           items: [
             'design-patterns/drain-internal-channels',
             'design-patterns/draining-channel-for-external-publishing',
           ],
         },
-        'design-patterns/sequentially-chunked-attribute-map',
-        'design-patterns/hash-partitioned-attribute-map',
+        {
+          type: 'category',
+          label: 'AttributeMap Partitioning',
+          link: {type: 'doc', id: 'design-patterns/attribute-map-partitioning'},
+          items: [
+            'design-patterns/sequentially-chunked-attribute-map',
+            'design-patterns/hash-partitioned-attribute-map',
+          ],
+        },
         'design-patterns/entity-store',
       ],
     },

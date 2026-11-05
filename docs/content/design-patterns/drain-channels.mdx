@@ -1,0 +1,12 @@
+---
+title: Drain Channels
+sidebar_label: Overview
+slug: /design-patterns/drain-channels
+---
+
+# Drain Channels
+
+Finish a Flow only after every Channel message has been processed. Choose by who publishes the messages.
+
+- [Drain Internal Channels](/design-patterns/drain-internal-channels) — Messages come from another branch of the same Flow. A sentinel message marks the end.
+- [Drain External Channels](/design-patterns/draining-channel-for-external-publishing) — Messages come from outside the Worker. The Flow completes when the Channel is empty.

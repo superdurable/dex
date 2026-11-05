@@ -25,7 +25,7 @@ Hash collision 只会让多个 email 进入同一个 partition。Dictionary 仍�
 
 Adapter 和 handler 都会计算 partition。**UpsertCustomerProfile** 为同一个 partition 增加 exact load 和 instance lock。Handler 重新计算 partition，读取 bucket，更新一条 profile，再写回 bucket。同一 partition 的写入会串行执行，不同 partition 可以并发写入。
 
-Lock acquisition 不会让 caller 排队。同一 partition 的并发写入可能收到 **RPCLockConflict**。应用应使用合适的 backoff 重试幂等 upsert。成功的写入仍会串行执行，并保留 bucket 中的每条记录。
+同一 partition 的并发写入可能收到 lock-conflict 错误。收到后重试幂等 upsert，见 [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。
 
 **GetCustomerProfileByEmail** 只加载一个 partition，不增加写锁。Partition 不存在或 canonical email 不存在时都会返回 not found。
 
@@ -132,10 +132,6 @@ client.invoke_rpc_with_options(
 
 所有 writer 都必须遵循同一条 instance lock 规则。Dex lock 是 cooperative lock；遗漏 lock 的 writer 仍然可能和其他 writer 发生 race。
 
-## 整个集合的写入约束
-
-若一次修改需要协调整张 map，可为 **currentMessages** 增加非索引的普通 bool Attribute **currentMessagesLock**。所有受保护 map 的写入方都必须请求同一把锁；只有 instance 锁的写入方不会参与协调。bool 值不是锁标志，数据仍需显式加载。见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。没有整个集合的写入约束时，继续使用已有的 instance 锁。
-
 ## HTTP API
 
 ```text
@@ -145,5 +141,3 @@ GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alic
 ```
 
 Partition 数量是持久化 schema 的一部分。修改它会移动大多数 key，因此需要完整 rehash 或新 Flow version。此示例不实现删除、全目录枚举、跨字段搜索和 partition resize。
-
-可以从 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 运行这个 HTTP 示例。
