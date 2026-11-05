@@ -19,6 +19,8 @@ mod method_attempt;
 mod method_dispatcher;
 mod worker_result;
 
+#[cfg(test)]
+pub(crate) use attempt_entries::EntryHolder;
 pub(crate) use attempt_entries::{AttemptEntries, ClaimHolder};
 pub(crate) use attempt_handout::{
     AttemptHandout, ClaimedRow, HandoutEnd, HandoutProgress, InterruptedAttempt,

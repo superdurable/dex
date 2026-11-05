@@ -17,6 +17,7 @@ mod hard_delete_tests;
 mod keyword_index_tests;
 mod outbox_and_purge_tests;
 mod rebuild_tests;
+mod task_queue_race_tests;
 mod task_queue_tests;
 mod timer_tests;
 mod worker_output_tests;
@@ -1208,6 +1209,13 @@ pub(super) struct EffectHarness {
     pub(super) stream_store: Arc<StreamStore>,
     pub(super) attribute_sync_waker: AttributeSyncWaker,
     tasks: EffectTasksHandle,
+}
+
+impl EffectHarness {
+    /// Returns the effect state the running tasks share, such as attempt entries.
+    pub(super) fn effect_context(&self) -> &Arc<crate::effects::EffectContext> {
+        self.tasks.context()
+    }
 }
 
 impl EffectHarness {

@@ -460,6 +460,9 @@ pub struct EffectTasks {
 pub struct EffectTasksHandle {
     shutdown: CancellationToken,
     tracker: TaskTracker,
+    /// Lets tests inspect and drive the shared effect state.
+    #[cfg(test)]
+    context: Arc<EffectContext>,
 }
 
 impl EffectRunner {
@@ -600,6 +603,8 @@ impl EffectTasks {
         });
         tracker.spawn(task_queue::run_claim_pump(Arc::clone(&context)));
         tracker.spawn(task_queue::run_heads_resync(Arc::clone(&context)));
+        #[cfg(test)]
+        let test_context = Arc::clone(&context);
         let router = EffectRouter {
             dispatch: DispatchScheduler::new(Arc::clone(&context)),
             timers: TimerServices::new(Arc::clone(&context)),
@@ -607,11 +612,22 @@ impl EffectTasks {
             context,
         };
         tracker.spawn(router.run(self.router_receiver));
-        EffectTasksHandle { shutdown, tracker }
+        EffectTasksHandle {
+            shutdown,
+            tracker,
+            #[cfg(test)]
+            context: test_context,
+        }
     }
 }
 
 impl EffectTasksHandle {
+    /// Returns the shared effect state of the running tasks.
+    #[cfg(test)]
+    pub(crate) fn context(&self) -> &Arc<EffectContext> {
+        &self.context
+    }
+
     /// Cancels every effect task and waits until all of them ended.
     pub async fn shutdown(self) {
         self.shutdown.cancel();
