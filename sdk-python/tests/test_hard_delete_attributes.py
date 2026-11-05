@@ -31,6 +31,7 @@ from dex import (
     ClientOptions,
     CodecRegistry,
     Context,
+    DexServiceError,
     Flow,
     FlowDefinitionError,
     IndexType,
@@ -408,7 +409,7 @@ def test_sub_flow_rejects_initial_attribute_with_mismatched_hard_delete() -> Non
 
 def test_start_flow_rejects_initial_attributes_with_mismatched_hard_delete() -> None:
     flow = SecretFlow()
-    service = ProtocolService(current_protocol_version=3)
+    service = ProtocolService(current_protocol_version=4)
     server, port = _start_flow_server(service)
     client = Client(Registry((flow,)), cast(BlobCache, object()), _options(port))
     try:
@@ -460,7 +461,7 @@ def test_start_flow_rejects_initial_attributes_with_mismatched_hard_delete() -> 
     finally:
         client.close()
         server.stop(grace=None).wait(timeout=5)
-    assert service.calls == ["StartFlow:flow-2"]
+    assert service.calls == ["GetServerInfo", "StartFlow:flow-2"]
 
 
 def test_async_start_flow_rejects_initial_attribute_with_mismatched_hard_delete() -> (
@@ -513,7 +514,7 @@ def _server_protocol(version: int) -> NegotiatedServerProtocol:
 
 def test_client_wait_for_attribute_match_rejects_hard_delete_before_transport() -> None:
     flow = SecretFlow()
-    service = ProtocolService(current_protocol_version=3)
+    service = ProtocolService(current_protocol_version=4)
     server, port = _start_flow_server(service)
     client = Client(Registry((flow,)), cast(BlobCache, object()), _options(port))
     try:
@@ -567,7 +568,7 @@ def test_client_rejects_hard_delete_start_on_protocol_2_server() -> None:
     try:
         with pytest.raises(
             RuntimeError,
-            match="require Dex Server protocol version 3 or later.*version is 2: api-key",
+            match="requires a Dex Server with protocol version 4",
         ):
             client.start_flow(
                 flow,
@@ -575,16 +576,19 @@ def test_client_rejects_hard_delete_start_on_protocol_2_server() -> None:
                 None,
                 StartFlowOptions().with_attribute(flow.api_key, "sk-1"),
             )
-        assert client.start_flow(flow, "flow-2", None) == "run-flow-2"
+        with pytest.raises(
+            RuntimeError, match="requires a Dex Server with protocol version 4"
+        ):
+            client.start_flow(flow, "flow-2", None)
     finally:
         client.close()
         server.stop(grace=None).wait(timeout=5)
-    assert service.calls == ["GetServerInfo", "StartFlow:flow-2"]
+    assert service.calls == ["GetServerInfo"]
 
 
-def test_client_negotiates_once_and_only_for_hard_delete_starts() -> None:
+def test_client_negotiates_once_before_any_start() -> None:
     flow = SecretFlow()
-    service = ProtocolService(current_protocol_version=3)
+    service = ProtocolService(current_protocol_version=4)
     server, port = _start_flow_server(service)
     client = Client(Registry((flow,)), cast(BlobCache, object()), _options(port))
     try:
@@ -602,8 +606,8 @@ def test_client_negotiates_once_and_only_for_hard_delete_starts() -> None:
         client.close()
         server.stop(grace=None).wait(timeout=5)
     assert service.calls == [
-        "StartFlow:plain-1",
         "GetServerInfo",
+        "StartFlow:plain-1",
         "StartFlow:secret-1",
         "StartFlow:secret-2",
     ]
@@ -616,14 +620,16 @@ def test_client_negotiates_once_and_only_for_hard_delete_starts() -> None:
 def test_client_does_not_cache_failed_server_info_request() -> None:
     flow = SecretFlow()
     service = ProtocolService(
-        current_protocol_version=3, server_info_failure=grpc.StatusCode.UNAVAILABLE
+        current_protocol_version=4, server_info_failure=grpc.StatusCode.UNAVAILABLE
     )
     server, port = _start_flow_server(service)
     client = Client(Registry((flow,)), cast(BlobCache, object()), _options(port))
     options = StartFlowOptions().with_attribute(flow.api_key, "sk-1")
     try:
-        with pytest.raises(RuntimeError, match="GetServerInfo failed"):
+        with pytest.raises(DexServiceError, match="server info failed") as failure:
             client.start_flow(flow, "secret-1", None, options)
+        assert failure.value.code is grpc.StatusCode.UNAVAILABLE
+        assert "incompatible" not in str(failure.value)
         service.server_info_failure = None
         assert client.start_flow(flow, "secret-1", None, options) == "run-secret-1"
     finally:
@@ -640,14 +646,16 @@ async def _test_async_client_protocol_gate() -> None:
     flow = SecretFlow()
     old_service = ProtocolService(current_protocol_version=2)
     old_server, old_port = _start_flow_server(old_service)
-    new_service = ProtocolService(current_protocol_version=3)
+    new_service = ProtocolService(current_protocol_version=4)
     new_server, new_port = _start_flow_server(new_service)
     registry = Registry((flow,), allow_async_handlers=True)
     old_client = AsyncClient(registry, cast(BlobCache, object()), _options(old_port))
     new_client = AsyncClient(registry, cast(BlobCache, object()), _options(new_port))
     options = StartFlowOptions().with_attribute(flow.api_key, "sk-1")
     try:
-        with pytest.raises(RuntimeError, match="protocol version 3 or later"):
+        with pytest.raises(
+            RuntimeError, match="requires a Dex Server with protocol version 4"
+        ):
             await old_client.start_flow(flow, "secret-1", None, options)
         await new_client.start_flow(flow, "secret-1", None, options)
         await new_client.start_flow(flow, "secret-2", None, options)

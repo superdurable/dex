@@ -109,6 +109,7 @@ def test_sync_attribute_wait_reattaches_and_returns_matched_value() -> None:
     service = SyncWaitService()
     client = Client(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         options = WaitForAttributeOptions()
         matched = client.wait_for_attribute_match(
@@ -134,6 +135,7 @@ async def _test_async_attribute_wait_reattaches_and_returns_matched_value() -> N
     service = AsyncWaitService()
     client = AsyncClient(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         options = WaitForAttributeOptions(request_id="wait-revision")
         matched = await client.wait_for_attribute_match(
@@ -155,6 +157,7 @@ def test_step_wait_omits_request_id_for_server_default() -> None:
     service = SyncStepWaitService()
     client = Client(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         client.wait_for_step_completion(
             "flow-1",
@@ -177,6 +180,7 @@ async def _test_async_step_wait_omits_request_id_for_server_default() -> None:
     service = AsyncStepWaitService()
     client = AsyncClient(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         await client.wait_for_step_completion(
             "flow-1",
@@ -195,6 +199,7 @@ def test_finite_step_wait_uses_server_default_request_id() -> None:
     service = SyncStepWaitService()
     client = Client(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         client.wait_for_step_completion(
             "flow-1",
@@ -279,11 +284,13 @@ def test_cancelled_wait_is_a_timeout_only_after_the_request_budget_expires() -> 
     client = Client(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     try:
         client._service = cast(Any, SyncCancelledWaitService(delay_seconds=1.1))
+        client._server_protocol.record_version(4)
         with pytest.raises(RequestTimeoutError):
             client.wait_for_attribute_match(
                 "flow-1", attribute, AttributeMatch.equal_to(1), options
             )
         client._service = cast(Any, SyncCancelledWaitService(delay_seconds=0))
+        client._server_protocol.record_version(4)
         with pytest.raises(DexServiceError) as remaining_budget_error:
             client.wait_for_attribute_match(
                 "flow-1", attribute, AttributeMatch.equal_to(1), options
@@ -306,11 +313,13 @@ async def _async_cancelled_wait_is_a_timeout_only_after_budget() -> None:
     client = AsyncClient(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     try:
         client._service = cast(Any, AsyncCancelledWaitService(delay_seconds=1.1))
+        client._server_protocol.record_version(4)
         with pytest.raises(RequestTimeoutError):
             await client.wait_for_attribute_match(
                 "flow-1", attribute, AttributeMatch.equal_to(1), options
             )
         client._service = cast(Any, AsyncCancelledWaitService(delay_seconds=0))
+        client._server_protocol.record_version(4)
         with pytest.raises(DexServiceError) as remaining_budget_error:
             await client.wait_for_attribute_match(
                 "flow-1", attribute, AttributeMatch.equal_to(1), options

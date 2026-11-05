@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, Sequence, TypeVar
 
 if TYPE_CHECKING:
@@ -29,6 +30,31 @@ if TYPE_CHECKING:
 ValueT = TypeVar("ValueT")
 
 
+class StepAttemptProgress(Enum):
+    """Describe the furthest progress across attempts of a failed Step method.
+
+    Inspect ``Context.recovery_error.attempt_progress`` before deciding whether
+    recovery may safely repeat a side effect. Only ``NOT_STARTED`` guarantees
+    the handler did not run. Other values require idempotent recovery or an
+    application check for completed side effects.
+
+    Attributes:
+        UNSPECIFIED: An older Server or a failure recorded before upgrade supplied
+            no progress. Treat it like
+            ``NOT_COMPLETED`` because an attempt may have run.
+        NOT_STARTED: The handler did not run in any attempt.
+        NOT_COMPLETED: Some attempt may have run, but none completed.
+
+    Examples:
+        >>> error = RecoveryErrorInfo("unavailable", "dispatch", StepAttemptProgress.NOT_STARTED)
+        >>> can_repeat_side_effect = error.attempt_progress is StepAttemptProgress.NOT_STARTED
+    """
+
+    UNSPECIFIED = "unspecified"
+    NOT_STARTED = "not_started"
+    NOT_COMPLETED = "not_completed"
+
+
 @dataclass(frozen=True)
 class RecoveryErrorInfo:
     """Describe the final failure that selected a recovery path.
@@ -36,10 +62,16 @@ class RecoveryErrorInfo:
     Attributes:
         detail: Failure message supplied by the Worker or backend.
         error_type: Original Worker error type or backend failure type.
+        attempt_progress: Furthest progress across all attempts of this Step
+            method. Defaults to ``StepAttemptProgress.UNSPECIFIED`` for older
+            records and for construction without progress. Treat that default
+            like ``NOT_COMPLETED``. Only ``NOT_STARTED`` guarantees the handler
+            did not run. See ``StepAttemptProgress`` for a recovery example.
     """
 
     detail: str
     error_type: str
+    attempt_progress: StepAttemptProgress = StepAttemptProgress.UNSPECIFIED
 
 
 class Context(Protocol):
@@ -134,7 +166,7 @@ class Context(Protocol):
     def deadline(self) -> datetime | None:
         """Return the current Step method attempt's absolute deadline.
 
-        This includes any shorter remaining RetryPolicy total duration. Use it
+        RetryPolicy total duration does not shorten a running attempt. Use this
         inside ``wait_for``, ``execute``, or a Flow timeout handler to budget
         external work; each retry receives its own effective deadline.
 

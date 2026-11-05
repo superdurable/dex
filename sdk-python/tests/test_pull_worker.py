@@ -12,9 +12,8 @@ import asyncio
 import logging
 import re
 import threading
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Coroutine, cast
 from unittest.mock import AsyncMock, patch
@@ -155,7 +154,7 @@ def test_sync_stop_rejects_event_loop_thread() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="loop-thread-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="loop-thread-worker"),
         "localhost:8801",
         None,
     )
@@ -168,7 +167,7 @@ def test_sync_close_after_start_returns_on_same_thread() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="closed-loop-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="closed-loop-worker"),
         "localhost:8801",
         None,
     )
@@ -232,7 +231,11 @@ def test_app_worker_id_cannot_equal_flow_type() -> None:
         Worker(
             Registry([ConflictingFlow()]),
             cast(BlobCache, object()),
-            WorkerOptions(pull=PullWorkerOptions(app_worker_id="conflicting-worker")),
+            WorkerOptions(
+                pull=PullWorkerOptions(
+                    max_concurrent_tasks=1, app_worker_id="conflicting-worker"
+                )
+            ),
         )
 
 
@@ -241,11 +244,13 @@ class BlockingDispatcher:
         self.started = asyncio.Event()
         self.gate = asyncio.Event()
         self.canceled = asyncio.Event()
+        self.invocation_count = 0
 
     async def invoke_rpc(
         self, request: pb.InvokeWorkerRPCRequest, is_active: object
     ) -> pb.InvokeWorkerRPCResponse:
         self.started.set()
+        self.invocation_count += 1
         try:
             await self.gate.wait()
         except asyncio.CancelledError:
@@ -384,6 +389,7 @@ async def _large_final_result_survives_delayed_grpc_read(
         Registry([]),
         dispatcher,
         PullWorkerOptions(
+            max_concurrent_tasks=1,
             app_worker_id="delayed-result-worker",
             stop_drain_timeout=timedelta(
                 seconds=4 if shutdown == "reconnect_then_stop" else 5
@@ -436,104 +442,6 @@ async def _large_final_result_survives_delayed_grpc_read(
         executor.shutdown(wait=True)
 
 
-def test_half_closing_busy_reconnect_keeps_a_pollable_idle_stream() -> None:
-    asyncio.run(_half_closing_busy_reconnect_keeps_a_pollable_idle_stream())
-
-
-async def _half_closing_busy_reconnect_keeps_a_pollable_idle_stream() -> None:
-    service = DelayedReadService(is_reconnecting=True, should_assign_replacement=True)
-    executor = ThreadPoolExecutor(max_workers=4)
-    server = grpc.server(executor)
-    dex_pb2_grpc.add_WorkerTaskServiceServicer_to_server(  # type: ignore[no-untyped-call]
-        service, server
-    )
-    port = server.add_insecure_port("127.0.0.1:0")
-    server.start()
-    dispatcher = LargeResultDispatcher()
-    runtime = PullWorkerRuntime(
-        Registry([]),
-        dispatcher,
-        PullWorkerOptions(
-            app_worker_id="half-closing-reconnect-worker",
-            stop_drain_timeout=timedelta(seconds=8),
-        ),
-        f"127.0.0.1:{port}",
-        None,
-    )
-    running = asyncio.create_task(runtime.run())
-    try:
-        assert await asyncio.wait_for(
-            asyncio.to_thread(service.ready.wait, 5), timeout=6
-        )
-        await asyncio.wait_for(dispatcher.started.wait(), timeout=5)
-        assert await asyncio.wait_for(
-            asyncio.to_thread(service.second_poll_opened.wait, 5), timeout=6
-        )
-        dispatcher.gate.set()
-
-        async def wait_for_half_close() -> None:
-            while not any(stream.is_half_closing for stream in runtime._streams):
-                await asyncio.sleep(0.005)
-
-        await asyncio.wait_for(wait_for_half_close(), timeout=5)
-        dispatcher.gate.clear()
-        service.assign_second_task.set()
-        await asyncio.wait_for(dispatcher.second_started.wait(), timeout=5)
-        assert await asyncio.wait_for(
-            asyncio.to_thread(service.third_poll_opened.wait, 5), timeout=6
-        )
-        assert not service.read_allowed.is_set()
-        dispatcher.gate.set()
-        service.read_allowed.set()
-        assert await asyncio.wait_for(
-            asyncio.to_thread(service.finished.wait, 5), timeout=6
-        )
-        assert service.final_frame is not None
-        await asyncio.wait_for(runtime.stop(), timeout=8)
-        await asyncio.wait_for(running, timeout=8)
-    finally:
-        service.assign_second_task.set()
-        service.read_allowed.set()
-        dispatcher.gate.set()
-        await asyncio.wait_for(runtime.stop(), timeout=8)
-        await asyncio.wait_for(running, timeout=8)
-        assert server.stop(grace=0).wait(timeout=3)
-        executor.shutdown(wait=True)
-
-
-def test_capacity_reject_and_cancel() -> None:
-    asyncio.run(_capacity_reject_and_cancel())
-
-
-async def _capacity_reject_and_cancel() -> None:
-    dispatcher = BlockingDispatcher()
-    runtime = PullWorkerRuntime(
-        Registry([]),
-        dispatcher,
-        PullWorkerOptions(app_worker_id="capacity-worker", max_concurrent_tasks=1),
-        "localhost:8801",
-        None,
-    )
-    runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, None, "capacity-worker")
-    with patch.object(stream, "_send", new_callable=AsyncMock) as send_mock:
-        await stream._start_task(
-            pb.PollWorkerTask(task_id="first", rpc=pb.InvokeWorkerRPCRequest())
-        )
-        await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
-        await stream._start_task(
-            pb.PollWorkerTask(task_id="second", rpc=pb.InvokeWorkerRPCRequest())
-        )
-        assert send_mock.await_args is not None
-        rejected = send_mock.await_args.args[0].reject
-        assert rejected.task_id == "second"
-        assert rejected.reason == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
-        stream.cancel_handler()
-        await asyncio.wait_for(dispatcher.canceled.wait(), timeout=1)
-        await stream._finish_handler()
-    assert runtime._busy_tasks == 0
-
-
 class FakeCall:
     def __init__(self, frames: list[pb.PollWorkerTaskResponse]) -> None:
         self.frames = iter(frames)
@@ -544,7 +452,10 @@ class FakeCall:
         self.requests.append(request)
 
     async def read(self) -> pb.PollWorkerTaskResponse:
-        return next(self.frames)
+        return next(self.frames, getattr(grpc.aio, "EOF"))
+
+    async def done_writing(self) -> None:
+        self.frames = iter([getattr(grpc.aio, "EOF")])
 
     def cancel(self) -> None:
         self.is_canceled = True
@@ -569,11 +480,13 @@ async def _pull_stream_rejects_late_step_output(
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(),
+        PullWorkerOptions(
+            max_concurrent_tasks=1,
+        ),
         "localhost:8801",
         None,
     )
-    stream = PullStream(runtime, None, "late-output-worker")
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     call = FakeCall([])
     stream._call = call
     stream.task_id = "original-task"
@@ -608,9 +521,15 @@ async def _pull_stream_allows_one_final_after_cancel(
     output_kind: str, is_reused: bool
 ) -> None:
     runtime = PullWorkerRuntime(
-        Registry([]), None, PullWorkerOptions(), "localhost:8801", None
+        Registry([]),
+        None,
+        PullWorkerOptions(
+            max_concurrent_tasks=1,
+        ),
+        "localhost:8801",
+        None,
     )
-    stream = PullStream(runtime, None, "final-after-cancel-worker")
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     call = FakeCall([])
     stream._call = call
     stream.task_id = "original-task"
@@ -641,11 +560,13 @@ async def _pull_stream_preserves_execute_output_order() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(),
+        PullWorkerOptions(
+            max_concurrent_tasks=1,
+        ),
         "localhost:8801",
         None,
     )
-    stream = PullStream(runtime, None, "ordered-output-worker")
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     call = FakeCall([])
     stream._call = call
     stream.task_id = "execute-task"
@@ -690,12 +611,12 @@ async def _register_pong_and_idle_reconnect() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="reconnect-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="reconnect-worker"),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, FakeStub(call), "reconnect-worker")
+    stream = PullStream(runtime, FakeStub(call), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     assert await stream._poll()
     assert [request.WhichOneof("frame") for request in call.requests] == [
         "register",
@@ -713,11 +634,11 @@ async def _worker_error_frame_preserves_worker_error_details() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="error-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="error-worker"),
         "localhost:8801",
         None,
     )
-    stream = PullStream(runtime, None, "error-worker")
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     with patch.object(stream, "_send", new_callable=AsyncMock) as send_mock:
         await stream._send_error("task", retry_after(7, RuntimeError("broken")))
     assert send_mock.await_args is not None
@@ -747,31 +668,26 @@ async def _stop_forces_async_handler_after_drain_timeout() -> None:
         Registry([]),
         dispatcher,
         PullWorkerOptions(
-            app_worker_id="stop-worker", stop_drain_timeout=timedelta(milliseconds=10)
+            max_concurrent_tasks=1,
+            app_worker_id="stop-worker",
+            stop_drain_timeout=timedelta(milliseconds=10),
         ),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "stop-worker")
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
     stream.run_task = asyncio.create_task(_poll_until_closed(stream))
     runtime._streams.add(stream)
     await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
     stopping = asyncio.create_task(runtime.stop())
-    await asyncio.wait_for(call.half_closed.wait(), timeout=1)
     await asyncio.wait_for(stopping, timeout=1)
     assert dispatcher.canceled.is_set()
     assert call.is_closed
-    assert "read:EOF" not in call.operations
-    assert call.operations.index("write:task_frame") < call.operations.index(
-        "done_writing"
-    )
-    errors = [
-        request.task_frame.worker_error
-        for request in call.requests
-        if request.WhichOneof("frame") == "task_frame"
-    ]
-    assert errors[0].grpc_status == grpc.StatusCode.CANCELLED.value[0]
+    assert not call.is_half_closed
+    assert "done_writing" not in call.operations
 
 
 class FakeRpcError(grpc.RpcError):
@@ -794,7 +710,7 @@ async def _unimplemented_logs_once_and_retries_after_one_minute(
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="old-server-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="old-server-worker"),
         "localhost:8801",
         None,
     )
@@ -814,7 +730,7 @@ async def _unimplemented_logs_once_and_retries_after_one_minute(
     ), patch("dex._pull_worker.random.uniform", return_value=0):
         for _ in range(2):
             runtime._stopping = asyncio.Event()
-            stream = PullStream(runtime, None, "old-server-worker")
+            stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
             with patch.object(stream, "_poll", new_callable=AsyncMock) as poll_mock:
                 poll_mock.side_effect = FakeRpcError(grpc.StatusCode.UNIMPLEMENTED)
                 await stream.run()
@@ -836,12 +752,12 @@ async def _transient_reconnect_uses_exponential_backoff() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="backoff-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="backoff-worker"),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, None, "backoff-worker")
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     timeouts: list[float] = []
 
     async def capture_wait(
@@ -875,12 +791,14 @@ async def _server_reconnect_waits_for_backoff_and_jitter(
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="reconnect-backoff-worker"),
+        PullWorkerOptions(
+            max_concurrent_tasks=1, app_worker_id="reconnect-backoff-worker"
+        ),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, None, "reconnect-backoff-worker")
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     poll_count = 0
     virtual_time = 0.0
     poll_times: list[float] = []
@@ -992,13 +910,15 @@ async def _busy_reconnect_drains_before_closing_stream() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         dispatcher,
-        PullWorkerOptions(app_worker_id="busy-reconnect-worker"),
+        PullWorkerOptions(
+            max_concurrent_tasks=1, app_worker_id="busy-reconnect-worker"
+        ),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
     stream = PullStream(
-        runtime, FakeStub(cast(FakeCall, call)), "busy-reconnect-worker"
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
     )
     drained = asyncio.Event()
     original_drain = stream.drain
@@ -1044,12 +964,14 @@ async def _busy_keepalive_pong_stops_before_rpc_result() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         dispatcher,
-        PullWorkerOptions(app_worker_id="busy-ping-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="busy-ping-worker"),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "busy-ping-worker")
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
     pong_written = asyncio.Event()
 
     async def record_request(request: pb.PollWorkerTaskRequest) -> None:
@@ -1132,105 +1054,39 @@ class UnknownTaskCall(QueueCall):
                 self._ping_task = asyncio.create_task(self._ping_after_task_release())
 
 
-class UnknownTaskDispatcher:
-    async def invoke_wait_for(
-        self,
-        request: pb.InvokeWaitForMethodRequest,
-        is_active: Callable[[], bool],
-        deadline: datetime | None = None,
-    ) -> Any:
-        if is_active():
-            raise LookupError(f"Step {request.step_type} is not registered")
-        raise RuntimeError("Worker task became inactive")
-        yield None
-
-    async def invoke_rpc(
-        self, request: pb.InvokeWorkerRPCRequest, is_active: Callable[[], bool]
-    ) -> pb.InvokeWorkerRPCResponse:
-        if is_active():
-            raise LookupError(f"RPC {request.rpc_name} is not registered")
-        raise RuntimeError("Worker task became inactive")
-
-
-def test_unknown_task_rejection_follows_registered_capability_on_reconnect(
+def test_reserved_slot_rejects_unknown_names_on_every_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(PullWorkerRuntime, "unknown_task_reason", _UNKNOWN_TASK_REASON)
-    asyncio.run(_unknown_task_rejection_follows_registered_capability_on_reconnect())
+    asyncio.run(_reserved_slot_rejects_unknown_names_on_every_connection())
 
 
-async def _unknown_task_rejection_follows_registered_capability_on_reconnect() -> None:
+async def _reserved_slot_rejects_unknown_names_on_every_connection() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
-        UnknownTaskDispatcher(),
-        PullWorkerOptions(app_worker_id="unknown-name-worker"),
-        "localhost:8801",
+        None,
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="unknown-name-worker"),
+        "unused",
         None,
     )
     runtime._stopping = asyncio.Event()
-
-    legacy_call = UnknownTaskCall(False)
-    stream = PullStream(
-        runtime, FakeStub(cast(FakeCall, legacy_call)), "unknown-name-worker"
-    )
-    legacy_call.stream = stream
-    assert await asyncio.wait_for(stream._poll(), timeout=1)
-    legacy_frames = [
-        request
-        for request in legacy_call.requests
-        if request.WhichOneof("frame") == "task_frame"
-    ]
-    assert [frame.task_frame.task_id for frame in legacy_frames] == [
-        "unknown-step",
-        "unknown-rpc",
-    ]
-    assert all(
-        "not registered" in frame.task_frame.worker_error.detail
-        for frame in legacy_frames
-    )
-    assert not any(
-        request.WhichOneof("frame") == "reject" for request in legacy_call.requests
-    )
-    assert any(
-        request.WhichOneof("frame") == "pong" for request in legacy_call.requests
-    )
-
-    capable_call = UnknownTaskCall(True)
-    capable_call.stream = stream
-    stream.stub = FakeStub(cast(FakeCall, capable_call))
-    assert await asyncio.wait_for(stream._poll(), timeout=1)
-    rejections = [
-        request.reject
-        for request in capable_call.requests
-        if request.WhichOneof("frame") == "reject"
-    ]
-    assert [(reject.task_id, reject.reason) for reject in rejections] == [
-        ("unknown-step", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP),
-        ("unknown-rpc", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC),
-    ]
-    assert any(
-        request.WhichOneof("frame") == "pong" for request in capable_call.requests
-    )
-
-    reconnected_call = UnknownTaskCall(False)
-    reconnected_call.stream = stream
-    stream.stub = FakeStub(cast(FakeCall, reconnected_call))
-    assert await asyncio.wait_for(stream._poll(), timeout=1)
-    reconnected_frames = [
-        request
-        for request in reconnected_call.requests
-        if request.WhichOneof("frame") == "task_frame"
-    ]
-    assert [frame.task_frame.task_id for frame in reconnected_frames] == [
-        "unknown-step",
-        "unknown-rpc",
-    ]
-    assert not any(
-        request.WhichOneof("frame") == "reject" for request in reconnected_call.requests
-    )
-    assert any(
-        request.WhichOneof("frame") == "pong" for request in reconnected_call.requests
-    )
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
+    for supports_unknown_name_rejection in (False, True, False):
+        call = UnknownTaskCall(supports_unknown_name_rejection)
+        call.stream = stream
+        stream.stub = FakeStub(cast(FakeCall, call))
+        with patch.object(stream, "_execute", new_callable=AsyncMock) as execute:
+            assert await asyncio.wait_for(stream._poll(), timeout=1)
+            execute.assert_not_awaited()
+        rejections = [
+            request.reject for request in call.requests if request.HasField("reject")
+        ]
+        assert [(rejection.task_id, rejection.reason) for rejection in rejections] == [
+            ("unknown-step", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP),
+            ("unknown-rpc", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC),
+        ]
+        assert not any(request.HasField("task_frame") for request in call.requests)
+        assert any(request.HasField("pong") for request in call.requests)
 
 
 class CancelCall(QueueCall):
@@ -1281,12 +1137,14 @@ async def _cancel_task_frame_cancels_handler() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         dispatcher,
-        PullWorkerOptions(app_worker_id="cancel-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="cancel-worker"),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "cancel-worker")
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
     await asyncio.wait_for(stream._poll(), timeout=1)
     assert dispatcher.canceled.is_set()
     errors = [
@@ -1306,12 +1164,12 @@ async def _task_deadline_cancels_handler_and_clears_timer() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         dispatcher,
-        PullWorkerOptions(app_worker_id="deadline-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="deadline-worker"),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, None, "deadline-worker")
+    stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
     deadline = timestamp_pb2.Timestamp()
     deadline.FromDatetime(datetime.now(timezone.utc) + timedelta(milliseconds=20))
     with patch.object(stream, "_send", new_callable=AsyncMock):
@@ -1359,13 +1217,15 @@ async def _sync_handler_cancellation_sends_final_frame(
         runtime = PullWorkerRuntime(
             Registry([]),
             dispatcher,
-            PullWorkerOptions(app_worker_id="sync-cancel-worker"),
+            PullWorkerOptions(
+                max_concurrent_tasks=1, app_worker_id="sync-cancel-worker"
+            ),
             "localhost:8801",
             executor,
         )
         runtime._loop = asyncio.get_running_loop()
         runtime._stopping = asyncio.Event()
-        stream = PullStream(runtime, None, "sync-cancel-worker")
+        stream = PullStream(runtime, None, pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
         call = FakeCall([])
         stream._call = call
         try:
@@ -1411,12 +1271,14 @@ async def _stop_drains_handler_before_timeout() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         dispatcher,
-        PullWorkerOptions(app_worker_id="drain-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="drain-worker"),
         "localhost:8801",
         None,
     )
     runtime._stopping = asyncio.Event()
-    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "drain-worker")
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
     stream.run_task = asyncio.create_task(_poll_until_closed(stream))
     runtime._streams.add(stream)
     await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
@@ -1453,14 +1315,16 @@ async def _registration_permanent_status_classification(code: grpc.StatusCode) -
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="readiness-worker"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="readiness-worker"),
         "unused",
         None,
     )
     runtime._stopping = asyncio.Event()
     call = RegistrationCall([])
     call.frames.put_nowait(FakeRpcError(code))
-    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "readiness-worker")
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
     task = asyncio.create_task(stream.run())
     is_permanent = code in {
         grpc.StatusCode.INVALID_ARGUMENT,
@@ -1473,7 +1337,7 @@ async def _registration_permanent_status_classification(code: grpc.StatusCode) -
         if is_permanent:
             with pytest.raises(PullRegistrationError) as rejected:
                 await runtime.registration.wait_async(1)
-            assert rejected.value.queue == "readiness-worker"
+            assert rejected.value.queue == "STEP_AND_RPC"
             assert cast(FakeRpcError, rejected.value.error).code() == code
             assert not runtime.registration.snapshot().is_ready
         else:
@@ -1493,7 +1357,9 @@ async def _registration_readiness_latches_and_surplus_rejection_is_not_fatal() -
         Registry([ConflictingFlow()]),
         None,
         PullWorkerOptions(
-            app_worker_id="readiness-worker", stop_on_permanent_stream_rejection=True
+            max_concurrent_tasks=2,
+            app_worker_id="readiness-worker",
+            stop_on_permanent_stream_rejection=True,
         ),
         "unused",
         None,
@@ -1501,11 +1367,18 @@ async def _registration_readiness_latches_and_surplus_rejection_is_not_fatal() -
     runtime._stopping = asyncio.Event()
     streams: list[PullStream] = []
     calls: list[RegistrationCall] = []
-    for queue in ("readiness-worker", "conflicting-worker", "conflicting-worker"):
+    for queue in ("STEP_AND_RPC", "RPC_ONLY", "RPC_ONLY"):
         call = RegistrationCall(
             [pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered())]
         )
-        stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), queue)
+        stream = PullStream(
+            runtime,
+            FakeStub(cast(FakeCall, call)),
+            cast(
+                pb.PollWorkerSlotKind,
+                pb.PollWorkerSlotKind.Value("POLL_WORKER_SLOT_KIND_" + queue),
+            ),
+        )
         stream.run_task = asyncio.create_task(stream.run())
         streams.append(stream)
         calls.append(call)
@@ -1526,11 +1399,11 @@ async def _registration_readiness_latches_and_surplus_rejection_is_not_fatal() -
         await runtime.registration.wait_async(0)
         assert snapshot.queues[0].has_registered_stream
         runtime.registration.record_stream_result(
-            "conflicting-worker", True, FakeRpcError(grpc.StatusCode.INVALID_ARGUMENT)
+            "RPC_ONLY", True, FakeRpcError(grpc.StatusCode.INVALID_ARGUMENT)
         )
         assert not runtime.registration.snapshot().is_ready
         await runtime.registration.wait_async(0)
-        runtime.registration.record_registered_stream("conflicting-worker")
+        runtime.registration.record_registered_stream("RPC_ONLY")
         assert runtime.registration.snapshot().is_ready
         assert runtime.registration.snapshot().queues[1].last_permanent_error is None
     finally:
@@ -1556,7 +1429,9 @@ async def _fatal_registration_drains_and_stop_stays_safe(has_registered: bool) -
         Registry([]),
         None,
         PullWorkerOptions(
-            app_worker_id="fatal-worker", stop_on_permanent_stream_rejection=True
+            max_concurrent_tasks=1,
+            app_worker_id="fatal-worker",
+            stop_on_permanent_stream_rejection=True,
         ),
         "unused",
         None,
@@ -1591,7 +1466,13 @@ async def _registration_waiters_receive_start_failure_and_stop(is_async: bool) -
 
     worker_type = AsyncWorker if is_async else Worker
     worker = worker_type(
-        Registry([]), MemoryBlobCache(), WorkerOptions(pull=PullWorkerOptions())
+        Registry([]),
+        MemoryBlobCache(),
+        WorkerOptions(
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=1,
+            )
+        ),
     )
     failure = RuntimeError("startup failed")
     try:
@@ -1621,7 +1502,13 @@ async def _registration_waiters_receive_start_failure_and_stop(is_async: bool) -
         else:
             worker.close()
     stopped = worker_type(
-        Registry([]), MemoryBlobCache(), WorkerOptions(pull=PullWorkerOptions())
+        Registry([]),
+        MemoryBlobCache(),
+        WorkerOptions(
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=1,
+            )
+        ),
     )
     if isinstance(stopped, AsyncWorker):
         await stopped.stop()
@@ -1641,7 +1528,7 @@ async def _registration_wait_cancellation_does_not_cancel_other_waiters() -> Non
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
-        PullWorkerOptions(app_worker_id="cancel-wait"),
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="cancel-wait"),
         "unused",
         None,
     )
@@ -1651,7 +1538,7 @@ async def _registration_wait_cancellation_does_not_cancel_other_waiters() -> Non
     canceled.cancel()
     with pytest.raises(asyncio.CancelledError):
         await canceled
-    runtime.registration.record_registered_stream("cancel-wait")
+    runtime.registration.record_registered_stream("STEP_AND_RPC")
     await waiting
 
 
@@ -1665,7 +1552,7 @@ async def _readiness_requires_each_queue_and_waiters_can_time_out_independently(
     runtime = PullWorkerRuntime(
         Registry([ConflictingFlow()]),
         None,
-        PullWorkerOptions(app_worker_id="all-queues"),
+        PullWorkerOptions(max_concurrent_tasks=2, app_worker_id="all-queues"),
         "unused",
         None,
     )
@@ -1675,10 +1562,12 @@ async def _readiness_requires_each_queue_and_waiters_can_time_out_independently(
     )
     flow_call = RegistrationCall([])
     worker_stream = PullStream(
-        runtime, FakeStub(cast(FakeCall, worker_call)), "all-queues"
+        runtime,
+        FakeStub(cast(FakeCall, worker_call)),
+        pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
     )
     flow_stream = PullStream(
-        runtime, FakeStub(cast(FakeCall, flow_call)), "conflicting-worker"
+        runtime, FakeStub(cast(FakeCall, flow_call)), pb.POLL_WORKER_SLOT_KIND_RPC_ONLY
     )
     running = [
         asyncio.create_task(stream.run()) for stream in (worker_stream, flow_stream)
@@ -1709,7 +1598,13 @@ async def _transport_creation_failure_preserves_start_error_and_allows_stop() ->
     from test_worker_startup import MemoryBlobCache
 
     worker = Worker(
-        Registry([]), MemoryBlobCache(), WorkerOptions(pull=PullWorkerOptions())
+        Registry([]),
+        MemoryBlobCache(),
+        WorkerOptions(
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=1,
+            )
+        ),
     )
     assert worker._pull is not None
     failure = RuntimeError("cannot create pull channel")
@@ -1759,413 +1654,10 @@ async def reconcile_burst_until(
             runtime._wake.clear()
 
 
-@pytest.mark.parametrize("idle_streams", [1, 2])
-def test_surplus_streams_shrink_after_burst(idle_streams: int) -> None:
-    asyncio.run(_surplus_streams_shrink_after_burst(idle_streams))
-
-
-async def _surplus_streams_shrink_after_burst(idle_streams: int) -> None:
-    dispatcher = BlockingDispatcher()
-    runtime = PullWorkerRuntime(
-        Registry([]),
-        dispatcher,
-        PullWorkerOptions(
-            app_worker_id="burst-worker",
-            max_concurrent_tasks=3,
-            reserved_rpc_tasks=0,
-            idle_streams_per_queue=idle_streams,
-        ),
-        "localhost:8801",
-        None,
-    )
-    runtime._stopping = asyncio.Event()
-    runtime._wake = asyncio.Event()
-    stub = BurstStub()
-    busy_calls: list[QueueCall] = []
-    try:
-        await reconcile_burst_until(
-            runtime, stub, lambda: runtime.registration.snapshot().is_ready
-        )
-        for task_number in range(3):
-            stream = next(
-                candidate
-                for candidate in runtime._streams
-                if not candidate.is_busy and candidate._is_registered
-            )
-            call = cast(QueueCall, stream._call)
-            busy_calls.append(call)
-            call.frames.put_nowait(
-                pb.PollWorkerTaskResponse(
-                    task=pb.PollWorkerTask(
-                        task_id=f"burst-{task_number}", rpc=pb.InvokeWorkerRPCRequest()
-                    )
-                )
-            )
-            await reconcile_burst_until(
-                runtime,
-                stub,
-                lambda: runtime._busy_tasks == task_number + 1
-                and sum(
-                    not candidate.is_busy and candidate._is_registered
-                    for candidate in runtime._streams
-                )
-                == runtime.idle_streams_per_queue,
-            )
-        assert len(runtime._streams) == 3 + idle_streams
-        assert all(not call.is_half_closed for call in busy_calls)
-        assert runtime.registration.snapshot().is_ready
-        dispatcher.gate.set()
-        await reconcile_burst_until(
-            runtime,
-            stub,
-            lambda: runtime._busy_tasks == 0 and len(runtime._streams) == idle_streams,
-        )
-        assert runtime.registration.snapshot().is_ready
-        await runtime.registration.wait_async(0)
-        opened_calls = len(stub.calls)
-        runtime._reconcile(stub)
-        assert len(stub.calls) == opened_calls
-    finally:
-        dispatcher.gate.set()
-        await runtime.stop()
-
-
-def test_reserve_pressure_is_queue_local_and_expires(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(PullWorkerRuntime, "unknown_task_reason", _UNKNOWN_TASK_REASON)
-    asyncio.run(_reserve_pressure_is_queue_local_and_expires())
-
-
-async def _reserve_pressure_is_queue_local_and_expires() -> None:
-    class BlockingStepDispatcher:
-        def __init__(self) -> None:
-            self.gate = asyncio.Event()
-
-        async def invoke_execute(
-            self,
-            request: pb.InvokeExecuteMethodRequest,
-            is_active: Callable[[], bool],
-            deadline: datetime | None = None,
-        ) -> AsyncIterator[pb.InvokeExecuteMethodResponse]:
-            await self.gate.wait()
-            yield pb.InvokeExecuteMethodResponse()
-
-    dispatcher = BlockingStepDispatcher()
-    runtime = PullWorkerRuntime(
-        Registry([ReservedRPCFlow()]),
-        dispatcher,
-        PullWorkerOptions(
-            app_worker_id="pressure-worker",
-            max_concurrent_tasks=3,
-            reserved_rpc_tasks=1,
-        ),
-        "localhost:8801",
-        None,
-        reserve_pressure_linger=1.5,
-    )
-    runtime._loop = asyncio.get_running_loop()
-    runtime._stopping = asyncio.Event()
-    runtime._wake = asyncio.Event()
-    stub = BurstStub()
-
-    def idle_streams(queue: str) -> int:
-        return sum(
-            stream.queue == queue
-            and stream._is_registered
-            and not stream.is_busy
-            and not stream.is_draining
-            for stream in runtime._streams
-        )
-
-    try:
-        await reconcile_burst_until(
-            runtime, stub, lambda: runtime.registration.snapshot().is_ready
-        )
-        for task_number in range(2):
-            stream = next(
-                candidate
-                for candidate in runtime._streams
-                if candidate.queue == "ReservedRPCFlow"
-                and candidate._is_registered
-                and not candidate.is_busy
-            )
-            call = cast(QueueCall, stream._call)
-            call.frames.put_nowait(
-                pb.PollWorkerTaskResponse(
-                    task=pb.PollWorkerTask(
-                        task_id=f"step-{task_number}",
-                        execute=pb.InvokeExecuteMethodRequest(
-                            flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
-                        ),
-                    )
-                )
-            )
-            await reconcile_burst_until(
-                runtime,
-                stub,
-                lambda: runtime._busy_tasks == task_number + 1
-                and idle_streams("ReservedRPCFlow") == 1,
-            )
-        declining = next(
-            candidate
-            for candidate in runtime._streams
-            if candidate.queue == "ReservedRPCFlow"
-            and candidate._is_registered
-            and not candidate.is_busy
-        )
-        declined_call = cast(QueueCall, declining._call)
-        declined_call.frames.put_nowait(
-            pb.PollWorkerTaskResponse(
-                task=pb.PollWorkerTask(
-                    task_id="declined",
-                    execute=pb.InvokeExecuteMethodRequest(
-                        flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
-                    ),
-                )
-            )
-        )
-        await reconcile_burst_until(
-            runtime,
-            stub,
-            lambda: runtime.reserved_rpc_declines == 1
-            and idle_streams("ReservedRPCFlow") == 2,
-        )
-        assert idle_streams("pressure-worker") == 1
-        assert any(
-            request.reject.reason == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
-            for request in declined_call.requests
-            if request.WhichOneof("frame") == "reject"
-        )
-        timer = runtime._reserve_pressure_timers.pop("ReservedRPCFlow")
-        timer.cancel()
-        runtime._expire_reserve_pressure("ReservedRPCFlow")
-        assert "ReservedRPCFlow" in runtime._reserve_pressure_timers
-        assert idle_streams("ReservedRPCFlow") == 2
-        dispatcher.gate.set()
-        await reconcile_burst_until(
-            runtime,
-            stub,
-            lambda: runtime._busy_tasks == 0 and idle_streams("ReservedRPCFlow") == 2,
-        )
-        assert idle_streams("pressure-worker") == 1
-        await reconcile_burst_until(
-            runtime,
-            stub,
-            lambda: idle_streams("ReservedRPCFlow") == 1,
-        )
-        assert idle_streams("pressure-worker") == 1
-    finally:
-        dispatcher.gate.set()
-        await runtime.stop()
-
-
 @pytest.mark.parametrize("reserve", [-1, 2, 3])
 def test_invalid_reserved_rpc_tasks(reserve: int) -> None:
     with pytest.raises(ValueError, match="reserved_rpc_tasks"):
         PullWorkerOptions(max_concurrent_tasks=2, reserved_rpc_tasks=reserve)
-
-
-@pytest.mark.parametrize("reserve", [0, 1])
-@pytest.mark.parametrize("first_kind", ["wait_for", "execute", "rpc"])
-def test_reserved_rpc_admission(reserve: int, first_kind: str) -> None:
-    asyncio.run(_reserved_rpc_admission(reserve, first_kind))
-
-
-async def _reserved_rpc_admission(reserve: int, first_kind: str) -> None:
-    runtime = PullWorkerRuntime(
-        Registry([]),
-        None,
-        PullWorkerOptions(max_concurrent_tasks=2, reserved_rpc_tasks=reserve),
-        "localhost:8801",
-        None,
-    )
-    runtime._stopping = asyncio.Event()
-    streams = [PullStream(runtime, None, "queue") for _ in range(20)]
-    senders = [AsyncMock() for _ in streams]
-    gate = asyncio.Event()
-
-    async def execute(task: pb.PollWorkerTask) -> None:
-        await gate.wait()
-
-    patches = ExitStack()
-    for stream, sender in zip(streams, senders):
-        patches.enter_context(patch.object(stream, "_send", sender))
-        patches.enter_context(patch.object(stream, "_execute", execute))
-    try:
-        first_task = pb.PollWorkerTask(task_id="first")
-        getattr(first_task, first_kind).SetInParent()
-        await streams[0]._start_task(first_task)
-        assert runtime._busy_tasks == 1
-        streams[2]._supports_unknown_name_rejection = True
-        for reason, kind in (
-            (pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP, "wait_for"),
-            (pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC, "rpc"),
-        ):
-            unknown = pb.PollWorkerTask(task_id="unknown")
-            getattr(unknown, kind).SetInParent()
-            with patch.object(runtime, "unknown_task_reason", return_value=reason):
-                await streams[2]._start_task(unknown)
-            assert senders[2].await_args is not None
-            assert senders[2].await_args.args[0].reject.reason == reason
-            assert runtime.reserved_rpc_declines == 0
-        await streams[1]._start_task(
-            pb.PollWorkerTask(
-                task_id="second-step", execute=pb.InvokeExecuteMethodRequest()
-            )
-        )
-        if reserve:
-            assert senders[1].await_args is not None
-            assert (
-                senders[1].await_args.args[0].reject.reason
-                == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
-            )
-            await streams[1]._start_task(
-                pb.PollWorkerTask(task_id="rpc", rpc=pb.InvokeWorkerRPCRequest())
-            )
-        assert runtime._busy_tasks == 2
-        await asyncio.gather(
-            *(
-                stream._start_task(
-                    pb.PollWorkerTask(
-                        task_id=str(index), rpc=pb.InvokeWorkerRPCRequest()
-                    )
-                )
-                for index, stream in enumerate(streams[2:])
-            )
-        )
-        assert runtime._busy_tasks == 2
-        for sender in senders[2:]:
-            assert sender.await_args is not None
-            assert (
-                sender.await_args.args[0].reject.reason
-                == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
-            )
-        await streams[2]._start_task(
-            pb.PollWorkerTask(
-                task_id="full-step", wait_for=pb.InvokeWaitForMethodRequest()
-            )
-        )
-        assert senders[2].await_args is not None
-        assert (
-            senders[2].await_args.args[0].reject.reason
-            == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
-        )
-        assert not streams[2].is_draining
-        assert runtime.reserved_rpc_declines == reserve
-    finally:
-        gate.set()
-        for stream in streams:
-            if stream.handler_task is not None:
-                await stream._finish_handler()
-    patches.close()
-    assert runtime._busy_tasks == 0
-
-
-def test_reserved_rpc_synchronous_step_admission() -> None:
-    asyncio.run(_reserved_rpc_synchronous_step_admission())
-
-
-async def _reserved_rpc_synchronous_step_admission() -> None:
-    runtime = PullWorkerRuntime(
-        Registry([]),
-        None,
-        PullWorkerOptions(max_concurrent_tasks=2, reserved_rpc_tasks=1),
-        "localhost:8801",
-        None,
-    )
-    runtime._stopping = asyncio.Event()
-    tasks = [
-        pb.PollWorkerTask(execute=pb.InvokeExecuteMethodRequest()) for _ in range(20)
-    ]
-
-    assert sum(runtime.accept_task(task) for task in tasks) == 1
-    assert runtime.reserved_rpc_declines == 19
-    assert runtime.accept_task(pb.PollWorkerTask(rpc=pb.InvokeWorkerRPCRequest()))
-    assert not runtime.accept_task(pb.PollWorkerTask(rpc=pb.InvokeWorkerRPCRequest()))
-
-
-def test_reserved_rpc_classifies_registered_and_unknown_names(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(PullWorkerRuntime, "unknown_task_reason", _UNKNOWN_TASK_REASON)
-    asyncio.run(_reserved_rpc_classifies_registered_and_unknown_names())
-
-
-async def _reserved_rpc_classifies_registered_and_unknown_names() -> None:
-    runtime = PullWorkerRuntime(
-        Registry([ReservedRPCFlow()]),
-        None,
-        PullWorkerOptions(max_concurrent_tasks=2, reserved_rpc_tasks=1),
-        "localhost:8801",
-        None,
-    )
-    runtime._stopping = asyncio.Event()
-    streams = [PullStream(runtime, None, "ReservedRPCFlow") for _ in range(2)]
-    senders = [AsyncMock() for _ in streams]
-    gate = asyncio.Event()
-
-    async def execute(task: pb.PollWorkerTask) -> None:
-        await gate.wait()
-
-    with ExitStack() as patches:
-        for stream, sender in zip(streams, senders):
-            stream._supports_unknown_name_rejection = True
-            patches.enter_context(patch.object(stream, "_send", sender))
-            patches.enter_context(patch.object(stream, "_execute", execute))
-        try:
-            await streams[0]._start_task(
-                pb.PollWorkerTask(
-                    task_id="first",
-                    execute=pb.InvokeExecuteMethodRequest(
-                        flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
-                    ),
-                )
-            )
-            assert streams[0].is_busy
-            await streams[1]._start_task(
-                pb.PollWorkerTask(
-                    task_id="unknown",
-                    execute=pb.InvokeExecuteMethodRequest(
-                        flow_type="ReservedRPCFlow", step_type="MissingStep"
-                    ),
-                )
-            )
-            assert senders[1].await_args is not None
-            assert (
-                senders[1].await_args.args[0].reject.reason
-                == pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP
-            )
-            assert runtime.reserved_rpc_declines == 0
-            await streams[1]._start_task(
-                pb.PollWorkerTask(
-                    task_id="declined",
-                    execute=pb.InvokeExecuteMethodRequest(
-                        flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
-                    ),
-                )
-            )
-            assert senders[1].await_args is not None
-            assert (
-                senders[1].await_args.args[0].reject.reason
-                == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
-            )
-            assert runtime.reserved_rpc_declines == 1
-            await streams[1]._start_task(
-                pb.PollWorkerTask(
-                    task_id="rpc",
-                    rpc=pb.InvokeWorkerRPCRequest(
-                        flow_type="ReservedRPCFlow", rpc_name="getResult"
-                    ),
-                )
-            )
-            assert streams[1].is_busy
-            assert runtime._busy_tasks == 2
-        finally:
-            gate.set()
-            for stream in streams:
-                if stream.handler_task is not None:
-                    await stream._finish_handler()
 
 
 @pytest.mark.parametrize("capacity", [1, 4])

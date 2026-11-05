@@ -23,7 +23,7 @@ from dex.attribute import (
 )
 from dex.channel import Channel, ChannelMap, ChannelMessage
 from dex.codec import Codec
-from dex.context import RecoveryErrorInfo
+from dex.context import RecoveryErrorInfo, StepAttemptProgress
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
 from dex.flow_result import FlowResult, flow_result_from_proto
@@ -136,6 +136,13 @@ class InvocationContext:
         return RecoveryErrorInfo(
             detail=self._metadata.recovery_error.detail,
             error_type=self._metadata.recovery_error.error_type,
+            attempt_progress={
+                pb.STEP_ATTEMPT_PROGRESS_NOT_STARTED: StepAttemptProgress.NOT_STARTED,
+                pb.STEP_ATTEMPT_PROGRESS_NOT_COMPLETED: StepAttemptProgress.NOT_COMPLETED,
+            }.get(
+                self._metadata.recovery_error.attempt_progress,
+                StepAttemptProgress.UNSPECIFIED,
+            ),
         )
 
     @property
