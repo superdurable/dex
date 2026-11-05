@@ -612,7 +612,7 @@ async fn a_lock_held_longer_than_the_dispatch_wait_still_runs_the_waiting_step()
     );
     let hold = worker.next_task().await;
     assert_eq!(execute_step_type(&hold), "HoldStep");
-    // The lock outlasts the dispatch wait; the waiting Step gets a fresh one after it.
+    // The lock outlasts the dispatch wait. The Step parks before any search starts its clock.
     tokio::time::sleep(Duration::from_millis(2500)).await;
     worker.reply(
         hold.task_id,

@@ -1144,8 +1144,7 @@ means you should raise **matching.unsupportedTypeCacheEntries**.
 
 Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each stream close and, with
-**event="delivered"**, each task frame sent after a start. This includes RPC task frames, not only
-Step task frames. A returned attempt
+**event="delivered"**, every task frame sent, including RPC task frames. A returned attempt
 that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
 
 ~~~text
