@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { X509Certificate } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { isIPv6 } from "node:net";
 import * as tls from "node:tls";
 
@@ -133,9 +134,34 @@ function isValidFlowServiceTlsName(name: string): boolean {
 export function createFlowServiceSecureContext(additionalRootCAsPem: string | Uint8Array | undefined): tls.SecureContext {
   const certificates = parseAdditionalRootCertificates(additionalRootCAsPem);
   const secureContext = tls.createSecureContext({ minVersion: "TLSv1.2" });
+  if (certificates.length === 0) return secureContext;
   // The ca option replaces active defaults, such as --use-openssl-ca roots; addCACert appends.
   for (const certificate of certificates) secureContext.context.addCACert(certificate);
+  // Node.js 22.0 rebuilds the store without NODE_EXTRA_CA_CERTS on addCACert; duplicates are harmless.
+  for (const certificate of startupExtraRootCertificates()) secureContext.context.addCACert(certificate);
   return secureContext;
+}
+
+let cachedEnvironmentExtraRootCertificates: readonly string[] | undefined;
+
+function startupExtraRootCertificates(): readonly string[] {
+  if (typeof tls.getCACertificates === "function") return tls.getCACertificates("extra");
+  cachedEnvironmentExtraRootCertificates ??= readEnvironmentExtraRootCertificates();
+  return cachedEnvironmentExtraRootCertificates;
+}
+
+// Node.js before 22.15 lacks getCACertificates("extra"), so read the file Node.js loaded at startup.
+function readEnvironmentExtraRootCertificates(): readonly string[] {
+  const extraCertificatesFile = process.env.NODE_EXTRA_CA_CERTS;
+  if (extraCertificatesFile === undefined || extraCertificatesFile === "") return [];
+  let bundle: string;
+  try {
+    bundle = readFileSync(extraCertificatesFile, "utf8");
+  } catch {
+    // Node.js also only warns and skips an unreadable NODE_EXTRA_CA_CERTS file at startup.
+    return [];
+  }
+  return [...bundle.matchAll(pemCertificatePattern)].map((match) => match[0]).filter(isParsableCertificate);
 }
 
 function parseAdditionalRootCertificates(additionalRootCAsPem: string | Uint8Array | undefined): string[] {

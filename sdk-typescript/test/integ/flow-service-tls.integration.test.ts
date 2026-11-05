@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import assert from "node:assert/strict";
-import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingHttpHeaders, type Server as HttpServer } from "node:http";
@@ -22,7 +22,6 @@ import {
 import { connect, createServer as createTcpServer, type AddressInfo, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import test, { after, before } from "node:test";
 import * as tls from "node:tls";
 
@@ -50,6 +49,7 @@ import {
   type Step,
   type StepDecision,
 } from "../../src/index.js";
+import { createTestCertificates, type TestCertificates } from "../tls-test-certificates.js";
 import { flowId } from "./environment.js";
 
 const tlsTransportValue = new Attribute("tls-transport-value", stringCodec);
@@ -104,46 +104,6 @@ function causeChain(failure: unknown): string {
     messages.push(current.message, current instanceof DexServiceError ? current.detail : "");
   }
   return messages.join("\n");
-}
-
-interface TestCertificates {
-  readonly caFile: string;
-  readonly caPem: string;
-  readonly certificatePem: string;
-  readonly privateKeyPem: string;
-}
-
-// Node.js cannot issue X.509 certificates, so the test uses the openssl CLI.
-function createTestCertificates(directory: string, name: string): TestCertificates {
-  const file = (suffix: string) => join(directory, `${name}-${suffix}`);
-  writeFileSync(file("extensions.cnf"), [
-    "[dex_test_ca]",
-    "basicConstraints = critical, CA:TRUE",
-    "keyUsage = critical, keyCertSign",
-    "[dex_test_server]",
-    "basicConstraints = CA:FALSE",
-    "keyUsage = critical, digitalSignature",
-    "extendedKeyUsage = serverAuth",
-    "subjectAltName = DNS:localhost, IP:127.0.0.1, IP:::1",
-    "",
-  ].join("\n"));
-  const openssl = (...arguments_: string[]) => execFileSync("openssl", arguments_, { stdio: "pipe" });
-  openssl("ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", file("ca.key"));
-  // Distinct CA names keep verification from matching the wrong issuer.
-  openssl("req", "-new", "-key", file("ca.key"), "-subj", `/CN=Dex test CA ${name}`, "-out", file("ca.csr"));
-  openssl("x509", "-req", "-in", file("ca.csr"), "-signkey", file("ca.key"), "-days", "1",
-    "-extfile", file("extensions.cnf"), "-extensions", "dex_test_ca", "-out", file("ca.pem"));
-  openssl("ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", file("server.key"));
-  openssl("req", "-new", "-key", file("server.key"), "-subj", "/CN=localhost", "-out", file("server.csr"));
-  openssl("x509", "-req", "-in", file("server.csr"), "-CA", file("ca.pem"), "-CAkey", file("ca.key"),
-    "-set_serial", "2", "-days", "1", "-extfile", file("extensions.cnf"), "-extensions", "dex_test_server",
-    "-out", file("server.pem"));
-  return {
-    caFile: file("ca.pem"),
-    caPem: readFileSync(file("ca.pem"), "utf8"),
-    certificatePem: readFileSync(file("server.pem"), "utf8"),
-    privateKeyPem: readFileSync(file("server.key"), "utf8"),
-  };
 }
 
 class ServerZdProcess {
@@ -314,29 +274,6 @@ class Http2AuthorityRecorder {
   }
 }
 
-class PlainTlsEndpoint {
-  private readonly server: tls.Server;
-
-  private constructor(certificates: TestCertificates) {
-    this.server = tls.createServer({ cert: certificates.certificatePem, key: certificates.privateKeyPem },
-      (socket) => socket.end());
-  }
-
-  public static async start(certificates: TestCertificates): Promise<PlainTlsEndpoint> {
-    const endpoint = new PlainTlsEndpoint(certificates);
-    await new Promise<void>((resolve) => endpoint.server.listen(0, "127.0.0.1", resolve));
-    return endpoint;
-  }
-
-  public get port(): number {
-    return (this.server.address() as AddressInfo).port;
-  }
-
-  public async close(): Promise<void> {
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
-  }
-}
-
 class TokenEndpoint {
   public exchangeCount = 0;
   private readonly server: HttpServer;
@@ -385,47 +322,6 @@ async function waitForAuthenticatedServer(blobCache: BlobCache, port: number, to
   } finally {
     await client.close();
   }
-}
-
-const verificationScript = `
-import { readFileSync } from "node:fs";
-import { connect } from "node:tls";
-const { createFlowServiceSecureContext } = await import(process.env.DEX_TLS_MODULE_URL);
-const secureContext = createFlowServiceSecureContext(readFileSync(process.env.DEX_TLS_ADDITIONAL_CA_FILE));
-const socket = connect({ host: "127.0.0.1", port: Number(process.env.DEX_TLS_PORT), servername: "localhost",
-  secureContext, rejectUnauthorized: false }, () => {
-  process.stdout.write(JSON.stringify({ authorized: socket.authorized, error: String(socket.authorizationError ?? "") }));
-  socket.end();
-});
-`;
-
-// Default roots come from process flags and environment, so each case needs a fresh Node.js process.
-async function verifyInChildProcess(
-  nodeFlags: readonly string[],
-  environment: Readonly<Record<string, string>>,
-  port: number,
-  additionalCaFile: string,
-): Promise<{ authorized: boolean; error: string }> {
-  const { stdout } = await promisify(execFile)(
-    process.execPath,
-    [...nodeFlags, "--input-type=module", "-e", verificationScript],
-    {
-      env: {
-        ...withoutTrustEnvironment(process.env),
-        ...environment,
-        DEX_TLS_MODULE_URL: new URL("../../src/flow-service-tls.js", import.meta.url).href,
-        DEX_TLS_ADDITIONAL_CA_FILE: additionalCaFile,
-        DEX_TLS_PORT: String(port),
-      },
-    },
-  );
-  return JSON.parse(stdout) as { authorized: boolean; error: string };
-}
-
-function withoutTrustEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const trusted = { ...environment };
-  for (const name of ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR"]) delete trusted[name];
-  return trusted;
 }
 
 async function availablePort(): Promise<number> {
@@ -608,29 +504,5 @@ test("serverName sets SNI and :authority for an IP address target", async () => 
     }
   } finally {
     await recorder.close();
-  }
-});
-
-test("additionalRootCAsPem keeps every active default root", async () => {
-  const defaultStore = createTestCertificates(fixture.directory, "default-store");
-  const unrelated = createTestCertificates(fixture.directory, "unrelated");
-  const added = createTestCertificates(fixture.directory, "added");
-  const defaultTrustedEndpoint = await PlainTlsEndpoint.start(defaultStore);
-  const addedTrustedEndpoint = await PlainTlsEndpoint.start(added);
-  try {
-    for (const [name, nodeFlags, environment] of [
-      ["NODE_EXTRA_CA_CERTS", [], { NODE_EXTRA_CA_CERTS: defaultStore.caFile }],
-      ["--use-openssl-ca", ["--use-openssl-ca"], { SSL_CERT_FILE: defaultStore.caFile }],
-    ] as const) {
-      assert.deepEqual(await verifyInChildProcess(nodeFlags, environment, defaultTrustedEndpoint.port, unrelated.caFile),
-        { authorized: true, error: "" }, `${name}: a default root stays trusted after adding an unrelated CA`);
-      assert.deepEqual(await verifyInChildProcess(nodeFlags, environment, addedTrustedEndpoint.port, added.caFile),
-        { authorized: true, error: "" }, `${name}: the added CA is trusted`);
-    }
-    const withoutDefaultRoot = await verifyInChildProcess([], {}, defaultTrustedEndpoint.port, unrelated.caFile);
-    assert.equal(withoutDefaultRoot.authorized, false, "the endpoint is untrusted without the default-store CA");
-  } finally {
-    await defaultTrustedEndpoint.close();
-    await addedTrustedEndpoint.close();
   }
 });

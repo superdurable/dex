@@ -69,6 +69,15 @@ jobs:
         run: npm run typecheck
       - name: Test contracts
         run: npm test
+      # Node.js 22.0 handles added CA certificates differently, so test the minimum supported release.
+      - name: Set up the minimum supported Node.js 22 release
+        if: matrix.node-version == '22'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.0.0"
+      - name: Test FlowService TLS on the minimum supported Node.js 22 release
+        if: matrix.node-version == '22'
+        run: node --test dist/test/flow-service-tls-trust-store.test.js dist/test/flow-service-tls.test.js
 
   integration:
     name: Integration tests (zd, pull)
