@@ -88,7 +88,9 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
 export DEX_SERVER_ZD_BINARY
-dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
+# A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
+printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
+dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -zd-config "$test_dir/zd-overrides.yaml")
 
 "$binary_dir/dexcli" dev "${dev_args[@]}" >>"$log_file" 2>&1 &
 dexcli_pid=$!

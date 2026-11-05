@@ -57,6 +57,8 @@ func startBinaryDexService(t *testing.T, testConfig serverZDTestConfig) *integRu
 	if unsupportedSetting != "" {
 		t.Skipf("server-zd does not support %s", unsupportedSetting)
 	}
+	// Per-test servers skip fsync for speed; YAML, unlike a flag, also suits older binaries.
+	configuration["dev"] = map[string]any{"durabilityMode": "processCrashSafe"}
 	createAttributeSyncFencingTables(t, testConfig.AttributeStore.Stores)
 	dataDirectory := t.TempDir()
 	address, err := reserveBinaryDexAddress()

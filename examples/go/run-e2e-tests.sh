@@ -128,8 +128,10 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
 
-default_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/default-zd")
-deal_dsl_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/deal-dsl-zd")
+# A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
+printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
+default_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/default-zd" -zd-config "$test_dir/zd-overrides.yaml")
+deal_dsl_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/deal-dsl-zd" -zd-config "$test_dir/zd-overrides.yaml")
 default_dev_args+=(-attribute-store-config "$entity_store_config")
 deal_dsl_dev_args+=(-attribute-store-config "$entity_store_config")
 

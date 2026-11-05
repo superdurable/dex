@@ -11,6 +11,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+use crate::config::DevDurabilityMode;
+
 /// Command line of `dex-server-zd`.
 #[derive(Debug, Parser)]
 #[command(
@@ -53,6 +55,9 @@ pub struct DevCommandOptions {
     /// and `--config` must not also set `attributeStore`.
     #[arg(long)]
     pub attribute_store_config: Option<PathBuf>,
+    /// Optional embedded S3 durability; overrides `dev.durabilityMode` from `--config`. Defaults to strict.
+    #[arg(long, value_enum)]
+    pub durability: Option<DevDurabilityMode>,
 }
 
 /// Options of `dex-server-zd serve`.
@@ -68,6 +73,7 @@ mod tests {
     use clap::Parser;
 
     use super::{CommandLineOptions, ServerCommand};
+    use crate::config::DevDurabilityMode;
 
     #[test]
     fn dev_command_accepts_the_flags_dexcli_passes() {
@@ -84,6 +90,8 @@ mod tests {
             "/tmp/zd.yaml",
             "--attribute-store-config",
             "/tmp/dex.yaml",
+            "--durability",
+            "process-crash-safe",
         ])
         .unwrap();
         let ServerCommand::Dev(dev) = options.command else {
@@ -97,6 +105,44 @@ mod tests {
             dev.attribute_store_config.unwrap().to_str(),
             Some("/tmp/dex.yaml")
         );
+        assert_eq!(dev.durability, Some(DevDurabilityMode::ProcessCrashSafe));
+    }
+
+    #[test]
+    fn dev_command_accepts_every_durability_and_rejects_others() {
+        for (value, expected) in [
+            ("strict", DevDurabilityMode::Strict),
+            ("process-crash-safe", DevDurabilityMode::ProcessCrashSafe),
+            ("relaxed", DevDurabilityMode::Relaxed),
+        ] {
+            let options = CommandLineOptions::try_parse_from([
+                "dex-server-zd",
+                "dev",
+                "--data-dir",
+                "/tmp/zd",
+                "--durability",
+                value,
+            ])
+            .unwrap();
+            let ServerCommand::Dev(dev) = options.command else {
+                panic!("dev parses as the dev command");
+            };
+            assert_eq!(dev.durability, Some(expected));
+        }
+        for value in ["processCrashSafe", "fsync", ""] {
+            assert!(
+                CommandLineOptions::try_parse_from([
+                    "dex-server-zd",
+                    "dev",
+                    "--data-dir",
+                    "/tmp/zd",
+                    "--durability",
+                    value,
+                ])
+                .is_err(),
+                "--durability {value:?} must be rejected"
+            );
+        }
     }
 
     #[test]
@@ -109,6 +155,7 @@ mod tests {
         };
         assert_eq!(dev.listen.to_string(), "127.0.0.1:8801");
         assert!(dev.log_dir.is_none());
+        assert!(dev.durability.is_none());
     }
 
     #[test]

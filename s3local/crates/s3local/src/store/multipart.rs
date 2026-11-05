@@ -22,8 +22,7 @@ use super::object_listing::{
 use super::object_write::CompletedUpload;
 use super::{
     ABORTED_UPLOADS, BUCKETS, MAX_KEYS_LIMIT, PARTS, Store, SupersededPath, UPLOADS,
-    UPLOADS_DIRECTORY_NAME, create_directory_durably, decode_json, encode_json, require_bucket,
-    validate_object_key,
+    UPLOADS_DIRECTORY_NAME, decode_json, encode_json, require_bucket, validate_object_key,
 };
 use crate::checksum::{ChecksumAlgorithm, ChecksumType};
 use crate::data_file::{self, ObjectWriter, StagedObject};
@@ -164,7 +163,7 @@ impl Store {
         let file_name = staged.upload_id.to_string();
         let relative_path = format!("{UPLOADS_DIRECTORY_NAME}/{upload_id}/{file_name}");
         let upload_directory = self.upload_directory(&bucket_record, upload_id);
-        create_directory_durably(&upload_directory, self.is_durable())?;
+        self.create_directory(&upload_directory)?;
         let path = upload_directory.join(&file_name);
         let record = PartRecord {
             part_number,

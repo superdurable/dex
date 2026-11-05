@@ -75,9 +75,8 @@ from the store. In relaxed mode it writes a `relaxed-session-open` marker before
 and only a durable close removes it. When the marker remains after a crash, every later call fails
 with `StoreError::UncleanRelaxedSession`. The first guarded open of a directory also writes a
 `relaxed-session-markers` stamp. A directory without the stamp that redb must repair, because its
-last process did not close it, fails with `StoreError::UncleanSessionWithoutRelaxedSessionMarkers`.
-A strict guarded open is the exception: it trusts the configuration, accepts the directory, stamps
-it, and logs the upgrade.
+last process did not close it, fails with `StoreError::UncleanSessionWithoutRelaxedSessionMarkers`
+in every mode, because the configured mode says nothing about the sessions that wrote it.
 `Store::open` and the `s3local` command never check the marker or the stamp.
 
 ## Store format

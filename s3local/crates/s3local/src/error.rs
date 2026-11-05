@@ -92,6 +92,11 @@ pub enum StoreError {
         root_directory.display()
     )]
     UncleanSessionWithoutRelaxedSessionMarkers { root_directory: PathBuf },
+    #[error("strict durability cannot flush the directory entries in {}: {source}", directory.display())]
+    DirectoryEntryFlushFailed {
+        directory: PathBuf,
+        source: io::Error,
+    },
     #[error("metadata store error: {0}")]
     Metadata(#[from] redb::Error),
     #[error("metadata record is corrupt: {0}")]

@@ -211,13 +211,13 @@ impl LocalStorageConfig {
 }
 
 /// Selects fsync behavior for the embedded S3 emulator.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "camelCase")]
 pub enum DevDurabilityMode {
-    /// Flushes each acknowledged write with fsync, so even a host crash or power loss loses nothing.
-    Strict,
-    /// Default; writes every acknowledged write to its files without fsync, so only a host crash can lose it.
+    /// Default; flushes each acknowledged write with fsync, so even a host crash or power loss loses nothing.
     #[default]
+    Strict,
+    /// Writes every acknowledged write to its files without fsync, so only a host crash can lose it.
     ProcessCrashSafe,
     /// Holds writes in memory until a graceful stop; after an abrupt exit, starts fail until data is deleted.
     Relaxed,
@@ -231,7 +231,7 @@ pub struct DevConfig {
     pub data_directory: PathBuf,
     /// Defaults to empty until --data-dir is supplied; embedded S3 files are placed under <data-dir>/s3.
     pub s3_data_directory: PathBuf,
-    /// Defaults to processCrashSafe, which survives a process kill; strict also survives a host crash.
+    /// Defaults to strict, which survives a host crash; processCrashSafe survives only a process kill.
     pub durability_mode: DevDurabilityMode,
     /// Defaults to none; optional directory that also receives dex-server-zd.log.
     pub log_directory: Option<PathBuf>,
@@ -242,7 +242,7 @@ impl Default for DevConfig {
         Self {
             data_directory: PathBuf::new(),
             s3_data_directory: PathBuf::new(),
-            durability_mode: DevDurabilityMode::ProcessCrashSafe,
+            durability_mode: DevDurabilityMode::default(),
             log_directory: None,
         }
     }

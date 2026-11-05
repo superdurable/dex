@@ -20,9 +20,8 @@ use ulid::Ulid;
 use super::multipart::remove_upload;
 use super::object_read::{ObjectReadRequest, ReadConditions};
 use super::{
-    BUCKETS, LATEST, PARTS, Store, SupersededPath, UPLOADS, VERSIONS, create_directory_durably,
-    decode_json, encode_json, load_versions, refresh_latest, relative_data_file, require_bucket,
-    validate_object_key,
+    BUCKETS, LATEST, PARTS, Store, SupersededPath, UPLOADS, VERSIONS, decode_json, encode_json,
+    load_versions, refresh_latest, relative_data_file, require_bucket, validate_object_key,
 };
 use crate::checksum::{ChecksumAlgorithm, ObjectChecksum};
 use crate::data_file::{
@@ -290,8 +289,7 @@ impl Store {
             .parent()
             .expect("data file paths have a shard directory")
             .to_path_buf();
-        create_directory_durably(&bucket_directory, self.is_durable())?;
-        create_directory_durably(&shard_directory, self.is_durable())?;
+        self.create_directory(&shard_directory)?;
         staged.temporary_file.publish(&path)?;
         let published = PublishedDataFile {
             path,

@@ -346,7 +346,11 @@ before(async () => {
   const tokenHashFile = join(directory, "token-hashes.yaml");
   writeFileSync(tokenHashFile, `tokens:\n  - sha256: ${createHash("sha256").update(token).digest("hex")}\n`);
   const configFile = join(directory, "server-zd.yaml");
-  writeFileSync(configFile, `auth:\n  authenticators:\n    - kind: staticTokens\n      file: ${JSON.stringify(tokenHashFile)}\n`);
+  writeFileSync(
+    configFile,
+    `auth:\n  authenticators:\n    - kind: staticTokens\n      file: ${JSON.stringify(tokenHashFile)}\n` +
+      "dev:\n  durabilityMode: processCrashSafe\n",
+  );
   const certificates = createTestCertificates(directory, "primary");
   const blobCache = openBlobCache({ directory: join(directory, "cache"), maxBytes: 64 * 1_024 * 1_024 });
   fixtureCleanups.push(() => blobCache.close());

@@ -87,7 +87,9 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
-dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
+# A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
+printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
+dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -zd-config "$test_dir/zd-overrides.yaml")
 dev_args+=(-attribute-store-config "$entity_store_dir/attribute-store.yaml")
 
 "$binary_dir/dexcli" dev \

@@ -77,16 +77,20 @@ The CLI stores zd state in `$HOME/.dex/zd/<dex-port>` by default. Pass
 retention, Streams, or the search backend. The CLI passes the file to
 `dex-server-zd dev --config`. It waits for the zd gRPC health services before
 opening Dex Web. zd supports pull Workers only.
-By default zd writes every acknowledged write to its files without fsync. Killing
-it loses no Flows, and the next start resumes from the same state directory. A
-host crash or power loss can lose recent writes. Set `dev.durabilityMode` in the
-`--zd-config` file to `strict` to fsync every write, which also survives a host
-crash but is much slower on macOS. `relaxed` keeps writes in memory until a
-graceful stop. After a crash or kill in relaxed mode, zd refuses to start until
-you delete the state directory. A state directory that an earlier zd release
-left after a crash or kill is refused too, because those releases defaulted to
-relaxed. If every earlier run used `dev.durabilityMode: strict`, keep that
-setting, and zd accepts the directory.
+`--durability` selects how zd stores acknowledged writes. The default, `strict`,
+flushes every write with fsync before replying, so a process kill, a host
+crash, or power loss loses no acknowledged Flow. `process-crash-safe` writes
+every acknowledged write to its files without fsync. Killing zd loses nothing,
+but a host crash or power loss can lose recent writes. It is several times
+faster than `strict` on macOS, so short-lived test servers often use it.
+`relaxed` keeps writes in memory until a graceful stop. After a crash or kill in
+relaxed mode, zd refuses to start until you delete the state directory. When
+you pass `--durability`, the CLI passes it to `dex-server-zd dev --durability`,
+and it overrides `dev.durabilityMode` in the `--zd-config` file. Without the
+flag, zd uses `dev.durabilityMode` from that file, or `strict`.
+A state directory that a zd release before v0.1.4 left after a crash or kill is
+refused in every mode, because those releases defaulted to relaxed. Delete the
+state directory to start empty.
 With `--attribute-store-config`, the CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its
 `attributeStore` section. zd supports only `type: postgres`, and each database

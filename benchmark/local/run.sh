@@ -77,6 +77,8 @@ start_server() {
   cat > "$state_dir/zd-quick.yaml" <<'YAML'
 metrics:
   listen: "127.0.0.1:9901"
+dev:
+  durabilityMode: processCrashSafe
 YAML
   nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
     --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >"$state_dir/server.log" 2>&1 &

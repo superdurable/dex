@@ -23,6 +23,7 @@ async fn metrics_listener_is_off_by_default() {
         log_dir: None,
         config: None,
         attribute_store_config: None,
+        durability: Some(crate::config::DevDurabilityMode::ProcessCrashSafe),
     })
     .await
     .expect("dev server starts");

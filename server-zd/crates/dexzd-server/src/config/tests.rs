@@ -233,8 +233,23 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         log_dir: Some(log_directory.clone()),
         config: Some(yaml_path),
         attribute_store_config: None,
+        durability: None,
     };
     let configuration = Config::load_dev(&options).expect("dev configuration");
+    let flag_override = Config::load_dev(&DevCommandOptions {
+        data_dir: options.data_dir.clone(),
+        listen: options.listen,
+        log_dir: None,
+        config: options.config.clone(),
+        attribute_store_config: None,
+        durability: Some(DevDurabilityMode::ProcessCrashSafe),
+    })
+    .expect("dev configuration with a durability flag");
+    assert_eq!(
+        flag_override.dev.durability_mode,
+        DevDurabilityMode::ProcessCrashSafe,
+        "--durability overrides dev.durabilityMode from --config"
+    );
     assert_eq!(configuration.cluster.node_id, "dev");
     assert_eq!(configuration.api.listen, options.listen);
     assert_eq!(configuration.dev.data_directory, data_directory);
@@ -270,6 +285,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         log_dir: None,
         config: None,
         attribute_store_config: None,
+        durability: None,
     })
     .expect("dev defaults without YAML");
     assert_eq!(
@@ -280,10 +296,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         defaults.local_storage.directory,
         temporary.path().join("other-data/store")
     );
-    assert_eq!(
-        defaults.dev.durability_mode,
-        DevDurabilityMode::ProcessCrashSafe
-    );
+    assert_eq!(defaults.dev.durability_mode, DevDurabilityMode::Strict);
     assert_eq!(defaults.search.backend, SearchBackend::Builtin);
     assert_eq!(defaults.stream_store.backend, StreamStoreBackend::Memory);
     assert_eq!(defaults.object_store.endpoint, "http://127.0.0.1:0");
@@ -293,6 +306,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         log_dir: None,
         config: None,
         attribute_store_config: None,
+        durability: None,
     })
     .expect_err("empty dev data directory");
     assert!(matches!(
@@ -313,6 +327,7 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
         log_dir: None,
         config,
         attribute_store_config: None,
+        durability: None,
     };
     let without_overrides =
         Config::load_dev(&dev_options(None)).expect("dev defaults without YAML");
@@ -347,6 +362,7 @@ fn dev_defaults_to_a_two_second_attempt_drain_unless_the_overrides_set_it() {
         log_dir: None,
         config,
         attribute_store_config: None,
+        durability: None,
     };
     let without_overrides =
         Config::load_dev(&dev_options(None)).expect("dev defaults without YAML");
@@ -390,6 +406,7 @@ fn dev_rejects_a_separate_hard_delete_store_before_resolving_credentials() {
         log_dir: None,
         config: Some(yaml_path),
         attribute_store_config: None,
+        durability: None,
     })
     .expect_err("dev must reject a separate hard-delete destination");
     assert!(matches!(
@@ -439,6 +456,7 @@ fn dev_rejects_hot_standby_mode() {
         log_dir: None,
         config: Some(yaml_path),
         attribute_store_config: None,
+        durability: None,
     })
     .expect_err("dev must reject hot standby mode");
     assert!(matches!(
@@ -1072,6 +1090,7 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
         log_dir: None,
         config: None,
         attribute_store_config: Some(go_config.clone()),
+        durability: None,
     };
     let configuration = Config::load_dev(&options).expect("dev configuration");
     assert_eq!(
@@ -1084,6 +1103,7 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
     let conflict = Config::load_dev(&DevCommandOptions {
         config: Some(zd_config),
         attribute_store_config: Some(go_config),
+        durability: None,
         data_dir: temporary.path().join("data"),
         listen: options.listen,
         log_dir: None,
@@ -1101,6 +1121,7 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
     fs::write(&without_stores, "log:\n  level: info\n").expect("write config");
     let empty = Config::load_dev(&DevCommandOptions {
         attribute_store_config: Some(without_stores),
+        durability: None,
         data_dir: temporary.path().join("data"),
         listen: options.listen,
         log_dir: None,

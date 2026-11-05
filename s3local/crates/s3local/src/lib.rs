@@ -10,6 +10,7 @@
 
 mod checksum;
 mod data_file;
+mod durable_directories;
 mod environment_config;
 mod error;
 mod key_codec;

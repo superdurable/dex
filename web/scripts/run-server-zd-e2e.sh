@@ -91,9 +91,12 @@ for flow_package in webv2approval webv2reply; do
     --out "$work_dir/definitions/$flow_package"
 done
 
+# Skips fsync for speed; a config file, unlike a flag, also works with an older binary.
+printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$work_dir/zd-overrides.yaml"
 "$DEX_SERVER_ZD_BINARY" dev \
   --data-dir "$work_dir/zd" \
   --listen "127.0.0.1:$zd_port" \
+  --config "$work_dir/zd-overrides.yaml" \
   >"$log_dir/dex-server-zd.log" 2>&1 &
 zd_pid=$!
 

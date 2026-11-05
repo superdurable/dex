@@ -248,7 +248,9 @@ assets.
 The release build writes `server-zd/target/release/dex-server-zd`.
 
 `run.sh` starts server-zd through `dexcli dev` with its embedded s3local. It
-does not start Docker or use AWS.
+does not start Docker or use AWS. It sets `dev.durabilityMode: processCrashSafe`,
+so results stay comparable with earlier runs; the dev default, strict, fsyncs
+every write.
 
 ### Full local run
 
@@ -588,8 +590,8 @@ benchmark/local/search-local.sh postgres 100000 10 /tmp/search-postgres-100k
 benchmark/local/search-local.sh postgres 100000 10 /tmp/search-backfill-100k --backfill
 ```
 
-The runner starts a release server with embedded s3local and the default 1,024
-partitions. External backends use temporary, uniquely named Docker containers:
+The runner starts a release server with embedded s3local, processCrashSafe
+durability, and the default 1,024 partitions. External backends use temporary, uniquely named Docker containers:
 PostgreSQL 17 or ParadeDB 0.26.1, matching server-zd CI. It removes its server,
 data directory, and container on exit. It does not use docker compose.
 `DEXBENCH_PARTITIONS`, `DEXBENCH_SEARCH_SCAN_BUDGET` (100000),
