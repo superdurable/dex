@@ -116,11 +116,12 @@ Worker 通常需要更高的 **maxConcurrentTasks**。各 SDK 的选项名见
 保留 [RPC 预留容量](/production/pull-workers#为-rpc-预留容量)。UI 以 RPC 的形式调用
 **get_agent_snapshot**、**send_user_message** 和 **resolve_interrupt**。没有预留时，这些
 调用要排在占满 Worker 的模型调用后面。不设置时，task 上限至少为 2 则预留一个 slot，否则为零。
-reserve-decline 计数持续上升，说明 Step 需要更多容量。
+Step 从不使用预留 slot。Step 任务队列持续增长，说明 Step 需要更多容量。相关指标见
+[Step 任务队列](/production/server-zd-operations#step-task-queue)。
 
 server-zd 默认为每个 app Worker ID 允许 256 个 stream
-（**matching.maxConcurrentTasksCap**）。一个 Worker 的 task slot 和空闲 stream 都要落在
-这个范围内。需要更多时，运行更多 Worker 进程。
+（**matching.maxConcurrentTasksCap**）。一个 Worker 为每个 task slot 打开一个 stream，
+所以它的 task 上限要落在这个范围内。需要更多时，运行更多 Worker 进程。
 
 留出余量。没有 Worker 有空闲 slot 时，Step 会在队列中等待。等待不消耗 attempt，
 也不计入 method timeout 和 heartbeat timeout。等待 slot 的一轮或一次 tool call 会花更长时间。

@@ -349,10 +349,10 @@ and stops before its final frame. This interval is internal and needs no Worker 
 
 The Worker rejects an unregistered Step or RPC by name. Dex retries that task
 on another pull Worker without consuming a Step attempt, including when the
-Flow was sticky to the rejecting Worker. If no capable Worker accepts it within
-the Server's dispatch wait,
-the Step follows its failure and retry policy; an RPC caller receives the named
-error.
+Flow was sticky to the rejecting Worker. If no connected Worker supports the
+Step type, the Step stays queued until a Worker that supports it connects, the
+Flow times out, or the Flow is stopped. An RPC caller receives the named error
+after the Server's dispatch wait.
 
 The default `appWorkerID` uses the first nonempty value from
 `DEX_WORKER_INSTANCE`, `POD_NAME`, `HOSTNAME`, or the system hostname, followed by

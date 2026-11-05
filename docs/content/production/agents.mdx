@@ -139,12 +139,14 @@ Keep the [RPC reserve](/production/pull-workers#reserved-rpc-capacity). A UI
 calls **get_agent_snapshot**, **send_user_message**, and **resolve_interrupt**
 as RPCs. Without a reserve, they wait behind model calls that fill the Worker.
 When you do not set it, the reserve is one slot if the task limit is at least
-two, otherwise zero. A rising reserve-decline counter means Steps need more
-capacity.
+two, otherwise zero. Steps never use reserved slots. A growing Step task queue
+means Steps need more capacity. See
+[Step task queue](/production/server-zd-operations#step-task-queue) for its
+metrics.
 
 server-zd allows 256 streams for each app Worker ID by default
-(**matching.maxConcurrentTasksCap**). A Worker's task slots and idle streams
-must fit within it. To grow past it, run more Worker processes.
+(**matching.maxConcurrentTasksCap**). A Worker opens one stream per task slot,
+so its task limit must fit within it. To grow past it, run more Worker processes.
 
 Keep headroom. When no Worker has a free slot, a Step waits in the queue. The
 wait uses no attempt and counts toward neither the method timeout nor the

@@ -336,9 +336,10 @@ pub fn stop_pull_greeting(
 
 ## Readiness
 
-Starting with Go SDK 1.13.0, **WaitPullRegistered** gates startup until every
-Flow type queue and the app Worker ID queue has received a registration
-acknowledgement. Java provides **waitPullRegistered(Duration)** and
+Starting with Go SDK 1.13.0, **WaitPullRegistered** gates startup until the
+Worker's slot streams have registered. Readiness needs at least one registered
+Step-and-RPC slot. When the Worker reserves RPC slots, it also needs one
+registered RPC-only slot. Java provides **waitPullRegistered(Duration)** and
 **getPullRegistrationState()**. Python provides **wait_pull_registered(timeout)**
 and **pull_registration_state()** on both Worker and AsyncWorker; await the
 AsyncWorker wait. Java's **stopOnPermanentStreamRejection** and Python's
@@ -357,13 +358,17 @@ a Tokio timeout. Opt-in fatal rejections are returned by TypeScript **run** and
 Rust **start** after draining.
 
 **WaitPullRegistered** is safe to call concurrently, including before
-**Start**. It returns a **PullRegistrationError** with the queue name and
-underlying gRPC error on a permanent rejection before readiness when the queue
-has no other registered stream. A rejected surplus stream is recorded and retried
-while another registered stream holds that queue. Startup errors
-from **Start** also reach the waiter. Cancellation returns the context error;
-stopping before readiness returns an error. Once all queues have registered,
-this wait keeps returning successfully.
+**Start**. A permanent rejection before readiness returns a
+**PullRegistrationError** when no other stream of that slot kind is registered.
+The error carries the slot kind and the underlying gRPC error. Its queue field
+holds the slot kind, not a Flow type or Worker ID. Go and Java report
+**POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or **POLL_WORKER_SLOT_KIND_RPC_ONLY**.
+Python, TypeScript, and Rust report **STEP_AND_RPC** or **RPC_ONLY**. A rejected
+stream is recorded and retried while another stream of the same kind stays
+registered. Startup errors from **Start** also reach the waiter. Cancellation
+returns the context error; stopping before readiness returns an error. Once
+every required slot kind has registered, this wait keeps returning
+successfully.
 
 The runnable examples wait for registration with a 30-second startup deadline and
 stop the Worker if startup fails. Go provides readiness in SDK 1.13.0; Java,
@@ -430,19 +435,21 @@ pub fn is_pull_greeting_ready(worker: &Worker) -> bool {
 
 </SdkTabs>
 
-**Queues** reports each queue's **HasRegisteredStream** and
-**LastPermanentError**. After initial registration, reconnects, ownership moves,
-transient disconnects, and backoff keep **IsReady** true. It becomes false only
-when a queue has no registered stream and a permanent error. Successful
-registration clears that queue's error and restores readiness when no other
-queue is failing. Stop alone does not clear readiness; remove the Worker from
-service during shutdown separately.
+**Queues** has one entry per required slot kind. Each entry reports
+**HasRegisteredStream** and **LastPermanentError**. After initial registration,
+reconnects, ownership moves, transient disconnects, and backoff keep **IsReady**
+true. It becomes false only when a slot kind has no registered stream and a
+permanent error. Successful registration clears that slot kind's error and
+restores readiness when no other slot kind is failing. Readiness does not
+depend on free slots: a Worker whose slots are all busy stays ready. Stop alone
+does not clear readiness; remove the Worker from service during shutdown
+separately.
 
 **StopOnPermanentStreamRejection** defaults to false, preserving retries.
 Set it to true to make **Start** return a **PullRegistrationError** for the first
-permanent rejection that leaves its queue without a registered stream, even
-after readiness. Rejections while another stream holds the same queue do not stop
-the Worker. Other queues may still hold streams
+permanent rejection that leaves its slot kind without a registered stream, even
+after readiness. Rejections while another stream of the same kind stays
+registered do not stop the Worker. Other streams may still be registered
 while **Start** drains them. Draining uses **StopDrainTimeout**, then requests
 cancellation and waits for handlers to return. Handlers must respond to
 cancellation. Always call **Stop** before exiting; it remains safe after
@@ -493,8 +500,7 @@ This reassignment does not consume a Step attempt. The attempt keeps its
 attempt number, input snapshot, and Attribute locks. If no
 capable Worker is connected, the Step waits in the queue. An RPC caller gets
 the named error directly after Dex tries other Workers within the caller's
-deadline, up to the dispatch wait of 10 seconds. This reassignment requires a Dex Server release that supports it.
-Against older Servers, the Worker returns the not-registered error as before.
+deadline, up to the dispatch wait of 10 seconds.
 
 Once Dex hands a Step attempt to a Worker, Dex never hands the same attempt
 number to another Worker. When the Worker disconnects or crashes, the attempt
@@ -508,55 +514,63 @@ for this case and for the cases where an attempt returns to pending without cons
 Make external side effects idempotent, for example by using the Flow ID and Step
 execution ID as an idempotency key.
 
-New SDKs require the new server. On an older server, a new SDK Worker fails to
-start and a new SDK Client fails its first call, each with a clear error.
-Older SDK Workers keep working on the new server. Upgrade the server first, then
-the SDKs, one at a time.
+New SDKs require Server protocol version 4, which server-zd releases newer than
+v0.1.16 provide. On an older server, a new SDK Worker fails to start and a new
+SDK Client fails its first call, each with a clear error. Older SDK Workers keep
+working on the new server. Upgrade the server first, then the SDKs, one at a
+time.
 
 ## Capacity and shutdown
 
-The concurrent task limit caps active calls. The idle stream count keeps
-streams ready on each queue. Defaults are the CPU count and one idle stream per
-queue. Each stream handles one call at a time. At capacity, a Worker keeps its
-idle streams and declines an extra assignment so Dex can try another Worker.
+The concurrent task limit sets the number of task slots. The default is the
+CPU count. A Worker opens one long-lived stream for each slot. Each stream
+serves the Worker's app Worker ID queue and every Flow type it registers. A
+stream is ready while it is idle and runs one task at a time. The Worker runs
+every task it receives. It never declines a task for capacity. When all slots
+are busy, Dex does not send the Worker more tasks.
 
-| SDK | Concurrent tasks | Idle streams per queue | Stop drain timeout | Shutdown |
+| SDK | Concurrent tasks | Reserved RPC slots | Stop drain timeout | Shutdown |
 | --- | --- | --- | --- | --- |
-| Go | **MaxConcurrentTasks** | **IdleStreamsPerQueue** | **StopDrainTimeout** | **Stop** |
-| Python | **max_concurrent_tasks** | **idle_streams_per_queue** | **stop_drain_timeout** | **stop** |
-| Java | **maxConcurrentTasks** | **idleStreamsPerQueue** | **stopDrainTimeout** | **stop** |
-| TypeScript | **maxConcurrentTasks** | **idleStreamsPerQueue** | **stopDrainTimeoutMs** | **close** |
-| Rust | **max_concurrent_tasks** | **idle_streams_per_queue** | **stop_drain_timeout** | **stop** |
+| Go | **MaxConcurrentTasks** | **ReservedRPCTasks** | **StopDrainTimeout** | **Stop** |
+| Python | **max_concurrent_tasks** | **reserved_rpc_tasks** | **stop_drain_timeout** | **stop** |
+| Java | **maxConcurrentTasks** | **reservedRpcTasks** | **stopDrainTimeout** | **stop** |
+| TypeScript | **maxConcurrentTasks** | **reservedRpcTasks** | **stopDrainTimeoutMs** | **close** |
+| Rust | **max_concurrent_tasks** | **reserved_rpc_tasks** | **stop_drain_timeout** | **stop** |
 
-The Java and Rust option names are builder methods. The formula below uses the TypeScript
-spellings for the two capacity values; the same bound applies to every SDK.
+The Java and Rust option names are builder methods. The idle stream options are
+deprecated: **IdleStreamsPerQueue** in Go, **idle_streams_per_queue** in Python
+and Rust, and **idleStreamsPerQueue** in Java and TypeScript. They are still
+accepted and have no effect.
 
-A Worker gracefully closes surplus idle streams after tasks finish. Each queue
-keeps at least **idleStreamsPerQueue** registered idle streams, and readiness stays
-true during this cleanup. With **F** registered Flow types and no recent reserve
-declines, the steady-state bound after load drops is
-**maxConcurrentTasks + (F + 1) × idleStreamsPerQueue** streams. The extra queue is
-the Worker's app Worker ID queue. A queue with a recent reserve decline can keep
-one more idle stream for 30 seconds after its last decline. Allow up to **F + 1**
-additional streams when sizing **matching.maxConcurrentTasksCap**, which defaults
-to 256 streams per app Worker ID. **matching.maxStreams**
-defaults to 100,000 registered streams on the node.
-The transient peak during a burst remains bounded by the matching caps.
+The stream count equals the task limit and does not change with load. It must
+fit **matching.maxConcurrentTasksCap**, which defaults to 256 streams per app
+Worker ID. Dex reports this limit when a Worker registers. If the first
+registration reports a limit below the task limit, the Worker fails to start.
+The error names both values. A task Dex already sent to that Worker returns to
+Dex without consuming an attempt. A lower limit reported on a later reconnect
+only logs a warning. **matching.maxStreams** defaults to 100,000 registered
+streams on the node, so count the slots of all Workers against it.
 **matching.maxQueueLength**,
 **matching.maxFlowTypes**, and **matching.maxFlowTypeLength** also limit
 registration. Their defaults are 256 each.
 
-Stop the Worker gracefully during deployment. The shutdown method stops taking
-new calls and waits for active handlers for the configured drain timeout, 30
-seconds by default. After the deadline, it requests cancellation and waits for handlers
-to return. Long-running handlers should respond to cancellation. A Worker also
-finishes an active call before a server-directed reconnect.
+Stop the Worker gracefully during deployment. The shutdown method starts no
+new tasks. Idle streams half-close at once. Busy streams finish their handlers,
+send the final output, and then half-close. Tasks that arrive while the Worker
+stops are not run. A task that has no output when its stream half-closes
+returns to Dex without consuming a retry, and Dex hands it to another Worker. A
+Worker also finishes an active task before a server-directed reconnect.
 
-A Worker that uses reserved-slot dispatch finishes its running tasks, sends
-their results, and then closes its streams. Tasks that arrive while it closes
-are not run. They return to Dex without consuming a retry, and Dex hands them
-to another Worker. When a slot frees up, Dex gives it to waiting RPCs before
-waiting Steps.
+The shutdown method waits up to the drain timeout, 30 seconds by default. After
+the deadline, it resets each stream whose handler is still running, requests
+cancellation, and waits for handlers to return. Dex treats a task on a reset
+stream as one that may have run, so the retry policy applies. Long-running
+handlers should respond to cancellation. A final output that Dex has not yet
+confirmed gets a 5-second flush grace. Shutdown can therefore return up to 5
+seconds after the drain deadline. Each SDK README describes its exact Stop or
+close behavior.
+
+When a slot frees up, Dex gives it to waiting RPCs before waiting Steps.
 
 ### Reserved RPC capacity
 
@@ -574,34 +588,33 @@ The reserve must be nonnegative and less than the concurrent task limit after
 its CPU-count default is resolved. Invalid values fail Worker construction.
 
 RPC tasks include both API-direct and transactional **InvokeWorkerRPC** tasks.
-RPC and Step handlers count together against the task limit. Every Step task,
-WaitFor and Execute alike, is
-declined with **NO_CAPACITY** when the busy count reaches the task limit minus
-the reserve. RPC tasks can use the full limit. For example, a limit of eight
-and a reserve of two lets Steps start only while fewer than six handlers are busy.
+RPC and Step handlers count together against the task limit. Reserved slots
+are RPC-only streams. The other slots accept both Steps and RPCs. Dex sends
+Steps, WaitFor and Execute alike, only to Step-and-RPC slots. RPCs can use
+either kind. For example, a limit of eight and a reserve of two gives six shared
+slots and two RPC-only slots.
 
-Dex tries other Workers without consuming a Step attempt. If all Workers remain
-at their Step limit, the Step waits in the queue until a Worker has a free slot.
-Idle streams stay available on every queue. A queue that declines a Step for
-reserved RPC capacity keeps one additional idle stream until 30 seconds after
-its last decline. Other queues keep their configured idle count. The Worker does
-not open this extra stream when all task slots are busy. Set
-**idleStreamsPerQueue** to at least two for Workers with heavy Step backlogs.
-Reserve declines do not close streams or change registration readiness. Each SDK
-emits a debug log with the Flow type for each reserve decline. Each Worker also
-exposes a cumulative reserve-decline counter: **PullReservedRPCDeclines()** in Go,
-**getPullReservedRpcDeclines()** in Java,
-**pullReservedRpcDeclines** in TypeScript, **pull_reserved_rpc_declines** in Python,
-and **pull_reserved_rpc_declines()** in Rust. Full-capacity rejections and unknown
-names do not increment it. It counts decline events, including repeated declines
-of the same Step dispatch while Dex retries it, so read its rate. The count never
-resets and remains available after shutdown. See
-each SDK README for logger configuration.
+Steps never use reserved slots, so a Worker never declines a Step for capacity.
+When no Worker has a free Step-and-RPC slot, the Step waits in the durable task
+queue until a slot frees up. The wait consumes no attempt. To see Step capacity
+pressure, watch the queue depth and the age of the oldest queued Step. See
+[Step task queue](/production/server-zd-operations#step-task-queue) for these
+metrics.
+
+The reserve-decline counters are deprecated: **PullReservedRPCDeclines()** in
+Go, **getPullReservedRpcDeclines()** in Java, **pullReservedRpcDeclines** in
+TypeScript, **pull_reserved_rpc_declines** in Python, and
+**pull_reserved_rpc_declines()** in Rust. They remain for source compatibility.
+On SDKs that use reserved-slot dispatch, they always read zero. Workers on
+older SDKs still decline Steps for capacity against a new server. Dex returns
+those attempts without consuming a retry and counts them with
+**reason="legacy_no_capacity"**. See
+[server-zd metrics](/production/server-zd-operations#metrics).
 
 The startup examples set the task limit to eight and explicitly reserve one slot
 for RPCs, matching the default. These diagnostics helpers expose registration
-readiness and the cumulative reserve-decline counter for monitoring. A rising
-counter indicates Step capacity pressure; it does not make the Worker unready.
+readiness and the deprecated reserve-decline counter. A full Worker stays
+ready.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/production/pull_workers.py', go: 'examples/go/production/pull-workers/worker.go', java: 'examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java', typescript: 'examples/typescript/src/production/pull-workers.ts', rust: 'examples/rust/src/production/pull_workers.rs'}}>
 

@@ -135,9 +135,10 @@ every 20 seconds until the final frame.
 
 The Worker rejects an unregistered Step or RPC by name before its handler runs.
 Dex tries another Worker without consuming a Step attempt, including when the
-Flow was sticky to the rejecting Worker. If no capable Worker accepts within
-the configured dispatch wait, the Step follows its failure and retry policy;
-an RPC caller receives the named error.
+Flow was sticky to the rejecting Worker. If no connected Worker supports the
+Step type, the Step stays queued until a Worker that supports it connects, the
+Flow times out, or the Flow is stopped. An RPC caller receives the named error
+after the Server's dispatch wait.
 
 The generated `app_worker_id` uses the first nonempty `DEX_WORKER_INSTANCE`,
 `POD_NAME`, `HOSTNAME`, or system hostname, plus eight random base32 characters.
