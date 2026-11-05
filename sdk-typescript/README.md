@@ -249,6 +249,9 @@ try {
 }
 ```
 
+This example uses plaintext gRPC. To reach a server over a network you do not
+fully control, also set `flowServiceTls`; see [TLS](#tls).
+
 After `await worker.start()`, call `await worker.waitPullRegistered({ timeoutMs: 10_000 })`
 to wait until every Flow type queue and the app Worker ID queue has registered at least once.
 The wait also accepts an `AbortSignal` as `signal`. It is safe before startup and for concurrent
@@ -701,8 +704,60 @@ owns it; closing a Client or Worker does not close the credential. It holds no
 persistent HTTP client or idle background task; an active exchange ends within
 its timeout.
 
-The bearer token travels over the SDK's plaintext gRPC connection. Protect
-the network path between the application and Dex.
+The bearer token travels as call metadata on the FlowService connection. That
+connection is plaintext unless `flowServiceTls` is set, so use TLS whenever the
+application reaches Dex over a network you do not fully control.
+
+### TLS
+
+Set `ClientOptions.flowServiceTls` and `WorkerOptions.flowServiceTls` to connect
+to a TLS endpoint, such as a server behind a TLS-terminating gateway. Omitting
+the option keeps plaintext gRPC, which suits a local `dexcli dev` server. Setting
+it, even to `{}`, uses TLS 1.2 or newer, verifies the server certificate, and
+offers HTTP/2 with ALPN h2. The Worker applies it to startup, blob hydration,
+and its pull task streams. `FileCredential`, `ApiKeyCredential`, and custom
+credentials send their tokens on the TLS connection unchanged.
+
+```typescript
+import { readFileSync } from "node:fs";
+import { Client, FileCredential, Worker, type FlowServiceTlsOptions } from "@superdurable/dex";
+
+const flowServiceTls: FlowServiceTlsOptions = {
+  additionalRootCAsPem: readFileSync("/etc/dex/root-ca.pem"),
+};
+const credential = new FileCredential("/var/run/secrets/dex/token");
+const serverAddress = "dex.example.com:443";
+const worker = new Worker(registry, cache, { serverAddress, flowServiceTls, credential, pull: {} });
+const client = new Client(registry, cache, { serverAddress, flowServiceTls, credential });
+try {
+  await worker.start();
+  await worker.waitPullRegistered({ timeoutMs: 10_000 });
+  await client.startFlow(flow, flowId, input);
+} finally {
+  await client.close();
+  await worker.close();
+}
+```
+
+- `additionalRootCAsPem` adds PEM root CAs, as a string or bytes, to the Node.js
+  default trust store. Omit it when a public CA signs the server certificate.
+  The default store is the bundled Mozilla roots plus `NODE_EXTRA_CA_CERTS`; it
+  includes the operating system store only when Node.js runs with
+  `--use-system-ca`. A nonempty bundle must contain at least one parsable
+  certificate.
+- `serverName` overrides the address host for certificate verification, SNI,
+  and HTTP/2 `:authority`. Set it only when the certificate name differs from
+  the address host. It must be a DNS name or IP address without a port.
+- With TLS, `serverAddress` must be `host:port`, `dns:///host:port`, or
+  `dns://authority/host:port`. Other resolver schemes, such as `unix:`, work
+  only with plaintext.
+- An invalid address or TLS option makes the constructor throw `TypeError`.
+  Connections open on demand, so certificate and handshake failures appear as
+  `UNAVAILABLE` on the first Client call or as a `Worker.start` rejection.
+- Prefer a DNS name. An IP address needs a matching IP SAN. Node.js 22 and 24
+  send it as SNI with a DEP0123 warning, and Node.js 26 rejects IP SNI.
+- The option does not affect the `ApiKeyCredential` token endpoint, which
+  always uses HTTPS except on loopback.
 
 ## Errors
 
@@ -804,6 +859,11 @@ flag and contributes to the TypeScript SDK component defined in the root
 project and patch coverage in its dashboard, GitHub checks, and PR comments.
 The Actions run also publishes the complete HTML report as
 `sdk-typescript-integration-coverage`.
+
+`test/integ/flow-service-tls.integration.test.ts` starts its own
+token-authenticated `dex-server-zd` behind a TLS-terminating proxy. It reads the
+binary from `DEX_SERVER_ZD_BINARY`, which `run-integration-tests.sh` sets, and
+creates its test CA with the `openssl` command.
 
 The complete legacy IWF integration inventory lives under
 [`test/integ`](test/integ/README.md). Its Flow fixtures retain the Java

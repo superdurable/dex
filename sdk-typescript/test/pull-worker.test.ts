@@ -33,6 +33,7 @@ import {
   type PollWorkerTaskResponse,
   type WorkerTaskServiceServer,
 } from "../src/gen/dex.js";
+import { createFlowServiceChannel } from "../src/flow-service-tls.js";
 import { workerErrorResponse } from "../src/grpc-status.js";
 import { PullWorker } from "../src/pull-worker.js";
 import type { StepOutputEmitter } from "../src/invocation-context.js";
@@ -83,7 +84,7 @@ test("unset reserve defaults to one and a one-slot Worker warns once", async (co
 for (const reservedRpcTasks of [-1, 2, 3, 0.5, NaN, Infinity]) {
   test(`invalid RPC reserve ${reservedRpcTasks} is rejected`, () => {
     assert.throws(() => new PullWorker(new Registry([]), {} as WorkerDispatcher,
-      "127.0.0.1:1", { maxConcurrentTasks: 2, reservedRpcTasks }), RangeError);
+      plaintextChannel("127.0.0.1:1"), { maxConcurrentTasks: 2, reservedRpcTasks }), RangeError);
   });
 }
 
@@ -200,7 +201,7 @@ test("reserve pressure keeps an extra stream only on the declining queue until e
   const dispatcher = {
     invokeExecute: async () => { await gate; return {}; },
   } as unknown as WorkerDispatcher;
-  const worker = new PullWorker(new Registry([new TestFlow()]), dispatcher, harness.address,
+  const worker = new PullWorker(new Registry([new TestFlow()]), dispatcher, plaintextChannel(harness.address),
     { maxConcurrentTasks: 3, reservedRpcTasks: 1 }, undefined, () => {}, 1_500);
   Reflect.set(worker, "registeredFlows", new Map([["TestFlow", {
     steps: [{ name: "TestStep" }], rpcs: [],
@@ -266,8 +267,8 @@ test("reserve pressure keeps an extra stream only on the declining queue until e
 test("generated appWorkerID uses host identity and eight base32 characters", async () => {
   const registry = new Registry([]);
   const dispatcher = {} as WorkerDispatcher;
-  const first = new PullWorker(registry, dispatcher, "127.0.0.1:1", {});
-  const second = new PullWorker(registry, dispatcher, "127.0.0.1:1", {});
+  const first = new PullWorker(registry, dispatcher, plaintextChannel("127.0.0.1:1"), {});
+  const second = new PullWorker(registry, dispatcher, plaintextChannel("127.0.0.1:1"), {});
   try {
     assert.match(first.appWorkerID, /^[A-Za-z0-9._-]{1,54}-[a-z2-7]{8}$/);
     assert.notEqual(first.appWorkerID, second.appWorkerID);
@@ -288,7 +289,7 @@ test("generated appWorkerID uses HOSTNAME when higher-priority identities are ab
   process.env.HOSTNAME = "Pull.Worker Example";
   let worker: PullWorker | undefined;
   try {
-    worker = new PullWorker(new Registry([]), {} as WorkerDispatcher, "127.0.0.1:1", {});
+    worker = new PullWorker(new Registry([]), {} as WorkerDispatcher, plaintextChannel("127.0.0.1:1"), {});
     assert.match(worker.appWorkerID, /^pull-worker-example-[a-z2-7]{8}$/);
   } finally {
     await worker?.close();
@@ -997,14 +998,14 @@ async function startHarness() {
         invocationCount++;
         return invokeRPC(request, signal);
       } } as WorkerDispatcher;
-      const worker = new PullWorker(new Registry([]), dispatcher, `127.0.0.1:${port}`, options, undefined, onPermanentRejection);
+      const worker = new PullWorker(new Registry([]), dispatcher, plaintextChannel(`127.0.0.1:${port}`), options, undefined, onPermanentRejection);
       Reflect.set(worker, "registeredFlows", new Map([["TestFlow", {
         steps: [{ name: "TestStep" }], rpcs: [{ name: "getWorker" }],
       }]]));
       return worker;
     },
     workerWithDispatcher(dispatcher: WorkerDispatcher) {
-      const worker = new PullWorker(new Registry([]), dispatcher, `127.0.0.1:${port}`, {});
+      const worker = new PullWorker(new Registry([]), dispatcher, plaintextChannel(`127.0.0.1:${port}`), {});
       Reflect.set(worker, "registeredFlows", new Map([["TestFlow", {
         steps: [{ name: "TestStep" }], rpcs: [{ name: "getWorker" }],
       }]]));
@@ -1234,3 +1235,7 @@ test("Context heartbeat rejects without synchronous throws after its task stream
     await harness.close();
   }
 });
+
+function plaintextChannel(serverAddress: string) {
+  return createFlowServiceChannel(serverAddress, undefined);
+}

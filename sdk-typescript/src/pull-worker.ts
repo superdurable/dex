@@ -11,13 +11,13 @@ import { randomBytes } from "node:crypto";
 import { availableParallelism, hostname } from "node:os";
 
 import {
-  credentials,
   status,
   type ClientDuplexStream,
   type ServiceError,
 } from "@grpc/grpc-js";
 
 import { ApiKeyCredential, credentialInterceptors, type Credential } from "./credential.js";
+import type { FlowServiceChannel } from "./flow-service-tls.js";
 import { registeredFlow, type RegisteredFlow, type Registry } from "./flow.js";
 import {
   InvokeExecuteMethodOutput,
@@ -97,7 +97,7 @@ export class PullWorker {
   public constructor(
     registry: Registry,
     private readonly dispatcher: WorkerDispatcher,
-    serverAddress: string,
+    channel: FlowServiceChannel,
     private readonly options: PullWorkerOptions,
     credential?: Credential,
     private readonly onPermanentRejection: () => void = () => {},
@@ -128,7 +128,7 @@ export class PullWorker {
     }
     this.queues = [this.appWorkerID, ...this.flowTypes];
     this.registration = new PullRegistration(this.queues);
-    this.client = createWorkerTaskClient(serverAddress, credential);
+    this.client = createWorkerTaskClient(channel, credential);
     this.hasRefreshableCredential = credential instanceof ApiKeyCredential;
   }
 
@@ -723,8 +723,9 @@ function generateAppWorkerID(): string {
   return `${sanitized}-${suffix}`;
 }
 
-function createWorkerTaskClient(serverAddress: string, credential: Credential | undefined): InstanceType<typeof WorkerTaskServiceClient> {
-  return new WorkerTaskServiceClient(serverAddress, credentials.createInsecure(), {
+function createWorkerTaskClient(channel: FlowServiceChannel, credential: Credential | undefined): InstanceType<typeof WorkerTaskServiceClient> {
+  return new WorkerTaskServiceClient(channel.target, channel.channelCredentials, {
+    ...channel.channelOptions,
     interceptors: credentialInterceptors(credential),
   });
 }

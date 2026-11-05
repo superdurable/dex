@@ -6,10 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Metadata, credentials } from "@grpc/grpc-js";
+import { Metadata } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import { credentialInterceptors } from "./credential.js";
+import { createFlowServiceChannel } from "./flow-service-tls.js";
 import { FlowServiceClient, type ServerInfo } from "./gen/dex.js";
 import { registeredAttributeIndexes, type Registry } from "./flow.js";
 import type { WorkerOptions } from "./options.js";
@@ -55,7 +56,7 @@ export class Worker {
    * @param registry - Flow definitions served by this Worker.
    * @param blobCache - Open cache used to hydrate large handler values.
    * @param options - Server connectivity, task capacity, bearer credential, and startup settings; uses local defaults when omitted.
-   * @throws {TypeError} When the Worker ID is invalid.
+   * @throws {TypeError} When the Worker ID is invalid, or `flowServiceTls` is set and the address or TLS settings are invalid.
    * @throws {RangeError} When a pull capacity or drain timeout is invalid.
    */
   public constructor(
@@ -63,10 +64,11 @@ export class Worker {
     public readonly blobCache: BlobCache,
     public readonly options: WorkerOptions = {},
   ) {
+    const channel = createFlowServiceChannel(options.serverAddress ?? "localhost:8801", options.flowServiceTls);
     this.flowService = new FlowServiceClient(
-      options.serverAddress ?? "localhost:8801",
-      credentials.createInsecure(),
-      { interceptors: credentialInterceptors(options.credential) },
+      channel.target,
+      channel.channelCredentials,
+      { ...channel.channelOptions, interceptors: credentialInterceptors(options.credential) },
     );
     const dispatcher = new WorkerDispatcher(
       registry,
@@ -75,7 +77,7 @@ export class Worker {
     );
     try {
       this.pullWorker = new PullWorker(
-        registry, dispatcher, options.serverAddress ?? "localhost:8801", options.pull ?? {},
+        registry, dispatcher, channel, options.pull ?? {},
         options.credential, () => this.stopAfterPermanentRejection(),
       );
     } catch (failure) {

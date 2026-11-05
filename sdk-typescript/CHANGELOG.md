@@ -4,6 +4,11 @@
 
 ### Added and fixed
 
+- Add `ClientOptions.flowServiceTls` and `WorkerOptions.flowServiceTls` with the
+  `FlowServiceTlsOptions` type. Setting it connects to Dex over TLS with the
+  Node.js default trust store, optional `additionalRootCAsPem`, an optional
+  `serverName` override, and ALPN h2. Bearer credentials are sent on the TLS
+  connection. Omitting it keeps plaintext gRPC unchanged.
 - Add `Client.getAttributes(flowId, ...reads)`, which reads committed values of
   registered Attributes and AttributeMap instances in one request, without an
   RPC or Worker. It returns a typed tuple in read order whose elements are

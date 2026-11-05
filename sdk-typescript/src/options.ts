@@ -14,10 +14,93 @@ import { requireMapInstance, requireName } from "./validation.js";
 
 /** Configures FlowService connectivity and bearer credentials. */
 export interface ClientOptions {
-  /** Plaintext Dex gRPC target; defaults to `localhost:8801`. */
+  /** Dex gRPC target, plaintext unless `flowServiceTls` is set; defaults to `localhost:8801`. */
   readonly serverAddress?: string;
   /** Bearer token provider for every FlowService call; omitted sends no authorization metadata. */
   readonly credential?: Credential;
+  /** TLS settings for the FlowService connection; omitted keeps plaintext gRPC. See {@link FlowServiceTlsOptions}. */
+  readonly flowServiceTls?: FlowServiceTlsOptions;
+}
+
+/**
+ * Enables TLS for a Client or Worker FlowService connection.
+ *
+ * Set `ClientOptions.flowServiceTls` and `WorkerOptions.flowServiceTls` independently.
+ * Omitting the option keeps plaintext gRPC, exactly as before.
+ * Setting it, even to `{}`, uses TLS 1.2 or newer and verifies the server certificate.
+ * The connection offers HTTP/2 through ALPN h2.
+ * The endpoint or gateway must accept ALPN h2 and forward gRPC over HTTP/2.
+ *
+ * Certificates are verified against the Node.js default trust store.
+ * That store is the bundled Mozilla roots plus `NODE_EXTRA_CA_CERTS`.
+ * It includes the operating system store only when Node.js runs with `--use-system-ca`.
+ * Use `additionalRootCAsPem` for a private CA.
+ *
+ * The `serverAddress` host is the default certificate name and SNI.
+ * Without `serverName`, HTTP/2 :authority is the address host and port, as with plaintext.
+ * An IPv6 address keeps its brackets in :authority.
+ * With TLS, `serverAddress` accepts only `host:port`, `dns:///host:port`,
+ * or `dns://authority/host:port` with an explicit DNS resolver authority.
+ * The DNS resolver authority never becomes the certificate name or :authority.
+ * Other gRPC resolver schemes, such as `unix:`, work only with plaintext connections.
+ * An invalid address or option makes the Client or Worker constructor throw `TypeError`.
+ *
+ * Connections open on demand.
+ * Certificate, hostname, and handshake failures therefore appear as `UNAVAILABLE`
+ * on the first Client call, or as a rejection from `Worker.start`.
+ * The Worker applies the settings to its FlowService calls and its pull task streams.
+ * Bearer credentials such as `FileCredential` and `ApiKeyCredential`
+ * are sent as call metadata on the TLS connection.
+ * The `ApiKeyCredential` token endpoint is not affected; configure its `tokenUrl` and `fetch` separately.
+ * An IP address target or IP `serverName` needs a matching IP SAN in the certificate.
+ * Node.js 22 and 24 send that IP address as SNI and emit a DEP0123 warning.
+ * Node.js 26 rejects IP SNI, so prefer a DNS name.
+ *
+ * @example
+ * ```ts
+ * import { readFileSync } from "node:fs";
+ * import { Client, FileCredential, Worker, type FlowServiceTlsOptions } from "@superdurable/dex";
+ *
+ * const flowServiceTls: FlowServiceTlsOptions = {
+ *   additionalRootCAsPem: readFileSync("/etc/dex/root-ca.pem"),
+ * };
+ * const credential = new FileCredential("/var/run/secrets/dex/token");
+ * const serverAddress = "dex.example.com:443";
+ * const worker = new Worker(registry, cache, { serverAddress, flowServiceTls, credential, pull: {} });
+ * const client = new Client(registry, cache, { serverAddress, flowServiceTls, credential });
+ * try {
+ *   await worker.start();
+ *   await worker.waitPullRegistered({ timeoutMs: 10_000 });
+ *   await client.startFlow(orders, "order-42", input);
+ * } finally {
+ *   await client.close();
+ *   await worker.close();
+ * }
+ * ```
+ */
+export interface FlowServiceTlsOptions {
+  /**
+   * Adds PEM-encoded root CAs to the Node.js default trust store.
+   * Omitted or empty uses the default trust store alone.
+   * The value is read when the Client or Worker is constructed; later file changes are not watched.
+   * At least one certificate must parse from a nonempty bundle, or the constructor throws `TypeError`.
+   * Non-certificate and unparsable PEM blocks are skipped when another certificate parses.
+   * Without a default root or an added CA that trusts the server, verification fails on connection.
+   */
+  readonly additionalRootCAsPem?: string | Uint8Array;
+  /**
+   * Overrides the `serverAddress` host for certificate verification, SNI, and HTTP/2 :authority.
+   * Omitted or empty uses the `serverAddress` host for verification and SNI, and its host and port for :authority.
+   * Set it only when the certificate name differs from the address host.
+   * A nonempty value is also sent as :authority, without a port.
+   * A gateway that routes by :authority must accept that name.
+   * Use a DNS name or IP address without a port.
+   * An IP address requires a matching IP SAN and is sent as SNI; see the IP note above.
+   * An IPv6 value is sent as an unbracketed :authority, which strict HTTP/2 servers reject.
+   * For an IPv6 endpoint, omit it or use a DNS name that the certificate covers.
+   * An invalid value makes the Client or Worker constructor throw `TypeError`.
+   */
+  readonly serverName?: string;
 }
 
 /**
@@ -479,6 +562,8 @@ export interface WorkerOptions {
   readonly serverAddress?: string;
   /** Bearer token provider for startup, hydration, and pull streams; omitted sends no authorization metadata. */
   readonly credential?: Credential;
+  /** TLS settings for startup, hydration, and pull streams; omitted keeps plaintext gRPC. See {@link FlowServiceTlsOptions}. */
+  readonly flowServiceTls?: FlowServiceTlsOptions;
   /** Startup Indexed Attribute synchronization deadline in milliseconds. Defaults to 120000. */
   readonly attributeIndexSyncTimeoutMs?: number;
 }

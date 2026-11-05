@@ -37,6 +37,7 @@ import {
   type WorkerTaskServiceServer,
 } from "../src/gen/dex.js";
 import { credentialInterceptors } from "../src/credential.js";
+import { createFlowServiceChannel } from "../src/flow-service-tls.js";
 import { PullWorker } from "../src/pull-worker.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 
@@ -457,7 +458,7 @@ test("pull stream credential failures back off without opening a stream", async 
   const previousConsoleError = console.error;
   const loggedFailures: unknown[][] = [];
   console.error = (...values: unknown[]) => { loggedFailures.push(values); };
-  const worker = new PullWorker(new Registry([]), {} as WorkerDispatcher, server.address, {}, {
+  const worker = new PullWorker(new Registry([]), {} as WorkerDispatcher, createFlowServiceChannel(server.address, undefined), {}, {
     token: () => { throw new Error("file unavailable"); },
   });
   try {
