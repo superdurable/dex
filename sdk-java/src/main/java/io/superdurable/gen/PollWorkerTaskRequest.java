@@ -188,6 +188,8 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+   * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -200,6 +202,8 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+   * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -215,6 +219,8 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+   * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1078,6 +1084,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1090,6 +1098,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1112,6 +1122,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1132,6 +1144,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1150,6 +1164,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1177,6 +1193,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1200,6 +1218,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1210,6 +1230,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1228,6 +1250,8 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+     * NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>

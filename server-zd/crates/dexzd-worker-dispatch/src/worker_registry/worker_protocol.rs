@@ -119,6 +119,7 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
                 frame: Some(poll_worker_task_response::Frame::Registered(
                     PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: true,
+                        ..Default::default()
                     },
                 )),
             }))

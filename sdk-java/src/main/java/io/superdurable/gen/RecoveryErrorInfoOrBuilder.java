@@ -11,11 +11,19 @@ public interface RecoveryErrorInfoOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
+   * <pre>
+   * Describes the failure.
+   * </pre>
+   *
    * <code>string detail = 1;</code>
    * @return The detail.
    */
   java.lang.String getDetail();
   /**
+   * <pre>
+   * Describes the failure.
+   * </pre>
+   *
    * <code>string detail = 1;</code>
    * @return The bytes for detail.
    */
@@ -23,14 +31,43 @@ public interface RecoveryErrorInfoOrBuilder extends
       getDetailBytes();
 
   /**
+   * <pre>
+   * Identifies the failure type.
+   * </pre>
+   *
    * <code>string error_type = 2;</code>
    * @return The errorType.
    */
   java.lang.String getErrorType();
   /**
+   * <pre>
+   * Identifies the failure type.
+   * </pre>
+   *
    * <code>string error_type = 2;</code>
    * @return The bytes for errorType.
    */
   com.google.protobuf.ByteString
       getErrorTypeBytes();
+
+  /**
+   * <pre>
+   * Furthest progress across all attempts of this Step method call.
+   * Use in recovery to decide whether side effects may have happened.
+   * </pre>
+   *
+   * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+   * @return The enum numeric value on the wire for attemptProgress.
+   */
+  int getAttemptProgressValue();
+  /**
+   * <pre>
+   * Furthest progress across all attempts of this Step method call.
+   * Use in recovery to decide whether side effects may have happened.
+   * </pre>
+   *
+   * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+   * @return The attemptProgress.
+   */
+  io.superdurable.gen.StepAttemptProgress getAttemptProgress();
 }

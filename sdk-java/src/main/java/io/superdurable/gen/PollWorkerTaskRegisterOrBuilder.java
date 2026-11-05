@@ -13,6 +13,8 @@ public interface PollWorkerTaskRegisterOrBuilder extends
   /**
    * <pre>
    * Names this stream's queue: app_worker_id or one declared flow_type.
+   * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+   * sticky queue (app_worker_id) and every Flow type in flow_types.
    * </pre>
    *
    * <code>string queue = 1;</code>
@@ -22,6 +24,8 @@ public interface PollWorkerTaskRegisterOrBuilder extends
   /**
    * <pre>
    * Names this stream's queue: app_worker_id or one declared flow_type.
+   * Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
+   * sticky queue (app_worker_id) and every Flow type in flow_types.
    * </pre>
    *
    * <code>string queue = 1;</code>
@@ -130,4 +134,36 @@ public interface PollWorkerTaskRegisterOrBuilder extends
    */
   com.google.protobuf.ByteString
       getSdkVersionBytes();
+
+  /**
+   * <pre>
+   * When true, this stream is one reserved Worker execution slot, ready whenever idle.
+   * The Worker executes every received task and never rejects for capacity.
+   * Dex treats NO_CAPACITY on this stream as a protocol error.
+   * When false, the Worker keeps the per-queue behavior.
+   * </pre>
+   *
+   * <code>bool supports_reserved_slot_dispatch = 6;</code>
+   * @return The supportsReservedSlotDispatch.
+   */
+  boolean getSupportsReservedSlotDispatch();
+
+  /**
+   * <pre>
+   * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+   * @return The enum numeric value on the wire for slotKind.
+   */
+  int getSlotKindValue();
+  /**
+   * <pre>
+   * Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+   * </pre>
+   *
+   * <code>.dex.PollWorkerSlotKind slot_kind = 7;</code>
+   * @return The slotKind.
+   */
+  io.superdurable.gen.PollWorkerSlotKind getSlotKind();
 }

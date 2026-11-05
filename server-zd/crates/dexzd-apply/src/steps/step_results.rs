@@ -568,6 +568,7 @@ fn recovery_error(
     RecoveryErrorInfo {
         detail,
         error_type: error_type.to_owned(),
+        ..Default::default()
     }
 }
 

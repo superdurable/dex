@@ -19,4 +19,16 @@ public interface PollWorkerTaskRegisteredOrBuilder extends
    * @return The supportsUnknownNameRejection.
    */
   boolean getSupportsUnknownNameRejection();
+
+  /**
+   * <pre>
+   * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+   * Zero means the Server does not report a limit.
+   * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
+   * </pre>
+   *
+   * <code>uint32 max_concurrent_tasks_per_app_worker = 2;</code>
+   * @return The maxConcurrentTasksPerAppWorker.
+   */
+  int getMaxConcurrentTasksPerAppWorker();
 }

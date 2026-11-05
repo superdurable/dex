@@ -6,6 +6,10 @@
 package io.superdurable.gen;
 
 /**
+ * <pre>
+ * Describes a Step method failure for its recovery path.
+ * </pre>
+ *
  * Protobuf type {@code dex.RecoveryErrorInfo}
  */
 @com.google.protobuf.Generated
@@ -30,6 +34,7 @@ private static final long serialVersionUID = 0L;
   private RecoveryErrorInfo() {
     detail_ = "";
     errorType_ = "";
+    attemptProgress_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -54,6 +59,10 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object detail_ = "";
   /**
+   * <pre>
+   * Describes the failure.
+   * </pre>
+   *
    * <code>string detail = 1;</code>
    * @return The detail.
    */
@@ -71,6 +80,10 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
+   * <pre>
+   * Describes the failure.
+   * </pre>
+   *
    * <code>string detail = 1;</code>
    * @return The bytes for detail.
    */
@@ -93,6 +106,10 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object errorType_ = "";
   /**
+   * <pre>
+   * Identifies the failure type.
+   * </pre>
+   *
    * <code>string error_type = 2;</code>
    * @return The errorType.
    */
@@ -110,6 +127,10 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
+   * <pre>
+   * Identifies the failure type.
+   * </pre>
+   *
    * <code>string error_type = 2;</code>
    * @return The bytes for errorType.
    */
@@ -126,6 +147,34 @@ private static final long serialVersionUID = 0L;
     } else {
       return (com.google.protobuf.ByteString) ref;
     }
+  }
+
+  public static final int ATTEMPT_PROGRESS_FIELD_NUMBER = 3;
+  private int attemptProgress_ = 0;
+  /**
+   * <pre>
+   * Furthest progress across all attempts of this Step method call.
+   * Use in recovery to decide whether side effects may have happened.
+   * </pre>
+   *
+   * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+   * @return The enum numeric value on the wire for attemptProgress.
+   */
+  @java.lang.Override public int getAttemptProgressValue() {
+    return attemptProgress_;
+  }
+  /**
+   * <pre>
+   * Furthest progress across all attempts of this Step method call.
+   * Use in recovery to decide whether side effects may have happened.
+   * </pre>
+   *
+   * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+   * @return The attemptProgress.
+   */
+  @java.lang.Override public io.superdurable.gen.StepAttemptProgress getAttemptProgress() {
+    io.superdurable.gen.StepAttemptProgress result = io.superdurable.gen.StepAttemptProgress.forNumber(attemptProgress_);
+    return result == null ? io.superdurable.gen.StepAttemptProgress.UNRECOGNIZED : result;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -148,6 +197,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 2, errorType_);
     }
+    if (attemptProgress_ != io.superdurable.gen.StepAttemptProgress.STEP_ATTEMPT_PROGRESS_UNSPECIFIED.getNumber()) {
+      output.writeEnum(3, attemptProgress_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -157,6 +209,10 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(2, errorType_);
+    }
+    if (attemptProgress_ != io.superdurable.gen.StepAttemptProgress.STEP_ATTEMPT_PROGRESS_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(3, attemptProgress_);
     }
     return size;
   }
@@ -186,6 +242,7 @@ private static final long serialVersionUID = 0L;
         .equals(other.getDetail())) return false;
     if (!getErrorType()
         .equals(other.getErrorType())) return false;
+    if (attemptProgress_ != other.attemptProgress_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -201,6 +258,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getDetail().hashCode();
     hash = (37 * hash) + ERROR_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getErrorType().hashCode();
+    hash = (37 * hash) + ATTEMPT_PROGRESS_FIELD_NUMBER;
+    hash = (53 * hash) + attemptProgress_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -299,6 +358,10 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * Describes a Step method failure for its recovery path.
+   * </pre>
+   *
    * Protobuf type {@code dex.RecoveryErrorInfo}
    */
   public static final class Builder extends
@@ -334,6 +397,7 @@ private static final long serialVersionUID = 0L;
       bitField0_ = 0;
       detail_ = "";
       errorType_ = "";
+      attemptProgress_ = 0;
       return this;
     }
 
@@ -373,6 +437,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000002) != 0)) {
         result.errorType_ = errorType_;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.attemptProgress_ = attemptProgress_;
+      }
     }
 
     @java.lang.Override
@@ -396,6 +463,9 @@ private static final long serialVersionUID = 0L;
         errorType_ = other.errorType_;
         bitField0_ |= 0x00000002;
         onChanged();
+      }
+      if (other.attemptProgress_ != 0) {
+        setAttemptProgressValue(other.getAttemptProgressValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -433,6 +503,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 24: {
+              attemptProgress_ = input.readEnum();
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 24
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -452,6 +527,10 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object detail_ = "";
     /**
+     * <pre>
+     * Describes the failure.
+     * </pre>
+     *
      * <code>string detail = 1;</code>
      * @return The detail.
      */
@@ -468,6 +547,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Describes the failure.
+     * </pre>
+     *
      * <code>string detail = 1;</code>
      * @return The bytes for detail.
      */
@@ -485,6 +568,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Describes the failure.
+     * </pre>
+     *
      * <code>string detail = 1;</code>
      * @param value The detail to set.
      * @return This builder for chaining.
@@ -498,6 +585,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Describes the failure.
+     * </pre>
+     *
      * <code>string detail = 1;</code>
      * @return This builder for chaining.
      */
@@ -508,6 +599,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Describes the failure.
+     * </pre>
+     *
      * <code>string detail = 1;</code>
      * @param value The bytes for detail to set.
      * @return This builder for chaining.
@@ -524,6 +619,10 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object errorType_ = "";
     /**
+     * <pre>
+     * Identifies the failure type.
+     * </pre>
+     *
      * <code>string error_type = 2;</code>
      * @return The errorType.
      */
@@ -540,6 +639,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Identifies the failure type.
+     * </pre>
+     *
      * <code>string error_type = 2;</code>
      * @return The bytes for errorType.
      */
@@ -557,6 +660,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Identifies the failure type.
+     * </pre>
+     *
      * <code>string error_type = 2;</code>
      * @param value The errorType to set.
      * @return This builder for chaining.
@@ -570,6 +677,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Identifies the failure type.
+     * </pre>
+     *
      * <code>string error_type = 2;</code>
      * @return This builder for chaining.
      */
@@ -580,6 +691,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Identifies the failure type.
+     * </pre>
+     *
      * <code>string error_type = 2;</code>
      * @param value The bytes for errorType to set.
      * @return This builder for chaining.
@@ -590,6 +705,83 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       errorType_ = value;
       bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+
+    private int attemptProgress_ = 0;
+    /**
+     * <pre>
+     * Furthest progress across all attempts of this Step method call.
+     * Use in recovery to decide whether side effects may have happened.
+     * </pre>
+     *
+     * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+     * @return The enum numeric value on the wire for attemptProgress.
+     */
+    @java.lang.Override public int getAttemptProgressValue() {
+      return attemptProgress_;
+    }
+    /**
+     * <pre>
+     * Furthest progress across all attempts of this Step method call.
+     * Use in recovery to decide whether side effects may have happened.
+     * </pre>
+     *
+     * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+     * @param value The enum numeric value on the wire for attemptProgress to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAttemptProgressValue(int value) {
+      attemptProgress_ = value;
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Furthest progress across all attempts of this Step method call.
+     * Use in recovery to decide whether side effects may have happened.
+     * </pre>
+     *
+     * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+     * @return The attemptProgress.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StepAttemptProgress getAttemptProgress() {
+      io.superdurable.gen.StepAttemptProgress result = io.superdurable.gen.StepAttemptProgress.forNumber(attemptProgress_);
+      return result == null ? io.superdurable.gen.StepAttemptProgress.UNRECOGNIZED : result;
+    }
+    /**
+     * <pre>
+     * Furthest progress across all attempts of this Step method call.
+     * Use in recovery to decide whether side effects may have happened.
+     * </pre>
+     *
+     * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+     * @param value The attemptProgress to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setAttemptProgress(io.superdurable.gen.StepAttemptProgress value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000004;
+      attemptProgress_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Furthest progress across all attempts of this Step method call.
+     * Use in recovery to decide whether side effects may have happened.
+     * </pre>
+     *
+     * <code>.dex.StepAttemptProgress attempt_progress = 3;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAttemptProgress() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      attemptProgress_ = 0;
       onChanged();
       return this;
     }

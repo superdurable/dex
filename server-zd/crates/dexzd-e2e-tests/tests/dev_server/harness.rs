@@ -275,6 +275,7 @@ async fn register_pull_stream(
                     flow_types: vec![flow_type.to_owned()],
                     sdk_name: "dexzd-e2e-tests".to_owned(),
                     sdk_version: "0".to_owned(),
+                    ..Default::default()
                 },
             )),
         })

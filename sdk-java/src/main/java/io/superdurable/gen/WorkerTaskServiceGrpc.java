@@ -4,7 +4,7 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
 
 /**
  * <pre>
- * Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+ * Hosted by Dex server; pull Workers open streams for at most one task at a time.
  * </pre>
  */
 @javax.annotation.Generated(
@@ -95,14 +95,20 @@ public final class WorkerTaskServiceGrpc {
 
   /**
    * <pre>
-   * Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+   * Hosted by Dex server; pull Workers open streams for at most one task at a time.
    * </pre>
    */
   public interface AsyncService {
 
     /**
      * <pre>
-     * Exchanges registration, task, result, and control frames for one Dex task queue.
+     * Exchanges registration, task, result, and control frames for a queue or reserved execution slot.
+     * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
+     * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision.
+     * On clean half-close, Dex treats a sent task without output as not delivered
+     * and dispatches it again with the same attempt number.
+     * A Worker must send a started task's final output before half-closing its stream.
+     * A transport error or reset instead means the Worker may have run the task.
      * </pre>
      */
     default io.grpc.stub.StreamObserver<io.superdurable.gen.PollWorkerTaskRequest> pollWorkerTask(
@@ -114,7 +120,7 @@ public final class WorkerTaskServiceGrpc {
   /**
    * Base class for the server implementation of the service WorkerTaskService.
    * <pre>
-   * Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+   * Hosted by Dex server; pull Workers open streams for at most one task at a time.
    * </pre>
    */
   public static abstract class WorkerTaskServiceImplBase
@@ -128,7 +134,7 @@ public final class WorkerTaskServiceGrpc {
   /**
    * A stub to allow clients to do asynchronous rpc calls to service WorkerTaskService.
    * <pre>
-   * Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+   * Hosted by Dex server; pull Workers open streams for at most one task at a time.
    * </pre>
    */
   public static final class WorkerTaskServiceStub
@@ -146,7 +152,13 @@ public final class WorkerTaskServiceGrpc {
 
     /**
      * <pre>
-     * Exchanges registration, task, result, and control frames for one Dex task queue.
+     * Exchanges registration, task, result, and control frames for a queue or reserved execution slot.
+     * To stop taking work, a reserved-slot Worker cleanly half-closes an idle stream's request side
+     * and keeps reading until Dex ends the stream. It drops tasks arriving after that decision.
+     * On clean half-close, Dex treats a sent task without output as not delivered
+     * and dispatches it again with the same attempt number.
+     * A Worker must send a started task's final output before half-closing its stream.
+     * A transport error or reset instead means the Worker may have run the task.
      * </pre>
      */
     public io.grpc.stub.StreamObserver<io.superdurable.gen.PollWorkerTaskRequest> pollWorkerTask(
@@ -159,7 +171,7 @@ public final class WorkerTaskServiceGrpc {
   /**
    * A stub to allow clients to do synchronous rpc calls to service WorkerTaskService.
    * <pre>
-   * Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+   * Hosted by Dex server; pull Workers open streams for at most one task at a time.
    * </pre>
    */
   public static final class WorkerTaskServiceBlockingStub
@@ -179,7 +191,7 @@ public final class WorkerTaskServiceGrpc {
   /**
    * A stub to allow clients to do ListenableFuture-style rpc calls to service WorkerTaskService.
    * <pre>
-   * Hosted by Dex server; pull Workers open one queue stream for at most one task at a time.
+   * Hosted by Dex server; pull Workers open streams for at most one task at a time.
    * </pre>
    */
   public static final class WorkerTaskServiceFutureStub
