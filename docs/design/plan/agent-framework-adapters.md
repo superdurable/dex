@@ -136,12 +136,12 @@ Server's attempt start and the recovery error's `attempt_progress` narrowed
 both after M2.
 
 - **A single-attempt call runs twice only in narrow cases.** Dex starts an attempt when it
-  hands the attempt to a Worker, and it never hands the same attempt number to
-  a second Worker. A Worker that dies, or loses its stream, after it received
-  the tool Step fails the attempt, and the call records `outcome_unknown`. The
-  tool Step still heartbeats before it calls the tool. Earlier Dex Servers
-  redelivered an attempt at the same attempt number when its Worker's stream
-  ended with no output, and the heartbeat narrowed that window. Two narrow
+  hands the attempt to a Worker. A Worker that dies, or loses its stream,
+  after it received the tool Step fails the attempt, and the call records
+  `outcome_unknown`. Dex hands the same attempt number out again only when the
+  Worker certainly never ran it, such as a stream that half-closed before any
+  output. The tool Step heartbeats before it calls the tool, so a started
+  tool is never returned that way. Two narrow
   cases remain. An ASYNC Step can run again at the same attempt number when a
   Dex Server node crashes before the attempt start is durable; the tool Steps
   use SYNC durability, so this case does not apply to them. Cancellation is
@@ -319,10 +319,14 @@ Rules:
   commit that makes its record final. A tool Step whose record is already final
   ends without running or publishing.
 - Before a tool Step calls `execute_deferred_tool_call`, it writes
-  `tool_call_started` and awaits a heartbeat. Dex hands each attempt number to
-  one Worker only, so a Worker that disconnects after it received the task
-  fails the attempt instead of running it again elsewhere. The heartbeat
-  narrowed the redelivery window of earlier Dex Servers.
+  `tool_call_started` and awaits a heartbeat. A Worker that disconnects after
+  it received the task fails the attempt instead of running it again
+  elsewhere. Dex treats a stream that half-closes before any output as one
+  whose task never ran: the attempt returns to pending with the same attempt
+  number, uses no retry, and is handed out again. After output, a half-close
+  is a disconnect that fails the attempt with `NOT_COMPLETED`. The heartbeat
+  therefore keeps a started tool from being handed out again and later
+  reported as `NOT_STARTED`.
 - `ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
   the error message and is not retried. Any other error fails the attempt.
 - A record with `task_id` belongs to remote work that started. Nothing but the

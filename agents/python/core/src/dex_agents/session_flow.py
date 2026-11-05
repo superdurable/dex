@@ -2012,8 +2012,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             events = self._event_writer(context, tool_call.turn_id)
             events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
             heartbeats = _ToolStepHeartbeats(context)
-            # Earlier Dex Servers redelivered a task without output to another Worker,
-            # at the same attempt.
+            # Output first: Dex returns an attempt as not run when its stream half-closes
+            # before any output.
             await heartbeats.record()
             execution = DeferredToolExecution(
                 flow_id=context.flow_id,

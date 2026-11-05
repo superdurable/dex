@@ -323,7 +323,7 @@ tool Step 失败时，它的 failure route 会从 recovery error 中读取 **att
 | **attempt_progress** | 这次调用记录的结果 |
 | --- | --- |
 | **NOT_STARTED** | 没有 attempt 到达 Worker，所以 tool 没有运行。这次调用记录 **failed**，错误信息以 "the tool did not run, so it is safe to call again" 开头。模型会看到一次失败的 tool call，可以再次调用这个 tool。如果这次调用的 tool 已经向用户提过问题，说明它之前运行过，按下一行处理。 |
-| **NOT_COMPLETED**，或 server 没有报告进度时的 **UNSPECIFIED** | tool 可能已经运行过。读取记录 **failed**，其他调用记录 **outcome_unknown**，session 不会再次运行它的 tool。 |
+| **NOT_COMPLETED**，或 server 没有报告进度时的 **UNSPECIFIED** | tool 可能已经运行过。**read** 调用记录为 **failed**，其他调用记录为 **outcome_unknown**，session 不会再次运行它的 tool。 |
 
 要在 **get_agent_snapshot** 或你自己的代码中识别这种调用，把它的错误信息开头与 Python 的
 **TOOL_CALL_NOT_RUN_ERROR_PREFIX**、TypeScript 的 **toolCallNotRunErrorPrefix** 或 Go 的

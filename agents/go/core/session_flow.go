@@ -1619,7 +1619,7 @@ func (flow *AgentSessionFlow) runToolCall(ctx dex.Context, toolCallID string) er
 	if err != nil {
 		return err
 	}
-	// Earlier Dex Servers redelivered a task without output to another Worker, at the same attempt.
+	// Output first: Dex returns an attempt as not run when its stream half-closes before any output.
 	if err := heartbeats.record(); err != nil {
 		return err
 	}

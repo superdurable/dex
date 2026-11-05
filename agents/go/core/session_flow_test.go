@@ -57,8 +57,7 @@ func TestUnsupportedSessionReasonNamesEachAddition(t *testing.T) {
 	}
 }
 
-// A tool Step that never reached a Worker records failed, so the model may call the tool again.
-// Any other failure keeps the status of the call's effect.
+// A call whose tool never ran records failed; other failures keep the effect's status.
 func TestRecoveredToolCallRecordsACallThatNeverRanAsFailed(t *testing.T) {
 	t.Parallel()
 	approved := AgentToolCall{

@@ -1292,8 +1292,8 @@ class _McpToolCall:
     ) -> _ToolCallOutcome | None:
         """Send a question's resolution with ``tasks/update``; return an outcome only on failure."""
         if self._heartbeat is not None:
-            # Output before the send, so earlier Dex Servers retried a lost attempt instead of
-            # redelivering it.
+            # Output before the send, so a later half-close fails the attempt instead of
+            # returning it as not run.
             await self._heartbeat()
         try:
             await client.session.send_request(

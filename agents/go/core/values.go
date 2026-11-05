@@ -130,8 +130,9 @@ const (
 	ToolCallStatusRejected ToolCallStatus = "rejected"
 	// ToolCallStatusSucceeded means the tool ran and returned AgentToolCall.Output.
 	ToolCallStatusSucceeded ToolCallStatus = "succeeded"
-	// ToolCallStatusFailed means the tool returned a ToolExecutionError, or a read call's attempts
-	// ran out; AgentToolCall.Error holds the message.
+	// ToolCallStatusFailed means the tool returned a ToolExecutionError, a read call's attempts
+	// ran out, or the tool did not run (Error starts with ToolCallNotRunErrorPrefix);
+	// AgentToolCall.Error holds the message.
 	ToolCallStatusFailed ToolCallStatus = "failed"
 	// ToolCallStatusOutcomeUnknown means a write's tool Step ended without a result, so the effect
 	// may or may not have happened.

@@ -952,7 +952,7 @@ export class ToolCallStep implements Step<string> {
       return await transitions.tracer.traceToolCall(context, this.stepType, toolCall, async (toolCallSpan) => {
         events.writeToolCallStarted(toolCall.toolCallId, toolCall.toolName);
         const heartbeats = new ToolStepHeartbeats(context);
-        // Earlier Dex Servers re-delivered an attempt whose Worker vanished before any output, so emit output first.
+        // Output first: Dex returns an attempt as not run when its stream half-closes before any output.
         await heartbeats.record();
         const execution: DeferredToolExecution = {
           flowId: context.flowId,

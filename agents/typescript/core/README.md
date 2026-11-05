@@ -855,9 +855,9 @@ so the tool's source can resolve the tool without listing it again.
   or on a crash or timeout, the call is recorded as `failed` for a `read` tool
   and `outcome_unknown` for a write. The model then sees
   `outcomeUnknownToolResult`, because the write may have taken effect.
-- A tool Step that fails before any attempt reaches a Worker never ran the
-  tool. Its recovery error's `attemptProgress` is
-  `StepAttemptProgress.NOT_STARTED`, and the call is recorded as `failed` with an `error` that starts with
+- When a tool Step's recovery error has `attemptProgress`
+  `StepAttemptProgress.NOT_STARTED`, no attempt reached a Worker and the tool
+  never ran. The call is then recorded as `failed` with an `error` that starts with
   `toolCallNotRunErrorPrefix` (`the tool did not run, so it is safe to call
   again`), then `": "` and the recovery detail. The model may call the tool
   again. A call whose tool already asked a question ran before, so it keeps the
@@ -1899,11 +1899,14 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   as in the Python core; records and the snapshot list calls in the order the
   model made them.
 - **Output before a single-attempt tool runs.** A tool Step writes
-  `tool_call_started` and awaits a heartbeat before calling the runner. Dex
-  hands each attempt number to one Worker only, so a crash during the tool
-  fails the attempt instead of re-running the tool. Earlier Dex Servers
-  re-delivered an attempt whose Worker disconnected before sending any output
-  within the dispatch wait, and the heartbeat narrowed that window.
+  `tool_call_started` and awaits a heartbeat before calling the runner. A
+  crash during the tool fails the attempt instead of re-running the tool. Dex
+  treats a stream that half-closes before any output as one whose task never
+  ran: the attempt returns to pending with the same attempt number, uses no
+  retry, and is handed out again. After output, a half-close is a disconnect
+  that fails the attempt with `NOT_COMPLETED`. The heartbeat therefore keeps a
+  started tool from being handed out again and later reported as
+  `NOT_STARTED`.
 - **Background heartbeats.** `RunModel` and the tool Steps heartbeat every 20
   seconds while the runner works, so a silent model or tool call stays within
   the heartbeat timeout. Method timeouts still bound hung calls.

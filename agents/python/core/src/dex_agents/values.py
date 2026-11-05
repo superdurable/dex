@@ -105,8 +105,10 @@ class ToolCallStatus(StrEnum):
             ``AgentToolCall.task_id`` every ``task_poll_interval_seconds``.
         REJECTED: The user or an expired deadline rejected the call. It never ran.
         SUCCEEDED: The tool ran and returned ``output``.
-        FAILED: The tool raised ``ToolExecutionError``; ``error`` holds the
-            message for the model to see.
+        FAILED: The tool raised ``ToolExecutionError``, a read call's attempts
+            ran out, or the tool did not run (``error`` starts with
+            ``TOOL_CALL_NOT_RUN_ERROR_PREFIX``); ``error`` holds the message
+            for the model to see.
         OUTCOME_UNKNOWN: The tool Step ended without a result, through a
             Worker crash, a timeout, or another exception after its attempts
             ran out, so the effect may or may not have happened.

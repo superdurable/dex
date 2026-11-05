@@ -151,7 +151,7 @@ describe("Vercel AI SDK agent sessions survive a Worker killed with SIGKILL", ()
     assert.equal(state.lastTurnError, null);
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.equal(snapshot.messages.at(-1)?.text, "get_weather -> sunny in Paris");
-    // Earlier Dex Servers re-delivered an attempt that produced no output, so the rerun may keep attempt 1.
+    // A stream half-closed before any output returns its attempt unrun, so a rerun may keep attempt 1.
     assert.equal(turnGate.reachedCount(), 2);
     assert.deepEqual(new InvocationLog(join(markerDirectory, "get_weather.log")).names(), [
       `${sessionId} call-1-get_weather attempt 1`,

@@ -205,7 +205,7 @@ recorded result instead of running the tool:
 | Record status | Function response the model sees |
 | --- | --- |
 | `succeeded` | The tool's response. A bare string result is `{"result": "<text>"}`. |
-| `failed` | `{"error": "The tool call failed: <ToolExecutionError message>"}` |
+| `failed` | `{"error": "The tool call failed: <error>"}`, where `<error>` is the `ToolExecutionError` message, the failure of a read whose attempts ran out, or `TOOL_CALL_NOT_RUN_ERROR_PREFIX`, `": "`, and the failure for a call whose tool never ran |
 | `rejected` | `{"error": "<rejection message>"}` |
 | `outcome_unknown` | `{"error": "<OUTCOME_UNKNOWN_TOOL_RESULT>"}` |
 
@@ -214,7 +214,10 @@ model should see without a retry; the record becomes `failed`. Any other
 exception, a timeout, or a Worker crash fails the tool Step: a `read` or
 `idempotent_write` call retries, and once its attempts run out the record
 becomes `failed` for a read and `outcome_unknown` for a write. A
-single-attempt call records `outcome_unknown` at once.
+single-attempt call records `outcome_unknown` at once. When the recovery
+error's `attempt_progress` is `NOT_STARTED`, the tool never ran, and the call
+records `failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX` instead, so the model
+may call the tool again.
 
 When a turn fails after some of its tool calls finished, the session stores a
 turn-failure note through `build_user_message`: an ADK user event whose text
