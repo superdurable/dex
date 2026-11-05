@@ -98,9 +98,9 @@ final class WorkerDispatchIntegrationTest {
                             final Empty request,
                             final StreamObserver<ServerInfo> observer) {
                         observer.onNext(ServerInfo.newBuilder()
-                                .setServerVersion("future")
-                                .setMinimumSupportedProtocolVersion(4)
-                                .setCurrentProtocolVersion(4)
+                                .setServerVersion("old")
+                                .setMinimumSupportedProtocolVersion(1)
+                                .setCurrentProtocolVersion(3)
                                 .build());
                         observer.onCompleted();
                     }
@@ -127,6 +127,8 @@ final class WorkerDispatchIntegrationTest {
                     IllegalStateException.class,
                     worker::start);
             assertTrue(failure.getMessage().contains("protocol intervals do not overlap"));
+            assertTrue(failure.getMessage().contains("Server version \"old\" protocol [1,3]"));
+            assertTrue(failure.getMessage().contains("requires server-zd"));
             assertEquals(0, syncCalls.get());
         } finally {
             worker.close();
@@ -1015,7 +1017,7 @@ final class WorkerDispatchIntegrationTest {
         return ServerInfo.newBuilder()
                 .setServerVersion("test")
                 .setMinimumSupportedProtocolVersion(1)
-                .setCurrentProtocolVersion(2)
+                .setCurrentProtocolVersion(4)
                 .build();
     }
 

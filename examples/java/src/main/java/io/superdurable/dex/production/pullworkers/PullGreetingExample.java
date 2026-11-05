@@ -81,7 +81,7 @@ public final class PullGreetingExample {
 
     public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
         return new PullGreetingDiagnostics(
-                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+                worker.getPullRegistrationState().isReady(), 0L);
     }
 
     public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {

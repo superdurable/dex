@@ -15,11 +15,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Provides an independent, immutable snapshot of pull queue readiness.
+ * Provides an independent, immutable snapshot of pull slot readiness.
  *
  * <p>Use {@link Worker#getPullRegistrationState()} for readiness probes after initial startup.
- * Transient failures, reconnects, and stop preserve readiness after every queue has registered
- * once. A permanent rejection makes readiness false while its queue has no registered stream.
+ * Transient failures, reconnects, and stop preserve readiness after a STEP_AND_RPC stream and
+ * any configured RPC_ONLY stream have registered once. A permanent rejection makes readiness false while its slot kind has no registered stream.
  * See {@link Worker#waitPullRegistered(java.time.Duration)} for a startup example.
  */
 public final class PullRegistrationState {
@@ -34,7 +34,7 @@ public final class PullRegistrationState {
     /**
      * Reports whether initial registration completed without an uncovered permanent rejection.
      *
-     * @return true after all queues registered once unless a queue has a permanent error
+     * @return true after required slot kinds registered once unless a slot kind has a permanent error
      *     and no registered stream
      */
     public boolean isReady() {
@@ -42,9 +42,9 @@ public final class PullRegistrationState {
     }
 
     /**
-     * Returns queue snapshots ordered by app Worker ID and then sorted Flow types.
+     * Returns slot-kind snapshots through the legacy queue collection accessor.
      *
-     * @return an immutable list
+     * @return an immutable list ordered STEP_AND_RPC then RPC_ONLY when configured
      */
     public List<PullQueueRegistrationState> getQueues() {
         return queues;

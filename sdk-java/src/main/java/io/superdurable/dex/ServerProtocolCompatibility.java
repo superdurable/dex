@@ -13,8 +13,8 @@ package io.superdurable.dex;
 import io.superdurable.gen.ServerInfo;
 
 final class ServerProtocolCompatibility {
-    static final int MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 1;
-    static final int MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 3;
+    static final int MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4;
+    static final int MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4;
     static final int HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION = 3;
 
     private ServerProtocolCompatibility() {
@@ -92,6 +92,7 @@ final class ServerProtocolCompatibility {
                         + MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION + ","
                         + MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION + "] is incompatible with "
                         + "Server version \"" + displayedServerVersion + "\" protocol ["
-                        + serverMinimum + "," + serverCurrent + "]: " + reason);
+                        + serverMinimum + "," + serverCurrent + "]: " + reason
+                        + "; requires server-zd with protocol 4 (attempt-start release) or later");
     }
 }

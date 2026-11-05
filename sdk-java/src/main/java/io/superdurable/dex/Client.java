@@ -95,6 +95,11 @@ import java.util.concurrent.TimeUnit;
 /**
  * Provides synchronous, strongly typed operations for starting and controlling Dex Flows.
  *
+ * <p>Construction is lazy and performs no network I/O. Every network method requires Server
+ * protocol 4. The first request negotiates compatibility, caching success or incompatibility.
+ * An older Server causes {@link IllegalStateException} on that and every later network call;
+ * a transient negotiation failure is retried on the next call.
+ *
  * <p>All network methods block the calling thread until the gRPC request completes. Create one
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
  * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
@@ -123,6 +128,7 @@ public final class Client implements AutoCloseable {
     private final ValueMapper values;
     private final ValueHydrator hydrator;
     private final WorkerDispatcher mappings;
+    private IllegalStateException protocolCompatibilityError;
     private final NegotiatedServerProtocol serverProtocol = new NegotiatedServerProtocol();
     private final ThreadLocal<RPCInvokeOptions> rpcInvokeOptions =
             new ThreadLocal<RPCInvokeOptions>();
@@ -212,9 +218,8 @@ public final class Client implements AutoCloseable {
      *     an initial value targets a {@link Attribute#hardDeleteOnNull()} Attribute and maps to a
      *     number or a Boolean, or if an initial Attribute's hard-delete setting differs from the
      *     definition registered for the Flow
-     * @throws IllegalStateException if an initial value targets a hard-delete Attribute and the
-     *     Server does not support protocol version 3 or later, or the Server protocol cannot be
-     *     negotiated
+     * @throws IllegalStateException if the Server does not support protocol version 4, or its
+     *     protocol cannot be negotiated
      * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
      */
@@ -300,6 +305,9 @@ public final class Client implements AutoCloseable {
     }
 
     synchronized void negotiateServerProtocol() {
+        if (protocolCompatibilityError != null) {
+            throw protocolCompatibilityError;
+        }
         if (serverProtocol.isNegotiated()) {
             return;
         }
@@ -317,8 +325,13 @@ public final class Client implements AutoCloseable {
             }
             throw ServerProtocolCompatibility.requestFailure(sdkVersion, failure);
         }
-        serverProtocol.recordNegotiatedVersion(
-                ServerProtocolCompatibility.negotiate(serverInfo, sdkVersion));
+        try {
+            serverProtocol.recordNegotiatedVersion(
+                    ServerProtocolCompatibility.negotiate(serverInfo, sdkVersion));
+        } catch (IllegalStateException incompatible) {
+            protocolCompatibilityError = incompatible;
+            throw incompatible;
+        }
     }
 
     static FlowTimeoutPolicy resolveTimeoutPolicy(
@@ -1855,6 +1868,7 @@ public final class Client implements AutoCloseable {
             final RpcCall<T> rpc,
             final FlowTargetRequirement requirement,
             final String flowId) {
+        negotiateServerProtocol();
         try {
             return GrpcCredential.callUnaryWithRetry(options.getCredential(), rpc::invoke);
         } catch (StatusRuntimeException exception) {

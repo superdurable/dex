@@ -412,6 +412,14 @@ final class ClientExceptionIntegrationTest {
 
     private static final class ErrorFlowService
             extends FlowServiceGrpc.FlowServiceImplBase {
+        @Override
+        public void getServerInfo(final Empty request,
+                final StreamObserver<io.superdurable.gen.ServerInfo> observer) {
+            observer.onNext(io.superdurable.gen.ServerInfo.newBuilder().setServerVersion("test")
+                    .setMinimumSupportedProtocolVersion(4).setCurrentProtocolVersion(4).build());
+            observer.onCompleted();
+        }
+
         private final AtomicInteger getAttributesCalls = new AtomicInteger();
         private GetAttributesRequest getAttributesRequest;
 

@@ -172,7 +172,7 @@ final class CredentialTest {
                             .credential(() -> {
                                 throw new IOException("token source unavailable");
                             })
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("failed-auth-worker").build())
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("failed-auth-worker").build())
                             .build());
             final IllegalStateException failure = assertThrows(
                     IllegalStateException.class, worker::start);
@@ -246,7 +246,7 @@ final class CredentialTest {
                     new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                     WorkerOptions.newBuilder().serverAddress(fakeServer.address())
                             .credential(token::get)
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("auth-worker").build())
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("auth-worker").build())
                             .build());
             final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
             final Thread workerThread = new Thread(() -> {
@@ -281,7 +281,7 @@ final class CredentialTest {
             final Worker worker = new Worker(
                     new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                     WorkerOptions.newBuilder().serverAddress(fakeServer.address())
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("no-auth-worker").build())
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("no-auth-worker").build())
                             .build());
             final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
             final Thread workerThread = new Thread(() -> {
@@ -420,7 +420,7 @@ final class CredentialTest {
                                         final StreamObserver<ServerInfo> observer) {
                                     observer.onNext(ServerInfo.newBuilder().setServerVersion("test")
                                             .setMinimumSupportedProtocolVersion(1)
-                                            .setCurrentProtocolVersion(2).build());
+                                            .setCurrentProtocolVersion(4).build());
                                     observer.onCompleted();
                                 }
 

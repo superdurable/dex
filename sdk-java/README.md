@@ -332,7 +332,6 @@ Worker worker = new Worker(registry, blobCache, WorkerOptions.newBuilder()
         .serverAddress("dex:8801")
         .pull(PullWorkerOptions.newBuilder()
                 .maxConcurrentTasks(8)
-                .idleStreamsPerQueue(1)
                 .build())
         .build());
 Client client = new Client(registry, blobCache,
@@ -340,31 +339,18 @@ Client client = new Client(registry, blobCache,
 new Thread(worker::start).start();
 ```
 
-Pull mode polls the Worker's sticky queue and each registered Flow type queue.
-It keeps one idle stream per queue by default. Across `F` registered Flow types,
-the steady-state stream count after load drops is bounded by
-`maxConcurrentTasks + (1 + F) * idleStreamsPerQueue`.
-Allow up to `1 + F` additional streams for 30 seconds after reserve declines.
-Completed streams close gracefully when their queue already has enough
-registered idle streams, preserving readiness. The transient peak during a burst
-remains bounded by the matching caps:
-`matching.maxConcurrentTasksCap` per app Worker ID per matching owner and
-`matching.maxStreams` per Matching instance.
-Each stream runs one task at a time. Heartbeat and Stream writes from a cancelled
-or completed invocation are rejected locally, including after stream reuse.
-A handler that returns after cancellation still sends its final result.
-The Worker rejects a task with no capacity so Dex can assign it elsewhere.
-The default task capacity is the available CPU count. Zero task and idle counts and a zero drain timeout select their defaults.
-The SDK sends an upstream Pong every 20 seconds while a task runs and stops
-before its final frame. This interval is internal and needs no Worker option.
-
-The Worker rejects an unregistered Step or RPC by name. Dex retries that task
-on another pull Worker without consuming a Step attempt, including when the
-Flow was sticky to the rejecting Worker. If no capable Worker accepts it within
-the server's dispatch wait (10 seconds by default, or the local Step attempt),
-the Step follows its failure and retry policy; an RPC caller receives the named
-error. This reassignment requires a Dex Server that supports it. Against older
-Servers, the Worker returns the not-registered error as before.
+Each Worker keeps exactly `maxConcurrentTasks` long-lived execution-slot streams.
+Every stream serves the sticky Worker identity and every registered Flow type;
+its registration has an empty queue. A stream is ready while idle and busy while
+its task runs. The Worker executes every delivered task and never rejects for
+capacity. It can reject an unknown Step or RPC before invoking its handler.
+The default slot count is the available CPU count. Worker start fails if it
+exceeds the Server's reported `matching.maxConcurrentTasksCap` per-Worker limit.
+The deprecated `idleStreamsPerQueue` option is accepted but has no effect.
+Heartbeat and Stream writes from cancelled or completed invocations are rejected
+locally, including after stream reuse. A stream error cancels its running task;
+that task's output is never sent over a later connection. The SDK sends a Pong
+every 20 seconds during execution and stops before the final frame.
 
 The default app Worker ID uses `DEX_WORKER_INSTANCE`, `POD_NAME`, `HOSTNAME`, or
 the local hostname, plus eight random base32 characters. If the identity cannot
@@ -373,73 +359,53 @@ must have 1–63 ASCII letters, digits, periods, underscores, or hyphens and mus
 not equal a registered Flow type. A Flow type used for pull routing must be
 unique within the Dex server.
 
-`stop()` first drains active tasks for up to `stopDrainTimeout`, which defaults
-to 30 seconds. It then cancels remaining handlers and waits for them to return;
-a handler that ignores cancellation can delay Stop. A server without pull
-support produces one explicit error log and retries polling after a minute.
-Reconnects and transient transport errors are retried automatically. Heartbeats
-and Step Stream writes use the same task stream as the final result.
+`stop()` and `close()` start no new task. Idle streams immediately half-close
+the request side and continue reading until the Server ends the stream. Busy
+streams finish their handler and send its final output before half-closing.
+Task frames arriving after stop begins are dropped without invoking a handler,
+including after half-close. After `stopDrainTimeout` (30 seconds by default),
+the Worker resets streams with running tasks, cancels handlers, and waits for
+them to return. A handler that ignores cancellation can delay stop.
+Reconnects and transient transport errors are retried automatically.
 
-Call `waitPullRegistered(Duration)` after starting the Worker on another thread
-and before activating it. It waits for every Flow type queue and the app Worker
-ID queue to register at least once. A timeout throws `TimeoutException`;
-interruption cancels only the wait. Startup errors and a permanent rejection
-before readiness reach the waiter. `PullRegistrationError.getQueue()` identifies
-the queue and `getCause()` preserves the transport error. Stopping before
-readiness throws `IllegalStateException`.
+Call `waitPullRegistered(Duration)` after starting the Worker on another thread.
+Readiness requires at least one `STEP_AND_RPC` registration and, when reserved
+RPC slots are configured, at least one `RPC_ONLY` registration. Timeout throws
+`TimeoutException`; interruption cancels only the wait. Startup failures and
+uncovered permanent registration rejections reach the waiter. Stopping before
+readiness throws `IllegalStateException`. Success latches after initial readiness,
+including after stop.
 
-Use `getPullRegistrationState()` for later readiness probes. Its immutable queue
-entries expose `getQueue()`, `hasRegisteredStream()`, and `getLastPermanentError()`.
-`isReady()` stays true across transient failures, reconnects, and stop after
-initial registration. It becomes false only when a queue has a permanent error
-and no registered stream. Re-registration clears the error. The startup wait
-continues succeeding after initial registration, including after stop.
+`getPullRegistrationState()` provides immutable snapshots. The legacy queue
+fields (`PullRegistrationError.getQueue()` and each snapshot's `getQueue()`)
+now hold `POLL_WORKER_SLOT_KIND_STEP_AND_RPC` or `POLL_WORKER_SLOT_KIND_RPC_ONLY`,
+rather than a single routing queue. Entries expose `hasRegisteredStream()` and
+`getLastPermanentError()`. Readiness stays true through transient disconnects
+and becomes false when a required slot kind has a permanent error and no
+registered stream. Re-registration clears that error.
 
-`stopOnPermanentStreamRejection(true)` is opt-in. The first permanent rejection
-leaving a queue without a registered stream drains within `stopDrainTimeout`
-and makes `start()` throw `PullRegistrationError`, before or after readiness.
-Other registered streams for that queue prevent shutdown. The default remains
-false and retries indefinitely. Always call `stop()` or `close()` afterward;
-both remain safe after `start()` returns.
+`stopOnPermanentStreamRejection(true)` drains and fails `start()` when a permanent
+rejection leaves a required slot kind without a registered stream. Another
+registered stream of that kind prevents shutdown. By default such registration
+errors retry; an excessive concurrency setting always fails startup without
+background retry. Both `stop()` and `close()` remain safe after startup fails.
 
 #### Reserved RPC capacity
 
-Set `reservedRpcTasks` when synchronous RPC latency must stay responsive behind
-long-running Steps. When unset, it reserves one slot if the resolved task limit
-is at least two, otherwise zero. With the CPU-count default, Steps get one fewer
-slot than before. Set it explicitly to zero to opt out. With one slot and no
-explicit reserve, Worker start logs one warning: RPCs may wait behind
-long-running Steps; use a limit of at least two or set the reserve explicitly.
-Flows must stay responsive because RPCs share Worker task capacity with Steps.
-The value must be nonnegative and less than `maxConcurrentTasks` after its
-CPU-count default is resolved; invalid values fail construction. RPC and Step
-handlers count together. WaitFor and Execute tasks, including local attempts,
-are declined with `NO_CAPACITY` when the busy
-count reaches the task limit minus the reserve. API-direct and transactional
-InvokeWorkerRPC tasks can use the full limit.
+`reservedRpcTasks` selects slots that accept only RPCs; the remaining slots
+accept Steps and RPCs. The Server routes Steps to the latter slots. The Worker
+never declines a Step for reserved capacity. By default, one slot is reserved
+when `maxConcurrentTasks` is at least two; otherwise none are reserved. Set zero
+to opt out. The reserve must be nonnegative and less than the resolved slot count.
+With one slot and no explicit reserve, startup warns about RPC starvation.
 
 ```java
 PullWorkerOptions pull = PullWorkerOptions.newBuilder()
         .maxConcurrentTasks(8).reservedRpcTasks(2).build();
 ```
 
-A decline lets Dex try another Worker without consuming an attempt. If all
-Workers remain at their Step limit, a Step can wait until the dispatch wait
-expires, then receive `NO_WORKER_AVAILABLE`, consume an attempt, and follow its
-retry policy, as when all Workers are full. Local attempts wait the local
-dispatch wait, then fall back according to their policy. A queue that declines
-a Step for reserved RPC capacity keeps one additional idle stream until 30
-seconds after its last decline. Other queues retain their configured count.
-The Worker does not open the extra stream while all task slots are busy. Set
-`idleStreamsPerQueue` to at least two for heavy Step backlogs. A reserve decline
-does not close a stream or change registration readiness.
-
-Each reserve decline records the Flow type through java.util.logging at FINE
-level. Export the cumulative `getPullReservedRpcDeclines()` Worker value to
-distinguish reserve pressure from full-capacity rejections. The count excludes
-full-capacity rejections and unknown names. It counts decline events, including
-repeated declines of the same Step dispatch while Dex retries it. Read its rate
-to assess reserve pressure. It never resets and remains available after shutdown.
+The deprecated `getPullReservedRpcDeclines()` counter remains available and
+always returns zero.
 
 ### Authentication
 
@@ -966,16 +932,24 @@ use the local publishing command:
 
 ## Server protocol compatibility
 
-Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
-synchronizes Attribute indexes, and then opens outbound task streams. The Java SDK
-interval is `[1,3]`. An absent RPC, invalid or nonoverlapping intervals, and
-request failures stop startup before polling.
+Worker startup calls `GetServerInfo`, requires protocol 4, synchronizes Attribute
+indexes, and opens the reserved-slot streams. The Java SDK protocol interval is
+`[4,4]`; upgrade to the server-zd attempt-start release supporting protocol 4 or
+later. Older Servers fail startup with the Server version and upgrade requirement.
+Absent RPCs, invalid intervals, and negotiation request failures also stop startup.
 
-Protocol 3 adds hard-delete Attributes. A Worker invocation that writes a
-hard-delete Attribute fails when the negotiated protocol is below 3. The Client
-calls `GetServerInfo` once, before its first StartFlow request that carries a
-hard-delete initial value, caches a successful negotiation, and fails that
-request when the Server is older. Other Client calls do not negotiate.
+Client construction stays lazy and does no network I/O. Before the first network
+request of any method, the Client negotiates protocol 4. It caches success and
+incompatibility; every subsequent request against an older Server returns the
+same compatibility error. Transient negotiation failures are retried on the next
+call. Protocol negotiation also establishes hard-delete Attribute support.
+
+Step retry `totalDuration` starts when the Step is first handed to a Worker.
+After an attempt fails it decides whether another retry can be scheduled; it
+never ends a running attempt. In recovery, `RecoveryErrorInfo.getAttemptProgress()`
+returns `NOT_STARTED` when no handler ran, `NOT_COMPLETED` when an attempt may
+have run but none completed, or `UNSPECIFIED` for older records. Treat
+`UNSPECIFIED` like `NOT_COMPLETED` when reconciling side effects.
 
 Published JARs store the diagnostic SDK version in the
 `Implementation-Version` manifest attribute. Direct class-directory builds use

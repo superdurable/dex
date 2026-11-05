@@ -614,7 +614,7 @@ final class ApiKeyCredentialTest {
             final Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()),
                     new EmptyBlobCache(), WorkerOptions.newBuilder()
                             .serverAddress(grpc.address()).credential(credential)
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("api-key-worker")
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("api-key-worker")
                                     .stopDrainTimeout(Duration.ofSeconds(1)).build())
                             .build());
             final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
@@ -655,7 +655,7 @@ final class ApiKeyCredentialTest {
             final Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()),
                     new EmptyBlobCache(), WorkerOptions.newBuilder()
                             .serverAddress(grpc.address()).credential(credential)
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("api-key-worker")
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("api-key-worker")
                                     .stopDrainTimeout(Duration.ofSeconds(1)).build())
                             .build());
             final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
@@ -978,7 +978,7 @@ final class ApiKeyCredentialTest {
                                         final StreamObserver<ServerInfo> observer) {
                                     observer.onNext(ServerInfo.newBuilder().setServerVersion("test")
                                             .setMinimumSupportedProtocolVersion(1)
-                                            .setCurrentProtocolVersion(2).build());
+                                            .setCurrentProtocolVersion(4).build());
                                     observer.onCompleted();
                                 }
 
