@@ -669,3 +669,78 @@ async def _final_output_sent_before_deadline_keeps_flush_grace(
         if request.HasField("task_frame")
     ] == ["sent-before-deadline"]
     assert not dispatcher.canceled.is_set()
+
+
+def malformed_task(problem: str) -> pb.PollWorkerTask:
+    task = pb.PollWorkerTask(task_id="malformed", rpc=pb.InvokeWorkerRPCRequest())
+    if problem == "deadline_overflow":
+        task.deadline.seconds = 2**62
+    elif problem == "deadline_nanos":
+        task.deadline.nanos = -1
+    else:
+        task.ClearField("rpc")
+    return task
+
+
+@pytest.mark.parametrize("is_sync", [False, True])
+@pytest.mark.parametrize(
+    "problem", ["deadline_overflow", "deadline_nanos", "missing_request"]
+)
+def test_malformed_task_resets_stream_without_admission(
+    is_sync: bool, problem: str
+) -> None:
+    asyncio.run(_malformed_task_resets_stream_without_admission(is_sync, problem))
+
+
+async def _malformed_task_resets_stream_without_admission(
+    is_sync: bool, problem: str
+) -> None:
+    call = DelayedEofCall(
+        [
+            registered(),
+            pb.PollWorkerTaskResponse(task=malformed_task(problem)),
+        ]
+    )
+    dispatcher: CountingDispatcher | SyncCountingDispatcher = (
+        SyncCountingDispatcher() if is_sync else CountingDispatcher()
+    )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        runtime = PullWorkerRuntime(
+            Registry([]),
+            dispatcher,
+            PullWorkerOptions(
+                max_concurrent_tasks=1, stop_drain_timeout=timedelta(milliseconds=50)
+            ),
+            "unused",
+            executor if is_sync else None,
+        )
+        runtime._loop = asyncio.get_running_loop()
+        runtime._stopping = asyncio.Event()
+        stream = PullStream(
+            runtime,
+            FakeStub(cast(FakeCall, call)),
+            pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
+        )
+        with pytest.raises(RuntimeError, match="malformed"):
+            await asyncio.wait_for(stream._poll(), 2)
+        assert call.is_closed
+        assert not call.is_half_closed
+        assert "done_writing" not in call.operations
+        assert not stream.is_busy
+        assert stream.handler_task is None
+        assert runtime._busy_tasks == 0
+        await asyncio.wait_for(runtime.stop(), 1)
+    assert dispatcher.task_count == 0
+    assert not any(
+        request.HasField("task_frame") or request.HasField("reject")
+        for request in call.requests
+    )
+
+
+def test_poll_channel_accepts_only_identity_encoding() -> None:
+    with patch("dex._pull_worker.grpc.aio.insecure_channel") as insecure_channel:
+        _pull_worker.outbound_worker_task_channel("127.0.0.1:1")
+    insecure_channel.assert_called_once_with(
+        "127.0.0.1:1",
+        options=(("grpc.compression_enabled_algorithms_bitset", 1),),
+    )

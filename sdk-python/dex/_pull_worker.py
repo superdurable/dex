@@ -68,8 +68,16 @@ def generate_app_worker_id() -> str:
     return f"{cleaned or 'worker'}-{suffix}"
 
 
+# Identity only: a failed decompression would let gRPC end the stream cleanly.
+_IDENTITY_COMPRESSION_ONLY_OPTIONS = (
+    ("grpc.compression_enabled_algorithms_bitset", 1),
+)
+
+
 def outbound_worker_task_channel(server_address: str) -> grpc.aio.Channel:
-    return grpc.aio.insecure_channel(server_address)
+    return grpc.aio.insecure_channel(
+        server_address, options=_IDENTITY_COMPRESSION_ONLY_OPTIONS
+    )
 
 
 def resolve_app_worker_id(registry: Registry, options: PullWorkerOptions) -> str:
@@ -657,6 +665,8 @@ class PullStream:
             await self._finish_handler_or_fail_stream()
             if self.runtime.is_stopping or self.is_draining:
                 return
+        # Validate untrusted task fields before admission; a failure resets the stream.
+        deadline_seconds = _task_deadline_seconds(task)
         unknown_reason = self.runtime.unknown_task_reason(task)
         if unknown_reason is not None:
             await self._reject_task(task, unknown_reason)
@@ -669,11 +679,9 @@ class PullStream:
         self._is_final_frame_sent = False
         self._keepalive_task = asyncio.create_task(self._send_busy_keepalives())
         self.handler_task = asyncio.create_task(self._execute(task))
-        if task.HasField("deadline"):
-            deadline = task.deadline.ToDatetime(tzinfo=timezone.utc)
-            remaining = max(0, (deadline - datetime.now(timezone.utc)).total_seconds())
+        if deadline_seconds is not None:
             self._deadline_handle = asyncio.get_running_loop().call_later(
-                remaining, self._cancel_if_current, task.task_id
+                deadline_seconds, self._cancel_if_current, task.task_id
             )
         self.runtime.signal()
 
@@ -936,3 +944,26 @@ def _is_final_task_frame(frame: pb.PollWorkerTaskFrame) -> bool:
         or frame.HasField("execute")
         and frame.execute.WhichOneof("output") == "result"
     )
+
+
+def _task_deadline_seconds(task: pb.PollWorkerTask) -> float | None:
+    """Validate a task's request kind and deadline before the task is admitted.
+
+    Returns:
+        None when the task has no deadline. Otherwise the non-negative seconds
+        until the deadline.
+
+    Raises:
+        RuntimeError: If the request kind is missing or the deadline is invalid.
+    """
+    if task.WhichOneof("request") not in ("rpc", "wait_for", "execute"):
+        raise RuntimeError(f"Worker task {task.task_id!r} has no supported request")
+    if not task.HasField("deadline"):
+        return None
+    try:
+        deadline = task.deadline.ToDatetime(tzinfo=timezone.utc)
+        return max(0.0, (deadline - datetime.now(timezone.utc)).total_seconds())
+    except (ValueError, OverflowError) as failure:
+        raise RuntimeError(
+            f"Worker task {task.task_id!r} has an invalid deadline"
+        ) from failure

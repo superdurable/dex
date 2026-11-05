@@ -171,8 +171,10 @@ receive server EOF, and is reset after that. `stop()` can therefore return up
 to 5 seconds after the drain deadline.
 
 A stream that fails locally, such as a read error, an undecodable or oversized
-frame, a failed final output write, or an unexpected server EOF, is always
-reset. It never half-closes cleanly, because a clean half-close tells Dex the
+frame, a task frame with an invalid deadline or no request, a failed final
+output write, or an unexpected server EOF, is always reset. A malformed task is
+never admitted and its handler never runs. Poll streams accept only
+uncompressed responses. It never half-closes cleanly, because a clean half-close tells Dex the
 assigned task did not run.
 
 After a slot sends a task's final output, Dex may assign its next task
