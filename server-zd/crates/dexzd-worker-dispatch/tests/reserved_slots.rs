@@ -1286,3 +1286,51 @@ async fn a_rejection_after_output_ends_the_stream_instead_of_freeing_the_slot() 
         "the slot was reused without a final output after it had already produced a heartbeat"
     );
 }
+
+/// TB27 (plan D55): a queue head that a Worker declined does not keep that Worker from the
+/// partition's other queues.
+#[tokio::test]
+async fn a_declined_queue_head_does_not_block_another_step_type_of_its_partition() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut old = register(
+        &server.channel,
+        reserved("old-worker", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut declined) = hand_out(&dispatch, "Flow", "NewStep", "task-1").await;
+    old.task().await;
+    old.reject("task-1", PollWorkerTaskRejectReason::UnknownStep);
+    assert!(matches!(
+        final_event(&mut declined).await,
+        StepTaskEvent::Rejected {
+            reason: PollWorkerTaskRejectReason::UnknownStep,
+            is_reserved_slot: true
+        }
+    ));
+    // The declined type is the earlier head of the same partition.
+    dispatch.queued(queued_ref(1, "NewStep", 10));
+    dispatch.queued(queued_ref(1, "OldStep", 20));
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(claim.task, queued_ref(1, "OldStep", 20));
+    assert_eq!(claim.stream.app_worker_id(), "old-worker");
+    dispatch.reply_to_claim(
+        PartitionId(1),
+        &claim.task.queue,
+        claim.claim_id,
+        ClaimReply {
+            result: ClaimResult::Stale,
+            next: None,
+        },
+    );
+    drop(claim.stream);
+    // The declined head waits for a Worker that supports it.
+    let _new = register(
+        &server.channel,
+        reserved("new-worker", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(claim.task, queued_ref(1, "NewStep", 10));
+    assert_eq!(claim.stream.app_worker_id(), "new-worker");
+}
