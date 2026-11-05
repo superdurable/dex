@@ -81,7 +81,7 @@ pub fn start_pull_greeting(
         WorkerOptions::new().server_address(server_address).pull(
             PullWorkerOptions::new()
                 .max_concurrent_tasks(8)
-                // This stream accepts only RPCs; the other seven accept Steps and RPCs.
+                // This slot accepts only RPCs; the other seven accept Steps and RPCs.
                 .reserved_rpc_tasks(1),
         ),
     )?);

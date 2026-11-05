@@ -51,6 +51,38 @@ impl Service<http::Request<TonicBody>> for PollTransport {
     }
 }
 
+/// Resets a poll stream when dropped, unless a clean half-close was explicitly allowed.
+pub(super) struct PollStreamResetGuard {
+    reset: InvocationCancellation,
+    is_clean_half_close_allowed: bool,
+}
+
+impl PollStreamResetGuard {
+    pub(super) fn new(reset: InvocationCancellation) -> Self {
+        Self {
+            reset,
+            is_clean_half_close_allowed: false,
+        }
+    }
+
+    pub(super) fn reset(&self) {
+        self.reset.cancel();
+    }
+
+    // Only an idle slot, or a busy slot after its final output, may end with END_STREAM.
+    pub(super) fn allow_clean_half_close(&mut self) {
+        self.is_clean_half_close_allowed = true;
+    }
+}
+
+impl Drop for PollStreamResetGuard {
+    fn drop(&mut self) {
+        if !self.is_clean_half_close_allowed {
+            self.reset.cancel();
+        }
+    }
+}
+
 struct PollRequestBody {
     body: TonicBody,
     reset: Pin<Box<dyn Future<Output = ()> + Send>>,

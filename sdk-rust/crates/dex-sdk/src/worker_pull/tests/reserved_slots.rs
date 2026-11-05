@@ -12,6 +12,9 @@ use std::sync::atomic::AtomicUsize;
 
 type RequestEvent = Result<Option<PollWorkerTaskRequest>, Status>;
 
+// Exceeds tonic's default 4 MiB decode limit, so the Worker fails to decode the task frame.
+const OVERSIZED_TASK_ID_BYTES: usize = 5 * 1024 * 1024;
+
 struct SlotConnection {
     register: PollWorkerTaskRegister,
     responses: mpsc::Sender<Result<PollWorkerTaskResponse, Status>>,
@@ -73,6 +76,41 @@ impl SlotConnection {
             }))
             .await
             .expect("assign RPC");
+    }
+
+    async fn assign_oversized_task(&self) {
+        self.responses
+            .send(Ok(PollWorkerTaskResponse {
+                frame: Some(ResponseFrame::Task(PollWorkerTask {
+                    task_id: "x".repeat(OVERSIZED_TASK_ID_BYTES),
+                    ..Default::default()
+                })),
+            }))
+            .await
+            .expect("assign oversized task");
+    }
+
+    async fn assign_unknown_step(&self, task_id: String) -> Result<(), Status> {
+        self.responses
+            .send(Ok(PollWorkerTaskResponse {
+                frame: Some(ResponseFrame::Task(PollWorkerTask {
+                    task_id,
+                    request: Some(TaskRequest::Execute(InvokeExecuteMethodRequest {
+                        flow_type: "SlotFlow".to_string(),
+                        step_type: "MissingStep".to_string(),
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                })),
+            }))
+            .await
+            .map_err(|_| Status::unavailable("slot connection closed"))
+    }
+
+    async fn reset(&mut self) -> Status {
+        self.next_request()
+            .await
+            .expect_err("stream reset, never a clean half-close")
     }
 
     async fn next_request(&mut self) -> RequestEvent {
@@ -361,9 +399,11 @@ async fn executes_every_assignment_without_capacity_rejections() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn registration_limit_fails_start_without_background_retry() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
     let mut harness = SlotHarness::new(
         PullWorkerOptions::new().max_concurrent_tasks(3),
-        Registry::new(),
+        Registry::new().register(flow).unwrap(),
     )
     .await;
     let mut connections = Vec::new();
@@ -371,6 +411,8 @@ async fn registration_limit_fails_start_without_background_retry() {
         connections.push(harness.connection().await);
     }
     connections[0].registered(2).await;
+    // A task sent right after Registered must come back without consuming an attempt.
+    connections[0].assign_step("after-limit").await;
     let failure = timeout(Duration::from_secs(5), harness.worker.registration.wait())
         .await
         .unwrap()
@@ -381,6 +423,15 @@ async fn registration_limit_fails_start_without_background_retry() {
             .to_string()
             .contains("matching.maxConcurrentTasksCap 2")
     );
+    let SdkError::Service { service } = &failure else {
+        panic!("expected a Service error, got {failure:?}");
+    };
+    assert_eq!(service.code(), Code::FailedPrecondition);
+    for connection in &mut connections {
+        connection.half_closed().await;
+    }
+    assert!(!harness.worker.registration.snapshot().is_ready);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
     drop(connections);
     let failure = harness.finish().await.unwrap_err();
     assert!(
@@ -388,6 +439,40 @@ async fn registration_limit_fails_start_without_background_retry() {
             .to_string()
             .contains("matching.maxConcurrentTasksCap 2")
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lower_limit_after_reconnect_keeps_the_worker_serving() {
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(2)
+            .reserved_rpc_tasks(0),
+        Registry::new().register(slot_flow(true, false)).unwrap(),
+    )
+    .await;
+    let first = harness.connection().await;
+    let mut second = harness.connection().await;
+    first.registered(2).await;
+    second.registered(2).await;
+    timeout(Duration::from_secs(5), harness.worker.registration.wait())
+        .await
+        .unwrap()
+        .unwrap();
+    first
+        .responses
+        .send(Err(Status::unavailable("connection broke")))
+        .await
+        .unwrap();
+    let mut replacement = harness.connection().await;
+    replacement.registered(1).await;
+    replacement.assign_step("after-lower-limit").await;
+    replacement.final_frame("after-lower-limit").await;
+    assert!(harness.worker.registration.snapshot().is_ready);
+    harness.stop();
+    replacement.half_closed().await;
+    second.half_closed().await;
+    drop((first, second, replacement));
+    harness.finish().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -504,4 +589,220 @@ fn deprecated_idle_setting_accepts_zero_and_decline_counter_stays_zero() {
     assert_eq!(worker.pull_reserved_rpc_declines(), 0);
     worker.stop();
     assert_eq!(worker.pull_reserved_rpc_declines(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn undecodable_task_frame_on_busy_slot_resets_the_stream() {
+    let flow = slot_flow(false, true);
+    let calls = Arc::clone(&flow.step.calls);
+    let started = Arc::clone(&flow.step.started);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new().max_concurrent_tasks(1),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut busy = harness.connection().await;
+    busy.registered(0).await;
+    busy.assign_step("running").await;
+    timeout(Duration::from_secs(5), started.notified())
+        .await
+        .unwrap();
+    busy.assign_oversized_task().await;
+    busy.reset().await;
+    let mut replacement = harness.connection().await;
+    replacement.registered(0).await;
+    harness.stop();
+    // The cancelled handler's output never reaches the replacement connection.
+    replacement.half_closed().await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    drop((busy, replacement));
+    harness.finish().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn undecodable_task_frame_on_idle_slot_resets_the_stream() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new().max_concurrent_tasks(1),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut idle = harness.connection().await;
+    idle.registered(0).await;
+    idle.assign_oversized_task().await;
+    idle.reset().await;
+    let mut replacement = harness.connection().await;
+    replacement.registered(0).await;
+    replacement.assign_step("after-reset").await;
+    replacement.final_frame("after-reset").await;
+    harness.stop();
+    replacement.half_closed().await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    drop((idle, replacement));
+    harness.finish().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn next_task_right_after_final_output_runs_unless_stop_wins() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new().max_concurrent_tasks(1),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut slot = harness.connection().await;
+    slot.registered(0).await;
+    // Each assignment follows the previous final output immediately, before local cleanup ends.
+    for index in 0..20 {
+        let task_id = format!("reused-{index}");
+        slot.assign_step(&task_id).await;
+        slot.final_frame(&task_id).await;
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 20);
+    tokio::join!(async { harness.stop() }, slot.assign_step("racing-stop"));
+    match slot.next_request().await.expect("no reset") {
+        None => assert_eq!(calls.load(Ordering::SeqCst), 20),
+        Some(request) => {
+            assert!(
+                matches!(request.frame, Some(RequestFrame::TaskFrame(frame)) if frame.task_id == "racing-stop")
+            );
+            slot.half_closed().await;
+            assert_eq!(calls.load(Ordering::SeqCst), 21);
+        }
+    }
+    drop(slot);
+    harness.finish().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_slot_drops_task_after_stop_begins_and_before_half_close() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new().max_concurrent_tasks(1),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut idle = harness.connection().await;
+    idle.registered(0).await;
+    harness.worker.stop_accepting_tasks();
+    idle.assign_step("late-before-half-close").await;
+    idle.assign_unknown_step("late-unknown".to_string())
+        .await
+        .unwrap();
+    harness.shutdown.send_replace(true);
+    // Neither output nor rejection is sent for a dropped task.
+    idle.half_closed().await;
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    drop(idle);
+    harness.finish().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_deadline_resets_a_slot_blocked_on_a_send() {
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(1)
+            .stop_drain_timeout(Duration::from_millis(200)),
+        Registry::new().register(slot_flow(true, false)).unwrap(),
+    )
+    .await;
+    let slot = harness.connection().await;
+    slot.registered(0).await;
+    let responses = slot.responses.clone();
+    // Large rejections fill HTTP/2 flow control because this fake Server stops reading requests.
+    let unknown_tasks = tokio::spawn(async move {
+        let blocked = SlotConnection {
+            register: PollWorkerTaskRegister::default(),
+            responses,
+            requests: mpsc::channel(1).1,
+        };
+        for index in 0..200 {
+            let task_id = format!("{index}-{}", "x".repeat(64 * 1024));
+            if blocked.assign_unknown_step(task_id).await.is_err() {
+                return;
+            }
+        }
+    });
+    timeout(Duration::from_secs(5), async {
+        while slot.requests.len() < slot.requests.max_capacity() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("fake Server stopped reading");
+    harness.stop();
+    let result = timeout(Duration::from_secs(5), &mut harness.running)
+        .await
+        .expect("Stop returned after the drain deadline")
+        .expect("join Worker");
+    result.unwrap();
+    unknown_tasks.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_deadline_resets_half_closed_idle_slot_without_server_eof() {
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(1)
+            .stop_drain_timeout(Duration::from_millis(200)),
+        Registry::new().register(slot_flow(true, false)).unwrap(),
+    )
+    .await;
+    let mut idle = harness.connection().await;
+    idle.registered(0).await;
+    harness.stop();
+    idle.half_closed().await;
+    timeout(Duration::from_secs(5), &mut harness.running)
+        .await
+        .expect("Stop returned at the drain deadline")
+        .expect("join Worker")
+        .unwrap();
+    timeout(Duration::from_secs(5), idle.responses.closed())
+        .await
+        .expect("the Worker reset the stream the Server never ended");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn final_output_waits_flush_grace_beyond_stop_deadline_then_resets() {
+    let flow = slot_flow(false, false);
+    let started = Arc::clone(&flow.step.started);
+    let release = Arc::clone(&flow.step.release);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(1)
+            .stop_drain_timeout(Duration::from_millis(200)),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let mut busy = harness.connection().await;
+    busy.registered(0).await;
+    busy.assign_step("finishing").await;
+    timeout(Duration::from_secs(5), started.notified())
+        .await
+        .unwrap();
+    harness.stop();
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    busy.final_frame("finishing").await;
+    busy.half_closed().await;
+    assert!(
+        timeout(Duration::from_secs(1), &mut harness.running)
+            .await
+            .is_err(),
+        "the slot keeps waiting for Server EOF during the flush grace"
+    );
+    timeout(
+        FINAL_OUTPUT_FLUSH_GRACE + Duration::from_secs(5),
+        &mut harness.running,
+    )
+    .await
+    .expect("Stop returned after the flush grace")
+    .expect("join Worker")
+    .unwrap();
+    timeout(Duration::from_secs(5), busy.responses.closed())
+        .await
+        .expect("the Worker reset the stream after the flush grace");
 }

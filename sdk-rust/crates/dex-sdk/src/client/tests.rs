@@ -51,6 +51,7 @@ mod hard_delete {
     use crate::{
         Attribute, AttributeMap, AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions,
         Flow, PersistenceSchema, Registry, SdkError, StartFlowOptions, WaitForAttributeOptions,
+        WaitForStepCompletionOptions,
     };
 
     static API_KEY: LazyLock<Attribute<String>> =
@@ -99,7 +100,7 @@ mod hard_delete {
             let path = request.uri().path().to_string();
             self.paths.lock().expect("paths lock").push(path.clone());
             let server_info = GetServerInfo {
-                current_protocol_version: self.current_protocol_version.load(Ordering::SeqCst),
+                current_protocol_version: Arc::clone(&self.current_protocol_version),
             };
             Box::pin(async move {
                 if path == "/dex.FlowService/GetServerInfo" {
@@ -112,8 +113,11 @@ mod hard_delete {
         }
     }
 
+    // GetServerInfo waits while the fake Server holds this version.
+    const STALLED_PROTOCOL_VERSION: u32 = u32::MAX - 1;
+
     struct GetServerInfo {
-        current_protocol_version: u32,
+        current_protocol_version: Arc<AtomicU32>,
     }
 
     impl UnaryService<()> for GetServerInfo {
@@ -121,8 +125,12 @@ mod hard_delete {
         type Future = BoxFuture<Response<Self::Response>, Status>;
 
         fn call(&mut self, _: Request<()>) -> Self::Future {
-            let current_protocol_version = self.current_protocol_version;
+            let shared_protocol_version = Arc::clone(&self.current_protocol_version);
             Box::pin(async move {
+                while shared_protocol_version.load(Ordering::SeqCst) == STALLED_PROTOCOL_VERSION {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                let current_protocol_version = shared_protocol_version.load(Ordering::SeqCst);
                 if current_protocol_version == u32::MAX {
                     return Err(Status::unavailable("transient negotiation failure"));
                 }
@@ -358,13 +366,16 @@ mod hard_delete {
         let server = ProtocolServer::new(u32::MAX);
         let directory = tempfile::tempdir().unwrap();
         let client = client_for(&server.address, &directory);
+        let transient = client.health_check().unwrap_err();
         assert!(
-            client
-                .health_check()
-                .unwrap_err()
+            transient
                 .to_string()
                 .contains("transient negotiation failure")
         );
+        assert!(!transient.to_string().contains("incompatible"));
+        let service = transient.service_error().expect("service error");
+        assert_eq!(service.code(), tonic::Code::Unavailable);
+        assert_eq!(service.operation(), "health_check");
         server.version.store(4, Ordering::SeqCst);
         for _ in 0..2 {
             assert_eq!(
@@ -387,5 +398,106 @@ mod hard_delete {
             ]
         );
         server.finish();
+    }
+
+    #[test]
+    fn budgeted_first_call_times_out_on_stalled_negotiation_without_caching() {
+        let server = ProtocolServer::new(STALLED_PROTOCOL_VERSION);
+        let directory = tempfile::tempdir().unwrap();
+        let client = client_for(&server.address, &directory);
+        let started = std::time::Instant::now();
+        let timed_out = client.wait_for_attribute_match(
+            "flow-1",
+            &PLAIN_NOTE,
+            AttributeMatch::equal_to("note".to_string()),
+            WaitForAttributeOptions::new().request_timeout(std::time::Duration::from_secs(1)),
+        );
+        assert!(matches!(timed_out, Err(SdkError::RequestTimeout { .. })));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        server.version.store(4, Ordering::SeqCst);
+        let error = client
+            .wait_for_step_completion(
+                "flow-1",
+                crate::StepExecutionId {
+                    step_type: "SomeStep",
+                    execution_number: 1,
+                },
+                WaitForStepCompletionOptions::new()
+                    .request_timeout(std::time::Duration::from_secs(5)),
+            )
+            .expect_err("fake WaitForStepCompletion is unimplemented");
+        assert_eq!(
+            error.service_error().expect("service error").code(),
+            tonic::Code::Unimplemented
+        );
+        server.finish();
+    }
+
+    #[test]
+    fn budgeted_call_waiting_on_another_negotiation_times_out_on_schedule() {
+        let server = ProtocolServer::new(STALLED_PROTOCOL_VERSION);
+        let directory = tempfile::tempdir().unwrap();
+        let client = Arc::new(client_for(&server.address, &directory));
+        let negotiating_client = Arc::clone(&client);
+        let unbudgeted = std::thread::spawn(move || negotiating_client.health_check());
+        while server.paths.lock().unwrap().is_empty() {
+            std::thread::yield_now();
+        }
+        let started = std::time::Instant::now();
+        let timed_out = client.wait_for_step_completion(
+            "flow-1",
+            crate::StepExecutionId {
+                step_type: "SomeStep",
+                execution_number: 1,
+            },
+            WaitForStepCompletionOptions::new().request_timeout(std::time::Duration::from_secs(1)),
+        );
+        assert!(matches!(timed_out, Err(SdkError::RequestTimeout { .. })));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        server.version.store(4, Ordering::SeqCst);
+        let first = unbudgeted.join().expect("join unbudgeted call");
+        assert_eq!(
+            first.unwrap_err().service_error().unwrap().code(),
+            tonic::Code::Unimplemented
+        );
+        assert_eq!(
+            server
+                .paths
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|path| *path == "/dex.FlowService/GetServerInfo")
+                .count(),
+            1
+        );
+        server.finish();
+    }
+
+    #[test]
+    fn unreachable_server_returns_service_errors_without_incompatibility() {
+        let directory = tempfile::tempdir().unwrap();
+        let client = client_for("127.0.0.1:1", &directory);
+        let client_error = client.health_check().unwrap_err();
+        assert_eq!(
+            client_error.service_error().expect("service error").code(),
+            tonic::Code::Unavailable
+        );
+        assert!(!client_error.to_string().contains("incompatible"));
+        let cache = Arc::new(
+            BlobCache::open(BlobCacheConfig::new(directory.path(), 1024 * 1024, 0).unwrap())
+                .unwrap(),
+        );
+        let worker = crate::Worker::try_new(
+            Registry::new(),
+            cache,
+            crate::WorkerOptions::new().server_address("127.0.0.1:1"),
+        )
+        .unwrap();
+        let worker_error = worker.start().unwrap_err();
+        assert_eq!(
+            worker_error.service_error().expect("service error").code(),
+            tonic::Code::Unavailable
+        );
+        assert!(!worker_error.to_string().contains("incompatible"));
     }
 }

@@ -396,13 +396,16 @@ The Worker opens exactly `max_concurrent_tasks` long-lived poll streams. Each st
 is one execution slot serving the Worker's sticky queue and every registered Flow type.
 The task limit defaults to the CPU count. An idle slot is ready for work; a busy slot
 executes its task and sends its final output before becoming ready again. The Worker
-executes every assignment and never rejects work for capacity. Start fails when the
-configured task limit exceeds the Server's reported `matching.maxConcurrentTasksCap`.
+executes every assignment and never rejects work for capacity. Start fails with a
+`FAILED_PRECONDITION` service error when the configured task limit exceeds the
+`matching.maxConcurrentTasksCap` reported by the first registered stream. That stream
+half-closes and drops any task already sent, so Dex returns it without consuming an
+attempt. A lower limit reported after a later reconnect only logs a warning.
 The deprecated `idle_streams_per_queue` setting is still accepted and has no effect.
 Flow type names must be unique within a Dex server.
 The SDK sends an upstream Pong every 20 seconds while a task runs and stops before
 its final frame. This interval is internal and needs no Worker option. An unregistered
-Step or RPC may be rejected by name before its handler runs, allowing reassignment.
+Step or RPC is always rejected by name before its handler runs, allowing reassignment.
 The generated app Worker ID uses the first nonempty `DEX_WORKER_INSTANCE`,
 `POD_NAME`, or `HOSTNAME` value, or the system hostname (falling back to
 `worker`), plus eight random base32 characters. An override must identify one
@@ -427,11 +430,19 @@ request side immediately. Busy streams let their handlers finish, send final out
 and then half-close. Task frames arriving after Stop are dropped without calling a
 handler, including frames arriving after half-close. Each stream keeps reading until
 the Server ends it. At the drain deadline (30 seconds by default), a stream whose
-handler is still running is reset rather than half-closed; its handler is cancelled.
-`Worker::start` waits for cancelled handlers to return. Set
+handler is still running and has not queued its final output is reset rather than
+half-closed; its handler is cancelled, and Dex treats that task as one that may have run.
+A stream whose final output is already queued still sends it and half-closes. After a
+final output, a stream waits up to five seconds for the Server to end it, so Stop can
+return up to five seconds after the deadline. Every other stream still open at the
+deadline, including one blocked on a send, is reset. An idle stream that receives a
+Server Reconnect half-closes instead. `Worker::start` waits for cancelled handlers to
+return. Set
 `PullWorkerOptions::stop_drain_timeout` to change the deadline. Handlers should check
 `Context::is_cancelled` during interruptible work. A broken connection cancels its
-handlers, and their outputs are never sent on a replacement connection.
+handlers, and their outputs are never sent on a replacement connection. Any other local
+stream failure, such as a task frame the Worker cannot decode, also resets the stream
+instead of half-closing it.
 
 #### Reserved RPC capacity
 
@@ -690,8 +701,12 @@ before polling. The negotiated protocol is retained
 for future protocol-specific paths. Client construction stays lazy and performs no
 network I/O. Every Client negotiates before its first service request, regardless of
 method. It caches success and incompatibility errors for its lifetime; transient
-negotiation failures are retried on the next call. Errors include the Server version
-and required server-zd release. The diagnostic includes the reported values:
+negotiation failures are retried on the next call. An unreachable Server returns the usual
+service error with its gRPC code, for the Client and for `Worker::start`. A positive
+request timeout on `wait_for_step_completion` or `wait_for_attribute_match` also bounds
+negotiation; its expiry returns `SdkError::RequestTimeout`. Errors include the Server
+version and required server-zd release. A Server that requires a newer protocol asks you
+to upgrade the SDK instead. The diagnostic for an older Server includes the reported values:
 
 ```text
 This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). The Server reports protocol versions <min>-<current> (server version <server_version>). Upgrade the Server before upgrading the SDK.

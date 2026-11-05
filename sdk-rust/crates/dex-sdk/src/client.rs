@@ -8,7 +8,7 @@
 
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
@@ -33,9 +33,7 @@ pub use attribute_reads::{AttributeRead, AttributeReads};
 
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
-use crate::server_protocol::{
-    NegotiatedServerProtocolVersion, negotiate_server_protocol, server_info_request_error,
-};
+use crate::server_protocol::{NegotiatedServerProtocolVersion, negotiate_server_protocol};
 use crate::stop_flow_options::StopType;
 use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
 use crate::value_hydrator::ValueHydrator;
@@ -60,6 +58,9 @@ use crate::{
 /// protocol version 4. Successful negotiation and incompatibility errors are cached for its lifetime;
 /// transient negotiation failures are retried on the next call. Incompatibility errors name the
 /// Server version and required server-zd release. Concurrent first calls share one negotiation.
+/// An unreachable Server during negotiation returns the usual service error with its gRPC code.
+/// A positive request timeout on a wait method also bounds negotiation and the wait for another
+/// caller's negotiation; its expiry returns [`SdkError::RequestTimeout`] and is not cached.
 ///
 /// # Examples
 ///
@@ -80,7 +81,7 @@ pub struct Client {
     service: FlowServiceClient<CredentialChannel>,
     hydrator: ValueHydrator,
     negotiated_protocol_version: NegotiatedServerProtocolVersion,
-    protocol_negotiation: Mutex<Option<Result<u32, String>>>,
+    protocol_negotiation: tokio::sync::Mutex<Option<Result<u32, String>>>,
 }
 
 impl Client {
@@ -124,7 +125,7 @@ impl Client {
             service,
             hydrator,
             negotiated_protocol_version: NegotiatedServerProtocolVersion::default(),
-            protocol_negotiation: Mutex::new(None),
+            protocol_negotiation: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -157,8 +158,8 @@ impl Client {
     /// Returns [`SdkError`] for invalid IDs, unregistered or mismatched Flow types, encoding
     /// failures, invalid option durations, reuse conflicts, and service failures. Returns
     /// [`SdkError::InvalidArgument`] for an invalid initial hard-delete Attribute value or a
-    /// definition that does not match the registered one. Returns [`SdkError::Service`] when an
-    /// initial hard-delete Attribute targets a Server older than protocol version 3.
+    /// definition that does not match the registered one. Returns [`SdkError::Service`] when the
+    /// Server does not support the protocol version this SDK requires.
     pub fn start_flow_with_options<SomeFlow: Flow>(
         &self,
         flow: &SomeFlow,
@@ -215,7 +216,7 @@ impl Client {
                 .clone()
                 .unwrap_or_else(|| Uuid::new_v4().to_string()),
         };
-        self.require_server_protocol()?;
+        self.require_server_protocol("start_flow")?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             service
@@ -389,7 +390,7 @@ impl Client {
             page_size,
             before_page_token: before_page_token.to_string(),
         };
-        self.require_server_protocol()?;
+        self.require_server_protocol("list_stream_messages")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -462,7 +463,7 @@ impl Client {
     ///
     /// Returns [`SdkError::FlowNotFound`] for an unknown ID or a service/protocol error.
     pub fn describe_flow(&self, flow_id: &str) -> SdkResult<FlowInfo> {
-        self.require_server_protocol()?;
+        self.require_server_protocol("describe_flow")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -527,7 +528,7 @@ impl Client {
         if page_size < 0 {
             return Err(invalid("search page size must not be negative"));
         }
-        self.require_server_protocol()?;
+        self.require_server_protocol("search_flows")?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             let response = service
@@ -646,7 +647,7 @@ impl Client {
                 };
             }
         }
-        self.require_server_protocol()?;
+        self.require_server_protocol("time_travel")?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             service
@@ -721,6 +722,11 @@ impl Client {
     ) -> SdkResult<()> {
         let request_budget = ClientRequestBudget::new(options.request_timeout)?;
         let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
+        self.require_server_protocol_within_budget(
+            "wait_for_step_completion",
+            flow_id,
+            &request_budget,
+        )?;
         loop {
             let request_attempt =
                 request_budget.next_attempt("wait_for_step_completion", flow_id)?;
@@ -817,10 +823,14 @@ impl Client {
         encoded_match.key = key.to_string();
         let request_budget = ClientRequestBudget::new(options.request_timeout)?;
         let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
+        self.require_server_protocol_within_budget(
+            "wait_for_attribute_match",
+            flow_id,
+            &request_budget,
+        )?;
         let response = loop {
             let request_attempt =
                 request_budget.next_attempt("wait_for_attribute_match", flow_id)?;
-            self.require_server_protocol()?;
             let mut service = self.service.clone();
             let mut request = Request::new(WaitForAttributeRequest {
                 flow_id: flow_id.to_string(),
@@ -994,7 +1004,7 @@ impl Client {
             load_channel_names,
             load_channel_map_instances: load_channel_map_instances.into_iter().collect(),
         };
-        self.require_server_protocol()?;
+        self.require_server_protocol("invoke_rpc")?;
         let mut service = self.service.clone();
         let output = self.runtime.block_on(async {
             service
@@ -1034,7 +1044,7 @@ impl Client {
             resume_token: resume_token.to_string(),
             wait_time_seconds,
         };
-        self.require_server_protocol()?;
+        self.require_server_protocol("read_stream")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -1076,7 +1086,7 @@ impl Client {
         flow_id: &str,
         timeout: Option<Duration>,
     ) -> SdkResult<FlowResult> {
-        self.require_server_protocol()?;
+        self.require_server_protocol("wait_for_flow")?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -1194,21 +1204,42 @@ impl Client {
         Ok(flow_start_options)
     }
 
-    fn require_server_protocol(&self) -> SdkResult<()> {
-        let mut cached = self
-            .protocol_negotiation
-            .lock()
-            .expect("Client protocol negotiation lock");
+    fn require_server_protocol(&self, operation: &'static str) -> SdkResult<()> {
+        self.runtime
+            .block_on(self.negotiate_server_protocol_once(operation))
+    }
+
+    /// Negotiates within the caller's remaining request budget and returns
+    /// [`SdkError::RequestTimeout`] when it expires first; a timeout is never cached.
+    fn require_server_protocol_within_budget(
+        &self,
+        operation: &'static str,
+        flow_id: &str,
+        request_budget: &ClientRequestBudget,
+    ) -> SdkResult<()> {
+        let Some(deadline) = request_budget.deadline() else {
+            return self.require_server_protocol(operation);
+        };
+        self.runtime
+            .block_on(async {
+                tokio::time::timeout_at(
+                    tokio::time::Instant::from_std(deadline),
+                    self.negotiate_server_protocol_once(operation),
+                )
+                .await
+            })
+            .unwrap_or_else(|_| Err(SdkError::request_timeout(operation, flow_id)))
+    }
+
+    async fn negotiate_server_protocol_once(&self, operation: &'static str) -> SdkResult<()> {
+        let mut cached = self.protocol_negotiation.lock().await;
         if cached.is_none() {
             let mut service = self.service.clone();
-            let server_info = self
-                .runtime
-                .block_on(service.get_server_info(()))
-                .map_err(|status| SdkError::Service {
-                    service: ServiceError::local(
-                        "server_protocol",
-                        server_info_request_error(status),
-                    ),
+            let server_info = service
+                .get_server_info(())
+                .await
+                .map_err(|status| {
+                    SdkError::from_status(status, operation, None, FlowTargetRequirement::None)
                 })?
                 .into_inner();
             *cached = Some(negotiate_server_protocol(&server_info));
@@ -1229,7 +1260,7 @@ impl Client {
         operation: &'static str,
         attribute_key: &str,
     ) -> SdkResult<()> {
-        self.require_server_protocol()?;
+        self.require_server_protocol(operation)?;
         self.negotiated_protocol_version
             .require_hard_delete_attribute_support(attribute_key)
             .map_err(|error| SdkError::Service {
@@ -1252,7 +1283,7 @@ impl Client {
         Call: FnOnce(FlowServiceClient<CredentialChannel>) -> Future,
         Future: std::future::Future<Output = Result<tonic::Response<Response>, tonic::Status>>,
     {
-        self.require_server_protocol()?;
+        self.require_server_protocol(operation)?;
         let service = self.service.clone();
         self.runtime
             .block_on(call(service))
