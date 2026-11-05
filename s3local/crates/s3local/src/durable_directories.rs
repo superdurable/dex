@@ -8,7 +8,7 @@
 
 //! Directories under a strict store root whose entries this process has flushed into their parents.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::data_file::sync_directory;
+use crate::error::StoreError;
 
 /// Flushes each directory's entry into its parent once per process; concurrent callers wait for it.
 ///
@@ -110,24 +111,32 @@ impl DurableDirectories {
 
 /// Flushes the entry of the existing `directory` and of each ancestor into its parent.
 ///
-/// The walk follows the canonical path and stops with a warning at a parent it may not open.
+/// It walks the configured path's ancestors, then the canonical path's ancestors.
 ///
-/// Returns the number of parents flushed, or the first other I/O error.
-pub(crate) fn flush_entries_up_to_filesystem_root(directory: &Path) -> io::Result<usize> {
-    let mut current = fs::canonicalize(directory)?;
-    let mut flushed = 0;
-    while let Some(parent) = current.parent() {
-        match fs::File::open(parent) {
-            Ok(file) => file.sync_all()?,
-            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
-                // Such high-level directories are long-lived; refusing to start would make strict unusable.
-                tracing::warn!(directory = %parent.display(), %error, "cannot open a directory to flush its entries; its ancestors stay unflushed");
-                break;
+/// Returns the set of directories flushed. Fails with
+/// [`StoreError::DirectoryEntryFlushFailed`] when a directory cannot be resolved, opened, or flushed.
+pub(crate) fn flush_entries_up_to_filesystem_root(
+    directory: &Path,
+) -> Result<BTreeSet<PathBuf>, StoreError> {
+    let flush_failure =
+        |directory: &Path, source: io::Error| StoreError::DirectoryEntryFlushFailed {
+            directory: directory.to_path_buf(),
+            source,
+        };
+    let configured =
+        std::path::absolute(directory).map_err(|source| flush_failure(directory, source))?;
+    let canonical =
+        fs::canonicalize(directory).map_err(|source| flush_failure(directory, source))?;
+    let mut flushed = BTreeSet::new();
+    // Symlinks at intermediate components are covered only through these two walks.
+    for path in [configured, canonical] {
+        for parent in path.ancestors().skip(1) {
+            if parent.as_os_str().is_empty() || flushed.contains(parent) {
+                continue;
             }
-            Err(error) => return Err(error),
+            sync_directory(parent).map_err(|source| flush_failure(parent, source))?;
+            flushed.insert(parent.to_path_buf());
         }
-        flushed += 1;
-        current = parent.to_path_buf();
     }
     Ok(flushed)
 }
@@ -140,19 +149,86 @@ mod tests {
     use std::thread;
 
     use super::{DurableDirectories, flush_entries_up_to_filesystem_root};
+    use crate::error::StoreError;
 
     #[test]
     fn every_ancestor_of_a_nested_directory_is_flushed() {
         let root = tempfile::tempdir().unwrap();
-        let nested = root.path().join("persist").join("new-dev").join("s3");
+        let root_path = fs::canonicalize(root.path()).unwrap();
+        let nested = root_path.join("persist").join("new-dev").join("s3");
         fs::create_dir_all(&nested).unwrap();
-        let above_root = flush_entries_up_to_filesystem_root(root.path()).unwrap();
-        assert!(above_root >= 1, "the temporary directory has a parent");
-        assert_eq!(
-            flush_entries_up_to_filesystem_root(&nested).unwrap(),
-            above_root + 3,
-            "s3, new-dev, persist, and every directory above them are flushed"
+        let flushed = flush_entries_up_to_filesystem_root(&nested).unwrap();
+        for directory in [
+            root_path.join("persist").join("new-dev"),
+            root_path.join("persist"),
+            root_path.clone(),
+        ] {
+            assert!(
+                flushed.contains(&directory),
+                "{} is flushed",
+                directory.display()
+            );
+        }
+        for ancestor in root_path.ancestors().skip(1) {
+            assert!(
+                flushed.contains(ancestor),
+                "{} is flushed",
+                ancestor.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_symlinked_root_flushes_the_alias_and_the_target_ancestors() {
+        let root = tempfile::tempdir().unwrap();
+        let root_path = fs::canonicalize(root.path()).unwrap();
+        let target = root_path.join("persist").join("target");
+        fs::create_dir_all(&target).unwrap();
+        let aliases = root_path.join("aliases");
+        fs::create_dir(&aliases).unwrap();
+        let alias = aliases.join("dev");
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+
+        let flushed = flush_entries_up_to_filesystem_root(&alias).unwrap();
+        assert!(
+            flushed.contains(&aliases),
+            "the alias entry lives in {}",
+            aliases.display()
         );
+        assert!(
+            flushed.contains(&root_path.join("persist")),
+            "the target entry is flushed"
+        );
+        let shared: Vec<_> = root_path.ancestors().collect();
+        assert_eq!(
+            flushed.len(),
+            shared.len() + 2,
+            "the shared ancestors are flushed once, plus aliases and persist"
+        );
+    }
+
+    #[test]
+    fn an_ancestor_that_cannot_be_opened_fails_the_flush() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let locked = root.path().join("persist");
+        let new_dev = locked.join("new-dev");
+        fs::create_dir_all(&new_dev).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o300)).unwrap();
+        // Root reads any directory, so the denial this test needs cannot happen there.
+        let is_denied = fs::File::open(&locked).is_err();
+        let result = flush_entries_up_to_filesystem_root(&new_dev);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+        if !is_denied {
+            return;
+        }
+        match result {
+            Err(StoreError::DirectoryEntryFlushFailed { directory, .. }) => {
+                assert!(directory.ends_with("persist"), "{}", directory.display());
+            }
+            other => panic!("expected the flush to fail at persist: {other:?}"),
+        }
     }
 
     #[test]

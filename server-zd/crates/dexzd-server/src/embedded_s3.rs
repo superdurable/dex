@@ -163,6 +163,12 @@ fn store_open_failure_detail(error: StoreError, data_directory: &Path) -> String
              writes; delete the whole data directory {} to start empty",
             data_directory.display()
         ),
+        StoreError::DirectoryEntryFlushFailed { directory, source } => format!(
+            "strict durability cannot flush the directory entries in {}: {source}; fix the \
+             permissions, or choose --durability process-crash-safe (dev.durabilityMode: \
+             processCrashSafe), which does not flush them",
+            directory.display()
+        ),
         StoreError::UnsupportedStoreFormatVersion {
             found, supported, ..
         } => format!(
@@ -303,6 +309,22 @@ mod tests {
         }
         let denied = io::Error::from(io::ErrorKind::PermissionDenied);
         assert!(classify_lock_attempt(Err(TryLockError::Error(denied))).is_err());
+    }
+
+    #[test]
+    fn an_unflushable_directory_names_the_process_crash_safe_choice() {
+        let detail = store_open_failure_detail(
+            StoreError::DirectoryEntryFlushFailed {
+                directory: PathBuf::from("/persist"),
+                source: io::Error::from(io::ErrorKind::PermissionDenied),
+            },
+            Path::new("/persist/new-dev"),
+        );
+        assert!(detail.contains("/persist"), "{detail}");
+        assert!(
+            detail.contains("--durability process-crash-safe"),
+            "{detail}"
+        );
     }
 
     #[test]
