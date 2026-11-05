@@ -1142,7 +1142,10 @@ output for it. The attempt fails as possibly run, with NOT_COMPLETED. The
 server ends that stream with INVALID_ARGUMENT, so it gets no further task.
 **dexzd_matching_unsupported_type_evictions_total** is a counter. A steady rise
 means you should raise **matching.unsupportedTypeCacheEntries**. An evicted pair is
-not sent to its Worker again until that Worker completes a Step.
+not sent to its Worker again until that Worker completes a Step. While the cache
+overflows, a type that a Worker declined can therefore be offered to it again
+after each Step it completes. Raise **matching.unsupportedTypeCacheEntries** when
+this counter rises or the server logs the full-cache WARN.
 
 Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each stream close and, with
@@ -1209,11 +1212,13 @@ Steps. Registration beyond **matching.maxConcurrentTasksCap** or
 When a Worker declines a Step type or an RPC name as unknown, Dex remembers the
 (tenant, Flow type, Step type or RPC name, app Worker ID) pair in a bounded
 cache and stops offering that type to that Worker. Dex drops the entry when
-every stream of that Worker disconnects. A restarted Worker gets a new app
-Worker ID, so Dex does not exclude it. If you override the app Worker ID, set a
-new value after each process restart. Otherwise the entry of an old process can
-exclude a Worker upgraded during a rolling deploy until all old streams are
-gone. For an RPC, Dex tries other Workers within the caller's deadline. An RPC
+every stream with that app Worker ID disconnects. A restarted Worker gets a new
+app Worker ID, so Dex does not exclude it. If you override the app Worker ID,
+set a new value after each process restart. Otherwise an upgraded process that
+reuses the ID during a rolling deploy is excluded by the old process's entry,
+until every stream with that ID is gone, including the upgraded process's own
+streams. If the cache evicts the entry first, Dex offers the type again after a
+Worker with that ID completes a Step. For an RPC, Dex tries other Workers within the caller's deadline. An RPC
 still fails with the existing error when no Worker supports it.
 
 ### Step task queue {#step-task-queue}

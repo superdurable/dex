@@ -200,7 +200,7 @@ impl WorkerDispatch {
                 registry: Mutex::new(Registry {
                     is_closing: false,
                     streams: HashMap::new(),
-                    worker_counts: HashMap::new(),
+                    worker_stream_ids: HashMap::new(),
                     queues: HashMap::new(),
                     next_waiter_sequence: 0,
                     idle_positions: HashMap::new(),
@@ -924,10 +924,10 @@ impl WorkerDispatch {
             .record(WorkerStreamEvent::Closed);
         self.inner.metrics.matching_worker_streams.dec();
         let worker_key = (worker.tenant_id, worker.app_worker_id.clone());
-        if let Some(count) = registry.worker_counts.get_mut(&worker_key) {
-            *count -= 1;
-            if *count == 0 {
-                registry.worker_counts.remove(&worker_key);
+        if let Some(stream_ids) = registry.worker_stream_ids.get_mut(&worker_key) {
+            stream_ids.remove(&id);
+            if stream_ids.is_empty() {
+                registry.worker_stream_ids.remove(&worker_key);
                 registry
                     .unsupported_types
                     .remove_worker(worker.tenant_id, &worker.app_worker_id);

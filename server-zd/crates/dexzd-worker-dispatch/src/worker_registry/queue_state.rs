@@ -324,14 +324,16 @@ mod tests {
                 .or_insert_with(QueueState::new);
             queue.stream_ids.insert(worker.id);
             queue.users += 1;
-            registry.worker_counts.insert((7, "worker".to_owned()), 1);
+            registry
+                .worker_stream_ids
+                .insert((7, "worker".to_owned()), HashSet::from([worker.id]));
             registry.streams.insert(worker.id, worker.clone());
             registry.add_idle(&worker);
         }
         dispatch.disconnect(worker.id);
         let registry = dispatch.inner.registry.lock().expect("registry lock");
         assert!(registry.queues.is_empty());
-        assert!(registry.worker_counts.is_empty());
+        assert!(registry.worker_stream_ids.is_empty());
     }
 
     #[test]

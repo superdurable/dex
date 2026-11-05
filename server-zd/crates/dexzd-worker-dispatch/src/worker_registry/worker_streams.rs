@@ -288,8 +288,8 @@ mod tests {
         });
         let mut registry = dispatch.lock_registry();
         registry
-            .worker_counts
-            .insert((7, app_worker_id.to_owned()), 1);
+            .worker_stream_ids
+            .insert((7, app_worker_id.to_owned()), HashSet::from([worker.id]));
         registry.streams.insert(worker.id, worker.clone());
         worker
     }
