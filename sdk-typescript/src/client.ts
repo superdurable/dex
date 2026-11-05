@@ -275,7 +275,16 @@ export class Client {
       const serverInfo = await Promise.race([
         this.sharedServerInfo(),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(requestBudget.timeoutError(operation, flowId)), remainingMs);
+          // Re-arms in steps because Node fires longer setTimeout delays immediately.
+          const expireAtBudget = (): void => {
+            try {
+              const leftMs = requestBudget.remainingMs(operation, flowId) ?? remainingMs;
+              timer = setTimeout(expireAtBudget, Math.min(leftMs, 2_147_483_647));
+            } catch (failure) {
+              reject(failure);
+            }
+          };
+          expireAtBudget();
         }),
       ]);
       return negotiateServerProtocol(serverInfo, sdkVersion);

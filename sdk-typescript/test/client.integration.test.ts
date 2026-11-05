@@ -844,6 +844,37 @@ for (const method of ["waitForStepCompletion", "waitForAttributeMatch"] as const
   });
 }
 
+test("Client wait negotiation accepts a request timeout longer than the Node timer limit", async () => {
+  const pendingServerInfo: sendUnaryData<ServerInfo>[] = [];
+  const server = new Server();
+  server.addService(FlowServiceService, {
+    getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+      pendingServerInfo.push(callback);
+    },
+    waitForStepCompletion(_call, callback: sendUnaryData<WaitForStepCompletionResponse>) {
+      callback(null, {});
+    },
+  } as Partial<FlowServiceServer> as FlowServiceServer);
+  const port = await bind(server);
+  const client = new Client(new Registry([new TestFlow()]), new MemoryBlobCache(), {
+    serverAddress: `127.0.0.1:${port}`,
+  });
+  try {
+    const waiting = client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 }, {
+      requestTimeoutMs: 30 * 24 * 60 * 60 * 1_000,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    assert.equal(pendingServerInfo.length, 1);
+    pendingServerInfo[0]!(null, {
+      serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0,
+    });
+    await waiting;
+  } finally {
+    await client.close();
+    server.forceShutdown();
+  }
+});
+
 function serviceError(code: status, subStatus: ErrorSubStatus): ServiceError {
   const response = ServiceErrorResponse.encode({
     detail: "long poll timed out",

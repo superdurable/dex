@@ -358,7 +358,10 @@ export class PullWorker {
     if (runningTask !== undefined) {
       if (poll.isFinalFrameSent) {
         // Dex may reuse the slot before local cleanup finishes; start after it, rechecking stop.
-        void runningTask.completion.then(() => this.startTask(poll, task));
+        const stream = poll.stream;
+        void runningTask.completion.then(() => {
+          if (poll.stream === stream) this.startTask(poll, task);
+        });
       } else {
         this.disconnect(poll);
       }

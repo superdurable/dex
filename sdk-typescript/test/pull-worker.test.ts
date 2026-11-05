@@ -681,7 +681,8 @@ test("close drains a task, then resets its stream and waits for a handler that i
     const closing = worker.close().then(() => { hasClosed = true; });
     await until(() => hasAborted);
     assert.equal(hasClosed, false);
-    await until(() => stream.call.cancelled);
+    await stream.cancelled;
+    assert.equal(stream.framesAtEnd(), undefined, "a reset must not put END_STREAM on the wire first");
     assert.equal(halfClose.mock.callCount(), 0);
     assert.equal(stream.frames.some((request) => request.frame?.$case === "taskFrame"), false);
     finishTask();
