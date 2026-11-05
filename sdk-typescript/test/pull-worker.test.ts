@@ -649,8 +649,8 @@ for (const shutdown of ["Stop drain", "busy Reconnect", "busy Reconnect then Sto
   });
 }
 
-for (const shutdown of ["Stop", "Server Reconnect"] as const) {
-  test(`a backpressured final output whose local cleanup finished keeps the flush grace on ${shutdown}`, async () => {
+for (const [shutdown, hasPingAfterCleanup] of [["Stop", false], ["Server Reconnect", false], ["Stop", true], ["Server Reconnect", true]] as const) {
+  test(`a backpressured final output whose local cleanup finished keeps the flush grace on ${shutdown}${hasPingAfterCleanup ? " after a Ping" : ""}`, async () => {
     const harness = await startHarness();
     const payload = "x".repeat(3_000_000);
     const worker = harness.worker(async () => InvokeWorkerRPCResponse.create({ output: Value.create({
@@ -667,6 +667,11 @@ for (const shutdown of ["Stop", "Server Reconnect"] as const) {
       capturedStream.call.pause();
       capturedStream.call.write(rpcTask("queued-result"));
       await until(() => harness.invocationCount === 1 && Reflect.get(worker, "busyTaskCount") === 0);
+      if (hasPingAfterCleanup) {
+        // A Ping does not prove Dex read the final output, so it must not end the flush grace.
+        capturedStream.call.write({ frame: { $case: "ping", value: {} } });
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      }
       const shutdownStartedAt = Date.now();
       if (shutdown === "Stop") closing = worker.close();
       else capturedStream.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
