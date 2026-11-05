@@ -717,6 +717,8 @@ ATTEMPT_START_QUEUE_SERVER_STATEMENTS = (
     "This server upgrade does not support mixed versions.",
     "**dexzd_step_attempts_returned_total** with **reason=\"legacy_no_capacity\"**",
     "**dexzd_matching_heads_restored_refs_total**",
+    # The v0.1.16 step-down tuple matches both wordings; this pins the UNAVAILABLE claim exactly.
+    "answer **UNAVAILABLE**, so clients retry on the new active process.",
 )
 
 
