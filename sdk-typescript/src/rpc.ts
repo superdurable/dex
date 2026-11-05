@@ -44,12 +44,12 @@ export type RPC<Input, Output> = (
 ) => RPCResult<Output> | Promise<RPCResult<Output>>;
 
 /**
- * Configures an RPC decorator's name, codecs, timeout, and Attribute locks.
+ * Configures an `@rpc` or `declareRPCMethod` declaration's name, codecs, timeout, and Attribute locks.
  * @typeParam Input - Handler input type.
  * @typeParam Output - Handler output type.
  */
 export interface RPCOptions<Input = unknown, Output = unknown> {
-  /** Protocol RPC name; uses the decorated method name when omitted. */
+  /** Protocol RPC name; uses the method name given to `@rpc` or `declareRPCMethod` when omitted. */
   readonly name?: string;
   /**
    * Input codec. Omit this for JSON objects, or when the handler has no input.
@@ -82,7 +82,7 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
 /**
  * Adds runtime-selected map instances to one RPC invocation.
  *
- * Dex unions these selections with the RPC decorator's fixed locks and loads. Locking and loading
+ * Dex unions these selections with the fixed locks and loads from `@rpc` or `declareRPCMethod`. Locking and loading
  * are independent, so read-modify-write handlers must select the same AttributeMap instance in
  * both fields.
  */
@@ -106,6 +106,7 @@ const rpcOptions = new WeakMap<Function, RPCOptions<any, any>>();
 
 /**
  * Decorates a Flow method as an RPC handler.
+ * Use {@link declareRPCMethod} instead when the runtime cannot transform decorators.
  * @typeParam Input - Handler input type.
  * @typeParam Output - Handler output type.
  * @param options - Optional codecs and RPC settings. Omitted codecs use JSON.
@@ -127,6 +128,7 @@ export function rpc<Input = unknown, Output = unknown>(
  * explicit codec. A method with only a Context parameter and a void return is a
  * procedure. Default-parameter methods report `Function.length` without those
  * parameters, so pass `inputCodec` when a trailing input uses a default.
+ * Use {@link declareRPCMethod} instead when the runtime cannot transform decorators.
  *
  * @example
  * ```ts
@@ -155,19 +157,26 @@ export function rpc(options: RPCOptions<any, any> = {}) {
 }
 
 /**
- * Selects the public method names of a Flow type whose first parameter is Context.
+ * Selects the public method names of a Flow type that can receive Context as their first argument.
  *
  * {@link declareRPCMethod} uses this type so its method name argument is checked at compile time.
- * Private and protected methods are not included, so declare RPC methods as public.
- * @typeParam FlowType - Flow instance type that declares or inherits the RPC method.
+ * A method qualifies when it takes at least one parameter and Context is assignable to its first
+ * parameter, as `@rpc` requires. Private and protected methods are not included, so declare RPC
+ * methods as public. The Flow timeout handler `handleTimeout` is excluded.
+ * @typeParam FlowType - Flow instance type that declares the RPC method.
  */
-export type RPCMethodName<FlowType> = {
-  [Name in keyof FlowType]-?: FlowType[Name] extends (...args: infer Parameters) => unknown
-    ? Parameters extends [Context, ...unknown[]]
-      ? Name
-      : never
-    : never;
-}[keyof FlowType] & string;
+export type RPCMethodName<FlowType> = Exclude<
+  {
+    [Name in keyof FlowType]-?: FlowType[Name] extends (...args: infer Parameters) => unknown
+      ? Parameters extends []
+        ? never
+        : Context extends Parameters[0]
+          ? Name
+          : never
+      : never;
+  }[keyof FlowType],
+  "handleTimeout"
+> & string;
 
 /**
  * Declares a Flow class method as an RPC handler without decorator syntax.
@@ -176,17 +185,24 @@ export type RPCMethodName<FlowType> = {
  * Flow module cannot transform decorators, such as Node.js type stripping with
  * `node --experimental-transform-types`. Call it once per RPC method at module top level, right
  * after the class declaration and before constructing the Registry. Pass the class itself and the
- * method name as a string literal.
+ * method name as a string literal. A Registry reads declarations when it is constructed, so a
+ * declaration made after a Registry is built has no effect on that Registry.
  *
  * The declaration is stored exactly like `@rpc(options)` on the same method. Registry construction
  * then validates it with the same checks and the same errors: duplicate RPC names, locks on
  * unregistered Attributes, and invalid state loads. Client calls such as `invokeRPC(flow.describe,
  * ...)` work the same way for both forms.
  *
- * The method may be declared on the class or inherited from a base class. The declaration belongs
- * to the method function, so declaring an inherited method through a subclass also declares it for
- * the base class and every other subclass that inherits it, as `@rpc` on the base method would.
- * A subclass that overrides the method must declare its override separately.
+ * Declare a method through the class that defines it. The declaration belongs to the method
+ * function, so a method declared on a base class is an RPC of every subclass that inherits it, as
+ * `@rpc` on the base method would be. Naming a subclass for a method it only inherits throws,
+ * because that would also change the base class and every sibling subclass. To give one subclass
+ * its own RPC, override the method in that subclass and declare the override.
+ *
+ * The handler receives Context and optional input, then returns RPCResult or void. A method with
+ * only a Context parameter and a void return is a procedure. Default-parameter methods report
+ * `Function.length` without those parameters, so pass `inputCodec` when a trailing input uses a
+ * default.
  *
  * A method can be declared once. This function throws when the method is already declared by an
  * earlier call or by `@rpc`. A Flow may mix both forms on different methods.
@@ -261,11 +277,12 @@ export type RPCMethodName<FlowType> = {
  * @typeParam FlowType - Flow instance type constructed by `flowClass`.
  * @typeParam Input - Handler input type.
  * @typeParam Output - Handler output type.
- * @param flowClass - Flow class whose prototype chain defines the method.
+ * @param flowClass - Flow class whose own prototype defines the method.
  * @param methodName - Name of a public method that takes Context first.
  * @param options - Optional codecs and RPC settings. Omitted codecs use JSON.
  * @throws {@link TypeError} when `flowClass` is not a class, the method is missing, is an
- * accessor, is not a function, or is the constructor.
+ * accessor, is not a function, is inherited rather than defined by `flowClass`, or is the
+ * constructor or `handleTimeout`.
  * @throws {@link TypeError} when the method is already declared as an RPC handler.
  * @throws {@link TypeError} when `name` is blank.
  * @throws {@link RangeError} when `timeoutMs` is negative.
@@ -332,22 +349,38 @@ function prototypeRPCMethod(flowClass: Function, methodName: string): Function {
   if (methodName === "constructor") {
     throw new TypeError(`Flow class ${flowClass.name} constructor cannot be an RPC method`);
   }
+  if (methodName === "handleTimeout") {
+    throw new TypeError(`Flow class ${flowClass.name} handleTimeout is the Flow timeout handler, not an RPC method`);
+  }
   // Read descriptors instead of the property so an accessor is never invoked.
-  let prototype: object | null = flowClass.prototype as object;
+  const descriptor = Object.getOwnPropertyDescriptor(flowClass.prototype, methodName);
+  if (descriptor === undefined) {
+    throw inheritedOrMissingMethodError(flowClass, methodName);
+  }
+  if (!("value" in descriptor)) {
+    throw new TypeError(`Flow class ${flowClass.name} member ${methodName} is an accessor, not an RPC method`);
+  }
+  if (typeof descriptor.value !== "function") {
+    throw new TypeError(`Flow class ${flowClass.name} member ${methodName} is not a method`);
+  }
+  return descriptor.value as Function;
+}
+
+function inheritedOrMissingMethodError(flowClass: Function, methodName: string): TypeError {
+  let prototype = Object.getPrototypeOf(flowClass.prototype) as object | null;
   while (prototype !== null && prototype !== Object.prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
-    if (descriptor !== undefined) {
-      if (!("value" in descriptor)) {
-        throw new TypeError(`Flow class ${flowClass.name} member ${methodName} is an accessor, not an RPC method`);
-      }
-      if (typeof descriptor.value !== "function") {
-        throw new TypeError(`Flow class ${flowClass.name} member ${methodName} is not a method`);
-      }
-      return descriptor.value as Function;
+    if (Object.getOwnPropertyDescriptor(prototype, methodName) !== undefined) {
+      const definingClass = (Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as Function | undefined)
+        ?.name ?? "a base class";
+      return new TypeError(
+        `Flow class ${flowClass.name} method ${methodName} is inherited from ${definingClass}; ` +
+          `declare it with declareRPCMethod(${definingClass}, "${methodName}") ` +
+          `or override it in ${flowClass.name} and declare the override`,
+      );
     }
     prototype = Object.getPrototypeOf(prototype) as object | null;
   }
-  throw new TypeError(
+  return new TypeError(
     `Flow class ${flowClass.name} has no method ${methodName}; declare RPC handlers as class methods, not instance fields`,
   );
 }

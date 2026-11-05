@@ -17,10 +17,14 @@
 # Starts dexcli dev and runs main.ts with Node.js type stripping, without a build step.
 set -euo pipefail
 
+available_port() {
+  node -e 'const net=require("node:net");const server=net.createServer();server.listen(0,"127.0.0.1",()=>{console.log(server.address().port);server.close();});'
+}
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 dexcli="${DEXCLI_PATH:-dexcli}"
-dex_port="${DEX_DECORATOR_FREE_RPC_DEX_PORT:-19806}"
-web_port="${DEX_DECORATOR_FREE_RPC_WEB_PORT:-19906}"
+dex_port="${DEX_DECORATOR_FREE_RPC_DEX_PORT:-$(available_port)}"
+web_port="${DEX_DECORATOR_FREE_RPC_WEB_PORT:-$(available_port)}"
 log_file="/tmp/test-typescript-decorator-free-rpc-services.log"
 data_dir=$(mktemp -d)
 dexcli_pid=""

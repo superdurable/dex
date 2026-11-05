@@ -128,7 +128,10 @@ attribute, channel, timer, rpc, subflow, and client-apis.
 [`decorator-free-rpc/`](./decorator-free-rpc) is a separate package with one
 Flow whose RPC methods are declared with `declareRPCMethod` instead of `@rpc`.
 It runs under `node --experimental-transform-types` on Node.js 22 and 24 with no
-build step:
+build step. Plain `node main.ts` also works on Node.js 22.18 and later and on
+Node.js 24, which strip types by default. Node.js 26 removes
+`--experimental-transform-types`. The package's `tsconfig.json` sets
+`erasableSyntaxOnly`, so its TypeScript needs only type stripping:
 
 ```bash
 dexcli dev

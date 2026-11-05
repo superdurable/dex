@@ -9,9 +9,11 @@
   its method name argument. Use it when the runtime cannot transform
   decorators, such as Node.js type stripping with
   `node --experimental-transform-types`. It stores the same options as `@rpc`,
-  and Registry construction reports the same errors for both forms. It works
-  for inherited methods. It throws `TypeError` when the member is not a class
-  method, or when the method is already declared by `@rpc` or an earlier call.
+  and Registry construction reports the same errors for both forms. Declare a
+  method through the class that defines it; a method declared on a base class
+  is an RPC of every subclass that inherits it. It throws `TypeError` when the
+  member is not a method that class defines, when it is `handleTimeout`, or
+  when the method is already declared by `@rpc` or an earlier call.
   `@rpc` is unchanged.
 - Add `Client.getAttributes(flowId, ...reads)`, which reads committed values of
   registered Attributes and AttributeMap instances in one request, without an

@@ -64,10 +64,9 @@ export class DeclaredRpcFlow extends DeclaredRpcBaseFlow {
   }
 }
 
-// Declared through the base class: every subclass inherits this RPC.
+// Declared through the base class: every subclass inherits these RPCs.
 declareRPCMethod(DeclaredRpcBaseFlow, "getDeclaredValue", { outputCodec: stringCodec });
-// Declared through the subclass for an inherited method.
-declareRPCMethod(DeclaredRpcFlow, "setDeclaredValue", {
+declareRPCMethod(DeclaredRpcBaseFlow, "setDeclaredValue", {
   inputCodec: stringCodec,
   outputCodec: stringCodec,
   lockAttributes: [declaredValue.lock(), declaredWriteCount.lock()],

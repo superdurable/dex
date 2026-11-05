@@ -120,18 +120,12 @@ jobs:
         run: npm ci
       - name: Run integration coverage with dexcli dev
         run: npm run coverage:integration
-      - name: Upload TypeScript coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          disable_search: true
-          fail_ci_if_error: true
-          files: ./sdk-typescript/coverage/lcov.info
-          flags: sdk-typescript-integration-pull
-          name: sdk-typescript-integration-pull
-          use_oidc: true
       - name: Build dexcli for the decorator-free RPC example
         working-directory: cli
         run: GOWORK=off go build -trimpath -o "$RUNNER_TEMP/dexcli" ./cmd/dexcli
+      - name: Build the SDK package for the decorator-free RPC example
+        # The example installs @superdurable/dex from sdk-typescript, so it needs dist/ and the native addon.
+        run: npm run build:native && npm run build
       - name: Install and typecheck the decorator-free RPC example
         working-directory: examples/typescript/decorator-free-rpc
         run: npm ci && npm run typecheck
@@ -148,6 +142,15 @@ jobs:
         env:
           DEXCLI_PATH: ${{ runner.temp }}/dexcli
         run: ./run-with-dexcli-dev.sh
+      - name: Upload TypeScript coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: ./sdk-typescript/coverage/lcov.info
+          flags: sdk-typescript-integration-pull
+          name: sdk-typescript-integration-pull
+          use_oidc: true
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7

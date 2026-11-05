@@ -56,10 +56,12 @@ class OrderStatusFlow implements Flow<string> {
 ```
 
 Use `declareRPCMethod` when the runtime that loads the Flow module cannot
-transform decorators. Node.js type stripping (`node --experimental-transform-types`
-on Node.js 22 and 24) is one such runtime: it rejects a decorator with
-`SyntaxError: Invalid or unexpected token`. Declare the method right after the
-class, at module top level, before constructing the Registry:
+transform decorators. Node.js type stripping is one such runtime: it rejects a
+decorator with `SyntaxError: Invalid or unexpected token`. Plain `node main.ts`
+strips types by default on Node.js 22.18 and later and on Node.js 24.
+`node --experimental-transform-types` also works on Node.js 22 and 24, but
+Node.js 26 removes that flag. Declare the method right after the class, at module
+top level, before constructing the Registry:
 
 ```typescript
 class OrderStatusFlow implements Flow<string> {
@@ -76,9 +78,14 @@ declareRPCMethod(OrderStatusFlow, "getOrderStatus", { outputCodec: stringCodec }
 - Pass the class and the method name as a string literal. The name must be a
   public class method that takes `Context` first. An instance field, such as an
   arrow function, is not on the prototype and is rejected with `TypeError`.
-- An inherited method can be declared through the base class or a subclass. The
-  declaration belongs to the method, so it applies to every class that inherits
-  that method. A subclass override needs its own declaration.
+- Declare a method through the class that defines it. A method declared on a
+  base class is an RPC of every subclass that inherits it, as `@rpc` on the base
+  method would be. Naming a subclass for a method it only inherits throws
+  `TypeError`, because the declaration would also change the base class and
+  every sibling. To give one subclass its own RPC, override the method there and
+  declare the override.
+- Declare methods before constructing the Registry. A declaration made after a
+  Registry is built has no effect on that Registry.
 - Each method is declared once. Declaring it again, or declaring a method that
   already has `@rpc`, throws `TypeError`. One Flow may mix both forms on
   different methods.
