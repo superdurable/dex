@@ -107,11 +107,6 @@ func startRawPullWorker(t *testing.T, address string, flowType string, workerID 
 	return newRawPullWorker(t, address, flowType, workerID, rpcError, false, false, false, false, false, false, false)
 }
 
-func startRecoveryPullWorker(t *testing.T, address string, flowType string, workerID string) *rawPullWorker {
-	return newRawPullWorkerWithExecuteBehavior(t, address, flowType, workerID, nil, false, false, false, false, false, false, false, pullExecuteDefault,
-		rawPullWorkerConfig{shouldCaptureRecoveryError: true})
-}
-
 func startProgressPullWorker(t *testing.T, address string, flowType string, workerID string) *rawPullWorker {
 	return newRawPullWorker(t, address, flowType, workerID, nil, false, false, false, false, true, false, false)
 }
@@ -629,62 +624,58 @@ func TestPullWorkerUnavailableTemporal(t *testing.T) {
 	testPullWorkerUnavailable(t)
 }
 
-func TestPullDispatchFailureTextTemporal(t *testing.T) {
-	testPullDispatchFailureText(t)
+func TestPullStepQueuesWithoutWorkerTemporal(t *testing.T) {
+	testPullStepQueuesWithoutWorker(t)
 }
 
-func testPullDispatchFailureText(t *testing.T) {
-	const expectedDetail = "no Worker available for queue " + dispatchProbeFlowType + ": no Worker accepted the task"
-
-	t.Run("recovery Step", func(t *testing.T) {
-		runtime := startPullDispatchService(t, serverZDTestConfig{
-
-			Matching: &testconfig.MatchingConfig{DispatchWait: 5 * time.Second},
-		})
-		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
-		defer cancel()
-		flowID := "pull-recovery-failure-" + uuid.NewString()
-		stepOptions := &dexpb.StepOptions{
-			WaitForRetryPolicy:   &dexpb.RetryPolicy{MaximumAttempts: 1},
-			WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
-		}
-		require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
-			&dexpb.WorkerTarget{IsPullMode: true}, stepOptions))
-		summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			history, historyErr := runtime.FlowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
-				FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), EstimatePageSize: 100,
-			})
-			if historyErr != nil {
-				return false
-			}
-			for _, event := range history.GetEvents() {
-				if event.GetStepWaitForFailed() != nil {
-					return true
-				}
-			}
-			return false
-		}, 20*time.Second, 100*time.Millisecond)
-		worker := startRecoveryPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-recovery-"+uuid.NewString())
-		result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
-		require.NoError(t, err)
-		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus(), result.GetErrorMessage())
-		select {
-		case recoveryError := <-worker.recoveryErrors:
-			require.Equal(t, expectedDetail, recoveryError.GetDetail())
-		case <-ctx.Done():
-			t.Fatal("recovery Step did not receive a recovery error")
-		}
+// A Step that no Worker takes waits in the durable task queue instead of failing, and runs as
+// attempt 1 once a Worker connects (plan TB9).
+func testPullStepQueuesWithoutWorker(t *testing.T) {
+	runtime := startPullDispatchService(t, serverZDTestConfig{
+		Matching: &testconfig.MatchingConfig{DispatchWait: 5 * time.Second},
 	})
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	flowID := "pull-queued-step-" + uuid.NewString()
+	stepOptions := &dexpb.StepOptions{
+		WaitForRetryPolicy:   &dexpb.RetryPolicy{MaximumAttempts: 1},
+		WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
+	}
+	require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
+		&dexpb.WorkerTarget{IsPullMode: true}, stepOptions))
+	summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Never(t, func() bool {
+		history, historyErr := runtime.FlowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+			FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), EstimatePageSize: 100,
+		})
+		if historyErr != nil {
+			return false
+		}
+		for _, event := range history.GetEvents() {
+			if event.GetStepWaitForFailed() != nil {
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 100*time.Millisecond, "a Step without a Worker never fails")
+	worker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-queued-worker-"+uuid.NewString(), nil)
+	require.Equal(t, int32(1), waitForPullTask(t, worker, flowID).attempt)
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}},
+	})
+	require.NoError(t, err)
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus(), result.GetErrorMessage())
 }
 
 func TestPullWorkerStickyFallbackTemporal(t *testing.T) {
 	testPullWorkerStickyFallback(t)
 }
 
-func TestPullWorkerAppearsDuringRetriesTemporal(t *testing.T) {
-	testPullWorkerAppearsDuringRetries(t)
+func TestPullWorkerAppearsWhileStepQueuedTemporal(t *testing.T) {
+	testPullWorkerAppearsWhileStepQueued(t)
 }
 
 func TestPullWorkerDisconnectTemporal(t *testing.T) {
@@ -863,24 +854,21 @@ func testPullWorkerStickyCapacityRecovery(t *testing.T) {
 	requirePullHistoryRouting(t, ctx, runtime.FlowClient, flowID, workerID, workerID, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE)
 }
 
-func testPullWorkerAppearsDuringRetries(t *testing.T) {
+// A queued Step consumes no retry while it waits; the Worker that connects later gets attempt 1.
+func testPullWorkerAppearsWhileStepQueued(t *testing.T) {
 	t.Helper()
 	testConfig := serverZDTestConfig{
-
 		Matching: &testconfig.MatchingConfig{DispatchWait: 100 * time.Millisecond, StickyWait: 50 * time.Millisecond},
 	}
-	// server-zd has no Worker wake hook; binary mode waits for the first failed dispatch instead.
-
 	runtime := startPullDispatchService(t, testConfig)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	flowID := "pull-retry-" + uuid.NewString()
+	flowID := "pull-queued-retry-" + uuid.NewString()
 	require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
 		&dexpb.WorkerTarget{IsPullMode: true},
 		&dexpb.StepOptions{WaitForRetryPolicy: &dexpb.RetryPolicy{MaximumAttempts: 5, InitialIntervalSeconds: 1}},
 	))
-
-	require.Eventually(t, func() bool {
+	require.Never(t, func() bool {
 		state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
 		if err != nil {
 			return false
@@ -891,10 +879,11 @@ func testPullWorkerAppearsDuringRetries(t *testing.T) {
 			}
 		}
 		return false
-	}, 10*time.Second, 50*time.Millisecond)
-
+	}, 2*time.Second, 50*time.Millisecond, "waiting in the queue is not a failure")
 	worker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-retry-worker-"+uuid.NewString(), nil)
-	require.Equal(t, "wait_for", waitForPullTask(t, worker, flowID).method)
+	observed := waitForPullTask(t, worker, flowID)
+	require.Equal(t, "wait_for", observed.method)
+	require.Equal(t, int32(1), observed.attempt)
 	_, err := runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}},
 	})
