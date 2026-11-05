@@ -11,10 +11,10 @@
 package io.superdurable.dex;
 
 /**
- * Describes one queue in an immutable pull readiness snapshot.
+ * Describes one slot kind in an immutable pull readiness snapshot.
  *
  * <p>Obtain entries from {@link PullRegistrationState#getQueues()}. A registered stream
- * clears the queue's last permanent error. Treat the error object as immutable.
+ * clears the slot kind's last permanent error. Treat the error object as immutable.
  */
 public final class PullQueueRegistrationState {
     private final String queue;
@@ -29,16 +29,16 @@ public final class PullQueueRegistrationState {
     }
 
     /**
-     * Returns the queue name.
+     * Returns the slot kind through the legacy queue accessor.
      *
-     * @return the registered Flow type or app Worker ID queue
+     * @return POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY
      */
     public String getQueue() {
         return queue;
     }
 
     /**
-     * Reports whether a stream is currently registered for this queue.
+     * Reports whether a stream is currently registered for this slot kind.
      *
      * @return true while at least one stream has a Registered acknowledgement
      */

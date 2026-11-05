@@ -81,9 +81,10 @@ public final class PullGreetingExample {
 
     public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
         return new PullGreetingDiagnostics(
-                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+                worker.getPullRegistrationState().isReady(), 0L);
     }
 
+    // reservedRpcDeclines is deprecated and always 0: reserved execution slots never decline tasks.
     public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
     }
 

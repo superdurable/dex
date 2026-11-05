@@ -18,7 +18,7 @@ import io.grpc.Context;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
@@ -614,7 +614,7 @@ final class ApiKeyCredentialTest {
             final Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()),
                     new EmptyBlobCache(), WorkerOptions.newBuilder()
                             .serverAddress(grpc.address()).credential(credential)
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("api-key-worker")
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("api-key-worker")
                                     .stopDrainTimeout(Duration.ofSeconds(1)).build())
                             .build());
             final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
@@ -655,7 +655,7 @@ final class ApiKeyCredentialTest {
             final Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()),
                     new EmptyBlobCache(), WorkerOptions.newBuilder()
                             .serverAddress(grpc.address()).credential(credential)
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("api-key-worker")
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("api-key-worker")
                                     .stopDrainTimeout(Duration.ofSeconds(1)).build())
                             .build());
             final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
@@ -963,7 +963,7 @@ final class ApiKeyCredentialTest {
                     return next.startCall(call, metadata);
                 }
             };
-            server = ServerBuilder.forPort(0)
+            server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0))
                     .addService(ServerInterceptors.intercept(
                             new FlowServiceGrpc.FlowServiceImplBase() {
                                 @Override
@@ -978,7 +978,7 @@ final class ApiKeyCredentialTest {
                                         final StreamObserver<ServerInfo> observer) {
                                     observer.onNext(ServerInfo.newBuilder().setServerVersion("test")
                                             .setMinimumSupportedProtocolVersion(1)
-                                            .setCurrentProtocolVersion(2).build());
+                                            .setCurrentProtocolVersion(4).build());
                                     observer.onCompleted();
                                 }
 

@@ -159,9 +159,8 @@ public final class StepOptions {
         /**
          * Sets the maximum duration of one wait-for method attempt.
          *
-         * <p>A regular activity attempt defaults to two hours. An asynchronous local activity
-         * ignores this setting during its seven-second optimization window; fallback regular
-         * activity attempts apply it.
+         * <p>An attempt defaults to two hours. This setting applies to every attempt with either
+         * Step durability.
          *
          * @param value the method timeout, or {@code null} for the server default
          * @return this builder
@@ -174,9 +173,8 @@ public final class StepOptions {
         /**
          * Sets the maximum duration of one execute method attempt.
          *
-         * <p>A regular activity attempt defaults to two hours. An asynchronous local activity
-         * ignores this setting during its seven-second optimization window; fallback regular
-         * activity attempts apply it.
+         * <p>An attempt defaults to two hours. This setting applies to every attempt with either
+         * Step durability.
          *
          * @param value the method timeout, or {@code null} for the server default
          * @return this builder
@@ -187,17 +185,17 @@ public final class StepOptions {
         }
 
         /**
-         * Sets the heartbeat timeout for regular wait-for and execute activities.
+         * Sets the heartbeat timeout for wait-for and execute method attempts.
          *
          * <p>Dex sends no automatic heartbeat. Application code must call
          * {@link Context#recordHeartbeat} or write a {@link Stream} often enough to make progress.
          * {@code null} and {@link Duration#ZERO} use the one-minute server default. Explicit values
          * must be whole seconds within the signed int32 range and satisfy the server-configured
-         * minimum, which defaults to ten seconds. Local activities ignore this setting; a fallback
-         * regular activity applies it. Once cancellation reaches the Java Worker, Dex interrupts the
+         * minimum, which defaults to ten seconds. This setting applies to every attempt with either
+         * Step durability. Once cancellation reaches the Java Worker, Dex interrupts the
          * handler thread.
          *
-         * @param value the regular activity heartbeat timeout, or {@code null} for one minute
+         * @param value the heartbeat timeout, or {@code null} for one minute
          * @return this builder
          */
         public Builder heartbeatTimeout(final Duration value) {
