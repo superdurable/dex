@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use dexzd_clock::SystemWallClock;
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::{
     self, DispatchTaskErrorReason, InvokeExecuteMethodRequest, InvokeWaitForMethodOutput,
@@ -703,6 +704,54 @@ async fn a_slot_released_during_shutdown_reconnects() {
             other => panic!("expected a reconnect, got {other:?}"),
         }
     }
+}
+
+/// A slot reserved while the node lease was valid sends nothing once it is not (TA9); the
+/// slot goes back to its queues.
+#[tokio::test]
+async fn a_reserved_slot_sends_no_task_once_the_node_lease_is_not_valid() {
+    let lease_validity_deadline = LeaseValidityDeadline::disarmed();
+    lease_validity_deadline.arm_until(Instant::now() + Duration::from_secs(60));
+    let dispatch = WorkerDispatch::new_with_lease_validity_deadline(
+        config(),
+        Arc::new(SystemWallClock),
+        NodeMetrics::unregistered(),
+        Some(lease_validity_deadline.clone()),
+    );
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let StepStreamReservation::Reserved(stream) =
+        reserve(&dispatch, step_request("Flow", "Charge", None)).await
+    else {
+        panic!("a slot is idle");
+    };
+    lease_validity_deadline.arm_until(Instant::now());
+    let sent = stream.send_task(
+        "task-1".to_owned(),
+        wait_for_payload("Flow", "Charge"),
+        SystemTime::now() + Duration::from_secs(60),
+        None,
+    );
+    assert!(matches!(sent, Err(StepTaskSendFailure::LeaseInvalid)));
+    let next_frame = tokio::time::timeout(
+        Duration::from_millis(200),
+        slot.stream.as_mut().expect("open").message(),
+    )
+    .await;
+    assert!(
+        next_frame.is_err(),
+        "the Worker gets no task: {next_frame:?}"
+    );
+    // The slot is idle again: with a valid lease, the next reservation takes it.
+    lease_validity_deadline.arm_until(Instant::now() + Duration::from_secs(60));
+    assert!(matches!(
+        reserve(&dispatch, step_request("Flow", "Charge", None)).await,
+        StepStreamReservation::Reserved(_)
+    ));
 }
 
 #[tokio::test]
