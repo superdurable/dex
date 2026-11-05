@@ -683,15 +683,19 @@ restricted to `main` and requires the `CRATES_IO_TOKEN` repository secret.
 ## Server protocol compatibility
 
 Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
-synchronizes Attribute indexes, and then starts pull polling. The initial Rust
-SDK interval is `[4,4]`. This requires a server-zd release with protocol 4, later than
-`server-zd/v0.1.16`. Missing information, invalid or disjoint intervals, and
-RPC failures stop startup before polling. The negotiated protocol is retained
+synchronizes Attribute indexes, and then starts pull polling. The Rust SDK protocol
+interval is `[4,4]`. Missing information, invalid or disjoint intervals, and RPC
+failures stop startup
+before polling. The negotiated protocol is retained
 for future protocol-specific paths. Client construction stays lazy and performs no
 network I/O. Every Client negotiates before its first service request, regardless of
 method. It caches success and incompatibility errors for its lifetime; transient
 negotiation failures are retried on the next call. Errors include the Server version
-and required server-zd release.
+and required server-zd release. The diagnostic includes the reported values:
+
+```text
+This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). The Server reports protocol versions <min>-<current> (server version <server_version>). Upgrade the Server before upgrading the SDK.
+```
 
 The diagnostic SDK version is compiled from Cargo package metadata. Release
 stamping therefore updates both the crate artifact and its runtime value. The

@@ -97,10 +97,11 @@ fn compatibility_error(server_info: &ServerInfo, reason: &str) -> String {
         &server_info.server_version
     };
     format!(
-        "Rust SDK version \"{SDK_VERSION}\" protocol \
-         [{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] \
-         is incompatible with Server version \"{server_version}\" protocol \
-         [{},{}]: {reason}; requires a server-zd release with protocol version 4 (later than server-zd/v0.1.16)",
+        "This SDK requires a Dex Server with protocol version 4 or later \
+         (server-zd newer than v0.1.16). The Server reports protocol versions {}-{} \
+         (server version {server_version}). Upgrade the Server before upgrading the SDK. \
+         Rust SDK version \"{SDK_VERSION}\" supports protocol \
+         [{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}]: {reason}.",
         server_info.minimum_supported_protocol_version, server_info.current_protocol_version
     )
 }

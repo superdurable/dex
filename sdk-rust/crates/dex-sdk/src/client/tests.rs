@@ -217,7 +217,7 @@ mod hard_delete {
                 panic!("expected a Service error, got {error}");
             };
             assert!(service.detail().contains("protocol version 4"));
-            assert!(service.detail().contains("protocol [1,3]"));
+            assert!(service.detail().contains("protocol versions 1-3"));
         }
         assert_eq!(
             vec!["/dex.FlowService/GetServerInfo".to_string()],
@@ -233,7 +233,7 @@ mod hard_delete {
                 StartFlowOptions::new().initial_attribute(&API_KEY, "key-1".to_string()),
             )
             .expect_err("cached negotiation still rejects the write");
-        assert!(error.to_string().contains("protocol [1,3]"));
+        assert!(error.to_string().contains("protocol versions 1-3"));
         client
             .start_flow_with_options(
                 &HardDeleteClientFlow,
@@ -313,7 +313,7 @@ mod hard_delete {
         let client = client_for(&server.address, &directory);
         assert!(server.paths.lock().unwrap().is_empty());
         let first = client.health_check().unwrap_err().to_string();
-        assert!(first.contains("Server version \"fake\" protocol [1,3]"));
+        assert!(first.contains("Server reports protocol versions 1-3 (server version fake)"));
         assert!(first.contains("server-zd"));
         assert!(first.contains("protocol version 4"));
         assert_eq!(first, client.describe_flow("flow").unwrap_err().to_string());
@@ -339,7 +339,7 @@ mod hard_delete {
         )
         .unwrap();
         let failure = worker.start().unwrap_err().to_string();
-        assert!(failure.contains("Server version \"fake\" protocol [1,3]"));
+        assert!(failure.contains("Server reports protocol versions 1-3 (server version fake)"));
         assert!(failure.contains("protocol version 4"));
         assert_eq!(server.paths.lock().unwrap().len(), 2);
         assert!(
