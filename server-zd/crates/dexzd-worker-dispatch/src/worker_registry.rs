@@ -12,17 +12,16 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_metrics::{NodeMetrics, WorkerStreamEvent};
 use dexzd_protocol::dex::{
-    self, DispatchTaskErrorReason, PollWorkerTask, PollWorkerTaskCancelTask, PollWorkerTaskFrame,
-    PollWorkerTaskPing, PollWorkerTaskReconnect, PollWorkerTaskRegister, PollWorkerTaskRegistered,
-    PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse, poll_worker_task,
-    poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
-    worker_task_service_server,
+    DispatchTaskErrorReason, PollWorkerTaskCancelTask, PollWorkerTaskFrame, PollWorkerTaskPing,
+    PollWorkerTaskReconnect, PollWorkerTaskRegistered, PollWorkerTaskRejectReason,
+    PollWorkerTaskRequest, PollWorkerTaskResponse, poll_worker_task_frame,
+    poll_worker_task_request, poll_worker_task_response, worker_task_service_server,
 };
 use futures::Stream;
 use tokio::sync::{Notify, mpsc, watch};
@@ -32,11 +31,18 @@ use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::MatchingConfig;
+mod dispatch_handle;
 mod dispatch_request;
 mod queue_state;
+mod task_frames;
 mod worker_protocol;
+pub use dispatch_handle::DispatchHandle;
 pub use dispatch_request::{DispatchRequest, DispatchTaskPayload};
 use queue_state::{QueueWaiter, QueuedTaskMetric};
+use task_frames::{
+    build_task, disconnected_outcome, is_final, system_time_micros, validate_dispatch,
+    validate_registration,
+};
 pub use worker_protocol::WorkerTaskService;
 
 /// One ordered frame from the Worker, an assignment change, or the terminal dispatch outcome.
@@ -87,34 +93,6 @@ pub enum DispatchOutcome {
     /// The matching owner shut down while waiting for a Worker, or its node lease is no longer
     /// valid.
     ServerClosing,
-}
-
-/// Receives ordered events and can request cancellation of an active Worker task.
-pub struct DispatchHandle {
-    events: mpsc::Receiver<DispatchEvent>,
-    cancel: watch::Sender<bool>,
-    task: Option<JoinHandle<()>>,
-}
-
-impl DispatchHandle {
-    /// Returns the next Worker output, assignment change, or the single final outcome, then
-    /// returns `None`.
-    pub async fn next(&mut self) -> Option<DispatchEvent> {
-        self.events.recv().await
-    }
-
-    /// Sends cancel_task for an assigned task, then allows one second for its final frame.
-    pub fn cancel(&self) {
-        self.cancel.send_replace(true);
-    }
-}
-
-impl Drop for DispatchHandle {
-    fn drop(&mut self) {
-        self.cancel();
-        // The dispatch task owns its one-second cancellation grace period.
-        drop(self.task.take());
-    }
 }
 
 /// Shared in-memory matching owner. Clone it to give a tenant-scoped gRPC service access.
@@ -873,131 +851,4 @@ enum AttemptOutcome {
     Capacity,
     UnknownName,
     Disconnected,
-}
-
-fn build_task(task_id: &str, request: &DispatchRequest) -> PollWorkerTask {
-    let mut task = PollWorkerTask {
-        task_id: task_id.to_owned(),
-        deadline: Some(Default::default()),
-        request: None,
-    };
-    let deadline = request
-        .deadline
-        .duration_since(UNIX_EPOCH)
-        .expect("validated deadline is after Unix epoch");
-    let timestamp = task
-        .deadline
-        .as_mut()
-        .expect("task deadline was initialized");
-    timestamp.seconds = i64::try_from(deadline.as_secs()).unwrap_or(i64::MAX);
-    timestamp.nanos = i32::try_from(deadline.subsec_nanos()).expect("nanoseconds fit i32");
-    task.request = Some(match &request.payload {
-        DispatchTaskPayload::WaitFor(value) => poll_worker_task::Request::WaitFor(value.clone()),
-        DispatchTaskPayload::Execute(value) => poll_worker_task::Request::Execute(value.clone()),
-        DispatchTaskPayload::Rpc(value) => poll_worker_task::Request::Rpc(value.clone()),
-    });
-    task
-}
-
-fn validate_dispatch(
-    request: &DispatchRequest,
-    config: &MatchingConfig,
-    clock: &dyn WallClock,
-) -> Result<(), Status> {
-    if request.flow_type.is_empty() || request.flow_type.len() > config.max_queue_length {
-        return Err(Status::invalid_argument(
-            "Flow type queue must have a valid length",
-        ));
-    }
-    if request
-        .sticky_app_worker_id
-        .as_ref()
-        .is_some_and(|id| id.is_empty() || id.len() > config.max_queue_length)
-    {
-        return Err(Status::invalid_argument(
-            "sticky queue must have a valid length",
-        ));
-    }
-    if system_time_micros(request.deadline) <= clock.now_unix_micros() {
-        return Err(Status::invalid_argument("future task deadline is required"));
-    }
-    if request.dispatch_wait == Some(Duration::ZERO) {
-        return Err(Status::invalid_argument(
-            "positive dispatch_wait is required",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_registration(
-    registration: &PollWorkerTaskRegister,
-    config: &MatchingConfig,
-) -> Result<(), Status> {
-    let worker_id = registration.app_worker_id.as_bytes();
-    if worker_id.is_empty() || worker_id.len() > 128 {
-        return Err(Status::invalid_argument(
-            "app_worker_id must have 1 to 128 characters",
-        ));
-    }
-    if !worker_id
-        .iter()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
-        return Err(Status::invalid_argument(
-            "app_worker_id contains an invalid character",
-        ));
-    }
-    if registration.queue.is_empty() || registration.queue.len() > config.max_queue_length {
-        return Err(Status::invalid_argument("queue must have a valid length"));
-    }
-    if registration.flow_types.len() > config.max_flow_types {
-        return Err(Status::invalid_argument("too many flow_types"));
-    }
-    if registration
-        .flow_types
-        .iter()
-        .any(|flow_type| flow_type.len() > config.max_flow_type_length)
-    {
-        return Err(Status::invalid_argument(
-            "flow_type exceeds the length limit",
-        ));
-    }
-    if registration.queue != registration.app_worker_id
-        && !registration.flow_types.contains(&registration.queue)
-    {
-        return Err(Status::invalid_argument(
-            "queue must be app_worker_id or a declared flow_type",
-        ));
-    }
-    Ok(())
-}
-
-fn is_final(frame: &PollWorkerTaskFrame) -> bool {
-    match &frame.output {
-        Some(
-            poll_worker_task_frame::Output::WorkerError(_) | poll_worker_task_frame::Output::Rpc(_),
-        ) => true,
-        Some(poll_worker_task_frame::Output::WaitFor(output)) => matches!(
-            output.output,
-            None | Some(dex::invoke_wait_for_method_output::Output::Result(_))
-        ),
-        Some(poll_worker_task_frame::Output::Execute(output)) => matches!(
-            output.output,
-            None | Some(dex::invoke_execute_method_output::Output::Result(_))
-        ),
-        None => false,
-    }
-}
-
-fn disconnected_outcome(detail: &str) -> DispatchOutcome {
-    DispatchOutcome::DispatchError {
-        reason: DispatchTaskErrorReason::WorkerDisconnected,
-        detail: detail.to_owned(),
-    }
-}
-
-fn system_time_micros(time: SystemTime) -> i64 {
-    time.duration_since(UNIX_EPOCH)
-        .map(|duration| i64::try_from(duration.as_micros()).unwrap_or(i64::MAX))
-        .unwrap_or(i64::MIN)
 }
