@@ -33,7 +33,7 @@ pub struct MethodStreamRequest {
     pub step_type: String,
     /// Worker that last served the run, tried first.
     pub sticky_app_worker_id: Option<String>,
-    /// When the attempt first searched for a Worker; returns of the attempt keep it.
+    /// When this search for a Worker started; the sticky and dispatch waits count from it.
     pub search_started_at: Instant,
 }
 
@@ -69,6 +69,9 @@ pub struct MethodTask {
     pub deadline: SystemTime,
     /// When the attempt became pending, for the schedule-to-start latency.
     pub scheduled_at: Option<Instant>,
+    /// Whether the invocation's pinned durability is SYNC: the task goes out only after its
+    /// start committed, so no other frame of the attempt may run.
+    pub is_sync: bool,
 }
 
 /// One reserved Worker slot. Dropping it without sending returns the slot.

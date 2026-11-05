@@ -14,13 +14,15 @@ use prometheus_client::metrics::gauge::Gauge;
 /// A dispatch waiting for an idle stream, with the streams it must not be offered.
 pub(super) struct QueueWaiter {
     pub(super) wakeup: Arc<Notify>,
-    /// Steps and RPCs differ in priority and in the streams they may use.
-    pub(super) kind: TaskKind,
+    /// The waiter's task type; the unsupported type cache is consulted at wake time.
+    pub(super) task_type: TaskTypeKey,
+    /// Workers and streams that declined or failed this dispatch.
     excluded_worker_ids: HashSet<String>,
     excluded_streams: HashMap<Uuid, Instant>,
 }
 
 impl QueueWaiter {
+    /// Returns whether this dispatch's own exclusions allow `worker` at `now`.
     pub(super) fn can_use(&self, worker: &WorkerStream, now: Instant) -> bool {
         !self.excluded_worker_ids.contains(&worker.app_worker_id)
             && self
@@ -110,15 +112,15 @@ impl Drop for QueueLease {
     fn drop(&mut self) {
         let mut guard = self.dispatch.lock_registry();
         let registry = &mut *guard;
+        let woken_for = if self.is_waiting {
+            registry.end_wait(&self.key, self.waiter_sequence)
+        } else {
+            None
+        };
         let queue = registry
             .queues
             .get_mut(&self.key)
             .expect("leased queue exists");
-        let woken_for = if self.is_waiting {
-            queue.remove_waiter(self.waiter_sequence)
-        } else {
-            None
-        };
         queue.users -= 1;
         if queue.users == 0 {
             registry.queues.remove(&self.key);
@@ -135,7 +137,8 @@ impl QueueState {
             idle: BTreeMap::new(),
             affinity: HashMap::new(),
             affinity_order: std::collections::VecDeque::new(),
-            waiters: BTreeMap::new(),
+            rpc_waiters: BTreeMap::new(),
+            step_waiters: BTreeMap::new(),
             woken_waiter_streams: HashMap::new(),
             users: 0,
         }
@@ -145,15 +148,19 @@ impl QueueState {
     pub(super) fn start_waiting(
         &mut self,
         lease: &mut QueueLease,
-        kind: TaskKind,
+        task_type: TaskTypeKey,
         excluded_worker_ids: HashSet<String>,
         excluded_streams: &HashMap<Uuid, Instant>,
     ) {
-        self.waiters.insert(
+        let waiters = match task_type.kind {
+            TaskKind::Rpc => &mut self.rpc_waiters,
+            TaskKind::Step => &mut self.step_waiters,
+        };
+        waiters.insert(
             lease.waiter_sequence,
             QueueWaiter {
                 wakeup: lease.wakeup.clone(),
-                kind,
+                task_type,
                 excluded_worker_ids,
                 excluded_streams: excluded_streams.clone(),
             },
@@ -167,14 +174,18 @@ impl QueueState {
     /// waiter was still registered or every waiter was woken. The caller owes that stream's
     /// wakeup to another waiter unless it takes that stream; see `pass_on_wakeup`.
     pub(super) fn remove_waiter(&mut self, waiter_sequence: u64) -> Option<Uuid> {
-        if self.waiters.remove(&waiter_sequence).is_some() {
+        if self.rpc_waiters.remove(&waiter_sequence).is_some()
+            || self.step_waiters.remove(&waiter_sequence).is_some()
+        {
             return None;
         }
         self.woken_waiter_streams.remove(&waiter_sequence)
     }
 
     pub(super) fn wake_all_waiters(&mut self) {
-        for waiter in std::mem::take(&mut self.waiters).into_values() {
+        let rpc_waiters = std::mem::take(&mut self.rpc_waiters);
+        let step_waiters = std::mem::take(&mut self.step_waiters);
+        for waiter in rpc_waiters.into_values().chain(step_waiters.into_values()) {
             waiter.wakeup.notify_one();
         }
     }
@@ -311,14 +322,16 @@ mod tests {
                 .or_insert_with(QueueState::new);
             queue.stream_ids.insert(worker.id);
             queue.users += 1;
-            registry.worker_counts.insert((7, "worker".to_owned()), 1);
+            registry
+                .worker_stream_ids
+                .insert((7, "worker".to_owned()), HashSet::from([worker.id]));
             registry.streams.insert(worker.id, worker.clone());
             registry.add_idle(&worker);
         }
         dispatch.disconnect(worker.id);
         let registry = dispatch.inner.registry.lock().expect("registry lock");
         assert!(registry.queues.is_empty());
-        assert!(registry.worker_counts.is_empty());
+        assert!(registry.worker_stream_ids.is_empty());
     }
 
     #[test]
@@ -583,5 +596,64 @@ mod tests {
         assert!(picked.worker.is_none() && !picked.has_streams);
         // A sticky search on an empty queue returns without registering as a waiter.
         assert!(!sticky.is_waiting);
+    }
+
+    fn pick_rpc(dispatch: &WorkerDispatch, lease: &mut QueueLease) -> Option<Arc<WorkerStream>> {
+        let task_type = TaskTypeKey {
+            tenant_id: 7,
+            flow_type: "Flow".to_owned(),
+            kind: TaskKind::Rpc,
+            name: "getStatus".to_owned(),
+        };
+        let task = TaskSearch {
+            task_type: &task_type,
+            flow_id: "rpc",
+        };
+        dispatch
+            .pick_worker(lease, &task, false, &HashSet::new(), &HashMap::new())
+            .worker
+    }
+
+    /// A legacy stream's Step backoff timer wakes waiters again while its RPC promise is
+    /// outstanding; the promise must stay with the first RPC.
+    #[test]
+    fn a_second_wakeup_never_moves_an_rpc_promise() {
+        let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
+        let (output, _response) = mpsc::unbounded_channel();
+        let (close, _closing) = watch::channel(false);
+        let worker = Arc::new(WorkerStream {
+            id: Uuid::now_v7(),
+            tenant_id: 7,
+            queues: vec!["Flow".to_owned()],
+            app_worker_id: "worker".to_owned(),
+            slot: StreamSlot::Legacy,
+            output,
+            close,
+            state: Mutex::new(WorkerState {
+                is_busy: true,
+                ..WorkerState::default()
+            }),
+        });
+        {
+            let mut registry = dispatch.lock_registry();
+            let queue = registry
+                .queues
+                .entry((7, "Flow".to_owned()))
+                .or_insert_with(QueueState::new);
+            queue.stream_ids.insert(worker.id);
+            queue.users += 1;
+            registry.streams.insert(worker.id, worker.clone());
+        }
+        let mut first = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut second = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        assert!(pick_rpc(&dispatch, &mut first).is_none());
+        assert!(pick_rpc(&dispatch, &mut second).is_none());
+        dispatch.make_idle(&worker);
+        assert_eq!(dispatch.lock_registry().promised_streams[&worker.id], 1);
+        dispatch.end_step_backoff(worker.id);
+        assert_eq!(dispatch.lock_registry().promised_streams[&worker.id], 1);
+        // The second RPC cannot take the stream; the first one, woken for it, takes it.
+        assert!(pick_rpc(&dispatch, &mut second).is_none());
+        assert!(pick_rpc(&dispatch, &mut first).is_some());
     }
 }

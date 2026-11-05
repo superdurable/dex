@@ -460,8 +460,11 @@ depending on one Worker's memory. Flow type names must be unique within a Dex
 Server. An app Worker ID must identify one Worker process and change when that
 process restarts. The SDK generates one unless you set it explicitly. If you
 set it, use a new value after each process restart. Dex remembers unsupported
-types by app Worker ID, so an old process's entry can exclude a Worker upgraded
-during a rolling deploy until all old streams are gone.
+types by app Worker ID. If an upgraded process reuses the old ID during a rolling
+deploy, the old process's entry also excludes the upgraded process. The entry
+lasts until every stream with that ID is gone, including the upgraded process's
+own streams. If the cache evicts the entry first, Dex offers the type again after
+a Worker with that ID completes a Step.
 
 Dex waits for an available Worker within the matching dispatch budget. If none
 is available, a Step receives a retryable unavailable error that consumes a
@@ -486,8 +489,12 @@ Against older Servers, the Worker returns the not-registered error as before.
 Once Dex hands a Step attempt to a Worker, Dex never hands the same attempt
 number to another Worker. When the Worker disconnects or crashes, the attempt
 fails and the retry policy runs. This holds for SYNC and ASYNC Steps alike, with
-or without output. See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery)
-for the few cases where an attempt returns to pending without consuming a retry.
+or without output. There is one exception. When a Dex Server node crashes before
+an ASYNC attempt start was written to object storage, Dex rolls the start back
+and runs the same attempt number again, possibly on another Worker. That rerun
+consumes no retry, and the two runs can overlap. See
+[Failure and redelivery](/primitives/step/basic#same-attempt-redelivery)
+for this case and for the cases where an attempt returns to pending without consuming a retry.
 Make external side effects idempotent, for example by using the Flow ID and Step
 execution ID as an idempotency key.
 

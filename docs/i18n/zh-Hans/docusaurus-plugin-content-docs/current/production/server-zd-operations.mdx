@@ -303,7 +303,9 @@ Kubernetes 随后按退避策略重启容器。
 
 时长影响崩溃后的接管时间。优雅关闭会释放 lease，替代进程可以立即启动。崩溃、SIGKILL
 或 Kubernetes 节点丢失之后，替代进程要等旧 lease 过期，再多等 1 秒。这段等待最多是
-**lease.duration** 加 1 秒，之后才开始恢复。
+**lease.duration** 加 1 秒，之后才开始恢复。恢复时，已经交给 Worker 的 attempt 以 NOT_COMPLETED
+失败，并消耗一次 retry。例外是节点崩溃时开始记录尚未持久化的 ASYNC attempt：
+它以同一个 attempt 编号再次运行，不消耗 retry。
 
 时长对对象存储故障只有部分影响：
 
@@ -942,16 +944,23 @@ store 或恢复快照时为 **restored**，例如 standby 的 store 缺失或过
 attempt，取值为 **unsupported**（Worker 拒绝了该 Step type）、**legacy_no_capacity**（较旧
 SDK 的 Worker 因容量不足而拒绝）和 **not_delivered**（任务从未到达 Worker）。所有 SDK 都升级
 之后，**legacy_no_capacity** 应降为零。**dexzd_worker_stream_protocol_errors_total** 的
-**error** 取值为 **no_capacity_on_reserved_slot** 和 **half_close_after_output**。出现
+**error** 取值为 **no_capacity_on_reserved_slot**、**half_close_after_output** 和
+**reject_after_output**。出现
 **no_capacity_on_reserved_slot** 表示使用 reserved-slot 的 Worker 因容量不足拒绝了任务，这个
 attempt 按未运行处理而失败，并且 stream 结束。出现 **half_close_after_output** 表示 Worker
-在发出输出之后、发送最终结果之前关闭了 stream，这个 attempt 以 NOT_COMPLETED 失败。
+在发出输出之后、发送最终结果之前关闭了 stream，这个 attempt 以 NOT_COMPLETED 失败。出现
+**reject_after_output** 表示 Worker 在已经为某个任务发出输出之后又拒绝了它。这个 attempt
+按可能已运行处理，以 NOT_COMPLETED 失败，server 以 INVALID_ARGUMENT 结束该 stream，因此
+它不会再收到任务。
 **dexzd_matching_unsupported_type_evictions_total** 是 counter，持续上升说明应该调大
+**matching.unsupportedTypeCacheEntries**。被淘汰的条目在对应 Worker 完成一个 Step 之前，
+不会再派给这个 Worker。因此缓存溢出时，Worker 拒绝过的类型可能在它每完成一个 Step 之后再次
+派给它。这个 counter 上升，或者 server 日志出现缓存已满的 WARN 时，请调大
 **matching.unsupportedTypeCacheEntries**。
 
 Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
 **dexzd_worker_stream_events_total** 统计每次 stream 关闭，并且在 **event="delivered"** 时统计
-每个在开始记录之后发出的任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
+每个发出的任务帧，包括 RPC 任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
 等待时间计入 **flow_read** 延迟。
 
 ~~~text
@@ -1005,10 +1014,12 @@ stream，不会收到 Step。slot 空闲下来时，等待中的 RPC 先于等�
 **matching.maxConcurrentTasksCap** 或 **matching.maxStreams** 时会收到 **RESOURCE_EXHAUSTED**。
 
 Worker 以未知为由拒绝某个 Step type 或 RPC 名称时，Dex 会把（tenant、Flow type、Step type 或
-RPC 名称、app Worker ID）这个组合记在一个有上限的缓存中，并不再向该 Worker 提供这个类型。该
-Worker 的所有 stream 都断开时，Dex 删除这个条目。重启后的 Worker 会得到新的 app Worker ID，
-因此不会被排除。如果你覆盖了 app Worker ID，请在每次进程重启后设置新的值。否则在滚动发布中升级
-的 Worker 可能被旧进程的条目排除，直到所有旧 stream 都消失。对于 RPC，Dex 会在调用方的 deadline
+RPC 名称、app Worker ID）这个组合记在一个有上限的缓存中，并不再向该 Worker 提供这个类型。使用
+这个 app Worker ID 的所有 stream 都断开时，Dex 删除这个条目。重启后的 Worker 会得到新的 app
+Worker ID，因此不会被排除。如果你覆盖了 app Worker ID，请在每次进程重启后设置新的值。否则在滚动
+发布中沿用这个 ID 的升级后进程会被旧进程的条目排除，直到使用这个 ID 的所有 stream 都消失，包括
+升级后进程自己的 stream。如果缓存先淘汰了这个条目，使用这个 ID 的 Worker 完成一个 Step 之后，Dex
+会再次向它提供这个类型。对于 RPC，Dex 会在调用方的 deadline
 内尝试其他 Worker。没有 Worker 支持时，RPC 仍然以现有的错误失败。
 
 如果在 **dispatchWait** 内没有可用的 Worker，Step 会收到可重试的 unavailable 错误，并消耗一次

@@ -71,6 +71,21 @@ pub(crate) enum StartedAttemptEnd {
     Returned,
 }
 
+/// How handing a started attempt to its Worker slot ended.
+enum SendOutcome {
+    /// The task frame went out.
+    Sent(SentAttempt),
+    /// No frame went out, and nothing more is to be done here.
+    Ended(StartedAttemptEnd),
+}
+
+/// A task whose frame went out, with what following it needs.
+struct SentAttempt {
+    state: Box<MethodAttemptState>,
+    session: Box<dyn MethodDispatchSession>,
+    method_deadline: MethodDeadline,
+}
+
 /// Outcome of preparing the Worker request.
 enum PreparedRequest {
     Ready(Box<MethodAttemptState>, Box<MethodRequest>),
@@ -97,10 +112,24 @@ impl MethodAttempt {
         stream: Box<dyn ReservedMethodStream>,
         start_commit: StartCommit,
     ) -> StartedAttemptEnd {
-        let error = match self.run_attempt(stream, start_commit).await {
-            Ok(end) => return end,
-            Err(error) => error,
+        let sent = match self.send_attempt(stream, start_commit).await {
+            Ok(SendOutcome::Sent(sent)) => sent,
+            Ok(SendOutcome::Ended(end)) => return end,
+            // No frame went out, so the Worker never ran the attempt.
+            Err(error) => return self.fail_on_server_error(error, true).await,
         };
+        match self.follow_sent_attempt(sent).await {
+            Ok(end) => end,
+            Err(error) => self.fail_on_server_error(error, false).await,
+        }
+    }
+
+    /// Fails the attempt after a server-side `error`; `is_not_run` when no frame went out.
+    async fn fail_on_server_error(
+        &self,
+        error: EffectError,
+        is_not_run: bool,
+    ) -> StartedAttemptEnd {
         if matches!(error, EffectError::Stopped) || self.cancel.is_cancelled() {
             return StartedAttemptEnd::Ended;
         }
@@ -109,12 +138,15 @@ impl MethodAttempt {
             run_id = %self.key.run_id,
             step_execution_id = %self.key.step_execution_id,
             attempt = self.key.attempt,
+            is_not_run,
             "method attempt failed on the server"
         );
-        let failure = AttemptFailure::server(
-            StepAttemptFailureKind::DispatchError,
-            format!("server error: {error}"),
-        );
+        let detail = format!("server error: {error}");
+        let failure = if is_not_run {
+            AttemptFailure::not_run(StepAttemptFailureKind::DispatchError, detail)
+        } else {
+            AttemptFailure::server(StepAttemptFailureKind::DispatchError, detail)
+        };
         self.propose_failure(failure, "", self.urgency()).await;
         StartedAttemptEnd::Ended
     }
@@ -135,11 +167,15 @@ impl MethodAttempt {
         self.durability != dex::StepDurability::Async
     }
 
-    async fn run_attempt(
+    /// Builds the request, waits for a SYNC start to commit, and sends the task frame.
+    ///
+    /// Returns the sent task, how the attempt ended without a frame, or a server error that
+    /// happened before any frame went out.
+    async fn send_attempt(
         &self,
         stream: Box<dyn ReservedMethodStream>,
         start_commit: StartCommit,
-    ) -> Result<StartedAttemptEnd, EffectError> {
+    ) -> Result<SendOutcome, EffectError> {
         // Building the request after the start has its own budget of one method timeout.
         let build_budget = MethodDeadline::start(self.method_timeout_seconds);
         let urgency = self.urgency();
@@ -149,7 +185,7 @@ impl MethodAttempt {
                 tokio::join!(start_commit, self.prepare_request(&build_budget));
             if let Err(error) = committed {
                 tracing::debug!(%error, run_id = %self.key.run_id, "the start did not commit; the frame stays unsent");
-                return Ok(StartedAttemptEnd::Ended);
+                return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
             }
             prepared?
         } else {
@@ -159,19 +195,45 @@ impl MethodAttempt {
         let (state, request) = match prepared {
             PreparedRequest::Ready(state, request) => (state, request),
             PreparedRequest::Gone | PreparedRequest::Canceled => {
-                return Ok(StartedAttemptEnd::Ended);
+                return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
             }
             PreparedRequest::NotRun(failure, sticky_app_worker_id) => {
                 // The slot goes back before the failure, which may take a while to commit.
                 drop(stream);
                 self.propose_failure(failure, &sticky_app_worker_id, urgency)
                     .await;
-                return Ok(StartedAttemptEnd::Ended);
+                return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
             }
         };
         // Cancellations ordered after the start reach the speculative state before the send.
-        if self.cancel.is_cancelled() || (self.is_sync() && !self.is_still_running().await?) {
-            return Ok(StartedAttemptEnd::Ended);
+        if self.cancel.is_cancelled() {
+            return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
+        }
+        if self.is_sync() {
+            match self
+                .before_method_deadline(&build_budget, self.is_still_running())
+                .await
+            {
+                BeforeDeadline::Done(is_running) => {
+                    if !is_running? {
+                        return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
+                    }
+                }
+                BeforeDeadline::Canceled => {
+                    return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
+                }
+                BeforeDeadline::TimedOut => {
+                    drop(stream);
+                    let sticky_app_worker_id = state.run_record.sticky_app_worker_id.clone();
+                    self.propose_failure(
+                        build_budget.build_timeout_failure(),
+                        &sticky_app_worker_id,
+                        urgency,
+                    )
+                    .await;
+                    return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
+                }
+            }
         }
         let method_deadline = MethodDeadline::start(self.method_timeout_seconds);
         let wall_deadline =
@@ -183,16 +245,40 @@ impl MethodAttempt {
             request: *request,
             deadline: wall_deadline,
             scheduled_at: self.scheduled_at,
+            is_sync: self.is_sync(),
         };
         let session = match stream.send_task(task) {
             Ok(session) => session,
-            Err(StepTaskSendFailure::LeaseInvalid) => return Ok(StartedAttemptEnd::Ended),
+            Err(StepTaskSendFailure::LeaseInvalid) => {
+                return Ok(SendOutcome::Ended(StartedAttemptEnd::Ended));
+            }
             Err(StepTaskSendFailure::NotDelivered) => {
-                return Ok(self
-                    .return_attempt(StepAttemptReturnReason::NotDelivered, urgency)
-                    .await);
+                return Ok(SendOutcome::Ended(
+                    self.return_attempt(StepAttemptReturnReason::NotDelivered, urgency)
+                        .await,
+                ));
             }
         };
+        Ok(SendOutcome::Sent(SentAttempt {
+            state,
+            session,
+            method_deadline,
+        }))
+    }
+
+    /// Follows a sent task to its end and records the end.
+    ///
+    /// Returns how the attempt ended, or a server error after the frame went out.
+    async fn follow_sent_attempt(
+        &self,
+        sent: SentAttempt,
+    ) -> Result<StartedAttemptEnd, EffectError> {
+        let SentAttempt {
+            state,
+            session,
+            method_deadline,
+        } = sent;
+        let urgency = self.urgency();
         let timeouts = AttemptTimeouts::new(&state, method_deadline);
         let end = self.follow(&state, session, &timeouts).await;
         let sticky_app_worker_id = state.run_record.sticky_app_worker_id.clone();
