@@ -4,9 +4,9 @@ title: Failure Handling
 
 # Failure Handling
 
-Failure handling is the core of a durable execution platform. By default, Dex retries a failed Step method—**WaitFor** or **Execute**—with exponential backoff. Configure that retry behavior through **StepOptions**. Retries recover from failures; to wait for an external system to become ready, use [Polling](/design-patterns/polling) instead.
+Dex retries a failed Step method with exponential backoff. See [Step options](/primitives/step/step-options). To wait for an external system, use [Polling](/design-patterns/polling) instead.
 
-When retries alone do not meet the requirement, choose one of these patterns. They add an explicit recovery path for compensation, operator intervention, an overall Flow deadline, or an exhausted **WaitFor** failure.
+When retries alone do not meet the requirement, choose one of these recovery patterns.
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — Retry failed work, then move to a recovery Step.
 - [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — Escalate an exhausted failure to a human to make a decision or intervene.

@@ -11,7 +11,7 @@
 package io.superdurable.dex;
 
 /**
- * Identifies a permanent pull rejection leaving a queue without a registered stream.
+ * Identifies a permanent pull rejection leaving a slot kind without a registered stream.
  *
  * <p>Thrown by {@link Worker#waitPullRegistered(java.time.Duration)} before initial readiness,
  * or by {@link Worker#start()} when stopping on permanent rejection is enabled.
@@ -25,18 +25,19 @@ public final class PullRegistrationError extends IllegalStateException {
     /**
      * Creates a rejection retaining its original transport cause.
      *
-     * @param queue the rejected Flow type or app Worker ID queue
+     * @param queue the rejected slot kind, POLL_WORKER_SLOT_KIND_STEP_AND_RPC or
+     *     POLL_WORKER_SLOT_KIND_RPC_ONLY
      * @param cause the original permanent transport error
      */
     public PullRegistrationError(final String queue, final Throwable cause) {
-        super("pull Worker queue " + queue + " registration rejected", cause);
+        super("pull Worker slot kind " + queue + " registration rejected", cause);
         this.queue = queue;
     }
 
     /**
-     * Returns the rejected queue name.
+     * Returns the rejected slot kind through the legacy queue accessor.
      *
-     * @return the Flow type or app Worker ID queue
+     * @return the slot kind name, rather than a single routing queue
      */
     public String getQueue() {
         return queue;

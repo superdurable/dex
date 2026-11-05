@@ -50,11 +50,23 @@ final class PullTaskTestService extends WorkerTaskServiceGrpc.WorkerTaskServiceI
             @Override
             public void onNext(final PollWorkerTaskRequest request) {
                 if (request.hasRegister()) {
-                    stream.queue = queues.computeIfAbsent(request.getRegister().getQueue(),
-                            ignored -> new LinkedBlockingQueue<TaskStream>());
+                    final java.util.List<String> flowTypes = request.getRegister().getSupportsReservedSlotDispatch()
+                            ? request.getRegister().getFlowTypesList()
+                            : java.util.Collections.singletonList(request.getRegister().getQueue());
+                    for (String flowType : flowTypes) {
+                        stream.queues.add(queues.computeIfAbsent("rpc:" + flowType,
+                                ignored -> new LinkedBlockingQueue<TaskStream>()));
+                        if (request.getRegister().getSlotKind() != io.superdurable.gen.PollWorkerSlotKind
+                                .POLL_WORKER_SLOT_KIND_RPC_ONLY) {
+                            stream.queues.add(queues.computeIfAbsent("step:" + flowType,
+                                    ignored -> new LinkedBlockingQueue<TaskStream>()));
+                        }
+                    }
                     responses.onNext(PollWorkerTaskResponse.newBuilder().setRegistered(
                             PollWorkerTaskRegistered.getDefaultInstance()).build());
-                    stream.queue.add(stream);
+                    for (BlockingQueue<TaskStream> queue : stream.queues) {
+                        queue.add(stream);
+                    }
                 } else if (request.hasTaskFrame()) {
                     final PollWorkerTaskFrame frame = request.getTaskFrame();
                     stream.task.isDone = isTerminal(frame);
@@ -142,19 +154,22 @@ final class PullTaskTestService extends WorkerTaskServiceGrpc.WorkerTaskServiceI
     }
 
     private void assign(final TestTask task) {
-        final BlockingQueue<TaskStream> queue = queues.computeIfAbsent(task.flowType,
+        final BlockingQueue<TaskStream> queue = queues.computeIfAbsent(
+                (task.request.hasRpc() ? "rpc:" : "step:") + task.flowType,
                 ignored -> new LinkedBlockingQueue<TaskStream>());
-        TaskStream stream;
-        do {
-            stream = await(queue);
-        } while (stream.isClosed);
-        synchronized (stream) {
-            stream.task = task;
-            if (stream.isClosed) {
-                task.frames.add(PollWorkerTaskFrame.getDefaultInstance());
+        while (true) {
+            final TaskStream stream = await(queue);
+            synchronized (stream) {
+                if (stream.isClosed || stream.task != null) {
+                    continue;
+                }
+                stream.task = task;
+                for (BlockingQueue<TaskStream> available : stream.queues) {
+                    available.remove(stream);
+                }
+                stream.responses.onNext(PollWorkerTaskResponse.newBuilder().setTask(task.request).build());
                 return;
             }
-            stream.responses.onNext(PollWorkerTaskResponse.newBuilder().setTask(task.request).build());
         }
     }
 
@@ -179,7 +194,7 @@ final class PullTaskTestService extends WorkerTaskServiceGrpc.WorkerTaskServiceI
 
     private static final class TaskStream {
         private final StreamObserver<PollWorkerTaskResponse> responses;
-        private BlockingQueue<TaskStream> queue;
+        private final java.util.List<BlockingQueue<TaskStream>> queues = new java.util.ArrayList<>();
         private volatile TestTask task;
         private volatile boolean isClosed;
 
@@ -188,7 +203,7 @@ final class PullTaskTestService extends WorkerTaskServiceGrpc.WorkerTaskServiceI
                 return;
             }
             isClosed = true;
-            if (queue != null) {
+            for (BlockingQueue<TaskStream> queue : queues) {
                 queue.remove(this);
             }
             if (task != null && !task.isDone) {

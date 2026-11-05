@@ -1011,3 +1011,9 @@ fn rpcs(&self) -> RpcList<Self> {
 
 </SdkSnippet>
 </SdkTabs>
+
+#### Lock conflicts {#rpc-lock-conflicts}
+
+RPC lock acquisition does not queue callers. When another Step execution or RPC holds a requested lock, the call fails with a lock-conflict error. The SDK exposes it as **RPCLockConflictError** in Go, **RpcLockConflictError** in Python and TypeScript, **RpcLockConflictException** in Java, and **SdkError::RpcLockConflict** in Rust.
+
+Retry specifically after that error, with application-appropriate backoff. Make the RPC idempotent so that a retry is safe. Successful calls serialize through the same locks, so concurrent requests do not lose or duplicate updates.

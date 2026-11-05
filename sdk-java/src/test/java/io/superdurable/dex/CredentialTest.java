@@ -17,7 +17,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Metadata;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
@@ -172,7 +172,7 @@ final class CredentialTest {
                             .credential(() -> {
                                 throw new IOException("token source unavailable");
                             })
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("failed-auth-worker").build())
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("failed-auth-worker").build())
                             .build());
             final IllegalStateException failure = assertThrows(
                     IllegalStateException.class, worker::start);
@@ -246,7 +246,7 @@ final class CredentialTest {
                     new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                     WorkerOptions.newBuilder().serverAddress(fakeServer.address())
                             .credential(token::get)
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("auth-worker").build())
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("auth-worker").build())
                             .build());
             final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
             final Thread workerThread = new Thread(() -> {
@@ -281,7 +281,7 @@ final class CredentialTest {
             final Worker worker = new Worker(
                     new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                     WorkerOptions.newBuilder().serverAddress(fakeServer.address())
-                            .pull(PullWorkerOptions.newBuilder().appWorkerID("no-auth-worker").build())
+                            .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).appWorkerID("no-auth-worker").build())
                             .build());
             final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
             final Thread workerThread = new Thread(() -> {
@@ -402,7 +402,7 @@ final class CredentialTest {
                     return next.startCall(call, metadata);
                 }
             };
-            server = ServerBuilder.forPort(0)
+            server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0))
                     .addService(ServerInterceptors.intercept(
                             new FlowServiceGrpc.FlowServiceImplBase() {
                                 @Override
@@ -420,7 +420,7 @@ final class CredentialTest {
                                         final StreamObserver<ServerInfo> observer) {
                                     observer.onNext(ServerInfo.newBuilder().setServerVersion("test")
                                             .setMinimumSupportedProtocolVersion(1)
-                                            .setCurrentProtocolVersion(2).build());
+                                            .setCurrentProtocolVersion(4).build());
                                     observer.onCompleted();
                                 }
 

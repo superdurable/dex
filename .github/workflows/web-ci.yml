@@ -61,12 +61,14 @@ jobs:
   server-zd-e2e:
     name: Dex Web on server-zd
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
-      # A released server-zd binary keeps this job free of a Rust build.
-      DEX_SERVER_ZD_RELEASE: server-zd/v0.1.1
-      # Update with DEX_SERVER_ZD_RELEASE; it is the linux_amd64 line of that release's checksums.txt.
-      DEX_SERVER_ZD_LINUX_AMD64_SHA256: c15897490889b70fb6c9e16e8221c1aabea6ffd7eebb4e47fbbad8123ab233de
+      # The repository SDK needs the repository server-zd protocol version.
+      DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -84,19 +86,18 @@ jobs:
       - name: Build Dex Web assets
         working-directory: web
         run: npm ci && npm run build
-      - name: Download server-zd
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          download_dir="$RUNNER_TEMP/server-zd"
-          archive="dex-server-zd_${DEX_SERVER_ZD_RELEASE#server-zd/}_linux_amd64.tar.gz"
-          gh release download "$DEX_SERVER_ZD_RELEASE" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$archive" --pattern checksums.txt --dir "$download_dir"
-          (cd "$download_dir" && sha256sum --check --ignore-missing checksums.txt)
-          echo "$DEX_SERVER_ZD_LINUX_AMD64_SHA256  $download_dir/$archive" | sha256sum --check -
-          tar -xzf "$download_dir/$archive" -C "$download_dir"
-          echo "DEX_SERVER_ZD_BINARY=$download_dir/dex-server-zd" >> "$GITHUB_ENV"
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          save-if: false
+      - name: Build dex-server-zd
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - name: Run Dex Web end-to-end tests against server-zd
         run: web/scripts/run-server-zd-e2e.sh
 

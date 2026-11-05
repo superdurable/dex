@@ -1,9 +1,9 @@
 ---
-title: Data Storage
-sidebar_label: Data Storage
+title: Entity Flow with SQL Projection
+sidebar_label: Entity Flow with SQL Projection
 ---
 
-# Data Storage
+# Entity Flow with SQL Projection
 
 Keep one durable Flow for each application entity, then project selected
 Attributes into an application-owned SQL table. The Flow is the write model and
@@ -22,15 +22,9 @@ SQL projection to make Flow decisions: Dex state remains authoritative.
 
 ## How it works
 
-1. Use the entity ID as the Flow ID.
-2. Mark every projected Attribute with **syncToAttributeStore**.
-3. Select the Server-configured Attribute Store in **FlowConfig** when starting
-   the Flow.
-4. Update or delete Attributes through the Flow. Dex projects their resulting
-   values to SQL.
+Use the entity ID as the Flow ID. Mark each projected Attribute and select the Attribute Store when you start the Flow. Update or delete Attributes through the Flow, and Dex projects the resulting values to SQL. See [Attribute Sync](/primitives/attribute#attribute-store-projection) for the setup.
 
-The example projects text, boolean, integer, double, datetime, and JSON values.
-Deleting an Attribute keeps the SQL row and projects **NULL** to its column.
+The example projects text, boolean, integer, double, datetime, and JSON values. Deleting an Attribute keeps the SQL row and projects **NULL** to its column.
 
 ## Core implementation
 
@@ -360,10 +354,7 @@ FlowConfig::new().attribute_store_names(vec![STORE_NAME.to_owned()])
 
 ## Run with PostgreSQL
 
-The [shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store)
-starts PostgreSQL, creates **public.user_profiles**, and passes the **entityStore**
-configuration to **dexcli dev**. It includes the table schema and curl commands
-for every language example.
+The [shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store) creates **public.user_profiles** and starts **dexcli dev** with the **entityStore** configuration. It includes curl commands for every language example.
 
 ## Related
 

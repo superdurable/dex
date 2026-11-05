@@ -139,8 +139,9 @@ func newInvocationContext(
 		invocation.fromStepExecutionID = metadata.FromStepExecutionId
 		if metadata.RecoveryError != nil {
 			invocation.recoveryError = &RecoveryErrorInfo{
-				Detail:    metadata.RecoveryError.Detail,
-				ErrorType: metadata.RecoveryError.ErrorType,
+				Detail:          metadata.RecoveryError.Detail,
+				ErrorType:       metadata.RecoveryError.ErrorType,
+				AttemptProgress: mapStepAttemptProgress(metadata.RecoveryError.GetAttemptProgress()),
 			}
 		}
 		invocation.attempt = metadata.Attempt
@@ -976,4 +977,15 @@ func (invocation *invocationContext) mappedLocalWrites() []*dexpb.KV {
 		writes = append(writes, invocation.localWrites[key])
 	}
 	return writes
+}
+
+func mapStepAttemptProgress(progress dexpb.StepAttemptProgress) StepAttemptProgress {
+	switch progress {
+	case dexpb.StepAttemptProgress_STEP_ATTEMPT_PROGRESS_NOT_STARTED:
+		return StepAttemptProgressNotStarted
+	case dexpb.StepAttemptProgress_STEP_ATTEMPT_PROGRESS_NOT_COMPLETED:
+		return StepAttemptProgressNotCompleted
+	default:
+		return StepAttemptProgressUnspecified
+	}
 }

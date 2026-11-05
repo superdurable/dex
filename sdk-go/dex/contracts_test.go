@@ -696,3 +696,16 @@ func TestBlobMessageTooLargeErrorSupportsErrorsAs(t *testing.T) {
 		t.Fatalf("unexpected blob identity: %#v", target)
 	}
 }
+
+func TestRecoveryAttemptProgressPublicContract(t *testing.T) {
+	for _, progress := range []dex.StepAttemptProgress{
+		dex.StepAttemptProgressUnspecified,
+		dex.StepAttemptProgressNotStarted,
+		dex.StepAttemptProgressNotCompleted,
+	} {
+		failure := dex.RecoveryErrorInfo{AttemptProgress: progress}
+		if failure.AttemptProgress != progress {
+			t.Fatal("attempt progress was not preserved")
+		}
+	}
+}

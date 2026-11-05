@@ -65,6 +65,7 @@ def _client(response: pb.GetAttributesResponse) -> tuple[Client, GetAttributesSe
     client = Client(Registry((GetAttributesContractFlow(),)), cast(BlobCache, object()))
     service = GetAttributesService(response)
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     return client, service
 
 
@@ -228,6 +229,7 @@ async def _assert_async_get_attributes() -> None:
         _response(("notes/n1", pb.Value(string_value="first")))
     )
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         values = await client.get_attributes("flow-1", NOTES.instance("n1"), COUNT)
         assert values[NOTES.instance("n1")] == "first"
@@ -306,6 +308,7 @@ def test_get_attributes_hydrates_blobs_and_maps_service_errors(
     client = Client(Registry((GetAttributesContractFlow(),)), cache)
     service = BlobService()
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     client._hydrator._service = cast(Any, service)
     try:
         assert client.get_attributes("flow-1", STATUS)[STATUS] == LARGE_STATUS
@@ -352,6 +355,7 @@ async def _assert_async_get_attributes_blobs_and_errors(tmp_path: Path) -> None:
     client = AsyncClient(Registry((GetAttributesContractFlow(),)), cache)
     service = AsyncBlobService()
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     client._hydrator._service = cast(Any, service)
     try:
         assert (await client.get_attributes("flow-1", STATUS))[STATUS] == LARGE_STATUS

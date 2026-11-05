@@ -19,7 +19,7 @@ A single Attribute grows into one large blob. Every append then reads and rewrit
 
 **RegisterSubscriber** locks the state and **current** instance. Most calls rewrite one bounded chunk. When **current** already contains 100 records, the same commit writes the archived chunk, creates the next **current** chunk, and advances the state.
 
-Lock acquisition does not queue callers. Concurrent appends can receive an **RPCLockConflict**. Retry specifically after that error with application-appropriate backoff. Successful appends serialize through the same state and **current** locks, so concurrent requests do not lose or duplicate sequences.
+Concurrent appends can receive a lock-conflict error. Retry after it; see [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/primitives/attribute#whole-map-coordination).
 
 **GetSubscriberPage** starts at **current** unless the caller supplies a page token. The application adapter uses **RPCInvokeOptions** to load only that instance. Pages return newest-first records plus the next older token.
 
@@ -118,10 +118,6 @@ The **current** token is always valid after the Flow starts. An empty **current*
 
 Archived chunks are immutable. This keeps pagination stable and makes retry behavior easy to reason about. Updating older records requires a different pattern or a separate index.
 
-## Collection-wide write invariants
-
-If a mutation must coordinate across the entire map, use a separate non-indexed singleton bool Attribute such as **currentMessagesLock** for **currentMessages**. Every writer of the protected map must request that same lock; per-instance locks alone do not participate. The bool value is not a lock flag, and state loads remain explicit. See [whole-map coordination](/primitives/attribute#whole-map-coordination). Keep the existing instance locks when updates have no collection-wide invariant.
-
 ## HTTP API
 
 ```text
@@ -131,5 +127,3 @@ GET  /patterns/sequentially-chunked-attribute-map/subscribers?pageToken=current
 ```
 
 The fixed chunk size is part of the persisted layout. A later version can use a new chunk size for new archives, but its token traversal must understand both layouts.
-
-Run the HTTP example from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).

@@ -153,6 +153,10 @@ fn rpc_invoke_options_builders_and_client_calls_compile() {
 }
 
 #[test]
+#[expect(
+    deprecated,
+    reason = "the former idle stream option remains source compatible"
+)]
 fn pull_worker_options_compile() {
     let _start_options = dex_sdk::StartFlowOptions::new()
         .config_override(dex_sdk::FlowConfig::new().step_durability(dex_sdk::StepDurability::Sync));

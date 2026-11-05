@@ -67,7 +67,7 @@ class RecordingService(
         return pb.ServerInfo(
             server_version="test",
             minimum_supported_protocol_version=1,
-            current_protocol_version=1,
+            current_protocol_version=4,
         )
 
     def SyncAttributeIndexes(  # noqa: N802
@@ -251,7 +251,9 @@ def test_sync_client_bearer_and_default(
         credential.value = "second"
         assert client.health_check()
     assert service.headers == [
+        ("GetServerInfo", None),
         ("HealthCheck", None),
+        ("GetServerInfo", "Bearer first"),
         ("HealthCheck", "Bearer first"),
         ("HealthCheck", "Bearer second"),
     ]
@@ -307,11 +309,14 @@ async def _check_async_client_bearer_and_local_failure(
         with pytest.raises(ValueError, match="token unavailable"):
             await client.health_check()
     assert service.headers == [
+        ("GetServerInfo", None),
         ("HealthCheck", None),
+        ("GetServerInfo", "Bearer async"),
         ("HealthCheck", "Bearer async"),
+        ("GetServerInfo", "Bearer async-token"),
         ("HealthCheck", "Bearer async-token"),
     ]
-    assert async_credential.called_threads == [threading.get_ident()]
+    assert async_credential.called_threads == [threading.get_ident()] * 2
 
 
 def test_async_credential_deadline_stays_local(
@@ -446,9 +451,12 @@ async def _check_sync_function_returning_coroutine_runs_once(
         ClientOptions(server_address=address, credential=credential),
     ) as client:
         assert await client.health_check()
-    assert len(credential.called_threads) == 1
+    assert len(credential.called_threads) == 2
     assert credential.called_threads[0] != threading.get_ident()
-    assert service.headers == [("HealthCheck", "Bearer coroutine-token")]
+    assert service.headers == [
+        ("GetServerInfo", "Bearer coroutine-token"),
+        ("HealthCheck", "Bearer coroutine-token"),
+    ]
 
 
 def test_slow_sync_credential_does_not_block_other_executors(
@@ -505,7 +513,10 @@ async def _check_slow_sync_credential_does_not_block_other_executors(
             and failure.code() == grpc.StatusCode.DEADLINE_EXCEEDED
             for failure in failures
         )
-    assert service.headers == [("HealthCheck", "Bearer fast")]
+    assert service.headers == [
+        ("GetServerInfo", "Bearer fast"),
+        ("HealthCheck", "Bearer fast"),
+    ]
 
 
 def test_file_credential_rotation_and_empty_file(
@@ -558,6 +569,7 @@ def test_file_credential_rotation_and_empty_file(
     assert client.health_check()
     client.close()
     assert service.headers == [
+        ("GetServerInfo", "Bearer first"),
         ("HealthCheck", "Bearer first"),
         ("HealthCheck", "Bearer second-longer"),
         ("HealthCheck", "Bearer restored"),
@@ -571,7 +583,11 @@ def test_sync_worker_flow_calls_use_credential(
     worker = Worker(
         Registry([]),
         cast(BlobCache, object()),
-        WorkerOptions(server_address=address, credential=MutableCredential("worker")),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=address,
+            credential=MutableCredential("worker"),
+        ),
     )
     try:
         worker._flow_service.GetServerInfo(empty_pb2.Empty())
@@ -591,7 +607,11 @@ def test_sync_worker_start_credential_failure_cleans_up(
     worker = Worker(
         Registry([]),
         cast(BlobCache, object()),
-        WorkerOptions(server_address=address, credential=FailedCredential()),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=address,
+            credential=FailedCredential(),
+        ),
     )
     with pytest.raises(RuntimeError, match="server info"):
         worker.start()
@@ -606,7 +626,11 @@ def test_sync_worker_index_sync_credential_failure_cleans_up(
     worker = Worker(
         Registry([]),
         cast(BlobCache, object()),
-        WorkerOptions(server_address=address, credential=FailOnSecondCredential()),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=address,
+            credential=FailOnSecondCredential(),
+        ),
     )
     with pytest.raises(RuntimeError, match="synchronize Attribute indexes"):
         worker.start()
@@ -623,7 +647,9 @@ def test_sync_pull_worker_stream_uses_credential(
         cast(BlobCache, object()),
         WorkerOptions(
             server_address=address,
-            pull=PullWorkerOptions(app_worker_id="sync-credential-worker"),
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=2, app_worker_id="sync-credential-worker"
+            ),
             credential=MutableCredential("sync-worker"),
         ),
     )
@@ -649,7 +675,9 @@ def test_sync_pull_stop_cancels_pending_credential(
         cast(BlobCache, object()),
         WorkerOptions(
             server_address=address,
-            pull=PullWorkerOptions(app_worker_id="sync-stop-credential-worker"),
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=2, app_worker_id="sync-stop-credential-worker"
+            ),
             credential=credential,
         ),
     )
@@ -699,7 +727,9 @@ async def _check_async_pull_stop_cancels_pending_credential(
         cast(BlobCache, object()),
         WorkerOptions(
             server_address=address,
-            pull=PullWorkerOptions(app_worker_id="async-stop-credential-worker"),
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=2, app_worker_id="async-stop-credential-worker"
+            ),
             credential=credential,
         ),
     )
@@ -737,7 +767,11 @@ async def _check_async_worker_start_credential_failure_cleans_up(
     worker = AsyncWorker(
         Registry([]),
         cast(BlobCache, object()),
-        WorkerOptions(server_address=address, credential=FailedCredential()),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=address,
+            credential=FailedCredential(),
+        ),
     )
     with pytest.raises(RuntimeError, match="server info"):
         await worker.start()
@@ -761,7 +795,11 @@ async def _check_async_worker_index_sync_credential_failure_cleans_up(
     worker = AsyncWorker(
         Registry([]),
         cast(BlobCache, object()),
-        WorkerOptions(server_address=address, credential=FailOnSecondCredential()),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=address,
+            credential=FailOnSecondCredential(),
+        ),
     )
     with pytest.raises(RuntimeError, match="synchronize Attribute indexes"):
         await worker.start()
@@ -786,7 +824,9 @@ async def _check_pull_credential_failure_does_not_open_stream(
         cast(BlobCache, object()),
         WorkerOptions(
             server_address=address,
-            pull=PullWorkerOptions(app_worker_id="failed-pull-credential-worker"),
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=2, app_worker_id="failed-pull-credential-worker"
+            ),
             credential=credential,
         ),
     )
@@ -810,7 +850,9 @@ async def _check_async_worker_pull_default_has_no_authorization(
         cast(BlobCache, object()),
         WorkerOptions(
             server_address=address,
-            pull=PullWorkerOptions(app_worker_id="default-credential-worker"),
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=2, app_worker_id="default-credential-worker"
+            ),
         ),
     )
     started = asyncio.create_task(worker.start())
@@ -835,7 +877,9 @@ async def _check_async_worker_pull_reconnect_rotates_token(
         cast(BlobCache, object()),
         WorkerOptions(
             server_address=address,
-            pull=PullWorkerOptions(app_worker_id="credential-test-worker"),
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=1, app_worker_id="credential-test-worker"
+            ),
             credential=credential,
         ),
     )

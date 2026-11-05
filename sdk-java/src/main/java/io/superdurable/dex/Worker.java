@@ -11,6 +11,8 @@
 package io.superdurable.dex;
 
 import com.google.protobuf.Empty;
+import io.grpc.Codec;
+import io.grpc.DecompressorRegistry;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
@@ -133,7 +135,7 @@ public final class Worker implements AutoCloseable {
     /**
      * Starts the worker pull streams and blocks until termination.
      *
-     * <p>Only a newly created worker may start. It negotiates the Server protocol before syncing
+     * <p>Only a newly created worker may start. It requires Server protocol 4 before syncing
      * Attribute indexes and opening the pull streams. If the waiting thread is interrupted, the worker
      * stops and restores the thread's interruption status before returning.
      *
@@ -165,11 +167,11 @@ public final class Worker implements AutoCloseable {
     }
 
     /**
-     * Waits until every pull queue has received a Registered acknowledgement at least once.
+     * Waits for a STEP_AND_RPC stream and, when reserved, an RPC_ONLY stream to register.
      *
      * <p>Start the Worker on another thread. Multiple callers may wait independently, before or
      * after start. Success latches even after stop; use getPullRegistrationState for later probes.
-     * Before readiness, a permanent rejection fails this wait only if that queue has no other
+     * Before readiness, a permanent rejection fails this wait only if that slot kind has no other
      * registered stream. Startup failures are propagated to waiters. Interrupting this wait leaves
      * the Worker running.
      *
@@ -183,10 +185,10 @@ public final class Worker implements AutoCloseable {
      * @param timeout the nonnull, nonnegative maximum wait duration
      * @throws InterruptedException if the waiting thread is interrupted
      * @throws TimeoutException if the timeout expires before readiness
-     * @throws PullRegistrationError if a queue is permanently rejected before readiness
+     * @throws PullRegistrationError if a slot kind is permanently rejected before readiness
      * @throws IllegalArgumentException if timeout is null or negative
-     * @throws IllegalStateException if startup fails or the Worker
-     *     stops before readiness
+     * @throws IllegalStateException if startup fails, including when maxConcurrentTasks exceeds
+     *     the Server's per-Worker limit, or the Worker stops before readiness
      */
     public void waitPullRegistered(final Duration timeout) throws InterruptedException, TimeoutException {
         if (timeout == null || timeout.isNegative()) {
@@ -196,19 +198,15 @@ public final class Worker implements AutoCloseable {
     }
 
     /**
-     * Returns cumulative Step declines caused by reserved RPC capacity for this Worker.
+     * Returns zero for the legacy reserved-RPC decline counter.
      *
-     * <p>The counter counts decline events. Dex may decline the same Step dispatch repeatedly
-     * while retrying it, so read the counter as a rate. Full-capacity rejections and unknown names are excluded. The count never resets,
-     * remains available after stop, and is safe to read concurrently with handlers.
-     * Export this value to a monitoring counter:
+     * <p>Reserved execution slots prevent capacity declines. This method remains safe to call
+     * concurrently and after shutdown.
      *
-     * <pre>{@code
-     * long declines = worker.getPullReservedRpcDeclines();
-     * }</pre>
-     *
-     * @return the cumulative reserve-decline count
+     * @return always zero
+     * @deprecated reserved slots no longer decline tasks for capacity
      */
+    @Deprecated
     public long getPullReservedRpcDeclines() {
         return pullWorker.getReservedRpcDeclines();
     }
@@ -217,11 +215,11 @@ public final class Worker implements AutoCloseable {
      * Returns an independent snapshot for pull Worker readiness probes.
      *
      * <p>After initial readiness, transient failures, reconnects, and stop keep readiness true.
-     * A permanent rejection makes it false only while that queue has no registered stream.
+     * A permanent rejection makes it false only while that slot kind has no registered stream.
      * Re-registration clears the error. Safe concurrently with start, stop, and registration waits.
      * See waitPullRegistered for a startup example.
      *
-     * @return immutable queue state
+     * @return immutable slot-kind state through the legacy queue accessors
      */
     public PullRegistrationState getPullRegistrationState() {
         return pullWorker.registrationState();
@@ -279,6 +277,20 @@ public final class Worker implements AutoCloseable {
      * <p>The method is idempotent. The Worker drains for the configured stop timeout, then cancels
      * remaining handlers and waits for them to return. A handler ignoring cancellation can block
      * Stop. Interruption status is preserved.
+     *
+     * <p>Stop starts no new task. Idle streams half-close immediately and drop later task frames.
+     * Busy streams finish their handler and send its final output before half-closing. Streams keep
+     * reading until the Server ends them. If the timeout expires, a running task's stream is reset
+     * with a transport error instead of half-closing. A half-closed stream that the Server has not
+     * ended by then is also reset, for example after a network partition. A task the Server sent
+     * on such a stream counts as one that may have run.
+     *
+     * <p>A stream that has sent a final output is not reset at the timeout until the Server
+     * confirms that output. The Server confirms it by ending the stream or by assigning the
+     * stream's next task. This holds even when the handler has returned or the stream has
+     * half-closed. Such a stream gets a five-second flush grace and is reset only after it. So
+     * stop can return up to five seconds after the stop timeout, plus the time handlers take to
+     * return after cancellation.
      */
     public void stop() {
         synchronized (this) {
@@ -296,7 +308,7 @@ public final class Worker implements AutoCloseable {
     }
 
     /**
-     * Stops the worker and permanently closes its lifecycle.
+     * Stops the worker with {@link #stop()} drain semantics and permanently closes its lifecycle.
      *
      * <p>The application owns any supplied {@link Credential} and the borrowed
      * {@link BlobCache}.
@@ -361,7 +373,10 @@ public final class Worker implements AutoCloseable {
                 new ThreadPoolExecutor.AbortPolicy());
     }
 
+    // Accepting only identity encoding keeps a decompression failure from cancelling a poll stream.
     private static ManagedChannel createOutboundChannel(final String address) {
-        return ManagedChannelBuilder.forTarget(address).usePlaintext().build();
+        return ManagedChannelBuilder.forTarget(address).usePlaintext()
+                .decompressorRegistry(DecompressorRegistry.emptyInstance().with(Codec.Identity.NONE, true))
+                .build();
     }
 }

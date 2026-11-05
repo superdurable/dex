@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import grpc
 import pytest
-from google.protobuf import timestamp_pb2
+from google.protobuf import empty_pb2, timestamp_pb2
 
 from dex import (
     AsyncClient,
@@ -51,6 +51,15 @@ class MemoryBlobCache:
 
 
 class WaitForFlowService(dex_pb2_grpc.FlowServiceServicer):
+    def GetServerInfo(  # noqa: N802
+        self, request: empty_pb2.Empty, context: grpc.ServicerContext
+    ) -> pb.ServerInfo:
+        return pb.ServerInfo(
+            server_version="test",
+            minimum_supported_protocol_version=1,
+            current_protocol_version=4,
+        )
+
     def __init__(self) -> None:
         self.loaded_blob_ids: list[str] = []
 

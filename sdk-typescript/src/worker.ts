@@ -13,7 +13,7 @@ import { credentialInterceptors } from "./credential.js";
 import { FlowServiceClient, type ServerInfo } from "./gen/dex.js";
 import { registeredAttributeIndexes, type Registry } from "./flow.js";
 import type { WorkerOptions } from "./options.js";
-import { negotiateServerProtocol, serverInfoRequestError } from "./server-protocol.js";
+import { negotiateServerProtocol } from "./server-protocol.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { ValueHydrator } from "./value-mapper.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
@@ -21,18 +21,21 @@ import { PullWorker } from "./pull-worker.js";
 
 export { PullRegistrationError } from "./pull-registration.js";
 export type { PullRegistrationState, PullQueueRegistrationState, WaitPullRegisteredOptions } from "./pull-registration.js";
-import type { PullRegistrationState, WaitPullRegisteredOptions } from "./pull-registration.js";
+import { PullRegistrationError, type PullRegistrationState, type WaitPullRegisteredOptions } from "./pull-registration.js";
 
-type WorkerState = "created" | "running" | "stopping" | "stopped" | "closed";
+type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" | "closed";
 
 /**
  * Hosts registered Step and RPC handlers through outbound pull streams.
  *
- * A Worker is one-shot. Call `start` for non-blocking startup or `run` to await
+ * A Worker is one-shot. Call `start` to register the first slot or `run` to await
  * shutdown, then call `close`. Concurrent handlers must synchronize shared state.
- * `close` drains for `stopDrainTimeoutMs`, then cancels handlers and
- * waits for them to return. Half-closed streams wait for server EOF until the
- * remaining drain deadline. A handler that ignores cancellation can delay shutdown.
+ * `close` stops new tasks, half-closes idle streams, and lets busy handlers send final output before half-closing.
+ * It drains for `stopDrainTimeoutMs`, then resets streams whose handler has not written final output,
+ * cancels those handlers, and waits for them to return. Half-closed streams wait for server EOF until
+ * the drain deadline and are then reset. A stream whose final output Dex has not yet confirmed, by ending
+ * the stream or assigning its next task, gets 5 more seconds, so `close` can return up to 5 seconds later.
+ * A handler that ignores cancellation can delay shutdown.
  *
  * @example
  * ```ts
@@ -89,36 +92,42 @@ export class Worker {
 
   /**
    * Negotiates the Server protocol, synchronizes indexes, and starts polling.
-   * The promise resolves after launching pull streams; call exactly once.
-   * Await waitPullRegistered separately to gate startup on pull queue acknowledgements.
+   * The promise resolves after the first slot registers and its Server concurrency limit is checked; call exactly once.
+   * Await waitPullRegistered separately to gate readiness on both configured slot kinds.
+   * @returns A promise resolved after protocol negotiation, index synchronization, and the first registration.
+   * @throws {Error} The Server is incompatible, unreachable (the gRPC error is the cause), or startup fails.
+   * @throws {Error} maxConcurrentTasks exceeds matching.maxConcurrentTasksCap; the Worker half-closes its streams.
+   * @throws {PullRegistrationError} The Server permanently rejects every stream before any registers.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
       throw new Error(`Worker cannot start from state ${this.state}`);
     }
+    this.state = "starting";
     try {
       const timeoutMs = this.options.attributeIndexSyncTimeoutMs ?? 120_000;
       if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
         throw new RangeError("attributeIndexSyncTimeoutMs must be positive");
       }
-      let serverInfo: ServerInfo;
-      try {
-        serverInfo = await getServerInfo(this.flowService, timeoutMs);
-      } catch (failure) {
-        throw serverInfoRequestError(sdkVersion, failure);
-      }
+      const serverInfo = await getServerInfo(this.flowService, timeoutMs);
       this.negotiatedProtocolVersion = negotiateServerProtocol(serverInfo, sdkVersion);
       await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
       this.pullWorker.start();
+      await this.pullWorker.waitStarted();
+      if (this.state !== "starting") throw new Error("Worker stopped during startup");
       this.state = "running";
     } catch (failure) {
       const endpoint = `pull Worker for ${this.options.serverAddress ?? "localhost:8801"}`;
-      const startupError = new Error(`cannot start TypeScript ${endpoint}`, { cause: failure });
+      const startupError = failure instanceof PullRegistrationError ? failure
+        : new Error(`cannot start TypeScript ${endpoint}: ${failure instanceof Error ? failure.message : String(failure)}`, { cause: failure });
       this.pullWorker.registration.stopped(startupError);
-      this.state = "stopped";
-      await this.pullWorker.close();
-      this.flowService.close();
-      this.resolveStopped();
+      // A concurrent close already released resources and owns the final state.
+      if (this.state === "starting") {
+        this.state = "stopped";
+        await this.pullWorker.close();
+        this.flowService.close();
+        this.resolveStopped();
+      }
       throw startupError;
     }
   }
@@ -127,7 +136,7 @@ export class Worker {
    * Starts the Worker and waits until `close` completes shutdown.
    * @returns A promise resolved after graceful shutdown and handler completion.
    * @throws {Error} Startup or shutdown fails.
-   * @throws {PullRegistrationError} A permanent rejection leaves a queue without registered streams when stopOnPermanentStreamRejection is enabled.
+   * @throws {PullRegistrationError} A permanent rejection leaves a slot kind without registered streams when stopOnPermanentStreamRejection is enabled.
    */
   public async run(): Promise<void> {
     await this.start();
@@ -139,12 +148,12 @@ export class Worker {
   }
 
   /**
-   * Waits until every Flow type queue and the app Worker ID queue has registered at least once.
+   * Waits until at least one STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream have registered.
    * Safe before or after start and for concurrent callers. Later calls resolve even after shutdown.
    * Reconnects do not reset completion. Use pullRegistrationState for ongoing readiness probes.
    * @param options - Optional AbortSignal and positive timeout in milliseconds; defaults to waiting indefinitely.
-   * @returns A promise resolved after all queues have registered once.
-   * @throws {PullRegistrationError} A permanent rejection leaves a queue without another registered stream before readiness.
+   * @returns A promise resolved after all configured slot kinds have registered once.
+   * @throws {PullRegistrationError} A permanent rejection leaves a slot kind without another registered stream before readiness.
    * @throws {Error} Startup fails or the Worker stops before readiness.
    * @throws {RangeError} The timeout is invalid.
    * @throws {DOMException} The timeout expires; cancellation rejects with the signal's reason.
@@ -160,15 +169,12 @@ export class Worker {
   }
 
   /**
-   * Cumulative Step declines caused by reserved RPC capacity during this Worker's lifetime.
-   * Counts decline events. Dex may decline the same Step dispatch repeatedly while retrying it,
-   * so read the counter as a rate. Excludes full-capacity rejections and unknown names. The count never resets and
-   * remains available after close. Reading during
-   * handler execution is safe. Export the value to a monitoring counter.
-   * @returns The cumulative reserve-decline count.
+   * Returns the retained reserved RPC decline counter.
+   * @deprecated Reserved slots never decline Steps for capacity. Always returns zero, including after close.
+   * @returns The constant value zero.
    * @example
    * ```ts
-   * const declines = worker.pullReservedRpcDeclines;
+   * const legacyCounter = worker.pullReservedRpcDeclines;
    * ```
    */
   public get pullReservedRpcDeclines(): number {
@@ -176,10 +182,10 @@ export class Worker {
   }
 
   /**
-   * Returns an independent snapshot of pull queue registrations.
-   * Readiness latches after every queue registers once. Only a permanent rejection with no
-   * registered stream makes it false; re-registration clears the queue error. Stop preserves readiness.
-   * @returns Current readiness and queue snapshots.
+   * Returns an independent snapshot of slot-kind registrations.
+   * Readiness latches after every configured slot kind registers once. Only a permanent rejection with no
+   * registered stream makes it false; re-registration clears the slot-kind error. Stop preserves readiness.
+   * @returns Current readiness and slot-kind snapshots.
    * See waitPullRegistered for a startup and readiness example. Treat errors as immutable.
    */
   public pullRegistrationState(): PullRegistrationState {
@@ -194,16 +200,24 @@ export class Worker {
   }
 
   /**
-   * Gracefully drains tasks, then releases connections.
-   * A pull Worker force-cancels after its drain timeout and waits for handlers to return.
-   * Half-closed pull streams wait for server EOF until the remaining drain deadline.
+   * Stops new tasks and drains handlers before releasing connections.
+   * Idle streams half-close immediately. Busy streams send their final output before half-closing.
+   * Tasks arriving after stop begins are dropped without running a handler, including after half-close.
+   * Streams keep reading until the Server ends them.
+   * After the drain timeout, streams whose handler has not written final output are reset, those handlers
+   * are canceled, and close waits for them to return. A handler whose final output is written still half-closes.
+   * Half-closed streams that the Server has not ended by the drain deadline are reset.
+   * A stream whose final output the Server has not yet confirmed gets a 5-second flush grace after the deadline.
+   * The Server confirms it by ending the stream or assigning the slot's next task.
+   * Close can therefore return up to 5 seconds after the drain deadline.
+   * Dex treats a task dropped on a reset stream as possibly run.
    * Calls before `start` and repeated calls after shutdown are safe.
    */
   public async close(): Promise<void> {
     if (this.state === "closed") {
       return;
     }
-    if (this.state === "created") {
+    if (this.state === "created" || this.state === "starting") {
       this.state = "closed";
       await this.pullWorker.close();
       this.flowService.close();

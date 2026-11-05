@@ -97,6 +97,7 @@ jobs:
               - '.github/workflows/sdk-python-ci.yml'
             sdk_typescript:
               - 'sdk-typescript/**'
+              - 'examples/typescript/decorator-free-rpc/**'
               - 'sdk-rust/Cargo.lock'
               - 'sdk-rust/Cargo.toml'
               - 'sdk-rust/crates/dex-blob-cache/**'

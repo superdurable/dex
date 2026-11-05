@@ -12,9 +12,10 @@ import {
   requireHardDeleteOnNullValueKind,
 } from "./attribute-hard-delete.js";
 import { mapAttributeStoreSync } from "./attribute-store-sync.js";
-import type { AsyncContext, RecoveryErrorInfo } from "./context.js";
+import { StepAttemptProgress, type AsyncContext, type RecoveryErrorInfo } from "./context.js";
 import {
   ConditionStatus,
+  StepAttemptProgress as ProtoStepAttemptProgress,
   IndexType as ProtoIndexType,
   type AttributeWrite,
   type ChannelInfo,
@@ -105,10 +106,14 @@ export class InvocationContext implements AsyncContext {
     this.flowStartedAt = secondsDate(metadata.flowStartedTimestamp);
     this.stepExecutionId = metadata.stepExecutionId;
     this.fromStepExecutionId = metadata.fromStepExecutionId;
-    this.recoveryError =
-      metadata.recoveryError === undefined
-        ? undefined
-        : { detail: metadata.recoveryError.detail, errorType: metadata.recoveryError.errorType };
+    this.recoveryError = metadata.recoveryError === undefined ? undefined : {
+      detail: metadata.recoveryError.detail,
+      errorType: metadata.recoveryError.errorType,
+      attemptProgress: metadata.recoveryError.attemptProgress === ProtoStepAttemptProgress.STEP_ATTEMPT_PROGRESS_NOT_STARTED
+        ? StepAttemptProgress.NOT_STARTED
+        : metadata.recoveryError.attemptProgress === ProtoStepAttemptProgress.STEP_ATTEMPT_PROGRESS_NOT_COMPLETED
+          ? StepAttemptProgress.NOT_COMPLETED : StepAttemptProgress.UNSPECIFIED,
+    };
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;
     this.deadline = method === "rpc" ? undefined : deadline;
