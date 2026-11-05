@@ -9,9 +9,10 @@
 //! Directories under a strict store root whose entries this process has flushed into their parents.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[cfg(test)]
@@ -109,36 +110,103 @@ impl DurableDirectories {
     }
 }
 
+/// Most symbolic links one flush follows, as the kernel's ELOOP limit does.
+const MAX_SYMLINK_EXPANSIONS: usize = 40;
+
 /// Flushes the entry of the existing `directory` and of each ancestor into its parent.
 ///
-/// It walks the configured path's ancestors, then the canonical path's ancestors.
+/// It resolves the configured path one component at a time. Each symbolic link's entry is flushed,
+/// and the walk continues through its target, so chained and relative links are covered too.
 ///
 /// Returns the set of directories flushed. Fails with
-/// [`StoreError::DirectoryEntryFlushFailed`] when a directory cannot be resolved, opened, or flushed.
+/// [`StoreError::DirectoryEntryFlushFailed`] when a path cannot be resolved, a directory cannot
+/// be opened or flushed, or more than 40 symbolic links are followed.
 pub(crate) fn flush_entries_up_to_filesystem_root(
     directory: &Path,
 ) -> Result<BTreeSet<PathBuf>, StoreError> {
-    let flush_failure =
-        |directory: &Path, source: io::Error| StoreError::DirectoryEntryFlushFailed {
-            directory: directory.to_path_buf(),
-            source,
-        };
     let configured =
         std::path::absolute(directory).map_err(|source| flush_failure(directory, source))?;
-    let canonical =
-        fs::canonicalize(directory).map_err(|source| flush_failure(directory, source))?;
     let mut flushed = BTreeSet::new();
-    // Symlinks at intermediate components are covered only through these two walks.
-    for path in [configured, canonical] {
-        for parent in path.ancestors().skip(1) {
-            if parent.as_os_str().is_empty() || flushed.contains(parent) {
+    // Holds no symbolic link, so `..` can drop its last component.
+    let mut resolved = filesystem_root();
+    let mut remaining = Vec::new();
+    push_path_steps(&mut remaining, &configured);
+    let mut expansions = 0;
+    while let Some(step) = remaining.pop() {
+        let name = match step {
+            PathStep::Root => {
+                resolved = filesystem_root();
                 continue;
             }
-            sync_directory(parent).map_err(|source| flush_failure(parent, source))?;
-            flushed.insert(parent.to_path_buf());
+            PathStep::Parent => {
+                resolved.pop();
+                continue;
+            }
+            PathStep::Name(name) => name,
+        };
+        flush_once(&mut flushed, &resolved)?;
+        let candidate = resolved.join(name);
+        let metadata =
+            fs::symlink_metadata(&candidate).map_err(|source| flush_failure(&candidate, source))?;
+        if !metadata.file_type().is_symlink() {
+            resolved = candidate;
+            continue;
         }
+        expansions += 1;
+        if expansions > MAX_SYMLINK_EXPANSIONS {
+            return Err(flush_failure(
+                &candidate,
+                io::Error::other(format!("more than {MAX_SYMLINK_EXPANSIONS} symbolic links")),
+            ));
+        }
+        let target =
+            fs::read_link(&candidate).map_err(|source| flush_failure(&candidate, source))?;
+        // A relative target resolves from the link's directory, which `resolved` still names.
+        push_path_steps(&mut remaining, &target);
     }
     Ok(flushed)
+}
+
+/// One component of a path that is still to be resolved.
+enum PathStep {
+    Root,
+    Parent,
+    Name(OsString),
+}
+
+/// Pushes `path`'s steps so that popping yields them in order, before the steps `stack` held.
+fn push_path_steps(stack: &mut Vec<PathStep>, path: &Path) {
+    let steps: Vec<PathStep> = path
+        .components()
+        .filter_map(|component| match component {
+            Component::RootDir => Some(PathStep::Root),
+            Component::ParentDir => Some(PathStep::Parent),
+            Component::Normal(name) => Some(PathStep::Name(name.to_os_string())),
+            Component::CurDir | Component::Prefix(_) => None,
+        })
+        .collect();
+    stack.extend(steps.into_iter().rev());
+}
+
+/// Flushes `directory` unless this walk already flushed it.
+fn flush_once(flushed: &mut BTreeSet<PathBuf>, directory: &Path) -> Result<(), StoreError> {
+    if flushed.contains(directory) {
+        return Ok(());
+    }
+    sync_directory(directory).map_err(|source| flush_failure(directory, source))?;
+    flushed.insert(directory.to_path_buf());
+    Ok(())
+}
+
+fn flush_failure(directory: &Path, source: io::Error) -> StoreError {
+    StoreError::DirectoryEntryFlushFailed {
+        directory: directory.to_path_buf(),
+        source,
+    }
+}
+
+fn filesystem_root() -> PathBuf {
+    PathBuf::from(Component::RootDir.as_os_str())
 }
 
 #[cfg(test)]
@@ -205,6 +273,67 @@ mod tests {
             shared.len() + 2,
             "the shared ancestors are flushed once, plus aliases and persist"
         );
+    }
+
+    #[test]
+    fn chained_symlinks_flush_every_link_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let root_path = fs::canonicalize(root.path()).unwrap();
+        let (a, b, c) = (
+            root_path.join("a"),
+            root_path.join("b"),
+            root_path.join("c"),
+        );
+        for directory in [&a, &b] {
+            fs::create_dir(directory).unwrap();
+        }
+        fs::create_dir_all(c.join("store")).unwrap();
+        std::os::unix::fs::symlink(b.join("link"), a.join("alias")).unwrap();
+        std::os::unix::fs::symlink(c.join("store"), b.join("link")).unwrap();
+
+        let flushed = flush_entries_up_to_filesystem_root(&a.join("alias")).unwrap();
+        for directory in [&a, &b, &c, &root_path] {
+            assert!(
+                flushed.contains(directory),
+                "{} is flushed",
+                directory.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_relative_symlink_target_resolves_from_the_link_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let root_path = fs::canonicalize(root.path()).unwrap();
+        let links = root_path.join("links");
+        fs::create_dir(&links).unwrap();
+        let target_parent = root_path.join("persist");
+        fs::create_dir_all(target_parent.join("target")).unwrap();
+        std::os::unix::fs::symlink("../persist/target", links.join("dev")).unwrap();
+
+        let flushed = flush_entries_up_to_filesystem_root(&links.join("dev")).unwrap();
+        for directory in [&links, &target_parent, &root_path] {
+            assert!(
+                flushed.contains(directory),
+                "{} is flushed",
+                directory.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_symlink_loop_fails_the_flush() {
+        let root = tempfile::tempdir().unwrap();
+        let root_path = fs::canonicalize(root.path()).unwrap();
+        std::os::unix::fs::symlink(root_path.join("second"), root_path.join("first")).unwrap();
+        std::os::unix::fs::symlink(root_path.join("first"), root_path.join("second")).unwrap();
+
+        match flush_entries_up_to_filesystem_root(&root_path.join("first")) {
+            Err(StoreError::DirectoryEntryFlushFailed { source, .. }) => {
+                assert!(source.to_string().contains("symbolic links"), "{source}");
+            }
+            other => panic!("expected the symlink loop to fail the flush: {other:?}"),
+        }
     }
 
     #[test]
