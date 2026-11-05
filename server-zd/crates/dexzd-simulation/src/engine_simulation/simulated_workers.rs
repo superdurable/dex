@@ -42,9 +42,16 @@ use crate::engine_simulation::workload::{
     AWAIT_CHILD_RESULT_RPC_NAME, MethodCallView, execute_response, heartbeat_value, rpc_response,
     wait_for_response, worker_error,
 };
+use simulated_task_queue::SimulatedTaskQueue;
+
+mod simulated_task_queue;
 
 /// New Steps each run's Workers may create, so every run eventually closes.
 const STEPS_PER_RUN: u32 = 8;
+/// Percent of Claim replies and Claims that draw a queue fault outside calm and hold.
+const QUEUE_FAULT_PERCENT: u32 = 20;
+/// Separates queue fault draws from Worker draws, so other trajectories keep their draws.
+const QUEUE_FAULT_SEED_SALT: u64 = 0x7a51_c0de;
 
 /// One method attempt as the Worker sees it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -114,6 +121,10 @@ pub(crate) enum WorkerBehavior {
     HeartbeatWithValue,
     /// A heartbeat frame without a value, which clears the checkpoint.
     HeartbeatWithoutValue,
+    /// Matching receives the claimed ref again, like a late Queued, so it is claimed twice.
+    DuplicateQueueRef,
+    /// The claimed stream may not hand out tasks, so the owner answers "retry later".
+    ClaimWithoutLease,
 }
 
 /// One timed event of a scripted dispatch; `None` waits until the dispatch is canceled.
@@ -126,6 +137,7 @@ struct ScriptedEvent {
 
 struct WorkerPoolState {
     rng: ChaCha8Rng,
+    queue_fault_rng: ChaCha8Rng,
     /// Whether new Steps carry failure policies, as in the Step failure profile.
     has_step_failure_policies: bool,
     is_calm: bool,
@@ -161,6 +173,7 @@ impl SimulatedWorkers {
             ),
             state: Mutex::new(WorkerPoolState {
                 rng: ChaCha8Rng::seed_from_u64(seed),
+                queue_fault_rng: ChaCha8Rng::seed_from_u64(seed ^ QUEUE_FAULT_SEED_SALT),
                 has_step_failure_policies,
                 is_calm: false,
                 is_holding: false,
@@ -202,6 +215,19 @@ impl SimulatedWorkers {
         self.lock().task_frames.clone()
     }
 
+    /// Draws whether the queue fault `behavior` happens now, and counts it when it does.
+    fn draw_queue_fault(&self, behavior: WorkerBehavior) -> bool {
+        let mut state = self.lock();
+        if state.is_calm || state.is_holding {
+            return false;
+        }
+        let is_drawn = state.queue_fault_rng.random_range(0..100) < QUEUE_FAULT_PERCENT;
+        if is_drawn {
+            *state.behaviors.entry(behavior).or_default() += 1;
+        }
+        is_drawn
+    }
+
     pub(crate) fn behavior_counts(&self) -> BTreeMap<WorkerBehavior, u64> {
         self.lock().behaviors.clone()
     }
@@ -236,6 +262,7 @@ impl SimulatedWorkers {
             return MethodStreamReservation::Reserved(Box::new(SimulatedSlot {
                 workers: Arc::clone(self),
                 process_label: process_label.to_owned(),
+                may_hand_out_tasks: true,
             }));
         };
         self.trace
@@ -540,7 +567,9 @@ impl WorkerPoolState {
             | WorkerBehavior::RpcFail
             | WorkerBehavior::RpcTimeout
             | WorkerBehavior::HeartbeatWithValue
-            | WorkerBehavior::HeartbeatWithoutValue => {
+            | WorkerBehavior::HeartbeatWithoutValue
+            | WorkerBehavior::DuplicateQueueRef
+            | WorkerBehavior::ClaimWithoutLease => {
                 unreachable!("{behavior:?} is never drawn for a sent Step task")
             }
         }
@@ -723,66 +752,6 @@ impl Drop for SimulatedDispatchSession {
     }
 }
 
-/// A process's queue refs under matching's rules: keep the smaller, claim removes, replies return.
-#[derive(Default)]
-pub(crate) struct SimulatedTaskQueue {
-    refs: Mutex<SimulatedRefs>,
-    has_refs: tokio::sync::Notify,
-    next_claim_id: Mutex<u64>,
-}
-
-#[derive(Default)]
-struct SimulatedRefs {
-    heads: BTreeMap<(PartitionId, DispatchQueueName), QueuedTaskRef>,
-    claims: BTreeMap<(PartitionId, DispatchQueueName), u64>,
-}
-
-impl SimulatedTaskQueue {
-    fn push(&self, task: QueuedTaskRef) {
-        let mut refs = self.refs.lock().expect("queue lock");
-        let slot = (task.partition, task.queue.clone());
-        let is_smaller = refs
-            .heads
-            .get(&slot)
-            .is_none_or(|head| task.position < head.position);
-        if is_smaller {
-            refs.heads.insert(slot, task);
-        }
-        drop(refs);
-        self.has_refs.notify_one();
-    }
-
-    /// Takes the first head without a Claim in flight.
-    fn take_claimable(&self, claim_id: u64) -> Option<QueuedTaskRef> {
-        let mut refs = self.refs.lock().expect("queue lock");
-        let slot = refs
-            .heads
-            .keys()
-            .find(|slot| !refs.claims.contains_key(*slot))
-            .cloned()?;
-        let task = refs.heads.remove(&slot)?;
-        refs.claims.insert(slot, claim_id);
-        Some(task)
-    }
-
-    fn finish_claim(
-        &self,
-        partition: PartitionId,
-        queue: &DispatchQueueName,
-        next: Option<QueuedTaskRef>,
-    ) {
-        self.refs
-            .lock()
-            .expect("queue lock")
-            .claims
-            .remove(&(partition, queue.clone()));
-        match next {
-            Some(next) => self.push(next),
-            None => self.has_refs.notify_one(),
-        }
-    }
-}
-
 /// The Worker ports of one node process.
 pub(crate) struct NodeWorkerPort {
     queue: SimulatedTaskQueue,
@@ -827,11 +796,11 @@ impl MethodDispatcher for NodeWorkerPort {
 
     fn is_claim_tracked(
         &self,
-        _partition: PartitionId,
-        _queue: &DispatchQueueName,
-        _claim_id: u64,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        claim_id: u64,
     ) -> bool {
-        true
+        self.queue.is_claim_tracked(partition, queue, claim_id)
     }
 
     fn report_ordinary_backlog(
@@ -846,11 +815,7 @@ impl MethodDispatcher for NodeWorkerPort {
         Box::pin(async move {
             loop {
                 let notified = self.queue.has_refs.notified();
-                let claim_id = {
-                    let mut next = self.queue.next_claim_id.lock().expect("claim id lock");
-                    *next += 1;
-                    *next
-                };
+                let claim_id = self.queue.new_claim_id();
                 let Some(task) = self.queue.take_claimable(claim_id) else {
                     notified.await;
                     continue;
@@ -860,12 +825,20 @@ impl MethodDispatcher for NodeWorkerPort {
                     Duration::from_millis(state.rng.random_range(10..500))
                 };
                 tokio::time::sleep(delay).await;
+                let is_without_lease = self
+                    .workers
+                    .draw_queue_fault(WorkerBehavior::ClaimWithoutLease);
+                self.workers.trace.record(&format!(
+                    "{} claim {claim_id} {} without_lease={is_without_lease}",
+                    self.process_label, task.position.step_execution_id
+                ));
                 return Some(MethodClaim {
                     claim_id,
                     task,
                     stream: Box::new(SimulatedSlot {
                         workers: Arc::clone(&self.workers),
                         process_label: self.process_label.clone(),
+                        may_hand_out_tasks: !is_without_lease,
                     }),
                 });
             }
@@ -876,10 +849,25 @@ impl MethodDispatcher for NodeWorkerPort {
         &self,
         partition: PartitionId,
         queue: &DispatchQueueName,
-        _claim_id: u64,
+        claim_id: u64,
         reply: ClaimReply,
     ) {
-        self.queue.finish_claim(partition, queue, reply.next);
+        let Some(claimed) = self
+            .queue
+            .finish_claim(partition, queue, claim_id, reply.next)
+        else {
+            return;
+        };
+        if self
+            .workers
+            .draw_queue_fault(WorkerBehavior::DuplicateQueueRef)
+        {
+            self.workers.trace.record(&format!(
+                "{} duplicate ref {} after {:?}",
+                self.process_label, claimed.position.step_execution_id, reply.result
+            ));
+            self.queue.push(claimed);
+        }
     }
 
     fn is_waiting_for_supporting_worker(
@@ -898,6 +886,7 @@ impl MethodDispatcher for NodeWorkerPort {
 struct SimulatedSlot {
     workers: Arc<SimulatedWorkers>,
     process_label: String,
+    may_hand_out_tasks: bool,
 }
 
 impl ReservedMethodStream for SimulatedSlot {
@@ -906,7 +895,7 @@ impl ReservedMethodStream for SimulatedSlot {
     }
 
     fn may_hand_out_tasks(&self) -> bool {
-        true
+        self.may_hand_out_tasks
     }
 
     fn send_task(

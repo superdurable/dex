@@ -62,7 +62,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990875,
         120,
-        0x10e0d89bc5919fb6b27ad0d2df8828ed,
+        0x4f52aa4dfc052237188c8ad5b9a3e2f9,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -74,25 +74,25 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0x61a67bf215e78c6a73d42a9dd6a02693,
+        0x6835855b420e314659cdaf66091d0703,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 1,
         120,
-        0x7e769eb17868184a0ed5ce71bca79fa4,
+        0xbf6834db43324eff654d0430512a17c4,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0x64a4b9bea14d764e200f43805513349d,
+        0x65901e026f434ae19867cfa273d1fec7,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
         FIRST_REDEPLOY_SEED,
         120,
-        0x8b8cf68abdad92c726d2253f8548a641,
+        0x45a96bc6410b6d68fefec4c56877c21d,
     ),
     (
         EngineSimulationProfile::HotStandbyTakeovers,
@@ -464,6 +464,8 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "RpcSucceed",
         "RpcFail",
         "RpcTimeout",
+        "DuplicateQueueRef",
+        "ClaimWithoutLease",
     ] {
         assert!(
             count(&total.worker_behaviors, behavior) > 0,
