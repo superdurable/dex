@@ -556,3 +556,116 @@ async def _stop_deadline_flushes_final_output_already_in_flight(
         "done_writing"
     )
     assert is_reset_after_half_close(call.operations)
+
+
+class UnconfirmedOutputCall(DelayedEofCall):
+    """Fake Server that has not yet read the final output or ended the stream."""
+
+    def __init__(
+        self, frames: list[pb.PollWorkerTaskResponse], is_half_close_blocked: bool
+    ) -> None:
+        super().__init__(frames)
+        self.half_close_allowed = asyncio.Event()
+        if not is_half_close_blocked:
+            self.half_close_allowed.set()
+
+    async def done_writing(self) -> None:
+        await super().done_writing()
+        await self.half_close_allowed.wait()
+
+    def cancel(self) -> None:
+        super().cancel()
+        self.half_close_allowed.set()
+
+
+@pytest.mark.parametrize("is_released_within_grace", [True, False])
+@pytest.mark.parametrize("is_half_close_blocked", [False, True])
+@pytest.mark.parametrize("is_half_closed_before_stop", [False, True])
+def test_final_output_sent_before_deadline_keeps_flush_grace(
+    is_released_within_grace: bool,
+    is_half_close_blocked: bool,
+    is_half_closed_before_stop: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_pull_worker, "_FINAL_OUTPUT_FLUSH_GRACE_SECONDS", 0.6)
+    asyncio.run(
+        _final_output_sent_before_deadline_keeps_flush_grace(
+            is_released_within_grace,
+            is_half_close_blocked,
+            is_half_closed_before_stop,
+        )
+    )
+
+
+async def _final_output_sent_before_deadline_keeps_flush_grace(
+    is_released_within_grace: bool,
+    is_half_close_blocked: bool,
+    is_half_closed_before_stop: bool,
+) -> None:
+    dispatcher = BlockingDispatcher()
+    call = UnconfirmedOutputCall(
+        [registered(), rpc_task("sent-before-deadline")], is_half_close_blocked
+    )
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        dispatcher,
+        PullWorkerOptions(
+            max_concurrent_tasks=1, stop_drain_timeout=timedelta(milliseconds=100)
+        ),
+        "unused",
+        None,
+    )
+    runtime._stopping = asyncio.Event()
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
+    stream.run_task = asyncio.create_task(_poll_until_closed(stream))
+    runtime._streams.add(stream)
+    await dispatcher.started.wait()
+    loop = asyncio.get_running_loop()
+    if is_half_closed_before_stop:
+        call.frames.put_nowait(
+            pb.PollWorkerTaskResponse(
+                reconnect=pb.PollWorkerTaskReconnect(reason="rebalance")
+            )
+        )
+        await wait_until(lambda: stream.is_draining)
+        dispatcher.gate.set()
+        await asyncio.wait_for(call.half_closed.wait(), 2)
+        started_at = loop.time()
+        stopping = asyncio.create_task(runtime.stop())
+    else:
+        started_at = loop.time()
+        stopping = asyncio.create_task(runtime.stop())
+        await runtime._stopping.wait()
+        dispatcher.gate.set()
+        await asyncio.wait_for(call.half_closed.wait(), 2)
+    assert stream.handler_task is None
+    # The handler finished and its output was written, but the Server has not read it.
+    await asyncio.sleep(0.3)
+    assert not call.is_closed
+    assert not stopping.done()
+    if is_released_within_grace:
+        call.half_close_allowed.set()
+        call.release_eof()
+        await asyncio.wait_for(stopping, 2)
+        operations = call.operations
+        assert operations.index("write:task_frame") < operations.index("done_writing")
+        assert operations.index("done_writing") < operations.index("read:EOF")
+        if "cancel" in operations:
+            assert operations.index("read:EOF") < operations.index("cancel")
+    else:
+        await asyncio.wait_for(stopping, 2)
+        assert loop.time() - started_at >= 0.6
+        assert call.is_closed
+        # The fake call reports EOF after its own reset.
+        operations = call.operations
+        assert "read:EOF" not in operations or operations.index(
+            "cancel"
+        ) < operations.index("read:EOF")
+    assert [
+        request.task_frame.task_id
+        for request in call.requests
+        if request.HasField("task_frame")
+    ] == ["sent-before-deadline"]
+    assert not dispatcher.canceled.is_set()

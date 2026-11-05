@@ -281,15 +281,18 @@ class AsyncWorker:
         default), then cancels active tasks and waits for handlers to return.
         Idle streams half-close immediately. Busy streams send final output before
         half-closing. Tasks received after stop begins are dropped without running
-        handlers. A timed-out busy stream is reset before cancellation, unless its
-        final output is already being written. That stream gets up to 5 more
-        seconds to send the output and half-close, so stop can return up to 5
-        seconds after the drain deadline.
+        handlers. A timed-out busy stream is reset before cancellation.
         Half-closed streams keep reading server frames until EOF or the remaining drain
         deadline before the channel closes. When the deadline expires, every stream
         that is still open is reset, even one blocked on a send or without Server EOF,
-        so stop always returns. The Server may count a task it sent in that
-        window as an attempt that may have run.
+        so stop returns once handlers return. The Server may count a task it sent in
+        that window as an attempt that may have run.
+        One exception applies to a stream whose final output was queued or written
+        but not yet confirmed by Server EOF or by the next assignment. Such a stream
+        is not reset at the drain deadline, even if its handler finished or it
+        already half-closed. It gets up to 5 more seconds to send the output,
+        half-close, and receive Server EOF, and is reset after that. Stop can
+        therefore return up to 5 seconds after the drain deadline.
         """
         self._pull.registration.record_stopping()
         if self._state in ("stopped", "closed"):

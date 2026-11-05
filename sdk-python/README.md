@@ -157,13 +157,18 @@ arriving after stop begins are dropped without calling a handler. Streams keep
 reading until server EOF or the remaining `stop_drain_timeout`, which defaults
 to 30 seconds. On timeout, a busy stream is reset and its handler is canceled;
 stop waits for the handler to return. Synchronous handlers should check
-`Context.is_cancellation_requested()` during long operations. A busy stream
-whose final output is already being written at the deadline gets up to 5 more
-seconds to send it and half-close instead of being reset, so `stop()` can
-return up to 5 seconds after the drain deadline. Any stream still open
-at the deadline is reset, even one that is half-closed and still waiting for
-server EOF, so stop always returns. Dex treats a task it sent in that window as
-an attempt that may have run.
+`Context.is_cancellation_requested()` during long operations. Any stream still
+open at the deadline is reset, even one that is half-closed and still waiting
+for server EOF, so stop returns once handlers return. Dex treats a task it sent
+in that window as an attempt that may have run.
+
+A stream whose final output was queued or written, but not yet confirmed by
+server EOF or by the next assignment on that stream, is not reset at the drain
+deadline. This holds even if its handler has finished or the stream has
+half-closed, because a completed local write does not mean the Server read the
+bytes. The stream gets up to 5 more seconds to send the output, half-close, and
+receive server EOF, and is reset after that. `stop()` can therefore return up
+to 5 seconds after the drain deadline.
 
 A stream that fails locally, such as a read error, an undecodable or oversized
 frame, a failed final output write, or an unexpected server EOF, is always

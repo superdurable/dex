@@ -19,7 +19,7 @@ from dex.dexpb import dex_pb2 as pb
 MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
 MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
 HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION = 3
-LAST_SERVER_ZD_RELEASE_WITHOUT_MINIMUM_PROTOCOL = "v0.1.16"
+LAST_SERVER_ZD_RELEASE_BEFORE_MINIMUM_PROTOCOL = "v0.1.16"
 
 
 def sdk_version() -> str:
@@ -138,7 +138,7 @@ def _compatibility_error(
             "This SDK requires a Dex Server with protocol version "
             f"{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION} or later "
             "(server-zd newer than "
-            f"{LAST_SERVER_ZD_RELEASE_WITHOUT_MINIMUM_PROTOCOL}). "
+            f"{LAST_SERVER_ZD_RELEASE_BEFORE_MINIMUM_PROTOCOL}). "
             f"{reported_range} Upgrade the Server before upgrading the SDK."
         )
     if MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION < server_minimum <= server_current:

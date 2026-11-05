@@ -279,6 +279,10 @@ class PullWorkerRuntime:
         self._stop_drain_deadline = (
             asyncio.get_running_loop().time() + self.stop_drain_timeout
         )
+        # The Server may not have read a final output yet; resetting would drop it.
+        self._final_output_flush_deadline = (
+            self._stop_drain_deadline + _FINAL_OUTPUT_FLUSH_GRACE_SECONDS
+        )
         self._stopping.set()
         try:
             for stream in tuple(self._streams):
@@ -288,60 +292,39 @@ class PullWorkerRuntime:
                 stream.handler_task for stream in self._streams if stream.handler_task
             ]
             pending: set[asyncio.Task[None]] = set()
-            flushing_streams: list[PullStream] = []
             if active:
                 _, pending = await asyncio.wait(
                     active, timeout=self._remaining_stop_drain_time()
                 )
-                if pending:
-                    flushing_streams = self._reset_streams_without_final_output(pending)
+                for stream in tuple(self._streams):
+                    if (
+                        stream.handler_task in pending
+                        and not stream.has_unconfirmed_final_output
+                    ):
+                        stream.close()
+                        stream.cancel_handler()
             stream_tasks = [stream.run_task for stream in tuple(self._streams)]
             if stream_tasks:
                 await asyncio.wait(
                     stream_tasks, timeout=self._remaining_stop_drain_time()
                 )
                 for stream in tuple(self._streams):
-                    if not stream.run_task.done() and stream not in flushing_streams:
+                    if (
+                        not stream.run_task.done()
+                        and not stream.has_unconfirmed_final_output
+                    ):
                         stream.close()
-                if flushing_streams:
-                    await asyncio.wait(
-                        [stream.run_task for stream in flushing_streams],
-                        timeout=self._remaining_final_output_flush_time(),
-                    )
-                    for stream in flushing_streams:
-                        if not stream.run_task.done():
-                            stream.close()
-                            stream.cancel_handler()
+                await asyncio.wait(
+                    stream_tasks, timeout=self._remaining_final_output_flush_time()
+                )
+                for stream in tuple(self._streams):
+                    if not stream.run_task.done():
+                        stream.close()
+                        stream.cancel_handler()
                 await asyncio.gather(*stream_tasks, return_exceptions=True)
             await asyncio.gather(*pending, return_exceptions=True)
         finally:
             self._stop_completed.set()
-
-    def _reset_streams_without_final_output(
-        self, pending: set[asyncio.Task[None]]
-    ) -> list[PullStream]:
-        """Reset streams whose handlers missed the drain deadline.
-
-        Returns:
-            Streams whose final output is already queued or sent. They are not
-            reset; each gets the final output flush grace to half-close.
-        """
-        flushing_streams: list[PullStream] = []
-        for stream in tuple(self._streams):
-            if stream.handler_task not in pending:
-                continue
-            if stream.has_final_output_in_flight:
-                flushing_streams.append(stream)
-            else:
-                stream.close()
-                stream.cancel_handler()
-        if flushing_streams:
-            self._final_output_flush_deadline = (
-                asyncio.get_running_loop().time() + _FINAL_OUTPUT_FLUSH_GRACE_SECONDS
-            )
-            for stream in flushing_streams:
-                stream.is_flushing_final_output = True
-        return flushing_streams
 
     def _remaining_final_output_flush_time(self) -> float:
         if self._final_output_flush_deadline is None:
@@ -389,13 +372,12 @@ class PullStream:
         self.is_draining = False
         self._retirement_requested = asyncio.Event()
         self.is_half_closing = False
-        self.is_flushing_final_output = False
         self._active = threading.Event()
         self._call: Any = None
         self._send_lock = asyncio.Lock()
         self._keepalive_task: asyncio.Task[None] | None = None
         self._is_final_frame_sent = False
-        self._is_final_output_queued = False
+        self._is_final_output_unconfirmed = False
         self._has_send_failure = False
         self._is_reconnecting = False
         self._stream_metadata: Any = None
@@ -502,7 +484,7 @@ class PullStream:
         self._is_connection_closed = False
         self._retirement_requested.clear()
         self._is_final_frame_sent = False
-        self._is_final_output_queued = False
+        self._is_final_output_unconfirmed = False
         self._has_send_failure = False
         self._stream_metadata = None
         if self.runtime._credential_runner is None:
@@ -578,6 +560,8 @@ class PullStream:
                     self.runtime.signal()
                     continue
                 if kind == "task":
+                    # The next assignment confirms the Server received the final output.
+                    self._is_final_output_unconfirmed = False
                     await self._start_task(frame.task)
                 elif (
                     kind == "cancel_task" and frame.cancel_task.task_id == self.task_id
@@ -617,7 +601,7 @@ class PullStream:
             while True:
                 deadline = (
                     self.runtime._final_output_flush_deadline
-                    if self.is_flushing_final_output
+                    if self.has_unconfirmed_final_output
                     else self.runtime._stop_drain_deadline
                 ) or reconnect_deadline
                 remaining = deadline - loop.time()
@@ -645,6 +629,8 @@ class PullStream:
                 reader = None
                 if frame is _GRPC_AIO_EOF:
                     return
+                if frame.WhichOneof("frame") == "task":
+                    self._is_final_output_unconfirmed = False
         finally:
             if stop_wait is not None:
                 stop_wait.cancel()
@@ -851,7 +837,7 @@ class PullStream:
             and request.task_frame.task_id == self.task_id
             and _is_final_task_frame(request.task_frame)
         ):
-            self._is_final_output_queued = True
+            self._is_final_output_unconfirmed = True
         async with self._send_lock:
             if self._is_connection_closed:
                 return
@@ -886,10 +872,8 @@ class PullStream:
                 raise
 
     @property
-    def has_final_output_in_flight(self) -> bool:
-        return (
-            self._is_final_output_queued or self._is_final_frame_sent
-        ) and not self._has_send_failure
+    def has_unconfirmed_final_output(self) -> bool:
+        return self._is_final_output_unconfirmed and not self._has_send_failure
 
     async def _finish_handler_or_fail_stream(self) -> None:
         if not await self._finish_handler() and not self._is_connection_closed:
@@ -913,7 +897,6 @@ class PullStream:
                 self._is_final_frame_sent and not self._has_send_failure
             )
             self._is_final_frame_sent = False
-            self._is_final_output_queued = False
         if self._deadline_handle is not None:
             self._deadline_handle.cancel()
             self._deadline_handle = None
