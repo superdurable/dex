@@ -14,7 +14,8 @@ use super::*;
 pub(super) struct Registry {
     pub(super) is_closing: bool,
     pub(super) streams: HashMap<Uuid, Arc<WorkerStream>>,
-    pub(super) worker_counts: HashMap<(u64, String), usize>,
+    /// Registered stream IDs of each tenant's app Worker.
+    pub(super) worker_stream_ids: HashMap<(u64, String), HashSet<Uuid>>,
     pub(super) queues: HashMap<(u64, String), QueueState>,
     pub(super) next_waiter_sequence: u64,
     /// Idle streams and their position in every subscribed queue's idle order.
@@ -87,12 +88,12 @@ impl Registry {
             return;
         }
         let idle_streams: Vec<Arc<WorkerStream>> = self
-            .idle_positions
-            .keys()
+            .worker_stream_ids
+            .get(&(worker.tenant_id, worker.app_worker_id.clone()))
+            .into_iter()
+            .flatten()
+            .filter(|id| self.idle_positions.contains_key(id))
             .filter_map(|id| self.streams.get(id))
-            .filter(|idle| {
-                idle.tenant_id == worker.tenant_id && idle.app_worker_id == worker.app_worker_id
-            })
             .cloned()
             .collect();
         for idle in idle_streams {

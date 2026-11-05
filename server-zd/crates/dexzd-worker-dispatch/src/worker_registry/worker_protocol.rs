@@ -91,19 +91,20 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
             if registry.streams.len() >= self.dispatch.inner.config.max_streams {
                 return Err(Status::resource_exhausted("matching stream limit reached"));
             }
+            let worker_key = (worker.tenant_id, worker.app_worker_id.clone());
             if registry
-                .worker_counts
-                .get(&(worker.tenant_id, worker.app_worker_id.clone()))
-                .copied()
-                .unwrap_or(0)
+                .worker_stream_ids
+                .get(&worker_key)
+                .map_or(0, HashSet::len)
                 >= self.dispatch.inner.config.max_concurrent_tasks_cap
             {
                 return Err(Status::resource_exhausted("Worker stream limit reached"));
             }
-            *registry
-                .worker_counts
-                .entry((worker.tenant_id, worker.app_worker_id.clone()))
-                .or_default() += 1;
+            registry
+                .worker_stream_ids
+                .entry(worker_key)
+                .or_default()
+                .insert(worker.id);
             for queue_name in &worker.queues {
                 let queue = registry
                     .queues
