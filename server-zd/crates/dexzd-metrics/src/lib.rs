@@ -28,7 +28,6 @@ mod object_requests;
 #[cfg(target_os = "linux")]
 mod process;
 mod semantic;
-mod task_queue;
 mod worker_stream;
 
 use std::path::PathBuf;
@@ -56,10 +55,9 @@ pub use semantic::{
     FlowCloseStatus, FlowCloses, StepAttemptFailures, StepDurability, StepFailureKind,
     StepRetriesExhausted,
 };
-pub use task_queue::{UnservedTaskQueueReason, UnservedTaskQueues};
 pub use worker_stream::{
-    StepAttemptReturnReason, StepAttemptsReturned, WorkerStreamEvent, WorkerStreamEvents,
-    WorkerStreamProtocolError, WorkerStreamProtocolErrors,
+    StepAttemptReturnReason, StepAttemptsReturned, UnservedTaskQueueReason, UnservedTaskQueues,
+    WorkerStreamEvent, WorkerStreamEvents, WorkerStreamProtocolError, WorkerStreamProtocolErrors,
 };
 
 /// The node's fixed set of metric handles.

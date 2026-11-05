@@ -996,16 +996,17 @@ async fn removing_a_partition_ends_its_waiters_refs_and_claims() {
     .await;
     let (_, mut busy) = hand_out(&dispatch, "Flow", "Charge", "busy").await;
     assert_eq!(slot.task().await.task_id, "busy");
-    let waiter = |sticky: Option<&'static str>| {
-        let dispatch = dispatch.clone();
-        tokio::spawn(async move {
-            let mut request = step_request("Flow", "Charge", sticky);
-            request.partition = PartitionId(7);
-            reserve(&dispatch, request).await
-        })
+    let partition_request = |sticky: Option<&str>| StepStreamRequest {
+        partition: PartitionId(7),
+        ..step_request("Flow", "Charge", sticky)
     };
-    let sync_waiter = waiter(None);
-    let sticky_waiter = waiter(Some("worker-a"));
+    let sync_dispatch = dispatch.clone();
+    let sync_request = partition_request(None);
+    let sync_waiter = tokio::spawn(async move { reserve(&sync_dispatch, sync_request).await });
+    let sticky_dispatch = dispatch.clone();
+    let sticky_request = partition_request(Some("worker-a"));
+    let sticky_waiter =
+        tokio::spawn(async move { reserve(&sticky_dispatch, sticky_request).await });
     let mut removed_rpc = dispatch
         .dispatch(DispatchRequest {
             partition: Some(PartitionId(7)),
