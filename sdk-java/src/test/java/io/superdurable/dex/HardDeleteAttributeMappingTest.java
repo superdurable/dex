@@ -335,9 +335,9 @@ final class HardDeleteAttributeMappingTest {
                                     StartFlowOptions.newBuilder()
                                             .addAttribute(TENANT_SECRETS, "tenant-a", "secret")
                                             .build()));
-                    assertTrue(failure.getMessage().contains("requires server-zd"),
+                    assertTrue(failure.getMessage().contains("server-zd newer than v0.1.16"),
                             failure.getMessage());
-                    assertTrue(failure.getMessage().contains("protocol [1,2]"), failure.getMessage());
+                    assertTrue(failure.getMessage().contains("protocol versions 1-2"), failure.getMessage());
                 }
                 assertEquals(1, protocolTwo.serverInfoCalls.get());
                 assertEquals(0, protocolTwo.startRequests.size());

@@ -88,11 +88,12 @@ final class ServerProtocolCompatibility {
             final String reason) {
         final String displayedServerVersion = serverVersion.isEmpty() ? "unknown" : serverVersion;
         return new IllegalStateException(
-                "Java SDK version \"" + sdkVersion + "\" protocol ["
+                "This SDK requires a Dex Server with protocol version 4 or later "
+                        + "(server-zd newer than v0.1.16). The Server reports protocol versions "
+                        + serverMinimum + "-" + serverCurrent + " (server version "
+                        + displayedServerVersion + "). Upgrade the Server before upgrading the SDK. "
+                        + "Java SDK version \"" + sdkVersion + "\" protocol ["
                         + MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION + ","
-                        + MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION + "] is incompatible with "
-                        + "Server version \"" + displayedServerVersion + "\" protocol ["
-                        + serverMinimum + "," + serverCurrent + "]: " + reason
-                        + "; requires server-zd with protocol 4 (attempt-start release) or later");
+                        + MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION + "]: " + reason);
     }
 }

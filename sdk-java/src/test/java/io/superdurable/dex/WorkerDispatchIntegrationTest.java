@@ -127,8 +127,8 @@ final class WorkerDispatchIntegrationTest {
                     IllegalStateException.class,
                     worker::start);
             assertTrue(failure.getMessage().contains("protocol intervals do not overlap"));
-            assertTrue(failure.getMessage().contains("Server version \"old\" protocol [1,3]"));
-            assertTrue(failure.getMessage().contains("requires server-zd"));
+            assertTrue(failure.getMessage().contains("protocol versions 1-3 (server version old)"));
+            assertTrue(failure.getMessage().contains("server-zd newer than v0.1.16"));
             assertEquals(0, syncCalls.get());
         } finally {
             worker.close();

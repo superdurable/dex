@@ -934,9 +934,14 @@ use the local publishing command:
 
 Worker startup calls `GetServerInfo`, requires protocol 4, synchronizes Attribute
 indexes, and opens the reserved-slot streams. The Java SDK protocol interval is
-`[4,4]`; upgrade to the server-zd attempt-start release supporting protocol 4 or
-later. Older Servers fail startup with the Server version and upgrade requirement.
+`[4,4]`. This SDK requires a Dex Server with protocol version 4 or later
+(server-zd newer than v0.1.16). Upgrade the Server before upgrading the SDK.
 Absent RPCs, invalid intervals, and negotiation request failures also stop startup.
+The compatibility error includes the actual reported values in this message:
+
+```text
+This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). The Server reports protocol versions <min>-<current> (server version <server_version>). Upgrade the Server before upgrading the SDK.
+```
 
 Client construction stays lazy and does no network I/O. Before the first network
 request of any method, the Client negotiates protocol 4. It caches success and

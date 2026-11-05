@@ -41,8 +41,8 @@ final class ServerProtocolCompatibilityTest {
             final IllegalStateException failure = assertThrows(IllegalStateException.class,
                     () -> client.stopFlow("flow"));
             assertTrue(failure.getMessage().contains("old-server"));
-            assertTrue(failure.getMessage().contains("protocol [1,3]"));
-            assertTrue(failure.getMessage().contains("requires server-zd"));
+            assertTrue(failure.getMessage().contains("protocol versions 1-3"));
+            assertTrue(failure.getMessage().contains("server-zd newer than v0.1.16"));
             assertSame(failure, assertThrows(IllegalStateException.class, client::healthCheck));
             assertEquals(1, service.negotiations.get());
             assertEquals(0, service.healthChecks.get());
