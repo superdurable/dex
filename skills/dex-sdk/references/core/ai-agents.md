@@ -49,7 +49,7 @@ Classify external operations before choosing retry behavior:
 - non-idempotent writes default to one attempt unless the application accepts duplicate effects
 - exhausted retries become an explicit failure result or recovery Step
 
-Dex commits the tool result separately from the external effect. Pass a stable call ID to integrations that support idempotency, and surface an unknown outcome when a timeout cannot prove whether the effect happened.
+Dex commits the tool result separately from the external effect. Pass a stable call ID to integrations that support idempotency, and surface an unknown outcome when a timeout cannot prove whether the effect happened. After exhausted retries, read the [attempt progress](error-handling.md#attempt-progress): **NOT_STARTED** proves the tool never ran, so it is safe to run it again; **NOT_COMPLETED** or **UNSPECIFIED** means the tool may have run, so treat the outcome as unknown and reconcile first.
 
 ## Make approval durable
 

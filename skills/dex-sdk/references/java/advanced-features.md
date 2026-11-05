@@ -27,7 +27,7 @@ Create one buffered writer per invocation. Flush/finalization occurs with handle
 
 ## Timeout handlers
 
-Override `Flow.handleTimeout` and select handler timeout policy only when the business needs a final notification, compensation, or explicit outcome. Give the handler its own retries and loads. Its recovery target must be a registered `Step<Void>` and can inspect `Context.getRecoveryError()`.
+Override `Flow.handleTimeout` and select handler timeout policy only when the business needs a final notification, compensation, or explicit outcome. Give the handler its own retries and loads. Its recovery target must be a registered `Step<Void>` and can inspect `Context.getRecoveryError()`, including its [attempt progress](error-handling.md) in SDK releases newer than v1.32.0.
 
 [Pinned timeout start source](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/examples/java/src/main/java/io/superdurable/dex/patterns/timeout/TimeoutController.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/patterns/timeout/TimeoutController.java -->

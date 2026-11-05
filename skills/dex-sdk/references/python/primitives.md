@@ -27,7 +27,7 @@ From SDK v1.28.0, register several instances of one Step class by overriding `ge
 
 `Context.flow_started_at` (SDK v1.28.0) is the run's server start time as a timezone-aware UTC `datetime` with one-second precision. It is identical across Steps, retries, timeout handlers, and RPC handlers for both `Worker` and `AsyncWorker`. Derive deterministic identities from the Flow ID and this value, not `datetime.now`.
 
-`Context.deadline` (SDK v1.28.0) is the absolute UTC `datetime` deadline of the current `wait_for`, `execute`, or timeout-handler attempt, or `None` for RPC handlers and tasks without one. Compute the remaining budget with `(context.deadline - datetime.now(timezone.utc)).total_seconds()` after checking for `None`, and use it to size external call timeouts. A shorter remaining `RetryPolicy.total_duration` shortens it, and each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
+`Context.deadline` (SDK v1.28.0) is the absolute UTC `datetime` deadline of the current `wait_for`, `execute`, or timeout-handler attempt, or `None` for RPC handlers and tasks without one. Compute the remaining budget with `(context.deadline - datetime.now(timezone.utc)).total_seconds()` after checking for `None`, and use it to size external call timeouts. On server-zd v0.1.16 and earlier, a shorter remaining `RetryPolicy.total_duration` shortens it; newer server-zd derives it only from the method timeout. Each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
 
 ## Attribute/AttributeMap and Channel/ChannelMap
 

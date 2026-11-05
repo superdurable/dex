@@ -39,6 +39,6 @@ A Step decision such as `dex.GoTo(...)` takes `CancelSiblingSteps(...)` for bran
 
 Sync durability waits for persistence acknowledgement. Async improves latency but can replay a recently acknowledged attempt after failure; restrict it to idempotent work and test replay. See [durability runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.32.0/examples/go/primitives/durability/workflow.go).
 
-A timeout handler has its own timeout, retry, durability, locks, and state loads. It follows normal commit rules. Its recovery Step reads **ctx.RecoveryError()**; with Go SDK v1.17.0, use the [time-limit predicates](error-handling.md#commit-and-recovery) to tell a method or heartbeat timeout from another failure.
+A timeout handler has its own timeout, retry, durability, locks, and state loads. It follows normal commit rules. Its recovery Step reads **ctx.RecoveryError()**; with Go SDK v1.17.0, use the [time-limit predicates](error-handling.md#commit-and-recovery) to tell a method or heartbeat timeout from another failure. Go SDK releases newer than v1.32.0 also report **AttemptProgress** on that value.
 
 Open one BlobCache at bootstrap and share it with Client/Worker. Align path/capacity across replacements needing large values. It provides payload locality, not arbitrary durable files.

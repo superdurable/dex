@@ -37,7 +37,7 @@ StepOptions also owns method timeouts, heartbeat timeout, retries, selected load
 
 ## Timeout handlers
 
-Implement `handleTimeout` when a soft deadline needs a business decision or compensation. Configure handler loads/retry separately. An exhausted handler can route to a registered `Step<void>` and inspect `context.recoveryError`.
+Implement `handleTimeout` when a soft deadline needs a business decision or compensation. Configure handler loads/retry separately. An exhausted handler can route to a registered `Step<void>` and inspect `context.recoveryError`, including its [attempt progress](error-handling.md) in SDK releases newer than v1.32.0.
 
 ## Cancellation selectors
 

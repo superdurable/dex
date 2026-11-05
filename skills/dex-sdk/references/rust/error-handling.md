@@ -66,7 +66,7 @@ Never enable Proceed without a deliberate Execute branch; otherwise failed prepa
 
 Record recovery progress durably before triggering another non-idempotent action.
 
-A recovery Step reads `Context::recovery_error()`. The Rust SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types).
+A recovery Step reads `Context::recovery_error()`. The Rust SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). Rust SDK releases newer than v1.31.0 add **RecoveryErrorInfo::attempt_progress()**, which returns a **StepAttemptProgress**. Only **StepAttemptProgress::NotStarted** guarantees the handler never ran. Treat **NotCompleted** and **Unspecified** as possibly run, and reconcile external effects before repeating them. See [attempt progress](../core/error-handling.md#attempt-progress).
 
 ## Client errors
 

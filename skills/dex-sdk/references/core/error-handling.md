@@ -104,7 +104,7 @@ Commit-confirming API: StartFlow succeeds or deduplicates
 
 When **WaitFor** starts a SubFlow and Dex rejects that start before the child begins, the parent receives the rejection detail in its failure. Keep that detail visible in the parent Step's failure route or recovery record; it identifies the rejected child-start configuration or admission condition. Do not replace it with a generic timeout, child-completion, or retry outcome.
 
-A pull dispatch failure such as no available Worker carries its text into the child result, the parent's WaitForFlow response, and a recovery Step's error detail. Keep the detail visible and branch on the error type, not the text.
+A pull dispatch failure, such as an RPC with no available Worker or a Worker disconnect after hand-out, carries its text into the child result, the parent's WaitForFlow response, and a recovery Step's error detail. From server-zd newer than v0.1.16, a Step never fails for no available Worker; it waits in the task queue. Keep the detail visible and branch on the error type, not the text.
 
 ## Closed-Flow races
 
@@ -174,10 +174,20 @@ With Go SDK v1.17.0, **RecoveryErrorInfo** offers **IsMethodTimeout**, **IsHeart
 
 - When the call to the Worker fails before Dex records a method timeout, Dex reports a Worker API failure, and **IsMethodTimeout** returns false. A Worker API failure has other causes, such as an unreachable Worker, so do not treat it as a timeout.
 - **IsRetryTotalDurationExceeded** is true only when the overall deadline of the method call ended a running attempt. When the total duration ends between attempts, Dex starts no further attempt and reports the final attempt's error type instead.
-- server-zd ends a running attempt at the retry total duration.
+- server-zd v0.1.16 and earlier end a running attempt at the retry total duration. Newer server-zd never does, so **IsRetryTotalDurationExceeded** returns false for its failures and can be true only for records written before the upgrade. Keep the call for those records.
 - An application error type that reuses a backend time-limit name also matches. Give application error types distinct names.
 
 Java, Python, and TypeScript at their v1.32.0 baselines, and Rust at v1.31.0, offer no such predicates. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).
+
+### Attempt progress
+
+SDK releases newer than Go, Java, Python, and TypeScript v1.32.0 and Rust v1.31.0 expose the attempt progress of the failed Step method on the recovery error. It reports the furthest progress across all attempts of that method call:
+
+- **NOT_STARTED** guarantees that the handler did not run in any attempt. Recovery may repeat the side effect directly.
+- **NOT_COMPLETED** means some attempt may have run, but none completed. Confirm the external effect from authoritative state, or make the repeat idempotent, before doing it again.
+- **UNSPECIFIED** comes from an older Server or a failure recorded before the upgrade. Treat it like **NOT_COMPLETED**.
+
+**NOT_COMPLETED** is conservative. A Worker disconnect or crash after hand-out reports it for SYNC and ASYNC alike, even when the handler never started, and so does a failure before the handler runs, such as reading or decoding its input. A Worker that stops gracefully and returns a task it did not run reports nothing, because that task consumes no retry. Read each language's **error-handling.md** for the exact field and enum names.
 
 ## Design review
 

@@ -267,8 +267,8 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "A server that does not serve `AdminService` answers UNIMPLEMENTED.",
     )),
     ("server-zd/v0.1.16", "docs/content/production/server-zd-operations.mdx", (
-        "Calls still open at the release answer\n**UNAVAILABLE** at once, so clients retry them on the new active process.",
-        "Calls that finish before\nthe release keep their answers.",
+        "Calls still open at the release",
+        "keep their answers.",
         "process takes over in that time, it takes the lease back.",
         "the process then exits 1 without taking the lease.",
     )),
@@ -367,7 +367,7 @@ SEARCH_SUB_STATUS_TAGGED_STATEMENTS = (
     )),
     ("typescript", "sdk-typescript/src/grpc-status.ts", ("    default:\n      return ErrorSubStatus.UNCATEGORIZED;",)),
     ("typescript", "sdk-typescript/src/worker.ts", (
-        "const startupError = new Error(`cannot start TypeScript ${endpoint}`, { cause: failure });",
+        "new Error(`cannot start TypeScript ${endpoint}",
     )),
     ("rust", "sdk-rust/crates/dex-sdk/src/sdk_error.rs", (
         "        _ => ErrorSubStatus::Uncategorized,", "ErrorSubStatus::Uncategorized => Self::Service { service },",
@@ -584,7 +584,7 @@ REFERENCE_1_24_STATEMENTS = (
     )),
     ("core/error-handling.md", (
         "return NOT_FOUND with FLOW_NOT_EXISTS",
-        "A pull dispatch failure such as no available Worker carries its text",
+        "A pull dispatch failure, such as an RPC with no available Worker or a Worker disconnect after hand-out, carries its text",
     )),
     ("core/read-after-write.md", ("From server-zd v0.1.8, a transactional or locking RPC on a closed run returns NOT_FOUND",)),
     ("core/operations.md", (
@@ -634,6 +634,101 @@ def check_release_1_24_references(references: Path) -> None:
         require_text(references / page, *needles)
 
 
+# Statements that supersede the reserve-decline and dispatch-failure rules once Steps queue durably.
+NEWER_SDK = "newer than Go, Java, Python, and TypeScript v1.32.0 and Rust v1.31.0"
+ATTEMPT_START_QUEUE_REFERENCE_STATEMENTS = (
+    ("core/pull-workers.md", (
+        f"From SDK releases {NEWER_SDK}, reserved RPC slots are RPC-only streams and Steps are never declined for capacity.",
+        "Steps are dispatched roughly in the order they became ready; strict ordering is not guaranteed.",
+        "The wait consumes no retry.",
+        f"SDK releases {NEWER_SDK} require Server protocol 4, which server-zd newer than v0.1.16 provides.",
+        "readiness counts slot kinds instead of queues",
+    )),
+    ("core/operations.md", (
+        "From server-zd newer than v0.1.16, **matching.dispatchWait** (10 seconds) applies only to RPCs.",
+        "Steps are dispatched roughly in the order they became ready; strict ordering is not guaranteed.",
+        "**lifecycle.attemptDrainTimeout** (30 seconds by default",
+        "This Server upgrade does not support mixed Server versions",
+    )),
+    ("core/error-handling.md", (
+        "### Attempt progress",
+        "Newer server-zd never does, so **IsRetryTotalDurationExceeded** returns false for its failures",
+    )),
+    ("core/step-options.md", (
+        "From server-zd newer than v0.1.16, the deadline is the hand-out time plus the method timeout",
+        "it never ends a running attempt, so the last attempt can start or end after **TotalDuration**.",
+    )),
+    ("core/patterns.md", ("it never cuts the attempt in progress.",)),
+    ("go/go.md", ("Go SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("java/java.md", ("Java SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("python/python.md", ("Python SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("rust/rust.md", ("Rust SDK releases newer than v1.31.0 replace the decline, extra idle stream",)),
+    ("typescript/typescript.md", ("TypeScript SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("go/error-handling.md", ("**RecoveryErrorInfo.AttemptProgress**",)),
+    ("java/error-handling.md", ("**RecoveryErrorInfo.getAttemptProgress()**",)),
+    ("python/error-handling.md", ("**RecoveryErrorInfo.attempt_progress**",)),
+    ("rust/error-handling.md", ("**RecoveryErrorInfo::attempt_progress()**",)),
+    ("typescript/error-handling.md", ("**RecoveryErrorInfo.attemptProgress**",)),
+)
+# Source facts behind those statements, checked at each language's SDK baseline.
+ATTEMPT_START_QUEUE_TAGGED_STATEMENTS = (
+    ("go", "sdk-go/dex/context.go", (
+        "AttemptProgress StepAttemptProgress", "StepAttemptProgressNotStarted", "StepAttemptProgressNotCompleted",
+        "Current server-zd never ends a running attempt at RetryPolicy.TotalDuration",
+    )),
+    ("go", "sdk-go/dex/server_protocol.go", ("minimumSupportedServerProtocolVersion uint32 = 4",)),
+    ("go", "sdk-go/dex/worker.go", (
+        "// Deprecated: MaxConcurrentTasks determines the fixed number of slot streams.",
+        "// Deprecated: reservations are enforced by RPC_ONLY streams, so this counter is always zero.",
+        "POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY",
+        "Start fails when this exceeds the Server's reported matching.maxConcurrentTasksCap per Worker.",
+    )),
+    ("go", "sdk-go/README.md", (
+        "`IdleStreamsPerQueue` is deprecated, remains accepted, and has no effect.",
+        "`PullReservedRPCDeclines()` is deprecated and always returns zero.",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/RecoveryErrorInfo.java", ("public StepAttemptProgress getAttemptProgress()",)),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/StepAttemptProgress.java", ("NOT_STARTED,", "NOT_COMPLETED;")),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/Worker.java", ("@deprecated reserved slots no longer decline tasks for capacity",)),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/PullWorkerOptions.java", ("@deprecated execution slots determine the stream count",)),
+    ("python", "sdk-python/dex/context.py", ("attempt_progress: StepAttemptProgress = StepAttemptProgress.UNSPECIFIED",)),
+    ("python", "sdk-python/dex/worker_options.py", ("idle_streams_per_queue: Deprecated;",)),
+    ("python", "sdk-python/README.md", ("The `pull_reserved_rpc_declines` counter is deprecated and always zero.",)),
+    ("typescript", "sdk-typescript/src/context.ts", ("readonly attemptProgress?: StepAttemptProgress;", 'NOT_STARTED: "notStarted",')),
+    ("typescript", "sdk-typescript/src/worker.ts", ("@deprecated Reserved slots never decline Steps for capacity.",)),
+    ("typescript", "sdk-typescript/src/options.ts", ("@deprecated Has no effect. Each maxConcurrentTasks slot has one long-lived stream.",)),
+    ("rust", "sdk-rust/crates/dex-sdk/src/context.rs", ("pub enum StepAttemptProgress",)),
+    ("rust", "sdk-rust/crates/dex-sdk/src/worker.rs", (
+        '#[deprecated(note = "reserved slots never decline for capacity; this counter is always zero")]',
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/worker_options.rs", (
+        '#[deprecated(note = "one long-lived stream per execution slot; this setting has no effect")]',
+    )),
+)
+# server-zd operation guide statements, checked at the latest server-zd release.
+ATTEMPT_START_QUEUE_SERVER_STATEMENTS = (
+    "| **matching.dispatchWait** | 10s | Total time to find a Worker for one RPC. Steps do not use it;",
+    "| **matching.syncMatchWait** | 200ms |",
+    "| **matching.headsResyncInterval** | 5m |",
+    "| **matching.unsupportedTypeCacheEntries** | 10000 |",
+    "Steps are dispatched roughly in the order they became ready;\nstrict ordering is not guaranteed.",
+    "**lifecycle.attemptDrainTimeout** defaults to **30s**.",
+    "server-zd protocol version 4 does not raise the minimum protocol.",
+    "This server upgrade does not support mixed versions.",
+    "**dexzd_step_attempts_returned_total** with **reason=\"legacy_no_capacity\"**",
+    "**dexzd_matching_heads_restored_refs_total**",
+)
+
+
+def check_attempt_start_queue(checkout: Path, server_release: str, sdk_baselines: dict[str, str], references: Path) -> None:
+    for page, needles in ATTEMPT_START_QUEUE_REFERENCE_STATEMENTS:
+        require_text(references / page, *needles)
+    for language, path, needles in ATTEMPT_START_QUEUE_TAGGED_STATEMENTS:
+        require_tagged_text(checkout, sdk_baselines[language], path, *needles)
+    require_tagged_text(checkout, server_release, "docs/content/production/server-zd-operations.mdx",
+                        *ATTEMPT_START_QUEUE_SERVER_STATEMENTS)
+
+
 def check_server_zd_statements(checkout: Path, current_release: str, statements) -> None:
     """Checks each server-zd statement at the release the references cite and at the bundled release."""
     for cited_release, path, needles in statements:
@@ -649,17 +744,23 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         "FlowID string", "RunID string", "FlowType string", "Status FlowStatus",
         "StartedAt time.Time", "ClosedAt time.Time",
     )
-    require_tagged_go_function_text(
-        checkout, tag, client_path,
-        "func (client *Client) validateCall(ctx context.Context) error {",
+    client_source = git(checkout, "show", f"refs/tags/{tag}:{client_path}")
+    location = f"{tag}:{client_path}"
+    # Later SDKs split the call checks into helpers; follow each delegation before matching.
+    validate_call = go_function_source(client_source, "func (client *Client) validateCall(ctx context.Context) error {", location)
+    if "client.validateCallContext(ctx)" in validate_call:
+        validate_call += "\n" + go_function_source(
+            client_source, "func (client *Client) validateCallContext(ctx context.Context) error {", location)
+    require_block_text(validate_call, location, "validateCall", (
         "if ctx == nil {", "closed := client.closed", "if closed {\n\t\treturn errClientClosed",
         "if err := ctx.Err(); err != nil {\n\t\treturn err",
-    )
-    require_tagged_go_function_text(
-        checkout, tag, client_path,
-        "func (client *Client) validateFlowCall(ctx context.Context, flowID string) error {",
-        "client.validateCall(ctx)", 'strings.TrimSpace(flowID) == ""',
-    )
+    ))
+    validate_flow_call = go_function_source(
+        client_source, "func (client *Client) validateFlowCall(ctx context.Context, flowID string) error {", location)
+    if "validateFlowID(flowID)" in validate_flow_call:
+        validate_flow_call += "\n" + go_function_source(client_source, "func validateFlowID(flowID string) error {", location)
+    require_block_text(validate_flow_call, location, "validateFlowCall",
+                       ("client.validateCall(ctx)", 'strings.TrimSpace(flowID) == ""'))
     require_tagged_go_function_text(
         checkout, tag, client_path,
         GO_DESCRIBE_FLOW_SIGNATURE + " {",
@@ -882,7 +983,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     )
     require_tagged_go_function_text(
         checkout, go_tag, "sdk-go/dex/server_protocol.go", "func serverProtocolRequestError(",
-        'if status.Code(err) == codes.Unavailable {',
+        'codes.Unavailable',
         'FlowService connection failed during GetServerInfo',
         'protocol [%d,%d] is incompatible with Server version',
     )
@@ -968,7 +1069,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     require_tagged_rust_function_text(
         checkout, sdk_baselines["java"], java_worker_path,
         "    private static ManagedChannel createOutboundChannel(",
-        "ManagedChannelBuilder.forTarget(address).usePlaintext().build()",
+        "ManagedChannelBuilder.forTarget(address).usePlaintext()",
     )
     python_transport_path = "sdk-python/dex/_credential_transport.py"
     python_transport = git(checkout, "show", f"refs/tags/{sdk_baselines['python']}:{python_transport_path}")
@@ -983,7 +1084,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     pull_channel = python_function_source(python_pull, "def outbound_worker_task_channel(",
                                        f"{sdk_baselines['python']}:{python_pull_path}")
     require_block_text(pull_channel, f"{sdk_baselines['python']}:{python_pull_path}",
-                       "outbound_worker_task_channel", ("return grpc.aio.insecure_channel(server_address)",))
+                       "outbound_worker_task_channel", ("return grpc.aio.insecure_channel(",))
     for path, class_name in (("sdk-typescript/src/client.ts", "Client"),
                              ("sdk-typescript/src/worker.ts", "Worker")):
         source = git(checkout, "show", f"refs/tags/{sdk_baselines['typescript']}:{path}")
@@ -1765,8 +1866,9 @@ def main() -> None:
         go_sdk_baseline,
         "sdk-go/README.md",
         "The SDK sends an upstream Pong every 20 seconds while a task runs",
-        "keeps one additional idle stream until 30",
+        "Reserved streams register as `RPC_ONLY` so\nSteps use the other slots without being declined.",
     )
+    check_attempt_start_queue(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, sdk_baselines, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

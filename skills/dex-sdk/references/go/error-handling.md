@@ -98,4 +98,6 @@ func (timeoutRecoveryStep) Execute(
 }
 ```
 
+Go SDK releases newer than v1.32.0 add **RecoveryErrorInfo.AttemptProgress**, a **StepAttemptProgress** value. **StepAttemptProgressNotStarted** guarantees the handler never ran, so recovery may repeat the side effect directly. **StepAttemptProgressNotCompleted** means an attempt may have run. Treat **StepAttemptProgressUnspecified**, the zero value from an older Server or record, the same way, and reconcile external effects before repeating them. Check **failure != nil** before reading the field. On server-zd newer than v0.1.16, **IsRetryTotalDurationExceeded()** returns false because the retry total duration no longer ends a running attempt; it can still match records written before the upgrade, so keep the branch. See [attempt progress](../core/error-handling.md#attempt-progress).
+
 Every Context operation can fail. Return or wrap its error; do not continue after a failed Attribute write, Channel delete, heartbeat, or Stream write as though it committed.

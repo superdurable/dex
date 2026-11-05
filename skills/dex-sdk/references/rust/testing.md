@@ -15,8 +15,7 @@ let worker = Worker::try_new(
     WorkerOptions::new()
         .server_address("dex.example:8801")
         .pull(PullWorkerOptions::new()
-            .max_concurrent_tasks(8)
-            .idle_streams_per_queue(1)),
+            .max_concurrent_tasks(8)),
 )?;
 let client = Client::try_new(
     registry,
