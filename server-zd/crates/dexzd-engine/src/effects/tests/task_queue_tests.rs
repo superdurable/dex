@@ -627,3 +627,70 @@ async fn a_declined_retry_waits_past_the_total_duration_and_completes() {
         harness.shutdown().await;
     }
 }
+
+/// TB24 (plan D69): a retry joins its queue at its backoff expiry, behind rows queued earlier,
+/// and a Claim reply's next ref follows that order.
+#[tokio::test(start_paused = true)]
+async fn a_queued_retry_goes_behind_the_backlog_queued_before_its_backoff_ended() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let first_id = "order-1";
+    let retried_id = flow_id_in_partition_of(&harness, first_id);
+    let later_id = (2..10_000)
+        .map(|index| format!("order-{index}"))
+        .find(|candidate| {
+            candidate != &retried_id
+                && harness.partition_of(candidate) == harness.partition_of(first_id)
+        })
+        .expect("16 partitions leave a third Flow ID in the partition");
+    let refuse = |is_refused: bool| {
+        harness
+            .dispatcher
+            .refuse_dispatch
+            .store(is_refused, Ordering::SeqCst);
+    };
+    refuse(true);
+    start_execute_flow(&harness, first_id, StepOptions::default());
+    harness.settle().await;
+    refuse(false);
+    start_execute_flow(
+        &harness,
+        &retried_id,
+        retry_options(StepDurability::Sync, 0),
+    );
+    let failing = harness.dispatcher.next_dispatch().await;
+    refuse(true);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    start_execute_flow(&harness, &later_id, StepOptions::default());
+    harness.settle().await;
+    failing.fail_with_worker_error("first attempt fails");
+    harness.settle().await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    harness.settle().await;
+
+    let refs = queued_refs(&harness);
+    let flow_ids: Vec<_> = refs.iter().map(|task| task.flow_id.clone()).collect();
+    assert_eq!(
+        flow_ids,
+        vec![first_id.to_owned(), later_id.clone(), retried_id.clone()]
+    );
+    assert_eq!(refs[2].position.attempt, 2);
+    assert!(refs.windows(2).all(|pair| pair[0].queue == pair[1].queue));
+    assert!(
+        refs[0].position < refs[1].position && refs[1].position < refs[2].position,
+        "the retry sorts behind the row queued before its backoff ended"
+    );
+    harness.dispatcher.claim(1, refs[0].clone());
+    harness.dispatcher.next_dispatch().await;
+    harness.dispatcher.claim(2, refs[1].clone());
+    harness.dispatcher.next_dispatch().await;
+    harness.settle().await;
+    assert_eq!(
+        claim_results(&harness),
+        vec![
+            (1, ClaimResult::Started, Some(refs[1].clone())),
+            (2, ClaimResult::Started, Some(refs[2].clone())),
+        ]
+    );
+    harness.shutdown().await;
+}
