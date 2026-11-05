@@ -122,3 +122,22 @@ Under [`src/patterns/`](./src/patterns):
 
 Seven minimal examples under [`src/primitives/`](./src/primitives/): step,
 attribute, channel, timer, rpc, subflow, and client-apis.
+
+## Decorator-free RPCs with Node.js type stripping
+
+[`decorator-free-rpc/`](./decorator-free-rpc) is a separate package with one
+Flow whose RPC methods are declared with `declareRPCMethod` instead of `@rpc`.
+It runs under `node --experimental-transform-types` on Node.js 22 and 24 with no
+build step:
+
+```bash
+dexcli dev
+cd examples/typescript/decorator-free-rpc
+npm install
+npm start
+```
+
+`./run-with-dexcli-dev.sh` starts its own `dexcli dev` and runs the same file.
+Until a released SDK includes `declareRPCMethod`, this package installs
+`@superdurable/dex` from `../../../sdk-typescript`. Build that package first
+with `npm ci && npm run build:native && npm run build`.
