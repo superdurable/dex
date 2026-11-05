@@ -140,6 +140,8 @@ struct WorkerPoolState {
     queue_fault_rng: ChaCha8Rng,
     /// Whether new Steps carry failure policies, as in the Step failure profile.
     has_step_failure_policies: bool,
+    /// Whether queue faults may be drawn at all.
+    has_queue_faults: bool,
     is_calm: bool,
     is_holding: bool,
     dispatch_history: BTreeMap<String, Vec<AttemptIdentity>>,
@@ -165,7 +167,12 @@ pub(crate) struct SimulatedWorkers {
 }
 
 impl SimulatedWorkers {
-    pub(crate) fn new(seed: u64, has_step_failure_policies: bool, trace: Arc<EventTrace>) -> Self {
+    pub(crate) fn new(
+        seed: u64,
+        has_step_failure_policies: bool,
+        has_queue_faults: bool,
+        trace: Arc<EventTrace>,
+    ) -> Self {
         Self {
             heads_matching: WorkerDispatch::new(
                 dexzd_worker_dispatch::MatchingConfig::default(),
@@ -175,6 +182,7 @@ impl SimulatedWorkers {
                 rng: ChaCha8Rng::seed_from_u64(seed),
                 queue_fault_rng: ChaCha8Rng::seed_from_u64(seed ^ QUEUE_FAULT_SEED_SALT),
                 has_step_failure_policies,
+                has_queue_faults,
                 is_calm: false,
                 is_holding: false,
                 dispatch_history: BTreeMap::new(),
@@ -218,7 +226,7 @@ impl SimulatedWorkers {
     /// Draws whether the queue fault `behavior` happens now, and counts it when it does.
     fn draw_queue_fault(&self, behavior: WorkerBehavior) -> bool {
         let mut state = self.lock();
-        if state.is_calm || state.is_holding {
+        if !state.has_queue_faults || state.is_calm || state.is_holding {
             return false;
         }
         let is_drawn = state.queue_fault_rng.random_range(0..100) < QUEUE_FAULT_PERCENT;
