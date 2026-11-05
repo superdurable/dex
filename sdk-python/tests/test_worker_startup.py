@@ -270,7 +270,7 @@ async def _worker_rejects_protocol_3_before_polling(is_async: bool) -> None:
     try:
         with pytest.raises(
             RuntimeError,
-            match=r"previous-3.*protocol.*requires a server-zd.*protocol 4",
+            match=r"requires a Dex Server with protocol version 4.*newer than v0.1.16.*protocol versions 1-3.*server version previous-3.*Upgrade the Server",
         ):
             if isinstance(worker, AsyncWorker):
                 await worker.start()

@@ -482,9 +482,11 @@ async def _every_client_request_negotiates_lazily_and_caches_only_definitive_res
                 if should_fail_transiently:
                     assert "GetServerInfo failed" in str(failure.value)
                 else:
-                    assert "protocol [1,3]" in str(failure.value)
-                    assert "server-zd" in str(failure.value)
-                    assert "protocol 4" in str(failure.value)
+                    assert str(failure.value) == (
+                        "This SDK requires a Dex Server with protocol version 4 or later "
+                        "(server-zd newer than v0.1.16). The Server reports protocol versions "
+                        "1-3 (server version test). Upgrade the Server before upgrading the SDK."
+                    )
                     if first_error is not None:
                         assert failure.value is first_error
                     first_error = failure.value

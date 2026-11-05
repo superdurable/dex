@@ -116,11 +116,17 @@ def _compatibility_error(
     reason: str,
 ) -> RuntimeError:
     displayed_server_version = server_version or "unknown"
+    if 0 < server_minimum <= server_current < MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION:
+        return RuntimeError(
+            "This SDK requires a Dex Server with protocol version 4 or later "
+            "(server-zd newer than v0.1.16). The Server reports protocol versions "
+            f"{server_minimum}-{server_current} (server version {displayed_server_version}). "
+            "Upgrade the Server before upgrading the SDK."
+        )
     return RuntimeError(
         f'Python SDK version "{artifact_version}" protocol '
         f"[{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},"
         f"{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] is incompatible with "
         f'Server version "{displayed_server_version}" protocol '
-        f"[{server_minimum},{server_current}]: {reason}; requires a server-zd "
-        "release supporting protocol 4 or later"
+        f"[{server_minimum},{server_current}]: {reason}"
     )

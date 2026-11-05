@@ -90,7 +90,7 @@ class AsyncClient:
 
     Construction performs no network I/O. The first service request negotiates
     Server protocol 4. Service methods raise RuntimeError on incompatibility,
-    naming the Server version and requiring a server-zd release supporting protocol 4.
+    naming the Server version and requiring server-zd newer than v0.1.16 with protocol 4.
     Compatibility results are cached; transient negotiation failures are retried
     by the next service call.
 

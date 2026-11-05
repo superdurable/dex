@@ -567,7 +567,7 @@ def test_client_rejects_hard_delete_start_on_protocol_2_server() -> None:
     try:
         with pytest.raises(
             RuntimeError,
-            match="requires a server-zd.*protocol 4",
+            match="requires a Dex Server with protocol version 4",
         ):
             client.start_flow(
                 flow,
@@ -575,7 +575,9 @@ def test_client_rejects_hard_delete_start_on_protocol_2_server() -> None:
                 None,
                 StartFlowOptions().with_attribute(flow.api_key, "sk-1"),
             )
-        with pytest.raises(RuntimeError, match="requires a server-zd.*protocol 4"):
+        with pytest.raises(
+            RuntimeError, match="requires a Dex Server with protocol version 4"
+        ):
             client.start_flow(flow, "flow-2", None)
     finally:
         client.close()
@@ -648,7 +650,9 @@ async def _test_async_client_protocol_gate() -> None:
     new_client = AsyncClient(registry, cast(BlobCache, object()), _options(new_port))
     options = StartFlowOptions().with_attribute(flow.api_key, "sk-1")
     try:
-        with pytest.raises(RuntimeError, match="requires a server-zd.*protocol 4"):
+        with pytest.raises(
+            RuntimeError, match="requires a Dex Server with protocol version 4"
+        ):
             await old_client.start_flow(flow, "secret-1", None, options)
         await new_client.start_flow(flow, "secret-1", None, options)
         await new_client.start_flow(flow, "secret-2", None, options)

@@ -953,9 +953,15 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo ta
 
 Workers call `GetServerInfo`, require protocol 4, synchronize Attribute indexes,
 and then open execution slot streams. The Python SDK protocol interval is
-`[4,4]`. Older Servers fail startup with their version and the requirement for a
-server-zd release supporting protocol 4. Missing information, invalid or disjoint
-intervals, and RPC failures stop startup before polling.
+`[4,4]`. Older Servers fail startup with this error, substituting the protocol
+range and Server version actually reported:
+
+```text
+This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). The Server reports protocol versions <min>-<current> (server version <server_version>). Upgrade the Server before upgrading the SDK.
+```
+
+Missing information, invalid or disjoint intervals, and RPC failures stop startup
+before polling.
 
 Clients perform no network I/O during construction. Before the first request of
 any method, they negotiate protocol 4. Success and incompatibility are cached;
