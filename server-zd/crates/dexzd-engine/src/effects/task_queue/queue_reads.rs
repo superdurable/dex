@@ -25,9 +25,8 @@ pub(crate) enum QueueReadView {
     Speculative(FlowAddress),
 }
 
-/// Runs synchronous store reads on the blocking pool while holding one permit of `slots`.
-///
-/// The reader opens on the calling task, so it counts as open before the read runs.
+/// Runs synchronous store reads on the blocking pool with one permit of `slots`; the reader
+/// opens on this task.
 ///
 /// Returns the read's result, or [`EffectError::Stopped`] when the node stopped first. A panic
 /// in `read` resumes on this task.

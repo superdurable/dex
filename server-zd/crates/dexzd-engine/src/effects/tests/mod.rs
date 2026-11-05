@@ -678,12 +678,15 @@ struct CountingStateReader {
 
 impl CountingStateReader {
     fn count_queue_seek(&self, column_family: ColumnFamily, start: &[u8]) {
-        if column_family == ColumnFamily::PartitionIndex
-            && start.get(2) == Some(&(dexzd_keyspace::IndexKind::DispatchQueue as u8))
-        {
+        if is_dispatch_queue_key(column_family, start) {
             self.queue_seeks.fetch_add(1, Ordering::SeqCst);
         }
     }
+}
+
+fn is_dispatch_queue_key(column_family: ColumnFamily, key: &[u8]) -> bool {
+    column_family == ColumnFamily::PartitionIndex
+        && key.get(2) == Some(&(dexzd_keyspace::IndexKind::DispatchQueue as u8))
 }
 
 impl FlowStateReader for CountingStateReader {
@@ -706,7 +709,7 @@ impl FlowStateReader for CountingStateReader {
         self.committed_read_gate.hold_while_closed();
         if limit < ROW_COUNT_PAGE_ROWS {
             self.count_queue_seek(column_family, start);
-        } else {
+        } else if is_dispatch_queue_key(column_family, start) {
             self.row_count_gate.hold_while_closed();
         }
         self.state.scan(column_family, start, end, limit)

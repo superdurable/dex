@@ -84,8 +84,8 @@ type DiscoveredHeads = (
     BTreeMap<DispatchQueueName, DispatchQueuePosition>,
 );
 
-/// Skip-scans the partition's queues in committed `reader`: one seek per queue, plus one per
-/// held row passed and one per priority-0 head.
+/// Skip-scans the partition's queues: one seek per queue, plus one per held row passed and
+/// priority-0 head.
 ///
 /// Returns the discovered heads, or the read's error.
 fn discover_heads(
@@ -137,8 +137,8 @@ fn discover_heads(
     Ok((heads, ordinary_backlog, scanned_heads))
 }
 
-/// Counts a rebuilt partition's queue rows in a tracked background task, retrying failed
-/// reads. Until it finishes, the entries gauge leaves the partition out.
+/// Counts a rebuilt partition's queue rows in the background; the entries gauge omits the
+/// partition until then.
 pub(crate) fn spawn_row_count(context: &Arc<EffectContext>, partition: PartitionId) {
     // Begins before the snapshot opens, so every later change is either in it or after it.
     let (_, count_generation) = context.task_queue_memory().begin_row_count(partition);

@@ -368,8 +368,8 @@ fn too_many_deleted_entries() -> EffectError {
     })
 }
 
-/// Answers a Claim with the queue's next ref, or owes it when the seek fails. The seek runs
-/// in a tracked task on the blocking pool.
+/// Answers a Claim from a tracked task with the queue's next ref, or owes the ref when the
+/// seek fails.
 pub(crate) fn reply_to_claim(
     context: &Arc<EffectContext>,
     task: &QueuedTaskRef,
