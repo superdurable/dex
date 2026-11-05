@@ -19,7 +19,7 @@ slug: /design-patterns/sequentially-chunked-attribute-map
 
 **RegisterSubscriber** 会锁定 state 和 **current** instance。普通调用只重写一个有上限的 chunk。如果 **current** 已有 100 条记录，同一个 commit 会写入 archive chunk、创建新的 **current**，并推进 state。
 
-Lock acquisition 不会让 caller 排队。并发 append 可能收到 **RPCLockConflict**。应用应只在收到这个错误后使用合适的 backoff 重试。成功的 append 会通过相同的 state 和 **current** lock 串行执行，因此并发 request 不会丢失或重复 sequence。
+并发 append 可能收到 lock-conflict 错误。收到后重试，见 [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。
 
 **GetSubscriberPage** 默认从 **current** 开始，也可以接收 page token。应用 adapter 使用 **RPCInvokeOptions** 只加载目标 instance。每页按 newest-first 返回，并带上更旧一页的 token。
 
@@ -118,10 +118,6 @@ Flow 启动后，**current** token 始终有效。空的 **current** 返回空�
 
 Archive chunk 保持不可变，因此分页稳定，retry 行为也容易推理。如果需要更新旧记录，应选择其他模式或增加独立索引。
 
-## 整个集合的写入约束
-
-若一次修改需要协调整张 map，可为 **currentMessages** 增加非索引的普通 bool Attribute **currentMessagesLock**。所有受保护 map 的写入方都必须请求同一把锁；只有 instance 锁的写入方不会参与协调。bool 值不是锁标志，数据仍需显式加载。见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。没有整个集合的写入约束时，继续使用已有的 instance 锁。
-
 ## HTTP API
 
 ```text
@@ -131,5 +127,3 @@ GET  /patterns/sequentially-chunked-attribute-map/subscribers?pageToken=current
 ```
 
 固定 chunk size 是持久化布局的一部分。新版本可以为后续 archive 使用新的大小，但 token traversal 必须同时理解两种布局。
-
-可以从 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 运行这个 HTTP 示例。
