@@ -189,10 +189,12 @@ pub(super) fn finish_assignment(
             };
             if is_unknown_type {
                 drop(state);
-                dispatch
-                    .lock_registry()
+                let mut registry = dispatch.lock_registry();
+                let idle_mark = registry.next_idle_position;
+                registry
                     .unsupported_types
-                    .insert(task_type, &worker.app_worker_id);
+                    .insert(task_type, &worker.app_worker_id, idle_mark);
+                drop(registry);
                 state = worker.state.lock().expect("Worker state lock poisoned");
             }
         }

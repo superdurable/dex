@@ -129,7 +129,9 @@ struct QueueState {
     affinity: HashMap<String, (String, Instant)>,
     affinity_order: std::collections::VecDeque<(String, Instant)>,
     // Each idle stream wakes one waiter; waking every waiter made dispatch cost grow with them.
-    waiters: BTreeMap<u64, QueueWaiter>,
+    // RPC waiters are kept apart so the common Step wakeup never scans them (plan D56).
+    rpc_waiters: BTreeMap<u64, QueueWaiter>,
+    step_waiters: BTreeMap<u64, QueueWaiter>,
     // The stream each woken waiter must hand on if it does not take that stream.
     woken_waiter_streams: HashMap<u64, Uuid>,
     users: usize,
@@ -246,6 +248,7 @@ impl WorkerDispatch {
                     next_waiter_sequence: 0,
                     idle_positions: HashMap::new(),
                     next_idle_position: 0,
+                    promised_streams: HashMap::new(),
                     unsupported_types,
                 }),
                 shutdown,
@@ -754,15 +757,12 @@ impl WorkerDispatch {
     ) -> QueuePick {
         let mut guard = self.lock_registry();
         let registry = &mut *guard;
-        let queue = registry
-            .queues
-            .get_mut(&lease.key)
-            .expect("queue lease exists");
         let woken_for = if std::mem::take(&mut lease.is_waiting) {
-            queue.remove_waiter(lease.waiter_sequence)
+            registry.end_wait(&lease.key, lease.waiter_sequence)
         } else {
             None
         };
+        let queue = registry.queues.get(&lease.key).expect("queue lease exists");
         let has_streams = !queue.stream_ids.is_empty();
         if registry.is_closing {
             return QueuePick::without_worker(has_streams, None);
@@ -778,49 +778,42 @@ impl WorkerDispatch {
         let mut next_backoff_end: Option<Instant> = None;
         for id in queue.idle.values() {
             let worker = registry.streams.get(id).expect("idle stream is registered");
-            if excluded_worker_ids.contains(&worker.app_worker_id)
+            // A stream offered to a woken RPC waiter is that waiter's (plan D56).
+            if registry.promised_streams.contains_key(id)
+                || excluded_worker_ids.contains(&worker.app_worker_id)
                 || excluded_streams.contains_key(id)
                 || (is_step && worker.slot == StreamSlot::ReservedRpcOnly)
-                || registry
-                    .unsupported_types
-                    .contains(task.task_type, &worker.app_worker_id)
+                || registry.is_unsupported_on(task.task_type, worker)
             {
                 continue;
             }
-            if is_step && let Some(backoff_end) = worker.step_backoff_end(now) {
+            if is_step
+                && worker.slot == StreamSlot::Legacy
+                && let Some(backoff_end) = worker.step_backoff_end(now)
+            {
                 next_backoff_end =
                     Some(next_backoff_end.map_or(backoff_end, |end| end.min(backoff_end)));
                 continue;
             }
-            if selected.is_none() || preferred.as_ref() == Some(&worker.app_worker_id) {
+            let is_preferred = preferred.as_ref() == Some(&worker.app_worker_id);
+            if selected.is_none() || is_preferred {
                 selected = Some(worker.clone());
             }
-            if preferred.as_ref() == Some(&worker.app_worker_id) {
+            if preferred.is_none() || is_preferred {
                 break;
             }
         }
+        let queue = registry
+            .queues
+            .get_mut(&lease.key)
+            .expect("queue lease exists");
         let Some(worker) = selected else {
             if has_streams || !is_sticky {
-                let unsupported_worker_ids: Vec<String> = queue
-                    .stream_ids
-                    .iter()
-                    .filter_map(|id| registry.streams.get(id))
-                    .filter(|worker| {
-                        registry
-                            .unsupported_types
-                            .contains(task.task_type, &worker.app_worker_id)
-                    })
-                    .map(|worker| worker.app_worker_id.clone())
-                    .collect();
                 // Registering under the registry lock means no idle stream is missed before the wait.
                 queue.start_waiting(
                     lease,
-                    task.task_type.kind,
-                    excluded_worker_ids
-                        .iter()
-                        .cloned()
-                        .chain(unsupported_worker_ids)
-                        .collect(),
+                    task.task_type.clone(),
+                    excluded_worker_ids.clone(),
                     excluded_streams,
                 );
             }
