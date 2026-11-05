@@ -12,6 +12,7 @@ import { once } from "node:events";
 import http2 from "node:http2";
 import net from "node:net";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import { InvokeWorkerRPCRequest, InvokeWorkerRPCResponse, PollWorkerTaskResponse } from "../src/gen/dex.js";
 import { Registry } from "../src/index.js";
@@ -106,6 +107,60 @@ test("before registration, a grpc-js internal cancel still sends END_STREAM then
   } finally { handler.release(); await worker.close(); await wire.close(); }
 });
 
+test("a Server that ends a busy stream gets a clean END_STREAM back, and the handler is cancelled", async (context) => {
+  context.mock.method(console, "warn", () => {});
+  const wire = await startWireHarness();
+  const handler = new GatedHandler();
+  const worker = wire.worker(handler, 300);
+  try {
+    worker.start();
+    const stream = await wire.nextStream();
+    wire.write(stream, registeredFrame());
+    wire.write(stream, rpcTaskFrame("busy"));
+    await handler.started;
+    // Dex already classified the task as disconnected when it ended the call, so it ignores this end.
+    wire.endWithStatus(stream, 13);
+    await wire.untilStreamEnds(1);
+    assert.deepEqual(wire.streamEnding(1), [{ type: DATA_FRAME, streamId: 1, isEndStream: true }]);
+    await handler.aborted;
+  } finally { handler.release(); await worker.close(); await wire.close(); }
+});
+
+test("a compressed task frame that decompresses past 4 MiB sends RST_STREAM without running a handler", async (context) => {
+  context.mock.method(console, "warn", () => {});
+  context.mock.method(console, "error", () => {});
+  const wire = await startWireHarness("gzip");
+  const handler = new GatedHandler();
+  const worker = wire.worker(handler, 300);
+  try {
+    worker.start();
+    const stream = await wire.nextStream();
+    wire.write(stream, registeredFrame());
+    await worker.waitStarted();
+    wire.writeCompressed(stream, rpcTaskFrame("x".repeat(5 * 1024 * 1024)));
+    await wire.untilStreamEnds(1);
+    assert.equal(wire.streamEnding(1).at(-1)?.type, RST_STREAM_FRAME);
+    assert.equal(wire.streamEnding(1).some((frame) => frame.isEndStream), false);
+    assert.equal(handler.calls, 0);
+  } finally { handler.release(); await worker.close(); await wire.close(); }
+});
+
+test("a compressed task frame within 4 MiB is accepted and runs its handler", async () => {
+  const wire = await startWireHarness("gzip");
+  const handler = new GatedHandler();
+  const worker = wire.worker(handler, 300);
+  try {
+    worker.start();
+    const stream = await wire.nextStream();
+    wire.write(stream, registeredFrame());
+    wire.writeCompressed(stream, rpcTaskFrame("compressed"));
+    await handler.started;
+    assert.equal(handler.calls, 1);
+    wire.endWithStatus(stream, 0);
+    await handler.aborted;
+  } finally { handler.release(); await worker.close(); await wire.close(); }
+});
+
 test("start fails before any handler runs when the reset hook cannot find the HTTP/2 stream", async (context) => {
   context.mock.method(console, "error", () => {});
   const wire = await startWireHarness();
@@ -159,11 +214,13 @@ async function startWireHarness(responseEncoding?: "gzip") {
   const frames: ClientFrame[] = [];
   let consumed = 0;
   server.on("session", (session) => { sessions.add(session); session.on("error", () => {}); });
+  const trailerStatuses = new Map<http2.ServerHttp2Stream, number>();
   server.on("stream", (stream) => {
     stream.on("error", () => {});
     stream.on("data", () => {});
+    stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": String(trailerStatuses.get(stream) ?? 0) }));
     stream.respond({ ":status": 200, "content-type": "application/grpc",
-      ...(responseEncoding === undefined ? {} : { "grpc-encoding": responseEncoding }) });
+      ...(responseEncoding === undefined ? {} : { "grpc-encoding": responseEncoding }) }, { waitForTrailers: true });
     streams.push(stream);
   });
   server.listen(0, "127.0.0.1");
@@ -217,6 +274,18 @@ async function startWireHarness(responseEncoding?: "gzip") {
       const header = Buffer.alloc(5);
       header.writeUInt32BE(payload.length, 1);
       stream.write(Buffer.concat([header, payload]));
+    },
+    writeCompressed(stream: http2.ServerHttp2Stream, response: PollWorkerTaskResponse): void {
+      const payload = gzipSync(PollWorkerTaskResponse.encode(response).finish());
+      const header = Buffer.alloc(5);
+      header.writeUInt8(1, 0);
+      header.writeUInt32BE(payload.length, 1);
+      stream.write(Buffer.concat([header, payload]));
+    },
+    /** Ends the response with gRPC trailers, as a Server that closes the call does. */
+    endWithStatus(stream: http2.ServerHttp2Stream, grpcStatus: number): void {
+      trailerStatuses.set(stream, grpcStatus);
+      stream.end();
     },
     /** Returns the frames that ended the stream: every END_STREAM DATA frame and RST_STREAM. */
     streamEnding(streamId: number): ClientFrame[] {

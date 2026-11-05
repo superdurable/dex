@@ -48,7 +48,7 @@ import { WorkerDispatcher } from "./worker-dispatcher.js";
 const BUSY_PULL_STREAM_KEEPALIVE_MS = 20_000;
 // Extra time after the drain deadline for a final output that Dex has not confirmed reading.
 const FINAL_OUTPUT_FLUSH_GRACE_MS = 5_000;
-// Matches the grpc-js default receive limit; the SDK enforces it so it can reset the stream itself.
+// Bounds every task frame, including after grpc-js decompresses it.
 const MAX_TASK_FRAME_BYTES = 4 * 1024 * 1024;
 
 class UndecodableTaskFrame {
@@ -331,10 +331,8 @@ export class PullWorker {
       }
       return;
     }
-    // Dex sends a task or Ping only to an idle slot, so it has read the earlier final output.
-    if (frame?.$case === "task" || frame?.$case === "ping" && poll.task === undefined) {
-      poll.hasUnconfirmedFinalOutput = false;
-    }
+    // Dex assigns the next task only after it has read the earlier final output.
+    if (frame?.$case === "task") poll.hasUnconfirmedFinalOutput = false;
     switch (frame?.$case) {
       case "task":
         this.startTask(poll, frame.value);
@@ -579,6 +577,7 @@ export class PullWorker {
     if (poll.isDisconnected) return;
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
+    // grpc-js may answer a Server-ended call with a clean end; Dex already treats its assignment as disconnected.
     poll.task?.controller.abort();
     if (!this.isStopping && poll.task === undefined) this.scheduleReconnect(poll);
   }
@@ -868,7 +867,7 @@ function generateAppWorkerID(): string {
 function createWorkerTaskClient(serverAddress: string, credential: Credential | undefined): InstanceType<typeof WorkerTaskServiceClient> {
   return new ResettableWorkerTaskServiceClient(serverAddress, credentials.createInsecure(), {
     interceptors: credentialInterceptors(credential),
-    "grpc.max_receive_message_length": -1,
+    "grpc.max_receive_message_length": MAX_TASK_FRAME_BYTES,
   });
 }
 

@@ -1081,6 +1081,7 @@ test("a slot that half-closes after its final output gets the flush grace, then 
 for (const [failure, isBusy] of [["oversized", false], ["oversized", true], ["malformed", false], ["malformed", true]] as const) {
   test(`a ${failure} task frame on ${isBusy ? "a busy" : "an idle"} slot resets the stream instead of half-closing`, async (context) => {
     context.mock.method(console, "error", () => {});
+    context.mock.method(console, "warn", () => {});
     const harness = await startHarness();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -1113,10 +1114,13 @@ for (const [failure, isBusy] of [["oversized", false], ["oversized", true], ["ma
         await until(() => Reflect.get(worker, "busyTaskCount") === 0);
         assert.equal(stream.frames.some((request) => request.frame?.$case === "taskFrame"), false);
       }
-      const replacement = await harness.nextStream();
-      replacement.call.write(registered(true));
-      await until(() => replacement.frames.length >= 1);
-      assert.equal(replacement.frames.some((request) => request.frame?.$case === "taskFrame"), false);
+      // grpc-js reports an oversized frame as RESOURCE_EXHAUSTED, which the Worker retries after a long backoff.
+      if (failure === "malformed") {
+        const replacement = await harness.nextStream();
+        replacement.call.write(registered(true));
+        await until(() => replacement.frames.length >= 1);
+        assert.equal(replacement.frames.some((request) => request.frame?.$case === "taskFrame"), false);
+      }
     } finally { release(); await worker.close(); await harness.close(); }
   });
 }

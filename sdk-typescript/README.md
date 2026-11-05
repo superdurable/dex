@@ -313,8 +313,13 @@ stream with an HTTP/2 RST_STREAM instead of half-closing it. grpc-js and Node en
 stream cleanly before resetting it, so the SDK replaces that close on every registered poll stream.
 This relies on @grpc/grpc-js internals, so the SDK depends on ~1.14.4. If it cannot reach a
 stream's HTTP/2 stream at registration, it refuses the slot before any handler runs, and startup
-fails with an error naming the installed grpc-js version. grpc-js always advertises gzip and
-deflate support; Dex does not compress task streams, and a malformed compressed frame also resets.
+fails with an error naming the installed grpc-js version. A task frame may be at most 4 MiB.
+grpc-js always advertises gzip and deflate support, and the Worker accepts a compressed task
+frame whose decompressed size is within that limit. Dex does not compress task streams. A
+compressed frame that is malformed or decompresses past the limit resets the stream without
+running a handler. When the Server itself ends a stream, grpc-js may answer with a clean end
+of stream; Dex has already treated that stream's task as disconnected, and the Worker cancels
+the running handler.
 
 `Worker.close()` starts no new task. Idle streams immediately half-close their
 request side. Busy streams let the handler finish, send its final output, then
