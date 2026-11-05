@@ -570,7 +570,7 @@ async fn a_clean_half_close_tells_whether_the_worker_could_have_run_the_task() {
     let dispatch =
         WorkerDispatch::new_with_metrics(config(), Arc::new(SystemWallClock), metrics.clone());
     let server = start_server(dispatch.clone()).await;
-    // Sent, no output, clean half-close: the Worker never ran it.
+    // Sent, no output, END_STREAM alone: after the reset grace, the Worker never ran it.
     let mut slot = register(
         &server.channel,
         reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
@@ -635,6 +635,20 @@ async fn a_reset_right_after_a_half_close_fails_the_task_as_a_disconnect() {
     // Some clients cancel a call with END_STREAM and then RST_STREAM.
     slot.half_close();
     tokio::time::sleep(Duration::from_millis(20)).await;
+    slot.cancel();
+    assert!(matches!(
+        final_event(&mut handle).await,
+        StepTaskEvent::Disconnected { .. }
+    ));
+    // Back to back, the server may see the reset first; it is still a disconnect.
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-b", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut handle) = hand_out(&dispatch, "Flow", "Charge", "task-2").await;
+    slot.task().await;
+    slot.half_close();
     slot.cancel();
     assert!(matches!(
         final_event(&mut handle).await,
