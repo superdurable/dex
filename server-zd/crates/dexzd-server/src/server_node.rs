@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+mod attempt_drain;
 mod attribute_sync;
 mod bounded_teardown;
 mod client_deadline;
@@ -49,7 +50,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ServerError;
 use crate::component_configs::ComponentConfigs;
-use crate::config::{Config, SearchBackend as SearchBackendKind};
+use crate::config::{Config, LifecycleConfig, SearchBackend as SearchBackendKind};
 use crate::embedded_s3::EmbeddedS3;
 use crate::metrics_server::MetricsServer;
 use crate::registry_committed_command_sink::RegistryCommittedCommandSink;
@@ -137,7 +138,7 @@ impl RunningServer {
         self.metrics_address
     }
 
-    /// Stops gracefully within 15 seconds and returns how serving ended.
+    /// Drains Step attempts for the configured timeout, then stops within 15 seconds and returns how serving ended.
     ///
     /// Returns [`ServerError::NodeStopped`] when the node had already stopped for another reason,
     /// such as a lost lease, and [`ServerError::ShutdownIncomplete`] when a shutdown step overran
@@ -378,6 +379,7 @@ struct PeriodStop {
 /// Every component of one serving period, in start order.
 struct ServerNode {
     metrics: Arc<NodeMetrics>,
+    lifecycle_config: LifecycleConfig,
     engine: EngineNode,
     registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
@@ -685,6 +687,7 @@ impl ServerNode {
             holder_process_id: process.id_source.last_lease_holder_process_id(),
         };
         Ok(ServerNodeStart::Serving(Box::new(Self {
+            lifecycle_config: config.lifecycle.clone(),
             metrics,
             engine,
             registry,
@@ -786,9 +789,15 @@ impl ServerNode {
     }
 
     /// Stops serving and every component, then releases the lease; only a shutdown sends `grpc` GOAWAY.
-    async fn stop(self, grpc: &mut GrpcServer, kind: PeriodStopKind) -> PeriodStop {
+    async fn stop(
+        self,
+        grpc: &mut GrpcServer,
+        kind: PeriodStopKind,
+        should_drain_attempts: bool,
+    ) -> PeriodStop {
         let Self {
             metrics,
+            lifecycle_config,
             engine,
             registry,
             effect_tasks,
@@ -801,9 +810,19 @@ impl ServerNode {
         } = self;
         let local_store_close_waiter = engine.local_store_close_waiter();
         metrics.set_role(dexzd_metrics::NodeRole::Draining);
+        grpc.health.set_not_serving().await;
+        if should_drain_attempts {
+            attempt_drain::drain_attempts(
+                &lifecycle_config,
+                &dispatch,
+                &effect_tasks,
+                &engine,
+                &registry,
+            )
+            .await;
+        }
         let mut teardown = BoundedTeardown::start();
         let drain_deadline = tokio::time::Instant::now() + GRPC_DRAIN_BUDGET;
-        grpc.health.set_not_serving().await;
         dispatch.shutdown();
         registry.close_long_polls();
         registry.close_rpc_admission();

@@ -13,7 +13,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use dexzd_api::HOT_STANDBY_HEALTH_SERVICE_NAME;
 use dexzd_protocol::dex::admin_service_client::AdminServiceClient;
@@ -47,6 +47,8 @@ const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_millis(500);
 const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// Log lines of a recovery, which name the store it served and how much log it replayed.
 const RECOVERING_MARKER: &str = "engine node recovering";
+/// The drain end the effect router acknowledged; an unacknowledged drain logs no counts.
+const ATTEMPT_DRAIN_ENDED_MARKER: &str = "Step attempt drain ended attempts_waited=";
 const HOT_STANDBY_STORE_MARKER: &str = "serving from the hot standby's local store";
 const REPLAY_MARKER: &str = "replayed the log stream";
 const REPLAYED_BATCHES_FIELD: &str = "batches=";
@@ -112,6 +114,8 @@ struct NodeSlot {
     may_exit: bool,
     /// The endpoint's write requests when the current process was confirmed a standby.
     standby_writes_baseline: Option<u64>,
+    /// Everything the slot's last process logged before it exited.
+    exited_process_log: Option<String>,
 }
 
 impl NodeSlot {
@@ -244,6 +248,7 @@ impl NodeGroup {
                 process: None,
                 may_exit: false,
                 standby_writes_baseline: None,
+                exited_process_log: None,
             });
         }
         let router = ReadinessRouter::start(
@@ -394,6 +399,7 @@ impl NodeGroup {
         entry.process_count += 1;
         entry.may_exit = false;
         entry.standby_writes_baseline = None;
+        entry.exited_process_log = None;
         self.router.note_process_start(slot);
         let process = self.fleet.spawn(
             &entry.config_path,
@@ -431,7 +437,9 @@ impl NodeGroup {
                 self.lease_history.note_possible_release();
                 let process = entry.running();
                 let status = process.terminate(PROCESS_SHUTDOWN_BUDGET).await;
-                assert_eq!(status.code(), Some(0), "{}", process.log());
+                let log = process.log();
+                assert_eq!(status.code(), Some(0), "{log}");
+                entry.exited_process_log = Some(log);
                 entry.process = None;
             }
             ProcessSignal::Stop => entry.running().freeze_and_wait_until_stopped().await,
@@ -452,8 +460,48 @@ impl NodeGroup {
         let entry = &mut self.slots[slot];
         let process = entry.running();
         let status = process.wait_for_exit(budget).await;
-        assert_eq!(status.code(), Some(0), "{}", process.log());
+        let log = process.log();
+        assert_eq!(status.code(), Some(0), "{log}");
+        entry.exited_process_log = Some(log);
         entry.process = None;
+    }
+
+    /// Returns when `slot`'s running or last exited process ended its latest Step attempt drain
+    /// that began after `since`. A planned stop releases the lease only after that drain.
+    ///
+    /// Panics unless that drain completed or timed out, the only outcomes a planned stop allows.
+    pub(crate) fn attempt_drain_ended_at(&mut self, slot: usize, since: Instant) -> Instant {
+        let entry = &mut self.slots[slot];
+        let log = match entry.process.as_mut() {
+            Some(process) => process.log(),
+            None => entry
+                .exited_process_log
+                .clone()
+                .unwrap_or_else(|| panic!("slot {}'s last process left no log", entry.name)),
+        };
+        let since_wall_time = SystemTime::now() - since.elapsed();
+        let (ended_wall_time, line) = log
+            .lines()
+            .rev()
+            .filter(|line| line.contains(ATTEMPT_DRAIN_ENDED_MARKER))
+            .filter_map(|line| Some((log_line_wall_time(line)?, line)))
+            .find(|(logged_at, _)| *logged_at >= since_wall_time)
+            .unwrap_or_else(|| {
+                panic!(
+                    "slot {} logged no drain end since the stop:\n{log}",
+                    entry.name
+                )
+            });
+        assert!(
+            line.contains("outcome=completed") || line.contains("outcome=timed_out"),
+            "slot {} ended its drain unexpectedly: {line}",
+            entry.name
+        );
+        // A log time after now means the drain has just ended.
+        let ended_ago = SystemTime::now()
+            .duration_since(ended_wall_time)
+            .unwrap_or(Duration::ZERO);
+        Instant::now() - ended_ago
     }
 
     /// Clears `slot`'s object store faults; held writes then land, and may stop the active once.
@@ -895,4 +943,13 @@ impl NodeGroup {
             self.restart(slot, DirectoryFate::Keep);
         }
     }
+}
+
+/// Returns the wall time at the start of a process log line, or `None` for an untimed line.
+fn log_line_wall_time(line: &str) -> Option<SystemTime> {
+    let timestamp = line.split_whitespace().next()?;
+    let logged_at =
+        time::OffsetDateTime::parse(timestamp, &time::format_description::well_known::Rfc3339)
+            .ok()?;
+    Some(logged_at.into())
 }

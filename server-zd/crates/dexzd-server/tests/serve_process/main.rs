@@ -10,6 +10,7 @@
 
 #![cfg(unix)]
 
+mod attempt_drain;
 mod dev_abrupt_exit;
 mod dev_restart;
 mod dev_soak;

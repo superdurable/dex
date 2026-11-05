@@ -202,8 +202,10 @@ you or someone else already started.
 
 The commands support the normal connection, TLS, credential, **--timeout**, and
 **--output** flags. **dexcli admin step-down** waits up to 2 minutes by default,
-longer than the hold-off before the stepped-down process competes for the lease
-again. When the server requires authentication, the credential must be an admin
+longer than the default attempt drain plus the hold-off before the stepped-down
+process competes for the lease again. If the server sets a longer
+**lifecycle.attemptDrainTimeout**, raise **--timeout** by at least the same
+amount. When the server requires authentication, the credential must be an admin
 JWT. The API key exchange cannot ask for an admin audience. See
 [admin credentials](../production/server-zd-operations.mdx#admin-credentials).
 

@@ -57,7 +57,7 @@ use task_frames::{
 };
 use unsupported_types::{TaskKind, TaskTypeKey, UnsupportedTypeCache};
 pub use worker_protocol::WorkerTaskService;
-use worker_streams::{StepBackoff, StreamSlot, TaskSendError};
+use worker_streams::{StepBackoff, StreamSlot, TaskSendError, send_task_frame};
 
 /// Shared in-memory matching owner. Clone it to give a tenant-scoped gRPC service access.
 #[derive(Clone)]
@@ -73,6 +73,7 @@ struct DispatchInner {
     lease_validity_deadline: Option<LeaseValidityDeadline>,
     registry: Mutex<Registry>,
     shutdown: watch::Sender<bool>,
+    stream_shutdown: watch::Sender<bool>,
 }
 
 struct QueueState {
@@ -186,6 +187,7 @@ impl WorkerDispatch {
         assert!(config.affinity_duration > Duration::ZERO && config.ping_interval > Duration::ZERO);
         assert!(config.unsupported_type_cache_entries > 0);
         let (shutdown, _) = watch::channel(false);
+        let (stream_shutdown, _) = watch::channel(false);
         let unsupported_types = UnsupportedTypeCache::new(
             config.unsupported_type_cache_entries,
             metrics.matching_unsupported_type_entries.clone(),
@@ -210,6 +212,7 @@ impl WorkerDispatch {
                     queue_matching: QueueMatching::default(),
                 }),
                 shutdown,
+                stream_shutdown,
             }),
         }
     }
@@ -290,11 +293,17 @@ impl WorkerDispatch {
             .is_none_or(|deadline| deadline.is_valid_at(tokio::time::Instant::now().into_std()))
     }
 
-    /// Drains streams: idle Workers reconnect now; busy Workers reconnect after their task.
-    pub fn shutdown(&self) {
+    /// Stops new reservations and handouts while keeping existing Worker streams open for results.
+    pub fn begin_attempt_drain(&self) {
         let mut registry = self.lock_registry();
         registry.is_closing = true;
         self.inner.shutdown.send_replace(true);
+    }
+
+    /// Drains streams: idle Workers reconnect now; busy Workers reconnect after their task.
+    pub fn shutdown(&self) {
+        self.begin_attempt_drain();
+        self.inner.stream_shutdown.send_replace(true);
     }
 
     fn lock_registry(&self) -> std::sync::MutexGuard<'_, Registry> {
@@ -451,7 +460,7 @@ impl WorkerDispatch {
             if let Some(worker) = picked.worker {
                 let task_frame = build_task(task_id, &request.payload, request.deadline);
                 let mut frames =
-                    match self.send_task_frame(&worker, task_id, task.task_type, task_frame) {
+                    match send_task_frame(self, &worker, task_id, task.task_type, task_frame) {
                         Ok(frames) => frames,
                         Err(TaskSendError::LeaseInvalid) => {
                             self.make_idle(&worker);
@@ -806,48 +815,6 @@ impl WorkerDispatch {
             has_streams,
             next_backoff_end: None,
         }
-    }
-
-    /// Sends `task_frame` on a stream this caller took, checking the node lease and the stream's
-    /// half-close under the stream's state lock, with no await in between.
-    ///
-    /// Returns the receiver of the Worker's frames for the task, [`TaskSendError::LeaseInvalid`]
-    /// when the node may not hand out tasks (the stream stays taken), or
-    /// [`TaskSendError::NotDelivered`] when the stream half-closed or is gone.
-    fn send_task_frame(
-        &self,
-        worker: &WorkerStream,
-        task_id: &str,
-        task_type: &TaskTypeKey,
-        task_frame: dexzd_protocol::dex::PollWorkerTask,
-    ) -> Result<mpsc::Receiver<AssignmentFrame>, TaskSendError> {
-        let mut state = worker.state.lock().expect("Worker state lock poisoned");
-        if state.is_send_stopped || state.is_closing {
-            return Err(TaskSendError::NotDelivered);
-        }
-        if !self.may_hand_out_tasks() {
-            return Err(TaskSendError::LeaseInvalid);
-        }
-        let (sender, receiver) = mpsc::channel(32);
-        state.current = Some(Assignment {
-            task_id: task_id.to_owned(),
-            task_type: task_type.clone(),
-            frames: sender,
-            has_output: false,
-        });
-        let is_sent = worker
-            .output
-            .send(Ok(PollWorkerTaskResponse {
-                frame: Some(poll_worker_task_response::Frame::Task(task_frame)),
-            }))
-            .is_ok();
-        if !is_sent {
-            state.current = None;
-            drop(state);
-            self.disconnect(worker.id);
-            return Err(TaskSendError::NotDelivered);
-        }
-        Ok(receiver)
     }
 
     fn record_delivery(&self, scheduled_at: Option<Instant>) {

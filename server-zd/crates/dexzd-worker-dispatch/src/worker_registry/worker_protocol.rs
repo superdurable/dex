@@ -88,7 +88,7 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
             if registry.is_closing {
                 return Err(Status::unavailable("matching server is closing"));
             }
-            let shutdown = self.dispatch.inner.shutdown.subscribe();
+            let shutdown = self.dispatch.inner.stream_shutdown.subscribe();
             if registry.streams.len() >= self.dispatch.inner.config.max_streams {
                 return Err(Status::resource_exhausted("matching stream limit reached"));
             }

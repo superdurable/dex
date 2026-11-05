@@ -58,7 +58,7 @@ const READ_FLOW_ID: &str = "counter-0";
 const SEARCH_PAGE_SIZE: i32 = 100;
 /// What a hot standby logs when it cannot open its store, such as one a stepped-down period still holds.
 const STANDBY_BOOTSTRAP_RETRY: &str = "the hot standby could not bootstrap; retrying";
-/// A loaded active's release after a step down call and a hot takeover; well under the held read.
+/// A loaded active's release after its attempt drain and a hot takeover; well under the held read.
 const STEP_DOWN_SERVED_BOUND: Duration = Duration::from_millis(2500);
 /// The default `standby.stepDownHoldOff`.
 const STEP_DOWN_HOLD_OFF: Duration = Duration::from_secs(5);
@@ -162,10 +162,14 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
         SECOND
     );
     let served_after = stepped_down_at.elapsed();
+    // The active first drains running Step attempts; an open read must not delay what follows.
+    let served_after_drain = group
+        .attempt_drain_ended_at(FIRST, stepped_down_at)
+        .elapsed();
     let (held_answer, _) = held_read.finish().await;
     assert!(
-        served_after <= STEP_DOWN_SERVED_BOUND,
-        "an open read held up the handover: served {served_after:?} after the step down"
+        served_after_drain <= STEP_DOWN_SERVED_BOUND,
+        "an open read held up the handover: served {served_after_drain:?} after the attempt drain"
     );
     let refusal = held_answer.expect_err("the step down ends a read still open at the release");
     assert_eq!(refusal.code(), Code::Unavailable, "{refusal}");
@@ -189,7 +193,7 @@ async fn step_down_with_calls_in_flight_leaves_a_hot_standby() {
             "step_down_with_calls_in_flight_leaves_a_hot_standby",
             stepped_down_at,
             format!(
-                "served {served_after:?} after the step down; hot again {hot_after:?} after the takeover; {reads} reads answered"
+                "served {served_after:?} after the step down, {served_after_drain:?} after the drain; hot again {hot_after:?} after the takeover; {reads} reads answered"
             ),
         )
         .await;

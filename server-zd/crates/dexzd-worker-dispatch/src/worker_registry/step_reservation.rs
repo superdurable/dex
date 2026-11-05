@@ -14,7 +14,7 @@ use dexzd_metrics::WorkerStreamProtocolError;
 use dexzd_protocol::dex::PollWorkerTask;
 
 use super::backlog_matching::partition_removed;
-use super::worker_streams::record_protocol_error;
+use super::worker_streams::{record_protocol_error, send_task_frame};
 use dexzd_keyspace::PartitionId;
 use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
 
@@ -323,19 +323,17 @@ impl ReservedStepStream {
             name: step_type.clone(),
         };
         let task_frame: PollWorkerTask = build_task(&task_id, &payload, deadline);
-        let frames = match self
-            .dispatch
-            .send_task_frame(&worker, &task_id, &task_type, task_frame)
-        {
-            Ok(frames) => frames,
-            Err(TaskSendError::LeaseInvalid) => return Err(StepTaskSendFailure::LeaseInvalid),
-            Err(TaskSendError::NotDelivered) => {
-                // The stream half-closed or broke; it never becomes idle again.
-                self.worker = None;
-                self.dispatch.disconnect(worker.id);
-                return Err(StepTaskSendFailure::NotDelivered);
-            }
-        };
+        let frames =
+            match send_task_frame(&self.dispatch, &worker, &task_id, &task_type, task_frame) {
+                Ok(frames) => frames,
+                Err(TaskSendError::LeaseInvalid) => return Err(StepTaskSendFailure::LeaseInvalid),
+                Err(TaskSendError::NotDelivered) => {
+                    // The stream half-closed, broke, or is shutting down; it never becomes idle again.
+                    self.worker = None;
+                    self.dispatch.disconnect(worker.id);
+                    return Err(StepTaskSendFailure::NotDelivered);
+                }
+            };
         self.worker = None;
         self.dispatch.record_delivery(scheduled_at);
         let (events_sender, events) = mpsc::channel(32);

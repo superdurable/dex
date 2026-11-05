@@ -93,7 +93,9 @@ impl PendingAttempt {
 }
 
 impl AttemptHandout {
-    /// Dispatches the attempt until it ends, is queued, or waits for locks.
+    /// Dispatches the attempt until it ends, is queued, or waits for locks. A return of the
+    /// attempt commits before the hand-out ends, so an attempt drain never counts it finished
+    /// earlier.
     pub(crate) async fn run(self) -> HandoutEnd {
         self.run_from(None).await
     }
@@ -113,7 +115,22 @@ impl AttemptHandout {
         self.run().await
     }
 
-    async fn run_from(mut self, mut claimed: Option<ClaimedRow>) -> HandoutEnd {
+    async fn run_from(mut self, claimed: Option<ClaimedRow>) -> HandoutEnd {
+        let mut has_uncommitted_return = false;
+        let end = self
+            .dispatch_until_end(claimed, &mut has_uncommitted_return)
+            .await;
+        if has_uncommitted_return {
+            self.wait_for_commits().await;
+        }
+        end
+    }
+
+    async fn dispatch_until_end(
+        &mut self,
+        mut claimed: Option<ClaimedRow>,
+        has_uncommitted_return: &mut bool,
+    ) -> HandoutEnd {
         let run = self.context.run_location(&self.flow, self.key.run_id);
         let mut backoff = self.context.retry_backoff();
         loop {
@@ -189,7 +206,7 @@ impl AttemptHandout {
                     self.finish_attempt(task_id);
                     // The row stays held until the lock release sends it back (plan D72).
                     self.answer_claim(claim.as_ref(), ClaimResult::LockBusy);
-                    return HandoutEnd::LocksBusy(self.progress);
+                    return HandoutEnd::LocksBusy(std::mem::take(&mut self.progress));
                 }
                 Ok(InvocationStartOutcome::Stale)
                 | Err(FlowEffectOperationError::NodeStopping { .. }) => {
@@ -230,7 +247,10 @@ impl AttemptHandout {
             self.finish_attempt(task_id);
             match end {
                 StartedAttemptEnd::Ended => return HandoutEnd::Released,
-                StartedAttemptEnd::Returned => backoff = self.context.retry_backoff(),
+                StartedAttemptEnd::Returned => {
+                    *has_uncommitted_return = true;
+                    backoff = self.context.retry_backoff();
+                }
             }
         }
     }
@@ -413,6 +433,19 @@ impl AttemptHandout {
             EntryHolder::Dispatching,
         );
         is_waiting
+    }
+
+    /// Waits until every command this node proposed to the Flow so far commits, or the node stops.
+    async fn wait_for_commits(&self) {
+        // Biased for reproducible simulation; shutdown fires once.
+        let barrier = tokio::select! {
+            biased;
+            () = self.context.shutdown.cancelled() => return,
+            barrier = self.context.flow_effect_operations.sync_barrier(&self.flow) => barrier,
+        };
+        if let Err(error) = barrier {
+            tracing::debug!(%error, flow_id = %self.flow.flow_id, "returned attempts did not commit");
+        }
     }
 
     /// Reads the attempt from the speculative state.
