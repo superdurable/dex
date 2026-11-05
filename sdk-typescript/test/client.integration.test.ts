@@ -32,6 +32,7 @@ import {
   FlowTimeoutHandlerFailure,
   FlowTimeoutPolicy,
   Registry,
+  RequestTimeoutError,
   Stream,
   StepList,
   ValueMappingError,
@@ -68,6 +69,7 @@ import {
   type ReadStreamRequest,
   type ReadStreamResponse,
   type SearchFlowsRequest,
+  type ServerInfo,
   type StartFlowRequest,
   type StartFlowResponse,
   type UpdateFlowConfigRequest,
@@ -183,6 +185,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
   const hydratedOutput = protoJson({ accepted: true });
   const server = new Server();
   server.addService(FlowServiceService, {
+    getServerInfo(_call, callback) {
+      callback(null, { serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0 });
+    },
     searchFlows(call, callback) {
       requests.search = call.request as SearchFlowsRequest;
       callback(null, { flowRuns: [], nextPageToken: "" });
@@ -556,6 +561,9 @@ test("Client getAttributes sends one request, hydrates references, and validates
   };
   const server = new Server();
   server.addService(FlowServiceService, {
+    getServerInfo(_call, callback) {
+      callback(null, { serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0 });
+    },
     getAttributes(call, callback: sendUnaryData<GetAttributesResponse>) {
       const request = call.request as GetAttributesRequest;
       getAttributesRequests.push(request);
@@ -782,6 +790,98 @@ function protoJson(value: unknown): Value {
   });
 }
 
+for (const method of ["waitForStepCompletion", "waitForAttributeMatch"] as const) {
+  test(`Client ${method} bounds a stalled first Server negotiation by its request timeout`, async () => {
+    const pendingServerInfo: sendUnaryData<ServerInfo>[] = [];
+    let waitCalls = 0;
+    const server = new Server();
+    server.addService(FlowServiceService, {
+      getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+        pendingServerInfo.push(callback);
+      },
+      waitForStepCompletion(_call, callback: sendUnaryData<WaitForStepCompletionResponse>) {
+        waitCalls++;
+        callback(null, {});
+      },
+      waitForAttribute(_call, callback: sendUnaryData<WaitForAttributeResponse>) {
+        waitCalls++;
+        callback(null, { matchedValue: Value.create({ kind: { $case: "doubleValue", value: 7 } }) });
+      },
+    } as Partial<FlowServiceServer> as FlowServiceServer);
+    const port = await bind(server);
+    const client = new Client(new Registry([new TestFlow()]), new MemoryBlobCache(), {
+      serverAddress: `127.0.0.1:${port}`,
+    });
+    const wait = async (requestTimeoutMs?: number): Promise<void> => {
+      if (method === "waitForStepCompletion") {
+        await client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 },
+          requestTimeoutMs === undefined ? {} : { requestTimeoutMs });
+      } else {
+        await client.waitForAttributeMatch("flow-1", revision, AttributeMatch.greaterThan(5),
+          requestTimeoutMs === undefined ? {} : { requestTimeoutMs });
+      }
+    };
+    try {
+      const unbounded = wait();
+      const startedAt = performance.now();
+      await assert.rejects(wait(1_000), (failure: unknown) =>
+        failure instanceof RequestTimeoutError && failure.code === status.DEADLINE_EXCEEDED);
+      const elapsedMs = performance.now() - startedAt;
+      assert.ok(elapsedMs >= 900 && elapsedMs < 3_000, `timed out after ${elapsedMs} ms`);
+      assert.equal(pendingServerInfo.length, 1);
+      assert.equal(waitCalls, 0);
+      pendingServerInfo[0]!(null, {
+        serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0,
+      });
+      await unbounded;
+      await wait(1_000);
+      assert.equal(pendingServerInfo.length, 1);
+      assert.equal(waitCalls, 2);
+    } finally {
+      await client.close();
+      server.forceShutdown();
+    }
+  });
+}
+
+test("Client wait negotiation accepts a request timeout longer than the Node timer limit", async () => {
+  const pendingServerInfo: sendUnaryData<ServerInfo>[] = [];
+  let waitCalls = 0;
+  const server = new Server();
+  server.addService(FlowServiceService, {
+    getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+      pendingServerInfo.push(callback);
+    },
+    waitForStepCompletion(_call, callback: sendUnaryData<WaitForStepCompletionResponse>) {
+      waitCalls++;
+      callback(null, {});
+    },
+  } as Partial<FlowServiceServer> as FlowServiceServer);
+  const port = await bind(server);
+  const client = new Client(new Registry([new TestFlow()]), new MemoryBlobCache(), {
+    serverAddress: `127.0.0.1:${port}`,
+  });
+  try {
+    let isSettled = false;
+    const waiting = client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 }, {
+      requestTimeoutMs: 30 * 24 * 60 * 60 * 1_000,
+    }).finally(() => { isSettled = true; });
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    // An unclamped timer would fire after 1 ms and reject while negotiation is still pending.
+    assert.equal(isSettled, false);
+    assert.equal(pendingServerInfo.length, 1);
+    pendingServerInfo[0]!(null, {
+      serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0,
+    });
+    await until(() => waitCalls === 1);
+    // The grpc-js test Server mis-arms a deadline this long, so only the request reaching it is checked.
+    await waiting.catch(() => undefined);
+  } finally {
+    await client.close();
+    server.forceShutdown();
+  }
+});
+
 function serviceError(code: status, subStatus: ErrorSubStatus): ServiceError {
   const response = ServiceErrorResponse.encode({
     detail: "long poll timed out",
@@ -828,4 +928,12 @@ function shutdown(server: Server): Promise<void> {
       resolve();
     });
   });
+}
+
+async function until(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error("timed out waiting for the fake Server");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }

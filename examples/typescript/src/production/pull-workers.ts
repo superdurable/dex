@@ -109,12 +109,10 @@ export function isPullGreetingReady(worker: Worker): boolean {
 
 export interface PullGreetingDiagnostics {
   readonly isReady: boolean;
-  readonly reservedRpcDeclines: number;
 }
 
 export function getPullGreetingDiagnostics(worker: Worker): PullGreetingDiagnostics {
   return {
     isReady: worker.pullRegistrationState().isReady,
-    reservedRpcDeclines: worker.pullReservedRpcDeclines,
   };
 }

@@ -30,6 +30,7 @@ import {
   Registry,
   Stream,
   StepList,
+  StepAttemptProgress,
   SubFlow,
   Timer,
   ValueMappingError,
@@ -67,6 +68,7 @@ import {
 } from "../src/attribute-store-sync.js";
 import {
   Context as ProtoContext,
+  StepAttemptProgress as ProtoStepAttemptProgress,
   InvokeExecuteMethodRequest,
   InvokeWaitForMethodRequest,
   InvokeWorkerRPCRequest,
@@ -841,7 +843,24 @@ test("Context exposes the recovery error", () => {
   assert.deepEqual(context.recoveryError, {
     detail: "handler exhausted retries",
     errorType: "TimeoutError",
+    attemptProgress: StepAttemptProgress.UNSPECIFIED,
   });
+});
+
+test("Context maps every recovery attempt progress value and treats unknown values as unspecified", () => {
+  class ProgressFlow implements Flow<void> {
+    public getFlowType(): string { return "ProgressFlow"; }
+    public getSteps(): StepList<void> { return StepList.empty(); }
+  }
+  const flow = new ProgressFlow();
+  const registered = registeredFlowByName(new Registry([flow]), flow.getFlowType());
+  for (const [wireProgress, expected] of [[0, StepAttemptProgress.UNSPECIFIED], [1, StepAttemptProgress.NOT_STARTED],
+    [2, StepAttemptProgress.NOT_COMPLETED], [999, StepAttemptProgress.UNSPECIFIED]] as const) {
+    const context = new InvocationContext("execute", registered, ProtoContext.create({
+      recoveryError: { detail: "failed", errorType: "WorkerError", attemptProgress: wireProgress as ProtoStepAttemptProgress },
+    }), []);
+    assert.equal(context.recoveryError?.attemptProgress, expected);
+  }
 });
 
 class UnsupportedSynchronousHeartbeatStep implements Step<string> {

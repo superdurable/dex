@@ -66,8 +66,9 @@ The sample search endpoints enforce their Flow type.
 Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
 
-Workers always use pull task streams. Startup waits for Dex to register every
-Flow type queue and the process queue before accepting HTTP requests.
+Workers always use pull task streams, one per execution slot. Startup waits for
+Dex to register a shared Step and RPC slot, plus a reserved RPC slot when one is
+configured, before accepting HTTP requests.
 
 Worker routing is automatic. Clients do not configure Worker targets.
 
