@@ -91,17 +91,17 @@ class DeadlineRPCFlow(Flow[None]):
         return RPCResult(context.deadline is not None)
 
 
-def _assert_deadlines(flow: DeadlineFlow, total_seconds: int | None) -> None:
+def _assert_deadlines(flow: DeadlineFlow) -> None:
+    # Every attempt, including the retry within total_duration, must run.
     assert [(method, attempt) for method, attempt, _ in flow.start.observations] == [
         ("wait_for", 1),
         ("wait_for", 2),
         ("execute", 1),
         ("execute", 2),
     ]
-    for _, attempt, remaining_seconds in flow.start.observations:
-        expected_seconds = (
-            10 if total_seconds is None else total_seconds - (attempt - 1)
-        )
+    # The method timeout alone sets each attempt's deadline; total_duration does not.
+    expected_seconds = 10
+    for _, _, remaining_seconds in flow.start.observations:
         assert expected_seconds - 2 <= remaining_seconds <= expected_seconds + 0.5
 
 
@@ -137,7 +137,7 @@ def test_context_deadlines(total_seconds: int | None, is_async: bool) -> None:
                 environment.client.wait_for_flow(rpc_id, timedelta(seconds=30)).status
                 is FlowStatus.COMPLETED
             )
-    _assert_deadlines(flow, total_seconds)
+    _assert_deadlines(flow)
 
 
 async def _test_async_deadlines(flow: DeadlineFlow, rpc_flow: DeadlineRPCFlow) -> None:
