@@ -9,6 +9,7 @@
 package dex
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -1055,4 +1057,95 @@ func TestWorkerPullMalformedTaskResetsStreamWithoutRunningHandler(t *testing.T) 
 			require.NoError(t, <-started)
 		})
 	}
+}
+
+const corruptibleTestCompressorName = "dex-corruptible-test"
+
+var corruptibleTestCompressorMarker = []byte("dex-corrupt-compressed-message")
+
+// corruptibleTestCompressor passes messages through until shouldCorrupt is set, then sends bytes that fail to decompress.
+type corruptibleTestCompressor struct {
+	shouldCorrupt atomic.Bool
+}
+
+var corruptibleCompressor = func() *corruptibleTestCompressor {
+	compressor := &corruptibleTestCompressor{}
+	encoding.RegisterCompressor(compressor)
+	return compressor
+}()
+
+func (compressor *corruptibleTestCompressor) Compress(writer io.Writer) (io.WriteCloser, error) {
+	return &corruptibleTestWriter{writer: writer, shouldCorrupt: compressor.shouldCorrupt.Load()}, nil
+}
+
+func (*corruptibleTestCompressor) Decompress(reader io.Reader) (io.Reader, error) {
+	payload, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.Equal(payload, corruptibleTestCompressorMarker) {
+		return nil, fmt.Errorf("corrupt compressed test message")
+	}
+	return bytes.NewReader(payload), nil
+}
+
+func (*corruptibleTestCompressor) Name() string { return corruptibleTestCompressorName }
+
+type corruptibleTestWriter struct {
+	writer        io.Writer
+	shouldCorrupt bool
+	payload       bytes.Buffer
+}
+
+func (writer *corruptibleTestWriter) Write(payload []byte) (int, error) {
+	return writer.payload.Write(payload)
+}
+
+func (writer *corruptibleTestWriter) Close() error {
+	if writer.shouldCorrupt {
+		_, err := writer.writer.Write(corruptibleTestCompressorMarker)
+		return err
+	}
+	_, err := writer.writer.Write(writer.payload.Bytes())
+	return err
+}
+
+func TestWorkerPullCorruptCompressedFrameResetsBusyStream(t *testing.T) {
+	address, server := startPullTestServer(t)
+	server.holdAfterEOFQueue = "*"
+	server.sendCompressor = corruptibleTestCompressorName
+	flow := &reservedRPCFlow{entered: make(chan string, 4), release: make(chan struct{}), cancellationObserved: make(chan struct{})}
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1}})
+	require.NoError(t, err)
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	busy := awaitPullRegistration(t, server)
+	require.NoError(t, busy.send(reservedRPCTestTask("rpc", "running")))
+	require.Equal(t, "rpc", awaitReservedRPCEntry(t, flow))
+	corruptibleCompressor.shouldCorrupt.Store(true)
+	require.NoError(t, busy.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
+	corruptibleCompressor.shouldCorrupt.Store(false)
+	select {
+	case <-busy.stream.Context().Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("corrupt compressed frame did not reset the busy stream")
+	}
+	select {
+	case <-busy.eofReceived:
+		t.Fatal("corrupt compressed frame half-closed the busy stream")
+	default:
+	}
+	select {
+	case <-flow.cancellationObserved:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reset did not cancel the running handler")
+	}
+	replacement := awaitPullRegistration(t, server)
+	awaitPullTaskCompletion(t, worker)
+	requireNoPullFrame(t, busy)
+	requireNoPullFrame(t, replacement)
+	close(replacement.allowReturn)
+	require.NoError(t, worker.Stop(context.Background()))
+	require.NoError(t, <-started)
+	requireNoPullFrame(t, replacement)
 }

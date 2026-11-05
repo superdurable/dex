@@ -37,6 +37,8 @@ type pullTestServer struct {
 	streams                        []*pullTestStream
 	holdAfterEOFQueue              string
 	maxConcurrentTasksPerAppWorker uint32
+	// sendCompressor names a registered compressor for all responses; empty sends them uncompressed.
+	sendCompressor string
 }
 
 type pullTestStream struct {
@@ -68,7 +70,13 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 		registered.allowReturn = make(chan struct{})
 		registered.ended = make(chan error, 1)
 	}
+	sendCompressor := server.sendCompressor
 	server.mu.Unlock()
+	if sendCompressor != "" {
+		if err := grpc.SetSendCompressor(stream.Context(), sendCompressor); err != nil {
+			return err
+		}
+	}
 	if shouldReconnect {
 		server.firstReconnectQueue <- registered.registration.Queue
 		return stream.Send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Reconnect{Reconnect: &dexpb.PollWorkerTaskReconnect{Reason: "owner moved"}}})

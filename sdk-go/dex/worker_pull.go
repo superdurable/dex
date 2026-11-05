@@ -26,7 +26,6 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/experimental"
 	"google.golang.org/grpc/status"
 )
 
@@ -550,8 +549,7 @@ func isPermanentPullStreamError(err error) bool {
 
 func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	pollCtx, cancel := context.WithCancel(stream.ctx)
-	// Identity-only responses avoid a library decompression failure path on task streams.
-	clientStream, err := stream.worker.client.PollWorkerTask(withRejectedTokenObserver(pollCtx, observer), experimental.AcceptCompressors())
+	clientStream, err := stream.worker.client.PollWorkerTask(withRejectedTokenObserver(pollCtx, observer))
 	if err != nil {
 		cancel()
 		return false, err
