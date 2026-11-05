@@ -29,8 +29,6 @@ pub(super) struct Registry {
 impl Registry {
     /// Adds `worker` to the idle order of every queue it serves.
     pub(super) fn add_idle(&mut self, worker: &WorkerStream) {
-        self.unsupported_types
-            .release_reprobes(worker.tenant_id, &worker.app_worker_id);
         self.next_idle_position += 1;
         let position = self.next_idle_position;
         self.idle_positions.insert(worker.id, position);
@@ -73,10 +71,33 @@ impl Registry {
     }
 
     /// Returns whether `worker` may not run `task_type`: its Worker declined the type, or an
-    /// evicted decline waits for the Worker's next idle stream.
+    /// evicted decline waits for the Worker's next completed Step.
     pub(super) fn is_unsupported_on(&self, task_type: &TaskTypeKey, worker: &WorkerStream) -> bool {
         self.unsupported_types
             .excludes(task_type, &worker.app_worker_id)
+    }
+
+    /// Lets the evicted declines of `worker`'s Worker be probed again after it completed a Step,
+    /// and offers its other idle streams to waiters that those declines kept asleep.
+    pub(super) fn release_reprobes_after_step(&mut self, worker: &WorkerStream, now: Instant) {
+        if !self
+            .unsupported_types
+            .release_reprobes(worker.tenant_id, &worker.app_worker_id)
+        {
+            return;
+        }
+        let idle_streams: Vec<Arc<WorkerStream>> = self
+            .idle_positions
+            .keys()
+            .filter_map(|id| self.streams.get(id))
+            .filter(|idle| {
+                idle.tenant_id == worker.tenant_id && idle.app_worker_id == worker.app_worker_id
+            })
+            .cloned()
+            .collect();
+        for idle in idle_streams {
+            self.wake_waiter_for(&idle, now);
+        }
     }
 
     /// Wakes the waiter that should take the newly idle `worker` among all queues it serves:

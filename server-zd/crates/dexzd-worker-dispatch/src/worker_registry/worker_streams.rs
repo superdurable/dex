@@ -157,8 +157,15 @@ pub(super) fn finish_assignment(
     state.current = None;
     state.is_busy = false;
     match end {
-        // An RPC result says nothing about the Worker's Step capacity.
-        AssignmentEnd::Final if task_type.kind == TaskKind::Step => state.step_backoff = None,
+        // An RPC result says nothing about the Worker's Step capacity or Step types.
+        AssignmentEnd::Final if task_type.kind == TaskKind::Step => {
+            state.step_backoff = None;
+            drop(state);
+            dispatch
+                .lock_registry()
+                .release_reprobes_after_step(worker, Instant::now());
+            state = worker.state.lock().expect("Worker state lock poisoned");
+        }
         AssignmentEnd::Final => {}
         AssignmentEnd::Rejected(PollWorkerTaskRejectReason::NoCapacity)
             if worker.slot == StreamSlot::Legacy =>

@@ -71,7 +71,8 @@ pub struct MatchingConfig {
     /// Defaults to 256 characters; maximum length of each registered Flow type.
     pub max_flow_type_length: u32,
     /// Defaults to 10000; most (Step type or RPC name, appWorkerID) pairs remembered as
-    /// unsupported after a Worker declined them. The least recent pair is evicted when full.
+    /// unsupported after a Worker declined them. The least recent pair is evicted when full;
+    /// an evicted pair still excludes its Worker until that Worker completes a Step.
     pub unsupported_type_cache_entries: u32,
     /// Defaults to 20 s; interval between pings on idle Worker streams.
     #[serde(with = "humantime_serde")]
