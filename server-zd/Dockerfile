@@ -13,7 +13,7 @@ RUN apt-get update \
 
 COPY LICENSE ./LICENSE
 COPY protos/ ./protos/
-COPY s3mock/ ./s3mock/
+COPY s3local/ ./s3local/
 COPY server-zd/ ./server-zd/
 
 WORKDIR /src/server-zd

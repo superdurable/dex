@@ -14,7 +14,7 @@ use dexzd_protocol::dex::DescribeActiveNodeRequest;
 use dexzd_protocol::dex::StepDownActiveNodeResponse;
 use dexzd_protocol::dex::admin_service_client::AdminServiceClient;
 use dexzd_protocol::dex::step_down_active_node_response::LeaseHolderAfterStepDown;
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tokio::time::Instant;
 use tonic::Code;

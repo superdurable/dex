@@ -20,7 +20,7 @@ use dexzd_protocol::dex::{
     WaitForHistoryEventRequest, WaitForStepCompletionRequest, WorkerTarget, value,
 };
 use prost::Message;
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tonic::transport::Channel;
 

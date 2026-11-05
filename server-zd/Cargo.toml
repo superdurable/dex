@@ -78,8 +78,8 @@ rocksdb = { version = "0.25", default-features = false, features = ["lz4", "zstd
 rustix = { version = "1.1", features = ["param"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 rustls-native-certs = "0.8"
-s3mock = { path = "../s3mock/crates/s3mock" }
-s3mock-server = { path = "../s3mock/crates/s3mock-server" }
+s3local = { path = "../s3local/crates/s3local" }
+s3local-server = { path = "../s3local/crates/s3local-server" }
 self_cell = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -129,7 +129,7 @@ debug = false
 opt-level = 3
 debug = false
 
-[profile.dev.package.s3mock-server]
+[profile.dev.package.s3local-server]
 opt-level = 3
 debug = false
 

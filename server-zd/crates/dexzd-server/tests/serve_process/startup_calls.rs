@@ -21,7 +21,7 @@ use dexzd_protocol::dex::{
     PollWorkerTaskRegister, PollWorkerTaskRequest, PollWorkerTaskResponse,
     StepDownActiveNodeRequest, poll_worker_task_request, poll_worker_task_response,
 };
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;

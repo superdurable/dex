@@ -12,8 +12,8 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
-use s3mock::{Durability, EtagMode, Store, StoreConfig, StoreError};
-use s3mock_server::{DurabilityFlag, ServerConfig, ServerHandle};
+use s3local::{Durability, EtagMode, Store, StoreConfig, StoreError};
+use s3local_server::{DurabilityFlag, ServerConfig, ServerHandle};
 use tokio::net::TcpListener;
 
 use crate::ServerError;
@@ -106,7 +106,7 @@ impl EmbeddedS3 {
             ..ServerConfig::default()
         };
         let store = Arc::new(store);
-        let server = s3mock_server::start_with_config(store.clone(), listener, server_config)
+        let server = s3local_server::start_with_config(store.clone(), listener, server_config)
             .map_err(|source| ServerError::EmbeddedS3 {
                 directory: directory.clone(),
                 detail: source.to_string(),
@@ -251,7 +251,7 @@ mod tests {
     use std::io;
     use std::path::{Path, PathBuf};
 
-    use s3mock::StoreError;
+    use s3local::StoreError;
 
     use super::{
         DataDirectoryLock, LockAttemptOutcome, classify_lock_attempt, lock_data_directory,

@@ -13,7 +13,7 @@
     "sdk-rust",
     "sdk-typescript",
     "protos",
-    "s3mock",
+    "s3local",
     "server-zd",
     "script"
   ],
@@ -21,7 +21,7 @@
     "agents",
     "blob-cache-go",
     "protos",
-    "s3mock",
+    "s3local",
     "server-zd",
     "sdk-rust",
     "sdk-typescript",

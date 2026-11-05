@@ -22,8 +22,8 @@ use dexzd_protocol::dex::{
     invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task,
     poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
 };
-use s3mock::{DeleteObjectRequest, Durability, EtagMode, ListObjectsRequest, Store, StoreConfig};
-use s3mock_server::{ServerConfig, ServerHandle, SignatureVerification};
+use s3local::{DeleteObjectRequest, Durability, EtagMode, ListObjectsRequest, Store, StoreConfig};
+use s3local_server::{ServerConfig, ServerHandle, SignatureVerification};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional};
 use tokio::process::{Child, Command};
@@ -46,7 +46,7 @@ const READINESS_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTa
 const STARTUP_BUDGET: Duration = Duration::from_secs(30);
 const READINESS_CALL_BUDGET: Duration = Duration::from_secs(1);
 
-/// An s3mock server in this process with one bucket.
+/// An s3local server in this process with one bucket.
 pub(crate) struct S3Emulator {
     store: Arc<Store>,
     server: ServerHandle,
@@ -70,7 +70,7 @@ impl S3Emulator {
         let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
             .await
             .expect("the emulator binds a loopback port");
-        let server = s3mock_server::start_with_config(
+        let server = s3local_server::start_with_config(
             store.clone(),
             listener,
             ServerConfig {
@@ -155,17 +155,21 @@ impl S3Emulator {
         }
     }
 
-    /// Replaces the emulator's fault rules with `rules`, a JSON array of s3mock fault rules.
+    /// Replaces the emulator's fault rules with `rules`, a JSON array of s3local fault rules.
     pub(crate) async fn set_fault_rules(&self, rules: &str) {
         let response = self
-            .admin_request("PUT", "/_s3mock/faults", &format!(r#"{{"rules":{rules}}}"#))
+            .admin_request(
+                "PUT",
+                "/_s3local/faults",
+                &format!(r#"{{"rules":{rules}}}"#),
+            )
             .await;
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     }
 
     /// Removes every fault rule and releases requests that a delay rule still holds.
     pub(crate) async fn clear_fault_rules(&self) {
-        let response = self.admin_request("DELETE", "/_s3mock/faults", "").await;
+        let response = self.admin_request("DELETE", "/_s3local/faults", "").await;
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     }
 
@@ -180,15 +184,15 @@ impl S3Emulator {
 
     /// Returns the emulator's JSON log of recent requests.
     pub(crate) async fn request_log(&self) -> String {
-        self.admin_request("GET", "/_s3mock/requests", "").await
+        self.admin_request("GET", "/_s3local/requests", "").await
     }
 
     pub(crate) async fn counters(&self) -> String {
-        self.admin_request("GET", "/_s3mock/counters", "").await
+        self.admin_request("GET", "/_s3local/counters", "").await
     }
 
     async fn admin_request(&self, method: &str, path: &str, body: &str) -> String {
-        s3mock_admin_request(self.server.local_address(), method, path, body).await
+        s3local_admin_request(self.server.local_address(), method, path, body).await
     }
 
     pub(crate) async fn shutdown(self) {
@@ -196,8 +200,8 @@ impl S3Emulator {
     }
 }
 
-/// Sends one request to the test controls of the s3mock server at `address` and returns the raw response.
-pub(crate) async fn s3mock_admin_request(
+/// Sends one request to the test controls of the s3local server at `address` and returns the raw response.
+pub(crate) async fn s3local_admin_request(
     address: SocketAddr,
     method: &str,
     path: &str,

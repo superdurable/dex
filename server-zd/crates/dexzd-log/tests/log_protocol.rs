@@ -27,7 +27,7 @@ use dexzd_object_store::{
 };
 use dexzd_protocol::dexzd::v1::LogBatchHeader;
 use prost::Message;
-use s3mock::{Durability, EtagMode, Store as S3MockStore, StoreConfig};
+use s3local::{Durability, EtagMode, Store as S3LocalStore, StoreConfig};
 use tempfile::TempDir;
 use tokio::sync::{Mutex, Notify};
 
@@ -1480,28 +1480,28 @@ async fn external_s3_commit_protocol() {
             },
         )
     } else {
-        let mock_store = S3MockStore::open(&StoreConfig {
+        let mock_store = S3LocalStore::open(&StoreConfig {
             root_directory: directory.path().to_path_buf(),
             durability: Durability::Strict,
             etag_mode: EtagMode::Opaque,
         })
-        .expect("the s3mock store opens");
+        .expect("the s3local store opens");
         mock_store
             .create_bucket("commit-protocol-conformance", false)
-            .expect("the s3mock bucket is created");
+            .expect("the s3local bucket is created");
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
-            .expect("the s3mock listener binds");
-        let server =
-            s3mock_server::start(Arc::new(mock_store), listener).expect("the s3mock server starts");
+            .expect("the s3local listener binds");
+        let server = s3local_server::start(Arc::new(mock_store), listener)
+            .expect("the s3local server starts");
         let endpoint = format!("http://{}", server.local_address());
         (
             Some(server),
             endpoint,
             "commit-protocol-conformance".to_owned(),
             S3Credentials::Static {
-                access_key_id: "s3mock".to_owned(),
-                secret_access_key: "s3mock".to_owned(),
+                access_key_id: "s3local".to_owned(),
+                secret_access_key: "s3local".to_owned(),
                 session_token: None,
             },
         )

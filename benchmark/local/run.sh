@@ -90,7 +90,7 @@ YAML
 run_step() {
   local variant="$1" step_concurrency="$2"
   wait_for_load
-  # The dexcli PID is the sampling root, so its children (server-zd, s3mock) are included.
+  # The dexcli PID is the sampling root, so its children (server-zd, s3local) are included.
   DEXBENCH_SERVER_VERSION="$server_version" nice -n 10 "$benchmark_binary" run \
     --address 127.0.0.1:8801 --target zd --engine zd \
     --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \
