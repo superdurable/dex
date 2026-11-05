@@ -83,6 +83,10 @@ impl Registry {
     /// the longest-waiting RPC, else the longest-waiting Step (plan D56). A woken RPC waiter
     /// gets the stream promised, so no other dispatch takes it first.
     pub(super) fn wake_waiter_for(&mut self, worker: &WorkerStream, now: Instant) {
+        // The RPC waiter it was promised to takes it; a second wakeup must not move it.
+        if self.promised_streams.contains_key(&worker.id) {
+            return;
+        }
         let mut rpc_choice: Option<(u64, String)> = None;
         for queue_name in &worker.queues {
             let Some(queue) = self.queues.get(&(worker.tenant_id, queue_name.clone())) else {
