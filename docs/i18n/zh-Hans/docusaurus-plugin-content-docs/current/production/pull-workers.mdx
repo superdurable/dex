@@ -446,8 +446,10 @@ Worker 重启或部署后，Dex 会立即改用 Flow 类型队列。否则，Dex
 Flow 类型队列，让其他 Worker 接手。黏性路由是尽力而为；持久状态应保存在 Dex 中，不应依赖某个
 Worker 的内存。同一个 Dex Server 内的 Flow 类型名称必须唯一。app Worker ID 必须
 唯一标识一个 Worker 进程，并在该进程重启后变化。未显式设置时，SDK 会生成 ID。如果你显式设置它，请在每次进程重启后使用
-新的值。Dex 按 app Worker ID 记住不支持的类型，因此旧进程的条目可能排除在滚动发布中升级的
-Worker，直到所有旧 stream 都消失。
+新的值。Dex 按 app Worker ID 记住不支持的类型。如果滚动发布中升级后的进程沿用旧的 ID，
+旧进程的条目也会排除升级后的进程。这个条目会一直保留，直到使用这个 ID 的所有 stream 都断开，
+包括升级后进程自己的 stream。如果缓存先淘汰了这个条目，使用这个 ID 的 Worker 完成一个 Step 之后，
+Dex 会再次向它提供这个类型。
 
 Dex 在 matching dispatch 等待时间内寻找可用 Worker。如果没有 Worker，Step 会收到
 可重试的 unavailable 错误，并消耗一次 Step 重试。RPC 调用方则直接收到
