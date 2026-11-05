@@ -66,7 +66,7 @@ class DeadlineRPCFlow implements Flow<void> {
 }
 
 for (const totalDurationMs of [undefined, 6_000]) {
-  test(`Step deadlines include retries and total duration ${totalDurationMs ?? "unset"}; RPC has no deadline`, async () => {
+  test(`Step deadlines use the method timeout on every retry with total duration ${totalDurationMs ?? "unset"}; RPC has no deadline`, async () => {
     const flow = new DeadlineFlow(totalDurationMs);
     const rpcFlow = new DeadlineRPCFlow();
     await withEnvironment([flow, rpcFlow], async ({ client }) => {
@@ -76,8 +76,9 @@ for (const totalDurationMs of [undefined, 6_000]) {
       assert.equal(result.status, "completed", result.errorMessage);
       assert.deepEqual(flow.start.observations.map(({ method, attempt }) => [method, attempt]),
         [["waitFor", 1], ["waitFor", 2], ["execute", 1], ["execute", 2]]);
-      for (const { attempt, remainingMs } of flow.start.observations) {
-        const expectedMs = totalDurationMs === undefined ? 10_000 : totalDurationMs - (attempt - 1) * 1_000;
+      // Retry total duration only decides whether to retry; it never shortens a running attempt.
+      for (const { remainingMs } of flow.start.observations) {
+        const expectedMs = 10_000;
         assert.ok(remainingMs >= expectedMs - 2_000 && remainingMs <= expectedMs + 500, `${remainingMs}ms remaining, expected ${expectedMs}ms`);
       }
       const rpcId = flowId("rpc-deadline");

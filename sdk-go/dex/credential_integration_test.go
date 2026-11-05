@@ -270,7 +270,7 @@ func TestWorkerCredentialReachesPullStreamOverTLS(t *testing.T) {
 		FlowServiceAddress: address,
 		FlowServiceTLS:     &FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM},
 		Credential:         staticTestCredential("pull-token"),
-		Pull:               &PullWorkerOptions{AppWorkerID: "tls-credential-pull-worker"},
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 2, AppWorkerID: "tls-credential-pull-worker"},
 	})
 	require.NoError(t, err)
 	workerResult := make(chan error, 1)

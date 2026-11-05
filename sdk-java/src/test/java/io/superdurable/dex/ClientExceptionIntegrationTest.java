@@ -18,7 +18,7 @@ import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Empty;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
@@ -89,7 +89,7 @@ final class ClientExceptionIntegrationTest {
     @BeforeEach
     void startServer() throws Exception {
         flowService = new ErrorFlowService();
-        server = ServerBuilder.forPort(0)
+        server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0))
                 .addService(flowService)
                 .build()
                 .start();
@@ -412,6 +412,14 @@ final class ClientExceptionIntegrationTest {
 
     private static final class ErrorFlowService
             extends FlowServiceGrpc.FlowServiceImplBase {
+        @Override
+        public void getServerInfo(final Empty request,
+                final StreamObserver<io.superdurable.gen.ServerInfo> observer) {
+            observer.onNext(io.superdurable.gen.ServerInfo.newBuilder().setServerVersion("test")
+                    .setMinimumSupportedProtocolVersion(4).setCurrentProtocolVersion(4).build());
+            observer.onCompleted();
+        }
+
         private final AtomicInteger getAttributesCalls = new AtomicInteger();
         private GetAttributesRequest getAttributesRequest;
 

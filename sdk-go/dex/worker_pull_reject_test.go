@@ -96,7 +96,7 @@ func TestWorkerPullRejectTaskLogLevel(t *testing.T) {
 			clientStream := &rejectTaskClientStream{ctx: pollStreamCtx, sendError: testCase.sendError}
 			stream := newRejectTaskTestStream(ctx, logger, clientStream)
 			stream.isSendClosed = testCase.isSendClosed
-			stream.rejectTask("task-1", dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY)
+			stream.rejectTask("task-1", dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP)
 			if testCase.isSendClosed {
 				require.Empty(t, clientStream.sent)
 			} else {
@@ -127,7 +127,7 @@ func TestWorkerPullRejectTaskOnCanceledGRPCStream(t *testing.T) {
 	stream := newRejectTaskTestStream(ctx, logger, clientStream)
 	// gRPC finishes a canceled stream asynchronously, so an early Send may still succeed.
 	require.Eventually(t, func() bool {
-		stream.rejectTask("task-1", dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY)
+		stream.rejectTask("task-1", dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP)
 		return logger.debugCount.Load() > 0
 	}, 5*time.Second, 10*time.Millisecond)
 	require.Zero(t, logger.errorCount.Load())
@@ -151,7 +151,7 @@ func TestWorkerPullRejectTaskOnServerClosedGRPCStream(t *testing.T) {
 	require.Equal(t, codes.Unavailable, status.Code(err))
 	logger := &rejectTaskLevelLogger{Logger: slog.Default()}
 	stream := newRejectTaskTestStream(ctx, logger, clientStream)
-	stream.rejectTask("task-1", dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY)
+	stream.rejectTask("task-1", dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP)
 	require.NoError(t, ctx.Err())
 	require.Zero(t, logger.errorCount.Load())
 	require.Equal(t, int32(1), logger.debugCount.Load())

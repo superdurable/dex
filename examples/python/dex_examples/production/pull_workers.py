@@ -110,11 +110,9 @@ def is_pull_greeting_ready(worker: AsyncWorker) -> bool:
 @dataclass(frozen=True)
 class PullGreetingDiagnostics:
     is_ready: bool
-    reserved_rpc_declines: int
 
 
 def get_pull_greeting_diagnostics(worker: AsyncWorker) -> PullGreetingDiagnostics:
     return PullGreetingDiagnostics(
         is_ready=worker.pull_registration_state().is_ready,
-        reserved_rpc_declines=worker.pull_reserved_rpc_declines,
     )

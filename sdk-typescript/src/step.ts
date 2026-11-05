@@ -12,7 +12,10 @@ import type { AttributeLock, AttributeMap, AttributeMapLoad } from "./persistenc
 import type { Channel, ChannelMap, ChannelMapLoad, Wait } from "./wait.js";
 import { requireName } from "./validation.js";
 
-/** Controls when a Step handler result is durably acknowledged. */
+/**
+ * Controls when a Step handler result is durably acknowledged.
+ * Async gives lower latency and faster single Flows; sustained throughput is about the same as sync.
+ */
 export type StepDurability = "sync" | "async";
 /** Controls whether exhausted `waitFor` failures fail the Flow or run `execute`. */
 export type WaitForFailurePolicy = "failFlow" | "proceed";
@@ -27,7 +30,12 @@ export interface RetryPolicy {
   readonly maximumIntervalMs?: number;
   /** Total attempt limit including the initial call. */
   readonly maximumAttempts?: number;
-  /** Overall elapsed-time limit in milliseconds; defaults to four hours when omitted. */
+  /**
+   * Retry elapsed-time limit in milliseconds; defaults to four hours when omitted.
+   * For a Step, counted from the first hand-out to a Worker.
+   * Checked only after an attempt fails to decide whether another retry can be scheduled.
+   * It never ends a running Step attempt; use the method timeout to bound an attempt.
+   */
   readonly totalDurationMs?: number;
 }
 

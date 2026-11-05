@@ -138,6 +138,10 @@ impl ClientRequestBudget {
         })
     }
 
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
     pub(crate) fn has_deadline(&self) -> bool {
         self.deadline.is_some()
     }

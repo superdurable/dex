@@ -21,7 +21,7 @@ impl PullStream {
                 break;
             }
             let (was_registered, is_reconnecting, result) = self.poll().await;
-            if self.stop.borrow().phase != 0 || self.shared.is_retiring(self.stream_id) {
+            if self.stop.borrow().phase != 0 {
                 self.record_stream_result(None);
                 break;
             }

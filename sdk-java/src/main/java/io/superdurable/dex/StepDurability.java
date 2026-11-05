@@ -14,9 +14,9 @@ package io.superdurable.dex;
  * Selects when Dex durably records a Step method result relative to subsequent Flow work.
  *
  * <p>{@link #ASYNC} lets Dex continue the Flow without first waiting for the completed method result
- * to be persisted. This lowers the latency between Steps and lets the server batch persistence work,
- * which generally provides higher throughput. The tradeoff is a small failure window: if the result
- * has not yet been persisted when the underlying process or workflow engine fails, Dex may not see
+ * to be persisted. This lowers latency between Steps and makes single Flows faster. Sustained
+ * throughput is about the same as SYNC. The tradeoff is a small failure window: if the result
+ * has not yet been persisted when the Server fails, Dex may not see
  * that completion during recovery and may invoke the already-completed Step method again. Step
  * methods must therefore be idempotent regardless of the selected durability.
  *
@@ -70,10 +70,9 @@ public enum StepDurability {
     /**
      * Allows Dex to advance before the completed method result is durably recorded.
      *
-     * <p>This lowers latency and improves server throughput through batched persistence, while
+     * <p>This lowers latency and makes single Flows faster, with about the same sustained throughput, while
      * accepting that an extreme failure may lose an unpersisted result and cause the Step method to
-     * execute again. Dex first uses a local activity for at most seven seconds and three attempts,
-     * then falls back to a regular activity using the remaining retry budget.
+     * execute again.
      */
     ASYNC
 }

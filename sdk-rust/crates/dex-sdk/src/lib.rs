@@ -63,7 +63,7 @@ pub use attribute_match::AttributeMatch;
 pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};
 pub use client::{AttributeRead, AttributeReads, Client};
 pub use client_options::ClientOptions;
-pub use context::{Context, RecoveryErrorInfo};
+pub use context::{Context, RecoveryErrorInfo, StepAttemptProgress};
 #[cfg(feature = "api-key-credential")]
 pub use credential::{ApiKeyCredential, ApiKeyCredentialBuilder, ApiKeyCredentialError};
 pub use credential::{Credential, CredentialError, FileCredential};

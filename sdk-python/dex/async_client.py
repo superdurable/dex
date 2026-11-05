@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta, timezone
+from time import monotonic
 from types import TracebackType
 from typing import Any, Callable, TypeVar, cast, overload
 from uuid import uuid4
@@ -25,9 +26,10 @@ from dex._async_value_hydrator import AsyncValueHydrator
 from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
 from dex._server_protocol import (
     NegotiatedServerProtocol,
+    ServerProtocolNegotiationTimeoutError,
     negotiate_server_protocol,
+    remaining_negotiation_seconds,
     sdk_version,
-    server_info_request_error,
 )
 from dex._utils import require_name
 from dex._value_mapper import ValueMapper
@@ -64,7 +66,12 @@ from dex.flow_options import (
     _resolve_flow_timeout_policy,
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
-from dex.runtime_errors import DexServiceError, FlowErrorType, LongPollTimeoutError
+from dex.runtime_errors import (
+    DexServiceError,
+    ErrorSubStatus,
+    FlowErrorType,
+    LongPollTimeoutError,
+)
 from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
@@ -87,6 +94,16 @@ class AsyncClient:
     Methods perform non-blocking gRPC I/O and are safe to await from concurrent
     tasks. The Client owns its asynchronous channel but not its Registry or BlobCache;
     use ``async with`` or await ``close`` during application shutdown.
+
+    Construction performs no network I/O. The first service request negotiates
+    Server protocol 4 with GetServerInfo. Service methods raise RuntimeError
+    only when the Server reports a protocol range this SDK cannot use. The
+    message names the Server version and says whether to upgrade the Server
+    (server-zd newer than v0.1.16) or the SDK. That result is cached, and every
+    later call raises it again. When GetServerInfo itself fails, for example
+    because the Server is unreachable, the call raises the same DexServiceError
+    as any other transport failure. Such failures are not cached, so the next
+    call negotiates again. Negotiation counts against a call's request timeout.
 
     Attributes:
         registry: Flow definitions used to validate typed calls.
@@ -137,6 +154,7 @@ class AsyncClient:
             self._server_protocol,
         )
         self._server_protocol_lock = asyncio.Lock()
+        self._server_protocol_error_message: str | None = None
         self._closed = False
 
     async def __aenter__(self) -> AsyncClient:
@@ -175,10 +193,9 @@ class AsyncClient:
         must be the exact registered instance and ``input`` must match its starting
         Step annotation.
 
-        When ``options`` initializes an Attribute defined with
-        ``hard_delete_on_null=True``, the first such call also requests Dex Server
-        information and caches the negotiated Server protocol version for later
-        calls. The Flow is not started when that version is below 3.
+        The first request negotiates Server protocol 4 and caches compatibility.
+        Construction performs no network I/O. An incompatible Server fails this
+        and every later request; transient negotiation failures can be retried.
 
         Args:
             flow: The registered Flow instance to start.
@@ -196,8 +213,7 @@ class AsyncClient:
                 including a numeric or Boolean value for a hard-delete Attribute.
             ValueError: If an initial Attribute uses a different ``hard_delete_on_null``
                 setting than the Flow's registered definition of that name.
-            RuntimeError: If a hard-delete Attribute is initialized and the Server
-                protocol is incompatible, below version 3, or cannot be requested.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
             DexServiceError: If FlowService rejects or cannot perform the request.
         """
         registered = self.registry._flow_for_instance(flow)
@@ -241,7 +257,9 @@ class AsyncClient:
             )
         start_attributes = request.flow_start_options.attributes
         if any(write.is_hard_delete_on_null for write in start_attributes):
-            await self._negotiate_server_protocol()
+            await self._negotiate_server_protocol_for_operation(
+                "start_flow", flow_id, "none"
+            )
             self._server_protocol.require_hard_delete_attribute_support(
                 start_attributes
             )
@@ -332,6 +350,7 @@ class AsyncClient:
             FlowNotActiveOrNotFoundError: If the Flow is missing or the selected path
                 cannot use its closed execution.
             DexServiceError: If the service call otherwise fails.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         registered_flow, rpc = self.registry._rpc_for_method(rpc_method)
         (
@@ -414,6 +433,7 @@ class AsyncClient:
             FlowDefinitionError: If the Stream is not registered.
             ValueMappingError: If the message cannot be encoded.
             DexServiceError: If FlowService cannot append the message.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         require_name(source)
         flow = self.registry._flow_for_stream(stream)
@@ -458,6 +478,7 @@ class AsyncClient:
             FlowDefinitionError: If the Stream is not registered.
             ValueMappingError: If the retained message cannot be decoded.
             DexServiceError: If FlowService cannot perform the read.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         flow = self.registry._flow_for_stream(stream)
         response = cast(
@@ -521,6 +542,7 @@ class AsyncClient:
             FlowDefinitionError: If the Stream is not registered.
             ValueMappingError: If a retained message cannot be decoded.
             DexServiceError: If FlowService cannot list the Stream.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         if page_size < 1:
             raise ValueError("Stream page size must be positive")
@@ -585,6 +607,7 @@ class AsyncClient:
             FlowNotFoundError: If ``flow_id`` does not exist.
             ValueMappingError: If Dex returns a malformed or incompatible hydrated value.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         response = await self._wait_for_flow_response(flow_id, timeout)
         hydrated = await self._hydrator.step_outputs(flow_id, list(response.results))
@@ -615,6 +638,7 @@ class AsyncClient:
         Raises:
             FlowNotActiveOrNotFoundError: If no active run exists.
             DexServiceError: If FlowService rejects or cannot perform the request.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         await self._call(
             self._service.StopFlow,
@@ -644,6 +668,7 @@ class AsyncClient:
         Raises:
             FlowNotFoundError: If ``flow_id`` does not exist.
             DexServiceError: If FlowService cannot return the summary.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         response = cast(
             pb.GetFlowSummaryResponse,
@@ -739,9 +764,11 @@ class AsyncClient:
                 unsupported object encoding, and a large value that LoadBlobs omits.
             DexServiceError: If FlowService or LoadBlobs otherwise fails. A LoadBlobs
                 failure for a missing Flow raises ``FlowNotFoundError``.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         plan = plan_attribute_reads(self.registry, self._values, flow_id, reads)
         try:
+            await self._negotiate_server_protocol()
             response = await self._service.GetAttributes(plan.request())
         except grpc.RpcError as error:
             raise plan.service_error(error, "GetAttributes") from error
@@ -779,6 +806,7 @@ class AsyncClient:
             ValueError: If ``page_size`` is negative.
             ValueMappingError: If an indexed Attribute cannot be hydrated.
             DexServiceError: If FlowService cannot execute the query.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         if page_size < 0:
             raise ValueError("search page size must not be negative")
@@ -838,6 +866,7 @@ class AsyncClient:
             FlowNotFoundError: If ``flow_id`` does not exist.
             ValueError: If time travel selector fields are invalid.
             DexServiceError: If FlowService cannot create the new run.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request = pb.ResetFlowRequest(
             flow_id=require_name(flow_id),
@@ -890,6 +919,7 @@ class AsyncClient:
             FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             ValueError: If an identifier is invalid.
             DexServiceError: If FlowService cannot skip the Timer.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request = pb.SkipTimerRequest(
             flow_id=require_name(flow_id),
@@ -929,12 +959,16 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request_budget = _ClientRequestBudget(options.request_timeout)
         internal_handler_timeout_seconds = _duration_seconds32(
             options.internal_handler_timeout
         )
         while True:
+            await self._negotiate_within_request_budget(
+                request_budget, "wait_for_step_completion", flow_id
+            )
             request_attempt = request_budget.next_attempt(
                 "wait_for_step_completion", flow_id
             )
@@ -999,6 +1033,7 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         ...
 
@@ -1033,6 +1068,7 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         ...
 
@@ -1065,6 +1101,7 @@ class AsyncClient:
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         instance, match, options = self._attribute_wait_arguments(
             attribute, args, kwargs
@@ -1093,6 +1130,9 @@ class AsyncClient:
             options.internal_handler_timeout
         )
         while True:
+            await self._negotiate_within_request_budget(
+                request_budget, "wait_for_attribute_match", flow_id
+            )
             request_attempt = request_budget.next_attempt(
                 "wait_for_attribute_match", flow_id
             )
@@ -1148,6 +1188,7 @@ class AsyncClient:
             FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             ValueError: If a configuration value is invalid.
             DexServiceError: If FlowService cannot apply the update.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         await self._call(
             self._service.UpdateFlowConfig,
@@ -1171,6 +1212,7 @@ class AsyncClient:
         Raises:
             FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             DexServiceError: If FlowService cannot accept the request.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         await self._call(
             self._service.TriggerContinueAsNew,
@@ -1188,6 +1230,7 @@ class AsyncClient:
 
         Raises:
             DexServiceError: If the service is unhealthy or unreachable.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         from google.protobuf import empty_pb2
 
@@ -1215,19 +1258,84 @@ class AsyncClient:
             if self._credential_runner is not None:
                 self._credential_runner.close()
 
-    async def _negotiate_server_protocol(self) -> None:
-        async with self._server_protocol_lock:
-            if self._server_protocol.version == 0:
-                artifact_version = sdk_version()
-                try:
-                    server_info = await self._service.GetServerInfo(empty_pb2.Empty())
-                except grpc.RpcError as failure:
-                    raise server_info_request_error(
-                        artifact_version, failure
-                    ) from failure
-                self._server_protocol.record_version(
-                    negotiate_server_protocol(server_info, artifact_version)
-                )
+    async def _negotiate_server_protocol(self, deadline: float | None = None) -> None:
+        if self._server_protocol.version != 0:
+            return
+        self._raise_cached_server_protocol_error()
+        remaining = remaining_negotiation_seconds(deadline)
+        if remaining is not None and remaining <= 0:
+            raise ServerProtocolNegotiationTimeoutError()
+        negotiation_timeout = asyncio.timeout(remaining)
+        try:
+            async with negotiation_timeout:
+                async with self._server_protocol_lock:
+                    if self._server_protocol.version != 0:
+                        return
+                    self._raise_cached_server_protocol_error()
+                    remaining = remaining_negotiation_seconds(deadline)
+                    if remaining is None:
+                        server_info = await self._service.GetServerInfo(
+                            empty_pb2.Empty()
+                        )
+                    else:
+                        server_info = await self._service.GetServerInfo(
+                            empty_pb2.Empty(), timeout=max(0.0, remaining)
+                        )
+                    try:
+                        negotiated_version = negotiate_server_protocol(
+                            server_info, sdk_version()
+                        )
+                    except RuntimeError as failure:
+                        self._server_protocol_error_message = str(failure)
+                        raise
+                    self._server_protocol.record_version(negotiated_version)
+        except TimeoutError as error:
+            if not negotiation_timeout.expired():
+                raise
+            raise ServerProtocolNegotiationTimeoutError() from error
+
+    def _raise_cached_server_protocol_error(self) -> None:
+        # A fresh exception per call keeps tracebacks from accumulating.
+        if self._server_protocol_error_message is not None:
+            raise RuntimeError(self._server_protocol_error_message)
+
+    async def _negotiate_server_protocol_for_operation(
+        self,
+        operation: str,
+        flow_id: str | None,
+        requirement: FlowTargetRequirement,
+        deadline: float | None = None,
+    ) -> None:
+        try:
+            await self._negotiate_server_protocol(deadline)
+        except grpc.RpcError as error:
+            raise translate_rpc_error(error, operation, flow_id, requirement) from error
+        except ServerProtocolNegotiationTimeoutError as error:
+            raise DexServiceError(
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+                ErrorSubStatus.UNCATEGORIZED,
+                "Server protocol negotiation did not finish before the request timeout",
+                operation,
+                flow_id,
+            ) from error
+
+    async def _negotiate_within_request_budget(
+        self,
+        request_budget: _ClientRequestBudget,
+        operation: str,
+        flow_id: str,
+    ) -> None:
+        try:
+            await self._negotiate_server_protocol_for_operation(
+                operation, flow_id, "active", request_budget.deadline
+            )
+        except DexServiceError as error:
+            # Negotiation shares this budget, so its deadline is the budget deadline.
+            if error.code is grpc.StatusCode.DEADLINE_EXCEEDED or (
+                request_budget.is_timeout(error.code)
+            ):
+                raise request_budget.timeout_error(operation, flow_id) from error
+            raise
 
     async def _wait_for_flow_response(
         self,
@@ -1467,8 +1575,8 @@ class AsyncClient:
         }
         return error_types.get(error_type)
 
-    @staticmethod
     async def _call(
+        self,
         method: Callable[..., Any],
         request: Any,
         operation: str,
@@ -1476,6 +1584,12 @@ class AsyncClient:
         requirement: FlowTargetRequirement,
         timeout: float | None = None,
     ) -> Any:
+        deadline = None if timeout is None else monotonic() + timeout
+        await self._negotiate_server_protocol_for_operation(
+            operation, flow_id, requirement, deadline
+        )
+        if deadline is not None:
+            timeout = max(0.0, deadline - monotonic())
         try:
             if timeout is None:
                 return await method(request)

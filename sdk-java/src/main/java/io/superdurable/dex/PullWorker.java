@@ -16,6 +16,7 @@ import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.gen.InvokeExecuteMethodOutput;
 import io.superdurable.gen.InvokeWaitForMethodOutput;
+import io.superdurable.gen.PollWorkerSlotKind;
 import io.superdurable.gen.PollWorkerTask;
 import io.superdurable.gen.PollWorkerTaskFrame;
 import io.superdurable.gen.PollWorkerTaskPong;
@@ -32,7 +33,9 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.DateTimeException;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -40,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -53,6 +57,8 @@ import java.util.function.Supplier;
 final class PullWorker {
     private static final Logger LOGGER = Logger.getLogger(PullWorker.class.getName());
     private static final long BUSY_PULL_STREAM_KEEPALIVE_SECONDS = 20L;
+    // Extra time after the stop timeout for a queued final output to reach Dex before reset.
+    private static final Duration FINAL_OUTPUT_FLUSH_GRACE = Duration.ofSeconds(5);
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
     private final Credential credential;
@@ -60,35 +66,36 @@ final class PullWorker {
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
     private final ScheduledThreadPoolExecutor scheduler;
+    // Runs transport writes outside the PullWorker monitor so a blocked write never delays a reset.
+    private final ExecutorService streamWriters;
     private final PullWorkerOptions options;
-    private final long reservePressureLingerNanos;
     private final List<String> flowTypes;
     private final Map<String, Registry.RegisteredFlow> registeredFlows;
-    private final List<String> queues;
+    private final List<PollWorkerSlotKind> slotKinds;
     private final List<PullStream> streams = new ArrayList<PullStream>();
     private final String appWorkerID;
     private final String sdkVersion;
     private final Random jitter = new SecureRandom();
-    private final Map<String, QueueRegistration> queueRegistrations =
-            new HashMap<String, QueueRegistration>();
-    private boolean hasRegisteredAllQueues;
+    private final Map<PollWorkerSlotKind, SlotRegistration> slotRegistrations =
+            new HashMap<PollWorkerSlotKind, SlotRegistration>();
+    private boolean hasRegisteredRequiredSlotKinds;
     private boolean hasStartReturned;
     private Throwable startError;
     private PullRegistrationError initialRegistrationError;
     private PullRegistrationError permanentStreamError;
     private int busyTasks;
-    private long reservedRpcDeclines;
+    private boolean hasCheckedRegistrationLimit;
+    private String registrationLimitFailure;
 
-    private static final class QueueRegistration {
+    private static final class SlotRegistration {
         private int registeredStreams;
         private boolean hasRegistered;
         private Throwable lastPermanentError;
-        private long lastReserveDeclineNanos;
-        private ScheduledFuture<?> reservePressureTimer;
     }
     private boolean isStopping;
     private boolean hasLoggedUnsupported;
     private long stopDeadlineNanos;
+    private long finalOutputFlushDeadlineNanos;
 
     PullWorker(
             final Registry registry,
@@ -108,7 +115,6 @@ final class PullWorker {
         this.taskService = credential == null ? serviceStub
                 : serviceStub.withCallCredentials(new GrpcCredential(credential));
         this.options = options;
-        this.reservePressureLingerNanos = options.getReservePressureLinger().toNanos();
         this.sdkVersion = sdkVersion;
         this.scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
             final Thread thread = new Thread(runnable, "dex-java-pull-timer");
@@ -132,11 +138,18 @@ final class PullWorker {
             scheduler.shutdownNow();
             throw new IllegalArgumentException("appWorkerID conflicts with Flow type " + appWorkerID);
         }
-        this.queues = new ArrayList<String>();
-        queues.add(appWorkerID);
-        queues.addAll(registered);
-        for (String queue : queues) {
-            queueRegistrations.put(queue, new QueueRegistration());
+        this.streamWriters = Executors.newCachedThreadPool(runnable -> {
+            final Thread thread = new Thread(runnable, "dex-java-pull-writer");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.slotKinds = new ArrayList<PollWorkerSlotKind>();
+        slotKinds.add(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC);
+        if (options.getReservedRpcTasks() > 0) {
+            slotKinds.add(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY);
+        }
+        for (PollWorkerSlotKind slotKind : slotKinds) {
+            slotRegistrations.put(slotKind, new SlotRegistration());
         }
     }
 
@@ -228,7 +241,7 @@ final class PullWorker {
     }
 
     synchronized long getReservedRpcDeclines() {
-        return reservedRpcDeclines;
+        return 0L;
     }
 
     void runBlocking() {
@@ -236,10 +249,12 @@ final class PullWorker {
             LOGGER.warning("RPCs may wait behind long-running Steps; use maxConcurrentTasks >= 2 or set reservedRpcTasks explicitly");
         }
         boolean interrupted = false;
+        final String limitFailure;
+        final PullRegistrationError streamError;
         synchronized (this) {
             reconcile();
             while ((!isStopping || !streams.isEmpty() || busyTasks > 0)
-                    && permanentStreamError == null) {
+                    && permanentStreamError == null && registrationLimitFailure == null) {
                 try {
                     wait();
                 } catch (InterruptedException interruption) {
@@ -247,10 +262,16 @@ final class PullWorker {
                     break;
                 }
             }
+            limitFailure = registrationLimitFailure;
+            streamError = permanentStreamError;
         }
-        if (permanentStreamError != null) {
+        if (limitFailure != null) {
             stop();
-            throw permanentStreamError;
+            throw new IllegalStateException(limitFailure);
+        }
+        if (streamError != null) {
+            stop();
+            throw copyRegistrationError(streamError);
         }
         if (interrupted) {
             stop();
@@ -261,9 +282,12 @@ final class PullWorker {
     synchronized void waitRegistered(final Duration timeout)
             throws InterruptedException, TimeoutException {
         final long deadline = System.nanoTime() + timeout.toNanos();
-        while (!hasRegisteredAllQueues) {
+        while (!hasRegisteredRequiredSlotKinds || registrationLimitFailure != null) {
+            if (registrationLimitFailure != null) {
+                throw new IllegalStateException(registrationLimitFailure);
+            }
             if (initialRegistrationError != null) {
-                throw initialRegistrationError;
+                throw copyRegistrationError(initialRegistrationError);
             }
             if (hasStartReturned) {
                 if (startError instanceof RuntimeException) {
@@ -285,14 +309,19 @@ final class PullWorker {
         }
     }
 
+    // Each throw gets a fresh exception so callers never share stack or suppressed state.
+    private static PullRegistrationError copyRegistrationError(final PullRegistrationError error) {
+        return new PullRegistrationError(error.getQueue(), error.getCause());
+    }
+
     synchronized PullRegistrationState registrationState() {
-        boolean isReady = hasRegisteredAllQueues;
+        boolean isReady = hasRegisteredRequiredSlotKinds && registrationLimitFailure == null;
         final List<PullQueueRegistrationState> snapshots = new ArrayList<PullQueueRegistrationState>();
-        for (String queue : queues) {
-            final QueueRegistration registration = queueRegistrations.get(queue);
+        for (PollWorkerSlotKind slotKind : slotKinds) {
+            final SlotRegistration registration = slotRegistrations.get(slotKind);
             final boolean hasRegisteredStream = registration.registeredStreams > 0;
             snapshots.add(new PullQueueRegistrationState(
-                    queue, hasRegisteredStream, registration.lastPermanentError));
+                    slotKind.name(), hasRegisteredStream, registration.lastPermanentError));
             if (!hasRegisteredStream && registration.lastPermanentError != null) {
                 isReady = false;
             }
@@ -307,33 +336,34 @@ final class PullWorker {
     }
 
     private void recordRegisteredStream(final PullStream stream) {
-        final QueueRegistration registration = queueRegistrations.get(stream.queue);
+        final SlotRegistration registration = slotRegistrations.get(stream.slotKind);
         registration.registeredStreams++;
         registration.hasRegistered = true;
         registration.lastPermanentError = null;
-        if (!hasRegisteredAllQueues) {
-            hasRegisteredAllQueues = true;
-            for (QueueRegistration registeredQueue : queueRegistrations.values()) {
-                hasRegisteredAllQueues &= registeredQueue.hasRegistered;
+        if (!hasRegisteredRequiredSlotKinds) {
+            hasRegisteredRequiredSlotKinds = true;
+            for (SlotRegistration registeredSlotKind : slotRegistrations.values()) {
+                hasRegisteredRequiredSlotKinds &= registeredSlotKind.hasRegistered;
             }
         }
         notifyAll();
     }
 
     private void recordStreamResult(final PullStream stream, final Throwable failure) {
-        final QueueRegistration registration = queueRegistrations.get(stream.queue);
+        final SlotRegistration registration = slotRegistrations.get(stream.slotKind);
         if (stream.isRegistered) {
             stream.isRegistered = false;
             registration.registeredStreams--;
         }
         if (!stream.shouldRetryRejectedTokenImmediately && isPermanentStreamError(failure)) {
             registration.lastPermanentError = failure;
-            final PullRegistrationError rejection = new PullRegistrationError(stream.queue, failure);
+            final PullRegistrationError rejection = new PullRegistrationError(stream.slotKind.name(), failure);
             if (registration.registeredStreams == 0) {
-                if (!hasRegisteredAllQueues && initialRegistrationError == null) {
+                if (!hasRegisteredRequiredSlotKinds && initialRegistrationError == null) {
                     initialRegistrationError = rejection;
                 }
-                if (options.isStopOnPermanentStreamRejection() && permanentStreamError == null) {
+                if (options.isStopOnPermanentStreamRejection() && permanentStreamError == null
+                        && registrationLimitFailure == null) {
                     permanentStreamError = rejection;
                 }
             }
@@ -355,6 +385,7 @@ final class PullWorker {
             if (!isStopping) {
                 isStopping = true;
                 stopDeadlineNanos = System.nanoTime() + options.getStopDrainTimeout().toNanos();
+                finalOutputFlushDeadlineNanos = stopDeadlineNanos + FINAL_OUTPUT_FLUSH_GRACE.toNanos();
             }
             final long deadline = stopDeadlineNanos;
             notifyAll();
@@ -369,17 +400,20 @@ final class PullWorker {
             }
             if (!streams.isEmpty() || busyTasks > 0) {
                 for (PullStream stream : new ArrayList<PullStream>(streams)) {
-                    stream.cancelTask(Status.Code.CANCELLED);
-                    if (!stream.isHalfClosed && !stream.isClosed && stream.requests != null) {
-                        final RuntimeException cancellation = Status.CANCELLED.asRuntimeException();
-                        try {
-                            stream.requests.onError(cancellation);
-                        } catch (RuntimeException failure) {
-                            LOGGER.log(Level.WARNING, "cancel Worker task stream", failure);
-                        } finally {
-                            stream.close(cancellation);
+                    if (stream.isFlushingFinalOutput()) {
+                        if (!stream.isBusy) {
+                            stream.halfClose();
                         }
+                    } else {
+                        stream.resetForStopTimeout();
                     }
+                }
+                final long flushDeadline = finalOutputFlushDeadlineNanos;
+                while ((!streams.isEmpty() || busyTasks > 0) && System.nanoTime() < flushDeadline) {
+                    interrupted |= awaitUntil(flushDeadline);
+                }
+                for (PullStream stream : new ArrayList<PullStream>(streams)) {
+                    stream.resetForStopTimeout();
                 }
                 while (busyTasks > 0 || !streams.isEmpty()) {
                     try {
@@ -391,6 +425,7 @@ final class PullWorker {
             }
         }
         scheduler.shutdownNow();
+        streamWriters.shutdownNow();
         if (interrupted) {
             Thread.currentThread().interrupt();
         }
@@ -410,37 +445,17 @@ final class PullWorker {
         if (isStopping) {
             return;
         }
-        for (String queue : queues) {
-            for (PullStream stream : new java.util.ArrayList<PullStream>(streams)) {
-                if (stream.queue.equals(queue) && stream.isRegistered && !stream.isBusy
-                        && !stream.isDraining && stream.hasIdleReplacement(true)) {
-                    stream.isDraining = true;
-                    stream.isRetiring = true;
-                    stream.halfClose();
-                }
+        if (streams.isEmpty()) {
+            for (int slot = 0; slot < options.getMaxConcurrentTasks(); slot++) {
+                final PollWorkerSlotKind slotKind = slot < options.getReservedRpcTasks()
+                        ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
+                        : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC;
+                streams.add(new PullStream(slotKind));
             }
-            int idle = 0;
-            for (PullStream stream : streams) {
-                if (stream.queue.equals(queue) && !stream.isBusy && !stream.isDraining) {
-                    idle++;
-                }
-            }
-            final int desiredIdle = desiredIdleStreamsPerQueue(queue);
-            final int creationTarget = busyTasks == options.getMaxConcurrentTasks()
-                    ? options.getIdleStreamsPerQueue() : desiredIdle;
-            while (idle < creationTarget) {
-                final PullStream stream = new PullStream(queue);
-                streams.add(stream);
+            for (PullStream stream : new ArrayList<PullStream>(streams)) {
                 stream.open();
-                idle++;
             }
         }
-    }
-
-    private int desiredIdleStreamsPerQueue(final String queue) {
-        final long lastDecline = queueRegistrations.get(queue).lastReserveDeclineNanos;
-        return options.getIdleStreamsPerQueue() + (options.getReservedRpcTasks() > 0
-                && lastDecline != 0L && System.nanoTime() - lastDecline < reservePressureLingerNanos ? 1 : 0);
     }
 
     private long retryDelay(final long backoff) {
@@ -448,10 +463,13 @@ final class PullWorker {
     }
 
     private final class PullStream implements StreamObserver<PollWorkerTaskResponse> {
-        private final String queue;
+        private final PollWorkerSlotKind slotKind;
         private volatile AtomicReference<String> callToken;
         private volatile int openGeneration;
-        private StreamObserver<PollWorkerTaskRequest> requests;
+        private PullConnection connection;
+        private PollWorkerTask pendingTask;
+        private boolean isPendingTaskCancelled;
+        private boolean hasUnconfirmedFinalOutput;
         private Context.CancellableContext taskContext;
         private ScheduledFuture<?> deadlineTimer;
         private ScheduledFuture<?> keepaliveTimer;
@@ -464,16 +482,14 @@ final class PullWorker {
         private boolean isBusy;
         private boolean isFinalFrameSent;
         private boolean isDraining;
-        private boolean isRetiring;
         private boolean isHalfClosed;
         private boolean isClosed;
         private boolean isRegistered;
         private boolean hasRetriedRejectedToken;
         private boolean shouldRetryRejectedTokenImmediately;
-        private boolean supportsUnknownNameRejection;
 
-        private PullStream(final String queue) {
-            this.queue = queue;
+        private PullStream(final PollWorkerSlotKind slotKind) {
+            this.slotKind = slotKind;
         }
 
         private void open() {
@@ -483,9 +499,13 @@ final class PullWorker {
             isClosed = false;
             isHalfClosed = false;
             isRegistered = false;
+            pendingTask = null;
+            isPendingTaskCancelled = false;
+            hasUnconfirmedFinalOutput = false;
             isFinalFrameSent = false;
-            supportsUnknownNameRejection = false;
             closeFailure = null;
+            final PullConnection opened = new PullConnection(Context.ROOT.withCancellation());
+            connection = opened;
             try {
                 final StreamObserver<PollWorkerTaskResponse> observer =
                         new StreamObserver<PollWorkerTaskResponse>() {
@@ -508,11 +528,13 @@ final class PullWorker {
                                 close(null, null, generation);
                             }
                         };
-                GrpcCredential.withTokenCapture(openedToken).run(() ->
-                        requests = taskService.pollWorkerTask(observer));
+                // Cancelling this context is grpc-java's thread-safe reset; it sends RST_STREAM.
+                opened.callContext.run(() -> GrpcCredential.withTokenCapture(openedToken).run(() ->
+                        opened.requests = taskService.pollWorkerTask(observer)));
                 send(PollWorkerTaskRequest.newBuilder()
                         .setRegister(PollWorkerTaskRegister.newBuilder()
-                                .setQueue(queue)
+                                .setSupportsReservedSlotDispatch(true)
+                                .setSlotKind(slotKind)
                                 .setAppWorkerId(appWorkerID)
                                 .addAllFlowTypes(flowTypes)
                                 .setSdkName("java")
@@ -531,28 +553,40 @@ final class PullWorker {
                     return;
                 }
                 if (!isRegistered) {
-                    if (response.hasReconnect()) {
+                    if (registrationLimitFailure != null || isStopping || isDraining || isHalfClosed) {
+                        // This stream takes no more work; a task dropped here was never started.
+                        isDraining = true;
+                        halfClose();
+                    } else if (response.hasReconnect()) {
                         isDraining = true;
                         halfClose();
                     } else if (response.hasRegistered()) {
+                        if (!isRegistrationWithinServerLimit(response)) {
+                            isDraining = true;
+                            halfClose();
+                            PullWorker.this.notifyAll();
+                            return;
+                        }
                         isRegistered = true;
                         recordRegisteredStream(this);
-                        supportsUnknownNameRejection = response.getRegistered().getSupportsUnknownNameRejection();
                         backoffMillis = 100L;
                         hasRetriedRejectedToken = false;
                         reconcile();
                     } else {
-                        requests.onError(Status.INTERNAL
-                                .withDescription("Worker task stream did not register")
-                                .asRuntimeException());
+                        reset("Worker task stream did not register");
                     }
                     return;
                 }
                 if (response.hasTask()) {
+                    // Dex assigns a task only after it has received the previous final output.
+                    hasUnconfirmedFinalOutput = false;
                     startTask(response.getTask());
                 } else if (response.hasCancelTask()) {
-                    if (response.getCancelTask().getTaskId().equals(taskID)) {
+                    final String cancelledTaskID = response.getCancelTask().getTaskId();
+                    if (cancelledTaskID.equals(taskID)) {
                         cancelTask(Status.Code.CANCELLED);
+                    } else if (pendingTask != null && cancelledTaskID.equals(pendingTask.getTaskId())) {
+                        isPendingTaskCancelled = true;
                     }
                 } else if (response.hasPing()) {
                     send(PollWorkerTaskRequest.newBuilder()
@@ -568,38 +602,60 @@ final class PullWorker {
             }
         }
 
-        private void startTask(final PollWorkerTask task) {
-            final PollWorkerTaskRejectReason unknownReason = unknownTaskReason(task);
-            if (supportsUnknownNameRejection
-                    && unknownReason != PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED) {
-                reject(task.getTaskId(), unknownReason);
-                return;
-            }
-            if (isBusy || isDraining || isStopping
-                    || busyTasks >= options.getMaxConcurrentTasks()) {
-                reject(task.getTaskId(), PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
-                return;
-            }
-            final boolean isStepTask = task.hasWaitFor() || task.hasExecute();
-            if (isStepTask && options.getReservedRpcTasks() > 0
-                    && busyTasks >= options.getMaxConcurrentTasks() - options.getReservedRpcTasks()
-                    && unknownReason == PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED) {
-                reservedRpcDeclines++;
-                final QueueRegistration registration = queueRegistrations.get(queue);
-                registration.lastReserveDeclineNanos = System.nanoTime();
-                if (registration.reservePressureTimer != null) {
-                    registration.reservePressureTimer.cancel(false);
+        // Checks the Server's per-Worker slot limit on the first registration after start only.
+        private boolean isRegistrationWithinServerLimit(final PollWorkerTaskResponse response) {
+            final long serverLimit = Integer.toUnsignedLong(response.getRegistered()
+                    .getMaxConcurrentTasksPerAppWorker());
+            final boolean isWithinLimit = serverLimit == 0 || serverLimit >= options.getMaxConcurrentTasks();
+            if (hasCheckedRegistrationLimit) {
+                if (!isWithinLimit) {
+                    LOGGER.warning("maxConcurrentTasks " + options.getMaxConcurrentTasks()
+                            + " exceeds the Server setting matching.maxConcurrentTasksCap " + serverLimit
+                            + " reported on reconnect; the Worker keeps running and the Server may reject"
+                            + " extra slot streams");
                 }
-                registration.reservePressureTimer = scheduler.schedule(() -> {
-                    synchronized (PullWorker.this) {
-                        reconcile();
-                    }
-                }, reservePressureLingerNanos, TimeUnit.NANOSECONDS);
-                final String flowType = task.hasWaitFor()
-                        ? task.getWaitFor().getFlowType() : task.getExecute().getFlowType();
-                LOGGER.log(Level.FINE, "decline Step task for reserved RPC capacity: {0}", flowType);
-                reject(task.getTaskId(), PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
-                reconcile();
+                return true;
+            }
+            hasCheckedRegistrationLimit = true;
+            if (!isWithinLimit) {
+                registrationLimitFailure = "maxConcurrentTasks " + options.getMaxConcurrentTasks()
+                        + " exceeds Server setting matching.maxConcurrentTasksCap " + serverLimit
+                        + "; lower maxConcurrentTasks or raise the Server setting";
+            }
+            return isWithinLimit;
+        }
+
+        private void startTask(final PollWorkerTask task) {
+            if (isStopping || isDraining || isHalfClosed || registrationLimitFailure != null) {
+                return;
+            }
+            if (isBusy && isFinalFrameSent && pendingTask == null) {
+                pendingTask = task;
+                return;
+            }
+            if (isBusy) {
+                reset("Server assigned two tasks to one reserved slot");
+                return;
+            }
+            final long deadlineDelayMillis;
+            try {
+                deadlineDelayMillis = deadlineDelayMillis(task);
+            } catch (DateTimeException | ArithmeticException malformed) {
+                LOGGER.log(Level.WARNING, "Worker task has a malformed deadline", malformed);
+                reset("Worker task has a malformed deadline");
+                return;
+            }
+            if (task.getRequestCase() == PollWorkerTask.RequestCase.REQUEST_NOT_SET) {
+                reset("Worker task has no request");
+                return;
+            }
+            if (task.getTaskId().isEmpty()) {
+                reset("Worker task has no task ID");
+                return;
+            }
+            final PollWorkerTaskRejectReason unknownReason = unknownTaskReason(task);
+            if (unknownReason != PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED) {
+                reject(task.getTaskId(), unknownReason);
                 return;
             }
             isBusy = true;
@@ -608,6 +664,29 @@ final class PullWorker {
             taskID = task.getTaskId();
             taskContext = Context.current().withCancellation();
             cancellationStatus = null;
+            try {
+                scheduleTaskTimers(deadlineDelayMillis);
+                handlers.execute(() -> runTask(task));
+            } catch (RuntimeException admissionFailure) {
+                LOGGER.log(Level.WARNING, "cannot start Worker task", admissionFailure);
+                reset("Worker cannot start task");
+                finishTask();
+                return;
+            }
+            reconcile();
+        }
+
+        // Returns Long.MAX_VALUE without a deadline; throws for an unrepresentable deadline.
+        private long deadlineDelayMillis(final PollWorkerTask task) {
+            if (!task.hasDeadline()) {
+                return Long.MAX_VALUE;
+            }
+            final Instant deadline = Instant.ofEpochSecond(
+                    task.getDeadline().getSeconds(), task.getDeadline().getNanos());
+            return Duration.between(Instant.now(), deadline).toMillis();
+        }
+
+        private void scheduleTaskTimers(final long deadlineDelayMillis) {
             keepaliveTimer = scheduler.scheduleAtFixedRate(() -> {
                 synchronized (PullWorker.this) {
                     if (isBusy && !isFinalFrameSent && !isHalfClosed && !isClosed) {
@@ -616,32 +695,21 @@ final class PullWorker {
                     }
                 }
             }, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, TimeUnit.SECONDS);
-            if (task.hasDeadline()) {
-                final Instant deadline = Instant.ofEpochSecond(
-                        task.getDeadline().getSeconds(), task.getDeadline().getNanos());
-                final long delay = Duration.between(Instant.now(), deadline).toMillis();
-                if (delay <= 0L) {
-                    cancelTask(Status.Code.DEADLINE_EXCEEDED);
-                } else {
-                    final String deadlineTaskID = taskID;
-                    deadlineTimer = scheduler.schedule(() -> {
-                        synchronized (PullWorker.this) {
-                            if (deadlineTaskID.equals(taskID)) {
-                                cancelTask(Status.Code.DEADLINE_EXCEEDED);
-                            }
-                        }
-                    },
-                            delay, TimeUnit.MILLISECONDS);
-                }
-            }
-            try {
-                handlers.execute(() -> runTask(task));
-            } catch (RejectedExecutionException rejected) {
-                finishTask();
-                reject(task.getTaskId(), PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
+            if (deadlineDelayMillis == Long.MAX_VALUE) {
                 return;
             }
-            reconcile();
+            if (deadlineDelayMillis <= 0L) {
+                cancelTask(Status.Code.DEADLINE_EXCEEDED);
+                return;
+            }
+            final String deadlineTaskID = taskID;
+            deadlineTimer = scheduler.schedule(() -> {
+                synchronized (PullWorker.this) {
+                    if (deadlineTaskID.equals(taskID)) {
+                        cancelTask(Status.Code.DEADLINE_EXCEEDED);
+                    }
+                }
+            }, deadlineDelayMillis, TimeUnit.MILLISECONDS);
         }
 
         private void reject(final String rejectedTaskID, final PollWorkerTaskRejectReason reason) {
@@ -757,6 +825,7 @@ final class PullWorker {
                         || frame.hasExecute() && frame.getExecute().hasResult()) {
                     stopKeepalive();
                     isFinalFrameSent = true;
+                    hasUnconfirmedFinalOutput = true;
                 }
                 send(PollWorkerTaskRequest.newBuilder()
                         .setTaskFrame(frame.toBuilder().setTaskId(taskID)).build());
@@ -772,10 +841,70 @@ final class PullWorker {
 
         private void send(final PollWorkerTaskRequest request) {
             synchronized (PullWorker.this) {
-                if (!isHalfClosed && !isClosed && requests != null
+                if (!isHalfClosed && !isClosed && connection != null && connection.requests != null
                         && (!request.hasPong() || !isFinalFrameSent)) {
-                    requests.onNext(request);
+                    enqueueWrite(request);
                 }
+            }
+        }
+
+        // A null request half-closes; each connection has its own ordered writer.
+        private void enqueueWrite(final PollWorkerTaskRequest request) {
+            final PullConnection target = connection;
+            target.pendingWrites.add(new PendingWrite(request));
+            if (target.isWriterScheduled) {
+                return;
+            }
+            target.isWriterScheduled = true;
+            try {
+                streamWriters.execute(() -> drainWrites(target));
+            } catch (RejectedExecutionException rejected) {
+                target.isWriterScheduled = false;
+                reset("Worker stream writer stopped");
+            }
+        }
+
+        // Fails here, before gRPC serializes the frame, so the SDK resets the stream itself.
+        private void requireSerializable(final PollWorkerTaskRequest request) {
+            if (request.getSerializedSize() < 0) {
+                throw new IllegalStateException("Worker task frame exceeds the protobuf size limit");
+            }
+        }
+
+        private void drainWrites(final PullConnection target) {
+            while (true) {
+                final PendingWrite write;
+                synchronized (PullWorker.this) {
+                    write = target.isCancelled ? null : target.pendingWrites.poll();
+                    if (write == null) {
+                        target.isWriterScheduled = false;
+                        return;
+                    }
+                }
+                // A reset can overtake this write; gRPC then drops it after the RST_STREAM.
+                try {
+                    if (write.request == null) {
+                        target.requests.onCompleted();
+                    } else {
+                        requireSerializable(write.request);
+                        target.requests.onNext(write.request);
+                    }
+                } catch (RuntimeException failure) {
+                    synchronized (PullWorker.this) {
+                        if (target == connection && !target.isCancelled && !isClosed) {
+                            LOGGER.log(Level.WARNING, "Worker task stream write failed", failure);
+                            reset("Worker task stream write failed");
+                        }
+                    }
+                }
+            }
+        }
+
+        private void cancelConnection(final Throwable cause) {
+            if (connection != null && !connection.isCancelled) {
+                connection.isCancelled = true;
+                connection.pendingWrites.clear();
+                connection.callContext.cancel(cause);
             }
         }
 
@@ -792,6 +921,7 @@ final class PullWorker {
         }
 
         private void finishTask() {
+            final boolean hasSentFinalOutput = isFinalFrameSent;
             stopKeepalive();
             if (deadlineTimer != null) {
                 deadlineTimer.cancel(false);
@@ -806,18 +936,44 @@ final class PullWorker {
             isBusy = false;
             isFinalFrameSent = false;
             busyTasks--;
-            if (!isClosed && !isDraining && hasIdleReplacement(true)) {
-                isDraining = true;
-                isRetiring = true;
-            }
             if (isClosed) {
                 retry(closeFailure);
+            } else if (!hasSentFinalOutput) {
+                // A clean half-close would tell Dex the task never ran.
+                reset("Worker task ended without a final output");
             } else if (isDraining || isStopping) {
                 halfClose();
-            } else {
-                reconcile();
+            } else if (pendingTask != null) {
+                final PollWorkerTask nextTask = pendingTask;
+                final boolean shouldCancelNextTask = isPendingTaskCancelled;
+                pendingTask = null;
+                isPendingTaskCancelled = false;
+                startTask(nextTask);
+                if (shouldCancelNextTask && nextTask.getTaskId().equals(taskID)) {
+                    cancelTask(Status.Code.CANCELLED);
+                }
             }
             PullWorker.this.notifyAll();
+        }
+
+        private boolean isFlushingFinalOutput() {
+            return !isClosed && hasUnconfirmedFinalOutput && (!isBusy || isFinalFrameSent);
+        }
+
+        private void reset(final String reason) {
+            final RuntimeException failure = Status.INTERNAL.withDescription(reason).asRuntimeException();
+            cancelConnection(failure);
+            close(failure);
+        }
+
+        private void resetForStopTimeout() {
+            cancelTask(Status.Code.CANCELLED);
+            if (!isClosed) {
+                final RuntimeException cancellation = Status.CANCELLED
+                        .withDescription("Worker stop timeout").asRuntimeException();
+                cancelConnection(cancellation);
+                close(cancellation);
+            }
         }
 
         private void halfClose() {
@@ -836,12 +992,7 @@ final class PullWorker {
                 return;
             }
             isHalfClosed = true;
-            try {
-                requests.onCompleted();
-            } catch (RuntimeException failure) {
-                close(failure);
-                return;
-            }
+            enqueueWrite(null);
             scheduleCloseFallback();
         }
 
@@ -850,21 +1001,18 @@ final class PullWorker {
                 closeTimer.cancel(false);
             }
             final long waitNanos = isStopping
-                    ? Math.max(1L, stopDeadlineNanos - System.nanoTime())
-                    : options.getStopDrainTimeout().toNanos();
+                    ? Math.max(1L, (hasUnconfirmedFinalOutput ? finalOutputFlushDeadlineNanos
+                            : stopDeadlineNanos) - System.nanoTime())
+                    : options.getStopDrainTimeout().toNanos()
+                            + (hasUnconfirmedFinalOutput ? FINAL_OUTPUT_FLUSH_GRACE.toNanos() : 0L);
             closeTimer = scheduler.schedule(() -> {
                 synchronized (PullWorker.this) {
                     if (!isClosed) {
                         final RuntimeException timeout = Status.DEADLINE_EXCEEDED
                                 .withDescription("Worker stream close timed out")
                                 .asRuntimeException();
-                        try {
-                            requests.onError(timeout);
-                        } catch (RuntimeException failure) {
-                            LOGGER.log(Level.WARNING, "cancel timed-out Worker task stream", failure);
-                        } finally {
-                            close(timeout);
-                        }
+                        cancelConnection(timeout);
+                        close(timeout);
                     }
                 }
             }, waitNanos, TimeUnit.NANOSECONDS);
@@ -899,6 +1047,8 @@ final class PullWorker {
                     GrpcCredential.rejectToken(credential, rejectedToken);
                 }
                 isClosed = true;
+                // The call has ended; cancelling releases its context and drops unsent frames.
+                cancelConnection(failure == null ? Status.CANCELLED.asRuntimeException() : failure);
                 recordStreamResult(this, failure);
                 closeFailure = failure;
                 if (closeTimer != null) {
@@ -913,13 +1063,12 @@ final class PullWorker {
         }
 
         private void retry(final Throwable failure) {
-            if (isStopping || isRetiring) {
+            if (isStopping) {
                 streams.remove(this);
                 PullWorker.this.notifyAll();
                 return;
             }
-            if (isDraining && hasIdleReplacement(false)) {
-                streams.remove(this);
+            if (registrationLimitFailure != null) {
                 PullWorker.this.notifyAll();
                 return;
             }
@@ -934,9 +1083,9 @@ final class PullWorker {
                 hasLoggedUnsupported = true;
                 LOGGER.log(Level.SEVERE, "pull Worker polling is unsupported by this Dex server", failure);
             } else if (isPermanent && code != Status.Code.UNIMPLEMENTED) {
-                LOGGER.log(Level.SEVERE, "Worker task stream rejected for queue " + queue, failure);
+                LOGGER.log(Level.SEVERE, "Worker task stream rejected for slot kind " + slotKind, failure);
             } else if (failure != null && code != Status.Code.CANCELLED) {
-                LOGGER.log(Level.WARNING, "Worker task stream disconnected for queue " + queue, failure);
+                LOGGER.log(Level.WARNING, "Worker task stream disconnected for slot kind " + slotKind, failure);
             }
             if (isDraining) {
                 backoffMillis = 100L;
@@ -953,24 +1102,33 @@ final class PullWorker {
             }
             scheduler.schedule(() -> {
                 synchronized (PullWorker.this) {
-                    if (!isStopping) {
+                    if (!isStopping && registrationLimitFailure == null) {
                         open();
                     }
                 }
             }, delay, TimeUnit.MILLISECONDS);
             PullWorker.this.notifyAll();
         }
+    }
 
-        private boolean hasIdleReplacement(final boolean requiresRegistration) {
-            int idleReplacements = 0;
-            for (PullStream stream : streams) {
-                if (stream != this && stream.queue.equals(queue)
-                        && !stream.isBusy && !stream.isDraining
-                        && (!requiresRegistration || stream.isRegistered)) {
-                    idleReplacements++;
-                }
-            }
-            return idleReplacements >= desiredIdleStreamsPerQueue(queue);
+    // Owns one poll call and its ordered writes; fields are guarded by the PullWorker monitor.
+    private static final class PullConnection {
+        private final Context.CancellableContext callContext;
+        private final ArrayDeque<PendingWrite> pendingWrites = new ArrayDeque<PendingWrite>();
+        private volatile StreamObserver<PollWorkerTaskRequest> requests;
+        private boolean isWriterScheduled;
+        private boolean isCancelled;
+
+        private PullConnection(final Context.CancellableContext callContext) {
+            this.callContext = callContext;
+        }
+    }
+
+    private static final class PendingWrite {
+        private final PollWorkerTaskRequest request;
+
+        private PendingWrite(final PollWorkerTaskRequest request) {
+            this.request = request;
         }
     }
 }

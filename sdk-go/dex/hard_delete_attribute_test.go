@@ -72,7 +72,7 @@ func (hardDeleteTestStep) Execute(Context, None) (*StepDecision, error) {
 
 func TestHardDeleteAttributeWritesCarryTheHardDeleteMarker(t *testing.T) {
 	client, closeService := newWorkerClientForServerProtocol(
-		t, []Flow{hardDeleteTestFlow{}}, nil, hardDeleteAttributeProtocolVersion,
+		t, []Flow{hardDeleteTestFlow{}}, nil, maximumSupportedServerProtocolVersion,
 	)
 	defer closeService()
 
@@ -107,7 +107,7 @@ func TestHardDeleteAttributeClientNegotiatesBeforeStartFlow(t *testing.T) {
 		isAccepted            bool
 	}{
 		{name: "older Server", serverProtocolVersion: 2},
-		{name: "current Server", serverProtocolVersion: 3, isAccepted: true},
+		{name: "current Server", serverProtocolVersion: 4, isAccepted: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			client, service := newHardDeleteTestClient(t, testCase.serverProtocolVersion)
@@ -117,8 +117,7 @@ func TestHardDeleteAttributeClientNegotiatesBeforeStartFlow(t *testing.T) {
 				Attributes: []InitialAttributeDef{initialSecret},
 			})
 			if !testCase.isAccepted {
-				var unsupported *HardDeleteAttributeUnsupportedError
-				require.ErrorAs(t, err, &unsupported)
+				require.ErrorContains(t, err, "requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16)")
 				require.Nil(t, service.startRequest)
 				return
 			}
@@ -138,11 +137,11 @@ func TestHardDeleteAttributeClientReportsGetServerInfoFailure(t *testing.T) {
 		isConnectionFailure bool
 	}{
 		{name: "old Server", failure: status.Error(codes.Unimplemented, "old Server"), want: "incompatible with Server version \"unknown\" protocol [unknown,unknown]: GetServerInfo failed"},
-		{name: "rejected credential", failure: status.Error(codes.PermissionDenied, "rejected"), want: "GetServerInfo failed"},
-		{name: "connection failure", failure: status.Error(codes.Unavailable, "offline"), want: "FlowService connection failed", isConnectionFailure: true},
+		{name: "rejected credential", failure: status.Error(codes.PermissionDenied, "rejected"), want: "dex: GetServerInfo: PermissionDenied: rejected", isConnectionFailure: true},
+		{name: "connection failure", failure: status.Error(codes.Unavailable, "offline"), want: "dex: GetServerInfo: Unavailable: offline", isConnectionFailure: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			client, service := newHardDeleteTestClient(t, hardDeleteAttributeProtocolVersion)
+			client, service := newHardDeleteTestClient(t, maximumSupportedServerProtocolVersion)
 			service.serverInfoFailure = testCase.failure
 			initialSecret, err := InitialAttribute(hardDeleteTestSecret, "secret")
 			require.NoError(t, err)
@@ -152,6 +151,9 @@ func TestHardDeleteAttributeClientReportsGetServerInfoFailure(t *testing.T) {
 			require.ErrorContains(t, err, testCase.want)
 			if testCase.isConnectionFailure {
 				require.NotContains(t, err.Error(), "incompatible")
+				var serviceErr *ServiceError
+				require.ErrorAs(t, err, &serviceErr)
+				require.Equal(t, "GetServerInfo", serviceErr.Op)
 			} else {
 				require.ErrorContains(t, err, "incompatible")
 			}

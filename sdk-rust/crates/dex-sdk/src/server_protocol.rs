@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use dex_protocol::dex::ServerInfo;
 
-pub(crate) const MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 1;
-pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 3;
+pub(crate) const MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 4;
+pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 4;
 pub(crate) const HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION: u32 = 3;
 pub(crate) const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -25,10 +25,6 @@ pub(crate) struct NegotiatedServerProtocolVersion {
 impl NegotiatedServerProtocolVersion {
     pub(crate) fn store(&self, version: u32) {
         self.version.store(version, Ordering::Release);
-    }
-
-    pub(crate) fn has_negotiated(&self) -> bool {
-        self.version() != 0
     }
 
     /// Returns `Ok(())` when the negotiated Server accepts hard-delete Attribute writes, and an
@@ -57,6 +53,8 @@ impl NegotiatedServerProtocolVersion {
     }
 }
 
+pub(crate) const MINIMUM_SERVER_ZD_RELEASE: &str = "server-zd newer than v0.1.16";
+
 pub(crate) fn negotiate_server_protocol(server_info: &ServerInfo) -> Result<u32, String> {
     let server_minimum = server_info.minimum_supported_protocol_version;
     let server_current = server_info.current_protocol_version;
@@ -64,49 +62,54 @@ pub(crate) fn negotiate_server_protocol(server_info: &ServerInfo) -> Result<u32,
         || MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION == 0
         || MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION > MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION
     {
-        return Err(compatibility_error(
-            server_info,
-            "Rust SDK protocol interval is invalid",
+        return Err(format!(
+            "Rust SDK version \"{SDK_VERSION}\" has an invalid protocol range {}.",
+            sdk_protocol_range()
         ));
     }
     if server_minimum == 0 || server_current == 0 || server_minimum > server_current {
-        return Err(compatibility_error(
-            server_info,
-            "Server protocol interval is invalid",
+        return Err(format!(
+            "The Server reported an invalid protocol range {server_minimum}-{server_current} \
+             (server version {}). Rust SDK version \"{SDK_VERSION}\" supports protocol {}.",
+            reported_server_version(server_info),
+            sdk_protocol_range()
         ));
     }
-    let negotiated = server_current.min(MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION);
-    if negotiated < server_minimum || negotiated < MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION {
-        return Err(compatibility_error(
-            server_info,
-            "protocol intervals do not overlap",
+    if server_current < MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION {
+        return Err(format!(
+            "This SDK requires a Dex Server with protocol version \
+             {MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION} or later ({MINIMUM_SERVER_ZD_RELEASE}). \
+             The Server reports protocol versions {server_minimum}-{server_current} \
+             (server version {}). Upgrade the Server before upgrading the SDK. \
+             Rust SDK version \"{SDK_VERSION}\" supports protocol {}.",
+            reported_server_version(server_info),
+            sdk_protocol_range()
         ));
     }
-    Ok(negotiated)
+    if server_minimum > MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION {
+        return Err(format!(
+            "The Server requires protocol version {server_minimum} or later and reports protocol \
+             versions {server_minimum}-{server_current} (server version {}). Rust SDK version \
+             \"{SDK_VERSION}\" supports protocol {}. Upgrade the SDK.",
+            reported_server_version(server_info),
+            sdk_protocol_range()
+        ));
+    }
+    Ok(server_current.min(MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION))
 }
 
-pub(crate) fn server_info_request_error(error: impl std::fmt::Display) -> String {
+fn sdk_protocol_range() -> String {
     format!(
-        "Rust SDK version \"{SDK_VERSION}\" protocol \
-         [{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] \
-         is incompatible with Server version \
-         \"unknown\" protocol [unknown,unknown]: GetServerInfo failed: {error}"
+        "[{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}]"
     )
 }
 
-fn compatibility_error(server_info: &ServerInfo, reason: &str) -> String {
-    let server_version = if server_info.server_version.is_empty() {
+fn reported_server_version(server_info: &ServerInfo) -> &str {
+    if server_info.server_version.is_empty() {
         "unknown"
     } else {
         &server_info.server_version
-    };
-    format!(
-        "Rust SDK version \"{SDK_VERSION}\" protocol \
-         [{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] \
-         is incompatible with Server version \"{server_version}\" protocol \
-         [{},{}]: {reason}",
-        server_info.minimum_supported_protocol_version, server_info.current_protocol_version
-    )
+    }
 }
 
 #[cfg(test)]
@@ -115,7 +118,7 @@ mod tests {
 
     #[test]
     fn negotiates_highest_common_protocol() {
-        for (server_current, expected) in [(1, 1), (2, 2), (3, 3), (4, 3)] {
+        for (server_current, expected) in [(4, 4), (5, 4)] {
             let negotiated = negotiate_server_protocol(&ServerInfo {
                 server_version: "newer".to_string(),
                 minimum_supported_protocol_version: 1,
@@ -151,30 +154,34 @@ mod tests {
 
     #[test]
     fn rejects_invalid_and_disjoint_server_intervals() {
-        for server_info in [
-            ServerInfo {
-                server_version: "zero".to_string(),
-                minimum_supported_protocol_version: 0,
-                current_protocol_version: 0,
-                server_engine: 0,
-            },
-            ServerInfo {
-                server_version: "reversed".to_string(),
-                minimum_supported_protocol_version: 2,
-                current_protocol_version: 1,
-                server_engine: 0,
-            },
-            ServerInfo {
-                server_version: "future".to_string(),
-                minimum_supported_protocol_version: 4,
-                current_protocol_version: 4,
-                server_engine: 0,
-            },
+        let server_info = |server_version: &str, minimum: u32, current: u32| ServerInfo {
+            server_version: server_version.to_string(),
+            minimum_supported_protocol_version: minimum,
+            current_protocol_version: current,
+            server_engine: 0,
+        };
+        for invalid in [
+            server_info("zero", 0, 0),
+            server_info("reversed", 2, 1),
+            ServerInfo::default(),
         ] {
-            let error = negotiate_server_protocol(&server_info).expect_err("incompatible interval");
-            assert!(error.contains("Rust SDK version"));
-            assert!(error.contains(&server_info.server_version));
+            let error = negotiate_server_protocol(&invalid).expect_err("invalid interval");
+            assert!(error.contains("reported an invalid protocol range"));
+            assert!(!error.contains("Upgrade"));
         }
+        let old_server = negotiate_server_protocol(&server_info("old", 1, 3))
+            .expect_err("Server older than the SDK minimum");
+        assert!(old_server.contains(&format!(
+            "protocol version {MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION} or later ({MINIMUM_SERVER_ZD_RELEASE})"
+        )));
+        assert!(old_server.contains("protocol versions 1-3 (server version old)"));
+        assert!(old_server.contains("Upgrade the Server"));
+        let future_server = negotiate_server_protocol(&server_info("future", 5, 5))
+            .expect_err("Server newer than the SDK maximum");
+        assert!(future_server.contains("requires protocol version 5 or later"));
+        assert!(future_server.contains("(server version future)"));
+        assert!(future_server.contains("Upgrade the SDK"));
+        assert!(!future_server.contains("Upgrade the Server"));
     }
 
     #[test]

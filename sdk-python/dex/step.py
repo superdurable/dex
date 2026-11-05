@@ -79,6 +79,9 @@ def heartbeat(value: object = _NO_HEARTBEAT_VALUE) -> StepOutput:
 class StepDurability(Enum):
     """Control when a Step handler result is durably acknowledged.
 
+    ASYNC gives lower latency and faster single Flows. Sustained throughput is
+    about the same as SYNC.
+
     Attributes:
         DEFAULT: Use FlowConfig, then the server's synchronous default.
         SYNC: Persist the result before acknowledging the Worker call.
@@ -109,17 +112,18 @@ class RetryPolicy:
     A ``None`` duration or zero numeric value uses the server default. The default
     total duration is four hours.
     Attempts include the initial call. Retries stop at the first configured limit.
-    With asynchronous Step durability, local and regular execution share attempts
-    and elapsed duration. Fallback is immediate; later regular retries continue the
-    cumulative backoff sequence.
+    Step total duration starts when the Step is first handed to a Worker.
+    After an attempt fails, Dex uses the elapsed duration to decide whether to
+    schedule another retry. It never ends a running attempt.
 
     Attributes:
         initial_interval: Delay before the first retry.
         backoff_coefficient: Interval multiplier; zero uses the server default.
         maximum_interval: Upper bound for one retry delay.
         maximum_attempts: Total attempt limit; zero uses the server default.
-        total_duration: Overall elapsed-time limit for all attempts; ``None`` uses
-            four hours.
+        total_duration: Retry scheduling budget counted from the first hand-out
+            to a Worker. Checked only after an attempt fails; it does not end a
+            running attempt. ``None`` uses four hours.
     """
 
     initial_interval: timedelta | None = None
@@ -136,16 +140,15 @@ class StepOptions:
     Fields set to ``None`` or ``DEFAULT`` use Flow or server policy. Attribute
     locks are acquired separately for ``wait_for`` and ``execute`` and must reference
     definitions in the containing Flow's ``PersistenceSchema``. Asynchronous
-    durability first uses a local activity capped at seven seconds and three
-    attempts; that phase ignores method and heartbeat timeouts before regular
-    fallback applies the remaining retry budget.
+    durability gives lower latency and faster single Flows. Sustained throughput
+    is about the same as synchronous durability.
 
     Attributes:
-        wait_for_method_timeout: Maximum duration of one regular ``wait_for``
+        wait_for_method_timeout: Maximum duration of one ``wait_for``
             attempt; ``None`` uses two hours.
-        execute_method_timeout: Maximum duration of one regular ``execute``
+        execute_method_timeout: Maximum duration of one ``execute``
             attempt; ``None`` uses two hours.
-        heartbeat_timeout: Regular-activity progress deadline; ``None`` or zero uses
+        heartbeat_timeout: Handler progress deadline; ``None`` or zero uses
             one minute. The server-configured explicit minimum defaults to ten seconds.
         wait_for_retry: Optional retry policy for ``wait_for``.
         execute_retry: Optional retry policy for ``execute``.

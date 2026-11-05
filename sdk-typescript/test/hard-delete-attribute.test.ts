@@ -17,6 +17,7 @@ import {
   AttributeMatch,
   Client,
   IndexType,
+  DexServiceError,
   InitialAttribute,
   Registry,
   StepList,
@@ -53,7 +54,7 @@ import {
   type StartFlowRequest,
   type StartFlowResponse,
 } from "../src/gen/dex.js";
-import { maximumSupportedServerProtocolVersion } from "../src/server-protocol.js";
+import { maximumSupportedServerProtocolVersion, negotiateServerProtocol } from "../src/server-protocol.js";
 import type { ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 
@@ -275,21 +276,40 @@ test("Worker rejects hard-delete writes below Server protocol version 3", async 
   );
 });
 
-test("TypeScript SDK supports Server protocol version 3", () => {
-  assert.equal(maximumSupportedServerProtocolVersion, 3);
+test("TypeScript SDK supports Server protocol version 4", () => {
+  assert.equal(maximumSupportedServerProtocolVersion, 4);
 });
 
-test("Client negotiates once before hard-delete startFlow writes", async () => {
+test("Server protocol errors name the side to upgrade or the invalid ServerInfo", () => {
+  const serverInfo = (minimumSupportedProtocolVersion: number, currentProtocolVersion: number): ServerInfo => ({
+    serverVersion: "test", minimumSupportedProtocolVersion, currentProtocolVersion, serverEngine: 0,
+  });
+  assert.equal(negotiateServerProtocol(serverInfo(1, 4), "1.0.0"), 4);
+  assert.equal(negotiateServerProtocol(serverInfo(3, 9), "1.0.0"), 4);
+  assert.throws(() => negotiateServerProtocol(serverInfo(1, 3), "1.0.0"), (failure: Error) =>
+    /requires a Dex Server with protocol version 4 or later/.test(failure.message)
+    && /Upgrade the Server before upgrading the SDK/.test(failure.message));
+  assert.throws(() => negotiateServerProtocol(serverInfo(5, 6), "1.0.0"), (failure: Error) =>
+    /The Server requires protocol version 5 or later/.test(failure.message)
+    && /Upgrade the TypeScript SDK/.test(failure.message) && !/Upgrade the Server/.test(failure.message));
+  for (const invalid of [serverInfo(0, 0), serverInfo(0, 4), serverInfo(5, 4)]) {
+    assert.throws(() => negotiateServerProtocol(invalid, "1.0.0"), (failure: Error) =>
+      /empty or invalid protocol range/.test(failure.message) && !/Upgrade/.test(failure.message));
+  }
+});
+
+test("Client negotiates lazily once before any startFlow write", async () => {
   const flow = new HardDeleteUnitFlow(new HardDeleteChildFlow());
-  const fake = await startFakeFlowService(3);
+  const fake = await startFakeFlowService(4);
   const client = new Client(new Registry([flow, flow.child]), new MemoryBlobCache(), {
     serverAddress: fake.address,
   });
   try {
+    assert.deepEqual(fake.calls, []);
     await client.startFlow(flow, "plain-start", "input", {
       attributes: [InitialAttribute.of(flow.plain, "visible")],
     });
-    assert.deepEqual(fake.calls, ["StartFlow"]);
+    assert.deepEqual(fake.calls, ["GetServerInfo", "StartFlow"]);
 
     for (const id of ["hard-delete-1", "hard-delete-2"]) {
       await client.startFlow(flow, id, "input", {
@@ -300,7 +320,7 @@ test("Client negotiates once before hard-delete startFlow writes", async () => {
         ],
       });
     }
-    assert.deepEqual(fake.calls, ["StartFlow", "GetServerInfo", "StartFlow", "StartFlow"]);
+    assert.deepEqual(fake.calls, ["GetServerInfo", "StartFlow", "StartFlow", "StartFlow"]);
     const writes = writesByKey(fake.startRequests.at(-1)?.flowStartOptions?.attributes ?? []);
     assert.equal(writes.get("api-key")?.isHardDeleteOnNull, true);
     assert.equal(writes.get("tokens/billing")?.isHardDeleteOnNull, true);
@@ -311,21 +331,28 @@ test("Client negotiates once before hard-delete startFlow writes", async () => {
   }
 });
 
-test("Client rejects hard-delete startFlow writes below Server protocol version 3", async () => {
+test("Client caches protocol 3 rejection for every request method", async () => {
   const flow = new HardDeleteUnitFlow(new HardDeleteChildFlow());
-  const fake = await startFakeFlowService(2);
+  const fake = await startFakeFlowService(3);
   const client = new Client(new Registry([flow, flow.child]), new MemoryBlobCache(), {
     serverAddress: fake.address,
   });
   try {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      await assert.rejects(
-        client.startFlow(flow, "old-server", "input", {
-          attributes: [InitialAttribute.of(flow.apiKey, "secret-1")],
-        }),
-        /hard-delete Attribute api-key requires Server protocol version 3 or later; negotiated protocol version is 2/,
-      );
+    assert.deepEqual(fake.calls, []);
+    const failures: Error[] = [];
+    for (const request of [() => client.stopFlow("old-server"),
+      () => client.startFlow(flow, "old-server", "input"), () => client.searchFlows("FlowType = 'Test'", 10)]) {
+      await assert.rejects(request(), (failure: unknown) => {
+        assert.ok(failure instanceof Error);
+        assert.match(failure.message, /requires a Dex Server with protocol version 4 or later \(server-zd newer than v0.1.16\)/);
+        assert.match(failure.message, /The Server reports protocol versions 1-3 \(server version test\)/);
+        failures.push(failure);
+        return true;
+      });
     }
+    // Every call gets a new Error so callers never share mutable error state.
+    assert.equal(new Set(failures).size, failures.length);
+    assert.equal(new Set(failures.map((failure) => failure.message)).size, 1);
     assert.deepEqual(fake.calls, ["GetServerInfo"]);
   } finally {
     await client.close();
@@ -335,15 +362,14 @@ test("Client rejects hard-delete startFlow writes below Server protocol version 
 
 test("Client retries Server protocol negotiation after GetServerInfo fails", async () => {
   const flow = new HardDeleteUnitFlow(new HardDeleteChildFlow());
-  const fake = await startFakeFlowService(3, 1);
+  const fake = await startFakeFlowService(4, 1);
   const client = new Client(new Registry([flow, flow.child]), new MemoryBlobCache(), {
     serverAddress: fake.address,
   });
   try {
-    const start = () => client.startFlow(flow, "retry-negotiation", "input", {
-      attributes: [InitialAttribute.of(flow.apiKey, "secret-1")],
-    });
-    await assert.rejects(start(), /GetServerInfo failed/);
+    const start = () => client.startFlow(flow, "retry-negotiation", "input");
+    await assert.rejects(start(), (failure: unknown) =>
+      failure instanceof DexServiceError && failure.code === grpcStatus.UNAVAILABLE && !/incompatible/i.test(failure.message));
     await start();
     assert.deepEqual(fake.calls, ["GetServerInfo", "GetServerInfo", "StartFlow"]);
   } finally {
@@ -354,7 +380,7 @@ test("Client retries Server protocol negotiation after GetServerInfo fails", asy
 
 test("Client rejects invalid hard-delete Attribute use before contacting Dex", async () => {
   const flow = new HardDeleteUnitFlow(new HardDeleteChildFlow());
-  const fake = await startFakeFlowService(3);
+  const fake = await startFakeFlowService(4);
   const client = new Client(new Registry([flow, flow.child]), new MemoryBlobCache(), {
     serverAddress: fake.address,
   });
