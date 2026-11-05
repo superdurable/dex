@@ -81,7 +81,7 @@ pub fn start_pull_greeting(
         WorkerOptions::new().server_address(server_address).pull(
             PullWorkerOptions::new()
                 .max_concurrent_tasks(8)
-                // Keep one slot for RPCs so Flows stay responsive.
+                // This slot accepts only RPCs; the other seven accept Steps and RPCs.
                 .reserved_rpc_tasks(1),
         ),
     )?);
@@ -130,12 +130,13 @@ pub fn is_pull_greeting_ready(worker: &Worker) -> bool {
 
 pub struct PullGreetingDiagnostics {
     pub is_ready: bool,
+    /// Deprecated: reserved slots never decline for capacity; this value is always zero.
     pub reserved_rpc_declines: u64,
 }
 
 pub fn get_pull_greeting_diagnostics(worker: &Worker) -> PullGreetingDiagnostics {
     PullGreetingDiagnostics {
         is_ready: worker.pull_registration_state().is_ready,
-        reserved_rpc_declines: worker.pull_reserved_rpc_declines(),
+        reserved_rpc_declines: 0,
     }
 }

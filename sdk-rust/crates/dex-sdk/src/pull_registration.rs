@@ -15,10 +15,10 @@ use tonic::Status;
 
 use crate::{SdkError, SdkResult};
 
-/// Permanent rejection that leaves a pull queue without any registered stream.
+/// Permanent rejection that leaves a required pull slot kind without any registered stream.
 ///
 /// Use [`SdkError::pull_registration_error`] on errors from [`crate::Worker::wait_pull_registered`] or
-/// [`crate::Worker::start`] to inspect the queue and original gRPC status.
+/// [`crate::Worker::start`] to inspect the slot kind and original gRPC status.
 ///
 /// ```
 /// fn report(error: dex_sdk::SdkError) {
@@ -29,7 +29,7 @@ use crate::{SdkError, SdkResult};
 /// ```
 #[derive(Clone, Debug)]
 pub struct PullRegistrationError {
-    /// Rejected Flow type or app Worker ID queue.
+    /// Slot kind label: `STEP_AND_RPC` or `RPC_ONLY`; retained field name for source compatibility.
     pub queue: String,
     /// Original permanent gRPC rejection, preserving its code and details.
     pub status: Status,
@@ -39,7 +39,7 @@ impl Display for PullRegistrationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "pull queue {} rejected: {}",
+            "pull slot kind {} rejected: {}",
             self.queue, self.status
         )
     }
@@ -51,12 +51,12 @@ impl std::error::Error for PullRegistrationError {
     }
 }
 
-/// Independent snapshot of one queue's registration state.
+/// Independent snapshot of one slot kind's registration state.
 #[derive(Clone, Debug)]
 pub struct PullQueueRegistrationState {
-    /// Flow type or app Worker ID queue name.
+    /// Slot kind label: `STEP_AND_RPC` or `RPC_ONLY`; retained field name for source compatibility.
     pub queue: String,
-    /// Whether the queue currently has an acknowledged stream.
+    /// Whether this slot kind currently has an acknowledged stream.
     pub has_registered_stream: bool,
     /// Last permanent rejection, cleared when a stream successfully registers.
     pub last_permanent_error: Option<Status>,
@@ -65,9 +65,10 @@ pub struct PullQueueRegistrationState {
 /// Independent readiness snapshot returned by [`crate::Worker::pull_registration_state`].
 #[derive(Clone, Debug, Default)]
 pub struct PullRegistrationState {
-    /// True after all queues register once, unless a queue has a permanent error and no registered stream.
+    /// True after a Step-and-RPC slot and, when reserved, an RPC-only slot register once.
+    /// A permanent rejection with no registered stream of that kind clears readiness.
     pub is_ready: bool,
-    /// Queue snapshots sorted by name; empty for a listening Worker.
+    /// Slot-kind snapshots sorted by label; the field name is retained for source compatibility.
     pub queues: Vec<PullQueueRegistrationState>,
 }
 

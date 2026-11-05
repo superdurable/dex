@@ -136,11 +136,11 @@ impl<Input: Value> StepOptions<Input> {
         self
     }
 
-    /// Sets the heartbeat timeout for regular `wait_for` and `execute` activities.
+    /// Sets the heartbeat timeout for `wait_for` and `execute` attempts.
     ///
     /// Zero selects the server default of one minute. Positive values must be whole seconds and at
-    /// least the server-configured minimum, which defaults to ten seconds. Local activities ignore
-    /// this option; an asynchronous fallback to a regular activity uses it.
+    /// least the server-configured minimum, which defaults to ten seconds. This option applies with
+    /// both synchronous and asynchronous durability.
     pub fn heartbeat_timeout(mut self, value: Duration) -> Self {
         self.heartbeat_timeout = Some(value);
         self
@@ -291,6 +291,9 @@ pub enum WaitForFailurePolicy {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Controls when staged Step persistence must be durably acknowledged.
+///
+/// Sustained throughput is about the same across modes. [`Self::Async`] lowers latency and makes
+/// individual Flows faster by acknowledging results before persistence completes.
 pub enum StepDurability {
     /// Uses the Flow or server default.
     Default,
