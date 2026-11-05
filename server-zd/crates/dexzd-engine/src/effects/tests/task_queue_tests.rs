@@ -22,6 +22,8 @@ use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 
 use super::dispatch_tests::force_complete;
 use super::{EffectHarness, is_attempt_failed, is_timers_fired, settings, start_request};
+use crate::effects::dispatch::{AttemptEntries, ClaimHolder, HandoutProgress};
+use crate::effects::method_request::MethodAttemptKey;
 use crate::effects::{EffectsConfig, MethodRequest};
 use crate::flow_coordination::FlowCoordinationEffectSink;
 
@@ -507,4 +509,53 @@ async fn an_attempt_that_runs_past_the_total_duration_is_not_retried() {
         "no retry is scheduled"
     );
     harness.shutdown().await;
+}
+
+/// A Claim takes an attempt that no holder has, is told "busy" while a hand-out holds it, and
+/// "lock busy" while it is parked, until the lock release hands it to a new hand-out.
+#[test]
+fn claims_are_classified_by_the_holder_of_the_attempt_entry() {
+    let key = MethodAttemptKey {
+        run_id: RunId([3; 16]),
+        run_attempt: 1,
+        step_execution_id: "ChargeStep-1".to_owned(),
+        method: StepMethod::Execute as i32,
+        attempt: 1,
+    };
+    let mut entries = AttemptEntries::default();
+    let ClaimHolder::Claimed {
+        generation: claimed,
+    } = entries.claim(&key)
+    else {
+        panic!("a Claim takes an attempt without an entry");
+    };
+    assert!(entries.is_held(&key));
+    assert_eq!(entries.register(&key), None, "the Claim holds the entry");
+    assert_eq!(entries.claim(&key), ClaimHolder::Busy);
+    // The restart decision is checked through later Claims.
+    drop(entries.finish_handout(
+        &key,
+        claimed,
+        Some((EffectHarness::flow("order-1"), HandoutProgress::default())),
+    ));
+    assert_eq!(entries.claim(&key), ClaimHolder::Parked);
+    assert!(entries.is_held(&key), "seeks skip a parked row");
+    let unparked = entries.release_locks(key.run_id);
+    assert_eq!(unparked.len(), 1);
+    let (unparked_key, _, _, unparked_generation) = &unparked[0];
+    assert_eq!(unparked_key, &key);
+    assert_eq!(
+        entries.claim(&key),
+        ClaimHolder::Busy,
+        "the woken hand-out holds the entry"
+    );
+    // A finished hand-out of an older generation leaves the entry alone.
+    drop(entries.finish_handout(&key, claimed, None));
+    assert!(entries.is_held(&key));
+    drop(entries.finish_handout(&key, *unparked_generation, None));
+    assert!(!entries.is_held(&key));
+    assert!(matches!(
+        entries.claim(&key),
+        ClaimHolder::Claimed { generation } if generation > *unparked_generation
+    ));
 }
