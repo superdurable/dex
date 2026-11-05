@@ -85,6 +85,7 @@ export interface FlowServiceTlsOptions {
   /**
    * Adds PEM-encoded root CAs to the active Node.js default trust store.
    * Every root that the default trust store already trusts stays trusted.
+   * On Node.js 22.0 to 22.14, the SDK reads `NODE_EXTRA_CA_CERTS` when its module loads, so changing that variable, the working directory, or the file before importing the SDK is unsupported.
    * Omitted or empty uses the default trust store alone.
    * The value is read when the Client or Worker is constructed; later file changes are not watched.
    * At least one certificate must parse from a nonempty bundle, or the constructor throws `TypeError`.

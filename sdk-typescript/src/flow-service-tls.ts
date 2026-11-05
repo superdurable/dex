@@ -9,6 +9,7 @@
 import { X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isIPv6 } from "node:net";
+import { resolve } from "node:path";
 import * as tls from "node:tls";
 
 import { credentials, type ChannelCredentials, type ChannelOptions } from "@grpc/grpc-js";
@@ -137,26 +138,29 @@ export function createFlowServiceSecureContext(additionalRootCAsPem: string | Ui
   if (certificates.length === 0) return secureContext;
   // The ca option replaces active defaults, such as --use-openssl-ca roots; addCACert appends.
   for (const certificate of certificates) secureContext.context.addCACert(certificate);
-  // Node.js 22.0 rebuilds the store without NODE_EXTRA_CA_CERTS on addCACert; duplicates are harmless.
-  for (const certificate of startupExtraRootCertificates()) secureContext.context.addCACert(certificate);
+  for (const certificate of lostExtraRootCertificates()) secureContext.context.addCACert(certificate);
   return secureContext;
 }
 
-let cachedEnvironmentExtraRootCertificates: readonly string[] | undefined;
+// Before setDefaultCACertificates (22.19), addCACert can rebuild a store without NODE_EXTRA_CA_CERTS roots.
+const canAddCACertDropExtraRoots = typeof tls.setDefaultCACertificates !== "function";
+// Before getCACertificates (22.15), the loaded extra roots are unlistable, so snapshot the file at module load.
+const extraRootCertificatesFileSnapshot = canAddCACertDropExtraRoots && typeof tls.getCACertificates !== "function"
+  ? readExtraRootCertificatesFile()
+  : [];
 
-function startupExtraRootCertificates(): readonly string[] {
-  if (typeof tls.getCACertificates === "function") return tls.getCACertificates("extra");
-  cachedEnvironmentExtraRootCertificates ??= readEnvironmentExtraRootCertificates();
-  return cachedEnvironmentExtraRootCertificates;
+function lostExtraRootCertificates(): readonly string[] {
+  if (!canAddCACertDropExtraRoots) return [];
+  // Re-adding a root the store kept is harmless.
+  return typeof tls.getCACertificates === "function" ? tls.getCACertificates("extra") : extraRootCertificatesFileSnapshot;
 }
 
-// Node.js before 22.15 lacks getCACertificates("extra"), so read the file Node.js loaded at startup.
-function readEnvironmentExtraRootCertificates(): readonly string[] {
+function readExtraRootCertificatesFile(): readonly string[] {
   const extraCertificatesFile = process.env.NODE_EXTRA_CA_CERTS;
   if (extraCertificatesFile === undefined || extraCertificatesFile === "") return [];
   let bundle: string;
   try {
-    bundle = readFileSync(extraCertificatesFile, "utf8");
+    bundle = readFileSync(resolve(process.cwd(), extraCertificatesFile), "utf8");
   } catch {
     // Node.js also only warns and skips an unreadable NODE_EXTRA_CA_CERTS file at startup.
     return [];
