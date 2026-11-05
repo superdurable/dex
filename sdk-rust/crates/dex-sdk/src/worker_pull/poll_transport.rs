@@ -42,12 +42,8 @@ impl Service<http::Request<TonicBody>> for PollTransport {
 
     fn call(&mut self, request: http::Request<TonicBody>) -> Self::Future {
         let reset = self.reset.clone();
-        self.channel.call(request.map(|body| {
-            TonicBody::new(PollRequestBody {
-                body,
-                reset: Box::pin(async move { reset.cancelled().await }),
-            })
-        }))
+        self.channel
+            .call(request.map(|body| TonicBody::new(PollRequestBody::new(body, reset))))
     }
 }
 
@@ -85,7 +81,23 @@ impl Drop for PollStreamResetGuard {
 
 struct PollRequestBody {
     body: TonicBody,
+    reset_signal: InvocationCancellation,
     reset: Pin<Box<dyn Future<Output = ()> + Send>>,
+}
+
+impl PollRequestBody {
+    fn new(body: TonicBody, reset_signal: InvocationCancellation) -> Self {
+        let reset = reset_signal.clone();
+        Self {
+            body,
+            reset_signal,
+            reset: Box::pin(async move { reset.cancelled().await }),
+        }
+    }
+
+    fn reset_error() -> Status {
+        Status::cancelled("Worker reset busy poll stream")
+    }
 }
 
 impl Body for PollRequestBody {
@@ -98,18 +110,82 @@ impl Body for PollRequestBody {
     ) -> Poll<Option<Result<Frame<Bytes>, Status>>> {
         if self.reset.as_mut().poll(context).is_ready() {
             // A body error resets HTTP/2; returning EOF would falsely report an unstarted task.
-            return Poll::Ready(Some(Err(Status::cancelled(
-                "Worker reset busy poll stream",
-            ))));
+            return Poll::Ready(Some(Err(Self::reset_error())));
         }
-        Pin::new(&mut self.body).poll_frame(context)
+        let frame = Pin::new(&mut self.body).poll_frame(context);
+        // A reset always precedes dropping the sender, so recheck it before reporting the end.
+        let is_ending = match &frame {
+            Poll::Ready(None) => true,
+            Poll::Ready(Some(Ok(frame))) => frame.is_trailers() || self.body.is_end_stream(),
+            Poll::Ready(Some(Err(_))) | Poll::Pending => false,
+        };
+        if is_ending && self.reset_signal.is_cancelled() {
+            return Poll::Ready(Some(Err(Self::reset_error())));
+        }
+        frame
     }
 
     fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
+        self.body.is_end_stream() && !self.reset_signal.is_cancelled()
     }
 
     fn size_hint(&self) -> SizeHint {
         self.body.size_hint()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Simulates another thread resetting the stream and dropping the sender mid-poll.
+    struct ResetWhilePolledBody {
+        reset_signal: InvocationCancellation,
+    }
+
+    impl Body for ResetWhilePolledBody {
+        type Data = Bytes;
+        type Error = Status;
+
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Bytes>, Status>>> {
+            self.reset_signal.cancel();
+            Poll::Ready(None)
+        }
+
+        fn is_end_stream(&self) -> bool {
+            self.reset_signal.is_cancelled()
+        }
+    }
+
+    fn poll_once(body: &mut PollRequestBody) -> Poll<Option<Result<Frame<Bytes>, Status>>> {
+        let waker = std::task::Waker::noop();
+        let mut context = Context::from_waker(waker);
+        Pin::new(body).poll_frame(&mut context)
+    }
+
+    #[test]
+    fn reset_between_checks_reports_an_error_instead_of_end_of_stream() {
+        let reset_signal = InvocationCancellation::new();
+        let mut body = PollRequestBody::new(
+            TonicBody::new(ResetWhilePolledBody {
+                reset_signal: reset_signal.clone(),
+            }),
+            reset_signal,
+        );
+        let Poll::Ready(Some(Err(status))) = poll_once(&mut body) else {
+            panic!("a reset during the poll must not end the request body");
+        };
+        assert_eq!(status.code(), tonic::Code::Cancelled);
+        assert!(!body.is_end_stream());
+    }
+
+    #[test]
+    fn unreset_body_ends_cleanly() {
+        let mut body = PollRequestBody::new(TonicBody::empty(), InvocationCancellation::new());
+        assert!(matches!(poll_once(&mut body), Poll::Ready(None)));
+        assert!(body.is_end_stream());
     }
 }

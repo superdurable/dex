@@ -1111,3 +1111,61 @@ async fn final_output_held_by_backpressure_before_stop_keeps_the_flush_grace() {
         .expect("join server")
         .expect("server result");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn task_without_request_or_id_resets_the_stream_without_admission() {
+    let flow = slot_flow(true, false);
+    let calls = Arc::clone(&flow.step.calls);
+    let mut harness = SlotHarness::new(
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(1)
+            .stop_drain_timeout(Duration::from_millis(200)),
+        Registry::new().register(flow).unwrap(),
+    )
+    .await;
+    let malformed_tasks = [
+        PollWorkerTask {
+            task_id: "missing-request".to_string(),
+            deadline: None,
+            request: None,
+        },
+        PollWorkerTask {
+            task_id: String::new(),
+            deadline: None,
+            request: Some(TaskRequest::Execute(InvokeExecuteMethodRequest {
+                flow_type: "SlotFlow".to_string(),
+                step_type: "SlotStep".to_string(),
+                context: Some(ProtoContext {
+                    flow_id: uuid::Uuid::new_v4().to_string(),
+                    ..Default::default()
+                }),
+                step_input: Some(crate::value_mapper::encode(&()).expect("Step input")),
+                ..Default::default()
+            })),
+        },
+    ];
+    let mut previous = Vec::new();
+    for task in malformed_tasks {
+        let mut slot = harness.connection().await;
+        slot.registered(0).await;
+        slot.responses
+            .send(Ok(PollWorkerTaskResponse {
+                frame: Some(ResponseFrame::Task(task)),
+            }))
+            .await
+            .unwrap();
+        // A reset arrives with no task-final frame before it.
+        slot.reset().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        previous.push(slot);
+    }
+    let mut replacement = harness.connection().await;
+    replacement.registered(0).await;
+    replacement.assign_step("after-malformed-tasks").await;
+    replacement.final_frame("after-malformed-tasks").await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    harness.stop();
+    replacement.half_closed().await;
+    drop((previous, replacement));
+    harness.finish().await.unwrap();
+}

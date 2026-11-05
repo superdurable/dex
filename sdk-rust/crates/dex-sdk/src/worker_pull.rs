@@ -571,7 +571,7 @@ impl PullStream {
                                         }
                                     }
                                     // Validate untrusted metadata before admission; a malformed task never reaches a handler.
-                                    let assigned_deadline = match task.deadline.as_ref().map(task_deadline).transpose() {
+                                    let assigned_deadline = match validate_assigned_task(&task) {
                                         Ok(assigned_deadline) => assigned_deadline,
                                         Err(error) => {
                                             reset_guard.reset();
@@ -964,6 +964,18 @@ async fn wait_for_forced_stop(stop: &mut watch::Receiver<StopSignal>) {
             return;
         }
     }
+}
+
+/// Returns the validated local deadline of an untrusted task assignment, or `None` when it has
+/// none. Returns an error for an empty task ID, a missing request, or a malformed deadline.
+fn validate_assigned_task(task: &PollWorkerTask) -> Result<Option<Instant>, String> {
+    if task.task_id.is_empty() {
+        return Err("task ID is empty".to_string());
+    }
+    if task.request.is_none() {
+        return Err(format!("task {:?} has no request", task.task_id));
+    }
+    task.deadline.as_ref().map(task_deadline).transpose()
 }
 
 /// Waits a bounded time for a handler that already queued its final output, then aborts it.
