@@ -178,8 +178,15 @@ pub(super) fn finish_assignment(
     state.current = None;
     state.is_busy = false;
     match end {
-        // An RPC result says nothing about the Worker's Step capacity.
-        AssignmentEnd::Final if task_type.kind == TaskKind::Step => state.step_backoff = None,
+        // An RPC result says nothing about the Worker's Step capacity or Step types.
+        AssignmentEnd::Final if task_type.kind == TaskKind::Step => {
+            state.step_backoff = None;
+            drop(state);
+            dispatch
+                .lock_registry()
+                .release_reprobes_after_step(worker, Instant::now());
+            state = worker.state.lock().expect("Worker state lock poisoned");
+        }
         AssignmentEnd::Final => {}
         AssignmentEnd::Rejected(PollWorkerTaskRejectReason::NoCapacity)
             if worker.slot == StreamSlot::Legacy =>
@@ -210,12 +217,7 @@ pub(super) fn finish_assignment(
             };
             if is_unknown_type {
                 drop(state);
-                let mut registry = dispatch.lock_registry();
-                let idle_mark = registry.next_idle_position;
-                registry
-                    .unsupported_types
-                    .insert(task_type, &worker.app_worker_id, idle_mark);
-                drop(registry);
+                record_declined_type(dispatch, worker, task_type);
                 state = worker.state.lock().expect("Worker state lock poisoned");
             }
         }
@@ -227,6 +229,17 @@ pub(super) fn finish_assignment(
     drop(state);
     dispatch.make_idle(worker);
     true
+}
+
+/// Caches that `worker`'s Worker declined `task_type`, unless the stream is gone: its
+/// disconnect already removed the Worker's entries, and nothing would remove a later one.
+fn record_declined_type(dispatch: &WorkerDispatch, worker: &WorkerStream, task_type: TaskTypeKey) {
+    let mut registry = dispatch.lock_registry();
+    if registry.streams.contains_key(&worker.id) {
+        registry
+            .unsupported_types
+            .insert(task_type, &worker.app_worker_id);
+    }
 }
 
 /// Records a Worker stream that broke the dispatch protocol.
@@ -251,5 +264,58 @@ pub(super) fn send_reconnect(worker: &WorkerStream, reason: &str) {
         .is_err()
     {
         tracing::debug!("Worker response stream closed before reconnect");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dexzd_clock::SystemWallClock;
+
+    fn registered_stream(dispatch: &WorkerDispatch, app_worker_id: &str) -> Arc<WorkerStream> {
+        let (output, _response) = mpsc::unbounded_channel();
+        let (close, _closing) = watch::channel(false);
+        let worker = Arc::new(WorkerStream {
+            id: Uuid::now_v7(),
+            tenant_id: 7,
+            queues: Vec::new(),
+            backlog_flow_types: Vec::new(),
+            app_worker_id: app_worker_id.to_owned(),
+            slot: StreamSlot::ReservedStepAndRpc,
+            output,
+            close,
+            state: Mutex::new(WorkerState::default()),
+        });
+        let mut registry = dispatch.lock_registry();
+        registry
+            .worker_counts
+            .insert((7, app_worker_id.to_owned()), 1);
+        registry.streams.insert(worker.id, worker.clone());
+        worker
+    }
+
+    /// A decline that races the Worker's final disconnect leaves no entry behind: nothing
+    /// would remove it, and its eviction would wait forever for a Step the Worker never runs.
+    #[test]
+    fn a_decline_after_the_final_disconnect_records_nothing() {
+        let config = MatchingConfig {
+            unsupported_type_cache_entries: 1,
+            ..MatchingConfig::default()
+        };
+        let dispatch = WorkerDispatch::new(config, Arc::new(SystemWallClock));
+        let task_type = TaskTypeKey {
+            tenant_id: 7,
+            flow_type: "Flow".to_owned(),
+            kind: TaskKind::Step,
+            name: "Missing".to_owned(),
+        };
+        let gone = registered_stream(&dispatch, "gone");
+        dispatch.disconnect(gone.id);
+        record_declined_type(&dispatch, &gone, task_type.clone());
+        let present = registered_stream(&dispatch, "present");
+        record_declined_type(&dispatch, &present, task_type.clone());
+        let registry = dispatch.lock_registry();
+        assert!(!registry.unsupported_types.excludes(&task_type, "gone"));
+        assert!(registry.unsupported_types.excludes(&task_type, "present"));
     }
 }

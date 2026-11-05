@@ -1141,12 +1141,12 @@ the final result. The attempt fails with NOT_COMPLETED. With
 output for it. The attempt fails as possibly run, with NOT_COMPLETED. The
 server ends that stream with INVALID_ARGUMENT, so it gets no further task.
 **dexzd_matching_unsupported_type_evictions_total** is a counter. A steady rise
-means you should raise **matching.unsupportedTypeCacheEntries**.
+means you should raise **matching.unsupportedTypeCacheEntries**. An evicted pair is
+not sent to its Worker again until that Worker completes a Step.
 
 Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each stream close and, with
-**event="delivered"**, each task frame sent after a start. This includes RPC task frames, not only
-Step task frames. A returned attempt
+**event="delivered"**, every task frame sent, including RPC task frames. A returned attempt
 that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
 
 ~~~text

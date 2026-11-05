@@ -74,19 +74,43 @@ impl Registry {
     }
 
     /// Returns whether `worker` may not run `task_type`: its Worker declined the type, or an
-    /// evicted decline waits for this stream's next idle transition.
+    /// evicted decline waits for the Worker's next completed Step.
     pub(super) fn is_unsupported_on(&self, task_type: &TaskTypeKey, worker: &WorkerStream) -> bool {
-        self.unsupported_types.excludes(
-            task_type,
-            &worker.app_worker_id,
-            self.idle_positions.get(&worker.id).copied(),
-        )
+        self.unsupported_types
+            .excludes(task_type, &worker.app_worker_id)
+    }
+
+    /// Lets the evicted declines of `worker`'s Worker be probed again after it completed a Step,
+    /// and offers its other idle streams to waiters that those declines kept asleep.
+    pub(super) fn release_reprobes_after_step(&mut self, worker: &WorkerStream, now: Instant) {
+        if !self
+            .unsupported_types
+            .release_reprobes(worker.tenant_id, &worker.app_worker_id)
+        {
+            return;
+        }
+        let idle_streams: Vec<Arc<WorkerStream>> = self
+            .idle_positions
+            .keys()
+            .filter_map(|id| self.streams.get(id))
+            .filter(|idle| {
+                idle.tenant_id == worker.tenant_id && idle.app_worker_id == worker.app_worker_id
+            })
+            .cloned()
+            .collect();
+        for idle in idle_streams {
+            self.wake_waiter_for(&idle, now);
+        }
     }
 
     /// Wakes the waiter that should take the newly idle `worker` among all queues it serves:
     /// the longest-waiting RPC, else the longest-waiting Step (plan D56). A woken RPC waiter
     /// gets the stream promised, so no other dispatch takes it first.
     pub(super) fn wake_waiter_for(&mut self, worker: &WorkerStream, now: Instant) {
+        // The RPC waiter it was promised to takes it; a second wakeup must not move it.
+        if self.promised_streams.contains_key(&worker.id) {
+            return;
+        }
         let mut rpc_choice: Option<(u64, String)> = None;
         for queue_name in &worker.queues {
             let Some(queue) = self.queues.get(&(worker.tenant_id, queue_name.clone())) else {

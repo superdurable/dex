@@ -35,7 +35,8 @@ pub struct MatchingConfig {
     /// Default 256 bytes. Bounds each registered Flow type.
     pub max_flow_type_length: usize,
     /// Default 10000. Bounds the (task type, app_worker_id) pairs remembered as unsupported;
-    /// the least recently recorded pair is evicted when full.
+    /// the least recently recorded pair is evicted when full. An evicted pair still excludes
+    /// its Worker until that Worker completes a Step.
     pub unsupported_type_cache_entries: usize,
 }
 

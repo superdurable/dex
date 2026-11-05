@@ -1174,9 +1174,10 @@ async fn a_new_step_never_takes_a_slot_offered_to_a_waiting_rpc() {
     );
 }
 
-/// A waiter checks the unsupported type cache when a slot frees, not when it starts waiting.
+/// A waiter checks the unsupported type cache when a slot frees, not when it starts waiting:
+/// once the Worker completes a Step, its evicted decline lets the waiter in.
 #[tokio::test]
-async fn an_evicted_decline_lets_its_waiter_take_the_next_idle_slot() {
+async fn an_evicted_decline_lets_its_waiter_in_after_the_worker_completes_a_step() {
     let metrics = NodeMetrics::unregistered();
     let mut matching = config();
     matching.dispatch_wait = Duration::from_secs(10);
@@ -1207,13 +1208,23 @@ async fn an_evicted_decline_lets_its_waiter_take_the_next_idle_slot() {
     })
     .await
     .unwrap();
-    // A different request can take and release the slot, ensuring another idle transition.
+    // Freeing the slot without a completed Step keeps the evicted decline.
     let StepStreamReservation::Reserved(available) =
         reserve(&dispatch, step_request("Flow", "C", None)).await
     else {
         panic!("available worker");
     };
     drop(available);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), &mut waiting)
+            .await
+            .is_err(),
+        "an idle transition alone never releases an evicted decline"
+    );
+    let (_, mut completed) = hand_out(&dispatch, "Flow", "C", "c").await;
+    slot.task().await;
+    slot.result("c");
+    final_event(&mut completed).await;
     assert!(
         tokio::time::timeout(Duration::from_millis(150), &mut waiting)
             .await
@@ -1332,4 +1343,119 @@ async fn a_declined_queue_head_does_not_block_another_step_type_of_its_partition
     let claim = next_claim(&dispatch).await;
     assert_eq!(claim.task, queued_ref(1, "NewStep", 10));
     assert_eq!(claim.stream.app_worker_id(), "new-worker");
+}
+
+/// More evictions than the cache holds keep every Worker that declined the type excluded
+/// until it next becomes idle (plan section 3.5).
+#[tokio::test]
+async fn evictions_beyond_the_cache_size_never_reprobe_an_idle_worker() {
+    let mut matching = config();
+    matching.unsupported_type_cache_entries = 1;
+    let dispatch = WorkerDispatch::new(matching, Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slots = Vec::new();
+    for worker in ["first", "second", "third"] {
+        slots.push(
+            register(
+                &server.channel,
+                reserved(worker, &["Flow"], PollWorkerSlotKind::StepAndRpc),
+            )
+            .await,
+        );
+    }
+    for (index, worker) in ["first", "second", "third"].iter().enumerate() {
+        let (worker_id, mut task) = hand_out(&dispatch, "Flow", "Missing", worker).await;
+        assert_eq!(&worker_id, worker);
+        slots[index].task().await;
+        slots[index].reject(worker, PollWorkerTaskRejectReason::UnknownStep);
+        final_event(&mut task).await;
+    }
+    let reprobe = futures::FutureExt::now_or_never(
+        dispatch.reserve_step_stream(step_request("Flow", "Missing", None)),
+    );
+    assert!(
+        !matches!(reprobe, Some(StepStreamReservation::Reserved(_))),
+        "an evicted decline reenabled a Worker that never became idle again"
+    );
+    // Another Step type still reaches the Workers.
+    let (_, _other) = hand_out(&dispatch, "Flow", "Present", "present").await;
+}
+
+/// A Worker's own decline evicts its earlier decline but never releases it, so one Worker
+/// missing two Step types is probed once for each, not in a loop.
+#[tokio::test]
+async fn a_workers_own_decline_never_releases_the_pair_it_evicted() {
+    let mut matching = config();
+    matching.unsupported_type_cache_entries = 1;
+    let dispatch = WorkerDispatch::new(matching, Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("only", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let mut probes = 0;
+    for round in 0..6 {
+        let step_type = if round % 2 == 0 { "X" } else { "K" };
+        let task_id = format!("{step_type}-{round}");
+        let reservation = reserve(&dispatch, step_request("Flow", step_type, None)).await;
+        let StepStreamReservation::Reserved(stream) = reservation else {
+            break;
+        };
+        let mut handle = stream
+            .send_task(
+                task_id.clone(),
+                wait_for_payload("Flow", step_type),
+                SystemTime::now() + Duration::from_secs(60),
+                None,
+            )
+            .expect("the frame goes out");
+        slot.task().await;
+        slot.reject(&task_id, PollWorkerTaskRejectReason::UnknownStep);
+        final_event(&mut handle).await;
+        probes += 1;
+    }
+    assert_eq!(
+        probes, 2,
+        "the only Worker is probed once for each Step type it declined"
+    );
+}
+
+/// RPC completions, on RPC_ONLY slots or any other, never release a Worker's Step declines.
+#[tokio::test]
+async fn rpc_completions_never_reenable_a_declined_step() {
+    let mut matching = config();
+    matching.unsupported_type_cache_entries = 1;
+    let dispatch = WorkerDispatch::new(matching, Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slots = Vec::new();
+    for worker in ["first", "second"] {
+        for slot_kind in [PollWorkerSlotKind::StepAndRpc, PollWorkerSlotKind::RpcOnly] {
+            slots.push(register(&server.channel, reserved(worker, &["Flow"], slot_kind)).await);
+        }
+    }
+    for (index, worker) in ["first", "second"].iter().enumerate() {
+        let (worker_id, mut task) = hand_out(&dispatch, "Flow", "Missing", worker).await;
+        assert_eq!(&worker_id, worker);
+        let step_slot = &mut slots[index * 2];
+        step_slot.task().await;
+        step_slot.reject(worker, PollWorkerTaskRejectReason::UnknownStep);
+        final_event(&mut task).await;
+    }
+    for round in 0..6 {
+        let mut request = rpc_request("getStatus");
+        request.flow_id = format!("unrelated-rpc-{round}");
+        let mut rpc = dispatch.dispatch(request).expect("dispatch starts");
+        let (task, index, _) =
+            futures::future::select_all(slots.iter_mut().map(|slot| Box::pin(slot.task()))).await;
+        slots[index].send(rpc_result(&task.task_id));
+        while !matches!(rpc.next().await, Some(DispatchEvent::Completed(_))) {}
+        let reprobe = futures::FutureExt::now_or_never(
+            dispatch.reserve_step_stream(step_request("Flow", "Missing", None)),
+        );
+        assert!(
+            !matches!(reprobe, Some(StepStreamReservation::Reserved(_))),
+            "an RPC completion reenabled a declined Step on an idle Step slot"
+        );
+    }
 }

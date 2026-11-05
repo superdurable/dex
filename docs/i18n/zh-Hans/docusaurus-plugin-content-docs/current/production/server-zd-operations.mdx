@@ -954,11 +954,12 @@ attempt 按未运行处理而失败，并且 stream 结束。出现 **half_close
 按可能已运行处理，以 NOT_COMPLETED 失败，server 以 INVALID_ARGUMENT 结束该 stream，因此
 它不会再收到任务。
 **dexzd_matching_unsupported_type_evictions_total** 是 counter，持续上升说明应该调大
-**matching.unsupportedTypeCacheEntries**。
+**matching.unsupportedTypeCacheEntries**。被淘汰的条目在对应 Worker 完成一个 Step 之前，
+不会再派给这个 Worker。
 
 Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
 **dexzd_worker_stream_events_total** 统计每次 stream 关闭，并且在 **event="delivered"** 时统计
-每个在开始记录之后发出的任务帧，包括 RPC 任务帧，而不只是 Step 任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
+每个发出的任务帧，包括 RPC 任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
 等待时间计入 **flow_read** 延迟。
 
 ~~~text

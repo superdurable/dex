@@ -159,14 +159,11 @@ fn backlog_service_agrees_with_claim_eligibility_after_an_evicted_decline() {
     let refund = step_type_key(&queue_name("Refund"));
     {
         let mut registry = dispatch.lock_registry();
-        let newest = registry.next_idle_position;
         registry
             .unsupported_types
-            .insert(charge.clone(), "worker-a", newest);
-        // Evicts the Charge decline; the idle stream keeps excluding Charge until it idles again.
-        registry
-            .unsupported_types
-            .insert(refund.clone(), "worker-a", newest);
+            .insert(charge.clone(), "worker-a");
+        // Evicts the Charge decline; it stays excluded until the Worker completes a Step.
+        registry.unsupported_types.insert(refund, "worker-a");
         assert!(registry.is_unsupported_on(&charge, &worker));
         assert_eq!(
             registry.backlog_service(&queue_name("Charge")),

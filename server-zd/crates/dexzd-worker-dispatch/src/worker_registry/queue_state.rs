@@ -600,4 +600,65 @@ mod tests {
         // A sticky search on an empty queue returns without registering as a waiter.
         assert!(!sticky.is_waiting);
     }
+
+    fn pick_rpc(dispatch: &WorkerDispatch, lease: &mut QueueLease) -> Option<Arc<WorkerStream>> {
+        let task_type = TaskTypeKey {
+            tenant_id: 7,
+            flow_type: "Flow".to_owned(),
+            kind: TaskKind::Rpc,
+            name: "getStatus".to_owned(),
+        };
+        let task = TaskSearch {
+            task_type: &task_type,
+            flow_id: "rpc",
+            partition_search: None,
+        };
+        dispatch
+            .pick_worker(lease, &task, false, &HashSet::new(), &HashMap::new())
+            .worker
+    }
+
+    /// A legacy stream's Step backoff timer wakes waiters again while its RPC promise is
+    /// outstanding; the promise must stay with the first RPC.
+    #[test]
+    fn a_second_wakeup_never_moves_an_rpc_promise() {
+        let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
+        let (output, _response) = mpsc::unbounded_channel();
+        let (close, _closing) = watch::channel(false);
+        let worker = Arc::new(WorkerStream {
+            id: Uuid::now_v7(),
+            tenant_id: 7,
+            queues: vec!["Flow".to_owned()],
+            backlog_flow_types: vec!["Flow".to_owned()],
+            app_worker_id: "worker".to_owned(),
+            slot: StreamSlot::Legacy,
+            output,
+            close,
+            state: Mutex::new(WorkerState {
+                is_busy: true,
+                ..WorkerState::default()
+            }),
+        });
+        {
+            let mut registry = dispatch.lock_registry();
+            let queue = registry
+                .queues
+                .entry((7, "Flow".to_owned()))
+                .or_insert_with(QueueState::new);
+            queue.stream_ids.insert(worker.id);
+            queue.users += 1;
+            registry.streams.insert(worker.id, worker.clone());
+        }
+        let mut first = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+        let mut second = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        assert!(pick_rpc(&dispatch, &mut first).is_none());
+        assert!(pick_rpc(&dispatch, &mut second).is_none());
+        dispatch.make_idle(&worker);
+        assert_eq!(dispatch.lock_registry().promised_streams[&worker.id], 1);
+        dispatch.end_step_backoff(worker.id);
+        assert_eq!(dispatch.lock_registry().promised_streams[&worker.id], 1);
+        // The second RPC cannot take the stream; the first one, woken for it, takes it.
+        assert!(pick_rpc(&dispatch, &mut second).is_none());
+        assert!(pick_rpc(&dispatch, &mut first).is_some());
+    }
 }

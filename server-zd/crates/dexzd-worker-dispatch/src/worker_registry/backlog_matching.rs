@@ -502,18 +502,11 @@ impl Registry {
         else {
             return BacklogService::NoWorker;
         };
-        let step_type = step_type_key(name);
-        // Agrees with Claim eligibility, which also honors evicted declines' reprobe marks.
+        // Agrees with Claim eligibility, which also excludes evicted declines awaiting a reprobe.
         let declining = self
             .unsupported_types
-            .declining_or_reprobing_workers(&step_type)
-            .filter_map(|app_worker_id| workers.get(app_worker_id))
-            .filter(|stream_ids| {
-                stream_ids
-                    .iter()
-                    .filter_map(|id| self.streams.get(id))
-                    .all(|stream| self.is_unsupported_on(&step_type, stream))
-            })
+            .declining_or_reprobing_workers(&step_type_key(name))
+            .filter(|app_worker_id| workers.contains_key(*app_worker_id))
             .count();
         if declining < workers.len() {
             BacklogService::Served

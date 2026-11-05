@@ -37,8 +37,9 @@ type CacheEntry = (TaskTypeKey, String);
 
 /// LRU of (task type, app Worker ID) pairs, bounded by `capacity` pairs.
 ///
-/// An evicted pair keeps excluding the streams that were idle at its eviction, so it is probed
-/// again only after a stream of its Worker next becomes idle (plan section 3.5).
+/// An evicted pair keeps excluding its Worker until the Worker next completes a Step (plan
+/// section 3.5). A Worker that only declines keeps its evicted pairs until it disconnects; they
+/// are bounded by the application's distinct Step types and RPC names.
 pub(super) struct UnsupportedTypeCache {
     capacity: usize,
     next_use: u64,
@@ -46,21 +47,11 @@ pub(super) struct UnsupportedTypeCache {
     use_order: BTreeMap<u64, CacheEntry>,
     workers_by_type: HashMap<TaskTypeKey, HashSet<String>>,
     types_by_worker: HashMap<(u64, String), HashSet<TaskTypeKey>>,
-    /// Evicted pairs and the last idle position assigned at their eviction.
-    reprobe_marks: HashMap<TaskTypeKey, HashMap<String, ReprobeMark>>,
-    /// Evicted pairs by eviction order; at most `capacity` are kept.
-    reprobe_order: BTreeMap<u64, CacheEntry>,
-    next_eviction: u64,
+    /// Evicted pairs by tenant and Worker, until the Worker completes a Step.
+    awaiting_reprobe: HashMap<u64, HashMap<String, HashSet<TaskTypeKey>>>,
     entries_gauge: Gauge,
     evictions: Counter,
     last_full_warning: Option<Instant>,
-}
-
-/// When an evicted pair was evicted, and the newest idle position at that moment.
-#[derive(Clone, Copy)]
-struct ReprobeMark {
-    eviction: u64,
-    idle_position: u64,
 }
 
 impl UnsupportedTypeCache {
@@ -76,9 +67,7 @@ impl UnsupportedTypeCache {
             use_order: BTreeMap::new(),
             workers_by_type: HashMap::new(),
             types_by_worker: HashMap::new(),
-            reprobe_marks: HashMap::new(),
-            reprobe_order: BTreeMap::new(),
-            next_eviction: 0,
+            awaiting_reprobe: HashMap::new(),
             entries_gauge,
             evictions,
             last_full_warning: None,
@@ -96,11 +85,15 @@ impl UnsupportedTypeCache {
         &self,
         key: &TaskTypeKey,
     ) -> impl Iterator<Item = &String> {
+        let awaiting = self
+            .awaiting_reprobe
+            .get(&key.tenant_id)
+            .into_iter()
+            .flatten();
         self.declining_workers(key).chain(
-            self.reprobe_marks
-                .get(key)
-                .into_iter()
-                .flat_map(HashMap::keys),
+            awaiting
+                .filter(move |(_, keys)| keys.contains(key))
+                .map(|(app_worker_id, _)| app_worker_id),
         )
     }
 
@@ -111,35 +104,22 @@ impl UnsupportedTypeCache {
             .is_some_and(|workers| workers.contains(app_worker_id))
     }
 
-    /// Returns whether a stream of `app_worker_id` may not run `key`: the Worker declined it,
-    /// or the decline was evicted while this stream was idle at `idle_position` and the
-    /// stream has not become idle again since. A busy stream has no idle position.
-    pub(super) fn excludes(
-        &self,
-        key: &TaskTypeKey,
-        app_worker_id: &str,
-        idle_position: Option<u64>,
-    ) -> bool {
+    /// Returns whether `app_worker_id` may not run `key`: it declined `key`, or that decline
+    /// was evicted and the Worker has completed no Step since.
+    pub(super) fn excludes(&self, key: &TaskTypeKey, app_worker_id: &str) -> bool {
         self.contains(key, app_worker_id)
-            || idle_position.is_some_and(|position| {
-                self.reprobe_marks
-                    .get(key)
-                    .and_then(|workers| workers.get(app_worker_id))
-                    .is_some_and(|mark| position <= mark.idle_position)
-            })
+            || self
+                .awaiting_reprobe
+                .get(&key.tenant_id)
+                .and_then(|workers| workers.get(app_worker_id))
+                .is_some_and(|keys| keys.contains(key))
     }
 
     /// Records that `app_worker_id` declined `key`, evicting the least recently recorded pair
-    /// when full. `newest_idle_position` is the last idle position the registry assigned; an
-    /// evicted pair is not probed again on streams that were idle at that position or before.
-    pub(super) fn insert(
-        &mut self,
-        key: TaskTypeKey,
-        app_worker_id: &str,
-        newest_idle_position: u64,
-    ) {
+    /// when full. An evicted pair is not probed again until its Worker next completes a Step.
+    pub(super) fn insert(&mut self, key: TaskTypeKey, app_worker_id: &str) {
         let entry = (key, app_worker_id.to_owned());
-        self.forget_reprobe_mark(&entry);
+        self.forget_reprobe(&entry);
         if let Some(previous_use) = self.uses.remove(&entry) {
             self.use_order.remove(&previous_use);
         } else {
@@ -162,7 +142,7 @@ impl UnsupportedTypeCache {
                 .expect("an over-full cache has a least recent entry");
             self.uses.remove(&evicted);
             self.forget(&evicted);
-            self.mark_for_reprobe(evicted, newest_idle_position);
+            self.await_reprobe(evicted);
             self.evictions.inc();
             self.warn_when_full();
         }
@@ -172,6 +152,7 @@ impl UnsupportedTypeCache {
 
     /// Forgets every type the Worker declined; its streams are all gone.
     pub(super) fn remove_worker(&mut self, tenant_id: u64, app_worker_id: &str) {
+        self.forget_awaiting_reprobes(tenant_id, app_worker_id);
         let Some(keys) = self
             .types_by_worker
             .remove(&(tenant_id, app_worker_id.to_owned()))
@@ -194,41 +175,48 @@ impl UnsupportedTypeCache {
             .set(i64::try_from(self.uses.len()).unwrap_or(i64::MAX));
     }
 
-    /// Keeps `evicted` excluded on streams idle at `newest_idle_position` or before; the
-    /// oldest mark goes once `capacity` marks exist.
-    fn mark_for_reprobe(&mut self, evicted: CacheEntry, newest_idle_position: u64) {
-        self.next_eviction += 1;
-        let mark = ReprobeMark {
-            eviction: self.next_eviction,
-            idle_position: newest_idle_position,
+    /// Lets the Worker's evicted pairs be probed again: it completed a Step.
+    ///
+    /// Returns whether the Worker had evicted pairs waiting.
+    pub(super) fn release_reprobes(&mut self, tenant_id: u64, app_worker_id: &str) -> bool {
+        self.forget_awaiting_reprobes(tenant_id, app_worker_id)
+    }
+
+    /// Removes the Worker's evicted pairs; returns whether it had any.
+    fn forget_awaiting_reprobes(&mut self, tenant_id: u64, app_worker_id: &str) -> bool {
+        let Some(workers) = self.awaiting_reprobe.get_mut(&tenant_id) else {
+            return false;
         };
-        self.reprobe_marks
-            .entry(evicted.0.clone())
-            .or_default()
-            .insert(evicted.1.clone(), mark);
-        self.reprobe_order.insert(mark.eviction, evicted);
-        while self.reprobe_order.len() > self.capacity {
-            let (_, oldest) = self
-                .reprobe_order
-                .pop_first()
-                .expect("an over-full mark order has an oldest mark");
-            self.remove_reprobe_mark(&oldest);
-        }
-    }
-
-    fn forget_reprobe_mark(&mut self, entry: &CacheEntry) {
-        if let Some(mark) = self.remove_reprobe_mark(entry) {
-            self.reprobe_order.remove(&mark.eviction);
-        }
-    }
-
-    fn remove_reprobe_mark(&mut self, (key, app_worker_id): &CacheEntry) -> Option<ReprobeMark> {
-        let workers = self.reprobe_marks.get_mut(key)?;
-        let mark = workers.remove(app_worker_id);
+        let had_pairs = workers.remove(app_worker_id).is_some();
         if workers.is_empty() {
-            self.reprobe_marks.remove(key);
+            self.awaiting_reprobe.remove(&tenant_id);
         }
-        mark
+        had_pairs
+    }
+
+    /// Keeps `evicted` excluding its Worker until that Worker completes a Step.
+    fn await_reprobe(&mut self, (key, app_worker_id): CacheEntry) {
+        self.awaiting_reprobe
+            .entry(key.tenant_id)
+            .or_default()
+            .entry(app_worker_id)
+            .or_default()
+            .insert(key);
+    }
+
+    fn forget_reprobe(&mut self, (key, app_worker_id): &CacheEntry) {
+        let Some(workers) = self.awaiting_reprobe.get_mut(&key.tenant_id) else {
+            return;
+        };
+        if let Some(keys) = workers.get_mut(app_worker_id) {
+            keys.remove(key);
+            if keys.is_empty() {
+                workers.remove(app_worker_id);
+            }
+        }
+        if workers.is_empty() {
+            self.awaiting_reprobe.remove(&key.tenant_id);
+        }
     }
 
     fn forget(&mut self, (key, app_worker_id): &CacheEntry) {
@@ -280,23 +268,25 @@ mod tests {
     fn full_cache_evicts_the_least_recent_pair_and_workers_forget_their_types() {
         let evictions = Counter::default();
         let mut cache = UnsupportedTypeCache::new(2, Gauge::default(), evictions.clone());
-        cache.insert(key("A"), "old", 1);
-        cache.insert(key("B"), "old", 1);
-        cache.insert(key("A"), "old", 1);
-        cache.insert(key("C"), "new", 3);
+        cache.insert(key("A"), "old");
+        cache.insert(key("B"), "old");
+        cache.insert(key("A"), "old");
+        cache.insert(key("C"), "new");
         assert!(cache.contains(&key("A"), "old"));
         assert!(!cache.contains(&key("B"), "old"), "B was least recent");
         assert!(cache.contains(&key("C"), "new"));
         assert_eq!(evictions.get(), 1);
-        // The evicted pair stays excluded on streams idle since before its eviction.
-        assert!(cache.excludes(&key("B"), "old", Some(3)));
-        assert!(!cache.excludes(&key("B"), "old", Some(4)));
-        assert!(!cache.excludes(&key("B"), "old", None));
-        cache.insert(key("B"), "old", 4);
+        // The evicted pair excludes its Worker until that Worker completes a Step.
+        assert!(cache.excludes(&key("B"), "old"));
+        assert!(!cache.release_reprobes(7, "new"));
         assert!(
-            cache.excludes(&key("B"), "old", Some(9)),
-            "a new decline is cached"
+            cache.excludes(&key("B"), "old"),
+            "another Worker's completion"
         );
+        assert!(cache.release_reprobes(7, "old"));
+        assert!(!cache.excludes(&key("B"), "old"));
+        cache.insert(key("B"), "old");
+        assert!(cache.excludes(&key("B"), "old"), "a new decline is cached");
         let rpc = TaskTypeKey {
             kind: TaskKind::Rpc,
             ..key("C")
