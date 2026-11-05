@@ -13,8 +13,6 @@ package io.superdurable.dex;
 import io.grpc.Context;
 import io.grpc.ManagedChannel;
 import io.grpc.Status;
-import io.grpc.stub.ClientCallStreamObserver;
-import io.grpc.stub.ClientResponseObserver;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.gen.InvokeExecuteMethodOutput;
 import io.superdurable.gen.InvokeWaitForMethodOutput;
@@ -468,12 +466,9 @@ final class PullWorker {
         private final PollWorkerSlotKind slotKind;
         private volatile AtomicReference<String> callToken;
         private volatile int openGeneration;
-        private StreamObserver<PollWorkerTaskRequest> requests;
-        private ClientCallStreamObserver<PollWorkerTaskRequest> transport;
+        private PullConnection connection;
         private PollWorkerTask pendingTask;
         private boolean isPendingTaskCancelled;
-        private final ArrayDeque<PendingWrite> pendingWrites = new ArrayDeque<PendingWrite>();
-        private boolean isWriterScheduled;
         private boolean hasUnconfirmedFinalOutput;
         private Context.CancellableContext taskContext;
         private ScheduledFuture<?> deadlineTimer;
@@ -509,14 +504,11 @@ final class PullWorker {
             hasUnconfirmedFinalOutput = false;
             isFinalFrameSent = false;
             closeFailure = null;
+            final PullConnection opened = new PullConnection(Context.ROOT.withCancellation());
+            connection = opened;
             try {
                 final StreamObserver<PollWorkerTaskResponse> observer =
-                        new ClientResponseObserver<PollWorkerTaskRequest, PollWorkerTaskResponse>() {
-                            @Override
-                            public void beforeStart(final ClientCallStreamObserver<PollWorkerTaskRequest> call) {
-                                transport = call;
-                            }
-
+                        new StreamObserver<PollWorkerTaskResponse>() {
                             @Override
                             public void onNext(final PollWorkerTaskResponse response) {
                                 synchronized (PullWorker.this) {
@@ -536,8 +528,9 @@ final class PullWorker {
                                 close(null, null, generation);
                             }
                         };
-                GrpcCredential.withTokenCapture(openedToken).run(() ->
-                        requests = taskService.pollWorkerTask(observer));
+                // Cancelling this context is grpc-java's thread-safe reset; it sends RST_STREAM.
+                opened.callContext.run(() -> GrpcCredential.withTokenCapture(openedToken).run(() ->
+                        opened.requests = taskService.pollWorkerTask(observer)));
                 send(PollWorkerTaskRequest.newBuilder()
                         .setRegister(PollWorkerTaskRegister.newBuilder()
                                 .setSupportsReservedSlotDispatch(true)
@@ -654,6 +647,10 @@ final class PullWorker {
             }
             if (task.getRequestCase() == PollWorkerTask.RequestCase.REQUEST_NOT_SET) {
                 reset("Worker task has no request");
+                return;
+            }
+            if (task.getTaskId().isEmpty()) {
+                reset("Worker task has no task ID");
                 return;
             }
             final PollWorkerTaskRejectReason unknownReason = unknownTaskReason(task);
@@ -844,25 +841,25 @@ final class PullWorker {
 
         private void send(final PollWorkerTaskRequest request) {
             synchronized (PullWorker.this) {
-                if (!isHalfClosed && !isClosed && requests != null
+                if (!isHalfClosed && !isClosed && connection != null && connection.requests != null
                         && (!request.hasPong() || !isFinalFrameSent)) {
                     enqueueWrite(request);
                 }
             }
         }
 
-        // A null request half-closes; the writer preserves frame order on this connection.
+        // A null request half-closes; each connection has its own ordered writer.
         private void enqueueWrite(final PollWorkerTaskRequest request) {
-            pendingWrites.add(new PendingWrite(requests, request, openGeneration));
-            if (isWriterScheduled) {
+            final PullConnection target = connection;
+            target.pendingWrites.add(new PendingWrite(request));
+            if (target.isWriterScheduled) {
                 return;
             }
-            isWriterScheduled = true;
+            target.isWriterScheduled = true;
             try {
-                streamWriters.execute(this::drainWrites);
+                streamWriters.execute(() -> drainWrites(target));
             } catch (RejectedExecutionException rejected) {
-                isWriterScheduled = false;
-                pendingWrites.clear();
+                target.isWriterScheduled = false;
                 reset("Worker stream writer stopped");
             }
         }
@@ -874,31 +871,40 @@ final class PullWorker {
             }
         }
 
-        private void drainWrites() {
+        private void drainWrites(final PullConnection target) {
             while (true) {
                 final PendingWrite write;
                 synchronized (PullWorker.this) {
-                    write = pendingWrites.poll();
+                    write = target.isCancelled ? null : target.pendingWrites.poll();
                     if (write == null) {
-                        isWriterScheduled = false;
+                        target.isWriterScheduled = false;
                         return;
                     }
                 }
+                // A reset can overtake this write; gRPC then drops it after the RST_STREAM.
                 try {
                     if (write.request == null) {
-                        write.requests.onCompleted();
+                        target.requests.onCompleted();
                     } else {
                         requireSerializable(write.request);
-                        write.requests.onNext(write.request);
+                        target.requests.onNext(write.request);
                     }
                 } catch (RuntimeException failure) {
                     synchronized (PullWorker.this) {
-                        if (write.generation == openGeneration && !isClosed) {
+                        if (target == connection && !target.isCancelled && !isClosed) {
                             LOGGER.log(Level.WARNING, "Worker task stream write failed", failure);
                             reset("Worker task stream write failed");
                         }
                     }
                 }
+            }
+        }
+
+        private void cancelConnection(final Throwable cause) {
+            if (connection != null && !connection.isCancelled) {
+                connection.isCancelled = true;
+                connection.pendingWrites.clear();
+                connection.callContext.cancel(cause);
             }
         }
 
@@ -956,28 +962,17 @@ final class PullWorker {
 
         private void reset(final String reason) {
             final RuntimeException failure = Status.INTERNAL.withDescription(reason).asRuntimeException();
-            try {
-                if (transport != null) {
-                    transport.cancel(reason, failure);
-                }
-            } catch (RuntimeException cancelFailure) {
-                LOGGER.log(Level.WARNING, "reset Worker task stream", cancelFailure);
-            } finally {
-                close(failure);
-            }
+            cancelConnection(failure);
+            close(failure);
         }
 
         private void resetForStopTimeout() {
             cancelTask(Status.Code.CANCELLED);
-            if (!isClosed && transport != null) {
-                final RuntimeException cancellation = Status.CANCELLED.asRuntimeException();
-                try {
-                    transport.cancel("Worker stop timeout", cancellation);
-                } catch (RuntimeException failure) {
-                    LOGGER.log(Level.WARNING, "cancel Worker task stream", failure);
-                } finally {
-                    close(cancellation);
-                }
+            if (!isClosed) {
+                final RuntimeException cancellation = Status.CANCELLED
+                        .withDescription("Worker stop timeout").asRuntimeException();
+                cancelConnection(cancellation);
+                close(cancellation);
             }
         }
 
@@ -1016,13 +1011,8 @@ final class PullWorker {
                         final RuntimeException timeout = Status.DEADLINE_EXCEEDED
                                 .withDescription("Worker stream close timed out")
                                 .asRuntimeException();
-                        try {
-                            transport.cancel("Worker stream close timed out", timeout);
-                        } catch (RuntimeException failure) {
-                            LOGGER.log(Level.WARNING, "cancel timed-out Worker task stream", failure);
-                        } finally {
-                            close(timeout);
-                        }
+                        cancelConnection(timeout);
+                        close(timeout);
                     }
                 }
             }, waitNanos, TimeUnit.NANOSECONDS);
@@ -1057,7 +1047,8 @@ final class PullWorker {
                     GrpcCredential.rejectToken(credential, rejectedToken);
                 }
                 isClosed = true;
-                pendingWrites.clear();
+                // The call has ended; cancelling releases its context and drops unsent frames.
+                cancelConnection(failure == null ? Status.CANCELLED.asRuntimeException() : failure);
                 recordStreamResult(this, failure);
                 closeFailure = failure;
                 if (closeTimer != null) {
@@ -1120,16 +1111,24 @@ final class PullWorker {
         }
     }
 
-    private static final class PendingWrite {
-        private final StreamObserver<PollWorkerTaskRequest> requests;
-        private final PollWorkerTaskRequest request;
-        private final int generation;
+    // Owns one poll call and its ordered writes; fields are guarded by the PullWorker monitor.
+    private static final class PullConnection {
+        private final Context.CancellableContext callContext;
+        private final ArrayDeque<PendingWrite> pendingWrites = new ArrayDeque<PendingWrite>();
+        private volatile StreamObserver<PollWorkerTaskRequest> requests;
+        private boolean isWriterScheduled;
+        private boolean isCancelled;
 
-        private PendingWrite(final StreamObserver<PollWorkerTaskRequest> requests,
-                final PollWorkerTaskRequest request, final int generation) {
-            this.requests = requests;
+        private PullConnection(final Context.CancellableContext callContext) {
+            this.callContext = callContext;
+        }
+    }
+
+    private static final class PendingWrite {
+        private final PollWorkerTaskRequest request;
+
+        private PendingWrite(final PollWorkerTaskRequest request) {
             this.request = request;
-            this.generation = generation;
         }
     }
 }

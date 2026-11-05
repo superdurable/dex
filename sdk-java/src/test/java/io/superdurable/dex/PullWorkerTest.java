@@ -714,6 +714,119 @@ final class PullWorkerTest {
         }
     }
 
+    @Test
+    void reconnectRegistersWhileOldConnectionWriterStaysBlocked() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer();
+        final CountDownLatch release = new CountDownLatch(1);
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+            final PollStream old = pollServer.awaitQueue("PullTestFlow");
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            final BlockingRequests blocking = new BlockingRequests(release, false);
+            running.wrapOnlyStreamRequests(blocking);
+            old.respond(PollWorkerTaskResponse.newBuilder()
+                    .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+            assertTrue(blocking.blocked.await(5, TimeUnit.SECONDS));
+            old.responses.onError(Status.UNAVAILABLE.asRuntimeException());
+            final PollStream replacement = pollServer.awaitQueue("PullTestFlow");
+            assertNotSame(old, replacement);
+            replacement.assign(executeTask("after-blocked-writer", "small"));
+            assertTrue(replacement.awaitFrame().getTaskFrame().getExecute().hasResult());
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void dequeuedWriteOvertakenByResetIsNeverSent() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer();
+        final CountDownLatch release = new CountDownLatch(1);
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+            final PollStream old = pollServer.awaitQueue("PullTestFlow");
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            final BlockingRequests blocking = new BlockingRequests(release, false);
+            running.wrapOnlyStreamRequests(blocking);
+            old.respond(PollWorkerTaskResponse.newBuilder()
+                    .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+            assertTrue(blocking.blocked.await(5, TimeUnit.SECONDS));
+            running.resetOnlyStream("test reset");
+            awaitCancelled(old);
+            release.countDown();
+            final PollStream replacement = pollServer.awaitQueue("PullTestFlow");
+            replacement.assign(executeTask("after-overtaken-write", "small"));
+            assertTrue(replacement.awaitFrame().getTaskFrame().getExecute().hasResult());
+            assertTrue(old.frames.isEmpty());
+            assertFalse(old.isHalfClosed);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void resetDuringAnActualTransportWriteRecoversTheSlot() throws Exception {
+        for (int round = 0; round < 5; round++) {
+            final TestFlow flow = new TestFlow();
+            final PollServer pollServer = new PollServer();
+            try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+                final PollStream old = pollServer.awaitQueue("PullTestFlow");
+                running.worker.waitPullRegistered(Duration.ofSeconds(5));
+                final CountDownLatch writing = new CountDownLatch(1);
+                running.wrapOnlyStreamRequests(delegate -> new StreamObserver<PollWorkerTaskRequest>() {
+                    @Override
+                    public void onNext(final PollWorkerTaskRequest request) {
+                        writing.countDown();
+                        delegate.onNext(request);
+                    }
+
+                    @Override
+                    public void onError(final Throwable failure) {
+                        delegate.onError(failure);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        delegate.onCompleted();
+                    }
+                });
+                old.assign(executeTask("reset-during-write-" + round, "large"));
+                flow.release.countDown();
+                assertTrue(writing.await(5, TimeUnit.SECONDS));
+                running.resetOnlyStream("reset during write");
+                awaitCancelled(old);
+                assertFalse(old.isHalfClosed);
+                final PollStream replacement = pollServer.awaitQueue("PullTestFlow");
+                replacement.assign(executeTask("after-reset-write-" + round, "small"));
+                assertTrue(replacement.awaitFrame().getTaskFrame().getExecute().hasResult());
+            }
+        }
+    }
+
+    @Test
+    void missingTaskIdResetsWithoutHandlerOrLeakedSlot() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1, Duration.ofMillis(100))) {
+            final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+            stream.assign(executeTask("ignored", "small").toBuilder().clearTaskId().build());
+            awaitCancelled(stream);
+            assertFalse(stream.isHalfClosed);
+            assertTrue(stream.frames.isEmpty());
+            assertEquals(0, flow.executeCalls.get());
+            final long stopStarted = System.nanoTime();
+            running.worker.stop();
+            assertTrue(System.nanoTime() - stopStarted < TimeUnit.SECONDS.toNanos(3));
+        }
+    }
+
+    private static void awaitCancelled(final PollStream stream) throws InterruptedException {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!stream.readControl.isCancelled() && System.nanoTime() < deadline) {
+            Thread.sleep(10L);
+        }
+        assertTrue(stream.readControl.isCancelled());
+    }
+
     private static void assertStopResetsByDeadline(final RunningWorker running, final PollStream stream)
             throws Exception {
         final Thread stopping = new Thread(() -> running.worker.stop(), "dex-java-pull-unit-blocked-stop");
@@ -1921,10 +2034,27 @@ final class PullWorkerTest {
             synchronized (pullWorker) {
                 final java.util.List<?> streams = (java.util.List<?>) streamsField.get(pullWorker);
                 assertEquals(1, streams.size());
-                final Field requestsField = streams.get(0).getClass().getDeclaredField("requests");
+                final Field connectionField = streams.get(0).getClass().getDeclaredField("connection");
+                connectionField.setAccessible(true);
+                final Object connection = connectionField.get(streams.get(0));
+                final Field requestsField = connection.getClass().getDeclaredField("requests");
                 requestsField.setAccessible(true);
-                requestsField.set(streams.get(0), wrapper.apply(
-                        (StreamObserver<PollWorkerTaskRequest>) requestsField.get(streams.get(0))));
+                requestsField.set(connection, wrapper.apply(
+                        (StreamObserver<PollWorkerTaskRequest>) requestsField.get(connection)));
+            }
+        }
+
+        private void resetOnlyStream(final String reason) throws ReflectiveOperationException {
+            final PullWorker pullWorker = pullWorker();
+            final Field streamsField = PullWorker.class.getDeclaredField("streams");
+            streamsField.setAccessible(true);
+            synchronized (pullWorker) {
+                final java.util.List<?> streams = (java.util.List<?>) streamsField.get(pullWorker);
+                assertEquals(1, streams.size());
+                final java.lang.reflect.Method reset =
+                        streams.get(0).getClass().getDeclaredMethod("reset", String.class);
+                reset.setAccessible(true);
+                reset.invoke(streams.get(0), reason);
             }
         }
 
