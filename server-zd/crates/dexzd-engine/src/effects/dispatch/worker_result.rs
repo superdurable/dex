@@ -59,6 +59,7 @@ impl MethodResult {
         app_worker_id: String,
         hard_delete_objects: Vec<HardDeleteObjectReference>,
         pull_routing: PullRouting,
+        task_id: Vec<u8>,
     ) -> StepMethodCompletedCommand {
         let response = match self {
             Self::WaitFor(response) => step_method_completed_command::Response::WaitFor(response),
@@ -71,6 +72,7 @@ impl MethodResult {
             app_worker_id,
             hard_delete_objects,
             pull_routing: Some(pull_routing),
+            task_id,
         }
     }
 

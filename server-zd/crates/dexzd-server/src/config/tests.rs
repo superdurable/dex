@@ -672,6 +672,9 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("matching.pingInterval", |config| {
             config.matching.ping_interval = Duration::ZERO
         }),
+        ("matching.unsupportedTypeCacheEntries", |config| {
+            config.matching.unsupported_type_cache_entries = 0
+        }),
         ("streamStore.maxMessageBytes", |config| {
             config.stream_store.max_message_bytes = 0
         }),

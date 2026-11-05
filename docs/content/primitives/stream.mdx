@@ -227,7 +227,7 @@ A direct Step write has these semantics:
 - A later Step failure does not roll the message back.
 - One method invocation can write any number of messages to the same or different Streams. Each write is an implicit heartbeat and preserves the last explicit heartbeat value. The [Polling](/design-patterns/polling) pattern uses these writes to report progress.
 - The SDK only confirms local encoding and delivery to the Worker output stream. A disabled, unavailable, full, or rejecting Stream Store drops the message without failing the Step.
-- Every Step message has source **#StepExecutionID**. Attempts and messages from the same Step execution share that source. Source is informational, not unique, and does not deduplicate retries.
+- Every Step message has source **#StepExecutionID**. Attempts and messages from the same Step execution share that source. Source is informational, not unique, and does not deduplicate retries. After a Dex Server node crashes, an ASYNC Step can also run the same attempt number again, and its batches can repeat in the same source.
 
 A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty source for each write. A source may be repeated and may contain **#**; every call appends another message. RPC handlers cannot write through their Context, but they can send Stream messages through an injected Client dependency.
 

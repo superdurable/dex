@@ -14,5 +14,6 @@ mod worker_registry;
 pub use matching_config::MatchingConfig;
 pub use worker_registry::{
     DispatchEvent, DispatchHandle, DispatchOutcome, DispatchRequest, DispatchTaskPayload,
-    WorkerDispatch, WorkerTaskService,
+    ReservedStepStream, StepStreamRequest, StepStreamReservation, StepTaskEvent, StepTaskHandle,
+    StepTaskSendFailure, WorkerDispatch, WorkerTaskService,
 };

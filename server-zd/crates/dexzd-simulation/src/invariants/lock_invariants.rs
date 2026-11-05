@@ -57,11 +57,12 @@ pub(crate) fn check_invocations(
         };
         let is_running = invocation.phase == StepInvocationPhase::Running as i32;
         let has_snapshot = invocation.snapshot.is_some();
-        let can_retain_snapshot = invocation.attempt > 1
-            && matches!(
-                StepInvocationPhase::try_from(invocation.phase),
-                Ok(StepInvocationPhase::Backoff | StepInvocationPhase::Pending)
-            );
+        // A returned or restored attempt is pending again with the snapshot of its first start.
+        let can_retain_snapshot = match StepInvocationPhase::try_from(invocation.phase) {
+            Ok(StepInvocationPhase::Backoff) => invocation.attempt > 1,
+            Ok(StepInvocationPhase::Pending) => true,
+            _ => false,
+        };
         if (is_running && !has_snapshot) || (has_snapshot && !is_running && !can_retain_snapshot) {
             return Err(InvariantViolation::new(
                 INVOCATION,

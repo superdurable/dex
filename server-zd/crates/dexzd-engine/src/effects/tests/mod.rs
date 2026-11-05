@@ -12,6 +12,7 @@
 mod attribute_sync_tests;
 mod deadline_tests;
 mod dispatch_tests;
+mod handout_tests;
 mod hard_delete_tests;
 mod keyword_index_tests;
 mod outbox_and_purge_tests;
@@ -34,11 +35,11 @@ use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId};
 use dexzd_object_store::{FaultAction, FaultInjector, InMemoryObjectStore, ObjectStoreOperation};
 use dexzd_protocol::dex::{
-    FlowTimeoutPolicy, InvokeExecuteMethodOutput, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodOutput, InvokeWaitForMethodResponse, PollWorkerTaskFrame, PullRouting,
-    StartFlowRequest, StepMethodHeartbeat, StepStreamWrite, Value, WorkerErrorResponse,
-    WorkerTarget, invoke_execute_method_output, invoke_wait_for_method_output,
-    poll_worker_task_frame, value,
+    DispatchTaskErrorReason, FlowTimeoutPolicy, InvokeExecuteMethodOutput,
+    InvokeExecuteMethodResponse, InvokeWaitForMethodOutput, InvokeWaitForMethodResponse,
+    PollWorkerTaskFrame, PullRouting, StartFlowRequest, StepMethodHeartbeat, StepStreamWrite,
+    Value, WorkerErrorResponse, WorkerTarget, invoke_execute_method_output,
+    invoke_wait_for_method_output, poll_worker_task_frame, value,
 };
 use dexzd_protocol::dexzd::v1::{
     CommandErrorReply, CommandReply, EmptyReply, FlowCommand, FlowStartCommand, RunRecord,
@@ -48,7 +49,7 @@ use dexzd_protocol::dexzd::v1::{
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::InMemoryLocalStore;
 use dexzd_stream_store::{StreamStore, StreamStoreConfig};
-use dexzd_worker_dispatch::{DispatchEvent, DispatchOutcome};
+use dexzd_worker_dispatch::{DispatchOutcome, StepTaskEvent, StepTaskSendFailure};
 use futures::future::BoxFuture;
 use prost::Message;
 use tokio::sync::mpsc;
@@ -56,13 +57,14 @@ use tokio::sync::mpsc;
 use crate::SystemEngineIdSource;
 use crate::attribute_sync::AttributeSyncWaker;
 use crate::effects::flow_effect_operations::{
-    FlowEffectOperationError, FlowEffectOperations, InvocationStartOutcome,
+    FlowEffectOperationError, FlowEffectOperations, InvocationLockCheck, InvocationStartOutcome,
 };
 use crate::effects::state_reads::{RunLocation, read_step_execution};
 use crate::effects::{
     EffectDependencies, EffectError, EffectRunner, EffectTasksHandle, EffectsConfig,
-    HardDeleteObjects, HardDeleteUploadLedger, MethodDispatchRequest, MethodDispatchSession,
-    MethodDispatchStartError, MethodDispatcher, MethodRequest, NodeMetaUploadLedger,
+    HardDeleteObjects, HardDeleteUploadLedger, MethodDispatchSession, MethodDispatcher,
+    MethodRequest, MethodStreamRequest, MethodStreamReservation, MethodTask, NodeMetaUploadLedger,
+    ReservedMethodStream,
 };
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 
@@ -200,6 +202,8 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) committed_reads: AtomicUsize,
     /// Delays each `propose_committed`, like a group commit window plus an object store write.
     pub(super) proposal_delay: Mutex<Duration>,
+    /// Delays the commit of each attempt start after its speculative apply.
+    pub(super) start_commit_delay: Mutex<Duration>,
     overrides: Mutex<Vec<CommandOverride>>,
     /// Transactional RPCs a test holds in flight; pending close checks wait for zero.
     pub(super) transactional_rpcs: tokio::sync::watch::Sender<u32>,
@@ -384,7 +388,14 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
                 )),
                 ..FlowCommand::default()
             };
-            let reply = self.commit(flow, command, CommitUrgency::Prompt)?;
+            let urgency = if record.effective_durability
+                == dexzd_protocol::dex::StepDurability::Async as i32
+            {
+                CommitUrgency::Batched
+            } else {
+                CommitUrgency::Prompt
+            };
+            let reply = self.commit(flow, command, urgency)?;
             if is_error_reply(&reply) {
                 return Ok(InvocationStartOutcome::Stale);
             }
@@ -394,7 +405,39 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             {
                 self.is_flow_state_unreadable.store(true, Ordering::SeqCst);
             }
-            Ok(InvocationStartOutcome::Started)
+            let commit_delay = *self.start_commit_delay.lock().expect("lock");
+            Ok(InvocationStartOutcome::Started(Box::pin(async move {
+                tokio::time::sleep(commit_delay).await;
+                Ok(())
+            })))
+        })
+    }
+
+    fn check_invocation_locks<'a>(
+        &'a self,
+        flow: &'a FlowAddress,
+        run_id: RunId,
+        invocation: &'a StepInvocationKey,
+        attempt: u32,
+    ) -> BoxFuture<'a, Result<InvocationLockCheck, FlowEffectOperationError>> {
+        Box::pin(async move {
+            let run = RunLocation {
+                flow_hash: self.hasher.flow_hash(flow.tenant_id, &flow.flow_id),
+                run_id,
+            };
+            let step = read_step_execution(&self.snapshot(), run, &invocation.step_execution_id)
+                .expect("state reads succeed");
+            let Some(record) = step.and_then(|step| step.invocation) else {
+                return Ok(InvocationLockCheck::Stale);
+            };
+            if record.phase != StepInvocationPhase::Pending as i32 || record.attempt != attempt {
+                return Ok(InvocationLockCheck::Stale);
+            }
+            let busy = self.busy_lock_keys.lock().expect("lock");
+            if record.lock_keys.iter().any(|key| busy.contains(key)) {
+                return Ok(InvocationLockCheck::Busy);
+            }
+            Ok(InvocationLockCheck::Free)
         })
     }
 
@@ -609,10 +652,23 @@ pub(super) fn error_reply(message: &str) -> CommandReply {
     }
 }
 
-/// One dispatch seen by the fake dispatcher.
+/// What the fake Worker received for one sent attempt.
+#[derive(Debug, Clone)]
+pub(super) struct FakeDispatchRequest {
+    pub(super) flow_id: String,
+    pub(super) flow_type: String,
+    pub(super) step_type: String,
+    pub(super) sticky_app_worker_id: Option<String>,
+    pub(super) app_worker_id: String,
+    pub(super) task_id: String,
+    pub(super) request: MethodRequest,
+    pub(super) deadline: std::time::SystemTime,
+}
+
+/// One task the fake dispatcher sent to a Worker.
 pub(super) struct FakeDispatch {
-    pub(super) request: MethodDispatchRequest,
-    events: mpsc::UnboundedSender<DispatchEvent>,
+    pub(super) request: FakeDispatchRequest,
+    events: mpsc::UnboundedSender<StepTaskEvent>,
     pub(super) is_cancelled: Arc<AtomicBool>,
 }
 
@@ -629,33 +685,45 @@ impl FakeDispatch {
         .expect("requests carry a Context")
     }
 
-    /// Reports that `app_worker_id` received the task.
-    pub(super) fn assign(&self, app_worker_id: &str) {
-        self.events
-            .send(DispatchEvent::Assigned {
-                app_worker_id: app_worker_id.to_owned(),
-            })
-            .expect("the attempt listens");
-    }
-
-    /// Reports that the assigned Worker rejected the task before any output.
-    pub(super) fn unassign(&self) {
-        self.events
-            .send(DispatchEvent::Unassigned)
-            .expect("the attempt listens");
+    fn send_event(&self, event: StepTaskEvent) {
+        // The attempt may already have stopped listening (timeouts, cancellation).
+        if self.events.send(event).is_err() {
+            tracing::debug!("attempt stopped listening");
+        }
     }
 
     pub(super) fn send_frame(&self, frame: PollWorkerTaskFrame) {
         self.events
-            .send(DispatchEvent::Output(frame))
+            .send(StepTaskEvent::Output(frame))
             .expect("the attempt listens");
     }
 
     pub(super) fn complete(&self, outcome: DispatchOutcome) {
-        // The attempt may already have stopped listening (timeouts, cancellation).
-        if self.events.send(DispatchEvent::Completed(outcome)).is_err() {
-            tracing::debug!("attempt stopped listening");
-        }
+        self.send_event(StepTaskEvent::Completed(outcome));
+    }
+
+    /// The Worker declines the task before any output.
+    pub(super) fn reject(
+        &self,
+        reason: dexzd_protocol::dex::PollWorkerTaskRejectReason,
+        is_reserved_slot: bool,
+    ) {
+        self.send_event(StepTaskEvent::Rejected {
+            reason,
+            is_reserved_slot,
+        });
+    }
+
+    /// The Worker cleanly half-closes its reserved slot before any output.
+    pub(super) fn half_close_before_output(&self) {
+        self.send_event(StepTaskEvent::NotDelivered);
+    }
+
+    /// The Worker's stream breaks after the task frame went out.
+    pub(super) fn disconnect(&self) {
+        self.send_event(StepTaskEvent::Disconnected {
+            detail: "Worker stream disconnected".to_owned(),
+        });
     }
 
     pub(super) fn complete_wait_for(&self, response: InvokeWaitForMethodResponse) {
@@ -736,25 +804,40 @@ impl FakeDispatch {
     }
 }
 
-/// Method dispatcher that hands every dispatch to the test.
+/// Method dispatcher whose Worker `worker-a` takes every attempt at once and hands each sent
+/// task to the test.
 pub(super) struct FakeDispatcher {
-    dispatches: Mutex<mpsc::UnboundedSender<FakeDispatch>>,
+    dispatches: Arc<Mutex<mpsc::UnboundedSender<FakeDispatch>>>,
     receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<FakeDispatch>>,
-    pub(super) dispatch_count: AtomicUsize,
+    /// Sent tasks.
+    pub(super) dispatch_count: Arc<AtomicUsize>,
+    /// Reserved Worker slots, including those never sent.
+    pub(super) reservation_count: AtomicUsize,
+    /// When set, every reservation finds no Worker.
     pub(super) refuse_dispatch: AtomicBool,
-    /// When set, the test reports the assignment; otherwise `worker-a` receives every task at once.
-    pub(super) is_assignment_manual: AtomicBool,
+    /// The reason of a refused reservation; NO_WORKER_AVAILABLE when unset.
+    pub(super) refusal_reason: Mutex<Option<DispatchTaskErrorReason>>,
+    /// When set, every reservation reports that matching is closing.
+    pub(super) is_closing: AtomicBool,
+    /// Sends that fail as never delivered, before later sends succeed.
+    pub(super) undelivered_sends: Arc<AtomicUsize>,
+    /// Requests of every reservation, in order.
+    pub(super) reservations: Mutex<Vec<MethodStreamRequest>>,
 }
 
 impl FakeDispatcher {
     fn new() -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
         Self {
-            dispatches: Mutex::new(sender),
+            dispatches: Arc::new(Mutex::new(sender)),
             receiver: tokio::sync::Mutex::new(receiver),
-            dispatch_count: AtomicUsize::new(0),
+            dispatch_count: Arc::new(AtomicUsize::new(0)),
+            reservation_count: AtomicUsize::new(0),
             refuse_dispatch: AtomicBool::new(false),
-            is_assignment_manual: AtomicBool::new(false),
+            refusal_reason: Mutex::new(None),
+            is_closing: AtomicBool::new(false),
+            undelivered_sends: Arc::new(AtomicUsize::new(0)),
+            reservations: Mutex::new(Vec::new()),
         }
     }
 
@@ -773,26 +856,83 @@ impl FakeDispatcher {
 }
 
 impl MethodDispatcher for FakeDispatcher {
-    fn dispatch(
+    fn reserve_stream(
         &self,
-        request: MethodDispatchRequest,
-    ) -> Result<Box<dyn MethodDispatchSession>, MethodDispatchStartError> {
-        self.dispatch_count.fetch_add(1, Ordering::SeqCst);
-        if self.refuse_dispatch.load(Ordering::SeqCst) {
-            return Err(MethodDispatchStartError {
-                detail: "matching server is closing".to_owned(),
-            });
+        request: MethodStreamRequest,
+    ) -> BoxFuture<'_, MethodStreamReservation> {
+        Box::pin(async move {
+            self.reservation_count.fetch_add(1, Ordering::SeqCst);
+            self.reservations
+                .lock()
+                .expect("lock")
+                .push(request.clone());
+            if self.is_closing.load(Ordering::SeqCst) {
+                return MethodStreamReservation::ServerClosing;
+            }
+            if self.refuse_dispatch.load(Ordering::SeqCst) {
+                let reason = self
+                    .refusal_reason
+                    .lock()
+                    .expect("lock")
+                    .unwrap_or(DispatchTaskErrorReason::NoWorkerAvailable);
+                return MethodStreamReservation::NoWorker {
+                    reason,
+                    detail: "no Worker accepted the task".to_owned(),
+                };
+            }
+            MethodStreamReservation::Reserved(Box::new(FakeSlot {
+                request,
+                dispatches: Arc::clone(&self.dispatches),
+                dispatch_count: Arc::clone(&self.dispatch_count),
+                undelivered_sends: Arc::clone(&self.undelivered_sends),
+            }))
+        })
+    }
+}
+
+/// A reserved slot of the fake Worker `worker-a`.
+struct FakeSlot {
+    request: MethodStreamRequest,
+    dispatches: Arc<Mutex<mpsc::UnboundedSender<FakeDispatch>>>,
+    dispatch_count: Arc<AtomicUsize>,
+    undelivered_sends: Arc<AtomicUsize>,
+}
+
+impl ReservedMethodStream for FakeSlot {
+    fn app_worker_id(&self) -> &str {
+        "worker-a"
+    }
+
+    fn send_task(
+        self: Box<Self>,
+        task: MethodTask,
+    ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
+        if self
+            .undelivered_sends
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                count.checked_sub(1)
+            })
+            .is_ok()
+        {
+            return Err(StepTaskSendFailure::NotDelivered);
         }
+        self.dispatch_count.fetch_add(1, Ordering::SeqCst);
         let (events, receiver) = mpsc::unbounded_channel();
         let is_cancelled = Arc::new(AtomicBool::new(false));
         let dispatch = FakeDispatch {
-            request,
+            request: FakeDispatchRequest {
+                flow_id: self.request.flow_id.clone(),
+                flow_type: self.request.flow_type.clone(),
+                step_type: self.request.step_type.clone(),
+                sticky_app_worker_id: self.request.sticky_app_worker_id.clone(),
+                app_worker_id: "worker-a".to_owned(),
+                task_id: task.task_id,
+                request: task.request,
+                deadline: task.deadline,
+            },
             events,
             is_cancelled: Arc::clone(&is_cancelled),
         };
-        if !self.is_assignment_manual.load(Ordering::SeqCst) {
-            dispatch.assign("worker-a");
-        }
         self.dispatches
             .lock()
             .expect("lock")
@@ -806,12 +946,12 @@ impl MethodDispatcher for FakeDispatcher {
 }
 
 struct FakeSession {
-    receiver: mpsc::UnboundedReceiver<DispatchEvent>,
+    receiver: mpsc::UnboundedReceiver<StepTaskEvent>,
     is_cancelled: Arc<AtomicBool>,
 }
 
 impl MethodDispatchSession for FakeSession {
-    fn next_event(&mut self) -> BoxFuture<'_, Option<DispatchEvent>> {
+    fn next_event(&mut self) -> BoxFuture<'_, Option<StepTaskEvent>> {
         Box::pin(self.receiver.recv())
     }
 
@@ -930,6 +1070,7 @@ impl EffectHarness {
             commands: Mutex::new(Vec::new()),
             published_effects: Mutex::new(Vec::new()),
             busy_lock_keys: Mutex::new(BTreeSet::new()),
+            start_commit_delay: Mutex::new(Duration::ZERO),
             unavailable_proposals: AtomicUsize::new(0),
             is_flow_state_unreadable: AtomicBool::new(false),
             flow_state_reader_failures: Arc::new(AtomicUsize::new(0)),

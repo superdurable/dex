@@ -111,7 +111,7 @@ public enum StepDurability
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(8);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(9);
   }
 
   private static final StepDurability[] VALUES = values();

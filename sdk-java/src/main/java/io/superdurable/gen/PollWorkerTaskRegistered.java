@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Confirms that Dex accepted the queue registration.
+ * Confirms that Dex accepted the queue or reserved-slot registration.
  * </pre>
  *
  * Protobuf type {@code dex.PollWorkerTaskRegistered}
@@ -57,6 +57,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+   * Reserved-slot streams may always reject unknown names.
    * </pre>
    *
    * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -65,6 +66,25 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public boolean getSupportsUnknownNameRejection() {
     return supportsUnknownNameRejection_;
+  }
+
+  public static final int MAX_CONCURRENT_TASKS_PER_APP_WORKER_FIELD_NUMBER = 2;
+  private int maxConcurrentTasksPerAppWorker_ = 0;
+  /**
+   * <pre>
+   * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+   * It counts all of them, including RPC_ONLY slots.
+   * Zero means the Server does not report a limit.
+   * Reported by Server protocol version 4 or later.
+   * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
+   * </pre>
+   *
+   * <code>uint32 max_concurrent_tasks_per_app_worker = 2;</code>
+   * @return The maxConcurrentTasksPerAppWorker.
+   */
+  @java.lang.Override
+  public int getMaxConcurrentTasksPerAppWorker() {
+    return maxConcurrentTasksPerAppWorker_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -84,6 +104,9 @@ private static final long serialVersionUID = 0L;
     if (supportsUnknownNameRejection_ != false) {
       output.writeBool(1, supportsUnknownNameRejection_);
     }
+    if (maxConcurrentTasksPerAppWorker_ != 0) {
+      output.writeUInt32(2, maxConcurrentTasksPerAppWorker_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -91,6 +114,10 @@ private static final long serialVersionUID = 0L;
     if (supportsUnknownNameRejection_ != false) {
       size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(1, supportsUnknownNameRejection_);
+    }
+    if (maxConcurrentTasksPerAppWorker_ != 0) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeUInt32Size(2, maxConcurrentTasksPerAppWorker_);
     }
     return size;
   }
@@ -118,6 +145,8 @@ private static final long serialVersionUID = 0L;
 
     if (getSupportsUnknownNameRejection()
         != other.getSupportsUnknownNameRejection()) return false;
+    if (getMaxConcurrentTasksPerAppWorker()
+        != other.getMaxConcurrentTasksPerAppWorker()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -132,6 +161,8 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + SUPPORTS_UNKNOWN_NAME_REJECTION_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getSupportsUnknownNameRejection());
+    hash = (37 * hash) + MAX_CONCURRENT_TASKS_PER_APP_WORKER_FIELD_NUMBER;
+    hash = (53 * hash) + getMaxConcurrentTasksPerAppWorker();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -231,7 +262,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Confirms that Dex accepted the queue registration.
+   * Confirms that Dex accepted the queue or reserved-slot registration.
    * </pre>
    *
    * Protobuf type {@code dex.PollWorkerTaskRegistered}
@@ -268,6 +299,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       supportsUnknownNameRejection_ = false;
+      maxConcurrentTasksPerAppWorker_ = 0;
       return this;
     }
 
@@ -304,6 +336,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.supportsUnknownNameRejection_ = supportsUnknownNameRejection_;
       }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.maxConcurrentTasksPerAppWorker_ = maxConcurrentTasksPerAppWorker_;
+      }
     }
 
     @java.lang.Override
@@ -320,6 +355,9 @@ private static final long serialVersionUID = 0L;
       if (other == io.superdurable.gen.PollWorkerTaskRegistered.getDefaultInstance()) return this;
       if (other.getSupportsUnknownNameRejection() != false) {
         setSupportsUnknownNameRejection(other.getSupportsUnknownNameRejection());
+      }
+      if (other.getMaxConcurrentTasksPerAppWorker() != 0) {
+        setMaxConcurrentTasksPerAppWorker(other.getMaxConcurrentTasksPerAppWorker());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -352,6 +390,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 8
+            case 16: {
+              maxConcurrentTasksPerAppWorker_ = input.readUInt32();
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 16
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -373,6 +416,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+     * Reserved-slot streams may always reject unknown names.
      * </pre>
      *
      * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -385,6 +429,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+     * Reserved-slot streams may always reject unknown names.
      * </pre>
      *
      * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -401,6 +446,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+     * Reserved-slot streams may always reject unknown names.
      * </pre>
      *
      * <code>bool supports_unknown_name_rejection = 1;</code>
@@ -409,6 +455,62 @@ private static final long serialVersionUID = 0L;
     public Builder clearSupportsUnknownNameRejection() {
       bitField0_ = (bitField0_ & ~0x00000001);
       supportsUnknownNameRejection_ = false;
+      onChanged();
+      return this;
+    }
+
+    private int maxConcurrentTasksPerAppWorker_ ;
+    /**
+     * <pre>
+     * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+     * It counts all of them, including RPC_ONLY slots.
+     * Zero means the Server does not report a limit.
+     * Reported by Server protocol version 4 or later.
+     * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
+     * </pre>
+     *
+     * <code>uint32 max_concurrent_tasks_per_app_worker = 2;</code>
+     * @return The maxConcurrentTasksPerAppWorker.
+     */
+    @java.lang.Override
+    public int getMaxConcurrentTasksPerAppWorker() {
+      return maxConcurrentTasksPerAppWorker_;
+    }
+    /**
+     * <pre>
+     * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+     * It counts all of them, including RPC_ONLY slots.
+     * Zero means the Server does not report a limit.
+     * Reported by Server protocol version 4 or later.
+     * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
+     * </pre>
+     *
+     * <code>uint32 max_concurrent_tasks_per_app_worker = 2;</code>
+     * @param value The maxConcurrentTasksPerAppWorker to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMaxConcurrentTasksPerAppWorker(int value) {
+
+      maxConcurrentTasksPerAppWorker_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+     * It counts all of them, including RPC_ONLY slots.
+     * Zero means the Server does not report a limit.
+     * Reported by Server protocol version 4 or later.
+     * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
+     * </pre>
+     *
+     * <code>uint32 max_concurrent_tasks_per_app_worker = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMaxConcurrentTasksPerAppWorker() {
+      bitField0_ = (bitField0_ & ~0x00000002);
+      maxConcurrentTasksPerAppWorker_ = 0;
       onChanged();
       return this;
     }

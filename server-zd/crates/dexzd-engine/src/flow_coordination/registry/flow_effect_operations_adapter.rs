@@ -16,8 +16,8 @@ use dexzd_protocol::dexzd::v1::{
 use futures::future::BoxFuture;
 
 use crate::effects::{
-    EffectError, FlowEffectOperationError, FlowEffectOperations, InvocationStartOutcome,
-    RunLocation, read_run_record, read_step_execution, resolve_method_durability,
+    EffectError, FlowEffectOperationError, FlowEffectOperations, InvocationLockCheck,
+    InvocationStartOutcome, RunLocation, pinned_durability, read_step_execution,
 };
 use crate::flow_coordination::{
     CommitUrgency, FlowAddress, FlowCoordinationError, FlowCoordinatorRegistry, PendingInvocation,
@@ -137,7 +137,54 @@ impl FlowEffectOperations for FlowCoordinatorRegistry {
                 {
                     InvocationStartOutcome::Stale
                 }
-                Some(_) => InvocationStartOutcome::Started,
+                Some(result) => {
+                    let registry = self.clone();
+                    let flow = flow.clone();
+                    InvocationStartOutcome::Started(Box::pin(async move {
+                        registry
+                            .wait_for_commit(&flow, result.ticket)
+                            .await
+                            .map(drop)
+                            .map_err(flow_effect_operation_error)
+                    }))
+                }
+            })
+        })
+    }
+
+    fn check_invocation_locks<'a>(
+        &'a self,
+        flow: &'a FlowAddress,
+        run_id: RunId,
+        invocation: &'a StepInvocationKey,
+        attempt: u32,
+    ) -> BoxFuture<'a, Result<InvocationLockCheck, FlowEffectOperationError>> {
+        Box::pin(async move {
+            let run = RunLocation {
+                flow_hash: self.flow_context(flow).flow_hash,
+                run_id,
+            };
+            let reader = self
+                .flow_state_reader(flow, true)
+                .map_err(flow_effect_operation_error)?;
+            let Some(start) = read_pending_start(reader.as_ref(), run, invocation, attempt)
+                .map_err(read_error)?
+            else {
+                return Ok(InvocationLockCheck::Stale);
+            };
+            let pending = PendingInvocation {
+                run_id,
+                invocation: invocation.clone(),
+                lock_keys: start.lock_keys,
+                pending_since_seq: start.pending_since_seq,
+            };
+            let is_free = self
+                .can_start_invocation(flow, &pending)
+                .map_err(flow_effect_operation_error)?;
+            Ok(if is_free {
+                InvocationLockCheck::Free
+            } else {
+                InvocationLockCheck::Busy
             })
         })
     }
@@ -230,10 +277,7 @@ fn read_pending_start(
     if !is_pending {
         return Ok(None);
     }
-    let Some(run_record) = read_run_record(reader, run)? else {
-        return Ok(None);
-    };
-    let urgency = match resolve_method_durability(&run_record, &step_execution, invocation.method) {
+    let urgency = match pinned_durability(record) {
         StepDurability::Async => CommitUrgency::Batched,
         _ => CommitUrgency::Prompt,
     };

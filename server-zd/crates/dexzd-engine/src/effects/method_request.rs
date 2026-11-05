@@ -184,6 +184,8 @@ impl MethodAttemptKey {
 pub(crate) enum RequestValueHydration<'a> {
     /// Every value, for `values.hydrateBeforeDispatch`.
     AllValues,
+    /// No value: a SYNC start committed with every earlier write, so LoadBlobs serves them all.
+    References,
     /// Values without a ValueBirth row in the committed view that `open_committed` opens;
     /// LoadBlobs serves only committed values.
     UncommittedValues {
@@ -229,6 +231,7 @@ pub(crate) fn read_method_attempt_state(
         return Ok(None);
     }
     let step_execution_with_references = match hydration {
+        RequestValueHydration::References => None,
         RequestValueHydration::AllValues => {
             load_request_values(reader, run, &mut step_execution, |_| true)?;
             None
@@ -683,31 +686,13 @@ fn corrupt_step(step_execution: &StepExecutionRecord, detail: &str) -> EffectErr
     }
 }
 
-/// Returns the Step durability that applies to the invocation's method.
-pub(crate) fn resolve_method_durability(
-    run_record: &RunRecord,
-    step_execution: &StepExecutionRecord,
-    method: i32,
-) -> dex::StepDurability {
-    let options = step_execution.options.as_ref();
-    let override_durability = if method == StepMethod::WaitFor as i32 {
-        options.map(|options| options.wait_for_durability_override)
-    } else {
-        options.map(|options| options.execute_durability_override)
-    };
-    let flow_durability = run_record
-        .flow_config
-        .as_ref()
-        .and_then(|config| config.step_durability);
-    [override_durability, flow_durability]
-        .into_iter()
-        .flatten()
-        .find_map(|durability| {
-            dex::StepDurability::try_from(durability)
-                .ok()
-                .filter(|durability| *durability != dex::StepDurability::Unspecified)
-        })
-        .unwrap_or(dex::StepDurability::Sync)
+/// Returns the durability pinned on the invocation when its method call became pending; records
+/// without one count as SYNC (plan section 3.7).
+pub(crate) fn pinned_durability(invocation: &StepInvocationRecord) -> dex::StepDurability {
+    match dex::StepDurability::try_from(invocation.effective_durability) {
+        Ok(dex::StepDurability::Async) => dex::StepDurability::Async,
+        _ => dex::StepDurability::Sync,
+    }
 }
 
 /// Returns the configured timeout in seconds of `method`, or 0 when the Step options leave it

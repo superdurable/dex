@@ -484,6 +484,7 @@ impl PullStream {
             flow_types: self.flow_types.clone(),
             sdk_name: "rust".to_string(),
             sdk_version: env!("CARGO_PKG_VERSION").to_string(),
+            ..Default::default()
         };
         if sender
             .as_ref()
@@ -1819,6 +1820,7 @@ mod tests {
                 let registered = PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: false,
+                        ..Default::default()
                     })),
                 };
                 if sender.send(Ok(registered)).await.is_err() {
@@ -1955,6 +1957,7 @@ mod tests {
                 let registered = PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: false,
+                        ..Default::default()
                     })),
                 };
                 if sender.send(Ok(registered)).await.is_err() {
@@ -2123,6 +2126,7 @@ mod tests {
                 .send(Ok(PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection,
+                        ..Default::default()
                     })),
                 }))
                 .await
@@ -2406,6 +2410,7 @@ mod tests {
                 .send(Ok(PollWorkerTaskResponse {
                     frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: false,
+                        ..Default::default()
                     })),
                 }))
                 .await
@@ -2645,6 +2650,7 @@ mod tests {
             let registered = PollWorkerTaskResponse {
                 frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                     supports_unknown_name_rejection: false,
+                    ..Default::default()
                 })),
             };
             sender

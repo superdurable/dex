@@ -20,6 +20,12 @@ class ServerEngine(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SERVER_ENGINE_CADENCE: _ClassVar[ServerEngine]
     SERVER_ENGINE_ZD: _ClassVar[ServerEngine]
 
+class PollWorkerSlotKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    POLL_WORKER_SLOT_KIND_UNSPECIFIED: _ClassVar[PollWorkerSlotKind]
+    POLL_WORKER_SLOT_KIND_STEP_AND_RPC: _ClassVar[PollWorkerSlotKind]
+    POLL_WORKER_SLOT_KIND_RPC_ONLY: _ClassVar[PollWorkerSlotKind]
+
 class PollWorkerTaskRejectReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED: _ClassVar[PollWorkerTaskRejectReason]
@@ -204,10 +210,19 @@ class InternalTimerStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     INTERNAL_TIMER_STATUS_PENDING: _ClassVar[InternalTimerStatus]
     INTERNAL_TIMER_STATUS_FIRED: _ClassVar[InternalTimerStatus]
     INTERNAL_TIMER_STATUS_SKIPPED: _ClassVar[InternalTimerStatus]
+
+class StepAttemptProgress(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    STEP_ATTEMPT_PROGRESS_UNSPECIFIED: _ClassVar[StepAttemptProgress]
+    STEP_ATTEMPT_PROGRESS_NOT_STARTED: _ClassVar[StepAttemptProgress]
+    STEP_ATTEMPT_PROGRESS_NOT_COMPLETED: _ClassVar[StepAttemptProgress]
 SERVER_ENGINE_UNSPECIFIED: ServerEngine
 SERVER_ENGINE_TEMPORAL: ServerEngine
 SERVER_ENGINE_CADENCE: ServerEngine
 SERVER_ENGINE_ZD: ServerEngine
+POLL_WORKER_SLOT_KIND_UNSPECIFIED: PollWorkerSlotKind
+POLL_WORKER_SLOT_KIND_STEP_AND_RPC: PollWorkerSlotKind
+POLL_WORKER_SLOT_KIND_RPC_ONLY: PollWorkerSlotKind
 POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED: PollWorkerTaskRejectReason
 POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY: PollWorkerTaskRejectReason
 POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP: PollWorkerTaskRejectReason
@@ -321,6 +336,9 @@ INTERNAL_TIMER_STATUS_UNSPECIFIED: InternalTimerStatus
 INTERNAL_TIMER_STATUS_PENDING: InternalTimerStatus
 INTERNAL_TIMER_STATUS_FIRED: InternalTimerStatus
 INTERNAL_TIMER_STATUS_SKIPPED: InternalTimerStatus
+STEP_ATTEMPT_PROGRESS_UNSPECIFIED: StepAttemptProgress
+STEP_ATTEMPT_PROGRESS_NOT_STARTED: StepAttemptProgress
+STEP_ATTEMPT_PROGRESS_NOT_COMPLETED: StepAttemptProgress
 
 class ServerInfo(_message.Message):
     __slots__ = ("server_version", "minimum_supported_protocol_version", "current_protocol_version", "server_engine")
@@ -347,18 +365,22 @@ class PollWorkerTaskRequest(_message.Message):
     def __init__(self, register: _Optional[_Union[PollWorkerTaskRegister, _Mapping]] = ..., task_frame: _Optional[_Union[PollWorkerTaskFrame, _Mapping]] = ..., reject: _Optional[_Union[PollWorkerTaskReject, _Mapping]] = ..., pong: _Optional[_Union[PollWorkerTaskPong, _Mapping]] = ...) -> None: ...
 
 class PollWorkerTaskRegister(_message.Message):
-    __slots__ = ("queue", "app_worker_id", "flow_types", "sdk_name", "sdk_version")
+    __slots__ = ("queue", "app_worker_id", "flow_types", "sdk_name", "sdk_version", "supports_reserved_slot_dispatch", "slot_kind")
     QUEUE_FIELD_NUMBER: _ClassVar[int]
     APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPES_FIELD_NUMBER: _ClassVar[int]
     SDK_NAME_FIELD_NUMBER: _ClassVar[int]
     SDK_VERSION_FIELD_NUMBER: _ClassVar[int]
+    SUPPORTS_RESERVED_SLOT_DISPATCH_FIELD_NUMBER: _ClassVar[int]
+    SLOT_KIND_FIELD_NUMBER: _ClassVar[int]
     queue: str
     app_worker_id: str
     flow_types: _containers.RepeatedScalarFieldContainer[str]
     sdk_name: str
     sdk_version: str
-    def __init__(self, queue: _Optional[str] = ..., app_worker_id: _Optional[str] = ..., flow_types: _Optional[_Iterable[str]] = ..., sdk_name: _Optional[str] = ..., sdk_version: _Optional[str] = ...) -> None: ...
+    supports_reserved_slot_dispatch: bool
+    slot_kind: PollWorkerSlotKind
+    def __init__(self, queue: _Optional[str] = ..., app_worker_id: _Optional[str] = ..., flow_types: _Optional[_Iterable[str]] = ..., sdk_name: _Optional[str] = ..., sdk_version: _Optional[str] = ..., supports_reserved_slot_dispatch: _Optional[bool] = ..., slot_kind: _Optional[_Union[PollWorkerSlotKind, str]] = ...) -> None: ...
 
 class PollWorkerTaskFrame(_message.Message):
     __slots__ = ("task_id", "wait_for", "execute", "rpc", "worker_error")
@@ -401,10 +423,12 @@ class PollWorkerTaskResponse(_message.Message):
     def __init__(self, registered: _Optional[_Union[PollWorkerTaskRegistered, _Mapping]] = ..., task: _Optional[_Union[PollWorkerTask, _Mapping]] = ..., cancel_task: _Optional[_Union[PollWorkerTaskCancelTask, _Mapping]] = ..., reconnect: _Optional[_Union[PollWorkerTaskReconnect, _Mapping]] = ..., ping: _Optional[_Union[PollWorkerTaskPing, _Mapping]] = ...) -> None: ...
 
 class PollWorkerTaskRegistered(_message.Message):
-    __slots__ = ("supports_unknown_name_rejection",)
+    __slots__ = ("supports_unknown_name_rejection", "max_concurrent_tasks_per_app_worker")
     SUPPORTS_UNKNOWN_NAME_REJECTION_FIELD_NUMBER: _ClassVar[int]
+    MAX_CONCURRENT_TASKS_PER_APP_WORKER_FIELD_NUMBER: _ClassVar[int]
     supports_unknown_name_rejection: bool
-    def __init__(self, supports_unknown_name_rejection: _Optional[bool] = ...) -> None: ...
+    max_concurrent_tasks_per_app_worker: int
+    def __init__(self, supports_unknown_name_rejection: _Optional[bool] = ..., max_concurrent_tasks_per_app_worker: _Optional[int] = ...) -> None: ...
 
 class PollWorkerTask(_message.Message):
     __slots__ = ("task_id", "deadline", "wait_for", "execute", "rpc")
@@ -2093,12 +2117,14 @@ class StepExecutionResumeInfo(_message.Message):
     def __init__(self, step_execution_id: _Optional[str] = ..., step: _Optional[_Union[StepMovement, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., wait_for_pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
 
 class RecoveryErrorInfo(_message.Message):
-    __slots__ = ("detail", "error_type")
+    __slots__ = ("detail", "error_type", "attempt_progress")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_PROGRESS_FIELD_NUMBER: _ClassVar[int]
     detail: str
     error_type: str
-    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
+    attempt_progress: StepAttemptProgress
+    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., attempt_progress: _Optional[_Union[StepAttemptProgress, str]] = ...) -> None: ...
 
 class AttributeSyncItem(_message.Message):
     __slots__ = ("config_name", "key", "value")

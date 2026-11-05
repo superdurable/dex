@@ -185,6 +185,9 @@ spec:
 如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
 最多要等 **lease.duration** 再加约 1 秒。
 
+Dex 还没有交给 Worker 的 attempt 不会失败，由后继进程负责 dispatch。进程交出 lease 时仍在
+运行的 attempt，会被新的 active 进程以 NOT_COMPLETED 判为失败，并各消耗一次 retry。
+
 启动期间收到 SIGTERM 会中断 lease 获取或恢复。如果节点已经持有 lease，它会在关闭预算内
 停止启动并释放 lease。释放失败时进程以 1 退出，下次启动可能要等待旧 lease 过期。如果
 SIGTERM 到达时某次 lease 写入的结果仍然未知，进程以 0 退出，不会释放这次写入，下次启动
@@ -441,7 +444,8 @@ dexzd_hot_standby_lag_seconds > 5
 服务，并短暂等待在途的提交完成，然后释放 lease，并继续作为 standby 运行。在释放之前完成的
 调用保留原来的结果。释放时仍未结束的调用立即返回 **UNAVAILABLE**，客户端会在新的 active
 进程上重试。正在执行任务的 pull Worker 在任务结束后重新连接。释放之后才到达的结果不会被
-记录，这个 Step 会再次分派。同一个 node ID
+记录，新的 active 进程会以 NOT_COMPLETED 让这个 attempt 失败，并消耗一次 retry。Dex 还没有
+交给 Worker 的 attempt 不会失败，新的 active 进程会 dispatch 它们。同一个 node ID
 的另一个进程随即可以拿到 lease，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
 **standby.stepDownHoldOff**，才会再次竞争 lease。如果这段时间内没有其他进程接管，它会把
 lease 拿回来。**standby.mode** 为 **hot** 时，它在等待期间作为[热 standby](#hot-standby)
@@ -699,6 +703,7 @@ server-zd 执行以下限制。被限制拒绝的请求会立即失败，不会�
 | --- | --- | --- |
 | **commit.applierLanes** | 8 与进程可用 CPU 数中的较大者，最多为 **cluster.partitionCount** 和 1024 | 并行把已提交命令应用到本地存储的 lane 数。同一个 partition 总是使用同一个 lane，所以它的命令按顺序应用。应用命令需要读写本地存储，所以即使是小主机也至少使用 8 个 lane。显式设置的值必须在 1 到 **cluster.partitionCount** 与 1024 中的较小者之间。无法读取 CPU 数时，默认值为 8。 |
 | **commit.applierQueueFrames** | 64 | 每个 lane 排队的已提交 partition 批次数。lane 的队列满时，提交路径会等待它。 |
+| **commit.batchWindow** | 20ms | ASYNC 命令在批次封口之前等待更多命令的时间。只要写入流水线还有空位，SYNC 命令会立即让批次封口。两者写入的数据相同。speculation 上限对两者都起作用：Step proposal 会重试而不会让 Step 失败，而 Client 调用可能收到 UNAVAILABLE。 |
 | **commit.maxBatchRecords** | 10000 | 一个日志批次中的最大命令数。批次达到这个数量、**commit.sealAtBytes** 或 **commit.batchWindow** 时封口。 |
 | **commit.maxUnappliedBytes** | 67108864（64 MiB） | 节点已接受但尚未在本地应用的命令的编码字节数。放不下的命令以 UNAVAILABLE 失败。必须至少为 **api.grpcMaxMessageBytes** 与 32 MiB 中的较小者，这样最大的命令也能放下。 |
 | **localStorage.writeBufferBytes** | 67108864（64 MiB） | 每个 column family 的单个 RocksDB memtable 大小。RocksDB 为六个 column family 各保留最多两个 memtable，所以 memtable 最多使用这个值的 12 倍（默认 768 MiB），另加 **localStorage.blockCacheBytes**。write-ahead log 达到 **localStorage.maxWalBytes** 时会强制 flush，所以要和这个值一起调大。取值范围为 64 KiB 到 **localStorage.maxWalBytes**。 |
@@ -905,7 +910,10 @@ key label。
 | --- | --- |
 | API 请求和错误 | **dexzd_api_requests_total**，带 **rpc_class** 和 **code** |
 | API 延迟 | **dexzd_api_request_latency_seconds**，带 **rpc_class**；只统计 unary 调用 |
-| Step 失败 | **dexzd_step_attempt_failures_total**，带 **durability** 和 **failure_kind**；**dexzd_step_retries_exhausted_total**，带 **durability** |
+| Step 失败 | **dexzd_step_attempt_failures_total**，带 **durability** 和 **failure_kind**，其中包括 **started_attempt_interrupted**；**dexzd_step_retries_exhausted_total**，带 **durability** |
+| 被退回的 attempt | **dexzd_step_attempts_returned_total**，带 **reason** |
+| 不支持的类型 | **dexzd_matching_unsupported_type_entries**；**dexzd_matching_unsupported_type_evictions_total** |
+| Worker stream 协议错误 | **dexzd_worker_stream_protocol_errors_total**，带 **error** |
 | Flow 关闭 | **dexzd_flow_closes_total**，带 **close_status**；**dexzd_flow_end_to_end_latency_seconds** |
 | 派发延迟 | **dexzd_step_schedule_to_start_latency_seconds** |
 | Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks** |
@@ -930,8 +938,20 @@ key label。
 store 或恢复快照时为 **restored**，例如 standby 的 store 缺失或过旧时。
 **dexzd_takeover_duration_seconds** 只统计热接管，按 **store_source** 区分。
 
+**dexzd_step_attempts_returned_total** 的 **reason** 统计回到 pending 且没有消耗 retry 的
+attempt，取值为 **unsupported**（Worker 拒绝了该 Step type）、**legacy_no_capacity**（较旧
+SDK 的 Worker 因容量不足而拒绝）和 **not_delivered**（任务从未到达 Worker）。所有 SDK 都升级
+之后，**legacy_no_capacity** 应降为零。**dexzd_worker_stream_protocol_errors_total** 的
+**error** 取值为 **no_capacity_on_reserved_slot** 和 **half_close_after_output**。出现
+**no_capacity_on_reserved_slot** 表示使用 reserved-slot 的 Worker 因容量不足拒绝了任务，这个
+attempt 按未运行处理而失败，并且 stream 结束。出现 **half_close_after_output** 表示 Worker
+在发出输出之后、发送最终结果之前关闭了 stream，这个 attempt 以 NOT_COMPLETED 失败。
+**dexzd_matching_unsupported_type_evictions_total** 是 counter，持续上升说明应该调大
+**matching.unsupportedTypeCacheEntries**。
+
 Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
-**dexzd_worker_stream_events_total** 统计每次任务投递和每次 stream 关闭。long poll 的
+**dexzd_worker_stream_events_total** 统计每次 stream 关闭，并且在 **event="delivered"** 时统计
+每个在开始记录之后发出的任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
 等待时间计入 **flow_read** 延迟。
 
 ~~~text
@@ -960,6 +980,7 @@ matching:
   stickyWait: 5s
   maxConcurrentTasksCap: 256
   maxStreams: 100000
+  unsupportedTypeCacheEntries: 10000
   maxQueueLength: 256
   maxFlowTypes: 256
   maxFlowTypeLength: 256
@@ -970,12 +991,25 @@ matching:
 | --- | --- | --- |
 | **matching.dispatchWait** | 10s | 为一次 attempt 寻找 Worker 的总时间。 |
 | **matching.stickyWait** | 5s | 回退到 Flow type 队列之前，尝试已连接 sticky Worker 的时间。不得超过 **dispatchWait**。没有连接上一个 app Worker ID 的 stream 时，server-zd 立即使用 Flow type 队列。 |
-| **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。 |
-| **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。 |
+| **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。Dex 在注册时把它告知 Worker。 |
+| **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。按总 slot 数估算。 |
+| **matching.unsupportedTypeCacheEntries** | 10000 | Dex 记为不支持的（tenant、Flow type、Step type 或 RPC 名称、app Worker ID）组合的最大数量。 |
 | **matching.maxQueueLength** | 256 | 队列名称的最大字符数。 |
 | **matching.maxFlowTypes** | 256 | 一次 Worker 注册中 Flow type 的最大数量。 |
 | **matching.maxFlowTypeLength** | 256 | 已注册 Flow type 的最大字符数。 |
 | **matching.pingInterval** | 20s | 空闲 Worker stream 上 **Ping** 帧的间隔。 |
+
+使用 reserved-slot dispatch 的 Worker 为每个执行 slot 打开一个 stream。空闲的 stream 就是空闲的
+slot，它服务该 Worker 的 sticky queue 和它声明的每个 Flow type。预留的 RPC slot 是只服务 RPC 的
+stream，不会收到 Step。slot 空闲下来时，等待中的 RPC 先于等待中的 Step 得到它。注册数量超过
+**matching.maxConcurrentTasksCap** 或 **matching.maxStreams** 时会收到 **RESOURCE_EXHAUSTED**。
+
+Worker 以未知为由拒绝某个 Step type 或 RPC 名称时，Dex 会把（tenant、Flow type、Step type 或
+RPC 名称、app Worker ID）这个组合记在一个有上限的缓存中，并不再向该 Worker 提供这个类型。该
+Worker 的所有 stream 都断开时，Dex 删除这个条目。重启后的 Worker 会得到新的 app Worker ID，
+因此不会被排除。如果你覆盖了 app Worker ID，请在每次进程重启后设置新的值。否则在滚动发布中升级
+的 Worker 可能被旧进程的条目排除，直到所有旧 stream 都消失。对于 RPC，Dex 会在调用方的 deadline
+内尝试其他 Worker。没有 Worker 支持时，RPC 仍然以现有的错误失败。
 
 如果在 **dispatchWait** 内没有可用的 Worker，Step 会收到可重试的 unavailable 错误，并消耗一次
 Step 重试。RPC 调用方会直接收到 **Unavailable** 错误。
@@ -1079,10 +1113,21 @@ server-zd 和每个 SDK 版本都声明闭区间形式的协议范围。两个�
 Worker 会协商出双方都支持的最高协议，然后同步 Attribute 索引，最后绑定 WorkerTaskService。
 server 和 SDK 的制品版本只用于诊断，不决定兼容性。
 
-新 SDK 保留旧协议时可以使用旧 server；新 server 也可以在协议范围仍然重叠时使用旧 SDK。
-破坏性的 server 版本会提高最低协议。升级 server 之前，先停止旧 Worker 及其流量，升级后再恢复流量。
-也可以使用相互隔离的蓝绿环境，使协议范围不相交的部署永远不会互相通信。运行中的 Worker 在
-server 升级后不会重新协商，因此破坏性变更之前必须显式停止它们。
+server-zd 协议版本 4 没有提高最低协议。较旧 SDK 的 Worker 和 Client 在新 server 上继续工作，
+它们因容量不足而被拒绝时，attempt 会被退回，不消耗 retry。**dexzd_step_attempts_returned_total**
+的 **reason="legacy_no_capacity"** 会统计这些情况。这种兼容性持续到 server-zd 1.0。
+
+新 SDK 需要新 server。在较旧的 server 上，新 SDK 的 Worker 无法启动，新 SDK 的 Client 第一次
+调用会失败，两者都会给出清晰的错误。先升级 server，再逐个升级 SDK，不需要停止 Worker。
+
+这次 server 升级不支持混合版本。启动新版本之前，先停止所有旧的 server 进程，包括 active、热
+standby 和冷 standby。新版本写入过某个 storage prefix 之后，旧 server 不能再在其上运行。请向前
+升级，或把升级前的备份恢复到新的 prefix。只有在每个进程都运行新版本之后才设置新的配置项，回滚
+之前要先删除它们。
+
+以后提高最低协议的版本需要同样的谨慎：升级 server 之前先停止旧 Worker 及其流量，或者使用相互
+隔离的蓝绿环境，使协议范围不相交的部署永远不会互相通信。运行中的 Worker 在 server 升级后不会
+重新协商。
 
 协议兼容性只覆盖 Worker 到 server 的 API。它不能替代 open Flow 的兼容性规则，包括
 Flow type 名称、Step 图和已持久化的 payload。

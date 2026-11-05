@@ -484,10 +484,11 @@ async fn assert_timeout_recovery(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn method_heartbeat_and_retry_deadlines_keep_go_recovery_error_types() {
+async fn method_and_heartbeat_timeouts_keep_go_recovery_error_types() {
     assert_timeout_recovery("method-timeout-recovery", 1, 10, 30, "StartToClose", 1).await;
     assert_timeout_recovery("heartbeat-timeout-recovery", 20, 10, 30, "Heartbeat", 10).await;
-    assert_timeout_recovery("retry-deadline-recovery", 20, 10, 1, "ScheduleToClose", 1).await;
+    // The retry total duration never cuts a running attempt (plan D74).
+    assert_timeout_recovery("retry-duration-recovery", 20, 10, 1, "Heartbeat", 10).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

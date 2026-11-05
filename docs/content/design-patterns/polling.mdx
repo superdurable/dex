@@ -48,19 +48,19 @@ Step options set every limit on the wait, and Dex enforces them.
 
 | Limit | Option | Enforcement |
 | --- | --- | --- |
-| Longest single attempt | **ExecuteMethodTimeout**, set to the maximum wait | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
-| Longest total wait, including every retry | **TotalDuration** in **ExecuteRetry**, set to the maximum wait | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Longest single attempt | **ExecuteMethodTimeout**, set to the maximum wait | Dex times out the attempt when it runs longer than this value. Only this option limits a single attempt. |
+| Time budget for retries | **TotalDuration** in **ExecuteRetry** | The budget starts when Dex first hands attempt 1 to a Worker. After an attempt fails, Dex retries only while the budget has time left. It never stops an attempt in progress. |
 | Stalled Worker | **HeartbeatTimeout**, one minute by default | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. |
 
 Do not duplicate these limits in code. The Step does not compute a deadline. Neither the checkpoint nor the Step input carries one.
 
-Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. **ExecuteMethodTimeout** defaults to two hours, and the server has no hard cap. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes.
+Set **ExecuteMethodTimeout** to the maximum wait for one attempt. **TotalDuration** only decides whether to retry after a failure, so the last attempt can end after **TotalDuration**. With Workers available, the total wait is at most about **TotalDuration** plus one **ExecuteMethodTimeout**. The example below sets both options to the same value. **ExecuteMethodTimeout** defaults to two hours, and the server has no hard cap. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes.
 
 The polling Step can use either durability. Heartbeats, checkpoints, and timeouts behave the same in both modes. See [Step options](/primitives/step/step-options#durability).
 
 ## When the wait expires
 
-When **ExecuteMethodTimeout** or **TotalDuration** expires, Dex fails the Step with a timeout. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. That Step reads **RecoveryError**, which holds the failure detail and error type. Without a recovery route, the Flow fails. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+When **ExecuteMethodTimeout** expires, Dex fails the attempt with a timeout. If the retry budget in **TotalDuration** is also spent, the Step fails for good. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. That Step reads **RecoveryError**, which holds the failure detail and error type. Without a recovery route, the Flow fails. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 
 The failure record does not include the last observed status. The progress Stream and the logs show it.
 

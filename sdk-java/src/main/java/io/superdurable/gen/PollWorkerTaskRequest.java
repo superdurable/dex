@@ -101,7 +101,7 @@ private static final long serialVersionUID = 0L;
   public static final int REGISTER_FIELD_NUMBER = 1;
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -113,7 +113,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -128,7 +128,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Starts this queue stream; no other frame may precede registration.
+   * Starts this queue or reserved-slot stream; no other frame may precede registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -188,6 +188,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -200,6 +201,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -215,6 +217,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+   * See PollWorkerTaskReject for the reasons each stream kind may send.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -721,7 +724,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.PollWorkerTaskRegister, io.superdurable.gen.PollWorkerTaskRegister.Builder, io.superdurable.gen.PollWorkerTaskRegisterOrBuilder> registerBuilder_;
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -733,7 +736,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -755,7 +758,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -775,7 +778,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -793,7 +796,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -820,7 +823,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -843,7 +846,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -853,7 +856,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -871,7 +874,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Starts this queue stream; no other frame may precede registration.
+     * Starts this queue or reserved-slot stream; no other frame may precede registration.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskRegister register = 1;</code>
@@ -1078,6 +1081,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1090,6 +1094,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1112,6 +1117,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1132,6 +1138,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1150,6 +1157,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1177,6 +1185,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1200,6 +1209,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1210,6 +1220,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>
@@ -1228,6 +1239,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Declines an assigned task before output when the Worker lacks capacity or the named handler.
+     * See PollWorkerTaskReject for the reasons each stream kind may send.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskReject reject = 3;</code>

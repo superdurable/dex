@@ -282,6 +282,8 @@ impl FlowCoordinatorRegistry {
 
     /// Proposes `command` (a `StepAttemptStarted`) only when the invocation's locks are free,
     /// checking and proposing under the Flow's lock so no RPC can take a key in between.
+    /// At the speculation limit it fails at once instead of waiting for capacity, because the
+    /// caller holds a reserved Worker slot.
     ///
     /// Returns `None` when a lock key is held or an earlier waiter queues on it.
     pub async fn propose_invocation_start(
@@ -292,7 +294,7 @@ impl FlowCoordinatorRegistry {
         urgency: CommitUrgency,
     ) -> Result<Option<ProposalResult>, FlowCoordinationError> {
         let proposal = self
-            .propose_with(flow, urgency, |scope| {
+            .propose_with_admission(flow, urgency, false, |scope| {
                 let blocker = find_invocation_lock_blocker(
                     scope.state,
                     scope.rpc_locks,
@@ -454,6 +456,21 @@ impl FlowCoordinatorRegistry {
         &self,
         flow: &FlowAddress,
         urgency: CommitUrgency,
+        build: impl FnMut(
+            &mut ProposalScope<'_>,
+        ) -> Result<Option<(FlowCommand, T)>, FlowCoordinationError>,
+    ) -> Result<Option<(ProposalResult, T)>, FlowCoordinationError> {
+        self.propose_with_admission(flow, urgency, true, build)
+            .await
+    }
+
+    /// Like [`Self::propose_with`]; without `should_wait_for_capacity`, the speculation limit
+    /// fails with `Unavailable` at once.
+    async fn propose_with_admission<T>(
+        &self,
+        flow: &FlowAddress,
+        urgency: CommitUrgency,
+        should_wait_for_capacity: bool,
         mut build: impl FnMut(
             &mut ProposalScope<'_>,
         ) -> Result<Option<(FlowCommand, T)>, FlowCoordinationError>,
@@ -489,6 +506,11 @@ impl FlowCoordinatorRegistry {
                     );
                 }
                 return proposal;
+            }
+            if !should_wait_for_capacity {
+                return Err(FlowCoordinationError::Unavailable {
+                    detail: format!("speculation limit reached for Flow {}", flow.flow_id),
+                });
             }
             // Biased for reproducible simulation; the halt and the release fire once, so the
             // deadline cannot starve.
@@ -696,7 +718,7 @@ impl FlowCoordinatorRegistry {
         })
     }
 
-    /// Takes RPC locks, or fails with `ABORTED` when an RPC or a running Step holds a key.
+    /// Takes RPC locks, or fails with `ABORTED` when an RPC or a Step holds a key.
     pub(crate) fn acquire_rpc_locks(
         &self,
         lease: FlowCoordinatorLease,
@@ -713,7 +735,7 @@ impl FlowCoordinatorRegistry {
             )? {
                 let holder = match blocker {
                     LockBlocker::Rpc => "another RPC",
-                    LockBlocker::Step | LockBlocker::EarlierWaiter => "a running Step",
+                    LockBlocker::Step | LockBlocker::EarlierWaiter => "a Step",
                 };
                 // The Go SDK maps ABORTED with WORKER_API_ERROR to RPCLockConflictError.
                 return Err(FlowCoordinationError::rejected(

@@ -153,7 +153,8 @@ pub struct EngineSimulationSummary {
     /// Commands that changed committed state, by command kind.
     pub applied_by_kind: BTreeMap<String, u64>,
     /// What Step failure policies did in applied StepAttemptFailed commands: `wait-for-proceed`,
-    /// `execute-recovery`, `timeout-handler-recovery`, and `retry-deadline` failures.
+    /// `execute-recovery`, `timeout-handler-recovery`, and `retry-total-duration-exhausted`
+    /// failures.
     pub step_failure_recoveries: BTreeMap<String, u64>,
     /// Client calls by operation and outcome.
     pub client_calls: BTreeMap<String, u64>,

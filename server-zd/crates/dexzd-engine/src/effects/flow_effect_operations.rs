@@ -43,13 +43,27 @@ impl From<CommitError> for FlowEffectOperationError {
     }
 }
 
+/// Resolves once a proposed `StepAttemptStarted` commits.
+pub type StartCommit = BoxFuture<'static, Result<(), FlowEffectOperationError>>;
+
 /// Result of a lock-checked attempt start.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvocationStartOutcome {
-    /// `StepAttemptStarted` was proposed; its `InvocationStarted` effect follows.
-    Started,
+    /// `StepAttemptStarted` applied to the speculative state; the future resolves once it
+    /// commits.
+    Started(StartCommit),
     /// A lock key is held, or an earlier waiter queues on it; retry after locks are released.
     LocksBusy,
+    /// The invocation is no longer pending with this attempt.
+    Stale,
+}
+
+/// Result of a read-only lock check of a pending attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InvocationLockCheck {
+    /// Every lock key is free for this attempt now.
+    Free,
+    /// A lock key is held, or an earlier waiter queues on it.
+    Busy,
     /// The invocation is no longer pending with this attempt.
     Stale,
 }
@@ -97,7 +111,8 @@ pub trait FlowEffectOperations: Send + Sync + 'static {
     /// Inside the Flow's actor: proposes `StepAttemptStarted` with `task_id` and `pull_routing`
     /// when every lock key of the invocation is free in the overlay lock table and the
     /// in-memory RPC locks, and no earlier waiter queues on any of its keys. The urgency
-    /// follows the method's durability.
+    /// follows the method's pinned durability. At the speculation limit it does not wait for
+    /// capacity, so a caller holding a Worker slot never holds it for long.
     ///
     /// Returns whether the attempt started, or [`FlowEffectOperationError`] when nothing was proposed.
     #[expect(
@@ -114,6 +129,17 @@ pub trait FlowEffectOperations: Send + Sync + 'static {
         task_id: Vec<u8>,
         pull_routing: PullRouting,
     ) -> BoxFuture<'a, Result<InvocationStartOutcome, FlowEffectOperationError>>;
+
+    /// Checks, without proposing, whether a pending attempt's locks are free now.
+    ///
+    /// Returns the check, or [`FlowEffectOperationError`] when state cannot be read.
+    fn check_invocation_locks<'a>(
+        &'a self,
+        flow: &'a FlowAddress,
+        run_id: RunId,
+        invocation: &'a StepInvocationKey,
+        attempt: u32,
+    ) -> BoxFuture<'a, Result<InvocationLockCheck, FlowEffectOperationError>>;
 
     /// Returns a read view of `flow`'s state, including uncommitted speculative commands when
     /// `should_include_speculative` is true.

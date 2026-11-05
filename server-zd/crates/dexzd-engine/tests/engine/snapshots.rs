@@ -150,6 +150,7 @@ async fn submit_time_travel(
         flow_id: flow_id.to_owned(),
         run_id: run_id.0.to_vec(),
         command: Some(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: flow_id.to_owned(),
                 reset_type: FlowResetType::Beginning as i32,

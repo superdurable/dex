@@ -110,6 +110,7 @@ matching:
   maxQueueLength: 256
   maxFlowTypes: 256
   maxFlowTypeLength: 256
+  unsupportedTypeCacheEntries: 10000
   pingInterval: 20s
 streamStore:
   backend: disabled

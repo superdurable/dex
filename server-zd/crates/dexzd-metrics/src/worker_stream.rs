@@ -74,3 +74,136 @@ impl EncodeMetric for WorkerStreamEvents {
         MetricType::Counter
     }
 }
+
+/// Why a started Step attempt returned to pending without consuming a retry.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum StepAttemptReturnReason {
+    /// The Worker declined the Step type.
+    Unsupported,
+    /// A Worker without reserved-slot dispatch declined for capacity.
+    LegacyNoCapacity,
+    /// The task never reached the Worker, or the Worker cleanly closed before output.
+    NotDelivered,
+}
+
+label_value!(StepAttemptReturnReason { Unsupported => "unsupported", LegacyNoCapacity => "legacy_no_capacity", NotDelivered => "not_delivered" });
+
+impl StepAttemptReturnReason {
+    const ALL: [Self; 3] = [
+        Self::Unsupported,
+        Self::LegacyNoCapacity,
+        Self::NotDelivered,
+    ];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Unsupported => 0,
+            Self::LegacyNoCapacity => 1,
+            Self::NotDelivered => 2,
+        }
+    }
+}
+
+#[derive(Clone, Debug, EncodeLabelSet)]
+struct StepAttemptReturnLabel {
+    reason: StepAttemptReturnReason,
+}
+
+/// Committed returns of started Step attempts by reason.
+#[derive(Clone, Debug)]
+pub struct StepAttemptsReturned {
+    counts: Arc<[Counter; 3]>,
+}
+
+impl Default for StepAttemptsReturned {
+    fn default() -> Self {
+        Self {
+            counts: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl StepAttemptsReturned {
+    /// Records one committed return.
+    pub fn record(&self, reason: StepAttemptReturnReason) {
+        self.counts[reason.index()].inc();
+    }
+}
+
+impl EncodeMetric for StepAttemptsReturned {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for reason in StepAttemptReturnReason::ALL {
+            encoder
+                .encode_family(&StepAttemptReturnLabel { reason })?
+                .encode_counter::<NoLabelSet, _, u64>(&self.counts[reason.index()].get(), None)?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}
+
+/// A Worker frame that breaks the reserved-slot dispatch protocol.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum WorkerStreamProtocolError {
+    /// A reserved-slot stream declined a task for capacity.
+    NoCapacityOnReservedSlot,
+    /// A reserved-slot stream half-closed after task output but before its final output.
+    HalfCloseAfterOutput,
+}
+
+label_value!(WorkerStreamProtocolError { NoCapacityOnReservedSlot => "no_capacity_on_reserved_slot", HalfCloseAfterOutput => "half_close_after_output" });
+
+impl WorkerStreamProtocolError {
+    const ALL: [Self; 2] = [Self::NoCapacityOnReservedSlot, Self::HalfCloseAfterOutput];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::NoCapacityOnReservedSlot => 0,
+            Self::HalfCloseAfterOutput => 1,
+        }
+    }
+}
+
+#[derive(Clone, Debug, EncodeLabelSet)]
+struct WorkerStreamProtocolErrorLabel {
+    error: WorkerStreamProtocolError,
+}
+
+/// Worker stream protocol errors by kind.
+#[derive(Clone, Debug)]
+pub struct WorkerStreamProtocolErrors {
+    counts: Arc<[Counter; 2]>,
+}
+
+impl Default for WorkerStreamProtocolErrors {
+    fn default() -> Self {
+        Self {
+            counts: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl WorkerStreamProtocolErrors {
+    /// Records one protocol error.
+    pub fn record(&self, error: WorkerStreamProtocolError) {
+        self.counts[error.index()].inc();
+    }
+}
+
+impl EncodeMetric for WorkerStreamProtocolErrors {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for error in WorkerStreamProtocolError::ALL {
+            encoder
+                .encode_family(&WorkerStreamProtocolErrorLabel { error })?
+                .encode_counter::<NoLabelSet, _, u64>(&self.counts[error.index()].get(), None)?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}

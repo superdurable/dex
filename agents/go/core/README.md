@@ -441,8 +441,8 @@ The model clients are tested against fake HTTP servers; no test needs a key.
   stored conversation grows with the session.
 - Each model call and tool call adds a Step round trip.
 - Interrupt deadlines use the Worker clock, rounded up to whole seconds.
-- A tool Step's first output narrows Dex's redelivery window but does not
-  close it: a single-attempt tool can run twice if the Worker dies before its
-  heartbeat reaches Dex. See the contract's Known limits.
+- Dex never hands a tool Step's attempt number to a second Worker, so a
+  single-attempt tool does not run twice after a Worker crash. A cancelled run
+  may still overlap its failure route. See the contract's Known limits.
 - `EstimateInputTokens` of the provider clients counts four characters per
   token; the Go core does not compact, so nothing reads it today.

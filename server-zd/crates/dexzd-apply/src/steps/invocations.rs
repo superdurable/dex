@@ -11,7 +11,7 @@
 //! Locks are held across every retry of one logical method call. Waiting calls queue FIFO
 //! per key by the seq at which they became pending; apply re-checks what the owner proposed.
 
-use dexzd_protocol::dex::{StepDurability, StepOptions};
+use dexzd_protocol::dex::{StepAttemptProgress, StepDurability, StepOptions};
 use dexzd_protocol::dexzd::v1::{
     LockWaiterRecord, StepExecutionRecord, StepInvocationKey, StepInvocationPhase,
     StepInvocationRecord, StepMethod,
@@ -19,7 +19,6 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::FlowTransaction;
-use crate::steps::invocation_retry_deadline_micros;
 use crate::values::{ValueHolder, hold_stored_value, release_stored_value};
 use crate::{ApplyEffect, ApplyError};
 
@@ -98,6 +97,12 @@ pub(crate) fn make_invocation_pending(
         .as_ref()
         .filter(|_| attempt > 1)
         .map_or(0, |invocation| invocation.retry_started_at_micros);
+    let furthest_attempt_progress = previous
+        .as_ref()
+        .filter(|_| attempt > 1)
+        .map_or(StepAttemptProgress::NotStarted as i32, |invocation| {
+            invocation.furthest_attempt_progress
+        });
     step.invocation = Some(StepInvocationRecord {
         method: method as i32,
         phase: StepInvocationPhase::Pending as i32,
@@ -107,6 +112,7 @@ pub(crate) fn make_invocation_pending(
         lock_keys,
         effective_durability,
         retry_started_at_micros,
+        furthest_attempt_progress,
         last_failure: previous
             .as_ref()
             .and_then(|invocation| invocation.last_failure.clone()),
@@ -125,6 +131,50 @@ pub(crate) fn make_invocation_pending(
         attempt,
     });
     Ok(())
+}
+
+/// Returns the invocation's pinned durability; records without one count as SYNC.
+pub(crate) fn pinned_durability(invocation: &StepInvocationRecord) -> StepDurability {
+    match StepDurability::try_from(invocation.effective_durability) {
+        Ok(StepDurability::Async) => StepDurability::Async,
+        _ => StepDurability::Sync,
+    }
+}
+
+/// Returns the progress of an attempt that ends without a result: only a SYNC attempt the
+/// Worker certainly never ran reports `NOT_STARTED` (plan D75).
+pub(crate) fn ended_attempt_progress(
+    invocation: &StepInvocationRecord,
+    is_not_run: bool,
+) -> StepAttemptProgress {
+    let was_running = invocation.phase == StepInvocationPhase::Running as i32;
+    let is_certainly_not_run = !was_running || is_not_run;
+    if pinned_durability(invocation) == StepDurability::Sync && is_certainly_not_run {
+        StepAttemptProgress::NotStarted
+    } else {
+        StepAttemptProgress::NotCompleted
+    }
+}
+
+/// Merges `progress` into the invocation's furthest progress, ordered
+/// `NOT_STARTED < UNSPECIFIED < NOT_COMPLETED` rather than by enum number.
+pub(crate) fn merge_furthest_attempt_progress(
+    invocation: &mut StepInvocationRecord,
+    progress: StepAttemptProgress,
+) {
+    let current = StepAttemptProgress::try_from(invocation.furthest_attempt_progress)
+        .unwrap_or(StepAttemptProgress::Unspecified);
+    if progress_rank(progress) > progress_rank(current) {
+        invocation.furthest_attempt_progress = progress as i32;
+    }
+}
+
+fn progress_rank(progress: StepAttemptProgress) -> u8 {
+    match progress {
+        StepAttemptProgress::NotStarted => 0,
+        StepAttemptProgress::Unspecified => 1,
+        StepAttemptProgress::NotCompleted => 2,
+    }
 }
 
 fn effective_method_durability(
@@ -220,7 +270,8 @@ pub(crate) fn start_attempt(
     invocation.task_id = task_id.to_vec();
     invocation.attempt_started_at_micros = now_micros;
     // Go schedules the activity after its locks, so lock wait never consumes ScheduleToClose.
-    if invocation.attempt == 1 {
+    // A zero clock on a later attempt is an older record that falls back to its first attempt.
+    if invocation.attempt == 1 && invocation.retry_started_at_micros == 0 {
         invocation.retry_started_at_micros = now_micros;
     }
     let run_id = cursor.run_id();
@@ -228,7 +279,6 @@ pub(crate) fn start_attempt(
     let attempt = invocation.attempt;
     let method_timeout_seconds =
         configured_method_timeout_seconds(step.options.as_ref(), invocation.method);
-    let retry_deadline_micros = invocation_retry_deadline_micros(step.options.as_ref(), invocation);
     cursor.add_effect(ApplyEffect::InvocationStarted {
         run_id,
         run_attempt,
@@ -236,7 +286,6 @@ pub(crate) fn start_attempt(
         attempt,
         task_id: task_id.to_vec(),
         method_timeout_seconds,
-        retry_deadline_micros,
     });
     Ok(())
 }

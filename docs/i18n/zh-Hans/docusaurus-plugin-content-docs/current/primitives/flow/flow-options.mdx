@@ -443,7 +443,7 @@ server-zd 不支持 **StartDelay**。带正值延迟的启动请求会以 **INVA
 |------|------|
 | **ActiveStepSearchMode** | 索引所有 active Step、只索引运行过 **WaitFor** 的 Step，或不索引 active Step。内置 Server 默认不索引 active Step；如需启用，请显式设置模式。 |
 | **ContinueAsNewThreshold** | 已弃用。Dex 不会把 Flow continue as new。Dex 会拒绝负值，把值保存在 **FlowConfig** 中，其他情况下忽略它。**ContinueAsNewPageSizeBytes** 的行为相同。 |
-| **StepDurability** | 没有 Step override 的 method 使用的默认 durability。Dex 依次使用 method override、这里的值，最后使用 **SYNC**。 |
+| **StepDurability** | 没有 Step override 的 method 使用的默认 durability。Dex 依次使用 method override、这里的值，最后使用 **SYNC**。Dex 在 method 调用变为 pending 时固定 durability，所以修改只影响之后调度的 method 调用。 |
 | **AttributeStoreNames** | Dex Server Attribute Store 名称，供 opt-in attribute sync 的 Attribute 使用。 |
 
 ### 用 Client 更新 FlowConfig {#update-flow-config-with-a-client}
