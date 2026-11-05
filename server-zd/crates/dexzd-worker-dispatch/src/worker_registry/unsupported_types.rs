@@ -67,6 +67,11 @@ impl UnsupportedTypeCache {
         }
     }
 
+    /// Returns the app Workers that declined `key`.
+    pub(super) fn declining_workers(&self, key: &TaskTypeKey) -> impl Iterator<Item = &String> {
+        self.workers_by_type.get(key).into_iter().flatten()
+    }
+
     /// Returns whether `app_worker_id` declined `key`.
     pub(super) fn contains(&self, key: &TaskTypeKey, app_worker_id: &str) -> bool {
         self.workers_by_type

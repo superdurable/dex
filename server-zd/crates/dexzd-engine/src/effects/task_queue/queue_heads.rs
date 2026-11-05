@@ -94,9 +94,15 @@ pub(crate) fn rebuild_heads(
     // Heads only lower refs, so a Queued that arrived first is never lost.
     context.dispatcher.report_rebuilt_heads(heads);
     let mut memory = context.task_queue_memory();
-    memory
+    let stale: Vec<_> = memory
         .scanned_heads
-        .retain(|(scanned_partition, _), _| *scanned_partition != partition);
+        .range(first_slot(partition)..)
+        .take_while(|((slot_partition, _), _)| *slot_partition == partition)
+        .map(|(slot, _)| slot.clone())
+        .collect();
+    for slot in stale {
+        memory.scanned_heads.remove(&slot);
+    }
     for (queue, position) in scanned_heads {
         memory.scanned_heads.insert((partition, queue), position);
     }
@@ -136,6 +142,16 @@ pub(crate) async fn run_heads_resync(context: Arc<EffectContext>) {
     }
 }
 
+/// Returns the first (partition, queue) slot of `partition`; slots of the partition follow it.
+fn first_slot(partition: PartitionId) -> (PartitionId, DispatchQueueName) {
+    let first_queue = DispatchQueueName {
+        tenant_id: dexzd_keyspace::TenantId(0),
+        flow_type: String::new(),
+        step_type: String::new(),
+    };
+    (partition, first_queue)
+}
+
 /// Returns the delay between two partition scans, which spreads one round over `interval`.
 fn scan_delay(context: &EffectContext, interval: Duration) -> Duration {
     let partition_count = context.task_queue_memory().owned_partitions.len().max(1);
@@ -167,15 +183,15 @@ fn scan_partition(context: &EffectContext, partition: PartitionId) {
         let mut memory = context.task_queue_memory();
         let scanned: BTreeMap<DispatchQueueName, DispatchQueuePosition> = memory
             .scanned_heads
-            .iter()
-            .filter(|((scanned_partition, _), _)| *scanned_partition == partition)
+            .range(first_slot(partition)..)
+            .take_while(|((slot_partition, _), _)| *slot_partition == partition)
             .map(|((_, queue), position)| (queue.clone(), position.clone()))
             .collect();
         let written_slots: Vec<_> = memory
             .written_since_scan
-            .keys()
-            .filter(|(written_partition, _)| *written_partition == partition)
-            .cloned()
+            .range(first_slot(partition)..)
+            .take_while(|((slot_partition, _), _)| *slot_partition == partition)
+            .map(|(slot, _)| slot.clone())
             .collect();
         let mut written = BTreeMap::new();
         for slot in written_slots {

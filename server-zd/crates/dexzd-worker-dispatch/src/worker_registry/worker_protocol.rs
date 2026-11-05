@@ -114,6 +114,7 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
                 queue.users += 1;
             }
             registry.streams.insert(worker.id, worker.clone());
+            registry.queue_matching.add_step_stream(&worker);
             self.dispatch.inner.metrics.matching_worker_streams.inc();
             shutdown
         };

@@ -913,6 +913,7 @@ impl WorkerDispatch {
         let Some(worker) = registry.streams.remove(&id) else {
             return;
         };
+        registry.queue_matching.remove_step_stream(&worker);
         self.inner
             .metrics
             .worker_stream_events

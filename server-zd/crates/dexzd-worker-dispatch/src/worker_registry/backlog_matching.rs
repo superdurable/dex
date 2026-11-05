@@ -11,7 +11,7 @@
 //! sync waiter takes claims the earliest head it may run (plan D56).
 
 use super::*;
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use dexzd_metrics::UnservedTaskQueueReason;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -89,6 +89,62 @@ pub(super) struct QueueMatching {
     claims_ready: Arc<Notify>,
     next_search_id: u64,
     searches: HashMap<PartitionId, HashMap<u64, Arc<PartitionSearch>>>,
+    /// Connected Step-capable streams per (tenant, Flow type), counted per app Worker.
+    step_workers: HashMap<(u64, String), HashMap<String, usize>>,
+    /// Idle Step-capable streams per (tenant, Flow type), in idle order.
+    idle_step_streams: HashMap<(u64, String), BTreeMap<u64, Uuid>>,
+}
+
+impl QueueMatching {
+    pub(super) fn add_step_stream(&mut self, worker: &WorkerStream) {
+        for flow_type in &worker.backlog_flow_types {
+            *self
+                .step_workers
+                .entry((worker.tenant_id, flow_type.clone()))
+                .or_default()
+                .entry(worker.app_worker_id.clone())
+                .or_default() += 1;
+        }
+    }
+
+    pub(super) fn remove_step_stream(&mut self, worker: &WorkerStream) {
+        for flow_type in &worker.backlog_flow_types {
+            let key = (worker.tenant_id, flow_type.clone());
+            let Some(workers) = self.step_workers.get_mut(&key) else {
+                continue;
+            };
+            if let Some(count) = workers.get_mut(&worker.app_worker_id) {
+                *count -= 1;
+                if *count == 0 {
+                    workers.remove(&worker.app_worker_id);
+                }
+            }
+            if workers.is_empty() {
+                self.step_workers.remove(&key);
+            }
+        }
+    }
+
+    pub(super) fn add_idle_step_stream(&mut self, worker: &WorkerStream, position: u64) {
+        for flow_type in &worker.backlog_flow_types {
+            self.idle_step_streams
+                .entry((worker.tenant_id, flow_type.clone()))
+                .or_default()
+                .insert(position, worker.id);
+        }
+    }
+
+    pub(super) fn take_idle_step_stream(&mut self, worker: &WorkerStream, position: u64) {
+        for flow_type in &worker.backlog_flow_types {
+            let key = (worker.tenant_id, flow_type.clone());
+            if let Some(idle) = self.idle_step_streams.get_mut(&key) {
+                idle.remove(&position);
+                if idle.is_empty() {
+                    self.idle_step_streams.remove(&key);
+                }
+            }
+        }
+    }
 }
 
 impl WorkerDispatch {
@@ -313,16 +369,15 @@ pub(super) enum BacklogService {
 }
 
 impl Registry {
-    /// Claims for idle streams of the queue's Flow type while the queue has a claimable head
-    /// and an idle stream may run it, keeping the wakeup invariant.
+    /// Claims for idle Step streams of the queue's Flow type while the queue has a claimable
+    /// head and an idle stream may run it, keeping the wakeup invariant.
     pub(super) fn match_backlog_queue(&mut self, name: &DispatchQueueName) {
-        let queue_key = (name.tenant_id.0, name.flow_type.clone());
+        let flow_type_key = (name.tenant_id.0, name.flow_type.clone());
         loop {
-            let Some(queue) = self.queues.get(&queue_key) else {
+            let Some(idle) = self.queue_matching.idle_step_streams.get(&flow_type_key) else {
                 return;
             };
-            let candidate = queue
-                .idle
+            let candidate = idle
                 .values()
                 .filter_map(|id| self.streams.get(id))
                 .find(|worker| self.may_claim_for(worker, name))
@@ -398,33 +453,25 @@ impl Registry {
         })
     }
 
-    /// Returns whether any connected stream may serve `name`.
+    /// Returns whether any connected Step stream may serve `name`, in time proportional to
+    /// the Workers that declined its Step type.
     pub(super) fn backlog_service(&self, name: &DispatchQueueName) -> BacklogService {
-        let Some(queue) = self.queues.get(&(name.tenant_id.0, name.flow_type.clone())) else {
+        let Some(workers) = self
+            .queue_matching
+            .step_workers
+            .get(&(name.tenant_id.0, name.flow_type.clone()))
+        else {
             return BacklogService::NoWorker;
         };
-        let mut has_step_stream = false;
-        for worker in queue
-            .stream_ids
-            .iter()
-            .filter_map(|id| self.streams.get(id))
-        {
-            if !worker.slot.may_run_steps() || !worker.backlog_flow_types.contains(&name.flow_type)
-            {
-                continue;
-            }
-            has_step_stream = true;
-            if !self
-                .unsupported_types
-                .contains(&step_type_key(name), &worker.app_worker_id)
-            {
-                return BacklogService::Served;
-            }
-        }
-        if has_step_stream {
-            BacklogService::NoSupportingWorker
+        let declining = self
+            .unsupported_types
+            .declining_workers(&step_type_key(name))
+            .filter(|app_worker_id| workers.contains_key(*app_worker_id))
+            .count();
+        if declining < workers.len() {
+            BacklogService::Served
         } else {
-            BacklogService::NoWorker
+            BacklogService::NoSupportingWorker
         }
     }
 }

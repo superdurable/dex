@@ -35,6 +35,7 @@ impl Registry {
                 queue.idle.insert(position, worker.id);
             }
         }
+        self.queue_matching.add_idle_step_stream(worker, position);
     }
 
     /// Removes `worker` from the idle order of every queue it serves.
@@ -47,6 +48,7 @@ impl Registry {
                 queue.idle.remove(&position);
             }
         }
+        self.queue_matching.take_idle_step_stream(worker, position);
     }
 
     /// Wakes the waiter that should take the newly idle `worker` among all queues it serves:

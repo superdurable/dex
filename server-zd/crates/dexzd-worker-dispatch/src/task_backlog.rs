@@ -119,6 +119,8 @@ pub(crate) struct TaskBacklog {
     next_claim_id: u64,
     next_token_id: u64,
     scans: HashMap<PartitionId, HeadsScan>,
+    /// Queues with refs or Claims per partition.
+    partition_queues: HashMap<PartitionId, HashSet<DispatchQueueName>>,
 }
 
 impl TaskBacklog {
@@ -126,6 +128,10 @@ impl TaskBacklog {
     /// a Claim's next ref).
     pub(crate) fn insert(&mut self, task: QueuedTaskRef) {
         self.observe(task.partition, &task.queue, Some(&task.position));
+        self.partition_queues
+            .entry(task.partition)
+            .or_default()
+            .insert(task.queue.clone());
         let queue = self.queues.entry(task.queue.clone()).or_default();
         let refs = queue.partitions.entry(task.partition).or_default();
         if refs
@@ -251,18 +257,18 @@ impl TaskBacklog {
 
     /// Forgets every ref and Claim of `partition`. Replies to its Claims are then dropped.
     pub(crate) fn remove_partition(&mut self, partition: PartitionId) {
-        let names: Vec<DispatchQueueName> = self
-            .queues
-            .iter()
-            .filter(|(_, queue)| queue.partitions.contains_key(&partition))
-            .map(|(name, _)| name.clone())
-            .collect();
+        let names = self
+            .partition_queues
+            .get(&partition)
+            .cloned()
+            .unwrap_or_default();
         for name in names {
             if let Some(queue) = self.queues.get_mut(&name) {
                 queue.partitions.remove(&partition);
             }
             self.refresh_claimable(&name, partition);
         }
+        self.partition_queues.remove(&partition);
         self.scans.remove(&partition);
     }
 
@@ -270,7 +276,8 @@ impl TaskBacklog {
     pub(crate) fn begin_scan(&mut self, partition: PartitionId) -> HeadsScanToken {
         self.next_token_id += 1;
         let mut smallest_seen = HashMap::new();
-        for (name, queue) in &self.queues {
+        let names = self.partition_queues.get(&partition).into_iter().flatten();
+        for (name, queue) in names.filter_map(|name| Some((name, self.queues.get(name)?))) {
             if let Some(refs) = queue.partitions.get(&partition) {
                 let held = refs
                     .head
@@ -431,6 +438,14 @@ impl TaskBacklog {
                     queue.partitions.remove(&partition);
                 }
                 _ => {}
+            }
+        }
+        if !queue.partitions.contains_key(&partition)
+            && let Some(names) = self.partition_queues.get_mut(&partition)
+        {
+            names.remove(name);
+            if names.is_empty() {
+                self.partition_queues.remove(&partition);
             }
         }
         let type_key = (name.tenant_id.0, name.flow_type.clone());
