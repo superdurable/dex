@@ -332,7 +332,9 @@ func validatePlaintextTarget(address string) error {
 // Start may be called exactly once. Before serving, it negotiates a Server
 // protocol (exactly version 4), synchronizes Attribute indexes, and waits up to
 // WorkerOptions.AttributeIndexSyncTimeout for each startup request.
-// Start fails without retry if MaxConcurrentTasks exceeds the first registration's reported Server limit.
+// Start fails without retry if MaxConcurrentTasks exceeds the limit reported by the first
+// registration after Start. A lower limit reported on a later reconnect only logs a warning;
+// the Server rejects any surplus stream, and the Worker keeps running.
 // It returns nil after a normal Stop, or an error for synchronization, polling,
 // or invalid lifecycle state failures. Call Start on a dedicated goroutine when
 // the application must continue doing other work.
@@ -398,7 +400,8 @@ func (worker *Worker) Start() (startErr error) {
 //
 // Before initial readiness, it returns the first *PullRegistrationError immediately
 // on a permanent rejection when that slot kind has no other registered stream, or
-// Start's error if startup fails. Surplus stream rejections are recorded for
+// Start's error if startup fails. When MaxConcurrentTasks exceeds the per-Worker limit that
+// the Server reports at the first registration, it returns that limit error and never reports readiness. Surplus stream rejections are recorded for
 // diagnostics and retried while another stream of that kind remains registered. Wrapped startup
 // errors retain errors.Is and errors.As behavior. Stop before readiness returns an error. A nil ctx returns an argument error. Otherwise ctx
 // bounds only this wait; cancellation returns ctx.Err without stopping the Worker.
@@ -460,17 +463,27 @@ func (worker *Worker) PullRegistrationState() PullRegistrationState {
 // send final output, then half-close. Tasks arriving after Stop begins are dropped without execution.
 // Streams keep reading until the Server ends them. On timeout, active streams are reset instead
 // of half-closed, so the Server knows a handler may have run.
+// The deadline also resets half-closed streams that the Server has not ended yet, for example
+// after a network partition, and streams whose sends are blocked by transport backpressure.
+// The Server treats a task it sent to such a reset stream as possibly run, so that Step attempt
+// counts even though this Worker dropped the task without running it.
+// A stream whose handler already queued its final output is not reset at the deadline, because a
+// reset could discard that output. It half-closes, and Stop waits up to five more seconds for the
+// Server to end it before resetting it.
 //
 // Stop accepts calls before Start and repeated calls after shutdown. A nil context is
-// invalid. When the drain deadline expires, Stop requests cancellation, waits for
-// handlers and connection cleanup, and returns the context error. A handler ignoring
-// cancellation can block Stop. PullWorkerOptions.StopDrainTimeout defaults to 30 seconds.
+// invalid. The drain deadline is the earlier of ctx and StopDrainTimeout. When it expires,
+// Stop requests cancellation, waits for handlers and connection cleanup, and returns the
+// context error. A handler ignoring cancellation can block Stop. PullWorkerOptions.StopDrainTimeout defaults to 30 seconds.
 // Stop closes the Worker's internal FlowService connection before returning.
 func (worker *Worker) Stop(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("dex: Worker Stop context must not be nil")
 	}
 
+	var cancelDrain context.CancelFunc
+	ctx, cancelDrain = context.WithTimeout(ctx, worker.pull.stopDrainTimeout)
+	defer cancelDrain()
 	worker.lifecycleMu.Lock()
 	switch worker.state {
 	case workerCreated:
@@ -489,15 +502,11 @@ func (worker *Worker) Stop(ctx context.Context) error {
 	}
 	done := worker.done
 	worker.lifecycleMu.Unlock()
-	var cancelDrain context.CancelFunc
-	ctx, cancelDrain = context.WithTimeout(ctx, worker.pull.stopDrainTimeout)
-	defer cancelDrain()
-
 	select {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		worker.pull.cancel()
+		worker.pull.expireDrain()
 		<-done
 		return ctx.Err()
 	}

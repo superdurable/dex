@@ -151,8 +151,13 @@ caller is authorized or that the Action remains available.
 The Go SDK requires a Dex Server with protocol version 4 or later
 (server-zd newer than v0.1.16). Upgrade the Server before upgrading the SDK. Worker startup
 fails immediately against older Servers. Client construction stays lazy and performs
-no network I/O. Every Client method negotiates before its first request; successful
-negotiation and incompatibility are cached, while transient failures retry on the next call.
+no network I/O. Every Client method negotiates before its first request, and
+concurrent first calls share one `GetServerInfo` request. Each call's context
+bounds both its wait for negotiation and its own request. Successful negotiation
+and a definitive protocol mismatch are cached. A failed `GetServerInfo` request
+returns a `*ServiceError` with `Op` `GetServerInfo`, like other request failures,
+and the next call retries. A Server whose minimum protocol is newer than the SDK
+reports that the Go SDK must be upgraded.
 
 ## Step and timeout-handler state loading
 
@@ -701,7 +706,10 @@ and RPCs. The Worker executes every received task without capacity rejections.
 `IdleStreamsPerQueue` is deprecated, remains accepted, and has no effect.
 Start fails without background retry when the Server's first registration reports
 a nonzero `max_concurrent_tasks_per_app_worker` below `MaxConcurrentTasks`.
-The error names both values and `matching.maxConcurrentTasksCap`.
+The error names both values and `matching.maxConcurrentTasksCap`. The Worker then
+half-closes its streams, so a task sent right after registration returns to the
+Server without costing an attempt. A lower limit reported on a later reconnect
+only logs a warning; the Server rejects any surplus stream.
 
 Unknown Step types and RPC names can still be rejected before the handler runs.
 Flow type names must be unique within a Dex Server.
@@ -711,7 +719,8 @@ The generated Worker ID uses the first nonempty value from `DEX_WORKER_INSTANCE`
 override must identify one Worker process uniquely and change when that process
 restarts. It must contain 1-63 ASCII letters, digits, dots, underscores, or
 hyphens, and must not equal a registered Flow type. The Worker reconnects after
-stream failures and drains in-flight tasks before a server-directed reconnect. It logs permanent
+stream failures. On a server-directed reconnect, an idle stream half-closes at
+once and a busy stream finishes its task and sends its final output first. It logs permanent
 registration failures and retries them after at least one minute. `Start`
 returns startup synchronization errors, not later poll stream errors.
 The SDK sends an upstream Pong every 20 seconds while a task runs and stops
@@ -723,8 +732,14 @@ final output, then half-close. Tasks arriving after shutdown begins are dropped
 without calling a handler, including frames arriving after the half-close.
 Streams keep reading until the Server ends them. After `StopDrainTimeout`
 (default 30 seconds) or context expiry, Stop resets active streams and cancels
-handlers instead of half-closing a running task. It waits for handlers to return,
-so handlers must honor cancellation. Stop is idempotent. A broken connection
+handlers instead of half-closing a running task. The deadline also resets
+half-closed streams that the Server has not ended, such as after a network
+partition, and streams whose sends are blocked. The Server counts a task it sent
+to such a stream as possibly run. A stream whose handler already queued its final
+output is not reset at the deadline: it half-closes, and Stop waits up to five
+more seconds for the Server to end it. Stop waits for handlers to return,
+so handlers must honor cancellation. Local stream failures, such as an oversized
+or undecodable frame, always reset the stream and never half-close it. Stop is idempotent. A broken connection
 cancels its tasks, and their output is never sent on a later connection.
 The SDK does not install signal handlers; the [Order example](examples/order/main.go)
 shows signal-driven shutdown.
@@ -1148,7 +1163,7 @@ The detailed design and later phase boundaries are in the
 
 Worker startup calls `GetServerInfo`, negotiates the highest version in the
 intersection of the Server and Go SDK protocol intervals, synchronizes Attribute
-indexes, and then opens task streams. The initial SDK interval is `[1,1]`.
+indexes, and then opens task streams. The SDK interval is `[4,4]`.
 Missing server information, invalid or disjoint intervals, and RPC failures stop
 startup before polling. The negotiated protocol is retained for future
 protocol-specific paths.

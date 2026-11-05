@@ -48,6 +48,8 @@ type pullTestStream struct {
 	eofReceived  chan struct{}
 	allowReturn  chan struct{}
 	ended        chan error
+	// maxConcurrentTasksPerAppWorker is the limit this stream's Registered frame reports.
+	maxConcurrentTasksPerAppWorker uint32
 }
 
 func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_PollWorkerTaskServer) error {
@@ -60,6 +62,7 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 	server.streams = append(server.streams, registered)
 	shouldReconnect := server.reconnectFirst
 	server.reconnectFirst = false
+	registered.maxConcurrentTasksPerAppWorker = server.maxConcurrentTasksPerAppWorker
 	if registered.registration != nil && (registered.registration.SlotKind.String() == server.holdAfterEOFQueue || server.holdAfterEOFQueue == "*") {
 		registered.eofReceived = make(chan struct{})
 		registered.allowReturn = make(chan struct{})
@@ -70,7 +73,7 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 		server.firstReconnectQueue <- registered.registration.Queue
 		return stream.Send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Reconnect{Reconnect: &dexpb.PollWorkerTaskReconnect{Reason: "owner moved"}}})
 	}
-	if err := stream.Send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{SupportsUnknownNameRejection: server.supportsUnknownNameRejection, MaxConcurrentTasksPerAppWorker: server.maxConcurrentTasksPerAppWorker}}}); err != nil {
+	if err := stream.Send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{SupportsUnknownNameRejection: server.supportsUnknownNameRejection, MaxConcurrentTasksPerAppWorker: registered.maxConcurrentTasksPerAppWorker}}}); err != nil {
 		return err
 	}
 	select {

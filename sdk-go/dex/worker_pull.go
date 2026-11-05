@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -39,6 +40,7 @@ type pullWorker struct {
 	reservedRPCTasks               int
 	shouldWarnRPCCapacity          bool
 	stopDrainTimeout               time.Duration
+	finalOutputFlushTimeout        time.Duration
 	stopOnPermanentStreamRejection bool
 	sdkVersion                     string
 	ctx                            context.Context
@@ -57,6 +59,7 @@ type pullWorker struct {
 	queueRegistrations             map[string]*pullQueueRegistration
 	hasRegisteredAllQueues         bool
 	initialRegistrationError       error
+	hasCheckedRegistrationLimit    bool
 	startError                     error
 	hasStartReturned               bool
 	permanentStreamError           error
@@ -83,6 +86,8 @@ type pullStream struct {
 	keepaliveDone      chan struct{}
 	isFinalFrameSent   bool
 	hasSentFinalOutput bool
+	// hasQueuedFinalOutput is read without sendMu, so an expired drain never waits behind a blocked Send.
+	hasQueuedFinalOutput atomic.Bool
 	// Registration state is guarded by worker.mu, independently of stream.mu and sendMu.
 	isRegistered bool
 	taskID       string
@@ -93,6 +98,9 @@ type pullStream struct {
 }
 
 const busyPullStreamKeepaliveInterval = 20 * time.Second
+
+// defaultFinalOutputFlushTimeout bounds how long an expired drain waits for a queued final output to reach the Server.
+const defaultFinalOutputFlushTimeout = 5 * time.Second
 
 func newPullWorker(registry *Registry, service *workerService, conn *grpc.ClientConn, options PullWorkerOptions, sdkVersion string) (*pullWorker, error) {
 	maxConcurrentTasks := options.MaxConcurrentTasks
@@ -155,7 +163,7 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
 		shouldWarnRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
-		stopDrainTimeout:      stopDrainTimeout, sdkVersion: sdkVersion,
+		stopDrainTimeout:      stopDrainTimeout, finalOutputFlushTimeout: defaultFinalOutputFlushTimeout, sdkVersion: sdkVersion,
 		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}), stopBegan: make(chan struct{}),
 	}, nil
 }
@@ -230,8 +238,8 @@ func (worker *pullWorker) run() error {
 			}
 			return nil
 		case <-worker.permanentStreamRejected:
+			drainTimer := time.AfterFunc(worker.stopDrainTimeout, worker.expireDrain)
 			worker.stop()
-			drainTimer := time.AfterFunc(worker.stopDrainTimeout, worker.cancel)
 			<-worker.ctx.Done()
 			drainTimer.Stop()
 			worker.mu.Lock()
@@ -244,23 +252,46 @@ func (worker *pullWorker) run() error {
 	}
 }
 
+// stop never waits for a stream send, so a blocked Send cannot delay the caller's drain deadline.
 func (worker *pullWorker) stop() {
 	worker.mu.Lock()
+	defer worker.mu.Unlock()
 	worker.isStopping = true
 	worker.stopOnce.Do(func() { close(worker.stopBegan) })
 	worker.notifyRegistrationChanged()
 	for stream := range worker.streams {
 		stream.mu.Lock()
 		stream.isDraining = true
-		if !stream.isBusy {
-			stream.closeSend()
-		}
+		isBusy := stream.isBusy
 		stream.mu.Unlock()
+		if !isBusy {
+			// The stream is still in worker.streams, so its own WaitGroup count keeps Add safe here.
+			worker.streamWG.Add(1)
+			go stream.closeSendForStop()
+		}
 	}
 	if len(worker.streams) == 0 {
 		worker.cancel()
 	}
-	worker.mu.Unlock()
+}
+
+// expireDrain resets streams without a queued final output; resetting those would discard the result.
+func (worker *pullWorker) expireDrain() {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+	hasFlushingStream := false
+	for stream := range worker.streams {
+		if stream.hasQueuedFinalOutput.Load() {
+			hasFlushingStream = true
+			continue
+		}
+		stream.cancel()
+	}
+	if !hasFlushingStream {
+		worker.cancel()
+		return
+	}
+	time.AfterFunc(worker.finalOutputFlushTimeout, worker.cancel)
 }
 
 func (worker *pullWorker) signal() {
@@ -354,16 +385,24 @@ func (worker *pullWorker) recordRegisteredStream(stream *pullStream, acknowledge
 		return worker.initialRegistrationError
 	}
 	limit := acknowledgement.GetMaxConcurrentTasksPerAppWorker()
-	if limit != 0 && uint64(worker.maxConcurrentTasks) > uint64(limit) {
-		err := fmt.Errorf("dex: MaxConcurrentTasks %d exceeds Server matching.maxConcurrentTasksCap %d", worker.maxConcurrentTasks, limit)
-		if worker.permanentStreamError == nil {
-			worker.permanentStreamError = err
-			worker.initialRegistrationError = err
-			worker.isStopping = true
-			close(worker.permanentStreamRejected)
+	isOverLimit := limit != 0 && uint64(worker.maxConcurrentTasks) > uint64(limit)
+	if !worker.hasCheckedRegistrationLimit {
+		worker.hasCheckedRegistrationLimit = true
+		if isOverLimit {
+			err := fmt.Errorf("dex: MaxConcurrentTasks %d exceeds Server matching.maxConcurrentTasksCap %d", worker.maxConcurrentTasks, limit)
+			if worker.permanentStreamError == nil {
+				worker.permanentStreamError = err
+				worker.initialRegistrationError = err
+				worker.isStopping = true
+				close(worker.permanentStreamRejected)
+			}
+			worker.notifyRegistrationChanged()
+			return err
 		}
-		worker.notifyRegistrationChanged()
-		return err
+	} else if isOverLimit {
+		// The Server rejects surplus slot streams itself, so a lowered limit must not stop a running Worker.
+		worker.service.logger.Warn("Server lowered matching.maxConcurrentTasksCap below MaxConcurrentTasks",
+			"maxConcurrentTasks", worker.maxConcurrentTasks, "maxConcurrentTasksPerAppWorker", limit)
 	}
 	registration := worker.queueRegistrations[stream.queue]
 	stream.isRegistered = true
@@ -521,6 +560,7 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	stream.isSendClosed = false
 	stream.isFinalFrameSent = false
 	stream.hasSentFinalOutput = false
+	stream.hasQueuedFinalOutput.Store(false)
 	stream.sendMu.Unlock()
 	responses := make(chan *dexpb.PollWorkerTaskResponse, 1)
 	receiveErrors := make(chan error, 1)
@@ -537,10 +577,11 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 		return false, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
 	}
 	stream.mu.Lock()
-	if stream.isDraining {
+	isDraining := stream.isDraining
+	stream.mu.Unlock()
+	if isDraining {
 		stream.closeSend()
 	}
-	stream.mu.Unlock()
 	wasRegistered := false
 	for {
 		select {
@@ -561,7 +602,10 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 				}
 				wasRegistered = true
 				if err := stream.worker.recordRegisteredStream(stream, response.GetRegistered()); err != nil {
-					return false, err
+					// A reset could cost an attempt for a task sent right after Registered; half-close and drop it instead.
+					stream.markDraining()
+					stream.closeSend()
+					continue
 				}
 				stream.worker.signal()
 				continue
@@ -582,8 +626,9 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 					return wasRegistered, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
 				}
 			case *dexpb.PollWorkerTaskResponse_Reconnect:
+				// A reset could make the Server count an in-flight task as possibly run; a half-close returns it.
 				if !stream.markDraining() {
-					return wasRegistered, nil
+					stream.closeSend()
 				}
 				stream.worker.signal()
 			default:
@@ -880,6 +925,7 @@ func (stream *pullStream) startKeepalive() {
 	stream.sendMu.Lock()
 	stream.isFinalFrameSent = false
 	stream.hasSentFinalOutput = false
+	stream.hasQueuedFinalOutput.Store(false)
 	done := make(chan struct{})
 	stream.keepaliveDone = done
 	stream.sendMu.Unlock()
@@ -932,6 +978,11 @@ func (stream *pullStream) sendKeepalivePong(done chan struct{}) error {
 	return stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}})
 }
 
+func (stream *pullStream) closeSendForStop() {
+	defer stream.worker.streamWG.Done()
+	stream.closeSend()
+}
+
 func (stream *pullStream) closeSend() {
 	stream.sendMu.Lock()
 	defer stream.sendMu.Unlock()
@@ -971,6 +1022,7 @@ func (stream *pullStream) sendTaskFrameLocked(frame *dexpb.PollWorkerTaskFrame) 
 	if isFinalFrame {
 		stream.stopKeepaliveLocked()
 		stream.isFinalFrameSent = true
+		stream.hasQueuedFinalOutput.Store(true)
 	}
 	err := stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: frame}})
 	if isFinalFrame && err == nil {

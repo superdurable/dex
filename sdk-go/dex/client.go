@@ -62,8 +62,13 @@ type ClientOptions struct {
 // A Client is safe for concurrent use. Calls use their context for cancellation and
 // return an error after Close. The Client owns its gRPC connection; callers should
 // close it when the application shuts down. Before its first request of any method, it negotiates
-// Server protocol 4. Incompatibility is cached and returned on later calls. Transient negotiation
-// failures are retried on the next call. NewClient performs no network I/O.
+// Server protocol 4 with one GetServerInfo request, which concurrent first calls share.
+// Each call's context bounds both that negotiation and the request itself.
+// A Server that reports no protocol in common with the SDK returns an upgrade error, which is
+// cached and returned on later calls. A failed GetServerInfo request returns a *ServiceError
+// with Op "GetServerInfo", like other request failures, and the next call retries negotiation.
+// A Server that does not implement GetServerInfo returns an upgrade error that is not cached.
+// NewClient performs no network I/O.
 //
 //	client, err := dex.NewClient(registry, cache, dex.ClientOptions{})
 //	if err != nil {
@@ -83,6 +88,8 @@ type Client struct {
 	serverProtocol negotiatedServerProtocol
 	protocolMu     sync.Mutex
 	protocolError  error
+	// protocolNegotiationDone is non-nil while one call runs GetServerInfo for every caller.
+	protocolNegotiationDone chan struct{}
 
 	lifecycleMu sync.RWMutex
 	closed      bool
@@ -202,23 +209,59 @@ func (client *Client) validateCallContext(ctx context.Context) error {
 	return nil
 }
 
+// negotiateProtocol runs at most one GetServerInfo at a time; waiters stay bounded by their own ctx.
 func (client *Client) negotiateProtocol(ctx context.Context) error {
-	client.protocolMu.Lock()
-	defer client.protocolMu.Unlock()
-	if client.protocolError != nil {
-		return client.protocolError
+	for {
+		if client.serverProtocol.version.Load() != 0 {
+			return nil
+		}
+		client.protocolMu.Lock()
+		if client.protocolError != nil {
+			err := client.protocolError
+			client.protocolMu.Unlock()
+			return err
+		}
+		if client.serverProtocol.version.Load() != 0 {
+			client.protocolMu.Unlock()
+			return nil
+		}
+		if inFlight := client.protocolNegotiationDone; inFlight != nil {
+			client.protocolMu.Unlock()
+			select {
+			case <-inFlight:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		done := make(chan struct{})
+		client.protocolNegotiationDone = done
+		client.protocolMu.Unlock()
+		return client.doNegotiateProtocol(ctx, done)
 	}
-	if client.serverProtocol.version.Load() != 0 {
-		return nil
-	}
-	sdkVersion := currentGoSDKVersion()
+}
+
+func (client *Client) doNegotiateProtocol(ctx context.Context, done chan struct{}) error {
+	var incompatibleErr error
+	defer func() {
+		client.protocolMu.Lock()
+		client.protocolError = incompatibleErr
+		client.protocolNegotiationDone = nil
+		client.protocolMu.Unlock()
+		close(done)
+	}()
 	serverInfo, err := client.service.GetServerInfo(ctx, &emptypb.Empty{})
 	if err != nil {
-		return serverProtocolRequestError(sdkVersion, err)
+		if status.Code(err) == codes.Unimplemented {
+			return serverProtocolRequestError(currentGoSDKVersion(), err)
+		}
+		return translateRPCError(err, "GetServerInfo", "", flowTargetNone)
 	}
-	version, err := negotiateServerProtocol(serverInfo, sdkVersion)
+	version, err := negotiateServerProtocol(serverInfo, currentGoSDKVersion())
 	if err != nil {
-		client.protocolError = err
+		if isDefinitiveServerProtocolMismatch(serverInfo) {
+			incompatibleErr = err
+		}
 		return err
 	}
 	client.serverProtocol.version.Store(version)

@@ -33,9 +33,6 @@ import (
 
 type PullGreetingDiagnostics struct {
 	IsReady bool
-	//
-	// Deprecated: reserved slot streams never decline Steps; this field is always zero.
-	ReservedRPCDeclines uint64
 }
 
 func StartPullGreeting(cache *blobcache.Cache, serverAddress string) (*GreetingFlow, *dex.Worker, *dex.Client, <-chan error, error) {
@@ -95,8 +92,7 @@ func PullGreetingReadiness(worker *dex.Worker) http.Handler {
 
 func GetPullGreetingDiagnostics(worker *dex.Worker) PullGreetingDiagnostics {
 	return PullGreetingDiagnostics{
-		IsReady:             worker.PullRegistrationState().IsReady,
-		ReservedRPCDeclines: 0,
+		IsReady: worker.PullRegistrationState().IsReady,
 	}
 }
 

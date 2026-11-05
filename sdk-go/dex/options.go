@@ -97,8 +97,8 @@ func ProceedToOnFlowTimeoutHandlerFailure(
 
 // StepOptions configures one Step's handler execution and persistence behavior.
 //
-// Zero values preserve server defaults. The fallback defaults to two hours per attempt with a one-minute
-// heartbeat timeout. Durability resolves from the method override, FlowConfig, then synchronous.
+// Zero values preserve server defaults. Every WaitFor or Execute attempt defaults to a two-hour method
+// timeout and a one-minute heartbeat timeout. Durability resolves from the method override, FlowConfig, then synchronous.
 // Asynchronous durability first uses at most seven seconds and three attempts before fallback.
 // WaitFor failures fail the Flow by default. Each lock is held only for the matching handler call.
 type StepOptions struct {
@@ -106,7 +106,7 @@ type StepOptions struct {
 	WaitForMethodTimeout time.Duration
 	// ExecuteMethodTimeout limits one Execute attempt; zero uses the server default.
 	ExecuteMethodTimeout time.Duration
-	// HeartbeatTimeout detects stalled WaitFor and Execute attempts after fallback.
+	// HeartbeatTimeout detects stalled WaitFor and Execute attempts. It applies to every attempt.
 	// Zero uses the one-minute default. Positive values must be whole seconds within int32 range
 	// and meet the server-configured minimum, which defaults to ten seconds.
 	HeartbeatTimeout time.Duration
