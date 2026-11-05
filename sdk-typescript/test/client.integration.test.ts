@@ -32,6 +32,7 @@ import {
   FlowTimeoutHandlerFailure,
   FlowTimeoutPolicy,
   Registry,
+  RequestTimeoutError,
   Stream,
   StepList,
   ValueMappingError,
@@ -68,6 +69,7 @@ import {
   type ReadStreamRequest,
   type ReadStreamResponse,
   type SearchFlowsRequest,
+  type ServerInfo,
   type StartFlowRequest,
   type StartFlowResponse,
   type UpdateFlowConfigRequest,
@@ -785,6 +787,60 @@ function protoJson(value: unknown): Value {
       $case: "objValue",
       value: { encoding: "json", payload: new TextEncoder().encode(JSON.stringify(value)) },
     },
+  });
+}
+
+for (const method of ["waitForStepCompletion", "waitForAttributeMatch"] as const) {
+  test(`Client ${method} bounds a stalled first Server negotiation by its request timeout`, async () => {
+    const pendingServerInfo: sendUnaryData<ServerInfo>[] = [];
+    let waitCalls = 0;
+    const server = new Server();
+    server.addService(FlowServiceService, {
+      getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+        pendingServerInfo.push(callback);
+      },
+      waitForStepCompletion(_call, callback: sendUnaryData<WaitForStepCompletionResponse>) {
+        waitCalls++;
+        callback(null, {});
+      },
+      waitForAttribute(_call, callback: sendUnaryData<WaitForAttributeResponse>) {
+        waitCalls++;
+        callback(null, { matchedValue: Value.create({ kind: { $case: "doubleValue", value: 7 } }) });
+      },
+    } as Partial<FlowServiceServer> as FlowServiceServer);
+    const port = await bind(server);
+    const client = new Client(new Registry([new TestFlow()]), new MemoryBlobCache(), {
+      serverAddress: `127.0.0.1:${port}`,
+    });
+    const wait = async (requestTimeoutMs?: number): Promise<void> => {
+      if (method === "waitForStepCompletion") {
+        await client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 },
+          requestTimeoutMs === undefined ? {} : { requestTimeoutMs });
+      } else {
+        await client.waitForAttributeMatch("flow-1", revision, AttributeMatch.greaterThan(5),
+          requestTimeoutMs === undefined ? {} : { requestTimeoutMs });
+      }
+    };
+    try {
+      const unbounded = wait();
+      const startedAt = performance.now();
+      await assert.rejects(wait(1_000), (failure: unknown) =>
+        failure instanceof RequestTimeoutError && failure.code === status.DEADLINE_EXCEEDED);
+      const elapsedMs = performance.now() - startedAt;
+      assert.ok(elapsedMs >= 900 && elapsedMs < 3_000, `timed out after ${elapsedMs} ms`);
+      assert.equal(pendingServerInfo.length, 1);
+      assert.equal(waitCalls, 0);
+      pendingServerInfo[0]!(null, {
+        serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0,
+      });
+      await unbounded;
+      await wait(1_000);
+      assert.equal(pendingServerInfo.length, 1);
+      assert.equal(waitCalls, 2);
+    } finally {
+      await client.close();
+      server.forceShutdown();
+    }
   });
 }
 

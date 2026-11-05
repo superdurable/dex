@@ -13,7 +13,7 @@ import { credentialInterceptors } from "./credential.js";
 import { FlowServiceClient, type ServerInfo } from "./gen/dex.js";
 import { registeredAttributeIndexes, type Registry } from "./flow.js";
 import type { WorkerOptions } from "./options.js";
-import { negotiateServerProtocol, serverInfoRequestError } from "./server-protocol.js";
+import { negotiateServerProtocol } from "./server-protocol.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { ValueHydrator } from "./value-mapper.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
@@ -31,8 +31,10 @@ type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" |
  * A Worker is one-shot. Call `start` to register the first slot or `run` to await
  * shutdown, then call `close`. Concurrent handlers must synchronize shared state.
  * `close` stops new tasks, half-closes idle streams, and lets busy handlers send final output before half-closing.
- * It drains for `stopDrainTimeoutMs`, then resets running streams, cancels handlers, and
- * waits for them to return. Half-closed streams wait for server EOF.
+ * It drains for `stopDrainTimeoutMs`, then resets streams whose handler has not written final output,
+ * cancels those handlers, and waits for them to return. Half-closed streams wait for server EOF until
+ * the drain deadline and are then reset. A stream that half-closed after its final output gets up to
+ * 5 more seconds to flush, so `close` can return up to 5 seconds after the drain deadline.
  * A handler that ignores cancellation can delay shutdown.
  *
  * @example
@@ -93,7 +95,9 @@ export class Worker {
    * The promise resolves after the first slot registers and its Server concurrency limit is checked; call exactly once.
    * Await waitPullRegistered separately to gate readiness on both configured slot kinds.
    * @returns A promise resolved after protocol negotiation, index synchronization, and the first registration.
-   * @throws {Error} The Server is incompatible, startup fails, or maxConcurrentTasks exceeds matching.maxConcurrentTasksCap.
+   * @throws {Error} The Server is incompatible, unreachable (the gRPC error is the cause), or startup fails.
+   * @throws {Error} maxConcurrentTasks exceeds matching.maxConcurrentTasksCap; the Worker half-closes its streams.
+   * @throws {PullRegistrationError} The Server permanently rejects every stream before any registers.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
@@ -105,12 +109,7 @@ export class Worker {
       if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
         throw new RangeError("attributeIndexSyncTimeoutMs must be positive");
       }
-      let serverInfo: ServerInfo;
-      try {
-        serverInfo = await getServerInfo(this.flowService, timeoutMs);
-      } catch (failure) {
-        throw serverInfoRequestError(sdkVersion, failure);
-      }
+      const serverInfo = await getServerInfo(this.flowService, timeoutMs);
       this.negotiatedProtocolVersion = negotiateServerProtocol(serverInfo, sdkVersion);
       await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
       this.pullWorker.start();
@@ -122,10 +121,13 @@ export class Worker {
       const startupError = failure instanceof PullRegistrationError ? failure
         : new Error(`cannot start TypeScript ${endpoint}: ${failure instanceof Error ? failure.message : String(failure)}`, { cause: failure });
       this.pullWorker.registration.stopped(startupError);
-      this.state = "stopped";
-      await this.pullWorker.close();
-      this.flowService.close();
-      this.resolveStopped();
+      // A concurrent close already released resources and owns the final state.
+      if (this.state === "starting") {
+        this.state = "stopped";
+        await this.pullWorker.close();
+        this.flowService.close();
+        this.resolveStopped();
+      }
       throw startupError;
     }
   }
@@ -201,9 +203,13 @@ export class Worker {
    * Stops new tasks and drains handlers before releasing connections.
    * Idle streams half-close immediately. Busy streams send their final output before half-closing.
    * Tasks arriving after stop begins are dropped without running a handler, including after half-close.
-   * Streams keep reading until the Server ends them. After the drain timeout, running streams are reset,
-   * handlers are canceled, and close waits for handlers to return.
-   * Half-closed pull streams keep reading until server EOF.
+   * Streams keep reading until the Server ends them.
+   * After the drain timeout, streams whose handler has not written final output are reset, those handlers
+   * are canceled, and close waits for them to return. A handler whose final output is written still half-closes.
+   * Half-closed streams that the Server has not ended by the drain deadline are reset.
+   * A stream that half-closed after its final output first gets a flush grace of up to 5 seconds.
+   * Close can therefore return up to 5 seconds after the drain deadline.
+   * Dex treats a task dropped on a reset stream as possibly run.
    * Calls before `start` and repeated calls after shutdown are safe.
    */
   public async close(): Promise<void> {

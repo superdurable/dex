@@ -25,7 +25,7 @@ import {
   type ServerDuplexStream,
 } from "@grpc/grpc-js";
 
-import { ApiKeyCredential, Client, FileCredential, Registry, Worker, type BlobCache, type Credential } from "../src/index.js";
+import { ApiKeyCredential, Client, FileCredential, PullRegistrationError, Registry, Worker, type BlobCache, type Credential } from "../src/index.js";
 import {
   FlowServiceService,
   FlowServiceClient,
@@ -755,6 +755,31 @@ test("ApiKeyCredential backs off after a second Worker poll token rejection", as
     assert.equal(endpoint.requests.length, 2);
     await new Promise((resolve) => setTimeout(resolve, 500));
     assert.equal(server.taskHeaders.length, 2);
+  } finally {
+    await worker.close();
+    console.error = previousConsoleError;
+    await server.close();
+    await endpoint.close();
+  }
+});
+
+test("Worker start rejects instead of hanging after a second Worker poll token rejection", async () => {
+  const endpoint = await startTokenEndpoint((index) => tokenResponse(index === 1 ? firstAccessToken : "rejected-token-b", 60));
+  const server = await startServer({ rejectPoll: () => true });
+  const credential = new ApiKeyCredential({ tokenUrl: endpoint.url, serverId: "dex-server", apiKey });
+  const previousConsoleError = console.error;
+  console.error = () => {};
+  const worker = new Worker(new Registry([]), {} as BlobCache, {
+    serverAddress: server.address,
+    credential,
+    pull: { maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 100 },
+  });
+  try {
+    const readiness = assert.rejects(worker.waitPullRegistered({ timeoutMs: 5_000 }), PullRegistrationError);
+    await assert.rejects(worker.start(), (failure: unknown) =>
+      failure instanceof PullRegistrationError && (failure.cause as { code?: number }).code === status.UNAUTHENTICATED);
+    await readiness;
+    assert.deepEqual(server.taskHeaders, [`Bearer ${firstAccessToken}`, "Bearer rejected-token-b"]);
   } finally {
     await worker.close();
     console.error = previousConsoleError;

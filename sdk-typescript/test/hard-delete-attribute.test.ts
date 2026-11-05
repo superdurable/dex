@@ -17,6 +17,7 @@ import {
   AttributeMatch,
   Client,
   IndexType,
+  DexServiceError,
   InitialAttribute,
   Registry,
   StepList,
@@ -53,7 +54,7 @@ import {
   type StartFlowRequest,
   type StartFlowResponse,
 } from "../src/gen/dex.js";
-import { maximumSupportedServerProtocolVersion } from "../src/server-protocol.js";
+import { maximumSupportedServerProtocolVersion, negotiateServerProtocol } from "../src/server-protocol.js";
 import type { ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 
@@ -279,6 +280,24 @@ test("TypeScript SDK supports Server protocol version 4", () => {
   assert.equal(maximumSupportedServerProtocolVersion, 4);
 });
 
+test("Server protocol errors name the side to upgrade or the invalid ServerInfo", () => {
+  const serverInfo = (minimumSupportedProtocolVersion: number, currentProtocolVersion: number): ServerInfo => ({
+    serverVersion: "test", minimumSupportedProtocolVersion, currentProtocolVersion, serverEngine: 0,
+  });
+  assert.equal(negotiateServerProtocol(serverInfo(1, 4), "1.0.0"), 4);
+  assert.equal(negotiateServerProtocol(serverInfo(3, 9), "1.0.0"), 4);
+  assert.throws(() => negotiateServerProtocol(serverInfo(1, 3), "1.0.0"), (failure: Error) =>
+    /requires a Dex Server with protocol version 4 or later/.test(failure.message)
+    && /Upgrade the Server before upgrading the SDK/.test(failure.message));
+  assert.throws(() => negotiateServerProtocol(serverInfo(5, 6), "1.0.0"), (failure: Error) =>
+    /The Server requires protocol version 5 or later/.test(failure.message)
+    && /Upgrade the TypeScript SDK/.test(failure.message) && !/Upgrade the Server/.test(failure.message));
+  for (const invalid of [serverInfo(0, 0), serverInfo(0, 4), serverInfo(5, 4)]) {
+    assert.throws(() => negotiateServerProtocol(invalid, "1.0.0"), (failure: Error) =>
+      /empty or invalid protocol range/.test(failure.message) && !/Upgrade/.test(failure.message));
+  }
+});
+
 test("Client negotiates lazily once before any startFlow write", async () => {
   const flow = new HardDeleteUnitFlow(new HardDeleteChildFlow());
   const fake = await startFakeFlowService(4);
@@ -320,17 +339,20 @@ test("Client caches protocol 3 rejection for every request method", async () => 
   });
   try {
     assert.deepEqual(fake.calls, []);
-    let incompatibility: unknown;
+    const failures: Error[] = [];
     for (const request of [() => client.stopFlow("old-server"),
       () => client.startFlow(flow, "old-server", "input"), () => client.searchFlows("FlowType = 'Test'", 10)]) {
       await assert.rejects(request(), (failure: unknown) => {
-        assert.match(String(failure), /requires a Dex Server with protocol version 4 or later \(server-zd newer than v0.1.16\)/);
-        assert.match(String(failure), /The Server reports protocol versions 1-3 \(server version test\)/);
-        if (incompatibility === undefined) incompatibility = failure;
-        else assert.equal(failure, incompatibility);
+        assert.ok(failure instanceof Error);
+        assert.match(failure.message, /requires a Dex Server with protocol version 4 or later \(server-zd newer than v0.1.16\)/);
+        assert.match(failure.message, /The Server reports protocol versions 1-3 \(server version test\)/);
+        failures.push(failure);
         return true;
       });
     }
+    // Every call gets a new Error so callers never share mutable error state.
+    assert.equal(new Set(failures).size, failures.length);
+    assert.equal(new Set(failures.map((failure) => failure.message)).size, 1);
     assert.deepEqual(fake.calls, ["GetServerInfo"]);
   } finally {
     await client.close();
@@ -346,7 +368,8 @@ test("Client retries Server protocol negotiation after GetServerInfo fails", asy
   });
   try {
     const start = () => client.startFlow(flow, "retry-negotiation", "input");
-    await assert.rejects(start(), /unavailable/i);
+    await assert.rejects(start(), (failure: unknown) =>
+      failure instanceof DexServiceError && failure.code === grpcStatus.UNAVAILABLE && !/incompatible/i.test(failure.message));
     await start();
     assert.deepEqual(fake.calls, ["GetServerInfo", "GetServerInfo", "StartFlow"]);
   } finally {

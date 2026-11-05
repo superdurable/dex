@@ -103,9 +103,9 @@ retry, durability, Attribute locks, and the same state selections. Set it on
 `StartFlowOptions` or `SubFlowOptions` only for a positive timeout using `HANDLER`.
 Exhausted retries may proceed to a registered `Step<void>` using `voidCodec`;
 read the final failure from `Context.recoveryError`.
-Its `attemptProgress` is `StepAttemptProgress.NotStarted` when no attempt ran the
-handler, `NotCompleted` when an attempt may have run but none completed, or
-`Unspecified` for an older Server. Treat `Unspecified` like `NotCompleted` and
+Its `attemptProgress` is `StepAttemptProgress.NOT_STARTED` when no attempt ran the
+handler, `NOT_COMPLETED` when an attempt may have run but none completed, or
+`UNSPECIFIED` for an older Server. Treat `UNSPECIFIED` like `NOT_COMPLETED` and
 reconcile possible external effects before repeating them.
 
 ```typescript
@@ -269,7 +269,10 @@ it false; re-registration clears that slot kind's error. Closing does not reset 
 Set `pull.stopOnPermanentStreamRejection: true` to drain and stop on such a permanent rejection
 before or after readiness. It defaults to false, retaining indefinite retries. `worker.run()`
 rejects with `PullRegistrationError` after draining. `start()` waits for the first successful
-registration and verifies the reported Server limit. Always call `close()`, which remains safe after `run()` returns.
+registration and verifies the reported Server limit. If the Server permanently rejects every
+stream before any registers, `start()` rejects with `PullRegistrationError` whatever this option says.
+If the limit check fails, the Worker half-closes its streams so Dex returns any task it already
+sent without consuming an attempt. Always call `close()`, which remains safe after `run()` returns.
 
 The Worker keeps exactly `maxConcurrentTasks` long-lived poll streams, one per
 execution slot. Each registers an empty queue, its app Worker ID, every Flow type,
@@ -290,8 +293,7 @@ on another pull Worker without consuming a Step attempt, including when the
 Flow was sticky to the rejecting Worker. If no capable Worker accepts it within
 the Server's dispatch wait,
 the Step follows its failure and retry policy; an RPC caller receives the named
-error. This reassignment requires a Dex Server that supports it. Against older
-Servers, the Worker returns the not-registered error as before.
+error.
 
 The default `appWorkerID` uses the first nonempty value from
 `DEX_WORKER_INSTANCE`, `POD_NAME`, `HOSTNAME`, or the system hostname, followed by
@@ -304,14 +306,22 @@ running task; that task's output is never sent on a later connection. A
 Server-directed reconnect waits for the current task's final output before
 half-closing, then opens a replacement after the Server ends the stream.
 Startup reports protocol, index synchronization, and concurrency-limit failures.
-Later poll failures are retried.
+An unreachable Server reports the gRPC failure as the startup error's `cause`.
+Later poll failures are retried. A lower limit reported after a reconnect only logs a warning.
+Any local stream failure, such as an oversized frame, resets the stream instead of half-closing it.
 
 `Worker.close()` starts no new task. Idle streams immediately half-close their
 request side. Busy streams let the handler finish, send its final output, then
 half-close. Tasks arriving after stop begins are dropped without calling a handler,
 before or after half-close. Streams keep reading until the Server ends them.
-The drain timeout defaults to 30 seconds. If it expires while a handler still runs,
-the Worker resets that stream, cancels the handler, and waits for it to return.
+The drain timeout defaults to 30 seconds. If it expires while a handler still runs
+and has not written its final output, the Worker resets that stream, cancels the
+handler, and waits for it to return. A handler whose final output is already written
+still half-closes. At the drain deadline the Worker also resets every half-closed
+stream that the Server has not ended, such as after a network partition. A stream
+that half-closed after its final output first gets a flush grace of up to 5 seconds,
+so `close()` can return up to 5 seconds after the drain deadline. Dex treats a task
+dropped on a reset stream as possibly run.
 A handler that ignores cancellation can delay shutdown.
 
 `StepOptions.waitForMethodTimeoutMs` and `executeMethodTimeoutMs` bound the two
@@ -834,10 +844,14 @@ SDK interval is `[4,4]`. A Server must provide protocol 4. Missing information,
 invalid or disjoint intervals, and RPC failures stop startup before polling.
 The Client constructor stays lazy and performs no I/O. Every Client method
 negotiates before its first request. Concurrent calls share negotiation and cache
-the result, including incompatibility errors. Transient negotiation failures are
-retried on the next call. This SDK requires a Dex Server with protocol version 4
+the Server's answer; each call against an incompatible Server fails with a new
+error. A negotiation transport failure rejects with the usual `DexServiceError`
+and is retried on the next call. `waitForStepCompletion` and `waitForAttributeMatch`
+bound negotiation by `requestTimeoutMs` and reject with `RequestTimeoutError`.
+This SDK requires a Dex Server with protocol version 4
 or later (server-zd newer than v0.1.16). Diagnostics include the reported Server
-protocol interval and version. Upgrade the Server before upgrading the SDK.
+protocol interval and version. Against an older Server, upgrade the Server before
+upgrading the SDK. A Server whose minimum protocol is above 4 needs a newer SDK.
 
 The build generates the diagnostic SDK version from `package.json`, so the
 runtime value follows the version stamped by the release workflow. The artifact

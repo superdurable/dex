@@ -843,7 +843,7 @@ test("Context exposes the recovery error", () => {
   assert.deepEqual(context.recoveryError, {
     detail: "handler exhausted retries",
     errorType: "TimeoutError",
-    attemptProgress: StepAttemptProgress.Unspecified,
+    attemptProgress: StepAttemptProgress.UNSPECIFIED,
   });
 });
 
@@ -854,8 +854,8 @@ test("Context maps every recovery attempt progress value and treats unknown valu
   }
   const flow = new ProgressFlow();
   const registered = registeredFlowByName(new Registry([flow]), flow.getFlowType());
-  for (const [wireProgress, expected] of [[0, StepAttemptProgress.Unspecified], [1, StepAttemptProgress.NotStarted],
-    [2, StepAttemptProgress.NotCompleted], [999, StepAttemptProgress.Unspecified]] as const) {
+  for (const [wireProgress, expected] of [[0, StepAttemptProgress.UNSPECIFIED], [1, StepAttemptProgress.NOT_STARTED],
+    [2, StepAttemptProgress.NOT_COMPLETED], [999, StepAttemptProgress.UNSPECIFIED]] as const) {
     const context = new InvocationContext("execute", registered, ProtoContext.create({
       recoveryError: { detail: "failed", errorType: "WorkerError", attemptProgress: wireProgress as ProtoStepAttemptProgress },
     }), []);

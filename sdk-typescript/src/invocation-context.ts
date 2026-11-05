@@ -110,9 +110,9 @@ export class InvocationContext implements AsyncContext {
       detail: metadata.recoveryError.detail,
       errorType: metadata.recoveryError.errorType,
       attemptProgress: metadata.recoveryError.attemptProgress === ProtoStepAttemptProgress.STEP_ATTEMPT_PROGRESS_NOT_STARTED
-        ? StepAttemptProgress.NotStarted
+        ? StepAttemptProgress.NOT_STARTED
         : metadata.recoveryError.attemptProgress === ProtoStepAttemptProgress.STEP_ATTEMPT_PROGRESS_NOT_COMPLETED
-          ? StepAttemptProgress.NotCompleted : StepAttemptProgress.Unspecified,
+          ? StepAttemptProgress.NOT_COMPLETED : StepAttemptProgress.UNSPECIFIED,
     };
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;

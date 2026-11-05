@@ -13,24 +13,31 @@ import type { Stream } from "./stream.js";
 
 /**
  * Reports the furthest progress across all attempts of one Step method call.
- * Use recoveryError.attemptProgress to decide whether external effects may have happened.
- * Unknown or omitted progress must be treated like NotCompleted.
+ *
+ * Read it from recoveryError.attemptProgress in a recovery Step to decide whether the failed
+ * handler may have caused external effects. Treat UNSPECIFIED, an omitted value, and any value
+ * this SDK does not know like NOT_COMPLETED.
  * @example
  * ```ts
- * const progress = context.recoveryError?.attemptProgress ?? StepAttemptProgress.Unspecified;
- * if (progress === StepAttemptProgress.NotStarted) {
- *   // No attempt ran the handler.
+ * const progress = context.recoveryError?.attemptProgress ?? StepAttemptProgress.UNSPECIFIED;
+ * if (progress === StepAttemptProgress.NOT_STARTED) {
+ *   // No attempt ran the handler, so no external effect happened.
+ * } else {
+ *   // Some attempt may have run; reconcile external effects before repeating them.
  * }
  * ```
  */
-export enum StepAttemptProgress {
-  /** Older Server did not report progress; treat this like NotCompleted. */
-  Unspecified = 0,
+export const StepAttemptProgress = Object.freeze({
+  /** An older Server did not report progress; treat this like NOT_COMPLETED. */
+  UNSPECIFIED: "unspecified",
   /** The handler did not run in any attempt of this Step method call. */
-  NotStarted = 1,
-  /** Some attempt may have run, but none completed; reconcile possible external effects before retrying them. */
-  NotCompleted = 2,
-}
+  NOT_STARTED: "notStarted",
+  /** Some attempt may have run the handler, but none completed; reconcile possible external effects. */
+  NOT_COMPLETED: "notCompleted",
+} as const);
+
+/** Represents a value from {@link StepAttemptProgress}. */
+export type StepAttemptProgress = (typeof StepAttemptProgress)[keyof typeof StepAttemptProgress];
 
 /** Describes the final failure that selected a recovery path. */
 export interface RecoveryErrorInfo {
@@ -41,7 +48,7 @@ export interface RecoveryErrorInfo {
   /**
    * Furthest progress across this Step method call's attempts.
    * SDK-provided contexts always include a value. Omitted values remain accepted for source compatibility.
-   * Treat Unspecified or an omitted value like NotCompleted. See StepAttemptProgress for a recovery example.
+   * Treat UNSPECIFIED or an omitted value like NOT_COMPLETED. See StepAttemptProgress for a recovery example.
    */
   readonly attemptProgress?: StepAttemptProgress;
 }
@@ -244,7 +251,7 @@ export interface AsyncContext extends Context {
    *
    * Passing `undefined` explicitly clears persisted heartbeat details. Every other value produces
    * a present Value; omitted codecs use JSON. The Promise resolves when grpc-js accepts the frame,
-   * not when Temporal persists it. Local activities ignore heartbeat frames.
+   * not when Dex persists it.
    *
    * @typeParam T - Heartbeat value type.
    * @param value - Value to persist, or `undefined` to clear existing details.

@@ -7,10 +7,13 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { randomBytes } from "node:crypto";
+import type { Http2Stream } from "node:http2";
 import { availableParallelism, hostname } from "node:os";
+import { Duplex } from "node:stream";
 
 import {
   credentials,
+  makeGenericClientConstructor,
   status,
   type ClientDuplexStream,
   type ServiceError,
@@ -23,22 +26,38 @@ import {
   InvokeWaitForMethodOutput,
   PollWorkerSlotKind,
   PollWorkerTaskRejectReason,
+  PollWorkerTaskResponse,
   WorkerTaskServiceClient,
+  WorkerTaskServiceService,
   type PollWorkerTask,
   type PollWorkerTaskFrame,
   type PollWorkerTaskRequest,
-  type PollWorkerTaskResponse,
   type StepStreamWrite,
   type Value,
 } from "./gen/dex.js";
 import { workerErrorResponse } from "./grpc-status.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
-import { PullRegistration } from "./pull-registration.js";
+import { PullRegistration, PullRegistrationError } from "./pull-registration.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 
 const BUSY_PULL_STREAM_KEEPALIVE_MS = 20_000;
+// Lets a final output written just before half-close reach Dex before a deadline reset.
+const FINAL_OUTPUT_FLUSH_GRACE_MS = 5_000;
+// Matches the grpc-js default receive limit; the SDK enforces it so it can reset the stream itself.
+const MAX_TASK_FRAME_BYTES = 4 * 1024 * 1024;
+
+class UndecodableTaskFrame {
+  public constructor(public readonly failure: unknown) {}
+}
+
+const ResettableWorkerTaskServiceClient = makeGenericClientConstructor({
+  pollWorkerTask: {
+    ...WorkerTaskServiceService.pollWorkerTask,
+    responseDeserialize: decodeTaskFrame,
+  },
+}, "dex.WorkerTaskService") as unknown as typeof WorkerTaskServiceClient;
 
 interface ActiveTask {
   readonly id: string;
@@ -56,10 +75,12 @@ interface PollStream {
   halfCloseTimer: ReturnType<typeof setTimeout> | undefined;
   keepaliveTimer: ReturnType<typeof setInterval> | undefined;
   halfClosePromise: Promise<void> | undefined;
+  halfClosedAtMs: number;
+  isHalfClosedAfterFinalOutput: boolean;
   resolveHalfClose: (() => void) | undefined;
   isRegistered: boolean;
   hasRecordedResult: boolean;
-  supportsUnknownNameRejection: boolean;
+  hasPermanentRejectionBeforeStart: boolean;
   isDisconnected: boolean;
   isHalfClosed: boolean;
   isFinalFrameSent: boolean;
@@ -150,10 +171,7 @@ export class PullWorker {
     }
     for (const poll of this.streams) {
       poll.isDraining = true;
-      if (poll.halfCloseTimer !== undefined) {
-        clearTimeout(poll.halfCloseTimer);
-        poll.halfCloseTimer = undefined;
-      }
+      if (poll.isHalfClosed) this.armHalfCloseTimer(poll, this.halfCloseResetDeadlineMs(poll));
       if (poll.retryTimer !== undefined) {
         clearTimeout(poll.retryTimer);
         poll.retryTimer = undefined;
@@ -175,7 +193,8 @@ export class PullWorker {
       if (drainTimer !== undefined) clearTimeout(drainTimer);
       if (!didDrain) {
         for (const poll of this.streams) {
-          if (poll.task !== undefined) {
+          // A slot whose final output is already written half-closes after cleanup instead.
+          if (poll.task !== undefined && !poll.isFinalFrameSent) {
             this.disconnect(poll);
           }
         }
@@ -206,8 +225,9 @@ export class PullWorker {
         slotKind: isRpcOnly ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
           : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
         stream: undefined, task: undefined, retryTimer: undefined,
-        halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
-        isRegistered: false, hasRecordedResult: false, supportsUnknownNameRejection: false, isDisconnected: false,
+        halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, halfClosedAtMs: 0,
+        isHalfClosedAfterFinalOutput: false, resolveHalfClose: undefined,
+        isRegistered: false, hasRecordedResult: false, hasPermanentRejectionBeforeStart: false, isDisconnected: false,
         isHalfClosed: false, isFinalFrameSent: false, isDraining: false,
         isReconnectRequested: false, hasRetriedRejectedToken: false,
         backoffMs: 100, failure: undefined,
@@ -221,7 +241,6 @@ export class PullWorker {
     if (this.isStopping) return;
     poll.isRegistered = false;
     poll.hasRecordedResult = false;
-    poll.supportsUnknownNameRejection = false;
     poll.isDisconnected = false;
     poll.isHalfClosed = false;
     poll.isFinalFrameSent = false;
@@ -230,8 +249,19 @@ export class PullWorker {
     poll.isReconnectRequested = false;
     const stream = this.client.pollWorkerTask();
     poll.stream = stream;
-    stream.on("data", (response: PollWorkerTaskResponse) => {
-      if (poll.stream === stream) this.handleFrame(poll, response);
+    stream.on("data", (response: PollWorkerTaskResponse | UndecodableTaskFrame) => {
+      if (poll.stream !== stream) return;
+      if (response instanceof UndecodableTaskFrame) {
+        console.error("decode Worker task frame", response.failure);
+        this.disconnect(poll);
+        return;
+      }
+      try {
+        this.handleFrame(poll, response);
+      } catch (failure) {
+        console.error("handle Worker task frame", failure);
+        this.disconnect(poll);
+      }
     });
     stream.on("error", (failure: ServiceError) => {
       if (poll.stream !== stream) return;
@@ -265,19 +295,23 @@ export class PullWorker {
         poll.isReconnectRequested = true;
         this.halfCloseStream(poll);
       } else if (frame?.$case === "registered") {
+        const limit = frame.value.maxConcurrentTasksPerAppWorker;
+        const isOverLimit = limit !== 0 && limit < this.maxConcurrentTasks;
         if (!this.hasRegisteredSlot) {
-          const limit = frame.value.maxConcurrentTasksPerAppWorker;
-          if (limit !== 0 && limit < this.maxConcurrentTasks) {
+          if (isOverLimit) {
             this.failStartup(new Error(`maxConcurrentTasks ${this.maxConcurrentTasks} exceeds Server matching.maxConcurrentTasksCap ${limit}`));
             return;
           }
           this.hasRegisteredSlot = true;
           for (const waiter of this.startupWaiters) waiter.resolve();
           this.startupWaiters.clear();
+        } else if (isOverLimit) {
+          // Only startup fails; a running Worker keeps its slots and lets Dex reject extra streams.
+          console.warn(`maxConcurrentTasks ${this.maxConcurrentTasks} exceeds Server matching.maxConcurrentTasksCap ${limit} after reconnect`);
         }
         poll.isRegistered = true;
+        poll.hasPermanentRejectionBeforeStart = false;
         this.registration.registered(poll.queue);
-        poll.supportsUnknownNameRejection = frame.value.supportsUnknownNameRejection;
         poll.backoffMs = 100;
         poll.hasRetriedRejectedToken = false;
         this.reconcile();
@@ -319,13 +353,19 @@ export class PullWorker {
   }
 
   private startTask(poll: PollStream, task: PollWorkerTask): void {
-    if (this.isStopping || poll.isHalfClosed || poll.isDraining) return;
-    if (poll.task !== undefined) {
-      this.disconnect(poll);
+    if (this.isStopping || poll.isDisconnected || poll.isHalfClosed || poll.isDraining) return;
+    const runningTask = poll.task;
+    if (runningTask !== undefined) {
+      if (poll.isFinalFrameSent) {
+        // Dex may reuse the slot before local cleanup finishes; start after it, rechecking stop.
+        void runningTask.completion.then(() => this.startTask(poll, task));
+      } else {
+        this.disconnect(poll);
+      }
       return;
     }
     const unknownReason = this.unknownTaskReason(task);
-    if (poll.supportsUnknownNameRejection && unknownReason !== undefined) {
+    if (unknownReason !== undefined) {
       this.rejectTask(poll, task.taskId, unknownReason);
       return;
     }
@@ -443,7 +483,7 @@ export class PullWorker {
     if (poll.isDisconnected) {
       if (!this.isStopping) this.scheduleReconnect(poll);
     } else if (this.isStopping || poll.isDraining) {
-      this.halfCloseStream(poll);
+      this.halfCloseStream(poll, true);
     }
     this.reconcile();
   }
@@ -475,7 +515,7 @@ export class PullWorker {
     if (poll.isDisconnected) return;
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
-    poll.stream?.cancel();
+    resetPollStream(poll.stream);
     poll.task?.controller.abort();
     if (this.isStopping) return;
     if (poll.task === undefined) this.scheduleReconnect(poll);
@@ -490,19 +530,29 @@ export class PullWorker {
     if (poll.isDisconnected) return;
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
+    // An unexpected end must never become a clean half-close of a busy slot.
+    resetPollStream(poll.stream);
     poll.task?.controller.abort();
     if (!this.isStopping && poll.task === undefined) this.scheduleReconnect(poll);
   }
 
-  private halfCloseStream(poll: PollStream): void {
+  private halfCloseStream(poll: PollStream, isAfterFinalOutput = false): void {
     this.stopKeepalive(poll);
     if (poll.isHalfClosed || poll.isDisconnected || poll.task !== undefined || poll.stream === undefined) return;
     poll.isDisconnected = true;
     poll.isHalfClosed = true;
     poll.halfClosePromise = new Promise((resolve) => { poll.resolveHalfClose = resolve; });
+    poll.halfClosedAtMs = Date.now();
+    poll.isHalfClosedAfterFinalOutput = isAfterFinalOutput;
     const stream = poll.stream;
-    if (!this.isStopping) this.armHalfCloseTimer(poll, Date.now() + this.stopDrainTimeoutMs);
+    this.armHalfCloseTimer(poll, this.halfCloseResetDeadlineMs(poll));
     stream.end();
+  }
+
+  private halfCloseResetDeadlineMs(poll: PollStream): number {
+    const drainDeadlineMs = this.stopDeadlineMs ?? poll.halfClosedAtMs + this.stopDrainTimeoutMs;
+    return poll.isHalfClosedAfterFinalOutput
+      ? Math.max(drainDeadlineMs, poll.halfClosedAtMs + FINAL_OUTPUT_FLUSH_GRACE_MS) : drainDeadlineMs;
   }
 
   private armHalfCloseTimer(poll: PollStream, deadlineMs: number): void {
@@ -514,7 +564,7 @@ export class PullWorker {
         this.armHalfCloseTimer(poll, deadlineMs);
         return;
       }
-      poll.stream?.cancel();
+      resetPollStream(poll.stream);
       this.completeHalfClose(poll);
     }, Math.min(Math.max(remainingMs, 0), 2_147_483_647));
     poll.halfCloseTimer.unref();
@@ -580,24 +630,46 @@ export class PullWorker {
       && this.hasRefreshableCredential && !poll.hasRetriedRejectedToken);
     const isRejected = this.registration.ended(poll.queue, poll.isRegistered, isPermanent ? failure : undefined);
     poll.isRegistered = false;
+    if (isPermanent && !this.hasRegisteredSlot) {
+      poll.hasPermanentRejectionBeforeStart = true;
+      this.rejectStartupIfEveryStreamRejected(failure);
+    }
     if (isRejected && this.options.stopOnPermanentStreamRejection === true && !this.isStopping) {
       queueMicrotask(this.onPermanentRejection);
     }
   }
 
+  private rejectStartupIfEveryStreamRejected(lastFailure: ServiceError): void {
+    if (this.startupWaiters.size === 0) return;
+    for (const poll of this.streams) {
+      if (!poll.hasPermanentRejectionBeforeStart) return;
+    }
+    const failure = this.registration.permanentError ?? new PullRegistrationError("STEP_AND_RPC", lastFailure);
+    for (const waiter of this.startupWaiters) waiter.reject(failure);
+    this.startupWaiters.clear();
+  }
+
   private failStartup(failure: Error): void {
     this.startupError = failure;
+    this.stopDeadlineMs ??= Date.now() + this.stopDrainTimeoutMs;
     this.isStopping = true;
     this.registration.stopped(failure);
     for (const waiter of this.startupWaiters) waiter.reject(failure);
     this.startupWaiters.clear();
-    for (const poll of this.streams) this.closeStream(poll);
+    // Half-close so Dex returns tasks sent after Registered without consuming an attempt.
+    for (const poll of this.streams) {
+      if (poll.retryTimer !== undefined) {
+        clearTimeout(poll.retryTimer);
+        poll.retryTimer = undefined;
+      }
+      this.halfCloseStream(poll);
+    }
   }
 
   private closeStream(poll: PollStream): void {
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
-    poll.stream?.cancel();
+    resetPollStream(poll.stream);
     if (poll.isHalfClosed) this.completeHalfClose(poll);
     if (poll.retryTimer !== undefined) {
       clearTimeout(poll.retryTimer);
@@ -665,6 +737,44 @@ class DeadlineCancellation {
   }
 }
 
+// grpc-js cancel() sends END_STREAM before RST_STREAM; Dex would read that as a clean half-close.
+function resetPollStream(stream: ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse> | undefined): void {
+  if (stream === undefined) return;
+  for (const http2Stream of findHttp2Streams(stream)) {
+    if (!http2Stream.destroyed) http2Stream.destroy(new Error("Worker task stream reset"));
+  }
+  stream.cancel();
+}
+
+/**
+ * Finds the HTTP/2 streams below a grpc-js call by walking its internal call chain.
+ * @returns The open or closed HTTP/2 streams found; empty when grpc-js internals change.
+ */
+function findHttp2Streams(root: object): Http2Stream[] {
+  const found: Http2Stream[] = [];
+  const pending: unknown[] = [root];
+  const visited = new Set<unknown>();
+  while (pending.length > 0 && visited.size < 64) {
+    const candidate = pending.pop();
+    if (typeof candidate !== "object" || candidate === null || visited.has(candidate)) continue;
+    visited.add(candidate);
+    if (Array.isArray(candidate)) {
+      pending.push(...candidate);
+      continue;
+    }
+    const http2Stream = Reflect.get(candidate, "http2Stream") as unknown;
+    if (http2Stream instanceof Duplex && "rstCode" in http2Stream) found.push(http2Stream as Http2Stream);
+    for (const key of ["call", "nextCall", "child", "underlyingCalls"]) pending.push(Reflect.get(candidate, key));
+  }
+  if (found.length === 0 && !hasWarnedMissingHttp2Stream) {
+    hasWarnedMissingHttp2Stream = true;
+    console.warn("cannot find the HTTP/2 stream of a Worker task call; resets may first send a clean end of stream");
+  }
+  return found;
+}
+
+let hasWarnedMissingHttp2Stream = false;
+
 function positiveOption(value: number | undefined, defaultValue: number, name: string): number {
   if (value === undefined || value === 0) return defaultValue;
   if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`${name} must be a non-negative integer`);
@@ -685,7 +795,23 @@ function generateAppWorkerID(): string {
 }
 
 function createWorkerTaskClient(serverAddress: string, credential: Credential | undefined): InstanceType<typeof WorkerTaskServiceClient> {
-  return new WorkerTaskServiceClient(serverAddress, credentials.createInsecure(), {
+  return new ResettableWorkerTaskServiceClient(serverAddress, credentials.createInsecure(), {
     interceptors: credentialInterceptors(credential),
+    "grpc.max_receive_message_length": -1,
   });
+}
+
+/**
+ * Decodes one task frame without throwing, so a bad frame resets the stream instead of a grpc-js cancel.
+ * @returns The decoded frame, or an UndecodableTaskFrame when it is oversized or malformed.
+ */
+function decodeTaskFrame(value: Buffer): PollWorkerTaskResponse | UndecodableTaskFrame {
+  if (value.length > MAX_TASK_FRAME_BYTES) {
+    return new UndecodableTaskFrame(new RangeError(`Worker task frame of ${value.length} bytes exceeds ${MAX_TASK_FRAME_BYTES} bytes`));
+  }
+  try {
+    return PollWorkerTaskResponse.decode(value);
+  } catch (failure) {
+    return new UndecodableTaskFrame(failure);
+  }
 }

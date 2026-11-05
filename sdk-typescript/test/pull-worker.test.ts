@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import { constants as http2Constants, type Http2Stream } from "node:http2";
 import test from "node:test";
 
 import {
@@ -187,70 +188,42 @@ test("a Step sent to an RPC-only slot is executed without a capacity rejection",
   } finally { await worker.close(); await harness.close(); }
 });
 
-test("unknown task rejection follows the Registered capability for each stream", async () => {
+test("reserved-slot streams reject unknown names whatever the legacy Registered capability says", async () => {
   const harness = await startHarness();
+  let handlerCalls = 0;
   const dispatcher = {
     async invokeWaitFor(): Promise<InvokeWaitForMethodResponse> {
+      handlerCalls++;
       throw new Error("Step MissingStep is not registered");
     },
     async invokeExecute(): Promise<never> {
+      handlerCalls++;
       throw new Error("Step MissingStep is not registered");
     },
     async invokeRPC(): Promise<InvokeWorkerRPCResponse> {
+      handlerCalls++;
       throw new Error("RPC MissingRPC is not registered");
     },
   } as unknown as WorkerDispatcher;
   const worker = harness.workerWithDispatcher(dispatcher);
   try {
     worker.start();
-    const legacy = await harness.nextStream();
-    legacy.call.write(registered(false));
-    legacy.call.write(unknownStepTask("legacy-step"));
-    const legacyStep = await legacy.frame("taskFrame");
-    legacy.call.write(unknownRPCTask("legacy-rpc"));
-    const legacyRPC = await legacy.frame("taskFrame", 2);
-    for (const frame of [legacyStep, legacyRPC]) {
-      assert.equal(frame.frame?.$case, "taskFrame");
-      if (frame.frame?.$case === "taskFrame") {
-        assert.equal(frame.frame.value.output?.$case, "workerError");
-        if (frame.frame.value.output?.$case === "workerError") {
-          assert.match(frame.frame.value.output.value.detail, /not registered/);
-        }
-      }
+    for (const supportsUnknownNameRejection of [false, true, false]) {
+      const stream = await harness.nextStream();
+      stream.call.write(registered(supportsUnknownNameRejection));
+      stream.call.write(unknownStepTask(`step-${supportsUnknownNameRejection}`));
+      const stepRejection = await stream.frame("reject");
+      stream.call.write(unknownRPCTask(`rpc-${supportsUnknownNameRejection}`));
+      const rpcRejection = await stream.frame("reject", 2);
+      assert.equal(stepRejection.frame?.$case === "reject" && stepRejection.frame.value.reason,
+        PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP);
+      assert.equal(rpcRejection.frame?.$case === "reject" && rpcRejection.frame.value.reason,
+        PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC);
+      assert.equal(stream.frames.some((frame) => frame.frame?.$case === "taskFrame"), false);
+      stream.call.write({ frame: { $case: "reconnect", value: { reason: "test" } } });
+      await stream.ended;
     }
-    assert.equal(legacy.frames.some((frame) => frame.frame?.$case === "reject"), false);
-    legacy.call.write({ frame: { $case: "ping", value: {} } });
-    await legacy.frame("pong");
-
-    legacy.call.write({ frame: { $case: "reconnect", value: { reason: "test" } } });
-    const capable = await harness.nextStream();
-    capable.call.write(registered(true));
-    capable.call.write(unknownStepTask("capable-step"));
-    capable.call.write(unknownRPCTask("capable-rpc"));
-    const stepRejection = await capable.frame("reject");
-    const rpcRejection = await capable.frame("reject", 2);
-    assert.equal(stepRejection.frame?.$case, "reject");
-    assert.equal(rpcRejection.frame?.$case, "reject");
-    if (stepRejection.frame?.$case === "reject") {
-      assert.equal(stepRejection.frame.value.reason, PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP);
-    }
-    if (rpcRejection.frame?.$case === "reject") {
-      assert.equal(rpcRejection.frame.value.reason, PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC);
-    }
-
-    capable.call.write({ frame: { $case: "reconnect", value: { reason: "test" } } });
-    const reconnected = await harness.nextStream();
-    reconnected.call.write(registered(false));
-    reconnected.call.write(unknownStepTask("reconnected-step"));
-    const reconnectedError = await reconnected.frame("taskFrame");
-    assert.equal(reconnectedError.frame?.$case, "taskFrame");
-    if (reconnectedError.frame?.$case === "taskFrame") {
-      assert.equal(reconnectedError.frame.value.output?.$case, "workerError");
-      if (reconnectedError.frame.value.output?.$case === "workerError") {
-        assert.match(reconnectedError.frame.value.output.value.detail, /not registered/);
-      }
-    }
-    assert.equal(reconnected.frames.some((frame) => frame.frame?.$case === "reject"), false);
+    assert.equal(handlerCalls, 0);
   } finally {
     await worker.close();
     await harness.close();
@@ -532,9 +505,10 @@ test("pull Execute streams ordered progress, exactly one result, and failure aft
     getPersistenceSchema: () => ({ streams: [step.progress] }),
   };
   const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, () => 3);
+  const registry = new Registry([flow]);
+  const dispatcher = new WorkerDispatcher(registry, hydrator, () => 3);
   const harness = await startHarness();
-  const worker = harness.workerWithDispatcher(dispatcher);
+  const worker = harness.workerWithDispatcher(dispatcher, registry);
   try {
     worker.start();
     const stream = await harness.nextStream();
@@ -721,20 +695,86 @@ test("close drains a task, then resets its stream and waits for a handler that i
   }
 });
 
-test("Worker start rejects a concurrency limit below its total slot count without retrying", async () => {
+test("Worker start rejects a concurrency limit below its total slot count by half-closing without retrying", async () => {
   const harness = await startHarness();
-  const worker = new Worker(new Registry([]), {} as BlobCache, {
+  const worker = new Worker(new Registry([new TestFlow()]), {} as BlobCache, {
     serverAddress: harness.address, pull: { maxConcurrentTasks: 3, reservedRpcTasks: 1 },
   });
+  const limitMessage = /maxConcurrentTasks 3 exceeds Server matching.maxConcurrentTasksCap 2/;
   try {
-    const starting = assert.rejects(worker.start(), /maxConcurrentTasks 3 exceeds Server matching.maxConcurrentTasksCap 2/);
-    const stream = await harness.nextStream();
-    stream.call.write({ frame: { $case: "registered", value: {
+    const readiness = assert.rejects(worker.waitPullRegistered({ timeoutMs: 5_000 }), limitMessage);
+    const starting = assert.rejects(worker.start(), limitMessage);
+    const streams = [await harness.nextStream(), await harness.nextStream(), await harness.nextStream()];
+    streams[0]!.call.write({ frame: { $case: "registered", value: {
+      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 2,
+    } } });
+    // Dex may assign a task right after Registered; the Worker must drop it and half-close.
+    streams[0]!.call.write(rpcTask("sent-after-registered"));
+    streams[1]!.call.write({ frame: { $case: "registered", value: {
       supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 2,
     } } });
     await starting;
+    await readiness;
+    for (const stream of streams) {
+      await stream.ended;
+      assert.equal(stream.wasReset(), false);
+      assert.deepEqual(stream.frames.map((request) => request.frame?.$case), ["register"]);
+    }
+    assert.equal(worker.pullRegistrationState().isReady, false);
+    assert.equal(worker.pullRegistrationState().queues.some((queue) => queue.hasRegisteredStream), false);
+    await assert.rejects(worker.waitPullRegistered(), limitMessage);
+    assert.equal(harness.openedStreamCount, 3);
     const pullWorker = Reflect.get(worker, "pullWorker") as PullWorker;
     assert.equal((Reflect.get(pullWorker, "streams") as Set<unknown>).size, 0);
+  } finally { await worker.close(); await harness.close(); }
+});
+
+test("a lower concurrency limit after a reconnect warns and keeps the running Worker", async (context) => {
+  const harness = await startHarness();
+  const warnings: unknown[][] = [];
+  context.mock.method(console, "warn", (...values: unknown[]) => { warnings.push(values); });
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), { maxConcurrentTasks: 2, reservedRpcTasks: 0 });
+  try {
+    worker.start();
+    const first = await harness.nextStream();
+    const second = await harness.nextStream();
+    first.call.write(registered(true));
+    second.call.write(registered(true));
+    await worker.waitStarted();
+    first.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
+    const replacement = await harness.nextStream();
+    replacement.call.write({ frame: { $case: "registered", value: {
+      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 1,
+    } } });
+    replacement.call.write(rpcTask("after-lower-limit"));
+    await replacement.frame("taskFrame");
+    assert.equal(warnings.some((values) => /maxConcurrentTasks 2 exceeds Server matching.maxConcurrentTasksCap 1/.test(String(values[0]))), true);
+    assert.equal(replacement.wasReset(), false);
+  } finally { await worker.close(); await harness.close(); }
+});
+
+test("Worker start and readiness settle when the Server permanently rejects every stream", async (context) => {
+  context.mock.method(console, "error", () => {});
+  const harness = await startHarness();
+  const worker = new Worker(new Registry([new TestFlow()]), {} as BlobCache, {
+    serverAddress: harness.address, pull: { maxConcurrentTasks: 2, reservedRpcTasks: 0 },
+  });
+  try {
+    const startOutcome: { failure?: unknown } = {};
+    const starting = worker.start().then(() => undefined, (failure: unknown) => { startOutcome.failure = failure; });
+    const readiness = assert.rejects(worker.waitPullRegistered({ timeoutMs: 5_000 }), PullRegistrationError);
+    const first = await harness.nextStream();
+    const second = await harness.nextStream();
+    first.call.emit("error", { code: status.PERMISSION_DENIED, details: "rejected" });
+    await readiness;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    assert.equal(startOutcome.failure, undefined, "one rejected stream must not fail startup while another may register");
+    second.call.emit("error", { code: status.PERMISSION_DENIED, details: "rejected" });
+    await starting;
+    const startFailure = startOutcome.failure as unknown;
+    assert.ok(startFailure instanceof PullRegistrationError);
+    assert.equal((startFailure.cause as { code?: number }).code, status.PERMISSION_DENIED);
+    await assert.rejects(worker.waitPullRegistered({ timeoutMs: 100 }), PullRegistrationError);
   } finally { await worker.close(); await harness.close(); }
 });
 
@@ -795,42 +835,277 @@ test("TA25 stop finishes busy output before half-close, half-closes idle, and dr
   } finally { release(); await worker.close(); await closing; await harness.close(); }
 });
 
-test("TA25 an idle half-closed stream keeps reading beyond the handler drain timeout until Server EOF", async () => {
+test("TA25 an idle half-closed stream keeps reading until Server EOF, then resets at the stop deadline", async () => {
   const harness = await startHarness(false);
   const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), {
-    maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 10,
+    maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 500,
   });
-  let stream: CapturedStream | undefined;
   let closing: Promise<void> | undefined;
   try {
     worker.start();
-    stream = await harness.nextStream();
+    const stream = await harness.nextStream();
     stream.call.write(registered(true));
     await worker.waitStarted();
     const stopStartedAt = Date.now();
     let hasClosed = false;
     closing = worker.close().then(() => { hasClosed = true; });
     await stream.ended;
-    await until(() => Date.now() >= stopStartedAt + 30);
-    assert.equal(stream.call.cancelled, false);
+    await until(() => Date.now() >= stopStartedAt + 200);
+    assert.equal(stream.wasReset(), false);
     assert.equal(hasClosed, false);
-    stream.call.write(rpcTask("after-drain-deadline"));
-    stream.call.end();
+    stream.call.write(rpcTask("after-idle-half-close"));
+    await stream.cancelled;
     await closing;
+    const elapsedMs = Date.now() - stopStartedAt;
+    assert.ok(elapsedMs >= 450 && elapsedMs < 3_000, `close took ${elapsedMs} ms`);
     assert.equal(harness.invocationCount, 0);
+    assert.deepEqual(stream.frames.map((request) => request.frame?.$case), ["register"]);
   } finally {
-    stream?.call.end();
     await worker.close();
     await closing;
     await harness.close();
   }
 });
 
+test("close returns by the stop deadline when an idle half-close never reaches the Server", async (context) => {
+  const harness = await startHarness(false);
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), {
+    maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 1_500,
+  });
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(true));
+    await worker.waitStarted();
+    const poll = [...(Reflect.get(worker, "streams") as Set<{ stream: { end: () => void } }>)][0]!;
+    // Models a request side whose half-close is stuck behind transport backpressure.
+    context.mock.method(poll.stream, "end", () => {});
+    const stopStartedAt = Date.now();
+    await worker.close();
+    const elapsedMs = Date.now() - stopStartedAt;
+    assert.ok(elapsedMs >= 1_400 && elapsedMs < 4_000, `close took ${elapsedMs} ms`);
+    await stream.cancelled;
+    assert.equal(stream.framesAtEnd(), undefined);
+  } finally {
+    await worker.close();
+    await harness.close();
+  }
+});
+
+test("TA25 stop drains busy Execute and WaitFor Steps, sending the result or WorkerError before half-close", async () => {
+  const harness = await startHarness();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let handlerCalls = 0;
+  const dispatcher = {
+    async invokeExecute(): Promise<object> { handlerCalls++; await gate; return {}; },
+    async invokeWaitFor(): Promise<never> { handlerCalls++; await gate; throw new Error("WaitFor failed while stopping"); },
+  } as unknown as WorkerDispatcher;
+  const worker = harness.workerWithDispatcher(dispatcher, undefined, { maxConcurrentTasks: 2, stopDrainTimeoutMs: 5_000 });
+  let closing: Promise<void> | undefined;
+  try {
+    worker.start();
+    const executeStream = await harness.nextStream();
+    const waitForStream = await harness.nextStream();
+    executeStream.call.write(registered(true));
+    waitForStream.call.write(registered(true));
+    executeStream.call.write({ frame: { $case: "task", value: { taskId: "execute-step", deadline: undefined,
+      request: { $case: "execute", value: InvokeExecuteMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) },
+    } } });
+    waitForStream.call.write({ frame: { $case: "task", value: { taskId: "wait-for-step", deadline: undefined,
+      request: { $case: "waitFor", value: InvokeWaitForMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) },
+    } } });
+    await until(() => handlerCalls === 2);
+    closing = worker.close();
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    assert.equal(executeStream.framesAtEnd(), undefined);
+    assert.equal(waitForStream.framesAtEnd(), undefined);
+    release();
+    await Promise.all([executeStream.ended, waitForStream.ended]);
+    await closing;
+    const lastOutput = (stream: CapturedStream) => {
+      const frame = stream.framesAtEnd()?.at(-1)?.frame;
+      return frame?.$case === "taskFrame" ? frame.value : undefined;
+    };
+    const executeOutput = lastOutput(executeStream);
+    assert.equal(executeOutput?.taskId, "execute-step");
+    assert.equal(executeOutput?.output?.$case === "execute" && executeOutput.output.value.output?.$case, "result");
+    const waitForOutput = lastOutput(waitForStream);
+    assert.equal(waitForOutput?.taskId, "wait-for-step");
+    assert.equal(waitForOutput?.output?.$case, "workerError");
+    assert.equal(executeStream.wasReset() || waitForStream.wasReset(), false);
+  } finally { release(); await worker.close(); await closing; await harness.close(); }
+});
+
+for (const isStopping of [false, true]) {
+  test(`a task arriving after final output but before local cleanup is ${isStopping ? "dropped when stop races it" : "run on the same slot"}`, async () => {
+    const harness = await startHarness();
+    const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), { maxConcurrentTasks: 1, reservedRpcTasks: 0 });
+    let closing: Promise<void> | undefined;
+    try {
+      worker.start();
+      const stream = await harness.nextStream();
+      stream.call.write(registered(true));
+      await worker.waitStarted();
+      const poll = [...(Reflect.get(worker, "streams") as Set<object>)][0]!;
+      const sendTaskFrame = Reflect.get(worker, "sendTaskFrame") as (poll: object, frame: { taskId: string }) => void;
+      const handleFrame = Reflect.get(worker, "handleFrame") as (poll: object, response: PollWorkerTaskResponse) => void;
+      Reflect.set(worker, "sendTaskFrame", (target: object, frame: { taskId: string }) => {
+        sendTaskFrame.call(worker, target, frame);
+        if (frame.taskId !== "first") return;
+        // Dex reuses the slot as soon as it reads the final output, before local cleanup finishes.
+        handleFrame.call(worker, poll, rpcTask("reused-before-cleanup"));
+        if (isStopping) closing = worker.close();
+      });
+      stream.call.write(rpcTask("first"));
+      if (isStopping) {
+        await until(() => closing !== undefined);
+        await stream.ended;
+        await closing;
+        assert.equal(harness.invocationCount, 1);
+        assert.deepEqual(stream.framesAtEnd()?.flatMap((request) =>
+          request.frame?.$case === "taskFrame" ? [request.frame.value.taskId] : []), ["first"]);
+      } else {
+        await stream.frame("taskFrame", 2);
+        assert.equal(harness.invocationCount, 2);
+        assert.deepEqual(stream.frames.flatMap((request) =>
+          request.frame?.$case === "taskFrame" ? [request.frame.value.taskId] : []), ["first", "reused-before-cleanup"]);
+        assert.equal(harness.openedStreamCount, 1);
+      }
+      assert.equal(stream.wasReset(), false);
+      assert.equal(stream.frames.some((request) => request.frame?.$case === "reject"), false);
+    } finally { await worker.close(); await closing; await harness.close(); }
+  });
+}
+
+test("stop deadline half-closes a slot whose final output is already written instead of resetting it", async () => {
+  const harness = await startHarness();
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), {
+    maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 10,
+  });
+  let closing: Promise<void> | undefined;
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(true));
+    await worker.waitStarted();
+    const finishTask = Reflect.get(worker, "finishTask") as (poll: object) => void;
+    // Holds local cleanup past the stop deadline after the final output is written.
+    Reflect.set(worker, "finishTask", (poll: object) => new Promise<void>((resolve) => {
+      closing ??= worker.close();
+      setTimeout(() => { finishTask.call(worker, poll); resolve(); }, 200);
+    }));
+    stream.call.write(rpcTask("final-written"));
+    await stream.ended;
+    await closing;
+    assert.equal(stream.wasReset(), false);
+    assert.deepEqual(stream.framesAtEnd()?.flatMap((request) =>
+      request.frame?.$case === "taskFrame" ? [request.frame.value.taskId] : []), ["final-written"]);
+  } finally { await worker.close(); await closing; await harness.close(); }
+});
+
+test("a slot that half-closes after its final output gets the flush grace, then resets without Server EOF", async () => {
+  const harness = await startHarness(false);
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), {
+    maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 100,
+  });
+  let closing: Promise<void> | undefined;
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(true));
+    await worker.waitStarted();
+    const finishTask = Reflect.get(worker, "finishTask") as (poll: object) => void;
+    Reflect.set(worker, "finishTask", (poll: object) => new Promise<void>((resolve) => {
+      closing ??= worker.close();
+      setTimeout(() => { finishTask.call(worker, poll); resolve(); }, 300);
+    }));
+    const stopStartedAt = Date.now();
+    stream.call.write(rpcTask("final-written"));
+    await stream.ended;
+    await until(() => Date.now() >= stopStartedAt + 1_500);
+    assert.equal(stream.wasReset(), false);
+    await stream.cancelled;
+    await closing;
+    const elapsedMs = Date.now() - stopStartedAt;
+    assert.ok(elapsedMs >= 5_000 && elapsedMs < 8_000, `close took ${elapsedMs} ms`);
+    assert.deepEqual(stream.framesAtEnd()?.flatMap((request) =>
+      request.frame?.$case === "taskFrame" ? [request.frame.value.taskId] : []), ["final-written"]);
+  } finally { await worker.close(); await closing; await harness.close(); }
+});
+
+for (const [failure, isBusy] of [["oversized", false], ["oversized", true], ["malformed", false], ["malformed", true]] as const) {
+  test(`a ${failure} task frame on ${isBusy ? "a busy" : "an idle"} slot resets the stream instead of half-closing`, async (context) => {
+    context.mock.method(console, "error", () => {});
+    const harness = await startHarness();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let handlerSignal: AbortSignal | undefined;
+    const worker = harness.worker(async (_request, signal) => {
+      handlerSignal = signal;
+      await gate;
+      return InvokeWorkerRPCResponse.create();
+    }, { maxConcurrentTasks: 1, reservedRpcTasks: 0 });
+    try {
+      worker.start();
+      const stream = await harness.nextStream();
+      stream.call.write(registered(true));
+      await worker.waitStarted();
+      if (isBusy) {
+        stream.call.write(rpcTask("running"));
+        await until(() => handlerSignal !== undefined);
+      }
+      if (failure === "oversized") {
+        stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "x".repeat(5 * 1024 * 1024) } } });
+      } else {
+        // Field 1 with the invalid wire type 7.
+        stream.call.write(Buffer.from([0x0f]) as unknown as PollWorkerTaskResponse);
+      }
+      await stream.cancelled;
+      assert.equal(stream.framesAtEnd(), undefined);
+      if (isBusy) {
+        await until(() => handlerSignal!.aborted);
+        release();
+        await until(() => Reflect.get(worker, "busyTaskCount") === 0);
+        assert.equal(stream.frames.some((request) => request.frame?.$case === "taskFrame"), false);
+      }
+      const replacement = await harness.nextStream();
+      replacement.call.write(registered(true));
+      await until(() => replacement.frames.length >= 1);
+      assert.equal(replacement.frames.some((request) => request.frame?.$case === "taskFrame"), false);
+    } finally { release(); await worker.close(); await harness.close(); }
+  });
+}
+
+test("an exception while handling a task frame resets the stream instead of half-closing", async (context) => {
+  context.mock.method(console, "error", () => {});
+  const harness = await startHarness();
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), { maxConcurrentTasks: 1, reservedRpcTasks: 0 });
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(true));
+    await worker.waitStarted();
+    Reflect.set(worker, "unknownTaskReason", () => { throw new Error("frame handling failed"); });
+    stream.call.write(rpcTask("throws"));
+    await stream.cancelled;
+    assert.equal(stream.framesAtEnd(), undefined);
+    assert.equal(harness.invocationCount, 0);
+  } finally { await worker.close(); await harness.close(); }
+});
+
 interface CapturedStream {
   readonly call: TaskStream;
   readonly frames: PollWorkerTaskRequest[];
   readonly openedAt: number;
+  /** Resolves when the Worker cleanly half-closes its request side. */
   readonly ended: Promise<void>;
+  /** Resolves when the Worker resets the stream with a non-zero HTTP/2 error code. */
+  readonly cancelled: Promise<void>;
+  /** Whether the Worker reset the stream instead of ending it cleanly. */
+  readonly wasReset: () => boolean;
+  /** Frames received before the clean half-close, or undefined before it. */
+  readonly framesAtEnd: () => readonly PollWorkerTaskRequest[] | undefined;
   frame(kind: NonNullable<PollWorkerTaskRequest["frame"]>["$case"], occurrence?: number, timeoutMs?: number): Promise<PollWorkerTaskRequest>;
 }
 
@@ -845,16 +1120,31 @@ async function startHarness(shouldEndOnHalfClose = true) {
     },
     syncAttributeIndexes(_call, callback) { callback(null, {}); },
   } as Partial<FlowServiceServer> as FlowServiceServer);
-  server.addService(WorkerTaskServiceService, {
+  // Passes raw Buffers through so a test can send an undecodable task frame.
+  server.addService({ pollWorkerTask: { ...WorkerTaskServiceService.pollWorkerTask,
+    responseSerialize: (value: PollWorkerTaskResponse | Buffer) => Buffer.isBuffer(value)
+      ? value : WorkerTaskServiceService.pollWorkerTask.responseSerialize(value) } }, {
     pollWorkerTask(call: TaskStream) {
       const frames: PollWorkerTaskRequest[] = [];
       let resolveEnd!: () => void;
       const ended = new Promise<void>((resolve) => { resolveEnd = resolve; });
+      let resolveCancelled!: () => void;
+      const cancelled = new Promise<void>((resolve) => { resolveCancelled = resolve; });
+      let framesAtEnd: PollWorkerTaskRequest[] | undefined;
+      // grpc-js reports a reset as a readable end too, so inspect the HTTP/2 reset code.
+      const http2Stream = Reflect.get(Reflect.get(call, "call") as object, "stream") as Http2Stream;
+      const wasReset = () => http2Stream.rstCode !== undefined && http2Stream.rstCode !== http2Constants.NGHTTP2_NO_ERROR;
+      http2Stream.once("close", () => { if (wasReset()) resolveCancelled(); });
       call.on("data", (frame: PollWorkerTaskRequest) => frames.push(frame));
-      call.on("end", () => { resolveEnd(); if (shouldEndOnHalfClose) call.end(); });
+      call.on("end", () => {
+        if (wasReset()) return;
+        framesAtEnd = [...frames];
+        resolveEnd();
+        if (shouldEndOnHalfClose) call.end();
+      });
       call.on("error", () => {});
       streams.push({
-        call, frames, openedAt: Date.now(), ended,
+        call, frames, openedAt: Date.now(), ended, cancelled, wasReset, framesAtEnd: () => framesAtEnd,
         async frame(kind, occurrence = 1, timeoutMs = 5_000) {
           await until(() => frames.filter((candidate) => candidate.frame?.$case === kind).length >= occurrence, timeoutMs);
           return frames.filter((candidate) => candidate.frame?.$case === kind)[occurrence - 1]!;
@@ -883,11 +1173,15 @@ async function startHarness(shouldEndOnHalfClose = true) {
       }]]));
       return worker;
     },
-    workerWithDispatcher(dispatcher: WorkerDispatcher) {
-      const worker = new PullWorker(new Registry([]), dispatcher, `127.0.0.1:${port}`, { maxConcurrentTasks: 1, reservedRpcTasks: 0 });
-      Reflect.set(worker, "registeredFlows", new Map([["TestFlow", {
-        steps: [{ name: "TestStep" }], rpcs: [{ name: "getWorker" }],
-      }]]));
+    workerWithDispatcher(dispatcher: WorkerDispatcher, registry?: Registry, options: PullWorkerOptions = {}) {
+      const worker = new PullWorker(registry ?? new Registry([]), dispatcher, `127.0.0.1:${port}`, {
+        maxConcurrentTasks: 1, reservedRpcTasks: 0, ...options,
+      });
+      if (registry === undefined) {
+        Reflect.set(worker, "registeredFlows", new Map([["TestFlow", {
+          steps: [{ name: "TestStep" }], rpcs: [{ name: "getWorker" }],
+        }]]));
+      }
       return worker;
     },
     async nextStream(): Promise<CapturedStream> {
@@ -1056,7 +1350,8 @@ test("registration wait handles startup failure, cancellation, timeout, and defa
   });
   await assert.rejects(worker.start(), (failure: unknown) =>
     failure === registrationFailure && (failure as Error).message === registrationFailureMessage &&
-    registrationFailureMessage.includes("127.0.0.1:1"));
+    registrationFailureMessage.includes("127.0.0.1:1") && !/incompatible/i.test(registrationFailureMessage)
+    && [status.UNAVAILABLE, status.DEADLINE_EXCEEDED].includes(((failure as Error).cause as { code?: number }).code ?? -1));
   await waiting;
   await worker.close();
   const pending = new Worker(new Registry([]), {} as BlobCache);
@@ -1092,9 +1387,10 @@ test("Context heartbeat rejects without synchronous throws after its task stream
     getSteps: () => StepList.startStep(step),
   };
   const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, () => 3);
+  const registry = new Registry([flow]);
+  const dispatcher = new WorkerDispatcher(registry, hydrator, () => 3);
   const harness = await startHarness();
-  const worker = harness.workerWithDispatcher(dispatcher);
+  const worker = harness.workerWithDispatcher(dispatcher, registry);
   try {
     worker.start();
     const stream = await harness.nextStream();

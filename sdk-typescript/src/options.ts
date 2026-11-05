@@ -532,7 +532,11 @@ export interface PullWorkerOptions {
    * Requires a non-negative finite value; zero selects the default.
    * On stop, idle streams half-close immediately; busy streams send final output before half-closing.
    * Tasks arriving after stop begins are dropped. Half-closed streams keep reading until the Server ends them.
-   * On expiry, running streams are reset and their handlers canceled; close waits for handlers to return.
+   * On expiry, streams whose handler has not written final output are reset and their handlers canceled;
+   * close waits for handlers to return. A handler whose final output is written still half-closes.
+   * Half-closed streams without Server EOF are reset at the deadline. A stream that half-closed after its
+   * final output first gets a flush grace of up to 5 seconds, so close can return that much later.
+   * Dex treats a task dropped on such a reset stream as possibly run.
    */
   readonly stopDrainTimeoutMs?: number;
 }

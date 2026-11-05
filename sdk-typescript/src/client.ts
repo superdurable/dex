@@ -134,8 +134,10 @@ const defaultServerAddress = "localhost:8801";
  * Methods perform asynchronous gRPC I/O. A Client owns its service connection but
  * not its Registry or BlobCache; call `close` during application shutdown.
  * Before its first request, every method shares lazy Server protocol negotiation.
- * This SDK requires protocol 4. Incompatibility errors are cached and returned on later calls.
- * Transient negotiation failures are retried on the next call.
+ * The constructor performs no I/O. This SDK requires protocol 4.
+ * After an incompatible Server answers, every later call fails with a new Error that has the same message.
+ * A transport failure during negotiation rejects with the usual DexServiceError and is retried on the next call.
+ * Wait methods with a request timeout bound negotiation by that timeout and reject with RequestTimeoutError.
  *
  * @example
  * ```ts
@@ -150,7 +152,7 @@ const defaultServerAddress = "localhost:8801";
 export class Client {
   private readonly service: FlowServiceClientType;
   private readonly hydrator: ValueHydrator;
-  private negotiatedServerProtocolVersion: Promise<number> | undefined;
+  private serverInfoRequest: Promise<ServerInfo> | undefined;
 
   /**
    * Constructs a Client and lazy plaintext gRPC connection.
@@ -257,18 +259,41 @@ export class Client {
     requireHardDeleteAttributeWriteSupport(await this.negotiateServerProtocol(), writes);
   }
 
-  private negotiateServerProtocol(): Promise<number> {
-    if (this.negotiatedServerProtocolVersion === undefined) {
-      const negotiation = this.getServerInfo().then(
-        (serverInfo) => negotiateServerProtocol(serverInfo, sdkVersion),
-        (failure: unknown) => {
-          this.negotiatedServerProtocolVersion = undefined;
-          throw failure;
-        },
-      );
-      this.negotiatedServerProtocolVersion = negotiation;
+  private async negotiateServerProtocol(): Promise<number> {
+    return negotiateServerProtocol(await this.sharedServerInfo(), sdkVersion);
+  }
+
+  private async negotiateServerProtocolWithinBudget(
+    requestBudget: ClientRequestBudget,
+    operation: string,
+    flowId: string,
+  ): Promise<number> {
+    const remainingMs = requestBudget.remainingMs(operation, flowId);
+    if (remainingMs === undefined) return this.negotiateServerProtocol();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const serverInfo = await Promise.race([
+        this.sharedServerInfo(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(requestBudget.timeoutError(operation, flowId)), remainingMs);
+        }),
+      ]);
+      return negotiateServerProtocol(serverInfo, sdkVersion);
+    } finally {
+      clearTimeout(timer);
     }
-    return this.negotiatedServerProtocolVersion;
+  }
+
+  private sharedServerInfo(): Promise<ServerInfo> {
+    if (this.serverInfoRequest === undefined) {
+      const request = this.getServerInfo();
+      this.serverInfoRequest = request;
+      // Transient failures are not cached; the next call asks the Server again.
+      request.catch(() => {
+        if (this.serverInfoRequest === request) this.serverInfoRequest = undefined;
+      });
+    }
+    return this.serverInfoRequest;
   }
 
   private async unary<Response>(
@@ -1072,9 +1097,10 @@ export class Client {
     const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
     const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
+      await this.negotiateServerProtocolWithinBudget(requestBudget, "waitForStepCompletion", flowId);
       const requestAttempt = requestBudget.nextAttempt("waitForStepCompletion", flowId);
       try {
-        await this.unary<WaitForStepCompletionResponse>(
+        await unary<WaitForStepCompletionResponse>(
           { operation: "waitForStepCompletion", flowId, requirement: "active" },
           (callback) => {
             const request = {
@@ -1207,9 +1233,10 @@ export class Client {
     const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
     const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
+      await this.negotiateServerProtocolWithinBudget(requestBudget, "waitForAttributeMatch", flowId);
       const requestAttempt = requestBudget.nextAttempt("waitForAttributeMatch", flowId);
       try {
-        const response = await this.unary<WaitForAttributeResponse>(
+        const response = await unary<WaitForAttributeResponse>(
           { operation: "waitForAttributeMatch", flowId, requirement: "active" },
           (callback) => {
             const request = {
@@ -1843,6 +1870,17 @@ class ClientRequestBudget {
     this.deadlineMs = requestTimeoutSeconds === 0
       ? undefined
       : performance.now() + requestTimeoutSeconds * 1_000;
+  }
+
+  public remainingMs(operation: string, flowId: string): number | undefined {
+    if (this.deadlineMs === undefined) {
+      return undefined;
+    }
+    const remainingMs = this.deadlineMs - performance.now();
+    if (remainingMs <= 0) {
+      throw this.timeoutError(operation, flowId);
+    }
+    return remainingMs;
   }
 
   public nextAttempt(operation: string, flowId: string): ClientRequestAttempt {
