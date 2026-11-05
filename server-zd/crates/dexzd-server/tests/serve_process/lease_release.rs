@@ -8,7 +8,7 @@
 
 //! A graceful shutdown whose lease release object storage rejects exits 1.
 
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 
 use super::harness::{S3Emulator, ServeConfig, ServeProcess, free_loopback_address};

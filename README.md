@@ -113,7 +113,7 @@ cargo add dex-sdk
 | [web/](web/) | Standalone Dex Web console and `dex-web` binary |
 | [cli/](cli/) | `dexcli` local development environment |
 | [protos/](protos/) | Protobuf IDL and codec server |
-| [s3mock/](s3mock/) | Local S3-compatible object store for testing purpose|
+| [s3local/](s3local/) | Local S3-compatible object store for testing purpose|
 | [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
 | [benchmark/](benchmark/) | Performance benchmarks |
 | [packages/](packages/) | Shared Web packages |

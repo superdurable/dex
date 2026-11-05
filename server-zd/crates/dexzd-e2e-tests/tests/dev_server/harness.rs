@@ -24,7 +24,7 @@ use dexzd_protocol::dex::{
 };
 use dexzd_server::{DevCommandOptions, RunningServer};
 use prost::Message;
-use s3mock::Store;
+use s3local::Store;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;

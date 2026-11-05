@@ -1,0 +1,291 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//! Harness for the S3 conformance suite: one target and its cleanup per test.
+
+use std::sync::Arc;
+
+use aws_sdk_s3::Client;
+use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
+use s3local::{Durability, Store, StoreConfig};
+use s3local_server::{ServerConfig, ServerHandle, SignatureVerification};
+use tempfile::TempDir;
+
+const TARGET_ENVIRONMENT_VARIABLE: &str = "S3LOCAL_CONFORMANCE_TARGET";
+/// When set, every created bucket name is appended to this file so CI can clean up after failures.
+const BUCKET_LOG_ENVIRONMENT_VARIABLE: &str = "S3LOCAL_CONFORMANCE_BUCKET_LOG";
+const REGION: &str = "us-east-1";
+
+/// The endpoint one test talks to, with the resources it must release.
+pub(crate) struct ConformanceTarget {
+    pub(crate) client: Client,
+    /// Present only for s3local targets.
+    s3local: Option<S3localInstance>,
+    created_buckets: Vec<String>,
+}
+
+struct S3localInstance {
+    server: ServerHandle,
+    store: Arc<Store>,
+    data_directory: TempDir,
+    is_strict: bool,
+}
+
+impl ConformanceTarget {
+    /// Connects to the target selected by `S3LOCAL_CONFORMANCE_TARGET` (`s3local` by default).
+    pub(crate) async fn connect() -> ConformanceTarget {
+        Self::connect_with_strict_mode(false).await
+    }
+
+    /// Uses strict mode locally while keeping the same AWS target selected by the environment.
+    pub(crate) async fn connect_presigned() -> ConformanceTarget {
+        Self::connect_with_strict_mode(true).await
+    }
+
+    async fn connect_with_strict_mode(is_strict: bool) -> ConformanceTarget {
+        match s3local::read_environment_setting(TARGET_ENVIRONMENT_VARIABLE)
+            .map(|value| {
+                value
+                    .into_string()
+                    .expect("the conformance target is valid UTF-8")
+            })
+            .as_deref()
+        {
+            Some("aws") => {
+                let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
+                ConformanceTarget {
+                    client: Client::from_conf(
+                        aws_sdk_s3::Config::from(&config)
+                            .to_builder()
+                            .region(Region::new(REGION))
+                            .force_path_style(true)
+                            .build(),
+                    ),
+                    s3local: None,
+                    created_buckets: Vec::new(),
+                }
+            }
+            Some("s3local") | None => {
+                let data_directory =
+                    tempfile::tempdir().expect("the temporary directory is writable");
+                let (server, store) = start_s3local(&data_directory, is_strict).await;
+                let client = s3local_client(&server);
+                ConformanceTarget {
+                    client,
+                    s3local: Some(S3localInstance {
+                        server,
+                        store,
+                        data_directory,
+                        is_strict,
+                    }),
+                    created_buckets: Vec::new(),
+                }
+            }
+            Some(other) => {
+                panic!("{TARGET_ENVIRONMENT_VARIABLE} must be s3local or aws, not {other:?}")
+            }
+        }
+    }
+
+    /// Returns whether the target is s3local, for tests of s3local-only behavior such as restarts.
+    pub(crate) fn is_s3local(&self) -> bool {
+        self.s3local.is_some()
+    }
+
+    /// Creates a bucket with a unique name that [`ConformanceTarget::cleanup`] deletes.
+    pub(crate) async fn create_bucket(&mut self) -> String {
+        self.create_bucket_with_object_lock(false).await
+    }
+
+    pub(crate) async fn create_bucket_with_object_lock(
+        &mut self,
+        is_object_lock_enabled: bool,
+    ) -> String {
+        let bucket = format!(
+            "s3local-conformance-{}",
+            ulid::Ulid::new().to_string().to_ascii_lowercase()
+        );
+        self.client
+            .create_bucket()
+            .bucket(&bucket)
+            .set_object_lock_enabled_for_bucket(is_object_lock_enabled.then_some(true))
+            .send()
+            .await
+            .expect("creating a uniquely named bucket succeeds");
+        self.created_buckets.push(bucket.clone());
+        record_created_bucket(&bucket);
+        bucket
+    }
+
+    /// Restarts the s3local server and store on the same data directory, as a process restart would.
+    pub(crate) async fn restart_s3local(&mut self) {
+        let instance = self
+            .s3local
+            .take()
+            .expect("restart_s3local requires an s3local target");
+        instance.server.shutdown().await;
+        let store =
+            Arc::into_inner(instance.store).expect("the server released its store references");
+        tokio::task::spawn_blocking(move || drop(store))
+            .await
+            .expect("closing the store does not panic");
+        let (server, store) = start_s3local(&instance.data_directory, instance.is_strict).await;
+        self.client = s3local_client(&server);
+        self.s3local = Some(S3localInstance {
+            server,
+            store,
+            data_directory: instance.data_directory,
+            is_strict: instance.is_strict,
+        });
+    }
+
+    /// Deletes every version in the buckets this test created, then the buckets, then stops s3local.
+    pub(crate) async fn cleanup(mut self) {
+        for bucket in std::mem::take(&mut self.created_buckets) {
+            empty_bucket(&self.client, &bucket).await;
+            self.client
+                .delete_bucket()
+                .bucket(&bucket)
+                .send()
+                .await
+                .expect("deleting an emptied bucket succeeds");
+        }
+        if let Some(instance) = self.s3local.take() {
+            instance.server.shutdown().await;
+        }
+    }
+}
+
+async fn start_s3local(data_directory: &TempDir, is_strict: bool) -> (ServerHandle, Arc<Store>) {
+    let config = StoreConfig {
+        root_directory: data_directory.path().to_path_buf(),
+        durability: Durability::Strict,
+        etag_mode: s3local::EtagMode::Md5,
+    };
+    let store = Arc::new(
+        tokio::task::spawn_blocking(move || Store::open(&config))
+            .await
+            .expect("opening the store does not panic")
+            .expect("the store opens in a fresh directory"),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("binding a free loopback port succeeds");
+    let mut server_config = ServerConfig::default();
+    if is_strict {
+        server_config.signature_verification = SignatureVerification::Strict;
+    }
+    let server = s3local_server::start_with_config(Arc::clone(&store), listener, server_config)
+        .expect("the listener has a local address");
+    (server, store)
+}
+
+fn s3local_client(server: &ServerHandle) -> Client {
+    let config = aws_sdk_s3::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .region(Region::new(REGION))
+        .endpoint_url(format!("http://{}", server.local_address()))
+        .force_path_style(true)
+        .credentials_provider(Credentials::new(
+            "s3local",
+            "s3local",
+            None,
+            None,
+            "s3local-conformance",
+        ))
+        .build();
+    Client::from_conf(config)
+}
+
+async fn empty_bucket(client: &Client, bucket: &str) {
+    loop {
+        let page = client
+            .list_object_versions()
+            .bucket(bucket)
+            .send()
+            .await
+            .expect("listing versions of a test bucket succeeds");
+        let versions = page
+            .versions()
+            .iter()
+            .map(|version| (version.key(), version.version_id()))
+            .chain(
+                page.delete_markers()
+                    .iter()
+                    .map(|marker| (marker.key(), marker.version_id())),
+            );
+        let mut is_empty = true;
+        for (key, version_id) in versions {
+            is_empty = false;
+            client
+                .delete_object()
+                .bucket(bucket)
+                .key(key.expect("listed versions have keys"))
+                .set_version_id(version_id.map(str::to_owned))
+                .send()
+                .await
+                .expect("deleting a listed version succeeds");
+        }
+        if is_empty {
+            return;
+        }
+    }
+}
+
+/// Returns the S3 error code and HTTP status of a failed request.
+pub(crate) fn error_code_and_status<E, R>(
+    error: &aws_sdk_s3::error::SdkError<E, R>,
+) -> (Option<String>, Option<u16>)
+where
+    E: aws_sdk_s3::error::ProvideErrorMetadata,
+    R: HttpStatus,
+{
+    let code = error
+        .as_service_error()
+        .and_then(|service| service.code())
+        .map(str::to_owned);
+    let status = error.raw_response().map(HttpStatus::status_code);
+    (code, status)
+}
+
+/// Exposes the status code of the raw response type the SDK attaches to errors.
+pub(crate) trait HttpStatus {
+    fn status_code(&self) -> u16;
+}
+
+impl HttpStatus for aws_sdk_s3::config::http::HttpResponse {
+    fn status_code(&self) -> u16 {
+        self.status().as_u16()
+    }
+}
+
+/// Reads a whole object body.
+pub(crate) async fn read_body(
+    output: aws_sdk_s3::operation::get_object::GetObjectOutput,
+) -> Vec<u8> {
+    output
+        .body
+        .collect()
+        .await
+        .expect("the object body streams completely")
+        .into_bytes()
+        .to_vec()
+}
+
+fn record_created_bucket(bucket: &str) {
+    let Some(log_path) = s3local::read_environment_setting(BUCKET_LOG_ENVIRONMENT_VARIABLE) else {
+        return;
+    };
+    let mut log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .expect("the bucket log is writable");
+    std::io::Write::write_all(&mut log, format!("{bucket}\n").as_bytes())
+        .expect("the bucket log is writable");
+}

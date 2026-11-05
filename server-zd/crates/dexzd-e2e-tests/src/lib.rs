@@ -6,4 +6,4 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! End-to-end tests that start s3mock and dex-server-zd in process and drive them through the real gRPC protocol.
+//! End-to-end tests that start s3local and dex-server-zd in process and drive them through the real gRPC protocol.

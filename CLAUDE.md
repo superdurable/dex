@@ -49,7 +49,7 @@ Label every new issue when you open it:
 - At least one area: `area:server-zd`, `area:server`, `area:sdk-go`,
   `area:sdk-python`, `area:sdk-java`, `area:sdk-typescript`, `area:sdk-rust`,
   `area:cli`, `area:web`, `area:docs`, `area:examples`, `area:skills`,
-  `area:s3mock`, `area:ci`, or `area:protos`.
+  `area:s3local`, `area:ci`, or `area:protos`.
 - Exactly one size: `size:S` (a day or less), `size:M` (a few days), or
   `size:L` (a week or more, or needs design).
 - Add `codex-ready` when the issue is self-contained and needs no decision.
@@ -561,7 +561,7 @@ file or directory meets its limit; stale entries fail the check.
   object storage layout, and snapshots) follow the protobuf compatibility
   rules: additive only; never renumber or reuse field numbers or names.
 - Generated protobuf maps use `BTreeMap`.
-- Local tests use the in-process s3mock or the in-memory object store, never
+- Local tests use the in-process s3local or the in-memory object store, never
   MinIO.
 
 ### server-zd Rust conventions ported from the Go rules

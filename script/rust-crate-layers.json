@@ -26,11 +26,11 @@
       "dex-examples-rust"
     ]
   },
-  "s3mock": {
+  "s3local": {
     "layers": {
-      "s3mock": 0,
-      "s3mock-server": 1,
-      "s3mock-conformance": 2
+      "s3local": 0,
+      "s3local-server": 1,
+      "s3local-conformance": 2
     },
     "ffi_crates": [],
     "print_crates": []

@@ -13,7 +13,7 @@ use dexzd_protocol::dex::{
     FlowConfig, FlowStartOptions, GetFlowSummaryRequest, StartFlowRequest, StepOptions,
     WorkerTarget,
 };
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 
 use super::harness::{

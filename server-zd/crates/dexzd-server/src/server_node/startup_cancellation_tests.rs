@@ -11,11 +11,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dexzd_protocol::dexzd::v1::NodeLease;
 use prost::Message;
-use s3mock::{
+use s3local::{
     ChecksumAlgorithm, Durability, EtagMode, PutObjectRequest, Store, StoreConfig,
     UploadChecksumExpectations,
 };
-use s3mock_server::ServerConfig;
+use s3local_server::ServerConfig;
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, watch};
 
@@ -46,7 +46,7 @@ async fn an_aborted_serve_start_waiting_for_a_held_lease_releases_the_grpc_liste
     let object_store_listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("the object store listener binds");
-    let object_store = s3mock_server::start_with_config(
+    let object_store = s3local_server::start_with_config(
         Arc::new(store),
         object_store_listener,
         ServerConfig {

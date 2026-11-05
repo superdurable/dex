@@ -51,7 +51,7 @@ dist/
 sdk-rust/target/
 sdk-rust/coverage/
 examples/rust/target/
-s3mock/target/
+s3local/target/
 server-zd/target/
 server-zd/target/release/dex-server-zd
 benchmark/bin/dexbench

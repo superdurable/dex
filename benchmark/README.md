@@ -247,7 +247,7 @@ assets.
 
 The release build writes `server-zd/target/release/dex-server-zd`.
 
-`run.sh` starts server-zd through `dexcli dev` with its embedded s3mock. It
+`run.sh` starts server-zd through `dexcli dev` with its embedded s3local. It
 does not start Docker or use AWS.
 
 ### Full local run
@@ -308,7 +308,7 @@ sample, so forked processes are included. On macOS, the sampler uses the delta
 of cumulative `ps` CPU time with 10 ms resolution. This is best effort and
 labeled as such in `cpu_method`.
 
-The root is the `dexcli dev` process, so server-zd and its embedded s3mock are
+The root is the `dexcli dev` process, so server-zd and its embedded s3local are
 included. `dexbench` also samples its own process as the load host. The report
 shows that CPU as a share of all load-host cores.
 
@@ -474,7 +474,7 @@ Other settings:
 | `DEXBENCH_SERVER_HOME` | `dexbench` | Directory of `serve.sh` on the server host |
 | `DEXBENCH_STORAGE_DIR` | `/mnt/nvme/dexzd` | RocksDB directory on the server host; deleted at every point |
 | `DEXBENCH_S3_REGION` | `us-west-2` | Bucket region |
-| `DEXBENCH_S3_ENDPOINT` | empty | Custom S3 endpoint, such as a local s3mock |
+| `DEXBENCH_S3_ENDPOINT` | empty | Custom S3 endpoint, such as a local s3local |
 | `DEXBENCH_S3_CREDENTIALS` | `defaultChain` | `defaultChain` uses the instance profile |
 | `DEXBENCH_PROFILE` | `1` | `1` profiles the server in the middle of each measurement; `0` turns it off |
 | `DEXBENCH_PROFILE_SECONDS`, `DEXBENCH_PROFILE_FREQUENCY` | `10`, `49` | Length and sampling rate (Hz) of the perf profile |
@@ -530,13 +530,13 @@ It loads the recorded settings from `config.env` and the matching lines from
 
 #### Test without AWS
 
-Run the same loop on one machine against a standalone s3mock:
+Run the same loop on one machine against a standalone s3local:
 
 ```bash
-(cd s3mock && cargo build --release -p s3mock-server)
-s3mock/target/release/s3mock --listen-address 127.0.0.1:9100 --data-directory /tmp/s3data \
+(cd s3local && cargo build --release -p s3local-server)
+s3local/target/release/s3local --listen-address 127.0.0.1:9100 --data-directory /tmp/s3data \
   --signature-verification strict &
-curl --aws-sigv4 aws:amz:us-east-1:s3 --user s3mock:s3mock -X PUT \
+curl --aws-sigv4 aws:amz:us-east-1:s3 --user s3local:s3local -X PUT \
   -H 'x-amz-content-sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' \
   http://127.0.0.1:9100/dexbench
 DEXBENCH_REMOTE=local DEXBENCH_SERVER_ZD_BINARY=server-zd/target/release/dex-server-zd \
@@ -544,11 +544,11 @@ DEXBENCH_REMOTE=local DEXBENCH_SERVER_ZD_BINARY=server-zd/target/release/dex-ser
   DEXBENCH_STORAGE_DIR=/tmp/dexbench-store DEXBENCH_STATE_DIR=/tmp/dexbench-state \
   DEXBENCH_LISTEN_HOST=127.0.0.1 DEXBENCH_S3_BUCKET=dexbench DEXBENCH_S3_REGION=us-east-1 \
   DEXBENCH_S3_ENDPOINT=http://127.0.0.1:9100 DEXBENCH_S3_CREDENTIALS=environment \
-  DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID=s3mock DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY=s3mock \
+  DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID=s3local DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY=s3local \
   DEXBENCH_DURATION=10 DEXBENCH_WARMUP=2 benchmark/aws/run-remote.sh
 ```
 
-The s3mock region is `us-east-1`. Its numbers are not results.
+The s3local region is `us-east-1`. Its numbers are not results.
 
 #### Clean up
 
@@ -588,7 +588,7 @@ benchmark/local/search-local.sh postgres 100000 10 /tmp/search-postgres-100k
 benchmark/local/search-local.sh postgres 100000 10 /tmp/search-backfill-100k --backfill
 ```
 
-The runner starts a release server with embedded s3mock and the default 1,024
+The runner starts a release server with embedded s3local and the default 1,024
 partitions. External backends use temporary, uniquely named Docker containers:
 PostgreSQL 17 or ParadeDB 0.26.1, matching server-zd CI. It removes its server,
 data directory, and container on exit. It does not use docker compose.

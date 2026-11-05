@@ -1,6 +1,6 @@
 [package]
 name = "dexzd-e2e-tests"
-description = "End-to-end tests that start s3mock and dex-server-zd in process and drive them through the real gRPC protocol"
+description = "End-to-end tests that start s3local and dex-server-zd in process and drive them through the real gRPC protocol"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -16,7 +16,7 @@ dexzd-server = { workspace = true, features = ["test-util"] }
 futures.workspace = true
 prost.workspace = true
 prost-types.workspace = true
-s3mock.workspace = true
+s3local.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tokio-postgres.workspace = true

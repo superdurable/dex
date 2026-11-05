@@ -1183,7 +1183,7 @@ dependencies = [
  "futures",
  "prost",
  "prost-types",
- "s3mock",
+ "s3local",
  "tempfile",
  "tokio",
  "tokio-postgres",
@@ -1249,8 +1249,8 @@ dependencies = [
  "dhat",
  "futures",
  "prost",
- "s3mock",
- "s3mock-server",
+ "s3local",
+ "s3local-server",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1278,8 +1278,8 @@ dependencies = [
  "bytes",
  "dexzd-clock",
  "dexzd-metrics",
- "s3mock",
- "s3mock-server",
+ "s3local",
+ "s3local-server",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1386,8 +1386,8 @@ dependencies = [
  "prost-types",
  "rand 0.10.3",
  "rustix",
- "s3mock",
- "s3mock-server",
+ "s3local",
+ "s3local-server",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -3100,8 +3100,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
-name = "s3mock"
-version = "0.1.1"
+name = "s3local"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "crc32c",
@@ -3120,8 +3120,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "s3mock-server"
-version = "0.1.1"
+name = "s3local-server"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -3137,7 +3137,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "quick-xml",
- "s3mock",
+ "s3local",
  "serde",
  "serde_json",
  "sha2 0.10.9",

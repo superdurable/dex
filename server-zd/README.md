@@ -745,7 +745,7 @@ The manually dispatched main-image workflow builds its selected ref and publishe
 dex-server-zd dev --data-dir ./zd-data [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>]
 ```
 
-`dev` runs one node with an embedded s3mock whose data lives under `<data-dir>/s3`, and keeps local
+`dev` runs one node with an embedded s3local whose data lives under `<data-dir>/s3`, and keeps local
 state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these flags. It fixes the
 node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
 rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
@@ -753,7 +753,7 @@ rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
 file, which must define at least one store; the `--config` file must not also set `attributeStore`.
 
-`dev.durabilityMode` selects how the embedded s3mock stores acknowledged writes:
+`dev.durabilityMode` selects how the embedded s3local stores acknowledged writes:
 
 | Mode | Survives | Cost |
 | --- | --- | --- |
@@ -816,7 +816,7 @@ make fmt-check clippy test   # what CI runs
 make build-server            # builds target/release/dex-server-zd
 ```
 
-Local tests use only the in-process s3mock (`../s3mock`) or the in-memory object store. They need
+Local tests use only the in-process s3local (`../s3local`) or the in-memory object store. They need
 no docker, MinIO, or Temporal.
 
 ### Object storage compatibility

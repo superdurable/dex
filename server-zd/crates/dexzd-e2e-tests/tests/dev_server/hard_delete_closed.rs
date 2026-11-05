@@ -13,7 +13,7 @@ use dexzd_protocol::dex::{
     GetFlowSummaryRequest, SetAttributesRequest, StepOptions, StopFlowRequest, StopType, Value,
     value,
 };
-use s3mock::ListObjectsRequest;
+use s3local::ListObjectsRequest;
 
 use crate::harness::{DevServer, service_error, start_pull_flow};
 use crate::string_value;
