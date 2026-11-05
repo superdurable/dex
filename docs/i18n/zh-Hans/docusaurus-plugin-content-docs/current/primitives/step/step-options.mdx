@@ -330,6 +330,22 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 
 Heartbeat 有助于传递 cancellation。Step invocation 只会在完成、失败或记录 heartbeat 时被 cancel。
 
+## Timeouts 和 total duration {#timeouts-and-total-duration}
+
+三个选项限制 Step method 能运行多久。
+
+| 限制 | 选项 | 执行方式 |
+| --- | --- | --- |
+| 单次 attempt 的最长时间 | **WaitForMethodTimeout** 或 **ExecuteMethodTimeout** | Dex 让该 attempt 超时。只有 **TotalDuration** 还有剩余时间时，才会开始新的 attempt。 |
+| 包含所有 retry 的最长总时间 | retry policy 中的 **TotalDuration** | 它从第一次 attempt 被调度时开始计算，覆盖所有 retry，也会终止正在运行的 attempt。 |
+| Worker 卡住 | **HeartbeatTimeout**，默认一分钟 | 如果一次 attempt 在这个窗口内没有发送 heartbeat 或 Stream message，Dex 让它超时。随后 retry policy 会开始新的 attempt。见 [Heartbeat](#heartbeat)。 |
+
+method timeout 默认是两小时，server 没有硬性上限。**TotalDuration** 默认是四小时。
+
+要限制一次长时间等待，把 method timeout 和 **TotalDuration** 设为同一个最长时间。Dex 会强制执行两者，所以 Step 不需要自己的截止时间。retry policy 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。
+
+timeout 到期时，Dex 以 timeout 错误让该 attempt 失败。retry 结束后，由 failure policy 决定下一步。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。要长时间等待外部系统，见 [Polling](/design-patterns/polling)。
+
 ## 选择性加载状态 {#selective-state-loading}
 
 每次 **WaitFor**、**Execute** 和 timeout handler 调用都会收到所有普通 Attribute，以及每个 Channel 和 ChannelMap instance 的 size metadata。除非对应方法显式选择，否则不会加载 AttributeMap value 和 pending Channel message。

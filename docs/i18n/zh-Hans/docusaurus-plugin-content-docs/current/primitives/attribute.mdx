@@ -1007,3 +1007,9 @@ fn rpcs(&self) -> RpcList<Self> {
 
 </SdkSnippet>
 </SdkTabs>
+
+#### Lock conflicts {#rpc-lock-conflicts}
+
+RPC 获取 lock 时不会让 caller 排队。当另一个 Step execution 或 RPC 持有所请求的 lock 时，调用会以 lock-conflict 错误失败。各 SDK 中它的名称是：Go 的 **RPCLockConflictError**，Python 和 TypeScript 的 **RpcLockConflictError**，Java 的 **RpcLockConflictException**，Rust 的 **SdkError::RpcLockConflict**。
+
+只在收到这个错误后重试，并使用合适的 backoff。让 RPC 保持幂等，这样重试才是安全的。成功的调用会通过相同的 lock 串行执行，因此并发请求不会丢失或重复更新。

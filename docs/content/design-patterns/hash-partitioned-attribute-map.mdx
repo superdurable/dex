@@ -25,7 +25,7 @@ A hash collision only places multiple emails in one partition. The dictionary st
 
 The adapter and handler both calculate the partition. **UpsertCustomerProfile** adds an exact load and an instance lock for the same partition. The handler recalculates it, reads the bucket, updates one profile, and writes the bucket back. Writes to one partition serialize. Writes to different partitions can run concurrently.
 
-Lock acquisition does not queue callers. Concurrent writes to one partition can receive an **RPCLockConflict**. Retry the idempotent upsert with application-appropriate backoff. Successful writes remain serialized and preserve every record in the bucket.
+Concurrent writes to one partition can receive a lock-conflict error. Retry the idempotent upsert after it; see [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/primitives/attribute#whole-map-coordination).
 
 **GetCustomerProfileByEmail** loads one partition without a write lock. A missing partition and a missing canonical email both return not found.
 
@@ -132,10 +132,6 @@ client.invoke_rpc_with_options(
 
 All writers must use the same instance-lock rule. Dex locks are cooperative; a writer that omits the lock can still race with conforming writers.
 
-## Collection-wide write invariants
-
-If a mutation must coordinate across the entire map, use a separate non-indexed singleton bool Attribute such as **currentMessagesLock** for **currentMessages**. Every writer of the protected map must request that same lock; per-instance locks alone do not participate. The bool value is not a lock flag, and state loads remain explicit. See [whole-map coordination](/primitives/attribute#whole-map-coordination). Keep the existing instance locks when updates have no collection-wide invariant.
-
 ## HTTP API
 
 ```text
@@ -145,5 +141,3 @@ GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alic
 ```
 
 The partition count is persisted schema. Changing it moves most keys and requires a complete rehash or a new Flow version. This sample intentionally omits deletion, full-directory enumeration, cross-field search, and partition resizing.
-
-Run the HTTP example from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).

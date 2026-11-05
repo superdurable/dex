@@ -45,37 +45,21 @@ interval + call timeout <= HeartbeatTimeout - 10s
 
 ## 限制
 
-等待的所有限制都由 Step options 设置，并由 Dex 强制执行。
+**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/primitives/step/step-options#timeouts-and-total-duration)。
 
-| 限制 | 选项 | 执行方式 |
-| --- | --- | --- |
-| 单次 attempt 的最长时间 | **ExecuteMethodTimeout**，设为最长等待时间 | Dex 让该 attempt 超时。只有 **TotalDuration** 还有剩余时间时，才会开始新的 attempt。 |
-| 包含所有 retry 的最长总等待时间 | **ExecuteRetry** 中的 **TotalDuration**，设为最长等待时间 | 它从第一次 attempt 被调度时开始计算，覆盖所有 retry，也会终止正在运行的 attempt。 |
-| Worker 卡住 | **HeartbeatTimeout**，默认一分钟 | 如果一次 attempt 在这个窗口内没有发送 heartbeat 或 Stream message，Dex 让它超时。随后 retry policy 会开始新的 attempt。 |
-
-不要在代码里重复这些限制。Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。
-
-**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。**ExecuteMethodTimeout** 默认是两小时，server 没有硬性上限。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。
-
-Polling Step 可以使用任一种 durability。两种模式下，heartbeat、checkpoint 和 timeout 的行为相同。见 [Step options](/primitives/step/step-options#durability)。
+Polling Step 可以使用任一种 durability。见 [Step options](/primitives/step/step-options#durability)。
 
 ## 等待超时之后
 
-**ExecuteMethodTimeout** 或 **TotalDuration** 到期时，Dex 以 timeout 让该 Step 失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。这个 Step 读取 **RecoveryError**，其中包含失败详情和错误类型。没有恢复路由时，Flow 失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
+**ExecuteMethodTimeout** 或 **TotalDuration** 到期时，Dex 以 timeout 让该 Step 失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
 
-失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。
+失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。不是固定时长的业务条件（例如不归该 Flow 所有、可能过期的 lease）仍然在循环中检查。
 
-不是固定时长的业务条件仍然在循环中检查。例如一个不归该 Flow 所有、可能过期的 lease。这类检查是业务规则，不是 polling timeout。
+## Checkpoint 和进度
 
-## Checkpoint
+新的 attempt 从上一个 checkpoint 继续，用 **GetLastHeartbeatValue** 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
 
-新的 attempt 从上一个 checkpoint 继续。用 **GetLastHeartbeatValue** 读取它。checkpoint 只是恢复用的状态。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
-
-## 进度
-
-Stream message 是 implicit heartbeat。只在观察到的状态变化时写入一条，其余轮次记录 heartbeat。同一 Flow type 的所有 execution 共享该 Stream 的 **streamCapacityBytes**，状态没变的轮次不应占用它。
-
-Stream message 是 best-effort。消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Stream](/primitives/stream)。
+只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。状态没变的轮次不应占用 Stream。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/primitives/step/step-options#heartbeat) 和 [Stream](/primitives/stream)。
 
 ## 锁
 
@@ -85,7 +69,7 @@ Stream message 是 best-effort。消费方从 durable 状态恢复，例如 Attr
 
 **PollingFlow** 等待一个模拟的外部 job。**StartJob** 以 Flow ID 作为幂等 job ID 启动 job。**AwaitJob** 每两秒查询一次 job 状态。状态变化时写入一条 **JobProgress** Stream message，并以 job 结果完成。十分钟的最长等待时间到期时，**AwaitJob** 移动到 **RecordJobWaitFailure**。这个 Step 以恢复错误让 Flow 失败。
 
-模拟 job 先报告 QUEUED，然后是 RUNNING，启动六秒后成功。调用 complete-job endpoint 可以让它提前完成。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中运行这个 HTTP 示例。
+模拟 job 先报告 QUEUED，然后是 RUNNING，启动六秒后成功。调用 complete-job endpoint 可以让它提前完成。
 
 <SdkTabs
   examples={{
@@ -467,8 +451,7 @@ impl Step for RecordJobWaitFailure {
 
 ## 相关内容
 
-- [Step options](/primitives/step/step-options#heartbeat)
+- [Step options](/primitives/step/step-options#timeouts-and-total-duration)
 - [Stream](/primitives/stream)
 - [Failure Handling](/design-patterns/failure-handling)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
-- [GitHub 上的示例](https://github.com/superdurable/dex/tree/main/examples)

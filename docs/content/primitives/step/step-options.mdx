@@ -330,6 +330,22 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 
 A heartbeat helps deliver cancellation. A Step invocation is canceled only when it completes, fails, or records a heartbeat.
 
+## Timeouts and total duration {#timeouts-and-total-duration}
+
+Three options bound the time a Step method can take.
+
+| Limit | Option | Enforcement |
+| --- | --- | --- |
+| Longest single attempt | **WaitForMethodTimeout** or **ExecuteMethodTimeout** | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
+| Longest total time, including every retry | **TotalDuration** in the retry policy | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Stalled Worker | **HeartbeatTimeout**, one minute by default | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. See [Heartbeat](#heartbeat). |
+
+A method timeout defaults to two hours, and the server has no hard cap. **TotalDuration** defaults to four hours.
+
+To bound a long wait, set the method timeout and **TotalDuration** to the same maximum. Dex enforces both, so the Step does not need its own deadline. Give the retry policy a few attempts with backoff for transient errors and Worker crashes.
+
+When a timeout expires, Dex fails the attempt with a timeout error. After retries end, the failure policy decides what happens next. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery). For a long wait on an external system, see [Polling](/design-patterns/polling).
+
 ## Selective state loading {#selective-state-loading}
 
 Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary Attributes and size metadata for every Channel and ChannelMap instance. AttributeMap values and pending Channel messages are not loaded unless that method selects them.
