@@ -19,6 +19,7 @@ mod queued_state;
 mod queued_time_travel;
 mod reserved_slots;
 mod rpc_closed_run;
+mod rpc_lock_state;
 mod rpc_request_dedup;
 mod streams;
 mod time_travel;

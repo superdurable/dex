@@ -863,6 +863,22 @@ impl RegistryInner {
         })
     }
 
+    /// Returns whether an admitted transactional RPC of the Flow holds `lock_key` in `run_id`.
+    pub(super) fn is_rpc_lock_held(
+        self: &Arc<Self>,
+        flow: &FlowAddress,
+        run_id: RunId,
+        lock_key: &str,
+    ) -> bool {
+        self.lease_existing(flow).is_some_and(|lease| {
+            lease
+                .coordinator()
+                .lock_state()
+                .rpc_locks
+                .is_held(run_id, lock_key)
+        })
+    }
+
     fn flow_context(&self, flow: &FlowAddress) -> ApplyContext {
         let flow_hash = self
             .dependencies

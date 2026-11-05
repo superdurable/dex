@@ -15,11 +15,18 @@ use dexzd_protocol::dex::{
     Kv, StepCompletionOutput, StepMethodPendingReason, Value,
 };
 
-use crate::flow_coordination::read_operations::state_rows::{hydrate_value_reference, read_run};
+use dexzd_keyspace::row_keys::run_named_key;
+use dexzd_keyspace::{ColumnFamily, RunId, RunTable};
+use dexzd_protocol::dexzd::v1::StepExecutionRecord;
+
+use crate::flow_coordination::read_operations::state_rows::{
+    decode_row, hydrate_value_reference, read_run,
+};
 use crate::flow_coordination::{FlowAddress, FlowCoordinationError, RpcWorkerInvoker};
 
 /// Returns the Flow state projected by apply's read model, with value references replaced by
-/// their values when `is_hydrating`.
+/// their values when `is_hydrating`. `is_rpc_lock_held` reports the live locks of admitted
+/// transactional RPCs, which only the Flow's coordinator knows.
 ///
 /// Returns `NOT_FOUND` + `FLOW_NOT_EXISTS` when the run does not exist, and `Internal` when a
 /// value reference of the projection has no value row.
@@ -30,6 +37,7 @@ pub(crate) fn read_flow_state(
     request: &GetFlowStateRequest,
     is_hydrating: bool,
     workers: &dyn RpcWorkerInvoker,
+    is_rpc_lock_held: &dyn Fn(RunId, &str) -> bool,
 ) -> Result<GetFlowStateResponse, FlowCoordinationError> {
     let run = read_run(state, context, flow, &request.run_id)?;
     let mut response = get_flow_state(state, context.flow_hash, run.run_id)
@@ -42,13 +50,21 @@ pub(crate) fn read_flow_state(
         for invocation in invocations.into_iter().flatten() {
             let is_waiting_for_worker =
                 invocation.pending_reason == StepMethodPendingReason::WaitingForWorker as i32;
-            if is_waiting_for_worker
-                && workers.is_waiting_for_supporting_worker(
-                    flow.tenant_id.0,
-                    &run.record.flow_type,
-                    &step.step_type,
-                )
+            if !is_waiting_for_worker {
+                continue;
+            }
+            let lock_keys =
+                invocation_lock_keys(state, context, run.run_id, &step.step_execution_id)?;
+            if lock_keys
+                .iter()
+                .any(|lock_key| is_rpc_lock_held(run.run_id, lock_key))
             {
+                invocation.pending_reason = StepMethodPendingReason::WaitingForLocks as i32;
+            } else if workers.is_waiting_for_supporting_worker(
+                flow.tenant_id.0,
+                &run.record.flow_type,
+                &step.step_type,
+            ) {
                 invocation.pending_reason =
                     StepMethodPendingReason::WaitingForSupportingWorker as i32;
             }
@@ -67,6 +83,27 @@ pub(crate) fn read_flow_state(
         }
     }
     Ok(response)
+}
+
+/// Returns the lock keys of the Step execution's current invocation.
+fn invocation_lock_keys(
+    state: &dyn FlowStateReader,
+    context: ApplyContext,
+    run_id: RunId,
+    step_execution_id: &str,
+) -> Result<Vec<String>, FlowCoordinationError> {
+    let key = run_named_key(
+        context.flow_hash,
+        run_id,
+        RunTable::StepExecution,
+        step_execution_id,
+    );
+    let step: Option<StepExecutionRecord> =
+        decode_row(state, ColumnFamily::Flow, &key, "Step execution")?;
+    Ok(step
+        .and_then(|step| step.invocation)
+        .map(|invocation| invocation.lock_keys)
+        .unwrap_or_default())
 }
 
 /// Returns history events projected by apply's read model.

@@ -262,6 +262,8 @@ impl FlowCoordinatorRegistry {
         self.check_running()?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
         let committed = self.inner.dependencies.committer.committed_view()?;
+        let is_rpc_lock_held =
+            |run_id: RunId, lock_key: &str| self.inner.is_rpc_lock_held(&flow, run_id, lock_key);
         read_model_adapter::read_flow_state(
             committed.as_ref(),
             self.flow_context(&flow),
@@ -269,6 +271,7 @@ impl FlowCoordinatorRegistry {
             &request,
             self.inner.config.hydrate_value_references,
             self.inner.dependencies.rpc_invoker.as_ref(),
+            &is_rpc_lock_held,
         )
     }
 
