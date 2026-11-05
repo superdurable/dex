@@ -68,7 +68,7 @@ def generate_app_worker_id() -> str:
     return f"{cleaned or 'worker'}-{suffix}"
 
 
-# Identity only: a failed decompression would let gRPC end the stream cleanly.
+# The Server never compresses poll responses; identity only avoids unbounded inflation.
 _IDENTITY_COMPRESSION_ONLY_OPTIONS = (
     ("grpc.compression_enabled_algorithms_bitset", 1),
 )
