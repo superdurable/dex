@@ -345,12 +345,12 @@ Three options bound the time a Step method can take.
 | Limit | Option | Enforcement |
 | --- | --- | --- |
 | Longest single attempt | **WaitForMethodTimeout** or **ExecuteMethodTimeout** | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
-| Longest total time, including every retry | **TotalDuration** in the retry policy | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Time budget for retries | **TotalDuration** in the retry policy | The budget starts when Dex first hands attempt 1 to a Worker. After an attempt fails, Dex retries only while the budget has time left. It never stops an attempt in progress. |
 | Stalled Worker | **HeartbeatTimeout**, one minute by default | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. See [Heartbeat](#heartbeat). |
 
 A method timeout defaults to two hours, and the server has no hard cap. **TotalDuration** defaults to four hours.
 
-To bound a long wait, set the method timeout and **TotalDuration** to the same maximum. Dex enforces both, so the Step does not need its own deadline. Give the retry policy a few attempts with backoff for transient errors and Worker crashes.
+To bound a long wait, set the method timeout and **TotalDuration** to the same maximum. Dex enforces both, so the Step does not need its own deadline. **TotalDuration** only decides whether to retry after a failure, so the last attempt can end after it. With Workers available, the total wait is at most about **TotalDuration** plus one method timeout. Give the retry policy a few attempts with backoff for transient errors and Worker crashes.
 
 When a timeout expires, Dex fails the attempt with a timeout error. After retries end, the failure policy decides what happens next. If no failure route is configured, the Flow fails. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery). For a long wait on an external system, see [Polling](/design-patterns/polling).
 
