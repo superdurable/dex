@@ -13,7 +13,7 @@ package io.superdurable.dex;
 import com.google.protobuf.Empty;
 import io.grpc.Metadata;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
@@ -28,6 +28,7 @@ import io.superdurable.gen.ServerInfo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -50,7 +51,7 @@ final class ServerProtocolCompatibilityTest {
     @Test
     void clientIsLazyAndCachesProtocolThreeFailureForEveryMethod() throws Exception {
         final ProtocolService service = new ProtocolService(3, false);
-        final Server server = ServerBuilder.forPort(0).addService(service).build().start();
+        final Server server = startLoopbackServer(service);
         try (Client client = new Client(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                 new ClientOptions("127.0.0.1:" + server.getPort()))) {
             assertEquals(0, service.negotiations.get());
@@ -72,7 +73,7 @@ final class ServerProtocolCompatibilityTest {
     @Test
     void transientNegotiationFailureIsRetriedAndSuccessIsCached() throws Exception {
         final ProtocolService service = new ProtocolService(4, true);
-        final Server server = ServerBuilder.forPort(0).addService(service).build().start();
+        final Server server = startLoopbackServer(service);
         try (Client client = new Client(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                 new ClientOptions("127.0.0.1:" + server.getPort()))) {
             final DexServiceException unavailable = assertThrows(DexServiceException.class, client::healthCheck);
@@ -91,7 +92,7 @@ final class ServerProtocolCompatibilityTest {
     void everyClientNetworkMethodChecksProtocolBeforeSendingItsRequest() throws Exception {
         final ProtocolService service = new ProtocolService(3, false);
         final AtomicInteger nonNegotiationCalls = new AtomicInteger();
-        final Server server = ServerBuilder.forPort(0)
+        final Server server = NettyServerBuilder.forAddress(new InetSocketAddress("127.0.0.1", 0))
                 .addService(ServerInterceptors.intercept(service, new ServerInterceptor() {
                     @Override
                     public <Request, Response> ServerCall.Listener<Request> interceptCall(
@@ -152,7 +153,7 @@ final class ServerProtocolCompatibilityTest {
     void stalledNegotiationRespectsRequestTimeoutAndIsNotCached() throws Exception {
         final ProtocolService service = new ProtocolService(4, false);
         service.stall = new CountDownLatch(1);
-        final Server server = ServerBuilder.forPort(0).addService(service).build().start();
+        final Server server = startLoopbackServer(service);
         final ProtocolFlow flow = new ProtocolFlow();
         final ExecutorService callers = Executors.newFixedThreadPool(2);
         try (Client client = new Client(new Registry(Collections.<Flow<?>>singletonList(flow)),
@@ -172,7 +173,7 @@ final class ServerProtocolCompatibilityTest {
 
             final ProtocolService stalled = new ProtocolService(4, false);
             stalled.stall = new CountDownLatch(1);
-            final Server stalledServer = ServerBuilder.forPort(0).addService(stalled).build().start();
+            final Server stalledServer = startLoopbackServer(stalled);
             try (Client stalledClient = new Client(new Registry(Collections.<Flow<?>>singletonList(flow)),
                     new EmptyBlobCache(), new ClientOptions("127.0.0.1:" + stalledServer.getPort()))) {
                 final long firstCall = System.nanoTime();
@@ -197,7 +198,7 @@ final class ServerProtocolCompatibilityTest {
     void cancelledContextStopsWaitingForAnotherCallersNegotiation() throws Exception {
         final ProtocolService service = new ProtocolService(4, false);
         service.stall = new CountDownLatch(1);
-        final Server server = ServerBuilder.forPort(0).addService(service).build().start();
+        final Server server = startLoopbackServer(service);
         final ExecutorService callers = Executors.newFixedThreadPool(2);
         try (Client client = new Client(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                 new ClientOptions("127.0.0.1:" + server.getPort()))) {
@@ -224,6 +225,25 @@ final class ServerProtocolCompatibilityTest {
         } finally {
             service.stall.countDown();
             callers.shutdownNow();
+            server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void getAttributesNegotiationFailureKeepsItsCallContextAndIsRetried() throws Exception {
+        final ProtocolService service = new ProtocolService(4, true);
+        final Server server = startLoopbackServer(service);
+        try (Client client = new Client(new Registry(Collections.<Flow<?>>singletonList(new ProtocolFlow())),
+                new EmptyBlobCache(), new ClientOptions("127.0.0.1:" + server.getPort()))) {
+            final DexServiceException failure = assertThrows(DexServiceException.class,
+                    () -> client.getAttributes("flow", STATUS));
+            assertEquals(Status.Code.UNAVAILABLE, failure.getCode());
+            assertTrue(failure.getMessage().contains("getAttributes Flow flow Attributes status"),
+                    failure.getMessage());
+            assertEquals(1, service.negotiations.get());
+            client.healthCheck();
+            assertEquals(2, service.negotiations.get());
+        } finally {
             server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
         }
     }
@@ -275,6 +295,11 @@ final class ServerProtocolCompatibilityTest {
                     : progress == 2 ? StepAttemptProgress.NOT_COMPLETED : StepAttemptProgress.UNSPECIFIED,
                     error.getAttemptProgress());
         }
+    }
+
+    private static Server startLoopbackServer(final FlowServiceGrpc.FlowServiceImplBase service)
+            throws java.io.IOException {
+        return NettyServerBuilder.forAddress(new InetSocketAddress("127.0.0.1", 0)).addService(service).build().start();
     }
 
     private static final Attribute<String> STATUS = Attribute.define("status", String.class);

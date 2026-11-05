@@ -19,7 +19,7 @@ import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.Status;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
@@ -91,7 +91,7 @@ final class WorkerDispatchIntegrationTest {
     void rejectsIncompatibleServerBeforeIndexSyncAndPolling() throws Exception {
         final int flowPort = availablePort();
         final AtomicInteger syncCalls = new AtomicInteger();
-        final Server flowServer = ServerBuilder.forPort(flowPort)
+        final Server flowServer = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", flowPort))
                 .addService(new FlowServiceGrpc.FlowServiceImplBase() {
                     @Override
                     public void getServerInfo(
@@ -860,7 +860,7 @@ final class WorkerDispatchIntegrationTest {
     void hydratesBlobValuesThroughTheJavaCacheInterface() throws Exception {
         final AtomicInteger loads = new AtomicInteger();
         final int flowPort = availablePort();
-        final Server flowServer = ServerBuilder.forPort(flowPort)
+        final Server flowServer = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", flowPort))
                 .addService(new FlowServiceGrpc.FlowServiceImplBase() {
                     @Override
                     public void getServerInfo(
@@ -955,7 +955,7 @@ final class WorkerDispatchIntegrationTest {
         final PullTaskTestService client = new PullTaskTestService();
         final ManagedChannel upstream = serverAddress == null ? null
                 : ManagedChannelBuilder.forTarget(serverAddress).usePlaintext().build();
-        final Server flowServer = ServerBuilder.forPort(0)
+        final Server flowServer = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0))
                 .addService(client)
                 .addService(new FlowServiceGrpc.FlowServiceImplBase() {
                     @Override

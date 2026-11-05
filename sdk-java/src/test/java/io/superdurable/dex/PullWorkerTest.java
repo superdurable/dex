@@ -683,6 +683,126 @@ final class PullWorkerTest {
     }
 
     @Test
+    void blockedHalfCloseDoesNotDelayStopDeadlineReset() throws Exception {
+        final PollServer pollServer = new PollServer();
+        final CountDownLatch release = new CountDownLatch(1);
+        try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 1, Duration.ofMillis(100))) {
+            final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            running.wrapOnlyStreamRequests(new BlockingRequests(release, true));
+            assertStopResetsByDeadline(running, stream);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void blockedSendDoesNotDelayStopDeadlineReset() throws Exception {
+        final PollServer pollServer = new PollServer();
+        final CountDownLatch release = new CountDownLatch(1);
+        try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 1, Duration.ofMillis(100))) {
+            final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            final BlockingRequests blocking = new BlockingRequests(release, false);
+            running.wrapOnlyStreamRequests(blocking);
+            stream.respond(PollWorkerTaskResponse.newBuilder()
+                    .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+            assertTrue(blocking.blocked.await(5, TimeUnit.SECONDS));
+            assertStopResetsByDeadline(running, stream);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    private static void assertStopResetsByDeadline(final RunningWorker running, final PollStream stream)
+            throws Exception {
+        final Thread stopping = new Thread(() -> running.worker.stop(), "dex-java-pull-unit-blocked-stop");
+        final long started = System.nanoTime();
+        stopping.start();
+        stopping.join(3000L);
+        assertFalse(stopping.isAlive());
+        assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(3));
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!stream.readControl.isCancelled() && System.nanoTime() < deadline) {
+            Thread.sleep(10L);
+        }
+        assertTrue(stream.readControl.isCancelled());
+        assertFalse(stream.isHalfClosed);
+    }
+
+    @Test
+    void malformedTaskDeadlineResetsWithoutHandlerOrLeakedSlot() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1, Duration.ofMillis(100))) {
+            final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+            stream.assign(executeTask("malformed-deadline", "small").toBuilder()
+                    .setDeadline(Timestamp.newBuilder().setSeconds(Long.MAX_VALUE)).build());
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!stream.readControl.isCancelled() && System.nanoTime() < deadline) {
+                Thread.sleep(10L);
+            }
+            assertTrue(stream.readControl.isCancelled());
+            assertFalse(stream.isHalfClosed);
+            assertTrue(stream.frames.isEmpty());
+            final PollStream reconnected = pollServer.awaitQueue("PullTestFlow");
+            reconnected.assign(executeTask("after-malformed", "small"));
+            assertTrue(reconnected.awaitFrame().getTaskFrame().getExecute().hasResult());
+            assertEquals(1, flow.executeCalls.get());
+            final long stopStarted = System.nanoTime();
+            running.worker.stop();
+            assertTrue(System.nanoTime() - stopStarted < TimeUnit.SECONDS.toNanos(3));
+        }
+    }
+
+    private static final class BlockingRequests
+            implements java.util.function.UnaryOperator<StreamObserver<PollWorkerTaskRequest>> {
+        private final CountDownLatch release;
+        private final boolean shouldBlockHalfClose;
+        private final CountDownLatch blocked = new CountDownLatch(1);
+
+        private BlockingRequests(final CountDownLatch release, final boolean shouldBlockHalfClose) {
+            this.release = release;
+            this.shouldBlockHalfClose = shouldBlockHalfClose;
+        }
+
+        @Override
+        public StreamObserver<PollWorkerTaskRequest> apply(final StreamObserver<PollWorkerTaskRequest> delegate) {
+            return new StreamObserver<PollWorkerTaskRequest>() {
+                @Override
+                public void onNext(final PollWorkerTaskRequest request) {
+                    if (!shouldBlockHalfClose) {
+                        awaitRelease();
+                    }
+                    delegate.onNext(request);
+                }
+
+                @Override
+                public void onError(final Throwable failure) {
+                    delegate.onError(failure);
+                }
+
+                @Override
+                public void onCompleted() {
+                    if (shouldBlockHalfClose) {
+                        awaitRelease();
+                    }
+                    delegate.onCompleted();
+                }
+            };
+        }
+
+        private void awaitRelease() {
+            blocked.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    @Test
     void stopResetsHalfClosedIdleStreamWithoutServerEofByTheDeadline() throws Exception {
         final PollServer pollServer = new PollServer(Duration.ofSeconds(60));
         try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 1, Duration.ofMillis(300))) {
@@ -1756,6 +1876,23 @@ final class PullWorkerTest {
             assertEquals(expected, idleStreamCount(queue));
         }
 
+        @SuppressWarnings("unchecked")
+        private void wrapOnlyStreamRequests(
+                final java.util.function.UnaryOperator<StreamObserver<PollWorkerTaskRequest>> wrapper)
+                throws ReflectiveOperationException {
+            final PullWorker pullWorker = pullWorker();
+            final Field streamsField = PullWorker.class.getDeclaredField("streams");
+            streamsField.setAccessible(true);
+            synchronized (pullWorker) {
+                final java.util.List<?> streams = (java.util.List<?>) streamsField.get(pullWorker);
+                assertEquals(1, streams.size());
+                final Field requestsField = streams.get(0).getClass().getDeclaredField("requests");
+                requestsField.setAccessible(true);
+                requestsField.set(streams.get(0), wrapper.apply(
+                        (StreamObserver<PollWorkerTaskRequest>) requestsField.get(streams.get(0))));
+            }
+        }
+
         private PullWorker pullWorker() throws ReflectiveOperationException {
             final Field pullWorkerField = Worker.class.getDeclaredField("pullWorker");
             pullWorkerField.setAccessible(true);
@@ -1784,7 +1921,7 @@ final class PullWorkerTest {
                 final Integer reservedRpcTasks) throws IOException {
             this.pollServer = pollServer;
             this.shouldStopOnRejection = shouldStopOnRejection;
-            server = NettyServerBuilder.forPort(0).flowControlWindow(64 * 1024)
+            server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0)).flowControlWindow(64 * 1024)
                     .addService(new FlowServiceGrpc.FlowServiceImplBase() {
                         @Override
                         public void getServerInfo(

@@ -15,7 +15,7 @@ import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
@@ -634,7 +634,7 @@ final class HardDeleteAttributeMappingTest {
 
         private FakeFlowService(final int currentProtocolVersion) throws IOException {
             this.currentProtocolVersion = currentProtocolVersion;
-            this.server = ServerBuilder.forPort(0).addService(this).addService(tasks).build().start();
+            this.server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0)).addService(this).addService(tasks).build().start();
         }
 
         String getAddress() {

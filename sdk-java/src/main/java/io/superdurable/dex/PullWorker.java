@@ -35,7 +35,9 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.DateTimeException;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -43,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -65,6 +68,8 @@ final class PullWorker {
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
     private final ScheduledThreadPoolExecutor scheduler;
+    // Runs transport writes outside the PullWorker monitor so a blocked write never delays a reset.
+    private final ExecutorService streamWriters;
     private final PullWorkerOptions options;
     private final List<String> flowTypes;
     private final Map<String, Registry.RegisteredFlow> registeredFlows;
@@ -135,6 +140,11 @@ final class PullWorker {
             scheduler.shutdownNow();
             throw new IllegalArgumentException("appWorkerID conflicts with Flow type " + appWorkerID);
         }
+        this.streamWriters = Executors.newCachedThreadPool(runnable -> {
+            final Thread thread = new Thread(runnable, "dex-java-pull-writer");
+            thread.setDaemon(true);
+            return thread;
+        });
         this.slotKinds = new ArrayList<PollWorkerSlotKind>();
         slotKinds.add(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC);
         if (options.getReservedRpcTasks() > 0) {
@@ -417,6 +427,7 @@ final class PullWorker {
             }
         }
         scheduler.shutdownNow();
+        streamWriters.shutdownNow();
         if (interrupted) {
             Thread.currentThread().interrupt();
         }
@@ -461,6 +472,8 @@ final class PullWorker {
         private ClientCallStreamObserver<PollWorkerTaskRequest> transport;
         private PollWorkerTask pendingTask;
         private boolean isPendingTaskCancelled;
+        private final ArrayDeque<PendingWrite> pendingWrites = new ArrayDeque<PendingWrite>();
+        private boolean isWriterScheduled;
         private boolean hasUnconfirmedFinalOutput;
         private Context.CancellableContext taskContext;
         private ScheduledFuture<?> deadlineTimer;
@@ -567,9 +580,7 @@ final class PullWorker {
                         hasRetriedRejectedToken = false;
                         reconcile();
                     } else {
-                        requests.onError(Status.INTERNAL
-                                .withDescription("Worker task stream did not register")
-                                .asRuntimeException());
+                        reset("Worker task stream did not register");
                     }
                     return;
                 }
@@ -630,10 +641,19 @@ final class PullWorker {
                 return;
             }
             if (isBusy) {
-                final RuntimeException failure = Status.INTERNAL
-                        .withDescription("Server assigned two tasks to one reserved slot").asRuntimeException();
-                requests.onError(failure);
-                close(failure);
+                reset("Server assigned two tasks to one reserved slot");
+                return;
+            }
+            final long deadlineDelayMillis;
+            try {
+                deadlineDelayMillis = deadlineDelayMillis(task);
+            } catch (DateTimeException | ArithmeticException malformed) {
+                LOGGER.log(Level.WARNING, "Worker task has a malformed deadline", malformed);
+                reset("Worker task has a malformed deadline");
+                return;
+            }
+            if (task.getRequestCase() == PollWorkerTask.RequestCase.REQUEST_NOT_SET) {
+                reset("Worker task has no request");
                 return;
             }
             final PollWorkerTaskRejectReason unknownReason = unknownTaskReason(task);
@@ -647,6 +667,29 @@ final class PullWorker {
             taskID = task.getTaskId();
             taskContext = Context.current().withCancellation();
             cancellationStatus = null;
+            try {
+                scheduleTaskTimers(deadlineDelayMillis);
+                handlers.execute(() -> runTask(task));
+            } catch (RuntimeException admissionFailure) {
+                LOGGER.log(Level.WARNING, "cannot start Worker task", admissionFailure);
+                reset("Worker cannot start task");
+                finishTask();
+                return;
+            }
+            reconcile();
+        }
+
+        // Returns Long.MAX_VALUE without a deadline; throws for an unrepresentable deadline.
+        private long deadlineDelayMillis(final PollWorkerTask task) {
+            if (!task.hasDeadline()) {
+                return Long.MAX_VALUE;
+            }
+            final Instant deadline = Instant.ofEpochSecond(
+                    task.getDeadline().getSeconds(), task.getDeadline().getNanos());
+            return Duration.between(Instant.now(), deadline).toMillis();
+        }
+
+        private void scheduleTaskTimers(final long deadlineDelayMillis) {
             keepaliveTimer = scheduler.scheduleAtFixedRate(() -> {
                 synchronized (PullWorker.this) {
                     if (isBusy && !isFinalFrameSent && !isHalfClosed && !isClosed) {
@@ -655,33 +698,21 @@ final class PullWorker {
                     }
                 }
             }, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, TimeUnit.SECONDS);
-            if (task.hasDeadline()) {
-                final Instant deadline = Instant.ofEpochSecond(
-                        task.getDeadline().getSeconds(), task.getDeadline().getNanos());
-                final long delay = Duration.between(Instant.now(), deadline).toMillis();
-                if (delay <= 0L) {
-                    cancelTask(Status.Code.DEADLINE_EXCEEDED);
-                } else {
-                    final String deadlineTaskID = taskID;
-                    deadlineTimer = scheduler.schedule(() -> {
-                        synchronized (PullWorker.this) {
-                            if (deadlineTaskID.equals(taskID)) {
-                                cancelTask(Status.Code.DEADLINE_EXCEEDED);
-                            }
-                        }
-                    },
-                            delay, TimeUnit.MILLISECONDS);
-                }
-            }
-            try {
-                handlers.execute(() -> runTask(task));
-            } catch (RejectedExecutionException rejected) {
-                requests.onError(rejected);
-                close(rejected);
-                finishTask();
+            if (deadlineDelayMillis == Long.MAX_VALUE) {
                 return;
             }
-            reconcile();
+            if (deadlineDelayMillis <= 0L) {
+                cancelTask(Status.Code.DEADLINE_EXCEEDED);
+                return;
+            }
+            final String deadlineTaskID = taskID;
+            deadlineTimer = scheduler.schedule(() -> {
+                synchronized (PullWorker.this) {
+                    if (deadlineTaskID.equals(taskID)) {
+                        cancelTask(Status.Code.DEADLINE_EXCEEDED);
+                    }
+                }
+            }, deadlineDelayMillis, TimeUnit.MILLISECONDS);
         }
 
         private void reject(final String rejectedTaskID, final PollWorkerTaskRejectReason reason) {
@@ -815,15 +846,49 @@ final class PullWorker {
             synchronized (PullWorker.this) {
                 if (!isHalfClosed && !isClosed && requests != null
                         && (!request.hasPong() || !isFinalFrameSent)) {
-                    try {
-                        requests.onNext(request);
-                    } catch (RuntimeException failure) {
-                        try {
-                            transport.cancel("Worker task frame send failed", failure);
-                        } finally {
-                            close(failure);
+                    enqueueWrite(request);
+                }
+            }
+        }
+
+        // A null request half-closes; the writer preserves frame order on this connection.
+        private void enqueueWrite(final PollWorkerTaskRequest request) {
+            pendingWrites.add(new PendingWrite(requests, request, openGeneration));
+            if (isWriterScheduled) {
+                return;
+            }
+            isWriterScheduled = true;
+            try {
+                streamWriters.execute(this::drainWrites);
+            } catch (RejectedExecutionException rejected) {
+                isWriterScheduled = false;
+                pendingWrites.clear();
+                reset("Worker stream writer stopped");
+            }
+        }
+
+        private void drainWrites() {
+            while (true) {
+                final PendingWrite write;
+                synchronized (PullWorker.this) {
+                    write = pendingWrites.poll();
+                    if (write == null) {
+                        isWriterScheduled = false;
+                        return;
+                    }
+                }
+                try {
+                    if (write.request == null) {
+                        write.requests.onCompleted();
+                    } else {
+                        write.requests.onNext(write.request);
+                    }
+                } catch (RuntimeException failure) {
+                    synchronized (PullWorker.this) {
+                        if (write.generation == openGeneration && !isClosed) {
+                            LOGGER.log(Level.WARNING, "Worker task stream write failed", failure);
+                            reset("Worker task stream write failed");
                         }
-                        throw failure;
                     }
                 }
             }
@@ -884,7 +949,9 @@ final class PullWorker {
         private void reset(final String reason) {
             final RuntimeException failure = Status.INTERNAL.withDescription(reason).asRuntimeException();
             try {
-                transport.cancel(reason, failure);
+                if (transport != null) {
+                    transport.cancel(reason, failure);
+                }
             } catch (RuntimeException cancelFailure) {
                 LOGGER.log(Level.WARNING, "reset Worker task stream", cancelFailure);
             } finally {
@@ -922,16 +989,7 @@ final class PullWorker {
                 return;
             }
             isHalfClosed = true;
-            try {
-                requests.onCompleted();
-            } catch (RuntimeException failure) {
-                try {
-                    transport.cancel("Worker stream half-close failed", failure);
-                } finally {
-                    close(failure);
-                }
-                return;
-            }
+            enqueueWrite(null);
             scheduleCloseFallback();
         }
 
@@ -990,6 +1048,7 @@ final class PullWorker {
                     GrpcCredential.rejectToken(credential, rejectedToken);
                 }
                 isClosed = true;
+                pendingWrites.clear();
                 recordStreamResult(this, failure);
                 closeFailure = failure;
                 if (closeTimer != null) {
@@ -1049,6 +1108,19 @@ final class PullWorker {
                 }
             }, delay, TimeUnit.MILLISECONDS);
             PullWorker.this.notifyAll();
+        }
+    }
+
+    private static final class PendingWrite {
+        private final StreamObserver<PollWorkerTaskRequest> requests;
+        private final PollWorkerTaskRequest request;
+        private final int generation;
+
+        private PendingWrite(final StreamObserver<PollWorkerTaskRequest> requests,
+                final PollWorkerTaskRequest request, final int generation) {
+            this.requests = requests;
+            this.request = request;
+            this.generation = generation;
         }
     }
 }

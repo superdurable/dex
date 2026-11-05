@@ -17,7 +17,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Metadata;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
@@ -402,7 +402,7 @@ final class CredentialTest {
                     return next.startCall(call, metadata);
                 }
             };
-            server = ServerBuilder.forPort(0)
+            server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0))
                     .addService(ServerInterceptors.intercept(
                             new FlowServiceGrpc.FlowServiceImplBase() {
                                 @Override

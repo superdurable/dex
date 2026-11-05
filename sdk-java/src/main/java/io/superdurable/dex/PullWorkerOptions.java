@@ -179,8 +179,9 @@ public final class PullWorkerOptions {
         /**
          * Sets how long Stop waits for active pull tasks before canceling them.
          *
-         * <p>A canceled handler must return before Stop completes. A stream whose final output is
-         * already queued gets a five-second flush grace after the timeout before it is reset.
+         * <p>A canceled handler must return before Stop completes. A stream whose final output the
+         * Server has not yet confirmed gets a five-second flush grace after the timeout. The Server
+         * confirms it by ending the stream or by assigning the stream's next task.
          *
          * @param value a nonnegative duration; zero uses 30 seconds
          * @return this builder

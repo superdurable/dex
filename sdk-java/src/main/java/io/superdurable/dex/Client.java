@@ -316,19 +316,24 @@ public final class Client implements AutoCloseable {
         negotiateServerProtocol(NO_REQUEST_DEADLINE);
     }
 
-    // deadlineNanos is a System.nanoTime() deadline, or NO_REQUEST_DEADLINE.
     void negotiateServerProtocol(final long deadlineNanos) {
+        negotiateServerProtocol(deadlineNanos, null);
+    }
+
+    // deadlineNanos is a System.nanoTime() deadline, or NO_REQUEST_DEADLINE.
+    // A non-null detailPrefix starts the detail of a translated failure.
+    private void negotiateServerProtocol(final long deadlineNanos, final String detailPrefix) {
         if (serverProtocol.isNegotiated()) {
             return;
         }
         throwIfServerProtocolIncompatible();
-        acquireServerProtocolNegotiationLock(deadlineNanos);
+        acquireServerProtocolNegotiationLock(deadlineNanos, detailPrefix);
         try {
             if (serverProtocol.isNegotiated()) {
                 return;
             }
             throwIfServerProtocolIncompatible();
-            final ServerInfo serverInfo = readServerInfo(deadlineNanos);
+            final ServerInfo serverInfo = readServerInfo(deadlineNanos, detailPrefix);
             try {
                 serverProtocol.recordNegotiatedVersion(ServerProtocolCompatibility.negotiate(
                         serverInfo, ServerProtocolCompatibility.sdkVersion()));
@@ -348,7 +353,8 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    private void acquireServerProtocolNegotiationLock(final long deadlineNanos) {
+    private void acquireServerProtocolNegotiationLock(final long deadlineNanos,
+            final String detailPrefix) {
         final io.grpc.Context callerContext = io.grpc.Context.current();
         final long lockDeadlineNanos = earliestCallerDeadline(deadlineNanos);
         try {
@@ -356,7 +362,7 @@ public final class Client implements AutoCloseable {
                 if (callerContext.isCancelled()) {
                     throw GrpcExceptionTranslator.translate(
                             io.grpc.Contexts.statusFromCancelled(callerContext).asRuntimeException(),
-                            FlowTargetRequirement.NONE, null);
+                            FlowTargetRequirement.NONE, null, detailPrefix);
                 }
                 long waitNanos = NEGOTIATION_LOCK_POLL_NANOS;
                 if (lockDeadlineNanos != NO_REQUEST_DEADLINE) {
@@ -374,11 +380,11 @@ public final class Client implements AutoCloseable {
             Thread.currentThread().interrupt();
             throw GrpcExceptionTranslator.translate(io.grpc.Status.CANCELLED
                     .withDescription("interrupted while waiting for Server protocol negotiation")
-                    .withCause(interruption).asRuntimeException(), FlowTargetRequirement.NONE, null);
+                    .withCause(interruption).asRuntimeException(), FlowTargetRequirement.NONE, null, detailPrefix);
         }
         throw GrpcExceptionTranslator.translate(io.grpc.Status.DEADLINE_EXCEEDED
                 .withDescription("request deadline expired during Server protocol negotiation")
-                .asRuntimeException(), FlowTargetRequirement.NONE, null);
+                .asRuntimeException(), FlowTargetRequirement.NONE, null, detailPrefix);
     }
 
     // Combines the request budget with the caller's gRPC Context deadline.
@@ -393,7 +399,7 @@ public final class Client implements AutoCloseable {
                 ? contextDeadlineNanos : Math.min(deadlineNanos, contextDeadlineNanos);
     }
 
-    private ServerInfo readServerInfo(final long deadlineNanos) {
+    private ServerInfo readServerInfo(final long deadlineNanos, final String detailPrefix) {
         long timeoutNanos = TimeUnit.SECONDS.toNanos(SERVER_INFO_TIMEOUT_SECONDS);
         if (deadlineNanos != NO_REQUEST_DEADLINE) {
             timeoutNanos = Math.min(timeoutNanos, deadlineNanos - System.nanoTime());
@@ -401,7 +407,7 @@ public final class Client implements AutoCloseable {
         if (timeoutNanos <= 0) {
             throw GrpcExceptionTranslator.translate(io.grpc.Status.DEADLINE_EXCEEDED
                     .withDescription("request deadline expired before Server protocol negotiation")
-                    .asRuntimeException(), FlowTargetRequirement.NONE, null);
+                    .asRuntimeException(), FlowTargetRequirement.NONE, null, detailPrefix);
         }
         final FlowServiceGrpc.FlowServiceBlockingStub serverInfoService =
                 service.withDeadlineAfter(timeoutNanos, TimeUnit.NANOSECONDS);
@@ -409,7 +415,7 @@ public final class Client implements AutoCloseable {
             return GrpcCredential.callUnaryWithRetry(options.getCredential(),
                     () -> serverInfoService.getServerInfo(Empty.getDefaultInstance()));
         } catch (StatusRuntimeException failure) {
-            throw GrpcExceptionTranslator.translate(failure, FlowTargetRequirement.NONE, null);
+            throw GrpcExceptionTranslator.translate(failure, FlowTargetRequirement.NONE, null, detailPrefix);
         }
     }
 
@@ -1112,7 +1118,7 @@ public final class Client implements AutoCloseable {
             final Set<String> keys) {
         final String context = "getAttributes Flow " + flowId + " Attributes "
                 + String.join(", ", keys);
-        negotiateServerProtocol();
+        negotiateServerProtocol(NO_REQUEST_DEADLINE, context);
         final GetAttributesResponse response;
         try {
             response = GrpcCredential.callUnaryWithRetry(
