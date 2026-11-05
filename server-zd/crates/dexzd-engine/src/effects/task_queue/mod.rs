@@ -300,7 +300,10 @@ pub(crate) fn next_queue_ref(
         )? {
             BoundedRowSeek::Found(row) => row,
             BoundedRowSeek::Exhausted => return Ok(None),
-            BoundedRowSeek::Incomplete => return Err(too_many_deleted_entries()),
+            BoundedRowSeek::Incomplete => {
+                context.metrics.step_task_queue_incomplete_seeks.inc();
+                return Err(too_many_deleted_entries());
+            }
         };
         start.clone_from(&key);
         start.push(0);

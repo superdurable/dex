@@ -919,7 +919,7 @@ key label。
 | Flow 关闭 | **dexzd_flow_closes_total**，带 **close_status**；**dexzd_flow_end_to_end_latency_seconds** |
 | 派发延迟 | **dexzd_step_schedule_to_start_latency_seconds** |
 | Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks**（只计内存中的等待者） |
-| Step 任务队列 | **dexzd_step_task_queue_entries**；**dexzd_step_task_queue_oldest_age_seconds**；**dexzd_matching_unserved_task_queues**，带 **reason**；**dexzd_matching_heads_restored_refs_total**；**dexzd_matching_heads_incomplete_scans_total** |
+| Step 任务队列 | **dexzd_step_task_queue_entries**；**dexzd_step_task_queue_oldest_age_seconds**；**dexzd_matching_unserved_task_queues**，带 **reason**；**dexzd_matching_heads_restored_refs_total**；**dexzd_matching_heads_incomplete_scans_total**；**dexzd_step_task_queue_incomplete_seeks_total** |
 | 提交延迟 | **dexzd_commit_latency_seconds** |
 | 对象存储 | **dexzd_object_store_requests_total**，带 **operation** 和 **object_kind**；**dexzd_object_store_request_errors_total**，带 **operation** |
 | Lease 和节点状态 | **dexzd_node_role**，带 **role**；**dexzd_lease_epoch**；**dexzd_lease_renewals_total**，带 **outcome** |
@@ -1056,6 +1056,7 @@ RPC 从不排队。如果在 **dispatchWait** 内没有可用的 Worker，RPC �
 **dexzd_matching_heads_restored_refs_total** 是应保持为 0 的 counter。如果它不为 0，请查看 WARN 日志
 "periodic Heads restored a queued task that matching had lost"，并把它当作 bug 报告。
 **dexzd_matching_heads_incomplete_scans_total** 统计未完成的检查次数。
+**dexzd_step_task_queue_incomplete_seeks_total** 统计查找下一个排队任务时跳过了过多已删除条目的次数。Dex 会在退避后重试每一次。持续增长说明 compaction 跟不上。
 
 当前 SDK 在任务运行期间每 20 秒发送一次上行 **Pong** 帧。请为长连接 HTTP/2 stream 配置负载均衡器和
 代理，并把它们的空闲超时设置得高于 20 秒和 **matching.pingInterval**，同时留出网络延迟的余量。

@@ -189,6 +189,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         "dexzd_matching_unserved_task_queues",
         "dexzd_matching_heads_restored_refs_total",
         "dexzd_matching_heads_incomplete_scans_total",
+        "dexzd_step_task_queue_incomplete_seeks_total",
         "dexzd_step_attempt_failures_total",
         "dexzd_step_retries_exhausted_total",
         "dexzd_flow_closes_total",
@@ -322,7 +323,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .lines()
         .filter(|line| !line.starts_with('#') && !line.is_empty())
         .count();
-    assert!(series_count <= 185, "scrape has {series_count} series");
+    assert!(series_count <= 186, "scrape has {series_count} series");
     eprintln!("metrics scenario series count: {series_count}");
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());

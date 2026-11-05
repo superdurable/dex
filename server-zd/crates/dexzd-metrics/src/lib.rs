@@ -126,6 +126,9 @@ pub struct NodeMetrics {
     /// Queues a periodic Heads scan skipped because a seek met too many deleted entries or a
     /// read failed.
     pub matching_heads_incomplete_scans: Counter,
+    /// Next-row seeks of Claim replies and owed refs that met too many deleted entries; each is
+    /// retried after a backoff.
+    pub step_task_queue_incomplete_seeks: Counter,
     /// Worker frames that break the reserved-slot dispatch protocol.
     pub worker_stream_protocol_errors: WorkerStreamProtocolErrors,
     /// Failed Step method attempts.
@@ -407,6 +410,11 @@ impl NodeMetrics {
             metrics.matching_heads_incomplete_scans.clone(),
         );
         registry.register(
+            "dexzd_step_task_queue_incomplete_seeks",
+            "Next queued row seeks that met too many deleted entries and retry after a backoff.",
+            metrics.step_task_queue_incomplete_seeks.clone(),
+        );
+        registry.register(
             "dexzd_step_attempts_returned",
             "Started Step attempts returned to pending without consuming a retry.",
             metrics.step_attempts_returned.clone(),
@@ -608,6 +616,7 @@ impl NodeMetrics {
             matching_unserved_task_queues: UnservedTaskQueues::default(),
             matching_heads_restored_refs: Counter::default(),
             matching_heads_incomplete_scans: Counter::default(),
+            step_task_queue_incomplete_seeks: Counter::default(),
             worker_stream_protocol_errors: WorkerStreamProtocolErrors::default(),
             step_attempt_failures: StepAttemptFailures::default(),
             step_retries_exhausted: StepRetriesExhausted::default(),
