@@ -432,9 +432,10 @@ handler, including frames arriving after half-close. Each stream keeps reading u
 the Server ends it. At the drain deadline (30 seconds by default), a stream whose
 handler is still running and has not queued its final output is reset rather than
 half-closed; its handler is cancelled, and Dex treats that task as one that may have run.
-A stream whose final output is already queued still sends it and half-closes. After a
-final output, a stream waits up to five seconds for the Server to end it, so Stop can
-return up to five seconds after the deadline. Every other stream still open at the
+A stream whose final output is already queued still sends it and half-closes. A stream
+whose last final output Dex has not yet acknowledged with a new task waits up to five
+seconds past the deadline for the Server to end it, even after its handler returned, so
+Stop can return up to five seconds after the deadline. Every other stream still open at the
 deadline, including one blocked on a send, is reset. An idle stream that receives a
 Server Reconnect half-closes instead. `Worker::start` waits for cancelled handlers to
 return. Set

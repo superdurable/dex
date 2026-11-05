@@ -126,8 +126,9 @@ impl PullWorkerOptions {
     /// At the deadline, a stream with a running handler is reset instead of half-closed.
     /// [`crate::Worker::start`] waits for cancelled handlers to return before it exits.
     /// Every other stream still waiting for the Server to end it is reset at the deadline.
-    /// A stream that queued or sent a final output waits up to five seconds after that output
-    /// for the Server to end it, so Stop can return up to five seconds after this deadline.
+    /// A stream whose last final output Dex has not yet acknowledged with a new task waits up to
+    /// five seconds past this deadline for the Server to end it, then is reset.
+    /// Stop can therefore return up to five seconds after this deadline.
     pub fn stop_drain_timeout(mut self, value: Duration) -> Self {
         self.stop_drain_timeout = Some(value);
         self

@@ -53,7 +53,7 @@ use worker_identity::{generate_app_worker_id, validate_app_worker_id};
 const DRAINING: u8 = 1;
 const FORCED: u8 = 2;
 const BUSY_PULL_STREAM_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
-// After a final output, waiting for Server EOF may outlast the stop deadline by this grace.
+// A slot whose final output may still be in flight waits this long past the stop deadline.
 const FINAL_OUTPUT_FLUSH_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy)]
@@ -506,6 +506,8 @@ impl PullStream {
         let mut active: Option<ActiveTask> = None;
         let mut final_frame_sent = Arc::new(Mutex::new(false));
         let mut keepalive_interval: Option<Interval> = None;
+        // Only the next task assignment proves that Dex received the previous final output.
+        let mut has_unacknowledged_final_output = false;
         loop {
             if self.stop.borrow().phase != 0 && active.is_none() {
                 reset_guard.allow_clean_half_close();
@@ -514,7 +516,8 @@ impl PullStream {
                     &mut response_stream,
                     &mut self.stop,
                     self.stop_drain_timeout,
-                    None,
+                    has_unacknowledged_final_output,
+                    &reset_guard,
                 )
                 .await;
                 return (was_registered, false, result);
@@ -530,7 +533,7 @@ impl PullStream {
                                         if let Err(status) = self.shared.check_registration_limit(registered.max_concurrent_tasks_per_app_worker) {
                                             // Half-close and drop later tasks so Dex returns them without consuming an attempt.
                                             reset_guard.allow_clean_half_close();
-                                            if let Err(drain_status) = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, None).await {
+                                            if let Err(drain_status) = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, false, &reset_guard).await {
                                                 tracing::debug!(%drain_status, "drain Worker stream after registration limit failure");
                                             }
                                             return (false, false, Err(status));
@@ -546,6 +549,7 @@ impl PullStream {
                             }
                             match response.frame {
                                 Some(ResponseFrame::Task(task)) => {
+                                    has_unacknowledged_final_output = false;
                                     if self.is_task_start_closed() {
                                         continue;
                                     }
@@ -629,6 +633,10 @@ impl PullStream {
                                     is_draining = true;
                                     if active.is_none() {
                                         reset_guard.allow_clean_half_close();
+                                        if has_unacknowledged_final_output {
+                                            let result = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, true, &reset_guard).await;
+                                            return (was_registered, self.stop.borrow().phase == 0, result);
+                                        }
                                         return (was_registered, true, Ok(()));
                                     }
                                     self.shared.notify.notify_one();
@@ -661,11 +669,11 @@ impl PullStream {
                         reset_guard.reset();
                         return (was_registered, false, Err(Status::internal("Worker task ended without final output; reset stream")));
                     }
+                    has_unacknowledged_final_output = true;
                     if is_draining || self.stop.borrow().phase != 0 {
                         let is_reconnecting = is_draining && self.stop.borrow().phase == 0;
                         reset_guard.allow_clean_half_close();
-                        let flush_deadline = Some(Instant::now() + FINAL_OUTPUT_FLUSH_GRACE);
-                        let result = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, flush_deadline).await;
+                        let result = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, true, &reset_guard).await;
                         return (was_registered, is_reconnecting, result);
                     }
                 }
@@ -692,7 +700,6 @@ impl PullStream {
                 change = self.stop.changed() => {
                     if change.is_err() || self.stop.borrow().phase != 0 {
                         is_draining = true;
-                        let mut flush_deadline = None;
                         if self.stop.borrow().phase >= FORCED && let Some(task) = &active {
                             if task.cancel_unless_final_frame_sent(Code::Cancelled) {
                                 reset_guard.reset();
@@ -701,15 +708,15 @@ impl PullStream {
                                 return (was_registered, false, Err(Status::cancelled("Worker stop timeout reset busy stream")));
                             }
                             // The final output is already queued; a reset could drop it and rerun the task.
-                            if let Some(finished) = active.take() && let Err(error) = finished.handler.await {
-                                tracing::error!(%error, "pull Worker handler failed");
+                            if let Some(finished) = active.take() {
+                                finish_handler_after_final_output(finished.handler).await;
                             }
                             self.shared.release(self.stream_id);
-                            flush_deadline = Some(Instant::now() + FINAL_OUTPUT_FLUSH_GRACE);
+                            has_unacknowledged_final_output = true;
                         }
                         if active.is_none() {
                             reset_guard.allow_clean_half_close();
-                            let result = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, flush_deadline).await;
+                            let result = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, has_unacknowledged_final_output, &reset_guard).await;
                             return (was_registered, false, result);
                         }
                     }
@@ -916,42 +923,68 @@ async fn wait_for_forced_stop(stop: &mut watch::Receiver<StopSignal>) {
     }
 }
 
-/// Half-closes the request side and reads until Server EOF, the stop deadline, or the later
-/// `flush_deadline` given after a final output. Returns an error when the stream fails or a
-/// deadline expires; the caller then drops the unfinished response stream, which resets it.
+/// Waits a bounded time for a handler that already queued its final output, then aborts it.
+async fn finish_handler_after_final_output(mut handler: JoinHandle<()>) {
+    match timeout_at(Instant::now() + FINAL_OUTPUT_FLUSH_GRACE, &mut handler).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::error!(%error, "pull Worker handler failed"),
+        Err(_) => {
+            tracing::warn!(
+                "pull Worker handler did not return after its final output; aborting it"
+            );
+            handler.abort();
+        }
+    }
+}
+
+/// Half-closes the request side and reads until Server EOF or the stop deadline, extended by
+/// [`FINAL_OUTPUT_FLUSH_GRACE`] when a final output may still be in flight. Returns `Ok(())` on
+/// Server EOF. Returns an error after resetting the stream when it fails or the deadline expires.
 async fn close_poll_send_and_wait(
     sender: &mut Option<mpsc::Sender<PollWorkerTaskRequest>>,
     responses: &mut tonic::Streaming<dex_protocol::dex::PollWorkerTaskResponse>,
     stop: &mut watch::Receiver<StopSignal>,
     stop_drain_timeout: Duration,
-    flush_deadline: Option<Instant>,
+    has_unacknowledged_final_output: bool,
+    reset_guard: &poll_transport::PollStreamResetGuard,
 ) -> Result<(), Status> {
     sender.take();
-    let with_flush_grace =
-        |deadline: Instant| flush_deadline.map_or(deadline, |flush| flush.max(deadline));
+    let with_flush_grace = |deadline: Instant| {
+        if has_unacknowledged_final_output {
+            deadline + FINAL_OUTPUT_FLUSH_GRACE
+        } else {
+            deadline
+        }
+    };
     let mut deadline = with_flush_grace(
         stop.borrow()
             .deadline
             .unwrap_or_else(|| Instant::now() + stop_drain_timeout),
     );
-    loop {
+    let result = loop {
         tokio::select! {
             response = responses.message() => {
-                if response?.is_none() { return Ok(()); }
+                match response {
+                    Ok(Some(_)) => {}
+                    Ok(None) => return Ok(()),
+                    Err(status) => break Err(status),
+                }
             }
             () = sleep_until(deadline) => {
-                return Err(Status::deadline_exceeded("Worker task stream did not close after drain"));
+                break Err(Status::deadline_exceeded("Worker task stream did not close after drain"));
             }
             change = stop.changed() => {
                 if change.is_err() {
-                    return Err(Status::cancelled("Worker stop signal closed"));
+                    break Err(Status::cancelled("Worker stop signal closed"));
                 }
                 if let Some(stop_deadline) = stop.borrow_and_update().deadline {
                     deadline = with_flush_grace(stop_deadline);
                 }
             }
         }
-    }
+    };
+    reset_guard.reset();
+    result
 }
 
 fn with_cancel_status(

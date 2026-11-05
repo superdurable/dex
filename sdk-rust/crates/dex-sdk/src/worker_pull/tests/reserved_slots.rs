@@ -56,6 +56,28 @@ impl SlotConnection {
             .expect("assign Step");
     }
 
+    async fn assign_large_rpc(&self) {
+        self.responses
+            .send(Ok(PollWorkerTaskResponse {
+                frame: Some(ResponseFrame::Task(PollWorkerTask {
+                    task_id: "large-rpc".to_string(),
+                    request: Some(TaskRequest::Rpc(InvokeWorkerRpcRequest {
+                        flow_type: "SlotFlow".to_string(),
+                        rpc_name: "get_large_slot_value".to_string(),
+                        context: Some(ProtoContext {
+                            flow_id: uuid::Uuid::new_v4().to_string(),
+                            ..Default::default()
+                        }),
+                        input: Some(crate::value_mapper::encode(&()).expect("RPC input")),
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                })),
+            }))
+            .await
+            .expect("assign large RPC");
+    }
+
     async fn assign_rpc(&self) {
         self.responses
             .send(Ok(PollWorkerTaskResponse {
@@ -144,6 +166,7 @@ impl SlotConnection {
 #[derive(Clone)]
 struct SlotService {
     connections: mpsc::Sender<SlotConnection>,
+    is_reading_allowed: watch::Receiver<bool>,
 }
 
 #[tonic::async_trait]
@@ -171,10 +194,27 @@ impl WorkerTaskService for SlotService {
             })
             .await
             .map_err(|error| Status::internal(error.to_string()))?;
+        let mut is_reading_allowed = self.is_reading_allowed.clone();
         // The mock server runtime owns this reader and cancels it when the fixture is dropped.
         let _stream_reader = tokio::spawn(async move {
             loop {
-                let event = incoming.message().await;
+                if is_reading_allowed
+                    .wait_for(|is_allowed| *is_allowed)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                // Pausing drops the pending read, so the Server stops consuming request data.
+                let event = tokio::select! {
+                    event = incoming.message() => event,
+                    paused = is_reading_allowed.wait_for(|is_allowed| !*is_allowed) => {
+                        if paused.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                };
                 let has_ended = !matches!(event, Ok(Some(_)));
                 if requests.send(event).await.is_err() || has_ended {
                     break;
@@ -192,6 +232,7 @@ struct SlotHarness {
     shutdown: watch::Sender<bool>,
     server: JoinHandle<Result<(), tonic::transport::Error>>,
     server_stop: watch::Sender<bool>,
+    _server_reads: watch::Sender<bool>,
     _cache_directory: tempfile::TempDir,
 }
 
@@ -203,9 +244,13 @@ impl SlotHarness {
         let address = listener.local_addr().expect("slot server address");
         let (connections, received) = mpsc::channel(16);
         let (server_stop, mut server_shutdown) = watch::channel(false);
+        let (server_reads, is_reading_allowed) = watch::channel(true);
         let server = tokio::spawn(
             Server::builder()
-                .add_service(WorkerTaskServiceServer::new(SlotService { connections }))
+                .add_service(WorkerTaskServiceServer::new(SlotService {
+                    connections,
+                    is_reading_allowed,
+                }))
                 .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
                     while !*server_shutdown.borrow() && server_shutdown.changed().await.is_ok() {}
                 }),
@@ -232,6 +277,7 @@ impl SlotHarness {
             shutdown,
             server,
             server_stop,
+            _server_reads: server_reads,
             _cache_directory: cache_directory,
         }
     }
@@ -265,6 +311,7 @@ impl SlotHarness {
 
 struct SlotFlow {
     step: SlotStep,
+    large_result_returned: Arc<Notify>,
 }
 
 struct SlotStep {
@@ -298,13 +345,21 @@ impl Flow for SlotFlow {
         crate::StepList::start(&self.step)
     }
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().function_without_input(Rpc::new("get_slot_value"), Self::get_slot_value)
+        RpcList::new()
+            .function_without_input(Rpc::new("get_slot_value"), Self::get_slot_value)
+            .function_without_input(Rpc::new("get_large_slot_value"), Self::get_large_slot_value)
     }
 }
 
 impl SlotFlow {
     fn get_slot_value(&self, _: &mut Context) -> HandlerResult<RpcResult<String>> {
         Ok(RpcResult::new("value".to_string()))
+    }
+
+    fn get_large_slot_value(&self, _: &mut Context) -> HandlerResult<RpcResult<String>> {
+        self.large_result_returned.notify_one();
+        // Exceeds the HTTP/2 flow-control windows, so a paused Server holds part of the result.
+        Ok(RpcResult::new("x".repeat(3_000_000)))
     }
 }
 
@@ -316,6 +371,7 @@ fn slot_flow(is_released: bool, should_wait_for_cancellation: bool) -> SlotFlow 
             release: Arc::new((Mutex::new(is_released), Condvar::new())),
             should_wait_for_cancellation,
         },
+        large_result_returned: Arc::new(Notify::new()),
     }
 }
 
@@ -805,4 +861,134 @@ async fn final_output_waits_flush_grace_beyond_stop_deadline_then_resets() {
     timeout(Duration::from_secs(5), busy.responses.closed())
         .await
         .expect("the Worker reset the stream after the flush grace");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn final_output_held_by_backpressure_before_stop_keeps_the_flush_grace() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind slot server");
+    let address = listener.local_addr().expect("slot server address");
+    let (connections, mut opened) = mpsc::channel(4);
+    let (server_reads, is_reading_allowed) = watch::channel(true);
+    let (server_stop, mut server_shutdown) = watch::channel(false);
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(WorkerTaskServiceServer::new(SlotService {
+                connections,
+                is_reading_allowed,
+            }))
+            .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
+                while !*server_shutdown.borrow() && server_shutdown.changed().await.is_ok() {}
+            }),
+    );
+    let channel = outbound_task_channel(
+        Endpoint::from_shared(format!("http://{address}")).expect("endpoint"),
+        None,
+    );
+    let flow = slot_flow(true, false);
+    let large_result_returned = Arc::clone(&flow.large_result_returned);
+    let (cache, _directory) = test_cache();
+    let dispatcher = WorkerDispatcher::new(
+        Registry::new().register(flow).unwrap(),
+        ValueHydrator::new(FlowServiceClient::new(channel.clone()), cache),
+        crate::server_protocol::NegotiatedServerProtocolVersion::default(),
+    );
+    let shared = Arc::new(PullShared {
+        registration: Arc::new(PullRegistration::new(&["STEP_AND_RPC".to_string()])),
+        state: Mutex::new(PullState {
+            streams: HashMap::from([(
+                0,
+                StreamSlot {
+                    is_busy: false,
+                    is_registered: false,
+                    is_draining: false,
+                },
+            )]),
+            busy_tasks: 0,
+            is_stopping: false,
+            logged_unsupported: false,
+        }),
+        notify: Notify::new(),
+        max_concurrent_tasks: 1,
+        has_checked_registration_limit: Mutex::new(false),
+        startup_error: Mutex::new(None),
+        task_start_gate: Arc::new(Mutex::new(false)),
+    });
+    let (stop, stop_receiver) = watch::channel(StopSignal {
+        phase: 0,
+        deadline: None,
+    });
+    let mut stream = PullStream {
+        channel,
+        credential: None,
+        dispatcher,
+        app_worker_id: "slot-worker".to_string(),
+        flow_types: vec!["SlotFlow".to_string()],
+        queue: "STEP_AND_RPC".to_string(),
+        slot_kind: PollWorkerSlotKind::StepAndRpc,
+        stream_id: 0,
+        shared: Arc::clone(&shared),
+        stop: stop_receiver,
+        stop_drain_timeout: Duration::from_millis(200),
+        is_registered: false,
+        has_recorded_result: false,
+    };
+    let mut polling = tokio::spawn(async move { stream.poll().await });
+    let mut slot = timeout(Duration::from_secs(5), opened.recv())
+        .await
+        .expect("slot opened")
+        .expect("slot connection");
+    slot.registered(0).await;
+    server_reads.send_replace(false);
+    slot.assign_large_rpc().await;
+    timeout(Duration::from_secs(5), large_result_returned.notified())
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(5), async {
+        while shared.state.lock().expect("pull state lock").busy_tasks != 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("local cleanup finished");
+    // The slot is idle locally, but the Server has not read the final output yet.
+    let stop_deadline = Instant::now() + Duration::from_millis(200);
+    stop.send_replace(StopSignal {
+        phase: DRAINING,
+        deadline: Some(stop_deadline),
+    });
+    assert!(
+        timeout(Duration::from_secs(1), &mut polling).await.is_err(),
+        "the slot waits past the ordinary drain deadline"
+    );
+    stop.send_replace(StopSignal {
+        phase: FORCED,
+        deadline: Some(stop_deadline),
+    });
+    server_reads.send_replace(true);
+    let request = slot
+        .next_request()
+        .await
+        .expect("final output, not a reset")
+        .expect("final output before EOF");
+    let Some(RequestFrame::TaskFrame(frame)) = request.frame else {
+        panic!("expected the final RPC output");
+    };
+    assert_eq!(frame.task_id, "large-rpc");
+    assert!(matches!(frame.output, Some(Output::Rpc(_))));
+    slot.half_closed().await;
+    drop(slot);
+    let (was_registered, _, result) = timeout(Duration::from_secs(5), polling)
+        .await
+        .expect("slot closed after Server EOF")
+        .expect("join slot");
+    assert!(was_registered);
+    result.expect("clean close after Server EOF");
+    server_stop.send_replace(true);
+    timeout(Duration::from_secs(5), server)
+        .await
+        .expect("server stopped")
+        .expect("join server")
+        .expect("server result");
 }

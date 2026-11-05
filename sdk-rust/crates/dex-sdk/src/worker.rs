@@ -267,9 +267,11 @@ impl Worker {
     /// streams whose final output is not yet queued are reset and their handlers are cancelled;
     /// [`Self::start`] waits for their return. Dex treats a task on a reset stream as one that may
     /// have run. A busy stream whose final output is already queued still sends it and half-closes.
-    /// After a final output, a stream waits up to five seconds for the Server to end it, so
-    /// [`Self::start`] can return up to five seconds after the drain deadline. Every other stream
-    /// still open at the deadline, including one blocked on a send, is reset. Stop is idempotent.
+    /// A stream whose last final output Dex has not yet acknowledged with a new task waits up to
+    /// five seconds past the drain deadline for the Server to end it, even after its handler has
+    /// returned. [`Self::start`] can therefore return up to five seconds after the drain deadline.
+    /// Every other stream still open at the deadline, including one blocked on a send, is reset.
+    /// Stop is idempotent.
     pub fn stop(&self) {
         self.pull.stop_accepting_tasks();
         self.pull.registration.finish(None);
