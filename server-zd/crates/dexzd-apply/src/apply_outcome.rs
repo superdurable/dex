@@ -84,7 +84,7 @@ pub enum ApplyEffect {
         /// Attempt that would start.
         attempt: u32,
     },
-    /// An attempt started; dispatch it with the snapshot stored in its Step execution.
+    /// An attempt started with the snapshot stored in its Step execution; its proposer sends it.
     InvocationStarted {
         /// Run of the call.
         run_id: RunId,
@@ -98,8 +98,6 @@ pub enum ApplyEffect {
         task_id: Vec<u8>,
         /// The started method's configured timeout in seconds; 0 means the default.
         method_timeout_seconds: i32,
-        /// Absolute deadline of the method's retry policy.
-        retry_deadline_micros: i64,
     },
     /// A running attempt ended without a result (canceled, Flow closed, time travel); tell the
     /// Worker to stop.

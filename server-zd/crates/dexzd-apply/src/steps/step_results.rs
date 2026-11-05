@@ -12,13 +12,13 @@ use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::{timer_index_key, timer_key};
 use dexzd_protocol::dex::{
     DispatchTaskErrorReason, ErrorSubStatus, ExecuteMethodFailurePolicy, FlowErrorType,
-    RecoveryErrorInfo, ServiceErrorResponse, StepMethodFailure, Value, WaitForMethodFailurePolicy,
-    WorkerErrorResponse, value,
+    RecoveryErrorInfo, ServiceErrorResponse, StepAttemptProgress, StepMethodFailure, Value,
+    WaitForMethodFailurePolicy, WorkerErrorResponse, value,
 };
 use dexzd_protocol::dexzd::v1::{
     RetryBackoffTimerId, StepAttemptFailedCommand, StepAttemptFailureKind,
-    StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepExecutionPhase,
-    StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    StepAttemptHeartbeatCommand, StepAttemptReturnedCommand, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
     StepMethodCompletedCommand, TimerId, TimerRecord, step_attempt_heartbeat_command,
     step_method_completed_command, timer_id,
 };
@@ -36,7 +36,8 @@ use crate::steps::attempt_snapshot::compute_attempt_snapshot;
 use crate::steps::invocations::{can_take_locks, release_heartbeat_checkpoint};
 use crate::steps::{
     InvocationEnd, NewStepExecution, RetryDecision, apply_step_decision, create_step_execution,
-    decide_retry, end_running_attempt, finish_step, make_invocation_pending, method_retry_policy,
+    decide_retry, end_running_attempt, ended_attempt_progress, finish_step,
+    make_invocation_pending, merge_furthest_attempt_progress, method_retry_policy,
     retry_started_at_micros, start_attempt, wait_conditions,
 };
 use crate::values::{
@@ -101,6 +102,57 @@ fn load_invocation(
     Ok(is_current.then_some(step))
 }
 
+/// Like [`load_invocation`] for a running attempt, and also requires its task ID to equal
+/// `task_id` when `task_id` is not empty; older logs carry no task ID.
+fn load_running_invocation(
+    transaction: &FlowTransaction<'_>,
+    cursor: &RunCursor,
+    key: Option<&StepInvocationKey>,
+    attempt: u32,
+    task_id: &[u8],
+) -> Result<Option<StepExecutionRecord>, ApplyError> {
+    let step = load_invocation(
+        transaction,
+        cursor,
+        key,
+        attempt,
+        StepInvocationPhase::Running,
+    )?;
+    Ok(step.filter(|step| {
+        task_id.is_empty()
+            || step
+                .invocation
+                .as_ref()
+                .is_some_and(|invocation| invocation.task_id == task_id)
+    }))
+}
+
+/// Loads the Step whose current invocation a failure names, checking the failure's guard: a
+/// failure before any start needs a pending attempt, one with an expected task ID needs that
+/// running attempt, and one without either guard (older logs) needs a running attempt.
+fn load_failed_invocation(
+    transaction: &FlowTransaction<'_>,
+    cursor: &RunCursor,
+    command: &StepAttemptFailedCommand,
+) -> Result<Option<StepExecutionRecord>, ApplyError> {
+    if command.is_before_start {
+        return load_invocation(
+            transaction,
+            cursor,
+            command.invocation.as_ref(),
+            command.attempt,
+            StepInvocationPhase::Pending,
+        );
+    }
+    load_running_invocation(
+        transaction,
+        cursor,
+        command.invocation.as_ref(),
+        command.attempt,
+        &command.expected_task_id,
+    )
+}
+
 pub(crate) fn apply_attempt_started(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -161,12 +213,12 @@ pub(crate) fn apply_attempt_heartbeat(
     cursor: &mut RunCursor,
     command: &StepAttemptHeartbeatCommand,
 ) -> Result<StepCommandOutcome, ApplyError> {
-    let Some(mut step) = load_invocation(
+    let Some(mut step) = load_running_invocation(
         transaction,
         cursor,
         command.invocation.as_ref(),
         command.attempt,
-        StepInvocationPhase::Running,
+        &command.task_id,
     )?
     else {
         return Ok(StepCommandOutcome::Ignored(stale_reply(
@@ -209,16 +261,24 @@ pub(crate) fn apply_attempt_failed(
     scope: &CommandScope<'_>,
     command: &StepAttemptFailedCommand,
 ) -> Result<StepCommandOutcome, ApplyError> {
-    let Some(mut step) = load_invocation(
-        transaction,
-        cursor,
-        command.invocation.as_ref(),
-        command.attempt,
-        StepInvocationPhase::Running,
-    )?
-    else {
+    let Some(mut step) = load_failed_invocation(transaction, cursor, command)? else {
         return Ok(StepCommandOutcome::Ignored(ok_reply()));
     };
+    let Some(invocation) = step.invocation.as_mut() else {
+        return Ok(StepCommandOutcome::Ignored(ok_reply()));
+    };
+    let is_unstarted_first_attempt = invocation.phase == StepInvocationPhase::Pending as i32
+        && invocation.attempt == 1
+        && invocation.retry_started_at_micros == 0;
+    if is_unstarted_first_attempt {
+        // A failure before any hand-out starts the retry total duration (plan D71).
+        invocation.retry_started_at_micros = scope.now_micros;
+    }
+    let progress = ended_attempt_progress(invocation, command.is_not_run);
+    merge_furthest_attempt_progress(invocation, progress);
+    let furthest_attempt_progress =
+        StepAttemptProgress::try_from(invocation.furthest_attempt_progress)
+            .unwrap_or(StepAttemptProgress::Unspecified);
     let worker_error = command.worker_error.clone().unwrap_or_default();
     let dispatch_reason = dispatch_failure_reason(command);
     let failure = StepMethodFailure {
@@ -249,7 +309,8 @@ pub(crate) fn apply_attempt_failed(
     let retry_started_at = step
         .invocation
         .as_ref()
-        .map_or(scope.now_micros, retry_started_at_micros);
+        .and_then(retry_started_at_micros)
+        .unwrap_or(scope.now_micros);
     let decision = decide_retry(
         policy,
         command.attempt,
@@ -308,8 +369,12 @@ pub(crate) fn apply_attempt_failed(
                 && options.wait_for_failure_policy
                     == WaitForMethodFailurePolicy::ProceedOnFailure as i32
             {
-                step.recovery_error =
-                    Some(recovery_error(command, &worker_error, application_text));
+                step.recovery_error = Some(recovery_error(
+                    command,
+                    &worker_error,
+                    application_text,
+                    furthest_attempt_progress,
+                ));
                 step.condition_results = Some(dexzd_protocol::dexzd::v1::ConditionResultsRecord {
                     wait_for_failed: true,
                     ..Default::default()
@@ -371,8 +436,12 @@ pub(crate) fn apply_attempt_failed(
                     )?;
                 }
                 recovery_step.input = input;
-                recovery_step.recovery_error =
-                    Some(recovery_error(command, &worker_error, application_text));
+                recovery_step.recovery_error = Some(recovery_error(
+                    command,
+                    &worker_error,
+                    application_text,
+                    furthest_attempt_progress,
+                ));
                 cursor.rows.put_step_execution(transaction, &recovery_step);
                 finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
             } else {
@@ -389,6 +458,61 @@ pub(crate) fn apply_attempt_failed(
             }
         }
     }
+    Ok(StepCommandOutcome::Applied(ok_reply()))
+}
+
+/// The Worker never ran a started attempt: it becomes pending again with the same attempt
+/// number, keeping its snapshot, locks, queue position, and progress (plan D54, D59, D67, D70).
+pub(crate) fn apply_attempt_returned(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    command: &StepAttemptReturnedCommand,
+) -> Result<StepCommandOutcome, ApplyError> {
+    // A return without a task ID could match any start, so it never applies.
+    if command.expected_task_id.is_empty() {
+        return Ok(StepCommandOutcome::Ignored(stale_reply(
+            "a returned attempt names no task",
+        )));
+    }
+    let Some(mut step) = load_running_invocation(
+        transaction,
+        cursor,
+        command.invocation.as_ref(),
+        command.attempt,
+        &command.expected_task_id,
+    )?
+    else {
+        return Ok(StepCommandOutcome::Ignored(stale_reply(
+            "the attempt is no longer running",
+        )));
+    };
+    let Some(invocation) = step.invocation.as_mut() else {
+        return Ok(StepCommandOutcome::Ignored(stale_reply(
+            "the attempt is no longer running",
+        )));
+    };
+    invocation.phase = StepInvocationPhase::Pending as i32;
+    invocation.task_id.clear();
+    invocation.pull_routing = None;
+    invocation.attempt_started_at_micros = 0;
+    let may_have_run =
+        invocation.furthest_attempt_progress == StepAttemptProgress::NotCompleted as i32;
+    if invocation.attempt == 1 && !may_have_run {
+        // The first hand-out did not happen after all, so the retry clock has not started.
+        invocation.retry_started_at_micros = 0;
+    }
+    let run_id = cursor.run_id();
+    let run_attempt = cursor.attempt();
+    cursor.add_effect(ApplyEffect::InvocationPending {
+        run_id,
+        run_attempt,
+        invocation: StepInvocationKey {
+            step_execution_id: step.step_execution_id.clone(),
+            method: invocation.method,
+        },
+        attempt: invocation.attempt,
+    });
+    cursor.rows.put_step_execution(transaction, &step);
     Ok(StepCommandOutcome::Applied(ok_reply()))
 }
 
@@ -439,6 +563,7 @@ fn flow_error_type_for_attempt_failure(command: &StepAttemptFailedCommand) -> Fl
         | StepAttemptFailureKind::RetryDeadline
         | StepAttemptFailureKind::ValueTooLarge
         | StepAttemptFailureKind::UnsupportedFeature
+        | StepAttemptFailureKind::StartedAttemptInterrupted
         | StepAttemptFailureKind::Unspecified => FlowErrorType::WorkerApiFail,
     }
 }
@@ -542,6 +667,7 @@ fn recovery_error(
     command: &StepAttemptFailedCommand,
     worker_error: &WorkerErrorResponse,
     detail: String,
+    attempt_progress: StepAttemptProgress,
 ) -> RecoveryErrorInfo {
     let kind = StepAttemptFailureKind::try_from(command.kind)
         .unwrap_or(StepAttemptFailureKind::Unspecified);
@@ -558,7 +684,8 @@ fn recovery_error(
         StepAttemptFailureKind::RetryDeadline => "ScheduleToClose",
         StepAttemptFailureKind::DispatchError
         | StepAttemptFailureKind::InvalidResponse
-        | StepAttemptFailureKind::RequestTooLarge => {
+        | StepAttemptFailureKind::RequestTooLarge
+        | StepAttemptFailureKind::StartedAttemptInterrupted => {
             flow_error_type_for_attempt_failure(command).as_str_name()
         }
         StepAttemptFailureKind::UnsupportedFeature => "UnsupportedFeature",
@@ -568,7 +695,7 @@ fn recovery_error(
     RecoveryErrorInfo {
         detail,
         error_type: error_type.to_owned(),
-        ..Default::default()
+        attempt_progress: attempt_progress as i32,
     }
 }
 
@@ -716,12 +843,12 @@ pub(crate) fn apply_method_completed(
     scope: &CommandScope<'_>,
     command: &StepMethodCompletedCommand,
 ) -> Result<StepCommandOutcome, ApplyError> {
-    let Some(mut step) = load_invocation(
+    let Some(mut step) = load_running_invocation(
         transaction,
         cursor,
         command.invocation.as_ref(),
         command.attempt,
-        StepInvocationPhase::Running,
+        &command.task_id,
     )?
     else {
         return Ok(StepCommandOutcome::Ignored(ok_reply()));

@@ -140,7 +140,7 @@ async fn a_worker_result_after_the_method_deadline_fails_before_the_timer_fires(
 }
 
 #[tokio::test(start_paused = true)]
-async fn retry_total_duration_cuts_the_running_attempt_before_method_timeout() {
+async fn retry_total_duration_never_cuts_a_running_attempt() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     let options = StepOptions {
@@ -157,8 +157,8 @@ async fn retry_total_duration_cuts_the_running_attempt_before_method_timeout() {
     harness.start_flow(request, settings());
     let dispatch = harness.dispatcher.next_dispatch().await;
     let started_at = Instant::now();
-    // The total duration counts from the start of attempt 1.
-    tokio::time::sleep_until(started_at + Duration::from_millis(2_900)).await;
+    // Only the method timeout limits a running attempt (plan D74).
+    tokio::time::sleep_until(started_at + Duration::from_millis(4_900)).await;
     harness.settle().await;
     assert!(
         harness
@@ -166,7 +166,7 @@ async fn retry_total_duration_cuts_the_running_attempt_before_method_timeout() {
             .commands_matching(is_attempt_failed)
             .is_empty()
     );
-    tokio::time::sleep_until(started_at + Duration::from_millis(3_100)).await;
+    tokio::time::sleep_until(started_at + Duration::from_millis(5_100)).await;
     harness.settle().await;
     let failures = harness
         .flow_effect_operations
@@ -175,7 +175,7 @@ async fn retry_total_duration_cuts_the_running_attempt_before_method_timeout() {
     assert!(failures.iter().all(|recorded| matches!(
         &recorded.command.command,
         Some(flow_command::Command::StepAttemptFailed(failure))
-            if failure.kind == StepAttemptFailureKind::RetryDeadline as i32 && failure.is_non_retryable
+            if failure.kind == StepAttemptFailureKind::MethodTimeout as i32 && !failure.is_non_retryable
     )));
     assert!(dispatch.is_cancelled.load(Ordering::SeqCst));
     harness.shutdown().await;

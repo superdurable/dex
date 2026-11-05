@@ -190,6 +190,7 @@ impl Workload<'_> {
         self.commit(
             &order,
             Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+                task_id: Vec::new(),
                 invocation: Some(invocation("ChargeStep-1", StepMethod::Execute)),
                 attempt: 1,
                 checkpoint: Some(step_attempt_heartbeat_command::Checkpoint::Value(
@@ -794,6 +795,7 @@ impl Workload<'_> {
             .commit(
                 &travel,
                 Command::TimeTravel(TimeTravelCommand {
+                    should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: travel.flow_id.clone(),
                         reset_type: FlowResetType::StepExecutionId as i32,

@@ -33,7 +33,6 @@ pub use command_handlers::flow_close::{TransactionalRpcHold, transactional_rpc_h
 pub use hard_delete_admission::{HardDeleteAdmissionError, validate_hard_delete_command};
 pub use history::diagnostics;
 pub use state_access::{FlowStateReader, StateReadError, StateRow};
-pub use steps::invocation_retry_deadline_micros;
 
 use dexzd_protocol::dexzd::v1::FlowCommand;
 

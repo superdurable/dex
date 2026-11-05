@@ -64,6 +64,7 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)
         | Command::StepMethodCompleted(_)
+        | Command::StepAttemptReturned(_)
         | Command::RpcCommitted(_)
         | Command::TimersFired(_)
         | Command::TimerSkip(_)

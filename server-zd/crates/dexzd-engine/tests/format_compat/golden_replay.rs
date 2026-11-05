@@ -324,6 +324,7 @@ fn command_kind(command: &FlowCommand) -> &'static str {
         Command::StepAttemptHeartbeat(_) => "StepAttemptHeartbeat",
         Command::StepAttemptFailed(_) => "StepAttemptFailed",
         Command::StepMethodCompleted(_) => "StepMethodCompleted",
+        Command::StepAttemptReturned(_) => "StepAttemptReturned",
         Command::RpcCommitted(_) => "RpcCommitted",
         Command::TimersFired(_) => "TimersFired",
         Command::TimerSkip(_) => "TimerSkip",

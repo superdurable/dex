@@ -127,7 +127,6 @@ impl DispatchScheduler {
         task_id: Vec<u8>,
         method_timeout_seconds: i32,
         scheduled_at: Option<Instant>,
-        retry_deadline_micros: i64,
     ) {
         let attempts = self.running.entry(task_id.clone()).or_default();
         if attempts.contains_key(&key) {
@@ -149,7 +148,6 @@ impl DispatchScheduler {
             task_id: task_id.clone(),
             method_timeout_seconds,
             scheduled_at,
-            retry_deadline_micros,
             cancel,
         };
         let context = Arc::clone(&self.context);

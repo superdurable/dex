@@ -316,6 +316,9 @@ pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>, is_step_failure_stream
         rng.random_range(1..9)
     };
     Command::StepAttemptFailed(StepAttemptFailedCommand {
+        expected_task_id: Vec::new(),
+        is_before_start: false,
+        is_not_run: false,
         invocation: Some(call.key()),
         attempt: call.invocation.attempt,
         kind,
@@ -349,6 +352,7 @@ pub(crate) fn heartbeat(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
         ))
     };
     Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+        task_id: Vec::new(),
         invocation: Some(call.key()),
         attempt: call.invocation.attempt,
         checkpoint: Some(checkpoint),

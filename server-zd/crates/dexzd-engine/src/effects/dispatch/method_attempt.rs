@@ -55,7 +55,6 @@ pub(crate) struct MethodAttempt {
     /// The method's configured timeout in seconds from the start effect; 0 means the default.
     pub(crate) method_timeout_seconds: i32,
     pub(crate) scheduled_at: Option<std::time::Instant>,
-    pub(crate) retry_deadline_micros: i64,
     /// Canceled by `InvocationCanceled` or node shutdown.
     pub(crate) cancel: CancellationToken,
 }
@@ -100,11 +99,7 @@ impl MethodAttempt {
 
     async fn run_attempt(&self) -> Result<(), EffectError> {
         // The owner-memory method timeout covers preparation, so slow state or object reads count.
-        let method_deadline = MethodDeadline::start(
-            self.method_timeout_seconds,
-            self.retry_deadline_micros,
-            self.context.clock.now_unix_micros(),
-        );
+        let method_deadline = MethodDeadline::start(self.method_timeout_seconds);
         let read = self.retry_transient(|| self.read_attempt_state());
         let state = match self.before_method_deadline(&method_deadline, read).await {
             BeforeDeadline::Canceled => return Ok(()),
@@ -509,6 +504,7 @@ impl MethodAttempt {
                 invocation: Some(self.key.invocation()),
                 attempt: self.key.attempt,
                 checkpoint: Some(checkpoint),
+                task_id: self.task_id.clone(),
             },
         ));
         // A lost checkpoint only means the next attempt sees an older value.
@@ -631,6 +627,7 @@ impl MethodAttempt {
                 app_worker_id.clone(),
                 uploads.references.clone(),
                 pull_routing(&sticky_app_worker_id, &app_worker_id),
+                self.task_id.clone(),
             ),
         ));
         let reply = self
@@ -682,6 +679,8 @@ impl MethodAttempt {
                     sticky_app_worker_id,
                     &failure.served_by_app_worker_id,
                 )),
+                expected_task_id: self.task_id.clone(),
+                ..StepAttemptFailedCommand::default()
             },
         ));
         // A stale failure is rejected by apply; nothing else to do with the reply.

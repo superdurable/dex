@@ -285,6 +285,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
                 | "value_too_large"
                 | "request_too_large"
                 | "retry_deadline"
+                | "started_attempt_interrupted"
         ));
     }
     for name in [

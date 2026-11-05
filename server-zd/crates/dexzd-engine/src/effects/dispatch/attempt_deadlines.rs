@@ -76,30 +76,23 @@ impl AttemptTimeouts {
     }
 }
 
-/// The method timeout, started before the attempt's first state read.
+/// The method timeout, started when the task frame goes to the Worker.
 pub(super) struct MethodDeadline {
     method_timeout: Duration,
     /// When the method timeout expires, counted from the attempt's start.
     pub(super) expires_at: Instant,
-    is_retry_deadline: bool,
 }
 
 impl MethodDeadline {
     /// Starts the configured method timeout now, or the Go Server default when it is not positive.
-    pub(super) fn start(
-        method_timeout_seconds: i32,
-        retry_deadline_micros: i64,
-        now_micros: i64,
-    ) -> Self {
+    ///
+    /// The retry policy's total duration never shortens it (plan D74).
+    pub(super) fn start(method_timeout_seconds: i32) -> Self {
         let method_timeout =
             positive_seconds(method_timeout_seconds).unwrap_or(DEFAULT_METHOD_TIMEOUT);
-        let retry_remaining_micros = retry_deadline_micros.saturating_sub(now_micros).max(0) as u64;
-        let retry_remaining = Duration::from_micros(retry_remaining_micros);
-        let is_retry_deadline = retry_remaining < method_timeout;
         Self {
             method_timeout,
-            expires_at: Instant::now() + method_timeout.min(retry_remaining),
-            is_retry_deadline,
+            expires_at: Instant::now() + method_timeout,
         }
     }
 
@@ -109,14 +102,6 @@ impl MethodDeadline {
     }
 
     pub(super) fn timeout_failure(&self) -> AttemptFailure {
-        if self.is_retry_deadline {
-            let mut failure = AttemptFailure::server(
-                StepAttemptFailureKind::RetryDeadline,
-                "retry policy total duration expired",
-            );
-            failure.is_non_retryable = true;
-            return failure;
-        }
         AttemptFailure::server(
             StepAttemptFailureKind::MethodTimeout,
             format!(
