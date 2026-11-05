@@ -124,6 +124,8 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class Client implements AutoCloseable {
     private static final long SERVER_INFO_TIMEOUT_SECONDS = 30L;
     private static final long NO_REQUEST_DEADLINE = 0L;
+    // Bounds each wait for another caller's negotiation so Context cancellation is observed.
+    private static final long NEGOTIATION_LOCK_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(50);
 
     private final Registry registry;
     private final BlobCache blobCache;
@@ -347,16 +349,26 @@ public final class Client implements AutoCloseable {
     }
 
     private void acquireServerProtocolNegotiationLock(final long deadlineNanos) {
+        final io.grpc.Context callerContext = io.grpc.Context.current();
         final long lockDeadlineNanos = earliestCallerDeadline(deadlineNanos);
         try {
-            if (lockDeadlineNanos == NO_REQUEST_DEADLINE) {
-                serverProtocolNegotiationLock.lockInterruptibly();
-                return;
-            }
-            final long remainingNanos = lockDeadlineNanos - System.nanoTime();
-            if (remainingNanos > 0
-                    && serverProtocolNegotiationLock.tryLock(remainingNanos, TimeUnit.NANOSECONDS)) {
-                return;
+            while (true) {
+                if (callerContext.isCancelled()) {
+                    throw GrpcExceptionTranslator.translate(
+                            io.grpc.Contexts.statusFromCancelled(callerContext).asRuntimeException(),
+                            FlowTargetRequirement.NONE, null);
+                }
+                long waitNanos = NEGOTIATION_LOCK_POLL_NANOS;
+                if (lockDeadlineNanos != NO_REQUEST_DEADLINE) {
+                    final long remainingNanos = lockDeadlineNanos - System.nanoTime();
+                    if (remainingNanos <= 0) {
+                        break;
+                    }
+                    waitNanos = Math.min(waitNanos, remainingNanos);
+                }
+                if (serverProtocolNegotiationLock.tryLock(waitNanos, TimeUnit.NANOSECONDS)) {
+                    return;
+                }
             }
         } catch (InterruptedException interruption) {
             Thread.currentThread().interrupt();

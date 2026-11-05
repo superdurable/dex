@@ -283,9 +283,10 @@ public final class Worker implements AutoCloseable {
      * ended by then is also reset, for example after a network partition. A task the Server sent
      * on such a stream counts as one that may have run.
      *
-     * <p>A stream whose final output is already queued is never reset at the timeout. It gets up to
-     * one more stop timeout to deliver that output and receive the Server's end of stream. Only
-     * then is it reset, so stop can take up to twice the stop timeout plus handler cancellation.
+     * <p>A stream whose final output is already queued is not reset at the timeout. It gets a
+     * five-second flush grace to deliver that output and receive the Server's end of stream. Only
+     * then is it reset, so stop can return up to five seconds after the stop timeout, plus the
+     * time handlers take to return after cancellation.
      */
     public void stop() {
         synchronized (this) {

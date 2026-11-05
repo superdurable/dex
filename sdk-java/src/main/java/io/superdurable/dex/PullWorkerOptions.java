@@ -180,7 +180,7 @@ public final class PullWorkerOptions {
          * Sets how long Stop waits for active pull tasks before canceling them.
          *
          * <p>A canceled handler must return before Stop completes. A stream whose final output is
-         * already queued gets up to one more timeout to deliver it before it is reset.
+         * already queued gets a five-second flush grace after the timeout before it is reset.
          *
          * @param value a nonnegative duration; zero uses 30 seconds
          * @return this builder

@@ -353,8 +353,12 @@ the request side and continue reading until the Server ends the stream. Busy
 streams finish their handler and send its final output before half-closing.
 Task frames arriving after stop begins are dropped without invoking a handler,
 including after half-close. After `stopDrainTimeout` (30 seconds by default),
-the Worker resets streams with running tasks, cancels handlers, and waits for
-them to return. A handler that ignores cancellation can delay stop.
+the Worker resets streams with running tasks and half-closed streams that the
+Server has not ended, cancels handlers, and waits for them to return. A task the
+Server sent on a reset stream may have run. A stream whose final output is
+already queued instead gets a five-second flush grace before it is reset, so
+`stop()` and `close()` can return up to five seconds after the timeout. A
+handler that ignores cancellation can delay stop.
 Reconnects and transient transport errors are retried automatically.
 
 Call `waitPullRegistered(Duration)` after starting the Worker on another thread.

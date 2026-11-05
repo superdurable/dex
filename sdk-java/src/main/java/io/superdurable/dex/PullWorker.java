@@ -56,6 +56,8 @@ import java.util.function.Supplier;
 final class PullWorker {
     private static final Logger LOGGER = Logger.getLogger(PullWorker.class.getName());
     private static final long BUSY_PULL_STREAM_KEEPALIVE_SECONDS = 20L;
+    // Extra time after the stop timeout for a queued final output to reach Dex before reset.
+    private static final Duration FINAL_OUTPUT_FLUSH_GRACE = Duration.ofSeconds(5);
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
     private final Credential credential;
@@ -375,7 +377,7 @@ final class PullWorker {
             if (!isStopping) {
                 isStopping = true;
                 stopDeadlineNanos = System.nanoTime() + options.getStopDrainTimeout().toNanos();
-                finalOutputFlushDeadlineNanos = stopDeadlineNanos + options.getStopDrainTimeout().toNanos();
+                finalOutputFlushDeadlineNanos = stopDeadlineNanos + FINAL_OUTPUT_FLUSH_GRACE.toNanos();
             }
             final long deadline = stopDeadlineNanos;
             notifyAll();
@@ -923,7 +925,11 @@ final class PullWorker {
             try {
                 requests.onCompleted();
             } catch (RuntimeException failure) {
-                close(failure);
+                try {
+                    transport.cancel("Worker stream half-close failed", failure);
+                } finally {
+                    close(failure);
+                }
                 return;
             }
             scheduleCloseFallback();

@@ -194,6 +194,41 @@ final class ServerProtocolCompatibilityTest {
     }
 
     @Test
+    void cancelledContextStopsWaitingForAnotherCallersNegotiation() throws Exception {
+        final ProtocolService service = new ProtocolService(4, false);
+        service.stall = new CountDownLatch(1);
+        final Server server = ServerBuilder.forPort(0).addService(service).build().start();
+        final ExecutorService callers = Executors.newFixedThreadPool(2);
+        try (Client client = new Client(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
+                new ClientOptions("127.0.0.1:" + server.getPort()))) {
+            final Future<Boolean> stalled = callers.submit(client::healthCheck);
+            assertTrue(service.stallEntered.await(5, TimeUnit.SECONDS));
+            final io.grpc.Context.CancellableContext callerContext = io.grpc.Context.current().withCancellation();
+            final CountDownLatch waiting = new CountDownLatch(1);
+            final Future<Boolean> cancelled = callers.submit(() -> callerContext.call(() -> {
+                waiting.countDown();
+                return client.healthCheck();
+            }));
+            assertTrue(waiting.await(5, TimeUnit.SECONDS));
+            final long cancelledAt = System.nanoTime();
+            callerContext.cancel(null);
+            final ExecutionException failure = assertThrows(ExecutionException.class,
+                    () -> cancelled.get(5, TimeUnit.SECONDS));
+            assertTrue(System.nanoTime() - cancelledAt < TimeUnit.SECONDS.toNanos(2));
+            assertTrue(failure.getCause() instanceof DexServiceException, failure.getCause().toString());
+            assertEquals(Status.Code.CANCELLED, ((DexServiceException) failure.getCause()).getCode());
+            service.stall.countDown();
+            assertTrue(stalled.get(10, TimeUnit.SECONDS));
+            assertTrue(client.healthCheck());
+            assertEquals(1, service.negotiations.get());
+        } finally {
+            service.stall.countDown();
+            callers.shutdownNow();
+            server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     void unreachableServerKeepsTheServiceErrorType() throws Exception {
         try (Client client = new Client(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
                 new ClientOptions("127.0.0.1:1"))) {
