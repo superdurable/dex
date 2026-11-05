@@ -64,29 +64,6 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'category',
-          label: 'Failure Handling',
-          link: {type: 'doc', id: 'design-patterns/failure-handling'},
-          items: [
-            'design-patterns/failure-handling/execute-failure-recovery',
-            'design-patterns/failure-handling/manual-recovery',
-            'design-patterns/failure-handling/graceful-timeout',
-            'design-patterns/failure-handling/wait-for-failure-recovery',
-          ],
-        },
-        'design-patterns/polling',
-        {
-          type: 'category',
-          label: 'Durable Timer',
-          link: {type: 'doc', id: 'design-patterns/durable-timer/index'},
-          items: [
-            'design-patterns/durable-timer/cron',
-            'design-patterns/durable-timer/reminder',
-            'design-patterns/durable-timer/inactiveness-tracker-timer',
-          ],
-        },
-        'design-patterns/interruptible',
-        {
-          type: 'category',
           label: 'Parallel Steps',
           link: {type: 'doc', id: 'design-patterns/parallel'},
           items: [
@@ -109,6 +86,38 @@ const sidebars: SidebarsConfig = {
             'design-patterns/parallel-subflows/back-pressure',
           ],
         },
+        'design-patterns/interruptible',
+        {
+          type: 'category',
+          label: 'Durable Timer',
+          link: {type: 'doc', id: 'design-patterns/durable-timer/index'},
+          items: [
+            'design-patterns/durable-timer/cron',
+            'design-patterns/durable-timer/reminder',
+            'design-patterns/durable-timer/inactiveness-tracker-timer',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Failure Handling',
+          link: {type: 'doc', id: 'design-patterns/failure-handling'},
+          items: [
+            'design-patterns/failure-handling/execute-failure-recovery',
+            'design-patterns/failure-handling/manual-recovery',
+            'design-patterns/failure-handling/graceful-timeout',
+            'design-patterns/failure-handling/wait-for-failure-recovery',
+          ],
+        },
+        'design-patterns/polling',
+        {
+          type: 'category',
+          label: 'Drain Channels',
+          link: {type: 'doc', id: 'design-patterns/drain-channels'},
+          items: [
+            'design-patterns/drain-internal-channels',
+            'design-patterns/draining-channel-for-external-publishing',
+          ],
+        },
         {
           type: 'category',
           label: 'Responsive Update',
@@ -117,15 +126,6 @@ const sidebars: SidebarsConfig = {
             'design-patterns/responsive-update/step-completion',
             'design-patterns/responsive-update/attribute-match',
             'design-patterns/responsive-update/stream',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Drain Channels',
-          link: {type: 'doc', id: 'design-patterns/drain-channels'},
-          items: [
-            'design-patterns/drain-internal-channels',
-            'design-patterns/draining-channel-for-external-publishing',
           ],
         },
         {
