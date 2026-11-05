@@ -44,37 +44,21 @@ Choose the interval for the wait. Use a few seconds when a user is watching, suc
 
 ## Limits
 
-Step options set every limit on the wait, and Dex enforces them.
+Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. Dex enforces them, so the Step does not compute a deadline. Neither the checkpoint nor the Step input carries one. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes. See [Timeouts and total duration](/primitives/step/step-options#timeouts-and-total-duration).
 
-| Limit | Option | Enforcement |
-| --- | --- | --- |
-| Longest single attempt | **ExecuteMethodTimeout**, set to the maximum wait | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
-| Longest total wait, including every retry | **TotalDuration** in **ExecuteRetry**, set to the maximum wait | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
-| Stalled Worker | **HeartbeatTimeout**, one minute by default | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. |
-
-Do not duplicate these limits in code. The Step does not compute a deadline. Neither the checkpoint nor the Step input carries one.
-
-Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. **ExecuteMethodTimeout** defaults to two hours, and the server has no hard cap. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes.
-
-The polling Step can use either durability. Heartbeats, checkpoints, and timeouts behave the same in both modes. See [Step options](/primitives/step/step-options#durability).
+The polling Step can use either durability. See [Step options](/primitives/step/step-options#durability).
 
 ## When the wait expires
 
-When **ExecuteMethodTimeout** or **TotalDuration** expires, Dex fails the Step with a timeout. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. That Step reads **RecoveryError**, which holds the failure detail and error type. Without a recovery route, the Flow fails. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+When **ExecuteMethodTimeout** or **TotalDuration** expires, Dex fails the Step with a timeout. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 
-The failure record does not include the last observed status. The progress Stream and the logs show it.
+The failure record does not include the last observed status. The progress Stream and the logs show it. A business condition that is not a fixed duration, such as a lease the Flow does not own, still belongs in the loop.
 
-A business condition that is not a fixed duration still belongs in the loop. An example is a lease that the Flow does not own and that can expire. That check is a business rule, not a polling timeout.
+## Checkpoint and progress
 
-## Checkpoint
+A new attempt resumes from the last checkpoint, which **GetLastHeartbeatValue** returns. In the example, the checkpoint is the last reported job status, so a retry does not repeat a progress message.
 
-A new attempt resumes from the last checkpoint. Read it with **GetLastHeartbeatValue**. The checkpoint is only resume state. In the example, it is the last reported job status, so a retry does not repeat a progress message.
-
-## Progress
-
-A Stream message is an implicit heartbeat. Write one when the observed status changes, and record a heartbeat otherwise. All executions of the Flow type share the Stream's **streamCapacityBytes**, so unchanged rounds should not fill it.
-
-Stream messages are best effort. Consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Stream](/primitives/stream).
+Write a Stream message when the observed status changes, and record a heartbeat otherwise. Unchanged rounds should not fill the Stream. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/primitives/step/step-options#heartbeat) and [Stream](/primitives/stream).
 
 ## Locks
 
@@ -84,7 +68,7 @@ Do not hold **ExecuteLockAttributes** for the whole wait. Return the result from
 
 **PollingFlow** waits for a fake external job. **StartJob** starts the job with the Flow ID as an idempotent job ID. **AwaitJob** polls the job status every two seconds. It writes a **JobProgress** Stream message when the status changes and completes with the job result. When the ten-minute maximum wait expires, **AwaitJob** moves to **RecordJobWaitFailure**. That Step fails the Flow with the recovery error.
 
-The fake job reports QUEUED, then RUNNING, and succeeds six seconds after it starts. Call the complete-job endpoint to finish it early. Run the HTTP example from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
+The fake job reports QUEUED, then RUNNING, and succeeds six seconds after it starts. Call the complete-job endpoint to finish it early.
 
 <SdkTabs
   examples={{
@@ -466,8 +450,7 @@ impl Step for RecordJobWaitFailure {
 
 ## Related
 
-- [Step options](/primitives/step/step-options#heartbeat)
+- [Step options](/primitives/step/step-options#timeouts-and-total-duration)
 - [Stream](/primitives/stream)
 - [Failure Handling](/design-patterns/failure-handling)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
-- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

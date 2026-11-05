@@ -1,0 +1,21 @@
+{
+  "name": "@superdurable/dex-example-decorator-free-rpc",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Dex TypeScript Flow with decorator-free RPCs that runs under Node.js type stripping",
+  "type": "module",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "start": "node --experimental-transform-types main.ts"
+  },
+  "dependencies": {
+    "@superdurable/dex": "file:../../../sdk-typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
