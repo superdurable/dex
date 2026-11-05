@@ -14,7 +14,10 @@ use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
 use dexzd_keyspace::RunId;
-use dexzd_protocol::dex::{FlowStatus, RetryPolicy, StartFlowRequest, StepDurability, StepOptions};
+use dexzd_protocol::dex::{
+    FlowStatus, PollWorkerTaskRejectReason, RetryPolicy, StartFlowRequest, StepDurability,
+    StepOptions,
+};
 use dexzd_protocol::dexzd::v1::{
     StepAttemptFailureKind, StepInvocationPhase, StepMethod, flow_command,
 };
@@ -558,4 +561,69 @@ fn claims_are_classified_by_the_holder_of_the_attempt_entry() {
         entries.claim(&key),
         ClaimHolder::Claimed { generation } if generation > *unparked_generation
     ));
+}
+
+/// TB4d (plan D54, D74): a retry that a Worker declined waits in the queue past the total
+/// duration for a supporting Worker, then runs and completes without a deadline failure.
+#[tokio::test(start_paused = true)]
+async fn a_declined_retry_waits_past_the_total_duration_and_completes() {
+    for durability in [StepDurability::Sync, StepDurability::Async] {
+        let harness = EffectHarness::new();
+        harness.rebuild_all_partitions().await;
+        let run_id = start_execute_flow(&harness, "order-1", retry_options(durability, 0));
+        let first = harness.dispatcher.next_dispatch().await;
+        first.fail_with_worker_error("first attempt fails");
+        let second = harness.dispatcher.next_dispatch().await;
+        assert_eq!(second.context().attempt, 2);
+        harness
+            .dispatcher
+            .refuse_dispatch
+            .store(true, Ordering::SeqCst);
+        second.reject(PollWorkerTaskRejectReason::UnknownStep, true);
+        harness.settle().await;
+        let refs = queued_refs(&harness);
+        assert_eq!(
+            refs.len(),
+            1,
+            "{durability:?}: the declined retry is queued"
+        );
+        assert_eq!(refs[0].position.attempt, 2);
+        let commands_while_queued = harness
+            .flow_effect_operations
+            .commands
+            .lock()
+            .expect("lock")
+            .len();
+        tokio::time::sleep(QUEUED_DURATION).await;
+        harness.settle().await;
+        assert_eq!(
+            harness
+                .flow_effect_operations
+                .commands
+                .lock()
+                .expect("lock")
+                .len(),
+            commands_while_queued,
+            "{durability:?}: no command, such as a clock pause or a failure, while queued"
+        );
+        harness.dispatcher.claim(1, refs[0].clone());
+        let third = harness.dispatcher.next_dispatch().await;
+        assert_eq!(
+            third.context().attempt,
+            2,
+            "{durability:?}: a return uses no retry"
+        );
+        third.complete_execute(force_complete());
+        harness.settle().await;
+        assert_eq!(
+            failure_kinds(&harness),
+            vec![StepAttemptFailureKind::WorkerError as i32],
+            "{durability:?}: no RetryDeadline failure"
+        );
+        assert_eq!(
+            harness.run_record("order-1", run_id).status,
+            FlowStatus::Completed as i32
+        );
+        harness.shutdown().await;
+    }
 }
