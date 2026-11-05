@@ -146,7 +146,7 @@ export function createFlowServiceSecureContext(additionalRootCAsPem: string | Ui
 const canAddCACertDropExtraRoots = typeof tls.setDefaultCACertificates !== "function";
 // Before getCACertificates (22.15), the loaded extra roots are unlistable, so snapshot the file at module load.
 const extraRootCertificatesFileSnapshot = canAddCACertDropExtraRoots && typeof tls.getCACertificates !== "function"
-  ? readExtraRootCertificatesFile()
+  ? snapshotExtraRootCertificatesFile()
   : [];
 
 function lostExtraRootCertificates(): readonly string[] {
@@ -155,9 +155,11 @@ function lostExtraRootCertificates(): readonly string[] {
   return typeof tls.getCACertificates === "function" ? tls.getCACertificates("extra") : extraRootCertificatesFileSnapshot;
 }
 
-function readExtraRootCertificatesFile(): readonly string[] {
+function snapshotExtraRootCertificatesFile(): readonly string[] {
   const extraCertificatesFile = process.env.NODE_EXTRA_CA_CERTS;
   if (extraCertificatesFile === undefined || extraCertificatesFile === "") return [];
+  // Node.js loads this file lazily with its first root store; load it now so both read the same contents.
+  tls.createSecureContext();
   let bundle: string;
   try {
     bundle = readFileSync(resolve(process.cwd(), extraCertificatesFile), "utf8");

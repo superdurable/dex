@@ -17,10 +17,10 @@ import { promisify } from "node:util";
 
 import { createTestCertificates, PlainTlsEndpoint, type TestCertificates } from "./tls-test-certificates.js";
 
-type ChildScenario = "plain" | "replaceDefaultStore" | "mutateAfterImport";
+type ChildScenario = "plain" | "replaceDefaultStore" | "mutateAfterImport" | "replaceFileBeforeFirstTls";
 
 interface ChildVerification {
-  /** Authorization of a default context created after SDK import and before any mutation. */
+  /** Authorization of a default context created after SDK import and before any mutation; empty when none is created. */
   readonly earlierDefaultContext: readonly boolean[];
   /** Authorization of the SDK context for each endpoint, in the order of the endpoint ports. */
   readonly sdkContext: readonly boolean[];
@@ -47,7 +47,10 @@ if (scenario === "replaceDefaultStore") {
   tls.setDefaultCACertificates([readFileSync(process.env.DEX_TLS_REPLACEMENT_CA_FILE, "utf8")]);
 }
 const { createFlowServiceSecureContext } = await import(process.env.DEX_TLS_MODULE_URL);
-const earlierDefaultContext = tls.createSecureContext();
+const earlierDefaultContext = scenario === "replaceFileBeforeFirstTls" ? undefined : tls.createSecureContext();
+if (scenario === "replaceFileBeforeFirstTls") {
+  writeFileSync(process.env.DEX_TLS_STARTUP_CA_COPY, readFileSync(process.env.DEX_TLS_REPLACEMENT_CA_FILE));
+}
 if (scenario === "mutateAfterImport") {
   process.chdir("/");
   writeFileSync(process.env.DEX_TLS_STARTUP_CA_COPY, readFileSync(process.env.DEX_TLS_REPLACEMENT_CA_FILE));
@@ -70,7 +73,7 @@ const verifyAll = async (secureContext) => {
   return results;
 };
 process.stdout.write(JSON.stringify({
-  earlierDefaultContext: await verifyAll(earlierDefaultContext),
+  earlierDefaultContext: earlierDefaultContext === undefined ? [] : await verifyAll(earlierDefaultContext),
   sdkContext: await verifyAll(sdkContext),
   laterDefaultContext: await verifyAll(laterDefaultContext),
 }));
@@ -88,6 +91,8 @@ test("FlowService TLS trust store", async (context) => {
     }, () => verifyReplacedDefaultStoreKept(fixture));
     await context.test("trust after SDK import ignores later NODE_EXTRA_CA_CERTS, directory, and file changes",
       () => verifyMutationAfterImportIgnored(fixture));
+    await context.test("a NODE_EXTRA_CA_CERTS file replaced before the first TLS use keeps the SDK additive",
+      () => verifyFileReplacedBeforeFirstTlsUse(fixture));
   } finally {
     for (const endpoint of fixture.endpoints) await endpoint.close();
     rmSync(fixture.directory, { recursive: true, force: true });
@@ -143,6 +148,16 @@ async function verifyMutationAfterImportIgnored(fixture: TrustStoreFixture): Pro
     { NODE_EXTRA_CA_CERTS: basename(startupCopy), DEX_TLS_STARTUP_CA_COPY: startupCopy }, fixture.added.caFile);
   assert.deepEqual(result.earlierDefaultContext, [true, false, false], "the startup store trusts A");
   assert.deepEqual(result.sdkContext, [true, true, false], "the SDK keeps A, adds B, and never gains C");
+}
+
+async function verifyFileReplacedBeforeFirstTlsUse(fixture: TrustStoreFixture): Promise<void> {
+  const startupCopy = join(fixture.directory, "startup-ca-before-first-tls.pem");
+  copyFileSync(fixture.startup.caFile, startupCopy);
+  // No TLS runs before the replacement, so Node.js may load either file version.
+  const result = await verifyInChildProcess(fixture, "replaceFileBeforeFirstTls", [],
+    { NODE_EXTRA_CA_CERTS: startupCopy, DEX_TLS_STARTUP_CA_COPY: startupCopy }, fixture.added.caFile);
+  assert.deepEqual(result.sdkContext, result.laterDefaultContext.map((isTrusted, index) => isTrusted || index === 1),
+    "the SDK trusts exactly the active default roots plus B");
 }
 
 // Default roots come from process flags and environment, so each case needs a fresh Node.js process.
