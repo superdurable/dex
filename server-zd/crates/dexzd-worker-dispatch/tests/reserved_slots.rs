@@ -1287,8 +1287,7 @@ async fn a_rejection_after_output_ends_the_stream_instead_of_freeing_the_slot() 
     );
 }
 
-/// TB27 (plan D55): a queue head that a Worker declined does not keep that Worker from the
-/// partition's other queues.
+/// TB27 (plan D55): a declined queue head leaves its Worker free for the partition's other queues.
 #[tokio::test]
 async fn a_declined_queue_head_does_not_block_another_step_type_of_its_partition() {
     let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));

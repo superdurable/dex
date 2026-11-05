@@ -112,7 +112,7 @@ impl DevServer {
 }
 
 /// Returns a loopback address whose port was free a moment ago; dev mode rejects port 0.
-fn free_loopback_address() -> SocketAddr {
+pub(crate) fn free_loopback_address() -> SocketAddr {
     std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
         .and_then(|listener| listener.local_addr())
         .expect("a free loopback port exists")

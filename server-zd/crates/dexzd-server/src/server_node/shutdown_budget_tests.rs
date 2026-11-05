@@ -60,8 +60,7 @@ async fn a_stalled_embedded_s3_ends_at_the_shutdown_budget_or_after_its_minimum(
     }
 }
 
-/// An RPC waiting for a Worker when matching removes its partition fails as no Worker available,
-/// which the engine reports to the caller as retryable UNAVAILABLE.
+/// An RPC of a removed matching partition fails as no Worker available: UNAVAILABLE to callers.
 #[tokio::test]
 async fn an_rpc_waiting_when_matching_removes_its_partition_fails_as_retryable() {
     use dexzd_engine::{FlowAddress, RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation};

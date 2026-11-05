@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Steps queued without a Worker survive a SIGKILL restart or a hot standby failover, then
-//! complete on attempt 1 once a Worker registers (plan TR1, TB2, TB3).
+//! Queued Steps survive a SIGKILL restart or hot standby failover (plan TR1, TB2, TB3, TB26).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -51,6 +50,7 @@ const ACTIVE_LEASE_DURATION: &str = "6s";
 const TAKEOVER_BUDGET: Duration = Duration::from_secs(30);
 const HOT_STANDBY_BUDGET: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+const HOT_TAKEOVER_LOG_LINE: &str = "serving from the hot standby's local store";
 
 #[derive(Clone, Copy, Debug)]
 enum QueuedStepKind {
@@ -195,6 +195,11 @@ async fn queued_steps_complete_on_attempt_one_after_a_hot_standby_failover() {
                 standby.log()
             )
         });
+    assert!(
+        standby.log().contains(HOT_TAKEOVER_LOG_LINE),
+        "the takeover served the hot standby's store:\n{}",
+        standby.log()
+    );
     wait_for_queue_entries(standby_metrics, flow_ids.len()).await;
     complete_queued_flows(&channel, standby_metrics, &flow_ids).await;
     let stopped = standby.terminate(SHUTDOWN_BUDGET).await;
@@ -256,8 +261,7 @@ async fn wait_for_hot_standby(standby: &mut ServeProcess) {
     }
 }
 
-/// Starts every Step kind with no Worker registered and checks that each attempt is pending on
-/// attempt 1 without a failure, in the durable queue when `is_queued` and in memory otherwise.
+/// Starts every Step kind without a Worker and checks each waits on attempt 1 without failing.
 ///
 /// Returns the started Flow IDs.
 async fn start_queued_flows(
@@ -349,8 +353,7 @@ fn queued_flow_request(flow_id: &str, kind: QueuedStepKind) -> StartFlowRequest 
     }
 }
 
-/// Registers a Worker, waits until every Flow completes, and checks that each Step reached the
-/// Worker exactly once, on attempt 1, and that the queue is empty afterwards.
+/// Registers a Worker and checks every Flow completes with each Step delivered once, on attempt 1.
 async fn complete_queued_flows(channel: &Channel, metrics: SocketAddr, flow_ids: &[String]) {
     let deliveries: Arc<Mutex<Vec<(String, String, i32)>>> = Arc::default();
     let recorded = Arc::clone(&deliveries);

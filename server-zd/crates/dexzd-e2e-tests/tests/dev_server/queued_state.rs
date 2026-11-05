@@ -9,6 +9,7 @@
 //! What GetFlowState and history report for a Step that waits in the durable task queue (plan
 //! TB14).
 
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
@@ -17,10 +18,12 @@ use dexzd_protocol::dex::{
     PollWorkerTaskRejectReason, StepMethodInvocationPhase, StepMethodInvocationState,
     StepMethodPendingReason, StepOptions, WaitForFlowRequest, flow_history_event,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tonic::transport::Channel;
 
 use crate::harness::{
-    DevServer, ScriptedWorker, execute_request, execute_result, force_complete, start_pull_flow,
+    DevServer, ScriptedWorker, execute_request, execute_result, force_complete,
+    free_loopback_address, start_pull_flow,
 };
 use crate::string_value;
 
@@ -30,9 +33,10 @@ const STATE_BUDGET: Duration = Duration::from_secs(30);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_queued_step_reports_why_it_waits_and_when_it_was_scheduled() {
-    let server = DevServer::start_with_config_overrides(Some(
-        "matching:\n  stickyWait: 50ms\n  syncMatchWait: 50ms\n",
-    ))
+    let metrics = free_loopback_address();
+    let server = DevServer::start_with_config_overrides(Some(&format!(
+        "metrics:\n  listen: '{metrics}'\nmatching:\n  stickyWait: 50ms\n  syncMatchWait: 50ms\n"
+    )))
     .await;
     let mut flow_client = server.flow_client();
     let flow_id = "queued-state";
@@ -49,7 +53,8 @@ async fn a_queued_step_reports_why_it_waits_and_when_it_was_scheduled() {
     )
     .await;
 
-    // No Worker of the Flow type is connected.
+    // No Worker of the Flow type is connected, so the attempt goes to the durable queue.
+    wait_for_queue_entries(metrics, 1).await;
     let waiting = wait_for_execute_state(&mut flow_client, flow_id, |state| {
         state.pending_reason == StepMethodPendingReason::WaitingForWorker as i32
     })
@@ -165,7 +170,7 @@ async fn wait_for_execute_state(
                 .active_step_executions
                 .iter()
                 .find(|step| step.step_execution_id == STEP_EXECUTION_ID)
-                .and_then(|step| step.execute_invocation.clone());
+                .and_then(|step| step.execute_invocation);
             if let Some(invocation) = invocation {
                 if is_done(&invocation) {
                     return invocation;
@@ -187,4 +192,40 @@ fn attempt(task: &dexzd_protocol::dex::PollWorkerTask) -> i32 {
         .as_ref()
         .expect("the task has a context")
         .attempt
+}
+
+/// Waits until the node's DispatchQueue row count is `count`.
+async fn wait_for_queue_entries(metrics: SocketAddr, count: usize) {
+    let mut last_seen = None;
+    let polled = tokio::time::timeout(STATE_BUDGET, async {
+        loop {
+            last_seen = scrape_queue_entries(metrics).await;
+            if last_seen == Some(count) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    polled.unwrap_or_else(|_| {
+        panic!(
+            "the queue did not hold {count} rows within {STATE_BUDGET:?}; last saw {last_seen:?}"
+        )
+    });
+}
+
+/// Returns the `dexzd_step_task_queue_entries` sample, or `None` while the listener is down.
+async fn scrape_queue_entries(metrics: SocketAddr) -> Option<usize> {
+    let mut stream = tokio::net::TcpStream::connect(metrics).await.ok()?;
+    stream
+        .write_all(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .ok()?;
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).await.ok()?;
+    String::from_utf8(response)
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("dexzd_step_task_queue_entries "))
+        .and_then(|value| value.trim().parse().ok())
 }
