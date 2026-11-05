@@ -11,13 +11,15 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
+use dexzd_keyspace::PartitionId;
+use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef, StepTaskSendFailure};
 
 use super::{
     QueueReadView, is_ref_pending_in, read_off_task, ref_attempt_key, ref_flow, reply_to_claim,
 };
 use crate::effects::dispatch::{
-    AttemptHandout, ClaimHolder, ClaimedRow, HandoutProgress, MethodClaim,
+    AttemptHandout, ClaimHolder, ClaimedRow, HandoutProgress, MethodClaim, MethodDispatchSession,
+    MethodTask, ReservedMethodStream,
 };
 use crate::effects::{EffectContext, RouterMessage};
 
@@ -46,6 +48,7 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
         claim_id,
         task,
         stream,
+        partition_removals,
     } = claim;
     if !context
         .dispatcher
@@ -69,6 +72,20 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
     } else {
         Err("the node lease is not valid".to_owned())
     };
+    // The partition may have been removed while the check waited.
+    if !context
+        .dispatcher
+        .is_claim_tracked(task.partition, &task.queue, claim_id)
+    {
+        drop(stream);
+        return;
+    }
+    let stream: Box<dyn ReservedMethodStream> = Box::new(PartitionFencedStream {
+        stream,
+        context: Arc::clone(&context),
+        partition: task.partition,
+        partition_removals,
+    });
     if matches!(check, Ok(false)) {
         drop(stream);
         reply_to_claim(&context, &task, claim_id, ClaimResult::Stale);
@@ -121,6 +138,43 @@ async fn handle_claim(context: Arc<EffectContext>, claim: MethodClaim) {
         generation,
         end,
     });
+}
+
+/// A claimed slot that sends nothing once matching removed the row's partition.
+struct PartitionFencedStream {
+    stream: Box<dyn ReservedMethodStream>,
+    context: Arc<EffectContext>,
+    partition: PartitionId,
+    partition_removals: u64,
+}
+
+impl PartitionFencedStream {
+    fn is_partition_kept(&self) -> bool {
+        self.context
+            .dispatcher
+            .is_partition_unremoved_since(self.partition, self.partition_removals)
+    }
+}
+
+impl ReservedMethodStream for PartitionFencedStream {
+    fn app_worker_id(&self) -> &str {
+        self.stream.app_worker_id()
+    }
+
+    fn may_hand_out_tasks(&self) -> bool {
+        self.stream.may_hand_out_tasks() && self.is_partition_kept()
+    }
+
+    fn send_task(
+        self: Box<Self>,
+        task: MethodTask,
+    ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
+        // Like an expired lease: the partition's next owner serves the started attempt.
+        if !self.is_partition_kept() {
+            return Err(StepTaskSendFailure::LeaseInvalid);
+        }
+        self.stream.send_task(task)
+    }
 }
 
 /// Returns when the row became pending, on the monotonic clock.

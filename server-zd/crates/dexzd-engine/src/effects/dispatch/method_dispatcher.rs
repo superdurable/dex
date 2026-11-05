@@ -62,6 +62,8 @@ pub struct MethodClaim {
     pub task: QueuedTaskRef,
     /// The reserved Worker slot; dropping it returns the slot.
     pub stream: Box<dyn ReservedMethodStream>,
+    /// Removals of the row's partition when matching delivered the Claim.
+    pub partition_removals: u64,
 }
 
 /// The task frame of one method attempt.
@@ -141,6 +143,11 @@ pub trait MethodDispatcher: Send + Sync + 'static {
         claim_id: u64,
         reply: ClaimReply,
     );
+
+    /// Returns whether matching has not removed `partition` since a Claim delivered with
+    /// `partition_removals`.
+    fn is_partition_unremoved_since(&self, partition: PartitionId, partition_removals: u64)
+    -> bool;
 
     /// Returns whether matching still waits for the reply to this Claim.
     fn is_claim_tracked(
@@ -235,6 +242,7 @@ impl MethodDispatcher for WorkerDispatch {
                 stream: Box::new(WorkerSlot {
                     stream: claim.stream,
                 }),
+                partition_removals: claim.partition_removals,
             })
         })
     }
@@ -247,6 +255,14 @@ impl MethodDispatcher for WorkerDispatch {
         reply: ClaimReply,
     ) {
         WorkerDispatch::reply_to_claim(self, partition, queue, claim_id, reply);
+    }
+
+    fn is_partition_unremoved_since(
+        &self,
+        partition: PartitionId,
+        partition_removals: u64,
+    ) -> bool {
+        WorkerDispatch::is_partition_unremoved_since(self, partition, partition_removals)
     }
 
     fn is_claim_tracked(

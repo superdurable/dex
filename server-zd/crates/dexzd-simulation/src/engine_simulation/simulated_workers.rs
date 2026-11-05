@@ -802,6 +802,14 @@ impl MethodDispatcher for NodeWorkerPort {
             .report_scanned_heads(token, Vec::new())
     }
 
+    fn is_partition_unremoved_since(
+        &self,
+        _partition: PartitionId,
+        _partition_removals: u64,
+    ) -> bool {
+        true
+    }
+
     fn is_claim_tracked(
         &self,
         partition: PartitionId,
@@ -841,6 +849,7 @@ impl MethodDispatcher for NodeWorkerPort {
                     self.process_label, task.position.step_execution_id
                 ));
                 return Some(MethodClaim {
+                    partition_removals: 0,
                     claim_id,
                     task,
                     stream: Box::new(SimulatedSlot {

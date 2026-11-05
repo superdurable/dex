@@ -30,6 +30,9 @@ pub struct TaskClaim {
     pub task: QueuedTaskRef,
     /// The reserved Worker slot.
     pub stream: ReservedStepStream,
+    /// How often matching had removed the row's partition when it delivered the Claim; see
+    /// [`WorkerDispatch::is_partition_unremoved_since`].
+    pub partition_removals: u64,
 }
 
 /// A Claim waiting for the partition owner to take it.
@@ -91,6 +94,8 @@ pub(super) struct QueueMatching {
     step_workers: HashMap<(u64, String), HashMap<String, HashSet<Uuid>>>,
     /// Idle Step-capable streams per (tenant, Flow type), in idle order.
     idle_step_streams: HashMap<(u64, String), BTreeMap<u64, Uuid>>,
+    /// How often each partition was removed; a delivered Claim must not start after a removal.
+    partition_removals: HashMap<PartitionId, u64>,
 }
 
 impl QueueMatching {
@@ -130,6 +135,13 @@ impl QueueMatching {
                 .or_default()
                 .insert(position, worker.id);
         }
+    }
+
+    fn removals_of(&self, partition: PartitionId) -> u64 {
+        self.partition_removals
+            .get(&partition)
+            .copied()
+            .unwrap_or_default()
     }
 
     pub(super) fn take_idle_step_stream(&mut self, worker: &WorkerStream, position: u64) {
@@ -249,6 +261,11 @@ impl WorkerDispatch {
     /// sync, and RPC searches end as if matching were closing.
     pub fn remove_partition(&self, partition: PartitionId) {
         let mut registry = self.lock_registry();
+        *registry
+            .queue_matching
+            .partition_removals
+            .entry(partition)
+            .or_default() += 1;
         registry.queue_matching.backlog.remove_partition(partition);
         let searches = registry
             .queue_matching
@@ -270,6 +287,16 @@ impl WorkerDispatch {
         for pending in undelivered {
             self.make_idle(&pending.worker);
         }
+    }
+
+    /// Returns whether matching has not removed `partition` since a Claim was delivered with
+    /// `partition_removals`. The partition owner checks it before it starts or sends the row.
+    pub fn is_partition_unremoved_since(
+        &self,
+        partition: PartitionId,
+        partition_removals: u64,
+    ) -> bool {
+        self.lock_registry().queue_matching.removals_of(partition) == partition_removals
     }
 
     /// Returns whether matching still waits for the reply to this Claim; a removed partition's
@@ -298,11 +325,14 @@ impl WorkerDispatch {
             {
                 let mut registry = self.lock_registry();
                 if let Some(pending) = registry.queue_matching.claims.pop_front() {
+                    let partition_removals =
+                        registry.queue_matching.removals_of(pending.task.partition);
                     drop(registry);
                     return Some(TaskClaim {
                         claim_id: pending.claim_id,
                         task: pending.task,
                         stream: ReservedStepStream::new(self.clone(), pending.worker),
+                        partition_removals,
                     });
                 }
                 if registry.is_closing {

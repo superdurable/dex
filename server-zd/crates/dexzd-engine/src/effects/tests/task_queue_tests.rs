@@ -1150,3 +1150,110 @@ async fn a_blocked_row_count_delays_no_other_partitions_heads() {
     assert_eq!(entries.get(), 48, "every count finished after the release");
     harness.shutdown().await;
 }
+
+/// Queues one SYNC Execute attempt with no lock and returns its ref.
+async fn queue_one_row(harness: &EffectHarness) -> QueuedTaskRef {
+    harness.rebuild_all_partitions().await;
+    harness.settle().await;
+    harness
+        .dispatcher
+        .refuse_dispatch
+        .store(true, Ordering::SeqCst);
+    start_execute_flow(harness, "order-1", StepOptions::default());
+    harness.settle().await;
+    let refs = queued_refs(harness);
+    assert_eq!(refs.len(), 1, "the attempt is queued");
+    refs[0].clone()
+}
+
+/// A Claim whose partition is removed while it waits for a read permit starts nothing.
+#[tokio::test(start_paused = true)]
+async fn a_claim_removed_while_waiting_for_a_read_permit_starts_nothing() {
+    let harness = EffectHarness::with_config(
+        super::DurableState::new(),
+        EffectsConfig {
+            max_blocking_state_reads: 1,
+            heads_resync_interval: Duration::ZERO,
+            ..EffectsConfig::default()
+        },
+    );
+    let task = queue_one_row(&harness).await;
+    let permit = Arc::clone(&harness.effect_context().blocking_read_slots)
+        .acquire_owned()
+        .await
+        .expect("permit");
+    harness.dispatcher.claim(1, task.clone());
+    harness.yield_to_tasks().await;
+    harness.dispatcher.remove_partition(task.partition, &[1]);
+    drop(permit);
+    harness.settle().await;
+    assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
+    assert!(
+        claim_results(&harness).is_empty(),
+        "a removed Claim gets no reply"
+    );
+    assert!(
+        command_count(&harness, is_attempt_started) == 0,
+        "no start commits"
+    );
+    harness.shutdown().await;
+}
+
+/// A Claim whose partition is removed while its pending check reads the store starts nothing.
+#[tokio::test(start_paused = true)]
+async fn a_claim_removed_while_its_check_reads_the_store_starts_nothing() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let reads = harness.flow_effect_operations.state_read_gate.close();
+    harness.dispatcher.claim(1, task.clone());
+    harness.yield_to_tasks().await;
+    harness
+        .flow_effect_operations
+        .state_read_gate
+        .wait_for_held_reads(1);
+    harness.dispatcher.remove_partition(task.partition, &[1]);
+    reads.open_and_wait_for_reads();
+    harness.settle().await;
+    assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
+    assert!(
+        claim_results(&harness).is_empty(),
+        "a removed Claim gets no reply"
+    );
+    assert!(
+        command_count(&harness, is_attempt_started) == 0,
+        "no start commits"
+    );
+    harness.shutdown().await;
+}
+
+/// A started Claim whose partition is removed before the send hands out nothing.
+#[tokio::test(start_paused = true)]
+async fn a_claim_removed_after_its_start_sends_no_task() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    *harness
+        .flow_effect_operations
+        .start_commit_delay
+        .lock()
+        .expect("lock") = Duration::from_secs(10);
+    harness.dispatcher.claim(1, task.clone());
+    harness.settle().await;
+    assert_eq!(
+        command_count(&harness, is_attempt_started),
+        1,
+        "the start was proposed"
+    );
+    harness.dispatcher.remove_partition(task.partition, &[]);
+    tokio::time::sleep(Duration::from_secs(11)).await;
+    harness.settle().await;
+    assert_eq!(
+        harness.dispatcher.dispatch_count.load(Ordering::SeqCst),
+        0,
+        "the removal fence holds through the start and the send"
+    );
+    harness.shutdown().await;
+}
+
+fn is_attempt_started(command: &flow_command::Command) -> bool {
+    matches!(command, flow_command::Command::StepAttemptStarted(_))
+}

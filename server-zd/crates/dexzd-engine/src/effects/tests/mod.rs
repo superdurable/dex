@@ -950,6 +950,8 @@ pub(super) struct FakeDispatcher {
     pub(super) restored_head_count: AtomicUsize,
     /// Claims that matching no longer tracks, as after a partition removal.
     pub(super) untracked_claim_ids: Mutex<BTreeSet<u64>>,
+    /// Removals of each partition, as matching counts them.
+    pub(super) partition_removals: Mutex<BTreeMap<PartitionId, u64>>,
     /// Ordinary-priority pending times reported behind priority-0 heads, in order.
     pub(super) ordinary_backlog: Mutex<Vec<Option<i64>>>,
 }
@@ -978,6 +980,7 @@ impl FakeDispatcher {
             ),
             restored_head_count: AtomicUsize::new(0),
             untracked_claim_ids: Mutex::new(BTreeSet::new()),
+            partition_removals: Mutex::new(BTreeMap::new()),
             ordinary_backlog: Mutex::new(Vec::new()),
         }
     }
@@ -992,8 +995,10 @@ impl FakeDispatcher {
             step_type: task.queue.step_type.clone(),
             sticky_app_worker_id: None,
         };
+        let partition_removals = self.removals_of(task.partition);
         let claim = MethodClaim {
             claim_id,
+            partition_removals,
             task,
             stream: Box::new(FakeSlot {
                 request,
@@ -1007,6 +1012,29 @@ impl FakeDispatcher {
             .expect("lock")
             .send(claim)
             .expect("the claim pump holds the receiver");
+    }
+
+    /// Removes `partition` as matching would, ending its tracked Claims.
+    pub(super) fn remove_partition(&self, partition: PartitionId, claim_ids: &[u64]) {
+        *self
+            .partition_removals
+            .lock()
+            .expect("lock")
+            .entry(partition)
+            .or_default() += 1;
+        self.untracked_claim_ids
+            .lock()
+            .expect("lock")
+            .extend(claim_ids.iter().copied());
+    }
+
+    fn removals_of(&self, partition: PartitionId) -> u64 {
+        self.partition_removals
+            .lock()
+            .expect("lock")
+            .get(&partition)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Waits for the next dispatch.
@@ -1083,6 +1111,14 @@ impl MethodDispatcher for FakeDispatcher {
             .lock()
             .expect("lock")
             .push((claim_id, reply));
+    }
+
+    fn is_partition_unremoved_since(
+        &self,
+        partition: PartitionId,
+        partition_removals: u64,
+    ) -> bool {
+        self.removals_of(partition) == partition_removals
     }
 
     fn is_claim_tracked(
