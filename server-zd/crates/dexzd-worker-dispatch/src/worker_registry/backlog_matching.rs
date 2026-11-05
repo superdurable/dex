@@ -293,6 +293,12 @@ impl WorkerDispatch {
         }
     }
 
+    /// Returns how many times matching removed `partition`, to compare later with
+    /// [`Self::is_partition_unremoved_since`].
+    pub fn partition_removals(&self, partition: PartitionId) -> u64 {
+        self.lock_registry().queue_matching.removals_of(partition)
+    }
+
     /// Returns whether matching has not removed `partition` since a Claim was delivered with
     /// `partition_removals`. The partition owner checks it before it starts or sends the row.
     pub fn is_partition_unremoved_since(

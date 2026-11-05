@@ -31,6 +31,7 @@ use crate::effects::state_reads::{RunLocation, decode_row, read_run_record, read
 use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
 use crate::flow_coordination::FlowAddress;
 
+use queue_claims::release_unanswered_claim;
 pub(crate) use queue_claims::{run_claim_pump, spawn_claim};
 pub(crate) use queue_heads::{rebuild_heads, run_heads_resync, spawn_row_count};
 use queue_reads::{QueueReadView, acquire_read_slot, read_off_task, read_with_slot};
@@ -443,10 +444,29 @@ pub(crate) fn reply_to_claim(
     claim_id: u64,
     result: ClaimResult,
 ) {
+    // A tracked Claim's partition was not removed after this count, which fences later sends.
+    let partition_removals = context.dispatcher.partition_removals(task.partition);
+    // Built before the spawn, so a reply task that unwinds still answers the Claim.
+    let unanswered = UnansweredClaim {
+        context: Arc::clone(context),
+        claim_id,
+        task: task.clone(),
+        partition_removals,
+        is_finished: false,
+    };
     let context = Arc::clone(context);
     let task = task.clone();
     let tracker = context.tracker.clone();
     tracker.spawn(async move {
+        let mut unanswered = unanswered;
+        if !context
+            .dispatcher
+            .is_claim_tracked(task.partition, &task.queue, claim_id)
+        {
+            // Matching removed the partition; its next owner serves the queue.
+            unanswered.is_finished = true;
+            return;
+        }
         let seek = task.clone();
         let read = read_off_task(
             &context,
@@ -469,10 +489,13 @@ pub(crate) fn reply_to_claim(
         .await;
         let (next, ordinary) = match read {
             Ok(found) => found,
-            Err(EffectError::Stopped) => return,
+            Err(EffectError::Stopped) => {
+                unanswered.is_finished = true;
+                return;
+            }
             Err(error) => {
                 tracing::warn!(%error, partition = task.partition.0, "a Claim reply has no next ref; sending it later");
-                owe_next_ref(&context, task.clone());
+                owe_next_ref(&context, task.clone(), partition_removals);
                 (None, None)
             }
         };
@@ -482,6 +505,7 @@ pub(crate) fn reply_to_claim(
             claim_id,
             ClaimReply { result, next },
         );
+        unanswered.is_finished = true;
         if let Some(pending_since) = ordinary {
             context
                 .dispatcher
@@ -514,11 +538,45 @@ pub(crate) fn ordinary_backlog_behind(
     }
 }
 
-/// Sends the first pending, unheld row at or after `task`, retrying failed reads.
-pub(crate) fn owe_next_ref(context: &Arc<EffectContext>, task: QueuedTaskRef) {
+/// Gives back a Claim that its reply task left unanswered, when it drops.
+struct UnansweredClaim {
+    context: Arc<EffectContext>,
+    claim_id: u64,
+    task: QueuedTaskRef,
+    partition_removals: u64,
+    is_finished: bool,
+}
+
+impl Drop for UnansweredClaim {
+    fn drop(&mut self) {
+        if !self.is_finished {
+            release_unanswered_claim(
+                &self.context,
+                self.claim_id,
+                self.task.clone(),
+                self.partition_removals,
+            );
+        }
+    }
+}
+
+/// Sends the first pending, unheld row at or after `task`, retrying failed reads, unless
+/// matching removed the partition after `partition_removals`.
+pub(crate) fn owe_next_ref(
+    context: &Arc<EffectContext>,
+    task: QueuedTaskRef,
+    partition_removals: u64,
+) {
+    // Built before the spawn, so a task that unwinds still owes the ref.
+    let owed = OwedNextRef {
+        context: Arc::clone(context),
+        task: Some(task.clone()),
+        partition_removals,
+    };
     let context = Arc::clone(context);
     let tracker = context.tracker.clone();
     tracker.spawn(async move {
+        let mut owed = owed;
         let mut backoff = context.retry_backoff();
         loop {
             if !backoff.wait(&context.shutdown).await {
@@ -544,16 +602,49 @@ pub(crate) fn owe_next_ref(context: &Arc<EffectContext>, task: QueuedTaskRef) {
             .await;
             match read {
                 Ok(Some(next)) => {
-                    context.dispatcher.queued(next);
+                    owed.task = None;
+                    if context
+                        .dispatcher
+                        .is_partition_unremoved_since(next.partition, partition_removals)
+                    {
+                        context.dispatcher.queued(next);
+                    }
                     return;
                 }
-                Ok(None) | Err(EffectError::Stopped) => return,
+                Ok(None) | Err(EffectError::Stopped) => {
+                    owed.task = None;
+                    return;
+                }
                 Err(error) => {
                     tracing::warn!(%error, partition = task.partition.0, "retrying an owed next ref");
                 }
             }
         }
     });
+}
+
+/// Owes the next ref again from a new task when the task that owed it ends early.
+struct OwedNextRef {
+    context: Arc<EffectContext>,
+    /// The ref to seek from, until the owing task settles it.
+    task: Option<QueuedTaskRef>,
+    partition_removals: u64,
+}
+
+impl Drop for OwedNextRef {
+    fn drop(&mut self) {
+        let Some(task) = self.task.take() else {
+            return;
+        };
+        if tokio::runtime::Handle::try_current().is_err() || self.context.shutdown.is_cancelled() {
+            return;
+        }
+        tracing::error!(
+            partition = task.partition.0,
+            "the task that owed a next ref ended early; owing it again"
+        );
+        owe_next_ref(&self.context, task, self.partition_removals);
+    }
 }
 
 /// Applies a committed DispatchQueueChanged effect to the scan memory and the entries gauge.

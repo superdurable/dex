@@ -783,6 +783,7 @@ impl FlowStateReader for CountingStateReader {
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, StateReadError> {
         self.committed_read_gate.hold_while_closed();
+        self.committed_read_gate.panic_if_armed();
         self.state.get(column_family, key)
     }
 
@@ -794,6 +795,7 @@ impl FlowStateReader for CountingStateReader {
         limit: usize,
     ) -> Result<Vec<StateRow>, StateReadError> {
         self.committed_read_gate.hold_while_closed();
+        self.committed_read_gate.panic_if_armed();
         if limit < ROW_COUNT_PAGE_ROWS {
             self.count_queue_seek(column_family, start);
         } else if is_dispatch_queue_key(column_family, start) {
@@ -810,6 +812,7 @@ impl FlowStateReader for CountingStateReader {
         max_skipped_deletions: u64,
     ) -> Result<dexzd_apply::BoundedRowSeek, StateReadError> {
         self.committed_read_gate.hold_while_closed();
+        self.committed_read_gate.panic_if_armed();
         self.count_queue_seek(column_family, start);
         self.state
             .seek_first_bounded(column_family, start, end, max_skipped_deletions)
@@ -1235,6 +1238,10 @@ impl MethodDispatcher for FakeDispatcher {
             .lock()
             .expect("lock")
             .push((claim_id, reply));
+    }
+
+    fn partition_removals(&self, partition: PartitionId) -> u64 {
+        self.removals_of(partition)
     }
 
     fn is_partition_unremoved_since(

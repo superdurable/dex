@@ -144,6 +144,10 @@ pub trait MethodDispatcher: Send + Sync + 'static {
         reply: ClaimReply,
     );
 
+    /// Returns how many times matching removed `partition`, for
+    /// [`Self::is_partition_unremoved_since`].
+    fn partition_removals(&self, partition: PartitionId) -> u64;
+
     /// Returns whether matching has not removed `partition` since a Claim delivered with
     /// `partition_removals`.
     fn is_partition_unremoved_since(&self, partition: PartitionId, partition_removals: u64)
@@ -255,6 +259,10 @@ impl MethodDispatcher for WorkerDispatch {
         reply: ClaimReply,
     ) {
         WorkerDispatch::reply_to_claim(self, partition, queue, claim_id, reply);
+    }
+
+    fn partition_removals(&self, partition: PartitionId) -> u64 {
+        WorkerDispatch::partition_removals(self, partition)
     }
 
     fn is_partition_unremoved_since(

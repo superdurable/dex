@@ -46,6 +46,7 @@ pub(crate) fn spawn_claim(context: &Arc<EffectContext>, claim: MethodClaim) {
         context: Arc::clone(context),
         claim_id: claim.claim_id,
         task: claim.task.clone(),
+        partition_removals: claim.partition_removals,
         is_completed: false,
     };
     let task_context = Arc::clone(context);
@@ -64,21 +65,33 @@ struct ClaimTaskEnd {
     context: Arc<EffectContext>,
     claim_id: u64,
     task: QueuedTaskRef,
+    /// The partition's removals when matching delivered the Claim.
+    partition_removals: u64,
     is_completed: bool,
 }
 
 impl Drop for ClaimTaskEnd {
     fn drop(&mut self) {
         if !self.is_completed {
-            release_unanswered_claim(&self.context, self.claim_id, self.task.clone());
+            release_unanswered_claim(
+                &self.context,
+                self.claim_id,
+                self.task.clone(),
+                self.partition_removals,
+            );
         }
         self.context.report(RouterMessage::ClaimFinished);
     }
 }
 
 /// Answers "retry later" for a Claim its task left unanswered, then sends the row back after a
-/// backoff.
-fn release_unanswered_claim(context: &Arc<EffectContext>, claim_id: u64, task: QueuedTaskRef) {
+/// backoff unless matching removed the partition after `partition_removals`.
+pub(crate) fn release_unanswered_claim(
+    context: &Arc<EffectContext>,
+    claim_id: u64,
+    task: QueuedTaskRef,
+    partition_removals: u64,
+) {
     // Matching's lock may be poisoned during an unwind, so only the spawned task calls it.
     if tokio::runtime::Handle::try_current().is_err() || context.shutdown.is_cancelled() {
         return;
@@ -105,7 +118,12 @@ fn release_unanswered_claim(context: &Arc<EffectContext>, claim_id: u64, task: Q
         context
             .dispatcher
             .reply_to_claim(task.partition, &task.queue, claim_id, reply);
-        if context.retry_backoff().wait(&context.shutdown).await {
+        // A removal during the backoff hands the row to the partition's next owner.
+        if context.retry_backoff().wait(&context.shutdown).await
+            && context
+                .dispatcher
+                .is_partition_unremoved_since(task.partition, partition_removals)
+        {
             context.dispatcher.queued(task);
         }
     });

@@ -36,7 +36,9 @@ use super::{
 };
 use crate::effects::dispatch::{AttemptEntries, ClaimHolder, HandoutProgress};
 use crate::effects::method_request::MethodAttemptKey;
-use crate::effects::task_queue::{TaskQueueMemory, first_ordinary_pending_since};
+use crate::effects::task_queue::{
+    TaskQueueMemory, first_ordinary_pending_since, owe_next_ref, reply_to_claim,
+};
 use crate::effects::{EffectsConfig, MethodRequest};
 use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 
@@ -1507,6 +1509,88 @@ async fn a_claim_that_panics_after_taking_its_entry_frees_it_and_its_row_starts_
     let runner = harness.dispatcher.next_dispatch().await;
     assert_eq!(runner.context().attempt, 1);
     assert_eq!(claim_results(&harness)[1].1, ClaimResult::Started);
+    harness.shutdown().await;
+}
+
+/// A panicked Claim's give-back does not send its row back once matching removed the partition
+/// during the backoff.
+#[tokio::test(start_paused = true)]
+async fn a_panicked_claim_does_not_send_back_a_row_of_a_partition_removed_meanwhile() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let panics = Arc::clone(&harness.dispatcher.slot_panics);
+    panics.should_panic_at_routing.store(true, Ordering::SeqCst);
+    harness.dispatcher.claim(1, task.clone());
+    harness.settle().await;
+    assert!(!panics.should_panic_at_routing.load(Ordering::SeqCst));
+    assert_eq!(
+        claim_results(&harness),
+        vec![(1, ClaimResult::RetryLater, None)]
+    );
+    harness.dispatcher.remove_partition(task.partition, &[]);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    harness.settle().await;
+    assert_eq!(
+        queued_refs(&harness).len(),
+        1,
+        "the partition's next owner serves the row"
+    );
+    harness.shutdown().await;
+}
+
+/// A Claim reply whose seek panics still answers the Claim, and the row comes back.
+#[tokio::test(start_paused = true)]
+async fn a_claim_reply_that_panics_still_answers_and_sends_the_row_back() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let committed_reads = Arc::clone(&harness.flow_effect_operations.committed_read_gate);
+    committed_reads
+        .should_panic_next_read
+        .store(true, Ordering::SeqCst);
+    reply_to_claim(harness.effect_context(), &task, 7, ClaimResult::Busy);
+    harness.settle().await;
+    assert!(
+        !committed_reads
+            .should_panic_next_read
+            .load(Ordering::SeqCst),
+        "the reply's seek panicked"
+    );
+    assert_eq!(
+        claim_results(&harness),
+        vec![(7, ClaimResult::RetryLater, None)],
+        "matching moves on"
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    harness.settle().await;
+    let refs = queued_refs(&harness);
+    assert_eq!(refs.len(), 2, "the row comes back after a backoff");
+    assert_eq!(refs[1], task);
+    harness.shutdown().await;
+}
+
+/// An owed next ref whose seek panics is owed again and still sent.
+#[tokio::test(start_paused = true)]
+async fn an_owed_next_ref_whose_seek_panics_is_still_sent() {
+    let harness = EffectHarness::new();
+    let task = queue_one_row(&harness).await;
+    let committed_reads = Arc::clone(&harness.flow_effect_operations.committed_read_gate);
+    committed_reads
+        .should_panic_next_read
+        .store(true, Ordering::SeqCst);
+    owe_next_ref(harness.effect_context(), task.clone(), 0);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    harness.settle().await;
+    assert!(
+        !committed_reads
+            .should_panic_next_read
+            .load(Ordering::SeqCst),
+        "the owed seek panicked"
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    harness.settle().await;
+    let refs = queued_refs(&harness);
+    assert_eq!(refs.len(), 2, "the owed ref is sent after all");
+    assert_eq!(refs[1], task);
     harness.shutdown().await;
 }
 

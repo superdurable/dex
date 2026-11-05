@@ -131,10 +131,17 @@ async fn sigterm_leaves_a_queued_step_for_the_successor() {
     start_flow_with_id(channel, StepDurability::Sync, QUEUED_FLOW_ID).await;
     wait_for_metric_sample(metrics_address, "dexzd_step_task_queue_entries 1").await;
 
-    let (status, ()) = tokio::join!(
-        active.terminate(BUDGET),
-        worker.complete_after(&running, Duration::from_secs(2), None),
-    );
+    // The slot frees only after the drain closed admission; heartbeats keep the attempt alive.
+    worker
+        .heartbeat_until(&running, async {
+            active.send_sigterm(BUDGET).await;
+            active
+                .wait_for_log_line("Step attempt drain started", BUDGET)
+                .await;
+        })
+        .await;
+    worker.complete_after(&running, Duration::ZERO, None).await;
+    let status = active.wait_for_exit(BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", active.log());
     let active_log = active.log();
     assert!(active_log.contains("attempts_waited=1"), "{active_log}");
@@ -753,6 +760,28 @@ impl DrainWorker {
         })
         .await
         .expect("the server ends a half-closed stream");
+    }
+
+    /// Heartbeats `task` and answers pings until `ready` completes.
+    async fn heartbeat_until(&mut self, task: &PollWorkerTask, ready: impl Future<Output = ()>) {
+        tokio::pin!(ready);
+        let mut heartbeat = tokio::time::interval(Duration::from_millis(500));
+        loop {
+            tokio::select! {
+                () = &mut ready => return,
+                _ = heartbeat.tick() => self.heartbeat(task),
+                response = self.incoming.message() => {
+                    let response = response
+                        .expect("the drain test fixture is valid and its operations succeed")
+                        .expect("a busy Worker stream stays open during drain");
+                    assert!(
+                        matches!(response.frame, Some(poll_worker_task_response::Frame::Ping(_))),
+                        "a running Worker receives neither Reconnect nor new tasks: {response:?}"
+                    );
+                    self.pong();
+                }
+            }
+        }
     }
 
     async fn complete_after(

@@ -802,6 +802,10 @@ impl MethodDispatcher for NodeWorkerPort {
             .report_scanned_heads(token, Vec::new())
     }
 
+    fn partition_removals(&self, _partition: PartitionId) -> u64 {
+        0
+    }
+
     fn is_partition_unremoved_since(
         &self,
         _partition: PartitionId,
