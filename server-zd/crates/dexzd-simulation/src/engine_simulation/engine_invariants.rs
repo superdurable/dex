@@ -27,7 +27,7 @@ use crate::apply_checker::ApplyChecker;
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::simulated_clients::ClientRecords;
 use crate::engine_simulation::simulated_node::PARTITION_COUNT;
-use crate::engine_simulation::simulated_workers::AttemptIdentity;
+use crate::engine_simulation::simulated_workers::{AttemptIdentity, TaskFrameRecord};
 use crate::invariants::{CheckerMemory, InvariantViolation, check_flow};
 use crate::memory_state::MemoryFlowState;
 use crate::row_decoding::hex;
@@ -349,6 +349,37 @@ pub(crate) fn check_interrupted_attempts_failed(
         )),
         None => Ok(()),
     }
+}
+
+/// A SYNC attempt reaches executable Worker code at most once (plan section 8, case 1): its
+/// task frame goes out only after its start committed, and a restart fails it instead of
+/// handing it out again. Frames the Worker declined or half-closed before running are exempt.
+///
+/// Returns the number of SYNC frames checked.
+pub(crate) fn check_sync_attempts_ran_at_most_once(
+    task_frames: &BTreeMap<AttemptIdentity, Vec<TaskFrameRecord>>,
+) -> Result<u64, InvariantViolation> {
+    let mut sync_frames = 0;
+    for (attempt, frames) in task_frames {
+        let possibly_run: Vec<_> = frames
+            .iter()
+            .filter(|frame| frame.is_sync && frame.has_possibly_run)
+            .collect();
+        sync_frames += frames.iter().filter(|frame| frame.is_sync).count() as u64;
+        if possibly_run.len() > 1 {
+            return Err(InvariantViolation::new(
+                "sync-attempt-ran-twice",
+                format!(
+                    "SYNC attempt {attempt:?} reached Workers in tasks {:?}",
+                    possibly_run
+                        .iter()
+                        .map(|frame| frame.task_id.as_str())
+                        .collect::<Vec<_>>()
+                ),
+            ));
+        }
+    }
+    Ok(sync_frames)
 }
 
 /// Liveness after the calm tail: no overdue timer, no unfinished method call unless blocked

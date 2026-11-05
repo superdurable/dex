@@ -245,6 +245,7 @@ impl MethodAttempt {
             request: *request,
             deadline: wall_deadline,
             scheduled_at: self.scheduled_at,
+            is_sync: self.is_sync(),
         };
         let session = match stream.send_task(task) {
             Ok(session) => session,
