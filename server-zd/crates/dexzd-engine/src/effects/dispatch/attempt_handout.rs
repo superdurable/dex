@@ -15,7 +15,7 @@ use std::time::Instant;
 use dexzd_apply::dispatch_queue_entry;
 use dexzd_keyspace::dispatch_queue_keys::{DispatchQueueEntry, dispatch_queue_key};
 use dexzd_keyspace::{ColumnFamily, RunId};
-use dexzd_protocol::dex::{self, PullRouting};
+use dexzd_protocol::dex::{self, PullRouting, PullRoutingSource};
 use dexzd_protocol::dexzd::v1::{
     CommandReply, FlowCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
     StepAttemptQueuedCommand, StepInvocationPhase, command_reply, flow_command,
@@ -24,9 +24,7 @@ use dexzd_worker_dispatch::{ClaimResult, QueuedTaskRef};
 use tokio_util::sync::CancellationToken;
 
 use crate::effects::dispatch::attempt_entries::EntryHolder;
-use crate::effects::dispatch::method_attempt::{
-    MethodAttempt, StartedAttemptEnd, fence_task_id, pull_routing,
-};
+use crate::effects::dispatch::method_attempt::{MethodAttempt, StartedAttemptEnd, fence_task_id};
 use crate::effects::dispatch::{
     MethodStreamRequest, MethodStreamReservation, ReservedMethodStream,
 };
@@ -625,4 +623,24 @@ pub(crate) async fn fail_interrupted_attempt(
     let _reply = context
         .propose_until_committed(flow, command, urgency)
         .await;
+}
+
+/// Returns the routing of a dispatch to the run's sticky Worker or its Flow type queue; an
+/// empty `served_by_app_worker_id` means no Worker served it yet.
+pub(crate) fn pull_routing(
+    sticky_app_worker_id: &str,
+    served_by_app_worker_id: &str,
+) -> PullRouting {
+    let source = if served_by_app_worker_id.is_empty() {
+        PullRoutingSource::Unspecified
+    } else if served_by_app_worker_id == sticky_app_worker_id {
+        PullRoutingSource::StickyQueue
+    } else {
+        PullRoutingSource::FlowTypeQueue
+    };
+    PullRouting {
+        sticky_app_worker_id: sticky_app_worker_id.to_owned(),
+        served_by_app_worker_id: served_by_app_worker_id.to_owned(),
+        source: source as i32,
+    }
 }
