@@ -117,7 +117,7 @@ func TestHardDeleteAttributeClientNegotiatesBeforeStartFlow(t *testing.T) {
 				Attributes: []InitialAttributeDef{initialSecret},
 			})
 			if !testCase.isAccepted {
-				require.ErrorContains(t, err, "requires a server-zd release supporting protocol 4")
+				require.ErrorContains(t, err, "requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16)")
 				require.Nil(t, service.startRequest)
 				return
 			}

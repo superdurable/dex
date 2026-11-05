@@ -148,7 +148,8 @@ gateway must authorize the selected RPC against its statically registered
 permission and current state. Search Attribute contents are never proof that a
 caller is authorized or that the Action remains available.
 
-The Go SDK requires a server-zd release supporting Server protocol 4. Worker startup
+The Go SDK requires a Dex Server with protocol version 4 or later
+(server-zd newer than v0.1.16). Upgrade the Server before upgrading the SDK. Worker startup
 fails immediately against older Servers. Client construction stays lazy and performs
 no network I/O. Every Client method negotiates before its first request; successful
 negotiation and incompatibility are cached, while transient failures retry on the next call.

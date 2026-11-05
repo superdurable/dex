@@ -130,13 +130,15 @@ func serverProtocolError(
 		serverVersion = "unknown"
 	}
 	return fmt.Errorf(
-		"dex: Go SDK version %q protocol [%d,%d] is incompatible with Server version %q protocol [%d,%d]: %s; requires a server-zd release supporting protocol 4",
+		"dex: This SDK requires a Dex Server with protocol version 4 or later (server-zd newer than v0.1.16). "+
+			"The Server reports protocol versions %d-%d (server version %s). "+
+			"Upgrade the Server before upgrading the SDK. Go SDK version %q protocol [%d,%d] is incompatible: %s",
+		serverMinimum,
+		serverCurrent,
+		serverVersion,
 		sdkVersion,
 		minimumSupportedServerProtocolVersion,
 		maximumSupportedServerProtocolVersion,
-		serverVersion,
-		serverMinimum,
-		serverCurrent,
 		reason,
 	)
 }
