@@ -9,8 +9,8 @@
 //! Tonic pull Worker stream handling.
 
 use super::worker_streams::{
-    AssignmentEnd, finish_assignment, half_close, record_protocol_error, send_reconnect,
-    subscribed_queues,
+    AssignmentEnd, backlog_flow_types, finish_assignment, half_close, record_protocol_error,
+    send_reconnect, subscribed_queues,
 };
 use super::*;
 use dexzd_metrics::WorkerStreamProtocolError;
@@ -73,6 +73,7 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
             id: Uuid::now_v7(),
             tenant_id: self.tenant_id,
             queues: subscribed_queues(&registration),
+            backlog_flow_types: backlog_flow_types(&registration),
             app_worker_id: registration.app_worker_id.clone(),
             slot: StreamSlot::of(&registration),
             output,

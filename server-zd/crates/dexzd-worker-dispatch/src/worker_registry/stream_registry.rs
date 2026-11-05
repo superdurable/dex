@@ -21,6 +21,7 @@ pub(super) struct Registry {
     pub(super) idle_positions: HashMap<Uuid, u64>,
     pub(super) next_idle_position: u64,
     pub(super) unsupported_types: UnsupportedTypeCache,
+    pub(super) queue_matching: QueueMatching,
 }
 
 impl Registry {
@@ -83,6 +84,10 @@ impl Registry {
             }
         }
         let Some((sequence, queue_name)) = rpc_choice.or(step_choice) else {
+            // Backlog comes after every waiter (plan D56).
+            if let Some(worker) = self.streams.get(&worker.id).cloned() {
+                self.claim_backlog_for(&worker);
+            }
             return;
         };
         let queue = self

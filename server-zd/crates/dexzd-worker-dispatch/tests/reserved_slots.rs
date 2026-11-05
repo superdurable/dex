@@ -13,14 +13,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use dexzd_clock::SystemWallClock;
+use dexzd_keyspace::PartitionId;
 use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::{
-    self, DispatchTaskErrorReason, InvokeExecuteMethodRequest, InvokeWaitForMethodOutput,
-    InvokeWaitForMethodRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcRequest,
-    InvokeWorkerRpcResponse, PollWorkerSlotKind, PollWorkerTaskFrame, PollWorkerTaskRegister,
-    PollWorkerTaskReject, PollWorkerTaskRejectReason, PollWorkerTaskRequest,
-    PollWorkerTaskResponse, StepMethodHeartbeat, poll_worker_task, poll_worker_task_frame,
-    poll_worker_task_request, poll_worker_task_response,
+    self, InvokeExecuteMethodRequest, InvokeWaitForMethodOutput, InvokeWaitForMethodRequest,
+    InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse,
+    PollWorkerSlotKind, PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskReject,
+    PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse, StepMethodHeartbeat,
+    poll_worker_task, poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
     worker_task_service_client::WorkerTaskServiceClient,
     worker_task_service_server::WorkerTaskServiceServer,
 };
@@ -202,6 +202,7 @@ fn config() -> MatchingConfig {
     MatchingConfig {
         dispatch_wait: Duration::from_millis(400),
         sticky_wait: Duration::from_millis(100),
+        sync_match_wait: Duration::from_millis(400),
         ..MatchingConfig::default()
     }
 }
@@ -266,12 +267,12 @@ async fn register(channel: &Channel, registration: PollWorkerTaskRegister) -> Sl
 
 fn step_request(flow_type: &str, step_type: &str, sticky: Option<&str>) -> StepStreamRequest {
     StepStreamRequest {
+        partition: PartitionId(0),
         tenant_id: 0,
         flow_id: "flow-1".to_owned(),
         flow_type: flow_type.to_owned(),
         step_type: step_type.to_owned(),
         sticky_app_worker_id: sticky.map(str::to_owned),
-        search_started_at: Instant::now(),
     }
 }
 
@@ -342,6 +343,7 @@ fn rpc_request(rpc_name: &str) -> DispatchRequest {
         deadline: SystemTime::now() + Duration::from_secs(10),
         sticky_wait: None,
         dispatch_wait: Some(Duration::from_secs(2)),
+        partition: None,
     }
 }
 
@@ -447,10 +449,7 @@ async fn rpc_only_slots_never_take_steps_and_idle_slots_serve_rpcs_first() {
     .await;
     assert!(matches!(
         reserve(&dispatch, step_request("Flow", "Charge", None)).await,
-        StepStreamReservation::NoWorker {
-            reason: DispatchTaskErrorReason::NoWorkerAvailable,
-            ..
-        }
+        StepStreamReservation::Enqueue
     ));
     let mut rpc = dispatch
         .dispatch(rpc_request("getStatus"))
@@ -474,11 +473,7 @@ async fn rpc_only_slots_never_take_steps_and_idle_slots_serve_rpcs_first() {
     assert_eq!(slot.task().await.task_id, "busy");
     let step_waiter = tokio::spawn({
         let dispatch = dispatch.clone();
-        async move {
-            let mut request = step_request("Flow", "Charge", None);
-            request.search_started_at = Instant::now() + Duration::from_secs(1);
-            reserve(&dispatch, request).await
-        }
+        async move { reserve(&dispatch, step_request("Flow", "Charge", None)).await }
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
     // The RPC-only slot is busy too, so the RPC waits behind the Step.
@@ -537,10 +532,7 @@ async fn a_declined_step_type_skips_that_worker_until_its_streams_are_gone() {
             step_request("Flow", "NewStep", Some("old-worker"))
         )
         .await,
-        StepStreamReservation::NoWorker {
-            reason: DispatchTaskErrorReason::UnknownName,
-            ..
-        }
+        StepStreamReservation::Enqueue
     ));
     let (app_worker_id, _other) = hand_out(&dispatch, "Flow", "OldStep", "task-2").await;
     assert_eq!(app_worker_id, "old-worker");

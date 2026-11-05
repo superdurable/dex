@@ -28,6 +28,7 @@ mod object_requests;
 #[cfg(target_os = "linux")]
 mod process;
 mod semantic;
+mod task_queue;
 mod worker_stream;
 
 use std::path::PathBuf;
@@ -55,6 +56,7 @@ pub use semantic::{
     FlowCloseStatus, FlowCloses, StepAttemptFailures, StepDurability, StepFailureKind,
     StepRetriesExhausted,
 };
+pub use task_queue::{UnservedTaskQueueReason, UnservedTaskQueues};
 pub use worker_stream::{
     StepAttemptReturnReason, StepAttemptsReturned, WorkerStreamEvent, WorkerStreamEvents,
     WorkerStreamProtocolError, WorkerStreamProtocolErrors,
@@ -115,6 +117,16 @@ pub struct NodeMetrics {
     pub matching_unsupported_type_evictions: Counter,
     /// Committed returns of started Step attempts by reason.
     pub step_attempts_returned: StepAttemptsReturned,
+    /// DispatchQueue index rows of the partitions this node owns.
+    pub step_task_queue_entries: Gauge,
+    /// Age of the oldest queued Step task that matching holds a ref for.
+    pub step_task_queue_oldest_age_seconds: Gauge,
+    /// Queues with backlog that no connected stream can serve, by reason.
+    pub matching_unserved_task_queues: UnservedTaskQueues,
+    /// Refs a periodic Heads scan restored because matching had lost them; nonzero is a bug.
+    pub matching_heads_restored_refs: Counter,
+    /// Queues a periodic Heads scan skipped because a seek met too many deleted entries.
+    pub matching_heads_incomplete_scans: Counter,
     /// Worker frames that break the reserved-slot dispatch protocol.
     pub worker_stream_protocol_errors: WorkerStreamProtocolErrors,
     /// Failed Step method attempts.
@@ -371,6 +383,31 @@ impl NodeMetrics {
             metrics.matching_unsupported_type_evictions.clone(),
         );
         registry.register(
+            "dexzd_step_task_queue_entries",
+            "Step tasks in the durable task queue of the partitions this node owns.",
+            metrics.step_task_queue_entries.clone(),
+        );
+        registry.register(
+            "dexzd_step_task_queue_oldest_age_seconds",
+            "Age of the oldest queued Step task at the head of a matching queue.",
+            metrics.step_task_queue_oldest_age_seconds.clone(),
+        );
+        registry.register(
+            "dexzd_matching_unserved_task_queues",
+            "Queues with backlog that no connected Worker stream can serve.",
+            metrics.matching_unserved_task_queues.clone(),
+        );
+        registry.register(
+            "dexzd_matching_heads_restored_refs",
+            "Queued tasks a periodic Heads scan restored to matching; nonzero means a bug.",
+            metrics.matching_heads_restored_refs.clone(),
+        );
+        registry.register(
+            "dexzd_matching_heads_incomplete_scans",
+            "Queues a periodic Heads scan skipped after too many deleted entries.",
+            metrics.matching_heads_incomplete_scans.clone(),
+        );
+        registry.register(
             "dexzd_step_attempts_returned",
             "Started Step attempts returned to pending without consuming a retry.",
             metrics.step_attempts_returned.clone(),
@@ -567,6 +604,11 @@ impl NodeMetrics {
             matching_unsupported_type_entries: Gauge::default(),
             matching_unsupported_type_evictions: Counter::default(),
             step_attempts_returned: StepAttemptsReturned::default(),
+            step_task_queue_entries: Gauge::default(),
+            step_task_queue_oldest_age_seconds: Gauge::default(),
+            matching_unserved_task_queues: UnservedTaskQueues::default(),
+            matching_heads_restored_refs: Counter::default(),
+            matching_heads_incomplete_scans: Counter::default(),
             worker_stream_protocol_errors: WorkerStreamProtocolErrors::default(),
             step_attempt_failures: StepAttemptFailures::default(),
             step_retries_exhausted: StepRetriesExhausted::default(),

@@ -9,11 +9,13 @@
 //! Pull Worker protocol server for server-zd: Worker registration, task queues, matching, cancellation, and keepalive.
 
 mod matching_config;
+mod task_backlog;
 mod worker_registry;
 
 pub use matching_config::MatchingConfig;
+pub use task_backlog::{ClaimReply, ClaimResult, HeadsScanToken, QueuedTaskRef, ScannedQueueHead};
 pub use worker_registry::{
     DispatchEvent, DispatchHandle, DispatchOutcome, DispatchRequest, DispatchTaskPayload,
     ReservedStepStream, StepStreamRequest, StepStreamReservation, StepTaskEvent, StepTaskHandle,
-    StepTaskSendFailure, WorkerDispatch, WorkerTaskService,
+    StepTaskSendFailure, TaskClaim, WorkerDispatch, WorkerTaskService,
 };

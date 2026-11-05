@@ -267,6 +267,7 @@ mod tests {
                     deadline: SystemTime::now() + Duration::from_secs(1),
                     sticky_wait: Some(Duration::ZERO),
                     dispatch_wait: Some(Duration::from_millis(1)),
+                    partition: None,
                 })
                 .expect("dispatch starts");
             assert!(matches!(
@@ -297,6 +298,7 @@ mod tests {
             id: Uuid::now_v7(),
             tenant_id: 7,
             queues: vec!["Flow".to_owned()],
+            backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: "worker".to_owned(),
             slot: StreamSlot::Legacy,
             output,
@@ -344,6 +346,7 @@ mod tests {
             id: Uuid::now_v7(),
             tenant_id: 7,
             queues: vec!["Flow".to_owned()],
+            backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: app_worker_id.to_owned(),
             slot: StreamSlot::Legacy,
             output,
@@ -398,6 +401,7 @@ mod tests {
                 &TaskSearch {
                     task_type: &step_task_type(),
                     flow_id,
+                    partition_search: None,
                 },
                 false,
                 &excluded_worker_ids,
@@ -575,6 +579,7 @@ mod tests {
             &TaskSearch {
                 task_type: &step_task_type(),
                 flow_id: "sticky",
+                partition_search: None,
             },
             true,
             &HashSet::new(),
