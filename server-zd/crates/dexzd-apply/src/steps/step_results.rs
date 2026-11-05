@@ -17,10 +17,10 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     RetryBackoffTimerId, StepAttemptFailedCommand, StepAttemptFailureKind,
-    StepAttemptHeartbeatCommand, StepAttemptReturnedCommand, StepAttemptStartedCommand,
-    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
-    StepMethodCompletedCommand, TimerId, TimerRecord, step_attempt_heartbeat_command,
-    step_method_completed_command, timer_id,
+    StepAttemptHeartbeatCommand, StepAttemptReturnReason, StepAttemptReturnedCommand,
+    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
+    StepInvocationPhase, StepMethod, StepMethodCompletedCommand, TimerId, TimerRecord,
+    step_attempt_heartbeat_command, step_method_completed_command, timer_id,
 };
 use prost::Message;
 
@@ -261,6 +261,12 @@ pub(crate) fn apply_attempt_failed(
     scope: &CommandScope<'_>,
     command: &StepAttemptFailedCommand,
 ) -> Result<StepCommandOutcome, ApplyError> {
+    // A failure is either before any start or fenced on a start, never both.
+    if command.is_before_start && !command.expected_task_id.is_empty() {
+        return Ok(StepCommandOutcome::Ignored(stale_reply(
+            "a failure before the start names a task",
+        )));
+    }
     let Some(mut step) = load_failed_invocation(transaction, cursor, command)? else {
         return Ok(StepCommandOutcome::Ignored(ok_reply()));
     };
@@ -474,6 +480,11 @@ pub(crate) fn apply_attempt_returned(
             "a returned attempt names no task",
         )));
     }
+    if command.reason == StepAttemptReturnReason::Unspecified as i32 {
+        return Ok(StepCommandOutcome::Ignored(stale_reply(
+            "a returned attempt names no reason",
+        )));
+    }
     let Some(mut step) = load_running_invocation(
         transaction,
         cursor,
@@ -495,9 +506,9 @@ pub(crate) fn apply_attempt_returned(
     invocation.task_id.clear();
     invocation.pull_routing = None;
     invocation.attempt_started_at_micros = 0;
-    let may_have_run =
+    let has_possibly_run =
         invocation.furthest_attempt_progress == StepAttemptProgress::NotCompleted as i32;
-    if invocation.attempt == 1 && !may_have_run {
+    if invocation.attempt == 1 && !has_possibly_run {
         // The first hand-out did not happen after all, so the retry clock has not started.
         invocation.retry_started_at_micros = 0;
     }

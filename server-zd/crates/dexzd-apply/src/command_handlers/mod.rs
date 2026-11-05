@@ -288,9 +288,17 @@ fn has_attribute_value(writes: &[AttributeWrite]) -> bool {
 }
 
 fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAttemptFailedCommand> {
-    let (invocation, attempt) = match body {
-        Command::StepAttemptHeartbeat(command) => (command.invocation.clone(), command.attempt),
-        Command::StepMethodCompleted(command) => (command.invocation.clone(), command.attempt),
+    let (invocation, attempt, task_id) = match body {
+        Command::StepAttemptHeartbeat(command) => (
+            command.invocation.clone(),
+            command.attempt,
+            &command.task_id,
+        ),
+        Command::StepMethodCompleted(command) => (
+            command.invocation.clone(),
+            command.attempt,
+            &command.task_id,
+        ),
         _ => return None,
     };
     Some(StepAttemptFailedCommand {
@@ -299,6 +307,8 @@ fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAtt
         kind: StepAttemptFailureKind::ValueTooLarge as i32,
         server_detail: detail.to_owned(),
         is_non_retryable: true,
+        // The failure is fenced like the result it replaces; an older log has no task ID.
+        expected_task_id: task_id.clone(),
         ..StepAttemptFailedCommand::default()
     })
 }
