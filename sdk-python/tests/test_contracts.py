@@ -514,6 +514,7 @@ def test_rpc_invoke_options_union_sort_and_validate_before_transport() -> None:
     client = Client(registry, cast(BlobCache, object()))
     service = RPCService()
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         output = client.invoke_rpc(
             ORDERS.get_order,
@@ -593,6 +594,7 @@ async def _assert_async_rpc_invoke_options_shape_the_same_request() -> None:
     client = AsyncClient(registry, cast(BlobCache, object()))
     service = AsyncRPCService()
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         output = await client.invoke_rpc(
             ORDERS.get_order,
@@ -1021,6 +1023,7 @@ def test_client_stream_transport_and_metadata() -> None:
     client = Client(Registry((StreamFlow(),)), cast(BlobCache, object()))
     service = StreamService()
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         client.write_stream("flow-1", thinking, "client-1", "starting")
         message = client.read_stream(
@@ -1713,6 +1716,7 @@ def test_search_run_inclusion_options_reach_transport() -> None:
     client = Client(Registry((ORDERS,)), cast(BlobCache, object()))
     service = SearchService()
     client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
     try:
         client.search_flows("WorkflowId = 'flow-1'", 1)
         client.search_flows(
@@ -1742,6 +1746,7 @@ def test_async_search_run_inclusion_options_reach_transport() -> None:
         client = AsyncClient(Registry((ORDERS,)), cast(BlobCache, object()))
         service = SearchService()
         client._service = cast(Any, service)
+        client._server_protocol.record_version(4)
         try:
             await client.search_flows("WorkflowId = 'flow-1'", 1)
             await client.search_flows(

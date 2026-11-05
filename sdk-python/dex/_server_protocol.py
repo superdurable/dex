@@ -15,8 +15,8 @@ import grpc
 
 from dex.dexpb import dex_pb2 as pb
 
-MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 1
-MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 3
+MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
+MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
 HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION = 3
 
 
@@ -121,5 +121,6 @@ def _compatibility_error(
         f"[{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},"
         f"{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] is incompatible with "
         f'Server version "{displayed_server_version}" protocol '
-        f"[{server_minimum},{server_current}]: {reason}"
+        f"[{server_minimum},{server_current}]: {reason}; requires a server-zd "
+        "release supporting protocol 4 or later"
     )

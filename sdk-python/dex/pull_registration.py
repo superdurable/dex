@@ -14,27 +14,30 @@ from dataclasses import dataclass
 
 
 class PullRegistrationError(RuntimeError):
-    """Identify a permanent rejection leaving a pull queue without a registered stream.
+    """Identify a permanent rejection leaving a slot kind without a registered stream.
 
     Raised by ``wait_pull_registered`` before initial readiness, or by ``start``
     when ``stop_on_permanent_stream_rejection`` is enabled. Inspect ``queue``
-    and ``error`` for the rejected queue and original gRPC error. Permanent codes
+    and ``error`` for the rejected slot kind and original gRPC error. Permanent codes
     are INVALID_ARGUMENT, RESOURCE_EXHAUSTED, UNIMPLEMENTED, PERMISSION_DENIED,
     and UNAUTHENTICATED.
 
     Attributes:
-        queue: Rejected Flow type or app Worker ID queue.
+        queue: Rejected slot kind: ``STEP_AND_RPC`` or ``RPC_ONLY``.
+            The field name is retained for source compatibility.
         error: Original permanent transport error, also exposed as ``__cause__``.
     """
 
     def __init__(self, queue: str, error: BaseException) -> None:
-        """Create a queue-specific rejection.
+        """Create a slot kind registration rejection.
 
         Args:
-            queue: Rejected queue name.
+            queue: Rejected slot kind label, retained in the ``queue`` field.
             error: Original permanent transport error.
         """
-        super().__init__(f"pull Worker queue {queue!r} registration rejected: {error}")
+        super().__init__(
+            f"pull Worker slot kind {queue!r} registration rejected: {error}"
+        )
         self.queue = queue
         self.error = error
         self.__cause__ = error
@@ -42,10 +45,10 @@ class PullRegistrationError(RuntimeError):
 
 @dataclass(frozen=True)
 class PullQueueRegistrationState:
-    """Describe one queue in an immutable readiness snapshot.
+    """Describe one execution slot kind in an immutable readiness snapshot.
 
     Attributes:
-        queue: Flow type or app Worker ID queue.
+        queue: ``STEP_AND_RPC`` or ``RPC_ONLY``; the field name is retained.
         has_registered_stream: Whether a stream is currently registered.
         last_permanent_error: Last permanent transport error, or ``None``.
             A new Registered acknowledgement clears it. Treat errors as immutable.
@@ -60,15 +63,16 @@ class PullQueueRegistrationState:
 class PullRegistrationState:
     """Describe pull registration readiness independently of the Worker lifecycle.
 
-    Obtain snapshots with ``worker.pull_registration_state()``. After every queue
+    Obtain snapshots with ``worker.pull_registration_state()``. After every required slot kind
     has registered once, transient failures, reconnects, and stop keep readiness.
     A permanent error with no registered stream makes ``is_ready`` false until
     re-registration.
 
     Attributes:
-        is_ready: Whether all queues registered once and no queue is permanently
+        is_ready: Whether STEP_AND_RPC and, when reserved, RPC_ONLY registered
+            once and no required slot kind is permanently
             rejected without a registered stream.
-        queues: Immutable per-queue snapshots, ordered by app Worker ID then Flow type.
+        queues: Immutable snapshots ordered STEP_AND_RPC then RPC_ONLY when reserved.
 
     Examples:
         >>> state = worker.pull_registration_state()

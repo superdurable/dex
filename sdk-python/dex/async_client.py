@@ -88,6 +88,12 @@ class AsyncClient:
     tasks. The Client owns its asynchronous channel but not its Registry or BlobCache;
     use ``async with`` or await ``close`` during application shutdown.
 
+    Construction performs no network I/O. The first service request negotiates
+    Server protocol 4. Service methods raise RuntimeError on incompatibility,
+    naming the Server version and requiring a server-zd release supporting protocol 4.
+    Compatibility results are cached; transient negotiation failures are retried
+    by the next service call.
+
     Attributes:
         registry: Flow definitions used to validate typed calls.
         blob_cache: The open cache used to hydrate large values.
@@ -137,6 +143,7 @@ class AsyncClient:
             self._server_protocol,
         )
         self._server_protocol_lock = asyncio.Lock()
+        self._server_protocol_error: RuntimeError | None = None
         self._closed = False
 
     async def __aenter__(self) -> AsyncClient:
@@ -175,10 +182,9 @@ class AsyncClient:
         must be the exact registered instance and ``input`` must match its starting
         Step annotation.
 
-        When ``options`` initializes an Attribute defined with
-        ``hard_delete_on_null=True``, the first such call also requests Dex Server
-        information and caches the negotiated Server protocol version for later
-        calls. The Flow is not started when that version is below 3.
+        The first request negotiates Server protocol 4 and caches compatibility.
+        Construction performs no network I/O. An incompatible Server fails this
+        and every later request; transient negotiation failures can be retried.
 
         Args:
             flow: The registered Flow instance to start.
@@ -196,8 +202,8 @@ class AsyncClient:
                 including a numeric or Boolean value for a hard-delete Attribute.
             ValueError: If an initial Attribute uses a different ``hard_delete_on_null``
                 setting than the Flow's registered definition of that name.
-            RuntimeError: If a hard-delete Attribute is initialized and the Server
-                protocol is incompatible, below version 3, or cannot be requested.
+            RuntimeError: If Server protocol 4 is unavailable, incompatible, or
+                cannot be requested.
             DexServiceError: If FlowService rejects or cannot perform the request.
         """
         registered = self.registry._flow_for_instance(flow)
@@ -742,6 +748,7 @@ class AsyncClient:
         """
         plan = plan_attribute_reads(self.registry, self._values, flow_id, reads)
         try:
+            await self._negotiate_server_protocol()
             response = await self._service.GetAttributes(plan.request())
         except grpc.RpcError as error:
             raise plan.service_error(error, "GetAttributes") from error
@@ -1217,6 +1224,8 @@ class AsyncClient:
 
     async def _negotiate_server_protocol(self) -> None:
         async with self._server_protocol_lock:
+            if self._server_protocol_error is not None:
+                raise self._server_protocol_error
             if self._server_protocol.version == 0:
                 artifact_version = sdk_version()
                 try:
@@ -1225,9 +1234,13 @@ class AsyncClient:
                     raise server_info_request_error(
                         artifact_version, failure
                     ) from failure
-                self._server_protocol.record_version(
-                    negotiate_server_protocol(server_info, artifact_version)
-                )
+                try:
+                    self._server_protocol.record_version(
+                        negotiate_server_protocol(server_info, artifact_version)
+                    )
+                except RuntimeError as failure:
+                    self._server_protocol_error = failure
+                    raise
 
     async def _wait_for_flow_response(
         self,
@@ -1467,8 +1480,8 @@ class AsyncClient:
         }
         return error_types.get(error_type)
 
-    @staticmethod
     async def _call(
+        self,
         method: Callable[..., Any],
         request: Any,
         operation: str,
@@ -1476,6 +1489,7 @@ class AsyncClient:
         requirement: FlowTargetRequirement,
         timeout: float | None = None,
     ) -> Any:
+        await self._negotiate_server_protocol()
         try:
             if timeout is None:
                 return await method(request)

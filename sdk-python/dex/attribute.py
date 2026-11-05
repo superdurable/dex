@@ -116,16 +116,11 @@ class Attribute(Generic[ValueT]):
     ``hard_delete_on_null`` differently from the target Flow's registered
     definition of that name, so a secret is never sent inline by mistake.
 
-    Hard-delete writes require a Dex Server with an enabled blob store and Server
-    protocol version 3 or later. A ``Worker`` or ``AsyncWorker`` still starts
-    against an older Server, even when its Registry contains hard-delete
-    Attributes. Against such a Server, a Step, RPC, or timeout handler result
-    that writes or deletes a hard-delete Attribute fails that handler attempt
-    with ``RuntimeError`` instead of being sent. The same applies to a ``wait_for``
-    result whose SubFlow start initializes one. A Client checks the Server
-    protocol once, before its first ``start_flow`` that initializes a hard-delete
-    Attribute, and raises instead of sending the value to an older Server. A
-    Server without an enabled blob store rejects the write.
+    Hard-delete writes require a Dex Server with an enabled blob store.
+    This SDK requires Server protocol 4. Workers negotiate before startup and
+    Clients negotiate lazily before their first service request. Incompatible
+    Servers fail with ``RuntimeError``. A Server without an enabled blob store
+    rejects the write.
     Step and RPC handlers receive the current value inline. The SDK never stores
     the value in the local blob cache.
 

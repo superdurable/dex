@@ -24,7 +24,7 @@ from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Flow, PersistenceSchema, Registry
 from dex.worker import Worker
-from dex.worker_options import WorkerOptions
+from dex.worker_options import PullWorkerOptions, WorkerOptions
 
 
 class IndexedFlow(Flow[None]):
@@ -86,7 +86,7 @@ class SyncService(
             else pb.ServerInfo(
                 server_version="test",
                 minimum_supported_protocol_version=1,
-                current_protocol_version=1,
+                current_protocol_version=4,
             )
         )
         self.server_info_failure = server_info_failure
@@ -138,6 +138,7 @@ def test_worker_synchronizes_indexes_before_polling() -> None:
         Registry((IndexedFlow(),)),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )
@@ -176,6 +177,7 @@ def test_worker_sync_failure_prevents_polling() -> None:
         Registry((IndexedFlow(),)),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )
@@ -194,8 +196,8 @@ def test_worker_sync_failure_prevents_polling() -> None:
         (
             pb.ServerInfo(
                 server_version="future",
-                minimum_supported_protocol_version=4,
-                current_protocol_version=4,
+                minimum_supported_protocol_version=5,
+                current_protocol_version=5,
             ),
             None,
             "do not overlap",
@@ -228,6 +230,7 @@ def test_worker_protocol_failure_precedes_sync_and_polling(
         Registry((IndexedFlow(),)),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )
@@ -241,72 +244,46 @@ def test_worker_protocol_failure_precedes_sync_and_polling(
         flow_server.stop(grace=None).wait(timeout=5)
 
 
-PROTOCOL_2_SERVER_INFO = pb.ServerInfo(
-    server_version="previous",
-    minimum_supported_protocol_version=1,
-    current_protocol_version=2,
-)
+@pytest.mark.parametrize("is_async", [False, True])
+def test_worker_rejects_protocol_3_before_polling(is_async: bool) -> None:
+    asyncio.run(_worker_rejects_protocol_3_before_polling(is_async))
 
 
-@pytest.mark.parametrize("flow_type", (IndexedFlow, HardDeleteFlow))
-def test_worker_starts_on_protocol_2_server_and_records_version(
-    flow_type: type[Flow[None]],
-) -> None:
-    service = SyncService(server_info=PROTOCOL_2_SERVER_INFO)
-    flow_server, flow_port = _start_flow_server(service)
-    worker = Worker(
-        Registry((flow_type(),)),
-        MemoryBlobCache(),
-        WorkerOptions(server_address=f"127.0.0.1:{flow_port}"),
+async def _worker_rejects_protocol_3_before_polling(is_async: bool) -> None:
+    service = SyncService(
+        server_info=pb.ServerInfo(
+            server_version="previous-3",
+            minimum_supported_protocol_version=1,
+            current_protocol_version=3,
+        )
     )
-    failures: list[BaseException] = []
-
-    def run_worker() -> None:
-        try:
-            worker.start()
-        except BaseException as failure:
-            failures.append(failure)
-
-    thread = threading.Thread(target=run_worker)
-    thread.start()
-    try:
-        assert service.called.wait(timeout=5)
-        worker.wait_pull_registered(timeout=5)
-        assert not service.polling_during_sync
-        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
-        assert worker._server_protocol.version == 2
-    finally:
-        worker.stop()
-        thread.join(timeout=10)
-        flow_server.stop(grace=None).wait(timeout=5)
-    assert not thread.is_alive()
-    assert failures == []
-
-
-def test_async_worker_with_hard_delete_attributes_starts_on_protocol_2_server() -> None:
-    asyncio.run(_test_async_worker_starts_on_protocol_2_server())
-
-
-async def _test_async_worker_starts_on_protocol_2_server() -> None:
-    service = SyncService(server_info=PROTOCOL_2_SERVER_INFO)
-    flow_server, flow_port = _start_flow_server(service)
-    worker = AsyncWorker(
-        Registry((HardDeleteFlow(),), allow_async_handlers=True),
+    server, port = _start_flow_server(service)
+    worker_type = AsyncWorker if is_async else Worker
+    worker = worker_type(
+        Registry([]),
         MemoryBlobCache(),
         WorkerOptions(
-            server_address=f"127.0.0.1:{flow_port}",
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=f"127.0.0.1:{port}",
         ),
     )
-    worker_task = asyncio.create_task(worker.start())
     try:
-        await worker.wait_pull_registered(timeout=5)
-        assert not service.polling_during_sync
-        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
-        assert worker._server_protocol.version == 2
+        with pytest.raises(
+            RuntimeError,
+            match=r"previous-3.*protocol.*requires a server-zd.*protocol 4",
+        ):
+            if isinstance(worker, AsyncWorker):
+                await worker.start()
+            else:
+                worker.start()
+        assert service.calls == ["GetServerInfo"]
+        assert service.poll_calls == []
     finally:
-        await worker.stop()
-        await asyncio.wait_for(worker_task, timeout=5)
-        flow_server.stop(grace=None).wait(timeout=5)
+        if isinstance(worker, AsyncWorker):
+            await worker.close()
+        else:
+            worker.close()
+        server.stop(grace=None).wait(timeout=5)
 
 
 def test_async_worker_synchronizes_indexes_before_polling() -> None:
@@ -320,6 +297,7 @@ async def _test_async_worker_synchronizes_indexes_before_polling() -> None:
         Registry((IndexedFlow(),), allow_async_handlers=True),
         MemoryBlobCache(),
         WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
             server_address=f"127.0.0.1:{flow_port}",
         ),
     )

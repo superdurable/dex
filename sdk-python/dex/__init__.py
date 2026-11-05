@@ -39,7 +39,7 @@ from dex.codec import (
     WireKind,
 )
 from dex.condition import ConditionCombination
-from dex.context import AsyncContext, Context, RecoveryErrorInfo
+from dex.context import AsyncContext, Context, RecoveryErrorInfo, StepAttemptProgress
 from dex.credential import (
     ApiKeyCredential,
     ApiKeyExchangeError,
@@ -195,6 +195,7 @@ __all__ = [
     "RPCResult",
     "RPCInvokeOptions",
     "RecoveryErrorInfo",
+    "StepAttemptProgress",
     "RetryAfterError",
     "RpcLockConflictError",
     "Registry",

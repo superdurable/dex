@@ -16,7 +16,6 @@ import random
 import re
 import socket
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -33,7 +32,7 @@ from dex._server_protocol import sdk_version
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
-from dex.pull_registration import PullRegistrationError, _PullRegistration
+from dex.pull_registration import _PullRegistration
 from dex.worker_options import PullWorkerOptions
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,17 +87,14 @@ class PullWorkerRuntime:
         executor: ThreadPoolExecutor | None,
         app_worker_id: str | None = None,
         credential_runner: AsyncCredentialRunner | None = None,
-        reserve_pressure_linger: float = 30.0,
     ) -> None:
         self._registry = registry
         self.app_worker_id = app_worker_id or resolve_app_worker_id(registry, options)
         self.flow_types = sorted(registry._registered_flows)
-        self.queues = (self.app_worker_id, *self.flow_types)
-        self.registration = _PullRegistration(self.queues)
         self._stop_on_permanent_stream_rejection = (
             options.stop_on_permanent_stream_rejection
         )
-        self._permanent_error: PullRegistrationError | None = None
+        self._permanent_error: RuntimeError | None = None
         self._rejection_stop_task: asyncio.Task[None] | None = None
         self.max_concurrent_tasks = options.max_concurrent_tasks or os.cpu_count() or 1
         self.reserved_rpc_tasks = (
@@ -110,10 +106,11 @@ class PullWorkerRuntime:
             options.reserved_rpc_tasks is None and self.max_concurrent_tasks == 1
         )
         self.reserved_rpc_declines = 0
-        self._last_reserve_decline: dict[str, float] = {}
-        self._reserve_pressure_timers: dict[str, asyncio.TimerHandle] = {}
-        self._reserve_pressure_linger = reserve_pressure_linger
-        self.idle_streams_per_queue = options.idle_streams_per_queue or 1
+        self.queues = ("STEP_AND_RPC",) + (
+            ("RPC_ONLY",) if self.reserved_rpc_tasks else ()
+        )
+        self.registration = _PullRegistration(self.queues)
+        self._has_checked_registration_limit = False
         self.stop_drain_timeout = options.stop_drain_timeout.total_seconds() or 30
         self._dispatcher = dispatcher
         self._server_address = server_address
@@ -193,34 +190,39 @@ class PullWorkerRuntime:
     def _reconcile(self, stub: Any) -> None:
         if self._stopping is None or self._stopping.is_set():
             return
-        for stream in tuple(self._streams):
-            stream.try_retire()
-        for queue in self.queues:
-            idle = sum(
-                stream.queue == queue
-                and not stream.is_busy
-                and not stream.is_half_closing
-                for stream in self._streams
+        for slot_kind, desired_count in (
+            (
+                pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
+                self.max_concurrent_tasks - self.reserved_rpc_tasks,
+            ),
+            (pb.POLL_WORKER_SLOT_KIND_RPC_ONLY, self.reserved_rpc_tasks),
+        ):
+            existing_count = sum(
+                stream.slot_kind == slot_kind for stream in self._streams
             )
-            desired_idle = self.desired_idle_streams_per_queue(queue)
-            creation_target = (
-                self.idle_streams_per_queue
-                if self._busy_tasks == self.max_concurrent_tasks
-                else desired_idle
-            )
-            for _ in range(creation_target - idle):
-                stream = PullStream(self, stub, queue)
+            for _ in range(desired_count - existing_count):
+                stream = PullStream(
+                    self,
+                    stub,
+                    slot_kind,
+                )
                 self._streams.add(stream)
                 stream.run_task = asyncio.create_task(stream.run())
                 stream.run_task.add_done_callback(stream.on_done)
 
-    def desired_idle_streams_per_queue(self, queue: str) -> int:
-        last_decline = self._last_reserve_decline.get(queue)
-        return self.idle_streams_per_queue + int(
-            self.reserved_rpc_tasks > 0
-            and last_decline is not None
-            and time.monotonic() - last_decline < self._reserve_pressure_linger
-        )
+    def check_registration_limit(self, registered: pb.PollWorkerTaskRegistered) -> None:
+        if self._has_checked_registration_limit:
+            return
+        self._has_checked_registration_limit = True
+        server_limit = registered.max_concurrent_tasks_per_app_worker
+        if server_limit and server_limit < self.max_concurrent_tasks:
+            self._permanent_error = RuntimeError(
+                f"max_concurrent_tasks={self.max_concurrent_tasks} exceeds Server "
+                f"matching.maxConcurrentTasksCap={server_limit} "
+                "(max_concurrent_tasks_per_app_worker)"
+            )
+            self._rejection_stop_task = asyncio.create_task(self.stop())
+            raise self._permanent_error
 
     def _stream_done(self, stream: PullStream, completed: asyncio.Task[None]) -> None:
         self._streams.discard(stream)
@@ -230,56 +232,11 @@ class PullWorkerRuntime:
                 _LOGGER.error("Worker task stream failed", exc_info=failure)
         self.signal()
 
-    def accept_task(
-        self, task: pb.PollWorkerTask | None = None, queue: str | None = None
-    ) -> bool:
-        if self._stopping is None or self._stopping.is_set():
-            return False
-        if self._busy_tasks >= self.max_concurrent_tasks:
-            return False
-        if (
-            task is not None
-            and task.WhichOneof("request") in ("wait_for", "execute")
-            and self.reserved_rpc_tasks > 0
-            and self._busy_tasks >= self.max_concurrent_tasks - self.reserved_rpc_tasks
-            and self.unknown_task_reason(task) is None
-        ):
-            self.reserved_rpc_declines += 1
-            queue_name = queue or self.app_worker_id
-            self._last_reserve_decline[queue_name] = time.monotonic()
-            existing_timer = self._reserve_pressure_timers.pop(queue_name, None)
-            if existing_timer is not None:
-                existing_timer.cancel()
-            if self._loop is not None:
-                self._reserve_pressure_timers[queue_name] = self._loop.call_later(
-                    self._reserve_pressure_linger,
-                    self._expire_reserve_pressure,
-                    queue_name,
-                )
-            self.signal()
-            request = task.wait_for if task.HasField("wait_for") else task.execute
-            _LOGGER.debug(
-                "decline Step task for reserved RPC capacity: %s", request.flow_type
-            )
+    def accept_task(self) -> bool:
+        if self.is_stopping or self._permanent_error is not None:
             return False
         self._busy_tasks += 1
-        self.signal()
         return True
-
-    def _expire_reserve_pressure(self, queue: str) -> None:
-        last_decline = self._last_reserve_decline.get(queue)
-        if last_decline is None:
-            return
-        remaining = self._reserve_pressure_linger - (time.monotonic() - last_decline)
-        if remaining > 0:
-            assert self._loop is not None
-            self._reserve_pressure_timers[queue] = self._loop.call_later(
-                remaining, self._expire_reserve_pressure, queue
-            )
-            return
-        self._last_reserve_decline.pop(queue, None)
-        self._reserve_pressure_timers.pop(queue, None)
-        self.signal()
 
     def finish_task(self) -> None:
         self._busy_tasks -= 1
@@ -299,14 +256,9 @@ class PullWorkerRuntime:
             asyncio.get_running_loop().time() + self.stop_drain_timeout
         )
         self._stopping.set()
-        for timer in self._reserve_pressure_timers.values():
-            timer.cancel()
-        self._reserve_pressure_timers.clear()
         try:
             for stream in tuple(self._streams):
                 stream.drain()
-                if not stream.is_busy and not stream.is_half_closing:
-                    stream.run_task.cancel()
             self.signal()
             active = [
                 stream.handler_task for stream in self._streams if stream.handler_task
@@ -317,7 +269,9 @@ class PullWorkerRuntime:
                 )
                 if pending:
                     for stream in tuple(self._streams):
-                        stream.cancel_handler()
+                        if stream.handler_task in pending:
+                            stream.close()
+                            stream.cancel_handler()
                     await asyncio.gather(*pending, return_exceptions=True)
             stream_tasks = [stream.run_task for stream in tuple(self._streams)]
             if stream_tasks:
@@ -353,17 +307,21 @@ class PullWorkerRuntime:
 
 
 class PullStream:
-    def __init__(self, runtime: PullWorkerRuntime, stub: Any, queue: str) -> None:
+    def __init__(
+        self, runtime: PullWorkerRuntime, stub: Any, slot_kind: pb.PollWorkerSlotKind
+    ) -> None:
         self.runtime = runtime
         self.stub = stub
-        self.queue = queue
+        self.slot_kind = slot_kind
+        self.queue = pb.PollWorkerSlotKind.Name(slot_kind).removeprefix(
+            "POLL_WORKER_SLOT_KIND_"
+        )
         self.run_task: asyncio.Task[None]
         self.handler_task: asyncio.Task[None] | None = None
         self.task_id = ""
         self.is_busy = False
         self._is_registered = False
         self.is_draining = False
-        self._is_retiring = False
         self._retirement_requested = asyncio.Event()
         self.is_half_closing = False
         self._active = threading.Event()
@@ -374,7 +332,7 @@ class PullStream:
         self._is_reconnecting = False
         self._stream_metadata: Any = None
         self._deadline_handle: asyncio.TimerHandle | None = None
-        self._supports_unknown_name_rejection = False
+        self._is_connection_closed = False
 
     def on_done(self, completed: asyncio.Task[None]) -> None:
         self.runtime._stream_done(self, completed)
@@ -434,11 +392,7 @@ class PullStream:
                     self.runtime._rejection_stop_task = asyncio.create_task(
                         self.runtime.stop()
                     )
-            if (
-                self.runtime.is_stopping
-                or self.runtime._permanent_error is not None
-                or self._is_retiring
-            ):
+            if self.runtime.is_stopping or self.runtime._permanent_error is not None:
                 break
             if should_retry_unauthenticated:
                 has_retried_unauthenticated = True
@@ -477,7 +431,8 @@ class PullStream:
     async def _poll(self) -> bool:
         if self.runtime.is_stopping:
             return False
-        self._supports_unknown_name_rejection = False
+        self._is_connection_closed = False
+        self._retirement_requested.clear()
         self._is_final_frame_sent = False
         self._stream_metadata = None
         if self.runtime._credential_runner is None:
@@ -490,22 +445,24 @@ class PullStream:
                 return False
             self._stream_metadata = metadata
             self._call = self.stub.PollWorkerTask(metadata=metadata)
-        await self._send(
-            pb.PollWorkerTaskRequest(
-                register=pb.PollWorkerTaskRegister(
-                    queue=self.queue,
-                    app_worker_id=self.runtime.app_worker_id,
-                    flow_types=self.runtime.flow_types,
-                    sdk_name="python",
-                    sdk_version=sdk_version(),
-                )
-            )
-        )
         was_registered = False
         reader: asyncio.Task[Any] | None = None
         retirement = asyncio.create_task(self._retirement_requested.wait())
         try:
-            while not self.runtime.is_stopping or self.is_busy:
+            await self._send(
+                pb.PollWorkerTaskRequest(
+                    register=pb.PollWorkerTaskRegister(
+                        queue="",
+                        supports_reserved_slot_dispatch=True,
+                        slot_kind=self.slot_kind,
+                        app_worker_id=self.runtime.app_worker_id,
+                        flow_types=self.runtime.flow_types,
+                        sdk_name="python",
+                        sdk_version=sdk_version(),
+                    )
+                )
+            )
+            while True:
                 if reader is None:
                     reader = asyncio.create_task(self._call.read())
                 waiting: set[asyncio.Task[Any]] = {reader, retirement}
@@ -516,16 +473,9 @@ class PullStream:
                 )
                 if self.handler_task in completed:
                     await self._finish_handler()
-                    self.try_retire()
                 if self.is_draining and not self.is_busy:
-                    if reader.done():
-                        frame = reader.result()
-                        reader = None
-                        if (
-                            frame is not _GRPC_AIO_EOF
-                            and frame.WhichOneof("frame") == "task"
-                        ):
-                            await self._reject_task(frame.task)
+                    if self._is_connection_closed:
+                        return was_registered
                     async with self._send_lock:
                         self._stop_keepalive()
                         self.is_half_closing = True
@@ -533,7 +483,7 @@ class PullStream:
                         await self._call.done_writing()
                     await self._await_stream_eof(reader)
                     reader = None
-                    self._is_reconnecting = not self._is_retiring
+                    self._is_reconnecting = not self.runtime.is_stopping
                     return was_registered
                 if reader not in completed:
                     continue
@@ -548,9 +498,7 @@ class PullStream:
                         return False
                     if kind != "registered":
                         raise RuntimeError("Worker task stream did not register")
-                    self._supports_unknown_name_rejection = (
-                        frame.registered.supports_unknown_name_rejection
-                    )
+                    self.runtime.check_registration_limit(frame.registered)
                     was_registered = True
                     self._is_registered = True
                     self.runtime.registration.record_registered_stream(self.queue)
@@ -568,19 +516,17 @@ class PullStream:
                     )
                 elif kind == "reconnect":
                     self.drain()
-                    if not self.is_busy:
-                        self._is_reconnecting = True
-                        return was_registered
         finally:
+            self._is_connection_closed = True
+            self._call.cancel()
+            self.cancel_handler()
             async with self._send_lock:
                 self._stop_keepalive()
             retirement.cancel()
             await asyncio.gather(retirement, return_exceptions=True)
             self.is_half_closing = False
-            self.cancel_handler()
             if self.handler_task is not None:
                 await self._finish_handler()
-            self._call.cancel()
             if reader is not None:
                 reader.cancel()
                 await asyncio.gather(reader, return_exceptions=True)
@@ -637,20 +583,17 @@ class PullStream:
                     pass
 
     async def _start_task(self, task: pb.PollWorkerTask) -> None:
-        unknown_reason = (
-            self.runtime.unknown_task_reason(task)
-            if self._supports_unknown_name_rejection
-            else None
-        )
+        if self.runtime.is_stopping or self.is_draining:
+            return
+        if self.is_busy:
+            raise RuntimeError(
+                "Server assigned more than one task to a reserved execution slot"
+            )
+        unknown_reason = self.runtime.unknown_task_reason(task)
         if unknown_reason is not None:
             await self._reject_task(task, unknown_reason)
             return
-        if (
-            self.is_busy
-            or self.is_draining
-            or not self.runtime.accept_task(task, self.queue)
-        ):
-            await self._reject_task(task)
+        if not self.runtime.accept_task():
             return
         self.is_busy = True
         self.task_id = task.task_id
@@ -669,7 +612,7 @@ class PullStream:
     async def _reject_task(
         self,
         task: pb.PollWorkerTask,
-        reason: pb.PollWorkerTaskRejectReason = pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY,
+        reason: pb.PollWorkerTaskRejectReason,
     ) -> None:
         await self._send(
             pb.PollWorkerTaskRequest(
@@ -821,6 +764,8 @@ class PullStream:
 
     async def _send(self, request: pb.PollWorkerTaskRequest) -> None:
         async with self._send_lock:
+            if self._is_connection_closed:
+                return
             if request.HasField("task_frame"):
                 frame = request.task_frame
                 is_progress_frame = (
@@ -870,22 +815,6 @@ class PullStream:
         self._active.clear()
         self.runtime.finish_task()
 
-    def try_retire(self) -> None:
-        if self.is_busy or self.is_draining or not self._is_registered:
-            return
-        idle_replacements = sum(
-            candidate is not self
-            and candidate.queue == self.queue
-            and candidate._is_registered
-            and not candidate.is_busy
-            and not candidate.is_draining
-            for candidate in self.runtime._streams
-        )
-        if idle_replacements >= self.runtime.desired_idle_streams_per_queue(self.queue):
-            self.is_draining = True
-            self._is_retiring = True
-            self._retirement_requested.set()
-
     def cancel_handler(self) -> None:
         self._active.clear()
         if self.runtime._executor is None and self.handler_task is not None:
@@ -893,9 +822,12 @@ class PullStream:
 
     def drain(self) -> None:
         self.is_draining = True
-        if not self.is_busy and not self.is_half_closing:
-            self.close()
+        if not self.is_busy:
+            self._retirement_requested.set()
+        if self._call is None:
+            self.run_task.cancel()
 
     def close(self) -> None:
+        self._is_connection_closed = True
         if self._call is not None:
             self._call.cancel()
