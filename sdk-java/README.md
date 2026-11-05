@@ -151,17 +151,15 @@ the two handler calls. Timer and channel conditions determine how long a Step
 waits.
 
 `waitForRetry(...)` and `executeRetry(...)` limit one logical handler
-execution. With asynchronous Step durability, local and fallback regular
-activities share maximum attempts, total duration, and 1-based attempt numbers.
-Fallback starts immediately; later regular retries continue the backoff
-sequence at the cumulative attempt.
+execution. Attempt numbers start at 1. The retry policy, method timeouts, and
+heartbeat timeout apply to every attempt with either Step durability.
 
 Dex defaults Step methods to SYNC durability, a four-hour retry duration, a
-two-hour regular attempt timeout, and a one-minute heartbeat timeout. A Step
-method durability override wins over `FlowConfig.stepDurability(...)`, which
-wins over SYNC. Failure policies do not change that order. ASYNC first uses a
-local activity for at most seven seconds and three attempts; the local phase
-ignores method and heartbeat timeouts before regular-activity fallback.
+two-hour attempt timeout, and a one-minute heartbeat timeout. A Step method
+durability override wins over `FlowConfig.stepDurability(...)`, which wins over
+SYNC. Failure policies do not change that order. Durability changes only when
+Dex records a Step method result; it does not change retries, timeouts, or
+heartbeats.
 
 ### Step progress and Streams
 
@@ -183,9 +181,9 @@ public StepDecision execute(Context context, Batch batch) {
 }
 ```
 
-`recordHeartbeat(value)` persists a nonnull checkpoint for a later regular
-activity attempt. `recordHeartbeat(null)` sends a heartbeat without details and
-clears the current checkpoint. ASYNC local activities ignore heartbeat frames.
+`recordHeartbeat(value)` persists a nonnull checkpoint for a later attempt.
+`recordHeartbeat(null)` sends a heartbeat without details and clears the current
+checkpoint. Heartbeats behave the same with either Step durability.
 A Stream write is an implicit heartbeat that preserves the latest explicit
 heartbeat details.
 
@@ -292,15 +290,6 @@ public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
 the same RPC name do not share an invocation-scoped Step execution lineage.
 Attribute and Channel writes from the RPC commit before the cancellation
 snapshot, while next Steps in the same result remain outside it.
-
-An ASYNC local activity keeps the current backend Workflow Task open until it
-returns or reaches Dex's seven-second local optimization timeout. This can delay
-another Step from starting its durable timer, or delay processing a timer that
-already elapsed. An already-started timer keeps its deadline. Use SYNC durability
-when cancellation must reach a running handler close to the intended deadline.
-After an ASYNC local timeout, Dex falls back to a regular activity; a backend
-error without local attempt metadata conservatively consumes one attempt and the
-elapsed local duration before fallback.
 
 `ClientOptions` and `WorkerOptions` contain a default Jackson `ObjectMapper` and
 accept a configured mapper when needed. Java does not expose a public Codec API.

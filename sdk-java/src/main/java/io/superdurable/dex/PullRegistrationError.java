@@ -25,7 +25,8 @@ public final class PullRegistrationError extends IllegalStateException {
     /**
      * Creates a rejection retaining its original transport cause.
      *
-     * @param queue the rejected slot kind, POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY
+     * @param queue the rejected slot kind, POLL_WORKER_SLOT_KIND_STEP_AND_RPC or
+     *     POLL_WORKER_SLOT_KIND_RPC_ONLY
      * @param cause the original permanent transport error
      */
     public PullRegistrationError(final String queue, final Throwable cause) {

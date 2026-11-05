@@ -19,7 +19,9 @@ import java.util.List;
  *
  * <p>Use {@link Worker#getPullRegistrationState()} for readiness probes after initial startup.
  * Transient failures, reconnects, and stop preserve readiness after a STEP_AND_RPC stream and
- * any configured RPC_ONLY stream have registered once. A permanent rejection makes readiness false while its slot kind has no registered stream.
+ * any configured RPC_ONLY stream have registered once. A permanent rejection makes readiness
+ * false while its slot kind has no registered stream. Readiness is never true after Worker start
+ * fails because maxConcurrentTasks exceeds the Server's per-Worker limit.
  * See {@link Worker#waitPullRegistered(java.time.Duration)} for a startup example.
  */
 public final class PullRegistrationState {

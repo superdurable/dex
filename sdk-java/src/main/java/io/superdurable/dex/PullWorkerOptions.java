@@ -31,10 +31,8 @@ public final class PullWorkerOptions {
     private final int maxConcurrentTasks;
     private final int reservedRpcTasks;
     private final boolean shouldWarnRpcCapacity;
-    private final int idleStreamsPerQueue;
     private final String appWorkerID;
     private final Duration stopDrainTimeout;
-    private final Duration reservePressureLinger;
     private final boolean stopOnPermanentStreamRejection;
 
     private PullWorkerOptions(final Builder builder) {
@@ -47,12 +45,9 @@ public final class PullWorkerOptions {
         if (reservedRpcTasks < 0 || reservedRpcTasks >= maxConcurrentTasks) {
             throw new IllegalArgumentException("reservedRpcTasks must be nonnegative and less than maxConcurrentTasks");
         }
-        this.idleStreamsPerQueue = builder.idleStreamsPerQueue == 0
-                ? 1 : builder.idleStreamsPerQueue;
         this.appWorkerID = builder.appWorkerID;
         this.stopDrainTimeout = builder.stopDrainTimeout.isZero()
                 ? Duration.ofSeconds(30) : builder.stopDrainTimeout;
-        this.reservePressureLinger = builder.reservePressureLinger;
     }
 
     /**
@@ -76,10 +71,6 @@ public final class PullWorkerOptions {
         return reservedRpcTasks;
     }
 
-    int getIdleStreamsPerQueue() {
-        return idleStreamsPerQueue;
-    }
-
     String getAppWorkerID() {
         return appWorkerID;
     }
@@ -92,10 +83,6 @@ public final class PullWorkerOptions {
         return stopDrainTimeout;
     }
 
-    Duration getReservePressureLinger() {
-        return reservePressureLinger;
-    }
-
     /**
      * Builds immutable outbound polling options.
      *
@@ -105,21 +92,11 @@ public final class PullWorkerOptions {
     public static final class Builder {
         private int maxConcurrentTasks;
         private Integer reservedRpcTasks;
-        private int idleStreamsPerQueue;
         private String appWorkerID = "";
         private Duration stopDrainTimeout = Duration.ZERO;
-        private Duration reservePressureLinger = Duration.ofSeconds(30);
         private boolean stopOnPermanentStreamRejection;
 
         private Builder() {
-        }
-
-        Builder reservePressureLingerForTest(final Duration value) {
-            if (value == null || value.isZero() || value.isNegative()) {
-                throw new IllegalArgumentException("reserve pressure linger must be positive");
-            }
-            this.reservePressureLinger = value;
-            return this;
         }
 
         /**
@@ -178,7 +155,6 @@ public final class PullWorkerOptions {
             if (value < 0) {
                 throw new IllegalArgumentException("idleStreamsPerQueue must not be negative");
             }
-            this.idleStreamsPerQueue = value;
             return this;
         }
 
@@ -203,7 +179,8 @@ public final class PullWorkerOptions {
         /**
          * Sets how long Stop waits for active pull tasks before canceling them.
          *
-         * <p>A canceled handler must return before Stop completes.
+         * <p>A canceled handler must return before Stop completes. A stream whose final output is
+         * already queued gets up to one more timeout to deliver it before it is reset.
          *
          * @param value a nonnegative duration; zero uses 30 seconds
          * @return this builder

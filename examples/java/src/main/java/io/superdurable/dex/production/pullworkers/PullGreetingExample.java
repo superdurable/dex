@@ -84,6 +84,7 @@ public final class PullGreetingExample {
                 worker.getPullRegistrationState().isReady(), 0L);
     }
 
+    // reservedRpcDeclines is deprecated and always 0: reserved execution slots never decline tasks.
     public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
     }
 

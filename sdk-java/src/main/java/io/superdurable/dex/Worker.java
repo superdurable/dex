@@ -185,8 +185,8 @@ public final class Worker implements AutoCloseable {
      * @throws TimeoutException if the timeout expires before readiness
      * @throws PullRegistrationError if a slot kind is permanently rejected before readiness
      * @throws IllegalArgumentException if timeout is null or negative
-     * @throws IllegalStateException if startup fails or the Worker
-     *     stops before readiness
+     * @throws IllegalStateException if startup fails, including when maxConcurrentTasks exceeds
+     *     the Server's per-Worker limit, or the Worker stops before readiness
      */
     public void waitPullRegistered(final Duration timeout) throws InterruptedException, TimeoutException {
         if (timeout == null || timeout.isNegative()) {
@@ -279,7 +279,13 @@ public final class Worker implements AutoCloseable {
      * <p>Stop starts no new task. Idle streams half-close immediately and drop later task frames.
      * Busy streams finish their handler and send its final output before half-closing. Streams keep
      * reading until the Server ends them. If the timeout expires, a running task's stream is reset
-     * with a transport error instead of half-closing.
+     * with a transport error instead of half-closing. A half-closed stream that the Server has not
+     * ended by then is also reset, for example after a network partition. A task the Server sent
+     * on such a stream counts as one that may have run.
+     *
+     * <p>A stream whose final output is already queued is never reset at the timeout. It gets up to
+     * one more stop timeout to deliver that output and receive the Server's end of stream. Only
+     * then is it reset, so stop can take up to twice the stop timeout plus handler cancellation.
      */
     public void stop() {
         synchronized (this) {
