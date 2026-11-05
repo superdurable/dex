@@ -7,10 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { randomBytes } from "node:crypto";
-import type { Http2Stream } from "node:http2";
+import { constants as http2Constants, type Http2Stream } from "node:http2";
+import { createRequire } from "node:module";
 import { availableParallelism, hostname } from "node:os";
 import { Duplex } from "node:stream";
 
+import { BinaryReader, WireType } from "@bufbuild/protobuf/wire";
 import {
   credentials,
   makeGenericClientConstructor,
@@ -26,15 +28,16 @@ import {
   InvokeWaitForMethodOutput,
   PollWorkerSlotKind,
   PollWorkerTaskRejectReason,
+  PollWorkerTaskRequest,
   PollWorkerTaskResponse,
   WorkerTaskServiceClient,
   WorkerTaskServiceService,
   type PollWorkerTask,
   type PollWorkerTaskFrame,
-  type PollWorkerTaskRequest,
   type StepStreamWrite,
   type Value,
 } from "./gen/dex.js";
+import { Timestamp } from "./gen/google/protobuf/timestamp.js";
 import { workerErrorResponse } from "./grpc-status.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
@@ -43,7 +46,7 @@ import { sdkVersion } from "./sdk-version.generated.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 
 const BUSY_PULL_STREAM_KEEPALIVE_MS = 20_000;
-// Lets a final output written just before half-close reach Dex before a deadline reset.
+// Extra time after the drain deadline for a final output that Dex has not confirmed reading.
 const FINAL_OUTPUT_FLUSH_GRACE_MS = 5_000;
 // Matches the grpc-js default receive limit; the SDK enforces it so it can reset the stream itself.
 const MAX_TASK_FRAME_BYTES = 4 * 1024 * 1024;
@@ -52,12 +55,15 @@ class UndecodableTaskFrame {
   public constructor(public readonly failure: unknown) {}
 }
 
+// The SDK encodes and decodes frames itself, so grpc-js never cancels a stream for a codec failure.
 const ResettableWorkerTaskServiceClient = makeGenericClientConstructor({
   pollWorkerTask: {
     ...WorkerTaskServiceService.pollWorkerTask,
+    requestSerialize: (value: Buffer): Buffer => value,
     responseDeserialize: decodeTaskFrame,
   },
 }, "dex.WorkerTaskService") as unknown as typeof WorkerTaskServiceClient;
+const grpcJsVersion = readGrpcJsVersion();
 
 interface ActiveTask {
   readonly id: string;
@@ -76,7 +82,6 @@ interface PollStream {
   keepaliveTimer: ReturnType<typeof setInterval> | undefined;
   halfClosePromise: Promise<void> | undefined;
   halfClosedAtMs: number;
-  isHalfClosedAfterFinalOutput: boolean;
   resolveHalfClose: (() => void) | undefined;
   isRegistered: boolean;
   hasRecordedResult: boolean;
@@ -84,6 +89,8 @@ interface PollStream {
   isDisconnected: boolean;
   isHalfClosed: boolean;
   isFinalFrameSent: boolean;
+  hasUnconfirmedFinalOutput: boolean;
+  http2Streams: readonly Http2Stream[];
   isDraining: boolean;
   isReconnectRequested: boolean;
   hasRetriedRejectedToken: boolean;
@@ -225,10 +232,9 @@ export class PullWorker {
         slotKind: isRpcOnly ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
           : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
         stream: undefined, task: undefined, retryTimer: undefined,
-        halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, halfClosedAtMs: 0,
-        isHalfClosedAfterFinalOutput: false, resolveHalfClose: undefined,
+        halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, halfClosedAtMs: 0, resolveHalfClose: undefined,
         isRegistered: false, hasRecordedResult: false, hasPermanentRejectionBeforeStart: false, isDisconnected: false,
-        isHalfClosed: false, isFinalFrameSent: false, isDraining: false,
+        isHalfClosed: false, isFinalFrameSent: false, hasUnconfirmedFinalOutput: false, http2Streams: [], isDraining: false,
         isReconnectRequested: false, hasRetriedRejectedToken: false,
         backoffMs: 100, failure: undefined,
       };
@@ -244,6 +250,8 @@ export class PullWorker {
     poll.isDisconnected = false;
     poll.isHalfClosed = false;
     poll.isFinalFrameSent = false;
+    poll.hasUnconfirmedFinalOutput = false;
+    poll.http2Streams = [];
     poll.failure = undefined;
     poll.isDraining = false;
     poll.isReconnectRequested = false;
@@ -272,7 +280,7 @@ export class PullWorker {
       if (poll.stream === stream) this.onStreamClosed(poll);
     });
     try {
-      stream.write({ frame: { $case: "register", value: {
+      this.send(poll, { frame: { $case: "register", value: {
         queue: "",
         appWorkerId: this.appWorkerID,
         flowTypes: [...this.flowTypes],
@@ -295,6 +303,7 @@ export class PullWorker {
         poll.isReconnectRequested = true;
         this.halfCloseStream(poll);
       } else if (frame?.$case === "registered") {
+        if (!this.installResetHook(poll)) return;
         const limit = frame.value.maxConcurrentTasksPerAppWorker;
         const isOverLimit = limit !== 0 && limit < this.maxConcurrentTasks;
         if (!this.hasRegisteredSlot) {
@@ -321,6 +330,10 @@ export class PullWorker {
         this.scheduleReconnect(poll);
       }
       return;
+    }
+    // Dex sends a task or Ping only to an idle slot, so it has read the earlier final output.
+    if (frame?.$case === "task" || frame?.$case === "ping" && poll.task === undefined) {
+      poll.hasUnconfirmedFinalOutput = false;
     }
     switch (frame?.$case) {
       case "task":
@@ -365,6 +378,11 @@ export class PullWorker {
       } else {
         this.disconnect(poll);
       }
+      return;
+    }
+    if (!isWellFormedTask(task)) {
+      console.error("Worker task frame is malformed; resetting its stream", task.taskId);
+      this.disconnect(poll);
       return;
     }
     const unknownReason = this.unknownTaskReason(task);
@@ -486,7 +504,7 @@ export class PullWorker {
     if (poll.isDisconnected) {
       if (!this.isStopping) this.scheduleReconnect(poll);
     } else if (this.isStopping || poll.isDraining) {
-      this.halfCloseStream(poll, true);
+      this.halfCloseStream(poll);
     }
     this.reconcile();
   }
@@ -497,6 +515,7 @@ export class PullWorker {
       || frame.output?.$case === "execute" && frame.output.value.output?.$case === "result") {
       this.stopKeepalive(poll);
       poll.isFinalFrameSent = true;
+      poll.hasUnconfirmedFinalOutput = true;
     }
     this.send(poll, { frame: { $case: "taskFrame", value: frame } });
   }
@@ -510,7 +529,34 @@ export class PullWorker {
     if (poll.isDisconnected || poll.stream === undefined) {
       throw new Error("Worker task stream is closed");
     }
-    poll.stream.write(request);
+    let encoded: Buffer;
+    try {
+      encoded = Buffer.from(PollWorkerTaskRequest.encode(request).finish());
+    } catch (failure) {
+      console.error("encode Worker task frame", failure);
+      this.disconnect(poll);
+      throw failure;
+    }
+    poll.stream.write(encoded as unknown as PollWorkerTaskRequest);
+  }
+
+  private installResetHook(poll: PollStream): boolean {
+    const http2Streams = poll.stream === undefined ? [] : this.findCallHttp2Streams(poll.stream);
+    if (http2Streams.length > 0) {
+      for (const http2Stream of http2Streams) installResetOnlyClose(http2Stream);
+      poll.http2Streams = http2Streams;
+      return true;
+    }
+    const failure = new Error(`cannot find the HTTP/2 stream below @grpc/grpc-js ${grpcJsVersion}; `
+      + "this SDK supports @grpc/grpc-js ~1.14.4 and refuses the slot because it could not reset it safely");
+    console.error("Worker task stream reset hook unavailable", failure);
+    if (this.hasRegisteredSlot) {
+      // The slot is idle and unregistered, so a clean half-close cannot drop a started task.
+      this.halfCloseStream(poll);
+    } else {
+      this.failStartup(failure);
+    }
+    return false;
   }
 
   private disconnect(poll: PollStream): void {
@@ -518,7 +564,7 @@ export class PullWorker {
     if (poll.isDisconnected) return;
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
-    resetPollStream(poll.stream);
+    this.resetStream(poll);
     poll.task?.controller.abort();
     if (this.isStopping) return;
     if (poll.task === undefined) this.scheduleReconnect(poll);
@@ -533,20 +579,17 @@ export class PullWorker {
     if (poll.isDisconnected) return;
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
-    // An unexpected end must never become a clean half-close of a busy slot.
-    resetPollStream(poll.stream);
     poll.task?.controller.abort();
     if (!this.isStopping && poll.task === undefined) this.scheduleReconnect(poll);
   }
 
-  private halfCloseStream(poll: PollStream, isAfterFinalOutput = false): void {
+  private halfCloseStream(poll: PollStream): void {
     this.stopKeepalive(poll);
     if (poll.isHalfClosed || poll.isDisconnected || poll.task !== undefined || poll.stream === undefined) return;
     poll.isDisconnected = true;
     poll.isHalfClosed = true;
     poll.halfClosePromise = new Promise((resolve) => { poll.resolveHalfClose = resolve; });
     poll.halfClosedAtMs = Date.now();
-    poll.isHalfClosedAfterFinalOutput = isAfterFinalOutput;
     const stream = poll.stream;
     this.armHalfCloseTimer(poll, this.halfCloseResetDeadlineMs(poll));
     stream.end();
@@ -554,8 +597,7 @@ export class PullWorker {
 
   private halfCloseResetDeadlineMs(poll: PollStream): number {
     const drainDeadlineMs = this.stopDeadlineMs ?? poll.halfClosedAtMs + this.stopDrainTimeoutMs;
-    return poll.isHalfClosedAfterFinalOutput
-      ? Math.max(drainDeadlineMs, poll.halfClosedAtMs + FINAL_OUTPUT_FLUSH_GRACE_MS) : drainDeadlineMs;
+    return poll.hasUnconfirmedFinalOutput ? drainDeadlineMs + FINAL_OUTPUT_FLUSH_GRACE_MS : drainDeadlineMs;
   }
 
   private armHalfCloseTimer(poll: PollStream, deadlineMs: number): void {
@@ -567,7 +609,7 @@ export class PullWorker {
         this.armHalfCloseTimer(poll, deadlineMs);
         return;
       }
-      resetPollStream(poll.stream);
+      this.resetStream(poll);
       this.completeHalfClose(poll);
     }, Math.min(Math.max(remainingMs, 0), 2_147_483_647));
     poll.halfCloseTimer.unref();
@@ -669,10 +711,22 @@ export class PullWorker {
     }
   }
 
+  private findCallHttp2Streams(stream: ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse>): Http2Stream[] {
+    return findHttp2Streams(stream);
+  }
+
+  private resetStream(poll: PollStream): void {
+    // A stream without a hooked HTTP/2 stream never registered, so no handler ran on it.
+    for (const http2Stream of poll.http2Streams) {
+      if (!http2Stream.destroyed) http2Stream.destroy(new Error("Worker task stream reset"));
+    }
+    poll.stream?.cancel();
+  }
+
   private closeStream(poll: PollStream): void {
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
-    resetPollStream(poll.stream);
+    this.resetStream(poll);
     if (poll.isHalfClosed) this.completeHalfClose(poll);
     if (poll.retryTimer !== undefined) {
       clearTimeout(poll.retryTimer);
@@ -740,18 +794,9 @@ class DeadlineCancellation {
   }
 }
 
-// grpc-js cancel() sends END_STREAM before RST_STREAM; Dex would read that as a clean half-close.
-function resetPollStream(stream: ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse> | undefined): void {
-  if (stream === undefined) return;
-  for (const http2Stream of findHttp2Streams(stream)) {
-    if (!http2Stream.destroyed) http2Stream.destroy(new Error("Worker task stream reset"));
-  }
-  stream.cancel();
-}
-
 /**
  * Finds the HTTP/2 streams below a grpc-js call by walking its internal call chain.
- * @returns The open or closed HTTP/2 streams found; empty when grpc-js internals change.
+ * @returns The HTTP/2 streams found; empty when the call has none or grpc-js internals changed.
  */
 function findHttp2Streams(root: object): Http2Stream[] {
   const found: Http2Stream[] = [];
@@ -769,14 +814,37 @@ function findHttp2Streams(root: object): Http2Stream[] {
     if (http2Stream instanceof Duplex && "rstCode" in http2Stream) found.push(http2Stream as Http2Stream);
     for (const key of ["call", "nextCall", "child", "underlyingCalls"]) pending.push(Reflect.get(candidate, key));
   }
-  if (found.length === 0 && !hasWarnedMissingHttp2Stream) {
-    hasWarnedMissingHttp2Stream = true;
-    console.warn("cannot find the HTTP/2 stream of a Worker task call; resets may first send a clean end of stream");
-  }
   return found;
 }
 
-let hasWarnedMissingHttp2Stream = false;
+// Node's close(code) sends END_STREAM before RST_STREAM, so grpc-js cancels become RST-only destroys.
+function installResetOnlyClose(http2Stream: Http2Stream): void {
+  const closeWithCode = http2Stream.close.bind(http2Stream);
+  const resetOnlyClose = (code?: number, callback?: () => void): void => {
+    if (code === undefined || code === http2Constants.NGHTTP2_NO_ERROR) {
+      closeWithCode(code, callback);
+      return;
+    }
+    if (callback !== undefined) http2Stream.once("close", callback);
+    if (!http2Stream.destroyed) http2Stream.destroy(new Error(`Worker task stream reset with HTTP/2 code ${code}`));
+  };
+  Reflect.set(http2Stream, "close", resetOnlyClose);
+}
+
+function readGrpcJsVersion(): string {
+  try {
+    const manifest = createRequire(import.meta.url)("@grpc/grpc-js/package.json") as { version?: unknown };
+    return typeof manifest.version === "string" ? manifest.version : "unknown";
+  } catch (failure) {
+    console.warn("read @grpc/grpc-js version", failure);
+    return "unknown";
+  }
+}
+
+function isWellFormedTask(task: PollWorkerTask): boolean {
+  const deadlineMs = task.deadline?.getTime();
+  return task.taskId !== "" && task.request !== undefined && (deadlineMs === undefined || Number.isFinite(deadlineMs));
+}
 
 function positiveOption(value: number | undefined, defaultValue: number, name: string): number {
   if (value === undefined || value === 0) return defaultValue;
@@ -813,8 +881,37 @@ function decodeTaskFrame(value: Buffer): PollWorkerTaskResponse | UndecodableTas
     return new UndecodableTaskFrame(new RangeError(`Worker task frame of ${value.length} bytes exceeds ${MAX_TASK_FRAME_BYTES} bytes`));
   }
   try {
-    return PollWorkerTaskResponse.decode(value);
+    const response = PollWorkerTaskResponse.decode(value);
+    if (response.frame?.$case === "task" && !hasValidTaskDeadline(value)) {
+      return new UndecodableTaskFrame(new RangeError(`Worker task ${response.frame.value.taskId} has an invalid deadline`));
+    }
+    return response;
   } catch (failure) {
     return new UndecodableTaskFrame(failure);
   }
+}
+
+/**
+ * Checks the raw task deadline, because the generated Date conversion hides out-of-range fields.
+ * @returns Whether the deadline is absent or a valid Timestamp between years 1 and 9999.
+ */
+function hasValidTaskDeadline(responseBytes: Uint8Array): boolean {
+  const taskBytes = readLastLengthDelimitedField(responseBytes, 2);
+  const deadlineBytes = taskBytes === undefined ? undefined : readLastLengthDelimitedField(taskBytes, 2);
+  if (deadlineBytes === undefined) return true;
+  const deadline = Timestamp.decode(deadlineBytes);
+  const seconds = Number(deadline.seconds);
+  return Number.isSafeInteger(seconds) && seconds >= -62_135_596_800 && seconds <= 253_402_300_799
+    && Number.isInteger(deadline.nanos) && deadline.nanos >= 0 && deadline.nanos < 1_000_000_000;
+}
+
+function readLastLengthDelimitedField(message: Uint8Array, fieldNumber: number): Uint8Array | undefined {
+  const reader = new BinaryReader(message);
+  let value: Uint8Array | undefined;
+  while (reader.pos < reader.len) {
+    const [field, wireType] = reader.tag();
+    if (field === fieldNumber && wireType === WireType.LengthDelimited) value = reader.bytes();
+    else reader.skip(wireType);
+  }
+  return value;
 }

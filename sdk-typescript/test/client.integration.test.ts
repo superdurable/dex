@@ -846,12 +846,14 @@ for (const method of ["waitForStepCompletion", "waitForAttributeMatch"] as const
 
 test("Client wait negotiation accepts a request timeout longer than the Node timer limit", async () => {
   const pendingServerInfo: sendUnaryData<ServerInfo>[] = [];
+  let waitCalls = 0;
   const server = new Server();
   server.addService(FlowServiceService, {
     getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
       pendingServerInfo.push(callback);
     },
     waitForStepCompletion(_call, callback: sendUnaryData<WaitForStepCompletionResponse>) {
+      waitCalls++;
       callback(null, {});
     },
   } as Partial<FlowServiceServer> as FlowServiceServer);
@@ -860,15 +862,20 @@ test("Client wait negotiation accepts a request timeout longer than the Node tim
     serverAddress: `127.0.0.1:${port}`,
   });
   try {
+    let isSettled = false;
     const waiting = client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 }, {
       requestTimeoutMs: 30 * 24 * 60 * 60 * 1_000,
-    });
+    }).finally(() => { isSettled = true; });
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    // An unclamped timer would fire after 1 ms and reject while negotiation is still pending.
+    assert.equal(isSettled, false);
     assert.equal(pendingServerInfo.length, 1);
     pendingServerInfo[0]!(null, {
       serverVersion: "test", minimumSupportedProtocolVersion: 4, currentProtocolVersion: 4, serverEngine: 0,
     });
-    await waiting;
+    await until(() => waitCalls === 1);
+    // The grpc-js test Server mis-arms a deadline this long, so only the request reaching it is checked.
+    await waiting.catch(() => undefined);
   } finally {
     await client.close();
     server.forceShutdown();
@@ -921,4 +928,12 @@ function shutdown(server: Server): Promise<void> {
       resolve();
     });
   });
+}
+
+async function until(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error("timed out waiting for the fake Server");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }

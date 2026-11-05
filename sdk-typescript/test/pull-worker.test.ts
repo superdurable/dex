@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { constants as http2Constants, type Http2Stream } from "node:http2";
 import test from "node:test";
 
+import { BinaryWriter } from "@bufbuild/protobuf/wire";
 import {
   Server,
   ServerCredentials,
@@ -27,6 +28,7 @@ import {
   InvokeWorkerRPCResponse,
   InvokeWaitForMethodRequest,
   InvokeWaitForMethodResponse,
+  PollWorkerTask,
   PollWorkerTaskRejectReason,
   PollWorkerSlotKind,
   Value,
@@ -647,6 +649,47 @@ for (const shutdown of ["Stop drain", "busy Reconnect", "busy Reconnect then Sto
   });
 }
 
+for (const shutdown of ["Stop", "Server Reconnect"] as const) {
+  test(`a backpressured final output whose local cleanup finished keeps the flush grace on ${shutdown}`, async () => {
+    const harness = await startHarness();
+    const payload = "x".repeat(3_000_000);
+    const worker = harness.worker(async () => InvokeWorkerRPCResponse.create({ output: Value.create({
+      kind: { $case: "stringValue", value: payload },
+    }) }), { maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs: 50 });
+    let stream: CapturedStream | undefined;
+    let closing: Promise<void> | undefined;
+    try {
+      worker.start();
+      const capturedStream = await harness.nextStream();
+      stream = capturedStream;
+      capturedStream.call.write(registered(true));
+      await worker.waitStarted();
+      capturedStream.call.pause();
+      capturedStream.call.write(rpcTask("queued-result"));
+      await until(() => harness.invocationCount === 1 && Reflect.get(worker, "busyTaskCount") === 0);
+      const shutdownStartedAt = Date.now();
+      if (shutdown === "Stop") closing = worker.close();
+      else capturedStream.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+      assert.equal(capturedStream.wasReset(), false);
+      capturedStream.call.resume();
+      const result = await capturedStream.frame("taskFrame", 1, 10_000);
+      const output = result.frame?.$case === "taskFrame" ? result.frame.value.output : undefined;
+      assert.equal(output?.$case === "rpc" && output.value.output?.kind?.$case === "stringValue"
+        && output.value.output.kind.value.length, payload.length);
+      await capturedStream.ended;
+      await closing;
+      assert.equal(capturedStream.wasReset(), false);
+      assert.ok(Date.now() - shutdownStartedAt < 5_000);
+    } finally {
+      stream?.call.resume();
+      await worker.close();
+      await closing;
+      await harness.close();
+    }
+  });
+}
+
 test("Worker error frame preserves status, type, stack, and retry delay", () => {
   const failure = Object.assign(new Error("failed"), { code: status.INVALID_ARGUMENT });
   const pull = workerErrorResponse(failure);
@@ -1078,6 +1121,38 @@ for (const [failure, isBusy] of [["oversized", false], ["oversized", true], ["ma
   });
 }
 
+test("task frames with malformed deadlines reset the stream without admitting the task", async (context) => {
+  context.mock.method(console, "error", () => {});
+  const harness = await startHarness();
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), { maxConcurrentTasks: 1, reservedRpcTasks: 0 });
+  const malformedDeadlines = [
+    { seconds: 2n ** 62n, nanos: 0 },
+    { seconds: BigInt(Number.MAX_SAFE_INTEGER), nanos: 0 },
+    { seconds: 1_700_000_000n, nanos: -1 },
+    { seconds: 1_700_000_000n, nanos: 1_000_000_000 },
+  ];
+  try {
+    worker.start();
+    let stream = await harness.nextStream();
+    for (const [index, deadline] of malformedDeadlines.entries()) {
+      stream.call.write(registered(true));
+      await until(() => worker.registration.snapshot().isReady);
+      stream.call.write(taskWithRawDeadline(`bad-deadline-${index}`, deadline));
+      await stream.cancelled;
+      assert.equal(stream.framesAtEnd(), undefined);
+      assert.equal(harness.invocationCount, 0);
+      assert.equal(Reflect.get(worker, "busyTaskCount"), 0);
+      stream = await harness.nextStream();
+    }
+    stream.call.write(registered(true));
+    stream.call.write(rpcTask("valid-after-malformed"));
+    await stream.frame("taskFrame");
+    const stopStartedAt = Date.now();
+    await worker.close();
+    assert.ok(Date.now() - stopStartedAt < 3_000);
+  } finally { await worker.close(); await harness.close(); }
+});
+
 test("an exception while handling a task frame resets the stream instead of half-closing", async (context) => {
   context.mock.method(console, "error", () => {});
   const harness = await startHarness();
@@ -1205,6 +1280,16 @@ function rpcTask(taskId: string, deadline?: Date): PollWorkerTaskResponse {
     deadline,
     request: { $case: "rpc", value: InvokeWorkerRPCRequest.create({ flowType: "TestFlow", rpcName: "getWorker" }) },
   } } };
+}
+
+function taskWithRawDeadline(taskId: string, deadline: { seconds: bigint; nanos: number }): PollWorkerTaskResponse {
+  const timestamp = new BinaryWriter().uint32(8).int64(deadline.seconds).uint32(16).int32(deadline.nanos).finish();
+  const task = Buffer.concat([
+    PollWorkerTask.encode(PollWorkerTask.create({ taskId, request: { $case: "rpc",
+      value: InvokeWorkerRPCRequest.create({ flowType: "TestFlow", rpcName: "getWorker" }) } })).finish(),
+    new BinaryWriter().uint32(18).bytes(timestamp).finish(),
+  ]);
+  return Buffer.from(new BinaryWriter().uint32(18).bytes(task).finish()) as unknown as PollWorkerTaskResponse;
 }
 
 function registered(supportsUnknownNameRejection: boolean): PollWorkerTaskResponse {

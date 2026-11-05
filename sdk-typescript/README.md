@@ -308,7 +308,13 @@ half-closing, then opens a replacement after the Server ends the stream.
 Startup reports protocol, index synchronization, and concurrency-limit failures.
 An unreachable Server reports the gRPC failure as the startup error's `cause`.
 Later poll failures are retried. A lower limit reported after a reconnect only logs a warning.
-Any local stream failure, such as an oversized frame, resets the stream instead of half-closing it.
+Any local stream failure, such as an oversized, malformed, or unencodable frame, resets the
+stream with an HTTP/2 RST_STREAM instead of half-closing it. grpc-js and Node end a cancelled
+stream cleanly before resetting it, so the SDK replaces that close on every registered poll stream.
+This relies on @grpc/grpc-js internals, so the SDK depends on ~1.14.4. If it cannot reach a
+stream's HTTP/2 stream at registration, it refuses the slot before any handler runs, and startup
+fails with an error naming the installed grpc-js version. grpc-js always advertises gzip and
+deflate support; Dex does not compress task streams, and a malformed compressed frame also resets.
 
 `Worker.close()` starts no new task. Idle streams immediately half-close their
 request side. Busy streams let the handler finish, send its final output, then
@@ -319,9 +325,11 @@ and has not written its final output, the Worker resets that stream, cancels the
 handler, and waits for it to return. A handler whose final output is already written
 still half-closes. At the drain deadline the Worker also resets every half-closed
 stream that the Server has not ended, such as after a network partition. A stream
-that half-closed after its final output first gets a flush grace of up to 5 seconds,
-so `close()` can return up to 5 seconds after the drain deadline. Dex treats a task
-dropped on a reset stream as possibly run.
+whose final output the Server has not yet confirmed, by ending the stream or
+assigning the slot's next task, gets a 5-second flush grace after the deadline, so
+`close()` can return up to 5 seconds after the drain deadline. A Server-requested
+reconnect uses the same timeout and grace. Dex treats a task dropped on a reset
+stream as possibly run.
 A handler that ignores cancellation can delay shutdown.
 
 `StepOptions.waitForMethodTimeoutMs` and `executeMethodTimeoutMs` bound the two

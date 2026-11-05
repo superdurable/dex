@@ -33,8 +33,8 @@ type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" |
  * `close` stops new tasks, half-closes idle streams, and lets busy handlers send final output before half-closing.
  * It drains for `stopDrainTimeoutMs`, then resets streams whose handler has not written final output,
  * cancels those handlers, and waits for them to return. Half-closed streams wait for server EOF until
- * the drain deadline and are then reset. A stream that half-closed after its final output gets up to
- * 5 more seconds to flush, so `close` can return up to 5 seconds after the drain deadline.
+ * the drain deadline and are then reset. A stream whose final output Dex has not yet confirmed, by ending
+ * the stream or assigning its next task, gets 5 more seconds, so `close` can return up to 5 seconds later.
  * A handler that ignores cancellation can delay shutdown.
  *
  * @example
@@ -207,7 +207,8 @@ export class Worker {
    * After the drain timeout, streams whose handler has not written final output are reset, those handlers
    * are canceled, and close waits for them to return. A handler whose final output is written still half-closes.
    * Half-closed streams that the Server has not ended by the drain deadline are reset.
-   * A stream that half-closed after its final output first gets a flush grace of up to 5 seconds.
+   * A stream whose final output the Server has not yet confirmed gets a 5-second flush grace after the deadline.
+   * The Server confirms it by ending the stream or assigning the slot's next task.
    * Close can therefore return up to 5 seconds after the drain deadline.
    * Dex treats a task dropped on a reset stream as possibly run.
    * Calls before `start` and repeated calls after shutdown are safe.
