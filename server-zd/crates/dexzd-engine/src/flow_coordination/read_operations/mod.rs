@@ -268,6 +268,7 @@ impl FlowCoordinatorRegistry {
             &flow,
             &request,
             self.inner.config.hydrate_value_references,
+            self.inner.dependencies.rpc_invoker.as_ref(),
         )
     }
 

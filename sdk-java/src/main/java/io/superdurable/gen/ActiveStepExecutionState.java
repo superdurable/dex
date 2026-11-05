@@ -428,6 +428,94 @@ private static final long serialVersionUID = 0L;
     return executePullRouting_ == null ? io.superdurable.gen.PullRouting.getDefaultInstance() : executePullRouting_;
   }
 
+  public static final int WAIT_FOR_INVOCATION_FIELD_NUMBER = 13;
+  private io.superdurable.gen.StepMethodInvocationState waitForInvocation_;
+  /**
+   * <pre>
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+   * @return Whether the waitForInvocation field is set.
+   */
+  @java.lang.Override
+  public boolean hasWaitForInvocation() {
+    return ((bitField0_ & 0x00000040) != 0);
+  }
+  /**
+   * <pre>
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+   * @return The waitForInvocation.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodInvocationState getWaitForInvocation() {
+    return waitForInvocation_ == null ? io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : waitForInvocation_;
+  }
+  /**
+   * <pre>
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodInvocationStateOrBuilder getWaitForInvocationOrBuilder() {
+    return waitForInvocation_ == null ? io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : waitForInvocation_;
+  }
+
+  public static final int EXECUTE_INVOCATION_FIELD_NUMBER = 14;
+  private io.superdurable.gen.StepMethodInvocationState executeInvocation_;
+  /**
+   * <pre>
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+   * @return Whether the executeInvocation field is set.
+   */
+  @java.lang.Override
+  public boolean hasExecuteInvocation() {
+    return ((bitField0_ & 0x00000080) != 0);
+  }
+  /**
+   * <pre>
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+   * @return The executeInvocation.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodInvocationState getExecuteInvocation() {
+    return executeInvocation_ == null ? io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : executeInvocation_;
+  }
+  /**
+   * <pre>
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   * </pre>
+   *
+   * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodInvocationStateOrBuilder getExecuteInvocationOrBuilder() {
+    return executeInvocation_ == null ? io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : executeInvocation_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -477,6 +565,12 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000020) != 0)) {
       output.writeMessage(12, getExecutePullRouting());
+    }
+    if (((bitField0_ & 0x00000040) != 0)) {
+      output.writeMessage(13, getWaitForInvocation());
+    }
+    if (((bitField0_ & 0x00000080) != 0)) {
+      output.writeMessage(14, getExecuteInvocation());
     }
     getUnknownFields().writeTo(output);
   }
@@ -536,6 +630,14 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000020) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(12, getExecutePullRouting());
+    }
+    if (((bitField0_ & 0x00000040) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(13, getWaitForInvocation());
+    }
+    if (((bitField0_ & 0x00000080) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(14, getExecuteInvocation());
     }
     return size;
   }
@@ -602,6 +704,16 @@ private static final long serialVersionUID = 0L;
       if (!getExecutePullRouting()
           .equals(other.getExecutePullRouting())) return false;
     }
+    if (hasWaitForInvocation() != other.hasWaitForInvocation()) return false;
+    if (hasWaitForInvocation()) {
+      if (!getWaitForInvocation()
+          .equals(other.getWaitForInvocation())) return false;
+    }
+    if (hasExecuteInvocation() != other.hasExecuteInvocation()) return false;
+    if (hasExecuteInvocation()) {
+      if (!getExecuteInvocation()
+          .equals(other.getExecuteInvocation())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -652,6 +764,14 @@ private static final long serialVersionUID = 0L;
     if (hasExecutePullRouting()) {
       hash = (37 * hash) + EXECUTE_PULL_ROUTING_FIELD_NUMBER;
       hash = (53 * hash) + getExecutePullRouting().hashCode();
+    }
+    if (hasWaitForInvocation()) {
+      hash = (37 * hash) + WAIT_FOR_INVOCATION_FIELD_NUMBER;
+      hash = (53 * hash) + getWaitForInvocation().hashCode();
+    }
+    if (hasExecuteInvocation()) {
+      hash = (37 * hash) + EXECUTE_INVOCATION_FIELD_NUMBER;
+      hash = (53 * hash) + getExecuteInvocation().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -791,6 +911,8 @@ private static final long serialVersionUID = 0L;
         internalGetLastFailureInfoFieldBuilder();
         internalGetWaitForPullRoutingFieldBuilder();
         internalGetExecutePullRoutingFieldBuilder();
+        internalGetWaitForInvocationFieldBuilder();
+        internalGetExecuteInvocationFieldBuilder();
       }
     }
     @java.lang.Override
@@ -844,6 +966,16 @@ private static final long serialVersionUID = 0L;
       if (executePullRoutingBuilder_ != null) {
         executePullRoutingBuilder_.dispose();
         executePullRoutingBuilder_ = null;
+      }
+      waitForInvocation_ = null;
+      if (waitForInvocationBuilder_ != null) {
+        waitForInvocationBuilder_.dispose();
+        waitForInvocationBuilder_ = null;
+      }
+      executeInvocation_ = null;
+      if (executeInvocationBuilder_ != null) {
+        executeInvocationBuilder_.dispose();
+        executeInvocationBuilder_ = null;
       }
       return this;
     }
@@ -949,6 +1081,18 @@ private static final long serialVersionUID = 0L;
             : executePullRoutingBuilder_.build();
         to_bitField0_ |= 0x00000020;
       }
+      if (((from_bitField0_ & 0x00001000) != 0)) {
+        result.waitForInvocation_ = waitForInvocationBuilder_ == null
+            ? waitForInvocation_
+            : waitForInvocationBuilder_.build();
+        to_bitField0_ |= 0x00000040;
+      }
+      if (((from_bitField0_ & 0x00002000) != 0)) {
+        result.executeInvocation_ = executeInvocationBuilder_ == null
+            ? executeInvocation_
+            : executeInvocationBuilder_.build();
+        to_bitField0_ |= 0x00000080;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -1051,6 +1195,12 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasExecutePullRouting()) {
         mergeExecutePullRouting(other.getExecutePullRouting());
+      }
+      if (other.hasWaitForInvocation()) {
+        mergeWaitForInvocation(other.getWaitForInvocation());
+      }
+      if (other.hasExecuteInvocation()) {
+        mergeExecuteInvocation(other.getExecuteInvocation());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -1166,6 +1316,20 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000800;
               break;
             } // case 98
+            case 106: {
+              input.readMessage(
+                  internalGetWaitForInvocationFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00001000;
+              break;
+            } // case 106
+            case 114: {
+              input.readMessage(
+                  internalGetExecuteInvocationFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00002000;
+              break;
+            } // case 114
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2655,6 +2819,356 @@ private static final long serialVersionUID = 0L;
         executePullRouting_ = null;
       }
       return executePullRoutingBuilder_;
+    }
+
+    private io.superdurable.gen.StepMethodInvocationState waitForInvocation_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodInvocationState, io.superdurable.gen.StepMethodInvocationState.Builder, io.superdurable.gen.StepMethodInvocationStateOrBuilder> waitForInvocationBuilder_;
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     * @return Whether the waitForInvocation field is set.
+     */
+    public boolean hasWaitForInvocation() {
+      return ((bitField0_ & 0x00001000) != 0);
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     * @return The waitForInvocation.
+     */
+    public io.superdurable.gen.StepMethodInvocationState getWaitForInvocation() {
+      if (waitForInvocationBuilder_ == null) {
+        return waitForInvocation_ == null ? io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : waitForInvocation_;
+      } else {
+        return waitForInvocationBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     */
+    public Builder setWaitForInvocation(io.superdurable.gen.StepMethodInvocationState value) {
+      if (waitForInvocationBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        waitForInvocation_ = value;
+      } else {
+        waitForInvocationBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00001000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     */
+    public Builder setWaitForInvocation(
+        io.superdurable.gen.StepMethodInvocationState.Builder builderForValue) {
+      if (waitForInvocationBuilder_ == null) {
+        waitForInvocation_ = builderForValue.build();
+      } else {
+        waitForInvocationBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00001000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     */
+    public Builder mergeWaitForInvocation(io.superdurable.gen.StepMethodInvocationState value) {
+      if (waitForInvocationBuilder_ == null) {
+        if (((bitField0_ & 0x00001000) != 0) &&
+          waitForInvocation_ != null &&
+          waitForInvocation_ != io.superdurable.gen.StepMethodInvocationState.getDefaultInstance()) {
+          getWaitForInvocationBuilder().mergeFrom(value);
+        } else {
+          waitForInvocation_ = value;
+        }
+      } else {
+        waitForInvocationBuilder_.mergeFrom(value);
+      }
+      if (waitForInvocation_ != null) {
+        bitField0_ |= 0x00001000;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     */
+    public Builder clearWaitForInvocation() {
+      bitField0_ = (bitField0_ & ~0x00001000);
+      waitForInvocation_ = null;
+      if (waitForInvocationBuilder_ != null) {
+        waitForInvocationBuilder_.dispose();
+        waitForInvocationBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     */
+    public io.superdurable.gen.StepMethodInvocationState.Builder getWaitForInvocationBuilder() {
+      bitField0_ |= 0x00001000;
+      onChanged();
+      return internalGetWaitForInvocationFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     */
+    public io.superdurable.gen.StepMethodInvocationStateOrBuilder getWaitForInvocationOrBuilder() {
+      if (waitForInvocationBuilder_ != null) {
+        return waitForInvocationBuilder_.getMessageOrBuilder();
+      } else {
+        return waitForInvocation_ == null ?
+            io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : waitForInvocation_;
+      }
+    }
+    /**
+     * <pre>
+     * The WaitFor method's current invocation; unset while Execute runs or no
+     * WaitFor call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState wait_for_invocation = 13;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodInvocationState, io.superdurable.gen.StepMethodInvocationState.Builder, io.superdurable.gen.StepMethodInvocationStateOrBuilder> 
+        internalGetWaitForInvocationFieldBuilder() {
+      if (waitForInvocationBuilder_ == null) {
+        waitForInvocationBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.StepMethodInvocationState, io.superdurable.gen.StepMethodInvocationState.Builder, io.superdurable.gen.StepMethodInvocationStateOrBuilder>(
+                getWaitForInvocation(),
+                getParentForChildren(),
+                isClean());
+        waitForInvocation_ = null;
+      }
+      return waitForInvocationBuilder_;
+    }
+
+    private io.superdurable.gen.StepMethodInvocationState executeInvocation_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodInvocationState, io.superdurable.gen.StepMethodInvocationState.Builder, io.superdurable.gen.StepMethodInvocationStateOrBuilder> executeInvocationBuilder_;
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     * @return Whether the executeInvocation field is set.
+     */
+    public boolean hasExecuteInvocation() {
+      return ((bitField0_ & 0x00002000) != 0);
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     * @return The executeInvocation.
+     */
+    public io.superdurable.gen.StepMethodInvocationState getExecuteInvocation() {
+      if (executeInvocationBuilder_ == null) {
+        return executeInvocation_ == null ? io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : executeInvocation_;
+      } else {
+        return executeInvocationBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     */
+    public Builder setExecuteInvocation(io.superdurable.gen.StepMethodInvocationState value) {
+      if (executeInvocationBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        executeInvocation_ = value;
+      } else {
+        executeInvocationBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00002000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     */
+    public Builder setExecuteInvocation(
+        io.superdurable.gen.StepMethodInvocationState.Builder builderForValue) {
+      if (executeInvocationBuilder_ == null) {
+        executeInvocation_ = builderForValue.build();
+      } else {
+        executeInvocationBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00002000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     */
+    public Builder mergeExecuteInvocation(io.superdurable.gen.StepMethodInvocationState value) {
+      if (executeInvocationBuilder_ == null) {
+        if (((bitField0_ & 0x00002000) != 0) &&
+          executeInvocation_ != null &&
+          executeInvocation_ != io.superdurable.gen.StepMethodInvocationState.getDefaultInstance()) {
+          getExecuteInvocationBuilder().mergeFrom(value);
+        } else {
+          executeInvocation_ = value;
+        }
+      } else {
+        executeInvocationBuilder_.mergeFrom(value);
+      }
+      if (executeInvocation_ != null) {
+        bitField0_ |= 0x00002000;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     */
+    public Builder clearExecuteInvocation() {
+      bitField0_ = (bitField0_ & ~0x00002000);
+      executeInvocation_ = null;
+      if (executeInvocationBuilder_ != null) {
+        executeInvocationBuilder_.dispose();
+        executeInvocationBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     */
+    public io.superdurable.gen.StepMethodInvocationState.Builder getExecuteInvocationBuilder() {
+      bitField0_ |= 0x00002000;
+      onChanged();
+      return internalGetExecuteInvocationFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     */
+    public io.superdurable.gen.StepMethodInvocationStateOrBuilder getExecuteInvocationOrBuilder() {
+      if (executeInvocationBuilder_ != null) {
+        return executeInvocationBuilder_.getMessageOrBuilder();
+      } else {
+        return executeInvocation_ == null ?
+            io.superdurable.gen.StepMethodInvocationState.getDefaultInstance() : executeInvocation_;
+      }
+    }
+    /**
+     * <pre>
+     * The Execute method's current invocation; unset while WaitFor runs or no
+     * Execute call is open.
+     * Requires Server protocol version 4 or later.
+     * </pre>
+     *
+     * <code>.dex.StepMethodInvocationState execute_invocation = 14;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodInvocationState, io.superdurable.gen.StepMethodInvocationState.Builder, io.superdurable.gen.StepMethodInvocationStateOrBuilder> 
+        internalGetExecuteInvocationFieldBuilder() {
+      if (executeInvocationBuilder_ == null) {
+        executeInvocationBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.StepMethodInvocationState, io.superdurable.gen.StepMethodInvocationState.Builder, io.superdurable.gen.StepMethodInvocationStateOrBuilder>(
+                getExecuteInvocation(),
+                getParentForChildren(),
+                isClean());
+        executeInvocation_ = null;
+      }
+      return executeInvocationBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.ActiveStepExecutionState)

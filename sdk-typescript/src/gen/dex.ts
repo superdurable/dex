@@ -217,6 +217,36 @@ export enum ActiveStepPhase {
   UNRECOGNIZED = -1,
 }
 
+/** Where the current invocation of a Step method stands. */
+export enum StepMethodInvocationPhase {
+  STEP_METHOD_INVOCATION_PHASE_UNSPECIFIED = 0,
+  /** STEP_METHOD_INVOCATION_PHASE_PENDING - The attempt waits for its locks or for a Worker; see pending_reason. */
+  STEP_METHOD_INVOCATION_PHASE_PENDING = 1,
+  /** STEP_METHOD_INVOCATION_PHASE_RUNNING - A Worker received the attempt. */
+  STEP_METHOD_INVOCATION_PHASE_RUNNING = 2,
+  /** STEP_METHOD_INVOCATION_PHASE_BACKOFF - The last attempt failed and the next attempt waits for its retry backoff. */
+  STEP_METHOD_INVOCATION_PHASE_BACKOFF = 3,
+  UNRECOGNIZED = -1,
+}
+
+/** Why a pending Step method attempt has not reached a Worker yet. */
+export enum StepMethodPendingReason {
+  STEP_METHOD_PENDING_REASON_UNSPECIFIED = 0,
+  /** STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER - The attempt waits in the Step task queue for a Worker of its Flow type. */
+  STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER = 1,
+  /**
+   * STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER - Workers of the Flow type are connected, but every one of them declined the
+   * Step type. The attempt waits for a Worker that supports it.
+   */
+  STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER = 2,
+  /**
+   * STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS - Another Step or a transactional RPC holds one of the attempt's locks, or an
+   * earlier Step waits for one of them.
+   */
+  STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS = 3,
+  UNRECOGNIZED = -1,
+}
+
 export enum FlowResetType {
   FLOW_RESET_TYPE_UNSPECIFIED = 0,
   FLOW_RESET_TYPE_BEGINNING = 1,
@@ -1175,7 +1205,15 @@ export interface StepMethodEventContext {
    *
    * Unset whenever wait_for_completed_event_id is zero.
    */
-  waitForCompletedTime: Date | undefined;
+  waitForCompletedTime:
+    | Date
+    | undefined;
+  /**
+   * When the method's final attempt became pending. The time it waited for
+   * locks and a Worker is started_time minus scheduled_time.
+   * Requires Server protocol version 4 or later.
+   */
+  scheduledTime: Date | undefined;
 }
 
 export interface StepWaitForCompletedOutput {
@@ -1298,7 +1336,53 @@ export interface ActiveStepExecutionState {
   timers: TimerInfo[];
   lastFailureInfo: StepMethodFailure | undefined;
   waitForPullRouting: PullRouting | undefined;
-  executePullRouting: PullRouting | undefined;
+  executePullRouting:
+    | PullRouting
+    | undefined;
+  /**
+   * The WaitFor method's current invocation; unset while Execute runs or no
+   * WaitFor call is open.
+   * Requires Server protocol version 4 or later.
+   */
+  waitForInvocation:
+    | StepMethodInvocationState
+    | undefined;
+  /**
+   * The Execute method's current invocation; unset while WaitFor runs or no
+   * Execute call is open.
+   * Requires Server protocol version 4 or later.
+   */
+  executeInvocation: StepMethodInvocationState | undefined;
+}
+
+/**
+ * The current invocation of one Step method: its phase, its attempt, and why a
+ * pending attempt waits.
+ *
+ * Requires Server protocol version 4 or later.
+ */
+export interface StepMethodInvocationState {
+  phase: StepMethodInvocationPhase;
+  /** Set only in the pending phase. */
+  pendingReason: StepMethodPendingReason;
+  /** The pending or running attempt, or in the backoff phase the next one. */
+  attempt: number;
+  /**
+   * When the current attempt became pending. A queued attempt keeps this time
+   * when a Worker declines it.
+   */
+  pendingSinceTime:
+    | Date
+    | undefined;
+  /** When a Worker received the running attempt; unset in other phases. */
+  attemptStartedTime:
+    | Date
+    | undefined;
+  /**
+   * When the backoff ends and the next attempt becomes pending; unset in other
+   * phases.
+   */
+  backoffFiresAtTime: Date | undefined;
 }
 
 export interface GetFlowStateRequest {
@@ -8903,6 +8987,7 @@ function createBaseStepMethodEventContext(): StepMethodEventContext {
     fromEventId: 0n,
     waitForCompletedEventId: 0n,
     waitForCompletedTime: undefined,
+    scheduledTime: undefined,
   };
 }
 
@@ -8952,6 +9037,9 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
     }
     if (message.waitForCompletedTime !== undefined) {
       Timestamp.encode(toTimestamp(message.waitForCompletedTime), writer.uint32(106).fork()).join();
+    }
+    if (message.scheduledTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.scheduledTime), writer.uint32(114).fork()).join();
     }
     return writer;
   },
@@ -9067,6 +9155,14 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
           message.waitForCompletedTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         }
+        case 14: {
+          if (tag !== 114) {
+            break;
+          }
+
+          message.scheduledTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -9107,6 +9203,7 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
         ? BigInt(object.waitForCompletedEventId)
         : 0n;
     message.waitForCompletedTime = object.waitForCompletedTime ?? undefined;
+    message.scheduledTime = object.scheduledTime ?? undefined;
     return message;
   },
 };
@@ -10119,6 +10216,8 @@ function createBaseActiveStepExecutionState(): ActiveStepExecutionState {
     lastFailureInfo: undefined,
     waitForPullRouting: undefined,
     executePullRouting: undefined,
+    waitForInvocation: undefined,
+    executeInvocation: undefined,
   };
 }
 
@@ -10159,6 +10258,12 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
     }
     if (message.executePullRouting !== undefined) {
       PullRouting.encode(message.executePullRouting, writer.uint32(98).fork()).join();
+    }
+    if (message.waitForInvocation !== undefined) {
+      StepMethodInvocationState.encode(message.waitForInvocation, writer.uint32(106).fork()).join();
+    }
+    if (message.executeInvocation !== undefined) {
+      StepMethodInvocationState.encode(message.executeInvocation, writer.uint32(114).fork()).join();
     }
     return writer;
   },
@@ -10266,6 +10371,22 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
           message.executePullRouting = PullRouting.decode(reader, reader.uint32());
           continue;
         }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.waitForInvocation = StepMethodInvocationState.decode(reader, reader.uint32());
+          continue;
+        }
+        case 14: {
+          if (tag !== 114) {
+            break;
+          }
+
+          message.executeInvocation = StepMethodInvocationState.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10304,6 +10425,125 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
     message.executePullRouting = (object.executePullRouting !== undefined && object.executePullRouting !== null)
       ? PullRouting.fromPartial(object.executePullRouting)
       : undefined;
+    message.waitForInvocation = (object.waitForInvocation !== undefined && object.waitForInvocation !== null)
+      ? StepMethodInvocationState.fromPartial(object.waitForInvocation)
+      : undefined;
+    message.executeInvocation = (object.executeInvocation !== undefined && object.executeInvocation !== null)
+      ? StepMethodInvocationState.fromPartial(object.executeInvocation)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseStepMethodInvocationState(): StepMethodInvocationState {
+  return {
+    phase: 0,
+    pendingReason: 0,
+    attempt: 0,
+    pendingSinceTime: undefined,
+    attemptStartedTime: undefined,
+    backoffFiresAtTime: undefined,
+  };
+}
+
+export const StepMethodInvocationState: MessageFns<StepMethodInvocationState> = {
+  encode(message: StepMethodInvocationState, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.phase !== 0) {
+      writer.uint32(8).int32(message.phase);
+    }
+    if (message.pendingReason !== 0) {
+      writer.uint32(16).int32(message.pendingReason);
+    }
+    if (message.attempt !== 0) {
+      writer.uint32(24).int32(message.attempt);
+    }
+    if (message.pendingSinceTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.pendingSinceTime), writer.uint32(34).fork()).join();
+    }
+    if (message.attemptStartedTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.attemptStartedTime), writer.uint32(42).fork()).join();
+    }
+    if (message.backoffFiresAtTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.backoffFiresAtTime), writer.uint32(50).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StepMethodInvocationState {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepMethodInvocationState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.phase = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.pendingReason = reader.int32() as any;
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.attempt = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.pendingSinceTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.attemptStartedTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.backoffFiresAtTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepMethodInvocationState>, I>>(base?: I): StepMethodInvocationState {
+    return StepMethodInvocationState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepMethodInvocationState>, I>>(object: I): StepMethodInvocationState {
+    const message = createBaseStepMethodInvocationState();
+    message.phase = object.phase ?? 0;
+    message.pendingReason = object.pendingReason ?? 0;
+    message.attempt = object.attempt ?? 0;
+    message.pendingSinceTime = object.pendingSinceTime ?? undefined;
+    message.attemptStartedTime = object.attemptStartedTime ?? undefined;
+    message.backoffFiresAtTime = object.backoffFiresAtTime ?? undefined;
     return message;
   },
 };

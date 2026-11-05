@@ -12,11 +12,11 @@ use dexzd_apply::read_model::{ReadModelError, get_flow_state, get_history_events
 use dexzd_apply::{ApplyContext, FlowStateReader};
 use dexzd_protocol::dex::{
     GetFlowStateRequest, GetFlowStateResponse, GetHistoryEventsRequest, GetHistoryEventsResponse,
-    Kv, StepCompletionOutput, Value,
+    Kv, StepCompletionOutput, StepMethodPendingReason, Value,
 };
 
 use crate::flow_coordination::read_operations::state_rows::{hydrate_value_reference, read_run};
-use crate::flow_coordination::{FlowAddress, FlowCoordinationError};
+use crate::flow_coordination::{FlowAddress, FlowCoordinationError, RpcWorkerInvoker};
 
 /// Returns the Flow state projected by apply's read model, with value references replaced by
 /// their values when `is_hydrating`.
@@ -29,10 +29,31 @@ pub(crate) fn read_flow_state(
     flow: &FlowAddress,
     request: &GetFlowStateRequest,
     is_hydrating: bool,
+    workers: &dyn RpcWorkerInvoker,
 ) -> Result<GetFlowStateResponse, FlowCoordinationError> {
     let run = read_run(state, context, flow, &request.run_id)?;
     let mut response = get_flow_state(state, context.flow_hash, run.run_id)
         .map_err(|error| read_model_error(flow, error))?;
+    for step in &mut response.active_step_executions {
+        let invocations = [
+            step.wait_for_invocation.as_mut(),
+            step.execute_invocation.as_mut(),
+        ];
+        for invocation in invocations.into_iter().flatten() {
+            let is_waiting_for_worker =
+                invocation.pending_reason == StepMethodPendingReason::WaitingForWorker as i32;
+            if is_waiting_for_worker
+                && workers.is_waiting_for_supporting_worker(
+                    flow.tenant_id.0,
+                    &run.record.flow_type,
+                    &step.step_type,
+                )
+            {
+                invocation.pending_reason =
+                    StepMethodPendingReason::WaitingForSupportingWorker as i32;
+            }
+        }
+    }
     if is_hydrating {
         for value in flow_state_values(&mut response) {
             if !hydrate_value_reference(state, context.flow_hash, run.run_id, value)? {

@@ -2747,7 +2747,7 @@ fn history_pages_a_full_flow_and_allocates_pending_ids_at_close() {
             Some(string_value("input"))
         );
         assert_eq!(
-            method.context,
+            without_scheduled_time(&method.context),
             Some(StepMethodEventContext {
                 step_execution_id: "ChargeStep-1".to_owned(),
                 from_step_execution_id: "__start__".to_owned(),
@@ -2864,7 +2864,7 @@ fn completed_method_contexts_include_effective_options_and_timing() {
         panic!("WaitFor completion event exists");
     };
     assert_eq!(
-        wait_for.context,
+        without_scheduled_time(&wait_for.context),
         Some(StepMethodEventContext {
             step_execution_id: "ChargeStep-1".to_owned(),
             from_step_execution_id: "__start__".to_owned(),
@@ -2898,7 +2898,7 @@ fn completed_method_contexts_include_effective_options_and_timing() {
         panic!("Execute completion event exists");
     };
     assert_eq!(
-        execute.context,
+        without_scheduled_time(&execute.context),
         Some(StepMethodEventContext {
             step_execution_id: "ChargeStep-1".to_owned(),
             from_step_execution_id: "__start__".to_owned(),
@@ -3527,4 +3527,18 @@ fn pending_execute_includes_condition_results_and_state_only_lists_completed_con
             .len(),
         2
     );
+}
+
+/// Returns `context` without its scheduled time, after checking it does not follow the start.
+fn without_scheduled_time(
+    context: &Option<StepMethodEventContext>,
+) -> Option<StepMethodEventContext> {
+    let mut context = context.clone()?;
+    let scheduled = context
+        .scheduled_time
+        .take()
+        .expect("method contexts carry a scheduled time");
+    let started = context.started_time.expect("method contexts carry a start");
+    assert!((scheduled.seconds, scheduled.nanos) <= (started.seconds, started.nanos));
+    Some(context)
 }

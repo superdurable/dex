@@ -106,7 +106,7 @@ public enum ConditionStatus
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(24);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(26);
   }
 
   private static final ConditionStatus[] VALUES = values();

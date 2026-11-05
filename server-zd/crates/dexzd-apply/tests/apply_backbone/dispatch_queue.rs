@@ -418,3 +418,80 @@ fn records_without_a_pending_time_use_their_first_attempt_time() {
     harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
     assert!(harness.dispatch_queue_rows().is_empty());
 }
+
+#[test]
+fn get_flow_state_reports_the_invocation_phase_and_why_it_waits() {
+    use dexzd_protocol::dex::{StepMethodInvocationPhase, StepMethodPendingReason};
+    let mut harness = Harness::new("order-1");
+    start_three_locking_steps(&mut harness);
+    harness.start_attempt("LockStep-1", StepMethod::Execute, 1);
+    let state = dexzd_apply::read_model::get_flow_state(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.harness_run_id(),
+    )
+    .expect("the read model reads the run");
+    let invocation = |step_execution_id: &str| {
+        state
+            .active_step_executions
+            .iter()
+            .find(|step| step.step_execution_id == step_execution_id)
+            .and_then(|step| step.execute_invocation)
+            .expect("the Step has an Execute invocation")
+    };
+    let running = invocation("LockStep-1");
+    assert_eq!(running.phase, StepMethodInvocationPhase::Running as i32);
+    assert_eq!(
+        running.pending_reason,
+        StepMethodPendingReason::Unspecified as i32
+    );
+    assert_eq!(running.attempt, 1);
+    assert!(running.attempt_started_time.is_some());
+    assert!(running.pending_since_time.is_some());
+    for waiting in ["LockStep-2", "LockStep-3"] {
+        let waiting = invocation(waiting);
+        assert_eq!(waiting.phase, StepMethodInvocationPhase::Pending as i32);
+        assert_eq!(
+            waiting.pending_reason,
+            StepMethodPendingReason::WaitingForLocks as i32
+        );
+        assert!(waiting.attempt_started_time.is_none());
+    }
+    let step = state
+        .active_step_executions
+        .iter()
+        .find(|step| step.step_execution_id == "LockStep-1")
+        .expect("LockStep-1 is active");
+    assert!(step.wait_for_invocation.is_none());
+}
+
+#[test]
+fn get_flow_state_reports_a_queued_attempt_as_waiting_for_a_worker() {
+    use dexzd_protocol::dex::{StepMethodInvocationPhase, StepMethodPendingReason};
+    let mut harness = retrying_start(3);
+    harness.queue("ChargeStep-1", StepMethod::Execute);
+    let state = dexzd_apply::read_model::get_flow_state(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.harness_run_id(),
+    )
+    .expect("the read model reads the run");
+    let queued = state.active_step_executions[0]
+        .execute_invocation
+        .expect("Execute is pending");
+    assert_eq!(queued.phase, StepMethodInvocationPhase::Pending as i32);
+    assert_eq!(
+        queued.pending_reason,
+        StepMethodPendingReason::WaitingForWorker as i32
+    );
+    let pending_since = harness
+        .step_execution("ChargeStep-1")
+        .invocation
+        .expect("invocation")
+        .pending_since_micros;
+    let time = queued.pending_since_time.expect("pending time");
+    assert_eq!(
+        time.seconds * 1_000_000 + i64::from(time.nanos / 1000),
+        pending_since
+    );
+}

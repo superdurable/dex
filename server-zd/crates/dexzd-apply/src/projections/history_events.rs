@@ -168,6 +168,7 @@ fn method_context(
         },
         wait_for_completed_time: has_wait_for_completed
             .then(|| timestamp(step.wait_for_completed_at_micros)),
+        scheduled_time: Some(timestamp(crate::effective_pending_since_micros(invocation))),
         ..StepMethodEventContext::default()
     }
 }
