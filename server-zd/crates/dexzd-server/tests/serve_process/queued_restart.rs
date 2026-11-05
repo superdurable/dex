@@ -40,9 +40,11 @@ const FLOWS_PER_KIND: usize = 12;
 const STEP_TYPE: &str = "QueuedStep";
 const LOCK_KEY: &str = "balance";
 /// Short in-memory waits, so attempts reach the durable queue quickly.
-const MATCHING_SETTINGS: &str = "matching:\n  stickyWait: 50ms\n  syncMatchWait: 50ms\n";
+const MATCHING_SETTINGS: &str =
+    "matching:\n  stickyWait: 50ms\n  syncMatchWait: 50ms\n  headsResyncInterval: 0s\n";
 /// Keeps attempts in the in-memory sync wait for the whole test.
-const SYNC_WAIT_SETTINGS: &str = "matching:\n  stickyWait: 50ms\n  syncMatchWait: 1h\n";
+const SYNC_WAIT_SETTINGS: &str =
+    "matching:\n  stickyWait: 50ms\n  syncMatchWait: 1h\n  headsResyncInterval: 0s\n";
 const QUEUED_BUDGET: Duration = Duration::from_secs(30);
 const COMPLETION_WAIT_SECONDS: i32 = 30;
 /// A killed active's lease; the hot standby takes over after it expires.

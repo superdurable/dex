@@ -101,7 +101,8 @@ pub(crate) fn remove_dispatch_queue_row(
 
 /// Writes the DispatchQueue row of a pending attempt that no Worker took at once.
 ///
-/// Writes the DispatchQueue row of a pending attempt that no Worker took at once.
+/// Replies OK when the row was written or already exists, and FAILED_PRECONDITION without
+/// writes when the attempt is no longer pending with this attempt number and time.
 pub(crate) fn apply_attempt_queued(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,

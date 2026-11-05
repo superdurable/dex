@@ -316,12 +316,16 @@ fn invocation_state(
     } else {
         StepMethodPendingReason::WaitingForWorker
     };
-    let timestamp_if_set = |micros: i64| (micros > 0).then(|| micros_timestamp(micros));
+    let timestamp_if_set =
+        |micros: i64| (micros > 0).then(|| crate::command_handlers::run_cursor::timestamp(micros));
     Ok(StepMethodInvocationState {
         phase: phase as i32,
         pending_reason: pending_reason as i32,
         attempt: i32::try_from(invocation.attempt).unwrap_or(i32::MAX),
-        pending_since_time: timestamp_if_set(crate::effective_pending_since_micros(invocation)),
+        // The next attempt of a backoff is not pending yet.
+        pending_since_time: (phase != StepMethodInvocationPhase::Backoff)
+            .then(|| timestamp_if_set(crate::effective_pending_since_micros(invocation)))
+            .flatten(),
         attempt_started_time: (phase == StepMethodInvocationPhase::Running)
             .then(|| timestamp_if_set(invocation.attempt_started_at_micros))
             .flatten(),
@@ -355,13 +359,6 @@ fn is_waiting_for_locks(
         }
     }
     Ok(false)
-}
-
-fn micros_timestamp(micros: i64) -> prost_types::Timestamp {
-    prost_types::Timestamp {
-        seconds: micros.div_euclid(1_000_000),
-        nanos: i32::try_from(micros.rem_euclid(1_000_000) * 1000).expect("nanoseconds fit i32"),
-    }
 }
 
 fn completed_conditions(

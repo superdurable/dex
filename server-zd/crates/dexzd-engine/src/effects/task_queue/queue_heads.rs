@@ -398,6 +398,9 @@ fn note_incomplete_queue(
 }
 
 /// Seeks one queue from `from`, skipping rows a holder sends back and rows no longer pending.
+///
+/// Returns the scan result and the first live row seen, `None` when a seek met too many
+/// deleted entries, or the read's error.
 fn scan_queue(
     context: &EffectContext,
     reader: &dyn FlowStateReader,

@@ -495,3 +495,39 @@ fn get_flow_state_reports_a_queued_attempt_as_waiting_for_a_worker() {
         pending_since
     );
 }
+
+#[test]
+fn get_flow_state_reports_a_backoff_with_its_next_attempt_and_no_pending_time() {
+    use dexzd_protocol::dex::{StepMethodInvocationPhase, StepMethodPendingReason};
+    let mut harness = retrying_start(3);
+    harness.queue("ChargeStep-1", StepMethod::Execute);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+        attempt: 1,
+        kind: StepAttemptFailureKind::DispatchError as i32,
+        server_detail: "NO_WORKER_AVAILABLE: none".to_owned(),
+        is_before_start: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    let state = dexzd_apply::read_model::get_flow_state(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.harness_run_id(),
+    )
+    .expect("the read model reads the run");
+    let backoff = state.active_step_executions[0]
+        .execute_invocation
+        .expect("the Step has an Execute invocation");
+    assert_eq!(backoff.phase, StepMethodInvocationPhase::Backoff as i32);
+    assert_eq!(backoff.attempt, 2, "the next attempt");
+    assert_eq!(
+        backoff.pending_reason,
+        StepMethodPendingReason::Unspecified as i32
+    );
+    assert!(
+        backoff.pending_since_time.is_none(),
+        "the next attempt is not pending yet"
+    );
+    assert!(backoff.backoff_fires_at_time.is_some());
+    assert!(backoff.attempt_started_time.is_none());
+}

@@ -174,3 +174,49 @@ fn backlog_service_agrees_with_claim_eligibility_after_an_evicted_decline() {
     assert_eq!(pending_claim_count(&dispatch), 0);
     assert!(!dispatch.has_qualified_backlog(&queue_name("Charge")));
 }
+
+/// A stream woken for a Step waiter is not promised, so only backlog's own check keeps it.
+#[test]
+fn backoff_callback_leaves_a_stream_woken_for_a_step_waiter() {
+    let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
+    let worker = register_busy_stream(&dispatch, "worker");
+    let mut lease = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+    let task_type = step_type_key(&queue_name("Ship"));
+    let search = TaskSearch {
+        task_type: &task_type,
+        flow_id: "step-flow",
+        partition_search: None,
+    };
+    let picked = dispatch.pick_worker(&mut lease, &search, false, &HashSet::new(), &HashMap::new());
+    assert!(picked.worker.is_none());
+    dispatch.make_idle(&worker);
+    let is_woken_for_waiter = |dispatch: &WorkerDispatch| {
+        dispatch
+            .lock_registry()
+            .queues
+            .get(&(7, "Flow".to_owned()))
+            .is_some_and(|queue| {
+                queue
+                    .woken_waiter_streams
+                    .values()
+                    .any(|id| *id == worker.id)
+            })
+    };
+    assert!(is_woken_for_waiter(&dispatch));
+    assert!(
+        !dispatch
+            .lock_registry()
+            .promised_streams
+            .contains_key(&worker.id),
+        "a Step wakeup makes no promise"
+    );
+
+    dispatch.queued(queued_ref(1, "Charge", 1));
+    dispatch.end_step_backoff(worker.id);
+    assert_eq!(
+        pending_claim_count(&dispatch),
+        0,
+        "the backoff callback took the stream woken for a Step waiter"
+    );
+    assert!(is_woken_for_waiter(&dispatch));
+}
