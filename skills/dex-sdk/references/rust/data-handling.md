@@ -24,7 +24,7 @@ fn persistence(&self) -> PersistenceSchema {
         .attribute(&STATUS)
         .attribute(&EMAIL)
         .attribute(&MODEL_API_KEY)
-        .attribute_map(&self.progress)
+        .attribute_map(&PROGRESS)
 }
 ```
 

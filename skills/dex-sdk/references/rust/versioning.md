@@ -5,7 +5,7 @@ Start by inspecting the application's `Cargo.toml` and `Cargo.lock`. The pinned 
 [Pinned manifest](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/Cargo.toml)
 <!-- dex-source: examples/rust/Cargo.toml -->
 ```toml
-dex-sdk = "=1.26.0"
+dex-sdk = "=1.31.0"
 ```
 
 ## Server protocol compatibility

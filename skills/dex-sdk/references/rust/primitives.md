@@ -58,14 +58,18 @@ An `Attribute<T>` stores one typed durable value. `AttributeMap<T>` stores indep
 [Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/primitives/attribute/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/attribute/flow.rs -->
 ```rust
-static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
+pub static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
     Attribute::new("primitive-attribute-status")
         .indexed(AttributeIndex::keyword().with_key("keyword1"))
 });
-static EMAIL: LazyLock<Attribute<String>> =
+pub static EMAIL: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("primitive-attribute-email").sync_to_attribute_store());
 static MODEL_API_KEY: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("primitive-attribute-model-api-key").hard_delete_on_null());
+pub static PROGRESS: LazyLock<AttributeMap<String>> = LazyLock::new(|| {
+    AttributeMap::new("primitive-attribute-progress")
+        .indexed(AttributeIndex::keyword().with_key("keyword2"))
+});
 
 pub fn attribute_store_config() -> FlowConfig {
     FlowConfig::new().attribute_store_names(vec!["profiles".to_owned()])
