@@ -11,7 +11,6 @@ package integ
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -1082,19 +1081,18 @@ func testPullUnknownNameRedispatch(t *testing.T) {
 		}
 		require.Empty(t, oldWorker.unknownRejections)
 	})
-	t.Run("bounded failure", func(t *testing.T) {
-		dispatchWait := 700 * time.Millisecond
-		runtime := startPullDispatchService(t, serverZDTestConfig{Matching: &testconfig.MatchingConfig{DispatchWait: dispatchWait, StickyWait: 100 * time.Millisecond}})
+	t.Run("stays queued", func(t *testing.T) {
+		runtime := startPullDispatchService(t, serverZDTestConfig{Matching: &testconfig.MatchingConfig{DispatchWait: 700 * time.Millisecond, StickyWait: 100 * time.Millisecond}})
 		oldWorker := startUnknownRejectingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-old-"+uuid.NewString(), rawPullWorkerConfig{unknownStepType: dispatchProbeStep})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		flowID := "pull-unknown-bound-" + uuid.NewString()
+		flowID := "pull-unknown-queued-" + uuid.NewString()
 		require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep, &dexpb.WorkerTarget{IsPullMode: true}, &dexpb.StepOptions{WaitForRetryPolicy: &dexpb.RetryPolicy{MaximumAttempts: 1}}))
-		result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
+		// No connected Worker supports the Step type, so it waits without failing (plan D54).
+		requireNoStepFailure(t, ctx, runtime, flowID, 2*time.Second)
+		require.Len(t, oldWorker.unknownRejections, 1, "the declining Worker is not asked again")
+		_, err := runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{FlowId: flowID})
 		require.NoError(t, err)
-		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
-		require.Contains(t, result.GetErrorMessage(), dispatchProbeStep)
-		require.Len(t, oldWorker.unknownRejections, 1)
 	})
 	t.Run("legacy Worker error", func(t *testing.T) {
 		runtime := startPullDispatchService(t, serverZDTestConfig{Matching: &testconfig.MatchingConfig{DispatchWait: time.Second, StickyWait: 100 * time.Millisecond}})
@@ -1290,10 +1288,11 @@ func testPullWorkerErrorMatchesPush(t *testing.T) {
 	require.Equal(t, observedErrors[0].GetOriginalWorkerErrorStackTrace(), observedErrors[1].GetOriginalWorkerErrorStackTrace())
 }
 
+// Without any Worker the Step waits in the durable task queue: it never fails or retries, and
+// stopping the Flow ends the wait (plan TB6).
 func testPullWorkerUnavailable(t *testing.T) {
 	t.Helper()
 	runtime := startPullDispatchService(t, serverZDTestConfig{
-
 		Matching: &testconfig.MatchingConfig{DispatchWait: 100 * time.Millisecond, StickyWait: 50 * time.Millisecond},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1303,28 +1302,29 @@ func testPullWorkerUnavailable(t *testing.T) {
 		&dexpb.WorkerTarget{IsPullMode: true},
 		&dexpb.StepOptions{WaitForRetryPolicy: &dexpb.RetryPolicy{MaximumAttempts: 2, InitialIntervalSeconds: 1}},
 	))
-	startedAt := time.Now()
+	requireNoStepFailure(t, ctx, runtime, flowID, 2*time.Second)
+	_, err := runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
 	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
 	require.NoError(t, err)
-	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
-	require.True(t, strings.Contains(result.GetErrorMessage(), "no Worker available for queue "+dispatchProbeFlowType), result.GetErrorMessage())
-	require.GreaterOrEqual(t, time.Since(startedAt), time.Second)
-	summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
-	require.NoError(t, err)
-	history, err := runtime.FlowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), EstimatePageSize: 100})
-	require.NoError(t, err)
-	var failedMethod *dexpb.StepWaitForFailedEvent
-	for _, event := range history.GetEvents() {
-		if event.GetStepWaitForFailed() != nil {
-			failedMethod = event.GetStepWaitForFailed()
+	require.NotEqual(t, dexpb.FlowStatus_FLOW_STATUS_RUNNING, result.GetFlowStatus())
+}
+
+// requireNoStepFailure asserts that the Flow records no Step method failure for `duration`.
+func requireNoStepFailure(t *testing.T, ctx context.Context, runtime *integRuntime, flowID string, duration time.Duration) {
+	t.Helper()
+	require.Never(t, func() bool {
+		state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+		if err != nil {
+			return false
 		}
-	}
-	require.NotNil(t, failedMethod)
-	require.NotNil(t, failedMethod.GetContext().GetPullRouting())
-	require.Empty(t, failedMethod.GetContext().GetPullRouting().GetServedByAppWorkerId())
-	failureDetails := failedMethod.GetOutput().GetFailure().GetDetails()
-	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE, failureDetails.GetDispatchTaskErrorReason())
-	require.Contains(t, failureDetails.GetDetail(), "no Worker available")
+		for _, step := range state.GetActiveStepExecutions() {
+			if step.GetLastFailureInfo() != nil {
+				return true
+			}
+		}
+		return false
+	}, duration, 100*time.Millisecond, "a queued Step never fails")
 }
 
 func testPullWorkerDispatch(t *testing.T) {
