@@ -1218,8 +1218,10 @@ resolved, which runs at once, sends the resolution with `tasks/update`: an
 `accept` input response with the answer, `decline` for a declined question,
 or `cancel` for a passed deadline. It sends it only while the task still
 lists that same request, so it never answers a different later request
-under the same key, and only on its first attempt, after a heartbeat, so Dex
-retries rather than redelivers that attempt once the send may have happened.
+under the same key, and only on its first attempt. Dex never hands an attempt
+to a second Worker, so it retries rather than redelivers that attempt once the
+send may have happened. The heartbeat before the send gave earlier Dex Servers,
+which redelivered an attempt without output, the same guarantee.
 A retried attempt cannot tell whether the first one sent it, and the task may
 since have asked the identical request again, so it asks the user again
 instead: the user may answer twice, but an answer never reaches a later

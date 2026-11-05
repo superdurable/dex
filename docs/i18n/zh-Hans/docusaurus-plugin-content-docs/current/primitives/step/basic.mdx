@@ -647,7 +647,7 @@ ASYNC Step 还有一种情况。如果 Dex Server 节点在 ASYNC 的开始记�
 
 ### Failure route 无法判断工作是否运行过 {#unknown-outcome}
 
-如果在 dispatch wait 内没有 Worker 接受 attempt，这个 attempt 会在没有运行的情况下失败，并消耗一次 retry。当该 Flow type 的所有 Worker 都达到任务上限，或者没有 Worker 在运行时，就会发生这种情况。这种失败的 recovery error type 与 Worker 在 attempt 中途断开时相同：**FLOW_ERROR_TYPE_WORKER_API_FAIL**，只有 error detail 不同。
+没有 Worker 接收的 Step attempt 不会失败。它在持久任务队列中等待，不消耗 retry，有 Worker 接收后才运行。只有 RPC 会在 dispatch wait 内没有 Worker 接收时失败。确实失败的 Step attempt 可能在 Worker 收到它之前失败，也可能在之后失败，仅凭它的 error type 和 error detail 并不总能分辨是哪一种。
 
 Recovery error（**RecoveryErrorInfo**）还带有 **attempt_progress**。它是失败的方法调用的所有 attempt 中走得最远的进度：
 
