@@ -22,6 +22,7 @@ import { registeredFlow, type RegisteredFlow, type Registry } from "./flow.js";
 import {
   InvokeExecuteMethodOutput,
   InvokeWaitForMethodOutput,
+  PollWorkerSlotKind,
   PollWorkerTaskRejectReason,
   WorkerTaskServiceClient,
   type PollWorkerTask,
@@ -258,6 +259,8 @@ export class PullWorker {
         flowTypes: [...this.flowTypes],
         sdkName: "typescript",
         sdkVersion,
+        supportsReservedSlotDispatch: false,
+        slotKind: PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_UNSPECIFIED,
       } } });
     } catch (failure) {
       console.error("Worker task registration failed", failure);

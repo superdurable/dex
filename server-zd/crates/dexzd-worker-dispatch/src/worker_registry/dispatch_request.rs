@@ -13,6 +13,8 @@ use dexzd_protocol::dex::{
 };
 use dexzd_request_validation::quote_go_string;
 
+use super::unsupported_types::{TaskKind, TaskTypeKey};
+
 /// The unmodified Worker request carried by a pull task.
 #[derive(Debug, Clone)]
 pub enum DispatchTaskPayload {
@@ -46,6 +48,21 @@ pub struct DispatchRequest {
 }
 
 impl DispatchRequest {
+    /// Returns the task type the payload runs, as the unsupported type cache names it.
+    pub(super) fn task_type(&self) -> TaskTypeKey {
+        let (kind, name) = match &self.payload {
+            DispatchTaskPayload::WaitFor(value) => (TaskKind::Step, &value.step_type),
+            DispatchTaskPayload::Execute(value) => (TaskKind::Step, &value.step_type),
+            DispatchTaskPayload::Rpc(value) => (TaskKind::Rpc, &value.rpc_name),
+        };
+        TaskTypeKey {
+            tenant_id: self.tenant_id,
+            flow_type: self.flow_type.clone(),
+            kind,
+            name: name.clone(),
+        }
+    }
+
     pub(super) fn unknown_name_detail(&self) -> String {
         match &self.payload {
             DispatchTaskPayload::WaitFor(value) => format!(

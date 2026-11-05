@@ -302,6 +302,7 @@ impl Harness {
             }));
         }
         let heartbeat = self.apply(Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+            task_id: Vec::new(),
             invocation: Some(invocation_key),
             attempt: invocation.attempt,
             checkpoint: None,
@@ -312,6 +313,7 @@ impl Harness {
     /// Time travels to `timestamp_micros` of `run_attempt` and returns the new attempt.
     fn travel_to(&mut self, run_attempt: u32, timestamp_micros: i64) -> u32 {
         let outcome = self.apply(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "order-1".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,

@@ -869,6 +869,7 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             "parent",
             &PARENT_RUN,
             Command::TimeTravel(TimeTravelCommand {
+                should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::Beginning as i32,
                     ..ResetFlowRequest::default()
@@ -984,6 +985,7 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             "parent",
             &PARENT_RUN,
             Command::TimeTravel(TimeTravelCommand {
+                should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::HistoryEventTime as i32,
                     history_event_time: (i128::from(target_time) * 1000).to_string(),
@@ -2392,6 +2394,7 @@ fn a_graceful_completion_after_a_restored_child_result_waits_for_remarked_attrib
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,
@@ -2525,6 +2528,7 @@ impl Harness {
             proposed_at_micros: self.now_micros + 1000,
             command_id: [1; 16].to_vec(),
             command: Some(Command::TimeTravel(TimeTravelCommand {
+                should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     flow_id: "parent".to_owned(),
                     reset_type: FlowResetType::HistoryEventTime as i32,
@@ -2600,6 +2604,7 @@ impl Harness {
                 CHILD_ID,
                 &FIRST_CHILD_RUN,
                 Command::TimeTravel(TimeTravelCommand {
+                    should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: CHILD_ID.to_owned(),
                         reset_type: FlowResetType::HistoryEventTime as i32,
@@ -2748,6 +2753,7 @@ fn time_travel_replays_a_stale_child_report_that_an_older_binary_recorded() {
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,
@@ -2819,6 +2825,7 @@ fn resetting_a_child_to_its_closed_point_reports_the_new_attempt_once() {
             CHILD_ID,
             &FIRST_CHILD_RUN,
             Command::TimeTravel(TimeTravelCommand {
+                should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     flow_id: CHILD_ID.to_owned(),
                     reset_type: reset_type as i32,
@@ -2936,6 +2943,7 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,
@@ -3010,6 +3018,7 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,

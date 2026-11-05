@@ -445,7 +445,9 @@ Dex 首先尝试此前服务该 Flow 的 app Worker ID。该 ID 没有任何已�
 Worker 重启或部署后，Dex 会立即改用 Flow 类型队列。否则，Dex 在黏性等待结束后改用
 Flow 类型队列，让其他 Worker 接手。黏性路由是尽力而为；持久状态应保存在 Dex 中，不应依赖某个
 Worker 的内存。同一个 Dex Server 内的 Flow 类型名称必须唯一。app Worker ID 必须
-唯一标识一个 Worker 进程，并在该进程重启后变化。未显式设置时，SDK 会生成 ID。
+唯一标识一个 Worker 进程，并在该进程重启后变化。未显式设置时，SDK 会生成 ID。如果你显式设置它，请在每次进程重启后使用
+新的值。Dex 按 app Worker ID 记住不支持的类型，因此旧进程的条目可能排除在滚动发布中升级的
+Worker，直到所有旧 stream 都消失。
 
 Dex 在 matching dispatch 等待时间内寻找可用 Worker。如果没有 Worker，Step 会收到
 可重试的 unavailable 错误，并消耗一次 Step 重试。RPC 调用方则直接收到
@@ -455,14 +457,23 @@ Dex 在 matching dispatch 等待时间内寻找可用 Worker。如果没有 Work
 
 如果拉取模式 Worker 注册了该 Flow 类型，却没有请求的 Step 类型或 RPC 名称，
 它会在运行 handler 前拒绝任务。Dex 会立即改用 Flow 类型队列，并在本次分配中
-排除该 Worker，即使 Flow 原本黏附于它。重新分配不会消耗 Step attempt。
+排除该 Worker，即使 Flow 原本黏附于它。Dex 会为这个 app Worker ID 记住该不支持的类型，
+并在该 Worker 的所有 stream 断开之前不再向它提供这个类型。重新分配不会消耗 Step attempt，
+attempt 保留原来的 attempt 编号、输入 snapshot 和 Attribute lock。
 如果在 dispatch 等待时间内没有可处理任务的 Worker，Step 会按其失败和重试策略
-收到注明 Step 或 RPC 名称的错误；RPC 调用方会在最多等待 dispatch 等待时间
-（10 秒）后直接收到该错误。此重新分配需要支持它的 Dex Server 版本。面对旧版
+收到注明 Step 或 RPC 名称的错误；RPC 调用方会在 Dex 于调用方 deadline 内尝试其他
+Worker、最多等待 dispatch 等待时间（10 秒）后直接收到该错误。此重新分配需要支持它的 Dex Server 版本。面对旧版
 Server，Worker 与之前一样返回未注册错误。
 
-任务至少投递一次。如果 Worker 在 Dex 收到任何输出前断开连接，同一个调用可能再次分配。
-外部副作用应具备幂等性，例如使用 Flow ID 和 Step execution ID 作为幂等键。
+Dex 把 Step attempt 交给 Worker 之后，就不会再把同一个 attempt 编号交给另一个 Worker。
+Worker 断开或崩溃时，这个 attempt 会失败，然后 retry policy 运行。不论有没有输出，SYNC 和
+ASYNC Step 都是如此。少数情况下 attempt 会回到 pending 且不消耗 retry，见
+[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。外部副作用应具备幂等性，
+例如使用 Flow ID 和 Step execution ID 作为幂等键。
+
+新 SDK 需要新 server。在较旧的 server 上，新 SDK 的 Worker 无法启动，新 SDK 的 Client 第一次
+调用会失败，两者都会给出清晰的错误。较旧 SDK 的 Worker 在新 server 上继续工作。先升级 server，
+再逐个升级 SDK。
 
 ## 容量和关闭
 
@@ -499,6 +510,10 @@ Server，Worker 与之前一样返回未注册错误。
 handler，默认期限为 30 秒。超过期限后，它请求取消，并等待 handler
 返回。长时间运行的 handler 应响应取消。Server 要求重新连接时，Worker 也会先完成
 正在运行的调用。
+
+使用 reserved-slot dispatch 的 Worker 会先完成正在运行的任务，发送它们的结果，然后关闭
+stream。关闭期间到达的任务不会运行，它们会不消耗 retry 地返回 Dex，由 Dex 交给另一个
+Worker。slot 空闲下来时，Dex 先把它给等待中的 RPC，再给等待中的 Step。
 
 ### 为 RPC 预留容量
 

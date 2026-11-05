@@ -49,19 +49,19 @@ interval + call timeout <= HeartbeatTimeout - 10s
 
 | 限制 | 选项 | 执行方式 |
 | --- | --- | --- |
-| 单次 attempt 的最长时间 | **ExecuteMethodTimeout**，设为最长等待时间 | Dex 让该 attempt 超时。只有 **TotalDuration** 还有剩余时间时，才会开始新的 attempt。 |
-| 包含所有 retry 的最长总等待时间 | **ExecuteRetry** 中的 **TotalDuration**，设为最长等待时间 | 它从第一次 attempt 被调度时开始计算，覆盖所有 retry，也会终止正在运行的 attempt。 |
+| 单次 attempt 的最长时间 | **ExecuteMethodTimeout**，设为最长等待时间 | attempt 运行超过这个值时，Dex 让它超时。只有这个选项限制单次 attempt。 |
+| retry 的时间预算 | **ExecuteRetry** 中的 **TotalDuration** | 预算从 Dex 首次把 attempt 1 交给 Worker 时开始计算。attempt 失败之后，只有预算还有剩余时间，Dex 才会 retry。它不会终止正在运行的 attempt。 |
 | Worker 卡住 | **HeartbeatTimeout**，默认一分钟 | 如果一次 attempt 在这个窗口内没有发送 heartbeat 或 Stream message，Dex 让它超时。随后 retry policy 会开始新的 attempt。 |
 
 不要在代码里重复这些限制。Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。
 
-**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。**ExecuteMethodTimeout** 默认是两小时，server 没有硬性上限。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。
+把 **ExecuteMethodTimeout** 设为单次 attempt 的最长等待时间。**TotalDuration** 只在失败之后决定是否 retry，所以最后一次 attempt 可能在 **TotalDuration** 之后结束。有 Worker 可用时，总等待时间最多约为 **TotalDuration** 加一个 **ExecuteMethodTimeout**。下面的示例把两个选项设为同一个值。**ExecuteMethodTimeout** 默认是两小时，server 没有硬性上限。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。
 
 Polling Step 可以使用任一种 durability。两种模式下，heartbeat、checkpoint 和 timeout 的行为相同。见 [Step options](/primitives/step/step-options#durability)。
 
 ## 等待超时之后
 
-**ExecuteMethodTimeout** 或 **TotalDuration** 到期时，Dex 以 timeout 让该 Step 失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。这个 Step 读取 **RecoveryError**，其中包含失败详情和错误类型。没有恢复路由时，Flow 失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
+**ExecuteMethodTimeout** 到期时，Dex 以 timeout 让该 attempt 失败。如果 **TotalDuration** 中的 retry 预算也已用完，该 Step 就彻底失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。这个 Step 读取 **RecoveryError**，其中包含失败详情和错误类型。没有恢复路由时，Flow 失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
 
 失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。
 

@@ -55,12 +55,14 @@ pub enum StepFailureKind {
     RequestTooLarge,
     /// Retry policy total duration expired during the attempt.
     RetryDeadline,
+    /// A server restart or failover interrupted an attempt handed to a Worker.
+    StartedAttemptInterrupted,
 }
 
-label_value!(StepFailureKind { WorkerError => "worker_error", MethodTimeout => "method_timeout", HeartbeatTimeout => "heartbeat_timeout", DispatchError => "dispatch_error", InvalidResponse => "invalid_response", UnsupportedFeature => "unsupported_feature", ValueTooLarge => "value_too_large", RequestTooLarge => "request_too_large", RetryDeadline => "retry_deadline" });
+label_value!(StepFailureKind { WorkerError => "worker_error", MethodTimeout => "method_timeout", HeartbeatTimeout => "heartbeat_timeout", DispatchError => "dispatch_error", InvalidResponse => "invalid_response", UnsupportedFeature => "unsupported_feature", ValueTooLarge => "value_too_large", RequestTooLarge => "request_too_large", RetryDeadline => "retry_deadline", StartedAttemptInterrupted => "started_attempt_interrupted" });
 
 impl StepFailureKind {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::WorkerError,
         Self::MethodTimeout,
         Self::HeartbeatTimeout,
@@ -70,6 +72,7 @@ impl StepFailureKind {
         Self::ValueTooLarge,
         Self::RequestTooLarge,
         Self::RetryDeadline,
+        Self::StartedAttemptInterrupted,
     ];
 
     const fn index(self) -> usize {
@@ -83,6 +86,7 @@ impl StepFailureKind {
             Self::ValueTooLarge => 6,
             Self::RequestTooLarge => 7,
             Self::RetryDeadline => 8,
+            Self::StartedAttemptInterrupted => 9,
         }
     }
 }
@@ -139,7 +143,7 @@ struct FlowCloseLabel {
 /// Failed Step method attempts by effective durability and failure class.
 #[derive(Clone, Debug)]
 pub struct StepAttemptFailures {
-    counts: Arc<[[Counter; 9]; 2]>,
+    counts: Arc<[[Counter; 10]; 2]>,
 }
 
 impl Default for StepAttemptFailures {

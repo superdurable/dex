@@ -22,7 +22,7 @@ use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, StepCommandOutcome, TIMEOUT_HANDLER_STEP_EXECUTION_ID, apply_attempt_failed,
-    apply_attempt_heartbeat, apply_attempt_started, apply_method_completed,
+    apply_attempt_heartbeat, apply_attempt_returned, apply_attempt_started, apply_method_completed,
     apply_retry_backoff_fired, create_step_execution, disarm_timer, make_invocation_pending,
 };
 use crate::values::ValueRejection;
@@ -53,6 +53,10 @@ pub(crate) fn apply_step_command(
         Command::StepAttemptFailed(failed) => (
             apply_attempt_failed(transaction, &mut cursor, scope, failed)?,
             HistoryKind::SEMANTIC,
+        ),
+        Command::StepAttemptReturned(returned) => (
+            apply_attempt_returned(transaction, &mut cursor, returned)?,
+            HistoryKind::BOOKKEEPING,
         ),
         Command::StepMethodCompleted(completed) => {
             let outcome = apply_method_completed(transaction, &mut cursor, scope, completed)?;
@@ -130,6 +134,7 @@ fn rejected_result_failure(
         server_detail,
         is_non_retryable: true,
         pull_routing,
+        ..StepAttemptFailedCommand::default()
     })
 }
 

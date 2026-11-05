@@ -12,7 +12,7 @@ public interface PollWorkerTaskResponseOrBuilder extends
 
   /**
    * <pre>
-   * Confirms that Dex accepted this stream's queue registration.
+   * Confirms that Dex accepted this stream's queue or reserved-slot registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -21,7 +21,7 @@ public interface PollWorkerTaskResponseOrBuilder extends
   boolean hasRegistered();
   /**
    * <pre>
-   * Confirms that Dex accepted this stream's queue registration.
+   * Confirms that Dex accepted this stream's queue or reserved-slot registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>
@@ -30,7 +30,7 @@ public interface PollWorkerTaskResponseOrBuilder extends
   io.superdurable.gen.PollWorkerTaskRegistered getRegistered();
   /**
    * <pre>
-   * Confirms that Dex accepted this stream's queue registration.
+   * Confirms that Dex accepted this stream's queue or reserved-slot registration.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskRegistered registered = 1;</code>

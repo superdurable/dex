@@ -1,0 +1,203 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//! Bounded cache of the task types each app Worker declined (plan D54).
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::{Duration, Instant};
+
+use prometheus_client::metrics::counter::Counter;
+use prometheus_client::metrics::gauge::Gauge;
+
+const FULL_CACHE_WARNING_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Whether a task runs a Step method or an RPC; their names never share a cache entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(super) enum TaskKind {
+    Step,
+    Rpc,
+}
+
+/// Names one task type of one tenant and Flow type.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(super) struct TaskTypeKey {
+    pub(super) tenant_id: u64,
+    pub(super) flow_type: String,
+    pub(super) kind: TaskKind,
+    /// Step type or RPC name.
+    pub(super) name: String,
+}
+
+type CacheEntry = (TaskTypeKey, String);
+
+/// LRU of (task type, app Worker ID) pairs, bounded by `capacity` pairs.
+pub(super) struct UnsupportedTypeCache {
+    capacity: usize,
+    next_use: u64,
+    uses: HashMap<CacheEntry, u64>,
+    use_order: BTreeMap<u64, CacheEntry>,
+    workers_by_type: HashMap<TaskTypeKey, HashSet<String>>,
+    types_by_worker: HashMap<(u64, String), HashSet<TaskTypeKey>>,
+    entries_gauge: Gauge,
+    evictions: Counter,
+    last_full_warning: Option<Instant>,
+}
+
+impl UnsupportedTypeCache {
+    pub(super) fn new(capacity: usize, entries_gauge: Gauge, evictions: Counter) -> Self {
+        assert!(
+            capacity > 0,
+            "the unsupported type cache holds at least one entry"
+        );
+        Self {
+            capacity,
+            next_use: 0,
+            uses: HashMap::new(),
+            use_order: BTreeMap::new(),
+            workers_by_type: HashMap::new(),
+            types_by_worker: HashMap::new(),
+            entries_gauge,
+            evictions,
+            last_full_warning: None,
+        }
+    }
+
+    /// Returns whether `app_worker_id` declined `key`.
+    pub(super) fn contains(&self, key: &TaskTypeKey, app_worker_id: &str) -> bool {
+        self.workers_by_type
+            .get(key)
+            .is_some_and(|workers| workers.contains(app_worker_id))
+    }
+
+    /// Records that `app_worker_id` declined `key`, evicting the least recently recorded pair
+    /// when full. An evicted pair is not probed again until its Worker next becomes idle.
+    pub(super) fn insert(&mut self, key: TaskTypeKey, app_worker_id: &str) {
+        let entry = (key, app_worker_id.to_owned());
+        if let Some(previous_use) = self.uses.remove(&entry) {
+            self.use_order.remove(&previous_use);
+        } else {
+            self.workers_by_type
+                .entry(entry.0.clone())
+                .or_default()
+                .insert(entry.1.clone());
+            self.types_by_worker
+                .entry((entry.0.tenant_id, entry.1.clone()))
+                .or_default()
+                .insert(entry.0.clone());
+        }
+        self.next_use += 1;
+        self.uses.insert(entry.clone(), self.next_use);
+        self.use_order.insert(self.next_use, entry);
+        while self.uses.len() > self.capacity {
+            let (_, evicted) = self
+                .use_order
+                .pop_first()
+                .expect("an over-full cache has a least recent entry");
+            self.uses.remove(&evicted);
+            self.forget(&evicted);
+            self.evictions.inc();
+            self.warn_when_full();
+        }
+        self.entries_gauge
+            .set(i64::try_from(self.uses.len()).unwrap_or(i64::MAX));
+    }
+
+    /// Forgets every type the Worker declined; its streams are all gone.
+    pub(super) fn remove_worker(&mut self, tenant_id: u64, app_worker_id: &str) {
+        let Some(keys) = self
+            .types_by_worker
+            .remove(&(tenant_id, app_worker_id.to_owned()))
+        else {
+            return;
+        };
+        for key in keys {
+            let entry = (key, app_worker_id.to_owned());
+            if let Some(previous_use) = self.uses.remove(&entry) {
+                self.use_order.remove(&previous_use);
+            }
+            if let Some(workers) = self.workers_by_type.get_mut(&entry.0) {
+                workers.remove(app_worker_id);
+                if workers.is_empty() {
+                    self.workers_by_type.remove(&entry.0);
+                }
+            }
+        }
+        self.entries_gauge
+            .set(i64::try_from(self.uses.len()).unwrap_or(i64::MAX));
+    }
+
+    fn forget(&mut self, (key, app_worker_id): &CacheEntry) {
+        if let Some(workers) = self.workers_by_type.get_mut(key) {
+            workers.remove(app_worker_id);
+            if workers.is_empty() {
+                self.workers_by_type.remove(key);
+            }
+        }
+        let worker_key = (key.tenant_id, app_worker_id.clone());
+        if let Some(keys) = self.types_by_worker.get_mut(&worker_key) {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.types_by_worker.remove(&worker_key);
+            }
+        }
+    }
+
+    fn warn_when_full(&mut self) {
+        let now = Instant::now();
+        if self
+            .last_full_warning
+            .is_some_and(|last| now.duration_since(last) < FULL_CACHE_WARNING_INTERVAL)
+        {
+            return;
+        }
+        self.last_full_warning = Some(now);
+        tracing::warn!(
+            capacity = self.capacity,
+            "the unsupported type cache is full; raise matching.unsupportedTypeCacheEntries"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(name: &str) -> TaskTypeKey {
+        TaskTypeKey {
+            tenant_id: 7,
+            flow_type: "Flow".to_owned(),
+            kind: TaskKind::Step,
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn full_cache_evicts_the_least_recent_pair_and_workers_forget_their_types() {
+        let evictions = Counter::default();
+        let mut cache = UnsupportedTypeCache::new(2, Gauge::default(), evictions.clone());
+        cache.insert(key("A"), "old");
+        cache.insert(key("B"), "old");
+        cache.insert(key("A"), "old");
+        cache.insert(key("C"), "new");
+        assert!(cache.contains(&key("A"), "old"));
+        assert!(!cache.contains(&key("B"), "old"), "B was least recent");
+        assert!(cache.contains(&key("C"), "new"));
+        assert_eq!(evictions.get(), 1);
+        let rpc = TaskTypeKey {
+            kind: TaskKind::Rpc,
+            ..key("C")
+        };
+        assert!(
+            !cache.contains(&rpc, "new"),
+            "Step and RPC names are distinct"
+        );
+        cache.remove_worker(7, "old");
+        assert!(!cache.contains(&key("A"), "old"));
+        assert!(cache.contains(&key("C"), "new"));
+    }
+}

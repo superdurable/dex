@@ -114,7 +114,7 @@ public enum WaitForMethodFailurePolicy
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(4);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(5);
   }
 
   private static final WaitForMethodFailurePolicy[] VALUES = values();

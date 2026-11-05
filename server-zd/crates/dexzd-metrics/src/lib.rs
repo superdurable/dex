@@ -55,7 +55,10 @@ pub use semantic::{
     FlowCloseStatus, FlowCloses, StepAttemptFailures, StepDurability, StepFailureKind,
     StepRetriesExhausted,
 };
-pub use worker_stream::{WorkerStreamEvent, WorkerStreamEvents};
+pub use worker_stream::{
+    StepAttemptReturnReason, StepAttemptsReturned, WorkerStreamEvent, WorkerStreamEvents,
+    WorkerStreamProtocolError, WorkerStreamProtocolErrors,
+};
 
 /// The node's fixed set of metric handles.
 #[derive(Clone, Debug)]
@@ -106,6 +109,14 @@ pub struct NodeMetrics {
     pub matching_queued_tasks: Gauge,
     /// Open Worker poll streams.
     pub matching_worker_streams: Gauge,
+    /// (task type, app Worker ID) pairs in the unsupported type cache.
+    pub matching_unsupported_type_entries: Gauge,
+    /// Unsupported type cache entries evicted because the cache was full.
+    pub matching_unsupported_type_evictions: Counter,
+    /// Committed returns of started Step attempts by reason.
+    pub step_attempts_returned: StepAttemptsReturned,
+    /// Worker frames that break the reserved-slot dispatch protocol.
+    pub worker_stream_protocol_errors: WorkerStreamProtocolErrors,
     /// Failed Step method attempts.
     pub step_attempt_failures: StepAttemptFailures,
     /// Step executions that exhausted their retries.
@@ -350,6 +361,26 @@ impl NodeMetrics {
             metrics.matching_worker_streams.clone(),
         );
         registry.register(
+            "dexzd_matching_unsupported_type_entries",
+            "Task types cached as unsupported by an app Worker, counted per app Worker.",
+            metrics.matching_unsupported_type_entries.clone(),
+        );
+        registry.register(
+            "dexzd_matching_unsupported_type_evictions",
+            "Unsupported type cache entries evicted because the cache was full.",
+            metrics.matching_unsupported_type_evictions.clone(),
+        );
+        registry.register(
+            "dexzd_step_attempts_returned",
+            "Started Step attempts returned to pending without consuming a retry.",
+            metrics.step_attempts_returned.clone(),
+        );
+        registry.register(
+            "dexzd_worker_stream_protocol_errors",
+            "Worker frames that break the reserved-slot dispatch protocol.",
+            metrics.worker_stream_protocol_errors.clone(),
+        );
+        registry.register(
             "dexzd_step_attempt_failures",
             "Failed Step method attempts.",
             metrics.step_attempt_failures.clone(),
@@ -533,6 +564,10 @@ impl NodeMetrics {
             timer_lag: TimerLag::new(partition_count),
             matching_queued_tasks: Gauge::default(),
             matching_worker_streams: Gauge::default(),
+            matching_unsupported_type_entries: Gauge::default(),
+            matching_unsupported_type_evictions: Counter::default(),
+            step_attempts_returned: StepAttemptsReturned::default(),
+            worker_stream_protocol_errors: WorkerStreamProtocolErrors::default(),
             step_attempt_failures: StepAttemptFailures::default(),
             step_retries_exhausted: StepRetriesExhausted::default(),
             flow_closes: FlowCloses::default(),

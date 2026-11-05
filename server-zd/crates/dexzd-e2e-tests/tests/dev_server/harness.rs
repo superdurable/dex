@@ -15,10 +15,11 @@ use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dexzd_protocol::dex::{
     ActiveStepPhase, FlowConfig, FlowStartOptions, GetFlowStateRequest, InvokeExecuteMethodOutput,
     InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodOutput,
-    InvokeWaitForMethodRequest, InvokeWaitForMethodResponse, PollWorkerTask, PollWorkerTaskFrame,
-    PollWorkerTaskRegister, PollWorkerTaskRequest, PollWorkerTaskResponse, ServiceErrorResponse,
-    StartFlowRequest, StartFlowResponse, StepDecision, StepOptions, Value, WaitingCondition,
-    WorkerTarget, invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task,
+    InvokeWaitForMethodRequest, InvokeWaitForMethodResponse, PollWorkerSlotKind, PollWorkerTask,
+    PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskReject, PollWorkerTaskRejectReason,
+    PollWorkerTaskRequest, PollWorkerTaskResponse, ServiceErrorResponse, StartFlowRequest,
+    StartFlowResponse, StepDecision, StepOptions, Value, WaitingCondition, WorkerTarget,
+    invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task,
     poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
 };
 use dexzd_server::{DevCommandOptions, RunningServer};
@@ -159,7 +160,8 @@ impl PullWorker {
         flow_type: &str,
         handler: ExecuteHandler,
     ) -> Self {
-        let (frames, mut incoming) = register_pull_stream(client, flow_type, "smoke-worker").await;
+        let (frames, mut incoming) =
+            register_pull_stream(client, queue_registration(flow_type, "smoke-worker")).await;
         let replies = frames.clone();
         let task = tokio::spawn(async move {
             while let Some(Ok(response)) = incoming.next().await {
@@ -193,21 +195,52 @@ pub(crate) struct ScriptedWorker {
 impl ScriptedWorker {
     /// Registers on the Flow type queue and waits for `registered`.
     pub(crate) async fn start(client: WorkerTaskServiceClient<Channel>, flow_type: &str) -> Self {
-        let (frames, mut incoming) =
-            register_pull_stream(client, flow_type, "scripted-worker").await;
+        Self::register(client, queue_registration(flow_type, "scripted-worker")).await
+    }
+
+    /// Registers one reserved Step-and-RPC slot of `app_worker_id` and waits for `registered`.
+    pub(crate) async fn start_reserved_slot(
+        client: WorkerTaskServiceClient<Channel>,
+        flow_type: &str,
+        app_worker_id: &str,
+    ) -> Self {
+        Self::register(
+            client,
+            PollWorkerTaskRegister {
+                queue: String::new(),
+                supports_reserved_slot_dispatch: true,
+                slot_kind: PollWorkerSlotKind::StepAndRpc.into(),
+                ..queue_registration(flow_type, app_worker_id)
+            },
+        )
+        .await
+    }
+
+    async fn register(
+        client: WorkerTaskServiceClient<Channel>,
+        registration: PollWorkerTaskRegister,
+    ) -> Self {
+        let (frames, mut incoming) = register_pull_stream(client, registration).await;
         let (task_sender, tasks) = mpsc::unbounded_channel();
-        let pongs = frames.clone();
+        // A weak sender lets the test half-close the stream while pings still get answers.
+        let pongs = frames.downgrade();
         let task = tokio::spawn(async move {
             while let Some(Ok(response)) = incoming.next().await {
                 let is_open = match response.frame {
                     Some(poll_worker_task_response::Frame::Task(task)) => {
                         task_sender.send(task).is_ok()
                     }
-                    Some(poll_worker_task_response::Frame::Ping(_)) => pongs
-                        .send(PollWorkerTaskRequest {
-                            frame: Some(poll_worker_task_request::Frame::Pong(Default::default())),
+                    Some(poll_worker_task_response::Frame::Ping(_)) => {
+                        pongs.upgrade().is_none_or(|pongs| {
+                            pongs
+                                .send(PollWorkerTaskRequest {
+                                    frame: Some(poll_worker_task_request::Frame::Pong(
+                                        Default::default(),
+                                    )),
+                                })
+                                .is_ok()
                         })
-                        .is_ok(),
+                    }
                     _ => true,
                 };
                 if !is_open {
@@ -230,6 +263,37 @@ impl ScriptedWorker {
             .expect("the Worker stream stays open")
     }
 
+    /// Returns the next task when the server assigns one within `wait`.
+    pub(crate) async fn next_task_within(&mut self, wait: Duration) -> Option<PollWorkerTask> {
+        tokio::time::timeout(wait, self.tasks.recv())
+            .await
+            .ok()
+            .map(|task| task.expect("the Worker stream stays open"))
+    }
+
+    /// Declines the task `task_id` before any output.
+    pub(crate) fn reject(&self, task_id: String, reason: PollWorkerTaskRejectReason) {
+        self.frames
+            .send(PollWorkerTaskRequest {
+                frame: Some(poll_worker_task_request::Frame::Reject(
+                    PollWorkerTaskReject {
+                        task_id,
+                        reason: reason.into(),
+                    },
+                )),
+            })
+            .expect("the outgoing stream is open");
+    }
+
+    /// Half-closes the stream cleanly and waits until the server ends it.
+    pub(crate) async fn half_close(self) {
+        drop(self.frames);
+        tokio::time::timeout(Duration::from_secs(10), self.task)
+            .await
+            .expect("the server ends a half-closed stream within 10 seconds")
+            .expect("the Worker task completes");
+    }
+
     /// Ends the task `task_id` with `output`.
     pub(crate) fn reply(&self, task_id: String, output: poll_worker_task_frame::Output) {
         self.frames
@@ -244,6 +308,16 @@ impl ScriptedWorker {
             .expect("the outgoing stream is open");
     }
 
+    /// Half-closes the stream and then resets it, as some clients cancel a call.
+    pub(crate) async fn half_close_then_reset(self) {
+        drop(self.frames);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        self.task.abort();
+        if let Err(error) = self.task.await {
+            assert!(error.is_cancelled(), "the Worker task panicked: {error}");
+        }
+    }
+
     /// Closes the Worker's stream.
     pub(crate) async fn stop(self) {
         drop(self.frames);
@@ -254,13 +328,24 @@ impl ScriptedWorker {
     }
 }
 
-/// Opens PollWorkerTask on the Flow type queue and waits for `registered`.
+/// The registration of a stream on the queue `queue` that serves the Flow type `queue`.
+fn queue_registration(queue: &str, app_worker_id: &str) -> PollWorkerTaskRegister {
+    PollWorkerTaskRegister {
+        queue: queue.to_owned(),
+        app_worker_id: app_worker_id.to_owned(),
+        flow_types: vec![queue.to_owned()],
+        sdk_name: "dexzd-e2e-tests".to_owned(),
+        sdk_version: "0".to_owned(),
+        ..Default::default()
+    }
+}
+
+/// Opens PollWorkerTask with `registration` and waits for `registered`.
 ///
 /// Returns the sender of outgoing frames and the incoming frames after the registration.
 async fn register_pull_stream(
     mut client: WorkerTaskServiceClient<Channel>,
-    flow_type: &str,
-    app_worker_id: &str,
+    registration: PollWorkerTaskRegister,
 ) -> (
     mpsc::UnboundedSender<PollWorkerTaskRequest>,
     tonic::Streaming<PollWorkerTaskResponse>,
@@ -268,15 +353,7 @@ async fn register_pull_stream(
     let (frames, outgoing) = mpsc::unbounded_channel();
     frames
         .send(PollWorkerTaskRequest {
-            frame: Some(poll_worker_task_request::Frame::Register(
-                PollWorkerTaskRegister {
-                    queue: flow_type.to_owned(),
-                    app_worker_id: app_worker_id.to_owned(),
-                    flow_types: vec![flow_type.to_owned()],
-                    sdk_name: "dexzd-e2e-tests".to_owned(),
-                    sdk_version: "0".to_owned(),
-                },
-            )),
+            frame: Some(poll_worker_task_request::Frame::Register(registration)),
         })
         .expect("the outgoing stream is open");
     let mut incoming = client
